@@ -8,11 +8,11 @@ Date: 2026-09-15
 record grows with them. Built so far: the one decision module and write path (#1271), one-line
 matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), **Unreconcile for
 Project Payments (#1275)** and its **post-write clean-up** (#1276: vendor credit, CEO Hold, latest payment
-date, statement file). Still to come: existing expenses, import-created records, part-payment un-split,
-Confirm by hand.
+date, statement file), and **Unreconcile for existing expenses (#1277)**. Still to come: import-created
+records, part-payment un-split, Confirm by hand.
 
 As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*,
-*#1276*.
+*#1276*, *#1277*.
 Approved mockups: https://claude.ai/artifact/K6vEJXGoALunzfdqTfrVVt
 
 ## Context
@@ -37,11 +37,11 @@ Recorded so later work does not bring "no undo" back by mistake.
 
 | Ruling | Where | What replaces it |
 |---|---|---|
-| **Q9 — no undo of a settle from inside the import** | Bulk Import Outflow owner rulings; domain doc | **reversed by #1275, for Project Payments**: Unreconcile, per record or Reverse all, all-or-nothing |
+| **Q9 — no undo of a settle from inside the import** | Bulk Import Outflow owner rulings; domain doc | **reversed by #1275 for Project Payments, and by #1277 for existing expenses**: Unreconcile, per record or Reverse all, all-or-nothing |
 | **AR3 — an import-created inflow cannot be undone** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | an untouched import-created record is deleted by Unreconcile |
 | **R6 — `SHOW_SKIP_ROW` stays off; a line with nothing to link has no manual terminal state** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | **reversed by #1273**: the "Nothing to link?" Skip box |
 | **The 2026-08-10 hidden-skip ruling** (`DecisionDialog.tsx`, "hidden, not deleted") | owner ruling, 2026-08-10 | **reversed by #1273**: `SHOW_SKIP_ROW` is deleted |
-| **A split payment is refused outright; only payments can be reversed** | [ADR-0020](0020-one-transfer-many-payments.md) | narrowed: an untouched part payment is un-split; expenses revert too |
+| **A split payment is refused outright; only payments can be reversed** (B2, "reverse is payments only") | [ADR-0020](0020-one-transfer-many-payments.md) | **the payments-only half is reversed by #1277**: an existing Project Expense or Non-Project Expense reverts to Approved. Still to come: an untouched part payment is un-split |
 | **Skips are final** | domain doc (several places); `expenses.SKIPPED_ROW_REFUSAL` ("correct it in Desk") | **reversed by #1274, for hand skips only**: Unskip from the Skipped popup; a system skip stays final |
 
 ### Access (Q1)
@@ -104,6 +104,30 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
 - **TDS on Approved (owner ruling):** putting a Service Request payment back to Approved may withhold TDS and
   net its amount. That is left as it is; the response reports `amount_after` and the notice states the new
   figure. Recorded under Known limits in the domain doc.
+
+### Unreconcile an existing expense (Q4, Q6) — built at #1277
+
+- **ADR-0020 B2's "reverse is payments only" is reversed.** Its allocation half — a Split lists payments
+  only — is unchanged.
+- New verdict **`revert_expense`** for a Settled leg on a `Project Expenses` / `Non Project Expenses` record
+  the import did not create: `Paid -> Approved`, payment date and payment reference cleared, and "paid by"
+  cleared on a Project Expense (Non-Project Expenses has no such field). Through `doc.save()`, so the
+  Version row and the cashflow hook still happen; the statement attachment and its `File` row come off as
+  for payments, and a Project Expense's project has its cashflow-gap hold re-synced once, after every write.
+- **Refusals** ("Changed elsewhere", fix on the Expenses screen): the amount differs from the leg's, the
+  status is no longer Paid, or the payment reference is not one of the line's settlement references.
+- **An expense the import created must be deleted, never put back to Approved**, and deleting is a later
+  slice. Until the stored "created by the import" flag exists, an expense counts as existing ONLY ON PROOF,
+  and anything unproven is refused as "can't be undone yet". Proof is either (a) the expense is older than
+  the statement upload, or (b) a Version row dated no later than the match shows its status was once not
+  Paid. Both are impossible for a created expense: the import inserts it already Paid, and an insert writes
+  no Version row. The bound in (b) matters — a created expense edited Paid -> Approved -> Paid after the
+  match would otherwise read as existing. **Accepted cost:** an existing expense settled before slice X1
+  (when the settle wrote with `set_value` and left no Version) and younger than its upload stays refused
+  until the stored flag arrives.
+- The dialog line reads "Goes back to Approved. Payment date, reference and 'paid by' are cleared." on a
+  Project Expense, and "Goes back to Approved. Payment date and reference are cleared." on a Non-Project
+  Expense, which has no "paid by" to clear.
 
 ## Consequences
 

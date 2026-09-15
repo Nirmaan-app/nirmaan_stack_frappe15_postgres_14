@@ -41,6 +41,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
 from nirmaan_stack.api.outflow_import.review import (
+    BATCH_DOCTYPE,
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
     _batch_source,
@@ -53,7 +54,7 @@ from nirmaan_stack.services.outflow_import.allocation import (
     allocated_of,
     remaining_of,
 )
-from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, is_expense_doctype
 from nirmaan_stack.services.outflow_import.settle import (
     _outflow_import_write,
     clear_statement_attachment,
@@ -65,8 +66,10 @@ from nirmaan_stack.services.outflow_import.sources import source_runs_the_matche
 from nirmaan_stack.services.outflow_import.status import derive_batch_status
 from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REFUSED,
+    VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     LegFacts,
+    expense_created_by_import,
     first_refusal,
     leg_verdict,
 )
@@ -183,13 +186,13 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
         savepoint = f"ofi_unrec_{frappe.generate_hash(length=10)}"
         frappe.db.savepoint(savepoint)
         try:
-            reverted_payments = []
+            reverted = []
             for leg, verdict in zip(requested, verdicts):
-                reverted_payments += _carry_out(verdict.verdict, leg, statement)
+                reverted.append(_carry_out(verdict.verdict, leg, statement))
                 _stamp_reversed(leg.name, actor, reason)
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
             # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
-            restore_derived_state(reverted_payments, statement)
+            restore_derived_state(reverted, statement)
             new_status = _refresh_row_allocation(line.name, actor)
             _comment_on_line(line.name, actor, reason, requested)
         except Exception:
@@ -238,9 +241,9 @@ def _comment_on_line(row: str, actor: str, reason: str, legs) -> None:
     )
 
 
-def _carry_out(verdict: str, leg, statement_file_url: str | None) -> list[str]:
-    """Perform one verdict on its target. Returns the payments it put back to Approved, which is
-    what `unreconcile_cleanup.restore_derived_state` puts right around (#1276).
+def _carry_out(verdict: str, leg, statement_file_url: str | None) -> tuple[str, str]:
+    """Perform one verdict on its target. Returns the `(doctype, name)` it put back to Approved,
+    which is what `unreconcile_cleanup.restore_derived_state` puts right around (#1276).
 
     ⚠️ AN UNKNOWN VERDICT RAISES. The decision module will grow new verdicts (#1270); one that is
     not wired here would otherwise stamp the leg Reversed while its target stays settled. Raising
@@ -248,7 +251,10 @@ def _carry_out(verdict: str, leg, statement_file_url: str | None) -> list[str]:
     """
     if verdict == VERDICT_REVERT_PAYMENT:
         _revert_payment(leg.target_name, statement_file_url)
-        return [leg.target_name]
+        return (leg.target_doctype, leg.target_name)
+    if verdict == VERDICT_REVERT_EXPENSE:
+        _revert_expense(leg.target_doctype, leg.target_name, statement_file_url)
+        return (leg.target_doctype, leg.target_name)
     raise NotImplementedError(f"No write for verdict '{verdict}' on match record '{leg.name}'.")
 
 
@@ -312,8 +318,8 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
     the same facts with no lock, so the two can only disagree when something changed in between -- and
     then the write, reading under its locks, is the one that is right.
 
-    ⚠️ ONLY A SETTLED PAYMENTS LEG ON A MATCHABLE SOURCE IS READ. Anything else is refused by the
-    decision on facts the leg and the line already carry, and locking a record that will not be
+    ⚠️ ONLY A SETTLED PAYMENTS OR EXPENSES LEG ON A MATCHABLE SOURCE IS READ. Anything else is refused
+    by the decision on facts the leg and the line already carry, and locking a record that will not be
     written would only widen the lock.
     """
     facts = {}
@@ -327,12 +333,12 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
             "settlement_references": references,
             "source": source,
         }
-        if (
-            leg.match_kind != MATCH_SETTLED
-            or leg.target_doctype != PAYMENT_DOCTYPE
-            or not source_runs_the_matcher(source)
-        ):
+        readable = leg.target_doctype == PAYMENT_DOCTYPE or is_expense_doctype(leg.target_doctype)
+        if leg.match_kind != MATCH_SETTLED or not readable or not source_runs_the_matcher(source):
             facts[leg.name] = LegFacts(**base)
+            continue
+        if is_expense_doctype(leg.target_doctype):
+            facts[leg.name] = _read_expense_facts(leg, base, for_update=for_update)
             continue
         payment = frappe.db.get_value(
             PAYMENT_DOCTYPE,
@@ -357,6 +363,80 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
             ),
         )
     return facts
+
+
+def _read_expense_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
+    """The facts about one expense leg (#1277), including the PROOF the import did not create it.
+
+    Two reads feed `expense_created_by_import`, which decides what they prove:
+      * the expense's `creation` against the import batch's -- a record older than the upload;
+      * the `status` changes in the expense's Version rows dated NO LATER THAN THE LEG'S MATCH. The
+        bound matters: a created expense edited Paid -> Approved -> Paid AFTER the match would
+        otherwise read as "was once not Paid" and be put back to Approved instead of refused.
+    """
+    expense = frappe.db.get_value(
+        leg.target_doctype,
+        leg.target_name,
+        ["status", "amount", "payment_ref", "creation"],
+        as_dict=True,
+        for_update=for_update,
+    )
+    if not expense:
+        return LegFacts(**base, target_exists=False)
+    batch_created = frappe.db.get_value(BATCH_DOCTYPE, leg.import_batch, "creation")
+    return LegFacts(
+        **base,
+        target_exists=True,
+        target_status=expense.status,
+        target_amount=expense.amount,
+        target_reference=expense.payment_ref,
+        created_by_import=expense_created_by_import(
+            created_before_import=bool(batch_created) and expense.creation < batch_created,
+            status_changes_before_match=_status_changes_before(
+                leg.target_doctype, leg.target_name, leg.matched_at
+            ),
+        ),
+    )
+
+
+def _status_changes_before(doctype: str, name: str, until) -> list[tuple]:
+    """Every `(old, new)` change of `status` in the record's Version rows created up to `until`."""
+    changes = []
+    for data in frappe.get_all(
+        "Version",
+        filters={"ref_doctype": doctype, "docname": name, "creation": ["<=", until]},
+        order_by="creation asc",
+        pluck="data",
+    ):
+        parsed = frappe.parse_json(data or "{}") or {}
+        for change in parsed.get("changed") or []:
+            if len(change) == 3 and change[0] == "status":
+                changes.append((change[1], change[2]))
+    return changes
+
+
+def _revert_expense(doctype: str, name: str, statement_file_url: str | None) -> None:
+    """Put an expense back to Approved (#1277). The verdict already said it may; this only writes.
+
+    ⚠️ `doc.save()`, NOT `db.set_value`: `Project Expenses.on_update` is what moves the CEO-Hold
+    cashflow gap when a row leaves Paid, and the save leaves a Version row. The hook's per-request
+    flag can skip it, so `unreconcile_cleanup` re-syncs the project explicitly afterwards.
+
+    ⚠️ IT CLEARS STATUS / `payment_date` / `payment_ref` / `payment_by` (Project Expenses only) AND
+    NOTHING ELSE, bar the statement attachment while it still holds the statement. The dialog's
+    `WHAT_HAPPENS_REVERT_*_EXPENSE` sentences say exactly this; change one and change the other. The
+    amount is NOT restored (Ruling O).
+    """
+    doc = frappe.get_doc(doctype, name)
+    doc.status = "Approved"
+    doc.payment_date = None
+    doc.payment_ref = None
+    if doc.meta.has_field("payment_by"):
+        doc.payment_by = None
+    clear_statement_attachment(doc, statement_file_url)
+    doc.flags.from_outflow_import = True
+    with _outflow_import_write():
+        doc.save(ignore_permissions=True, ignore_version=False)
 
 
 def _revert_payment(name: str, statement_file_url: str | None) -> None:

@@ -11,6 +11,7 @@ import {
     REVERSE_ALL_BLOCKED_ONE,
     UNRECONCILE_CASHBOOK_SENTENCE,
     VERDICT_REFUSED,
+    VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     legOutcomeLine,
     recordsHeading,
@@ -76,7 +77,82 @@ describe("parity with the Python decision module", () => {
 
     it("names the verdicts the way the server does", () => {
         expect(decisionSource).toContain(`VERDICT_REVERT_PAYMENT = "${VERDICT_REVERT_PAYMENT}"`);
+        expect(decisionSource).toContain(`VERDICT_REVERT_EXPENSE = "${VERDICT_REVERT_EXPENSE}"`);
         expect(decisionSource).toContain(`VERDICT_REFUSED = "${VERDICT_REFUSED}"`);
+    });
+});
+
+describe("an existing expense (#1277)", () => {
+    const expenseLeg = leg({
+        target_doctype: "Project Expenses",
+        target_name: "EXP-1",
+        verdict: VERDICT_REVERT_EXPENSE,
+        what_happens: "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+    });
+
+    it("is blue like a payment and says what the server says", () => {
+        expect(legOutcomeLine(expenseLeg)).toEqual({
+            tone: "back",
+            lead: null,
+            text: "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+        });
+    });
+
+    it("shows the server's sentences verbatim", () => {
+        expect(decisionSource).toContain(
+            `"Goes back to Approved. Payment date, reference and 'paid by' are cleared."`,
+        );
+        expect(decisionSource).toContain(`"Goes back to Approved. Payment date and reference are cleared."`);
+    });
+
+    it("an expense changed elsewhere names the Expenses screen", () => {
+        const refused = leg({
+            target_name: "EXP-1",
+            verdict: VERDICT_REFUSED,
+            what_happens: null,
+            reason: "EXP-1 is 'Approved', not Paid. Somebody has already changed it.",
+            title: "Changed elsewhere",
+            fix_at: "the Expenses screen",
+        });
+        expect(legOutcomeLine(refused).text).toBe(
+            "EXP-1 is 'Approved', not Paid. Somebody has already changed it. Fix it on the Expenses screen.",
+        );
+    });
+
+    it("an expense that can't be undone yet names no screen to fix it on", () => {
+        const refused = leg({
+            target_name: "EXP-1",
+            verdict: VERDICT_REFUSED,
+            what_happens: null,
+            reason: "EXP-1 may have been recorded by this import, and a record the import created can't be undone yet.",
+            title: "Can't be undone yet",
+            fix_at: null,
+        });
+        expect(legOutcomeLine(refused).text).toBe(
+            "EXP-1 may have been recorded by this import, and a record the import created can't be undone yet.",
+        );
+    });
+
+    it("the notice says it went back to Approved", () => {
+        const result: UnreconcileResult = {
+            row: "ROW-1",
+            row_status: "Mismatched",
+            allocated: 0,
+            remaining: 500,
+            reversed: [
+                {
+                    match: "M1",
+                    target_doctype: "Project Expenses",
+                    target_name: "EXP-1",
+                    verdict: VERDICT_REVERT_EXPENSE,
+                    reversed_amount: 500,
+                    amount_after: 500,
+                },
+            ],
+        };
+        expect(unreconcileNotice(result).body).toBe(
+            "1 record came off this transfer and went back to Approved. It now needs a record.",
+        );
     });
 });
 

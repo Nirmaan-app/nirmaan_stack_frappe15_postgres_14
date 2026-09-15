@@ -240,6 +240,9 @@ no fourth status — the same silent shape Amendment A1 was written for.
 
 ### B2 — the ledger scope is PAYMENTS ONLY, and this ADR is now where that is written down
 
+> **Reversal half reversed (2026-09-15, [ADR-0022](0022-unreconcile-and-unskip.md), #1277):** an existing
+> expense leg can now be unreconciled. The allocation half below still stands.
+
 `allocate_row` refuses every target that is not `Project Payments`, per-target, before any write
 (*"Only Project Payments can be allocated from one transfer. Settle a '<X>' on its own."*).
 `reverse_allocation` carries the same refusal, and the frontend mirrors it including a

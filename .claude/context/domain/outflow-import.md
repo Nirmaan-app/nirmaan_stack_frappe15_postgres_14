@@ -4984,3 +4984,46 @@ source, never rolled back from memory.
   kept; a hand-replaced attachment and its `File` row left alone. Unchanged and green: unreconcile
   payments (14) / row (14), reverse allocation (22), settle payment (62), allocate (23), expenses (50),
   inflows (55), skip (18), unskip (10).
+
+## #1277 (2026-09-15) — Unreconcile a line settled against an existing expense
+
+Reverses ADR-0020 B2's "reverse is payments only". Record: **ADR-0022**.
+
+- **Decision (pure, `services/outflow_import/unreconcile.py`).** New verdict **`revert_expense`** with
+  `what_happens` `WHAT_HAPPENS_REVERT_PROJECT_EXPENSE` = "Goes back to Approved. Payment date, reference and
+  'paid by' are cleared." or `WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE` = "Goes back to Approved. Payment date
+  and reference are cleared." An expense leg is judged in `_expense_verdict`, after Cashbook and Already
+  reversed: not found -> amount differs ("Correct the expense by hand.") -> status not Paid -> reference
+  re-pointed -> **not proven existing** ("<name> may have been recorded by this import, and a record the
+  import created can't be undone yet."). The three "Changed elsewhere" refusals carry `fix_at` =
+  `FIX_ON_EXPENSES_SCREEN`; "not found" and "can't be undone yet" carry none (no screen fixes them). It never reads the payment-only facts (TDS, split).
+  - ⚠️ **The old "Not a payment" refusal is now "Can't be undone yet"** — "A <doctype> record can't be
+    unreconciled here yet." — for any other ledger (today: inflows). Its pin was inverted, not deleted.
+  - `LegFacts.created_by_import: bool | None`. **`expense_created_by_import(created_before_import=,
+    status_changes_before_match=)`** returns `False` on proof and `None` otherwise — NEVER `True`. Proof: the
+    expense is older than the import batch, or a status change dated no later than the match had an old value
+    other than Paid. A created expense can meet neither: `create_expense_from_row` inserts it Paid and an
+    insert writes no Version. The verdict refuses `None` and `True` alike (`is not False`). When the stored
+    created flag lands (a later #1270 slice) the reader sets this field from it.
+- **Write (`api/outflow_import/unreconcile.py`).** `_read_facts` now reads expense legs too
+  (`_read_expense_facts`: `status`, `amount`, `payment_ref`, `creation` under `FOR UPDATE` on the write, plus
+  the batch `creation` and `_status_changes_before` — the `status` entries of the expense's Version `changed`
+  lists with `creation <= leg.matched_at`). `_revert_expense` saves through `doc.save(ignore_version=False)`
+  under `_outflow_import_write()`: status Approved, `payment_date` / `payment_ref` / (`payment_by` where the
+  field exists) cleared, `clear_statement_attachment`. The amount is not restored (Ruling O).
+  `_carry_out` now returns `(doctype, name)`.
+- **Clean-up (`unreconcile_cleanup.restore_derived_state(reverted, statement)`)** now takes `(doctype, name)`
+  pairs: the statement `File` link rows are deleted per doctype; payments keep the latest-date and vendor
+  credit steps; a **Project Expense's `projects`** joins the CEO Hold re-sync set, still once per project and
+  last. An expense has no parent date and no vendor credit.
+- **Frontend.** `unreconcileView.ts`: `VERDICT_REVERT_EXPENSE`; `legOutcomeLine` shows it blue (`back`) and
+  `unreconcileNotice` counts it as "went back to Approved". The sentences are the server's; the test reads
+  them and the verdict name out of the Python.
+- **Tests (all shown RED before the change):** `services/outflow_import/test_unreconcile.py` (28: the expense
+  verdict and both sentences, every expense refusal, order, the proof helper; the inverted "Can't be undone
+  yet" pin); `api/outflow_import/test_unreconcile_expenses.py` (11: Project and Non-Project hand Link revert
+  and re-settle elsewhere, the plan, statement attachment + `File` row, cashflow hold == a fresh evaluation
+  with the hook's flag already claimed by the settle — shown RED with the expense re-sync removed; amount
+  edit refused, status no longer Paid refused, re-pointed reference refused, an import-created expense refused as not yet; proof by an
+  older-than-upload expense with no Version, and a younger one with no Version refused); vitest
+  `unreconcileView.test.ts` (+5). `test_unreconcile_row`'s unknown-verdict case now uses `delete_created`.

@@ -139,7 +139,8 @@ class TestWhatItRefusesBeforeLooking(UnreconcileFixture):
         with patch.object(
             unreconcile_api,
             "leg_verdict",
-            side_effect=lambda facts: LegVerdict(leg=facts.leg, verdict="revert_expense"),
+            # A verdict still to come (#1270). It was `revert_expense` until #1277 wired that one.
+            side_effect=lambda facts: LegVerdict(leg=facts.leg, verdict="delete_created"),
         ):
             with self.assertRaises(NotImplementedError):
                 unreconcile_row(row=row, legs="all", reason="wrong PO")

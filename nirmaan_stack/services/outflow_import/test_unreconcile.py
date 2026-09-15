@@ -13,10 +13,13 @@ import unittest
 from nirmaan_stack.services.outflow_import import unreconcile
 from nirmaan_stack.services.outflow_import.unreconcile import (
     CASHBOOK_REFUSAL,
+    FIX_ON_EXPENSES_SCREEN,
     FIX_ON_PAYMENTS_SCREEN,
     VERDICT_REFUSED,
+    VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     LegFacts,
+    expense_created_by_import,
     first_refusal,
     leg_verdict,
 )
@@ -82,10 +85,12 @@ class TestEveryRefusal(unittest.TestCase):
             None,
         ),
         (
-            "not a Project Payments leg",
-            {"target_doctype": "Project Expenses"},
-            "Not a payment",
-            "Only a Project Payments allocation can be reversed here.",
+            # ⚠️ INVERTED AT #1277: this was "Not a payment" for ANY other ledger. Expenses now
+            # revert (see `TestAnExistingExpense`); an inflow is still refused, until `delete_created`.
+            "an inflow leg",
+            {"target_doctype": "Project Inflows"},
+            "Can't be undone yet",
+            "A Project Inflows record can't be unreconciled here yet.",
             None,
         ),
         (
@@ -174,13 +179,13 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
 
     def test_already_reversed_wins_over_everything(self):
         verdict = leg_verdict(
-            facts(match_kind="Reversed", target_doctype="Project Expenses", tds=5)
+            facts(match_kind="Reversed", target_doctype="Project Inflows", tds=5)
         )
         self.assertEqual(verdict.title, "Already reversed")
 
-    def test_a_non_payment_leg_is_never_judged_on_payment_facts(self):
-        verdict = leg_verdict(facts(target_doctype="Project Expenses", target_exists=False))
-        self.assertEqual(verdict.title, "Not a payment")
+    def test_an_unsupported_leg_is_never_judged_on_payment_facts(self):
+        verdict = leg_verdict(facts(target_doctype="Project Inflows", target_exists=False))
+        self.assertEqual(verdict.title, "Can't be undone yet")
 
     def test_tds_is_named_before_a_split(self):
         self.assertEqual(
@@ -221,7 +226,7 @@ class TestCashbook(unittest.TestCase):
 
     def test_cashbook_is_named_before_every_other_refusal(self):
         verdict = leg_verdict(
-            facts(source=" Cashbook ", match_kind="Reversed", target_doctype="Project Expenses")
+            facts(source=" Cashbook ", match_kind="Reversed", target_doctype="Project Inflows")
         )
         self.assertEqual(verdict.reason, CASHBOOK_REFUSAL)
 
@@ -244,6 +249,165 @@ class TestWhatHappens(unittest.TestCase):
         for _, change, *_ in TestEveryRefusal.TABLE:
             with self.subTest(change=change):
                 self.assertIsNone(leg_verdict(facts(**change)).what_happens)
+
+
+EXP = "EXP-1"
+
+# An expense leg that CAN be reverted: a hand Link to an Approved expense this import did not create.
+REVERTIBLE_EXPENSE = LegFacts(
+    leg="MATCH-9",
+    match_kind="Settled",
+    target_doctype="Project Expenses",
+    target_name=EXP,
+    leg_amount=500.0,
+    target_exists=True,
+    target_status="Paid",
+    target_amount="500",
+    target_reference=REF,
+    settlement_references=(REF,),
+    source="Cashfree",
+    created_by_import=False,
+)
+
+
+def expense(**changes) -> LegFacts:
+    return dataclasses.replace(REVERTIBLE_EXPENSE, **changes)
+
+
+class TestAnExistingExpense(unittest.TestCase):
+    """#1277: a leg on an expense the import did not create goes back to Approved."""
+
+    def test_a_project_expense_reverts_and_says_paid_by_is_cleared(self):
+        verdict = leg_verdict(REVERTIBLE_EXPENSE)
+        self.assertEqual(verdict.verdict, VERDICT_REVERT_EXPENSE)
+        self.assertIsNone(verdict.reason)
+        self.assertEqual(
+            verdict.what_happens,
+            "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+        )
+
+    def test_a_non_project_expense_reverts_and_has_no_paid_by_to_mention(self):
+        verdict = leg_verdict(expense(target_doctype="Non Project Expenses", target_amount=500.0))
+        self.assertEqual(verdict.verdict, VERDICT_REVERT_EXPENSE)
+        self.assertEqual(
+            verdict.what_happens, "Goes back to Approved. Payment date and reference are cleared."
+        )
+
+    def test_payment_only_facts_never_refuse_an_expense(self):
+        # An expense has no TDS and no split; stray values must not borrow the payment refusals.
+        self.assertEqual(
+            leg_verdict(expense(tds=5, split_from="X", split_balance="Y")).verdict,
+            VERDICT_REVERT_EXPENSE,
+        )
+
+    def test_a_blank_stored_reference_is_not_a_re_point(self):
+        self.assertEqual(leg_verdict(expense(target_reference=None)).verdict, VERDICT_REVERT_EXPENSE)
+
+    TABLE = [
+        (
+            "the expense no longer exists",
+            {"target_exists": False},
+            "Not found",
+            "Expense 'EXP-1' not found.",
+            None,
+        ),
+        (
+            "the amount differs from the leg",
+            {"target_amount": "450"},
+            "Changed elsewhere",
+            "EXP-1 now reads 450, but this allocation wrote 500.0 against it. Somebody has changed "
+            "the record since, so this reversal cannot know what to put back. Correct the expense "
+            "by hand.",
+            FIX_ON_EXPENSES_SCREEN,
+        ),
+        (
+            "status is not Paid",
+            {"target_status": "Approved"},
+            "Changed elsewhere",
+            "EXP-1 is 'Approved', not Paid. Somebody has already changed it.",
+            FIX_ON_EXPENSES_SCREEN,
+        ),
+        (
+            "reference is not one of the line's settlement references",
+            {"target_reference": "SOMEONE-ELSE"},
+            "Changed elsewhere",
+            "EXP-1 carries reference 'SOMEONE-ELSE', not this transfer's. Somebody has re-pointed "
+            "it, so this allocation cannot be safely reversed.",
+            FIX_ON_EXPENSES_SCREEN,
+        ),
+        (
+            "not proven to be an expense the import did not create",
+            {"created_by_import": None},
+            "Can't be undone yet",
+            "EXP-1 may have been recorded by this import, and a record the import created can't be "
+            "undone yet.",
+            None,
+        ),
+        (
+            "an expense the import created",
+            {"created_by_import": True},
+            "Can't be undone yet",
+            "EXP-1 may have been recorded by this import, and a record the import created can't be "
+            "undone yet.",
+            None,
+        ),
+    ]
+
+    def test_each_refusal_reproduces_its_sentence(self):
+        for label, change, title, sentence, fix_at in self.TABLE:
+            with self.subTest(label):
+                verdict = leg_verdict(expense(**change))
+                self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+                self.assertEqual(verdict.title, title)
+                self.assertEqual(verdict.reason, sentence)
+                self.assertEqual(verdict.fix_at, fix_at)
+                self.assertIsNone(verdict.what_happens)
+
+    def test_changed_elsewhere_is_named_before_the_created_question(self):
+        # What is true of the record NOW is what a person can act on; the created question is ours.
+        verdict = leg_verdict(expense(target_status="Approved", created_by_import=None))
+        self.assertIn("not Paid", verdict.reason)
+
+    def test_cashbook_and_already_reversed_still_come_first(self):
+        self.assertEqual(leg_verdict(expense(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+        self.assertEqual(
+            leg_verdict(expense(match_kind="Reversed", target_exists=False)).title,
+            "Already reversed",
+        )
+
+
+class TestProvingTheImportDidNotCreateAnExpense(unittest.TestCase):
+    """Until the created-by-import flag exists, `created_by_import` is False ONLY on proof.
+
+    A created expense is inserted already Paid, and an insert leaves no Version row, so its history
+    before the match holds no status that was ever anything but Paid. Either proof below is therefore
+    impossible for a record the import created; anything else stays unknown (`None`) and is refused.
+    """
+
+    def test_a_record_older_than_the_statement_upload_was_not_created_by_it(self):
+        self.assertIs(
+            expense_created_by_import(created_before_import=True, status_changes_before_match=()),
+            False,
+        )
+
+    def test_a_record_that_was_once_not_paid_before_the_match_was_not_created_by_it(self):
+        for changes in ([("Approved", "Paid")], [("Requested", "Approved"), ("Approved", "Paid")]):
+            with self.subTest(changes=changes):
+                self.assertIs(
+                    expense_created_by_import(
+                        created_before_import=False, status_changes_before_match=changes
+                    ),
+                    False,
+                )
+
+    def test_no_proof_is_unknown_never_a_guess(self):
+        for changes in ((), [("Paid", "Paid ")], [(" Paid", "Approved")]):
+            with self.subTest(changes=changes):
+                self.assertIsNone(
+                    expense_created_by_import(
+                        created_before_import=False, status_changes_before_match=changes
+                    )
+                )
 
 
 class TestFirstRefusal(unittest.TestCase):

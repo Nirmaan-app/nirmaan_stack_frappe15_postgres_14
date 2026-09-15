@@ -13,7 +13,11 @@ import { NEVER_MATCHED_SOURCES, ROW_PARTIALLY_ALLOCATED, ROW_SETTLED } from "./o
 
 /** Mirrors `unreconcile.VERDICT_*`; the test reads the Python. */
 export const VERDICT_REVERT_PAYMENT = "revert_payment";
+export const VERDICT_REVERT_EXPENSE = "revert_expense";
 export const VERDICT_REFUSED = "refused";
+
+/** The verdicts that put a record back to Approved (blue in the dialog). */
+const BACK_TO_APPROVED = new Set([VERDICT_REVERT_PAYMENT, VERDICT_REVERT_EXPENSE]);
 
 /** Mirrors `unreconcile.CASHBOOK_REFUSAL`, shown in the table instead of a button (story 27). */
 export const UNRECONCILE_CASHBOOK_SENTENCE = "Cashbook rows can't be unreconciled yet.";
@@ -101,7 +105,7 @@ export const legOutcomeLine = (leg: UnreconcilePlanLeg): LegOutcomeLine => {
         return { tone: "refused", lead: "Can't be undone here.", text };
     }
     return {
-        tone: leg.verdict === VERDICT_REVERT_PAYMENT ? "back" : "other",
+        tone: BACK_TO_APPROVED.has(leg.verdict) ? "back" : "other",
         lead: null,
         text: leg.what_happens ?? "",
     };
@@ -145,7 +149,7 @@ export interface UnreconcileNotice {
  * one `allocation_note` states server-side.
  */
 export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice => {
-    const reverted = result.reversed.filter((leg) => leg.verdict === VERDICT_REVERT_PAYMENT).length;
+    const reverted = result.reversed.filter((leg) => BACK_TO_APPROVED.has(leg.verdict)).length;
     const head = `${records(result.reversed.length)} came off this transfer${
         reverted === result.reversed.length ? " and went back to Approved" : ""
     }.`;

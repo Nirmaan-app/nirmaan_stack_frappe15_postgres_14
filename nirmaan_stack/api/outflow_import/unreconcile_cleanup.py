@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""What an unreconcile puts right AROUND the payments it reverted (#1276, parent #1270).
+"""What an unreconcile puts right AROUND the records it reverted (#1276, parent #1270).
 
 `unreconcile.unreconcile_row` calls `restore_derived_state` once, inside its savepoint, after every
 leg is written. Nothing here commits; a failure rolls every leg back with it.
@@ -17,6 +17,10 @@ here because the payment's own hooks do not get it right on a `Paid -> Approved`
     its recompute twin `settle.recompute_latest_payment_date` lives beside it.
   * THE STATEMENT `File` ROW -- minted after the settle's commit by
     `expenses._link_statement_file_to_target`, outside any save.
+
+AN EXPENSE (#1277) has no parent, no vendor credit and no latest payment date, so only two of these
+apply to it: its statement `File` row, and -- for a `Project Expenses` record -- its project's CEO Hold,
+whose hook (`on_project_expense`) claims the same per-request flag.
 """
 
 import frappe
@@ -25,7 +29,10 @@ from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import (
     sync_cashflow_reason,
 )
-from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
+from nirmaan_stack.services.outflow_import.ledgers import (
+    PAYMENT_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
+)
 from nirmaan_stack.services.outflow_import.settle import (
     _outflow_import_write,
     recompute_latest_payment_date,
@@ -35,30 +42,49 @@ PO_DOCTYPE = "Procurement Orders"
 LEDGER_ENTRY_TYPE = "Payment Unreconciled"
 
 
-def restore_derived_state(payment_names, statement_file_url: str | None) -> None:
-    """Put right everything derived from `payment_names`, which are already back to Approved."""
-    names = sorted(set(payment_names))
-    if not names:
+def restore_derived_state(reverted, statement_file_url: str | None) -> None:
+    """Put right everything derived from `reverted` -- `(doctype, name)` pairs already back to
+    Approved."""
+    by_doctype = {}
+    for doctype, name in reverted:
+        by_doctype.setdefault(doctype, set()).add(name)
+    if not by_doctype:
         return
-    payments = frappe.get_all(
-        PAYMENT_DOCTYPE,
-        filters={"name": ["in", names]},
-        fields=["name", "project", "document_type", "document_name"],
-    )
-    _delete_statement_file_links(names, statement_file_url)
-    parents = sorted(
-        {(p.document_type, p.document_name) for p in payments if p.document_type and p.document_name}
-    )
-    for doctype, name in parents:
-        recompute_latest_payment_date(doctype, name)
-    _recompute_vendor_credit([name for doctype, name in parents if doctype == PO_DOCTYPE])
-    # LAST: the gap reads the PO `amount_paid` the saves recomputed and every payment's status.
-    for project in sorted({p.project for p in payments if p.project}):
+    for doctype, names in sorted(by_doctype.items()):
+        _delete_statement_file_links(doctype, sorted(names), statement_file_url)
+
+    projects = set()
+    payment_names = sorted(by_doctype.get(PAYMENT_DOCTYPE, ()))
+    if payment_names:
+        payments = frappe.get_all(
+            PAYMENT_DOCTYPE,
+            filters={"name": ["in", payment_names]},
+            fields=["name", "project", "document_type", "document_name"],
+        )
+        parents = sorted(
+            {(p.document_type, p.document_name) for p in payments if p.document_type and p.document_name}
+        )
+        for doctype, name in parents:
+            recompute_latest_payment_date(doctype, name)
+        _recompute_vendor_credit([name for doctype, name in parents if doctype == PO_DOCTYPE])
+        projects |= {p.project for p in payments if p.project}
+
+    expense_names = sorted(by_doctype.get(PROJECT_EXPENSE_DOCTYPE, ()))
+    if expense_names:
+        projects |= set(
+            frappe.get_all(
+                PROJECT_EXPENSE_DOCTYPE,
+                filters={"name": ["in", expense_names], "projects": ["is", "set"]},
+                pluck="projects",
+            )
+        )
+    # LAST: the gap reads the PO `amount_paid` the saves recomputed and every record's status.
+    for project in sorted(projects):
         _resync_cashflow_hold(project)
 
 
-def _delete_statement_file_links(payment_names, statement_file_url: str | None) -> None:
-    """Delete the `File` row that made the statement openable from each payment.
+def _delete_statement_file_links(doctype: str, names, statement_file_url: str | None) -> None:
+    """Delete the `File` row that made the statement openable from each record.
 
     ⚠️ A RAW DELETE, SO NO `File` HOOK FIRES -- AND THAT IS THE POINT. The row is only a permission
     link; the blob it points at is the IMPORT BATCH's statement, shared by every record that batch
@@ -74,8 +100,8 @@ def _delete_statement_file_links(payment_names, statement_file_url: str | None) 
         "File",
         {
             "file_url": statement_file_url,
-            "attached_to_doctype": PAYMENT_DOCTYPE,
-            "attached_to_name": ["in", list(payment_names)],
+            "attached_to_doctype": doctype,
+            "attached_to_name": ["in", list(names)],
         },
     )
 
