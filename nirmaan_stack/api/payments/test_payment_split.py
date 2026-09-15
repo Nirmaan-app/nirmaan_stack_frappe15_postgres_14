@@ -600,6 +600,42 @@ class TestTheDefaultsAreTheCeoBehaviour(PaymentSplitFixture):
             flt(original.amount) + flt(balance.amount), self.PO_TOTAL, places=2
         )
 
+    def test_a_named_kept_status_lands_on_the_kept_half_and_its_term(self):
+        """#1284: the kept half's status is a parameter, and it drives the kept PO TERM as well.
+
+        One parameter for payment and term, for the same reason `remainder_status` drives both: the
+        controller mirrors a payment's status onto its term 1:1, and `split_approval` stops it doing
+        so here, so this function is the only thing that can keep the two in step.
+
+        ⚠️ THE THREE STATUSES ARE DELIBERATELY DIFFERENT. With all three equal, a split that wrote
+        `expect_status` or `remainder_status` onto the kept half would pass this test too.
+        """
+        # RAW `set_value`, NO HOOKS, deliberately: this plants the arrangement, and a save would fire
+        # the controller under test (see `UnsplitFixture._settle_shape`).
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Approved", update_modified=False)
+        frappe.db.set_value(TERM, self.term, "term_status", "Approved", update_modified=False)
+        frappe.db.commit()
+
+        split_payment(
+            self.payment, 60000,
+            expect_status="Approved",
+            keep_status="Reconciliation Pending",
+            remainder_status="CEO Pending",
+            stamp_ceo_approval=False,
+        )
+        frappe.db.commit()
+
+        kept = self._pay(self.payment)
+        rem = self._pay(self._remainder_of(self.payment)[0])
+        self.assertEqual(kept.status, "Reconciliation Pending", "the kept half takes keep_status")
+        self.assertEqual(flt(kept.amount), 60000.0)
+        self.assertEqual(rem.status, "CEO Pending")
+
+        original, balance = self._terms()
+        self.assertEqual(original.project_payment, self.payment)
+        self.assertEqual(original.term_status, "Reconciliation Pending")
+        self.assertEqual(balance.term_status, "CEO Pending")
+
     def test_the_wrong_status_is_refused_against_whichever_status_was_expected(self):
         """A CEO Pending payment is not partially SETTLEABLE, and an Approved one is not partially
         APPROVABLE. One function, two expectations, and neither may leak into the other."""

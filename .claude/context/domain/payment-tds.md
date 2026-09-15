@@ -151,6 +151,20 @@ Both are idempotent and fill only what is still empty.
 
 ---
 
+## Testing — reach the tax code, or you test nothing (#1284)
+
+⚠️ A payment planted by raw SQL with **no vendor** can never be taxed (`is_deductible` needs one), so
+a suite built that way cannot see a tax bug. The Bulk Import and payment-split suites were built that
+way, and that is how the double-TDS bugs in #1283 went unseen.
+
+Use **`api/payments/taxed_work_order_fixture.TaxedWorkOrderFixture`**: a Service Request payment with a
+2% vendor, approved through the real `ceo_approve_payment`, so the deduction row and the netted amount
+come from production code (50,000 → 49,000 by default). It refuses to return a payment with no tax row,
+and `attach(test)` registers a purge that also sweeps split leftovers minted under its projects. Pinned
+by `api/payments/test_taxed_work_order_fixture.py`.
+
+---
+
 ## Known gaps
 
 - **No reversal or unlink path.** A deduction is deleted with its payment; nothing detaches one from

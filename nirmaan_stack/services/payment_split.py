@@ -104,6 +104,7 @@ def split_payment(
     keep_amount: float,
     *,
     expect_status: str = SOURCE_STATUS,
+    keep_status: str = APPROVED_STATUS,
     remainder_status: str = SOURCE_STATUS,
     stamp_ceo_approval: bool = True,
 ) -> dict:
@@ -112,6 +113,17 @@ def split_payment(
     ``expect_status``
         The status the payment must be in NOW, or the split is refused. ``CEO Pending``
         for a partial approval; ``Approved`` for a partial settlement.
+    ``keep_status``
+        What the kept half is left at. It also drives the kept PO TERM's status, for the same
+        1:1-mirror reason as ``remainder_status`` below. ``Approved`` by default, which is what
+        both callers wanted until #1283: the CEO is approving it now, and a settlement's half was
+        approved before the bank moved.
+
+        ⚠️ IT WAS HARD-CODED, AND THE DOCSTRING CALLED THAT DELIBERATE, UNTIL #1284. The payment
+        lifecycle gained ``Reconciliation Pending`` after ``Approved`` (#1282), and a split there
+        that forced the kept half back to ``Approved`` moved a payment BACKWARDS -- and on a Work
+        Order payment, any save into ``Approved`` withholds tax again. Keep the default: the CEO
+        path and every existing test depend on it.
     ``remainder_status``
         What the balance half is created at. It also drives the balance PO TERM's
         status, because the controller mirrors payment status to term status 1:1 —
@@ -121,11 +133,6 @@ def split_payment(
         approval, because that IS the approval. ⚠️ FALSE for a partial settlement:
         the CEO's date, if there is one, already sits on the record, and stamping
         today's date would rewrite an approval fact to record a payment event.
-
-    ⚠️ THE KEPT HALF IS ALWAYS ``Approved`` AND IS DELIBERATELY NOT A PARAMETER. Both
-    callers agree on it, from opposite directions — the CEO is approving it now, and
-    the settlement's half was approved before the bank moved. A parameter here would
-    be an invitation to write a status no caller wants.
 
     Returns a dict describing what moved. Raises (rolling the savepoint back) on any
     guard failure or write error — callers get all of it or none of it.
@@ -256,7 +263,7 @@ def split_payment(
 
         # ── 2. The original, trimmed ────────────────────────────────────────
         pay.amount = approved
-        pay.status = APPROVED_STATUS
+        pay.status = keep_status
         if stamp_ceo_approval:
             pay.ceo_approval_date = nowdate()
         # ⚠️ SET ON BOTH PATHS, including the one where it is currently redundant. On a
@@ -277,6 +284,7 @@ def split_payment(
                 remainder_payment=remainder_doc.name,
                 approved=approved,
                 remainder=remainder,
+                kept_term_status=keep_status,
                 remainder_term_status=remainder_status,
             )
             if term_synced:
@@ -318,6 +326,7 @@ def _split_po_term(
     remainder_payment,
     approved,
     remainder,
+    kept_term_status: str = APPROVED_STATUS,
     remainder_term_status: str = SOURCE_STATUS,
 ) -> bool:
     """Shrink the original term and append a balance term. In memory — caller saves.
@@ -327,11 +336,11 @@ def _split_po_term(
     The two amounts sum to what the single term held before, so the PO's
     "terms must add up to the PO total" check is untouched by construction.
 
-    ⚠️ ``remainder_term_status`` MIRRORS THE BALANCE PAYMENT'S STATUS, and the caller
-    passes one value for both on purpose — the controller's own contract is that a PO
-    term's status tracks its payment's 1:1, so letting these two be set independently
-    would be a way to break that invariant from inside the function that exists to
-    preserve it.
+    ⚠️ ``kept_term_status`` MIRRORS THE KEPT PAYMENT'S STATUS and ``remainder_term_status``
+    THE BALANCE PAYMENT'S. ``split_payment`` passes the SAME variable to a payment and to
+    its term on purpose — the controller's own contract is that a PO term's status tracks
+    its payment's 1:1, so letting a term's status be set apart from its payment's would
+    be a way to break that invariant from inside the function that exists to preserve it.
     """
     term = next(
         (t for t in (po_doc.get("payment_terms") or []) if t.project_payment == original_payment),
@@ -348,7 +357,7 @@ def _split_po_term(
 
     term.amount = approved
     term.percentage = _percentage(approved, po_total)
-    term.term_status = APPROVED_STATUS
+    term.term_status = kept_term_status
 
     po_doc.append("payment_terms", {
         "label": balance_label,

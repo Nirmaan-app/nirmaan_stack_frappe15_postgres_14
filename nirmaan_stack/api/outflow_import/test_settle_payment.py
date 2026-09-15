@@ -45,6 +45,7 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, match_batch
 from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.settle import (
     AlreadyPaidError,
@@ -1587,6 +1588,23 @@ class TestTheWindowsStayInTheirRelation(unittest.TestCase):
         from nirmaan_stack.services.payment_split import MIN_SPLIT_AMOUNT
 
         self.assertGreaterEqual(AMOUNT_TOLERANCE, Decimal(str(MIN_SPLIT_AMOUNT)))
+
+
+class TestTheTaxedWorkOrderFixtureIsReachableHere(PaymentSettlementFixture):
+    """#1284: the shared taxed Work Order payment builds inside a Bulk Import suite, beside its own
+    staged batch, and the two teardowns do not collide.
+
+    ⚠️ THIS SUITE'S OWN PAYMENTS CAN NEVER BE TAXED -- raw SQL, no vendor, a PO parent -- which is how
+    the double-TDS bugs in #1283 went unseen. A test here that must reach the tax code uses the shared
+    fixture, never `_insert_payment`.
+    """
+
+    def test_a_taxed_work_order_payment_is_available_to_this_suite(self):
+        made = TaxedWorkOrderFixture.attach(self).payment()
+
+        self.assertEqual(frappe.db.count("Payment TDS Deduction", {"project_payment": made.name}), 1)
+        self.assertEqual(float(frappe.db.get_value(PAYMENT, made.name, "amount")), made.net)
+        self.assertLess(made.net, made.gross)
 
 
 if __name__ == "__main__":
