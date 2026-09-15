@@ -5171,7 +5171,11 @@ A ₹1,00,000 PO payment part-settled by ₹60,000 (untouched leftover), and a s
    two original terms (₹1,00,000 each, sum = PO total), `amount_paid` 0, three legs Reversed with their reasons,
    partial-settle comments kept plus one "Partial settlement undone by …" each.
 
-⚠️ **Seen, not fixed (pre-dates #1279):** re-opening a line's dialog after undoing a DIFFERENT line first paints
-the plan SWR cached earlier (`unreconcile-plan-<row>`), so the old "paid by another transfer" refusal flashed for
-under a second before the refetch replaced it. Nothing can be written from the stale paint (the write re-checks
-under locks, and the refused row's buttons are off), but it can mislead for a moment.
+⚠️ **Seen, then FIXED (the glitch pre-dated #1279):** re-opening a line's dialog after undoing a DIFFERENT
+line first painted the plan SWR had cached at its last opening (key `unreconcile-plan-<row>`), so the old "paid by
+another transfer" refusal flashed for under a second before the refetch replaced it. `UnreconcilePanel` now keys
+the plan per OPENING (`unreconcile-plan-<row>-<n>`, `n` from a module counter held in `useState`, so the
+post-reverse `mutate` still hits the same entry): a re-opened panel shows "Loading the records on this transfer…"
+until the server's current verdicts arrive. Browser A/B on the same steps: before, an instant screenshot showed the
+stale grey refusal; after, it shows the loading line, then the amber un-split. Reverse from that dialog still works.
+No unit test: it is a React/SWR cache semantic, which the node-only vitest environment cannot see.

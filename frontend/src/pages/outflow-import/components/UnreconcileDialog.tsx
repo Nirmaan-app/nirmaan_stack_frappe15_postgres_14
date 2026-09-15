@@ -40,6 +40,9 @@ const TONE_CLASS: Record<LegTone, string> = {
     other: "text-foreground",
 };
 
+/** Counts panel openings; each one keys its own plan fetch (see `UnreconcilePanel`). */
+let planOpenings = 0;
+
 /**
  * The record list, the one reason box and Reverse all -- the ONE undo surface, shown in the
  * Unreconcile dialog and in the decision dialog's "Already allocated" section (#1270 story 48).
@@ -72,6 +75,12 @@ export const UnreconcilePanel = ({
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const trimmed = reason.trim();
+    // ⚠️ ONE CACHE ENTRY PER OPENING, NEVER ONE PER ROW. A row-only key let a re-opened panel paint the
+    // plan cached at its last opening before the refetch landed -- after undoing a DIFFERENT line (the
+    // transfer that paid a part payment's leftover, #1279) that stale paint showed a refusal which was no
+    // longer true. A fresh key shows "Loading…" until the server's current verdicts arrive. Held in
+    // state so it is stable for this mount: the post-reverse `mutate` still refreshes the same entry.
+    const [opening] = useState(() => ++planOpenings);
 
     const {
         data,
@@ -81,7 +90,7 @@ export const UnreconcilePanel = ({
     } = useFrappeGetCall<{ message: UnreconcilePlan }>(
         "nirmaan_stack.api.outflow_import.unreconcile.get_unreconcile_plan",
         { row },
-        `unreconcile-plan-${row}`,
+        `unreconcile-plan-${row}-${opening}`,
     );
     const { call } = useFrappePostCall<{ message: UnreconcileResult }>(
         "nirmaan_stack.api.outflow_import.unreconcile.unreconcile_row",
