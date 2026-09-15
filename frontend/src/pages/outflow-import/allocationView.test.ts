@@ -136,9 +136,10 @@ describe("chooseSettleEndpoint -- routing reads the MODE, not the tick count", (
 
     it("INVERTED: Split routes a full-transfer single tick through allocate_row too", () => {
         // ⚠️ NO AMOUNT SHORTCUT, DELIBERATELY -- and the rule cannot see an amount at all, which
-        // is what makes that impossible rather than merely unlikely. Reversal operates on LEGS and
-        // `settle_row` writes none, so a shortcut would make two identical-looking actions behave
-        // differently on undo, with nothing on screen saying which one you got.
+        // is what makes that impossible rather than merely unlikely. Both endpoints write a leg, but
+        // `settle_row` holds the whole-transfer guard and may rewrite the amount (slice X1), so a
+        // shortcut would make two identical-looking actions behave differently, with nothing on
+        // screen saying which one you got.
         expect(
             chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched", mode: "split" }),
         ).toBe("allocate_row");

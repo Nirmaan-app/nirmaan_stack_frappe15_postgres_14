@@ -270,7 +270,7 @@ The settle dialog gains a mode radio: **"Normal"** (default) and **"Split across
 | Decision | Value | Cost if wrong |
 |---|---|---|
 | Split allows a single tick SMALLER than the transfer as leg one | yes | this is the entire point; without it the workflow stays impossible |
-| Mode decides the endpoint — Split ALWAYS routes via `allocate_row`, even on a full-amount tick | yes | an amount-based shortcut makes two identical-looking actions differ on UNDO, with nothing on screen saying which you got: `reverse_allocation` acts on legs, and `settle_row` writes none |
+| Mode decides the endpoint — Split ALWAYS routes via `allocate_row`, even on a full-amount tick | yes | an amount-based shortcut makes two identical-looking actions differ on UNDO, with nothing on screen saying which you got. ⚠️ The reason first written here — "`reverse_allocation` acts on legs, and `settle_row` writes none" — is FALSE: `settle_row` writes a leg too (see Amendment C). The two differ in their amount guard and in slice X1's rewrite, which a reversal cannot put back |
 | Split lists **payments only**, with a line stating why | yes | see B2; the honest alternative to a guess |
 | Split with no payment candidates shows an explanatory line, never a silent empty list | yes | a silent empty list reads as a broken screen |
 | Switching mode CLEARS the ticks; mode is NOT remembered between rows | yes | the two modes store the tick in different fields and mean different things by it; a sticky mode is how a transfer gets split by accident |
@@ -746,3 +746,22 @@ but neither had a stated cause, and an unexplained red gate is one nobody can cl
   suite is running in parallel. Introduced on `develop` (`944441f2`), unrelated to this feature.
   **Parked, not fixed:** the repair is an explicit per-test timeout on a POAdjustment test, and a
   review of an outflow branch is the wrong commit to retune another module's gate in.
+
+---
+
+## Amendment C — a whole-transfer settle writes a leg; reversal gets one decision module (2026-09-15, #1271)
+
+**Correction.** B3's table said Split must always route through `allocate_row` because
+"`settle_row` writes none". It does write one: `_settle_and_commit` calls `_record_settlement`, which
+inserts a `Settled` `Outflow Row Match` for the whole transfer, and `reverse_allocation` reverses it
+(Ruling O's own test settles with `settle_row` and then reverses). The routing decision stands; the
+real difference between the two paths is the amount guard (whole transfer vs remainder) and X1's
+amount rewrite, which a reversal cannot put back. This fact is also what makes one undo engine for
+every settle path possible (#1270).
+
+**Residence.** The A3 refusals no longer live in `expenses._guard_leg_is_plainly_reversible` and
+`_revert_payment`'s checks. They are one pure function, `services/outflow_import/unreconcile.leg_verdict`,
+with the same sentences in the same order. The write is `api/outflow_import/unreconcile.unreconcile_row`
+(line + legs or "all" + reason), all or nothing: row, leg and target locks first, every verdict
+computed under them, one refused leg writes nothing, the rest in one savepoint. `reverse_allocation`
+is a one-leg wrapper and now answers a concurrent writer with `CONCURRENT_ALLOCATION_MESSAGE`.

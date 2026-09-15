@@ -244,8 +244,10 @@ export type SettleEndpoint = "settle_row" | "allocate_row";
  *
  * ⚠️ SPLIT ALWAYS ROUTES THROUGH `allocate_row`, INCLUDING A SINGLE TICK THAT HAPPENS TO EQUAL THE
  * WHOLE TRANSFER -- and this function cannot see an amount, which is what makes an amount-based
- * shortcut impossible rather than merely discouraged. Reversal operates on LEGS and `settle_row`
- * writes none, so a shortcut would make two identical-looking actions behave differently on undo,
+ * shortcut impossible rather than merely discouraged. Both endpoints write a leg (an older version
+ * of this note said `settle_row` writes none -- FALSE, corrected at #1271), but `settle_row` holds the
+ * whole-transfer guard and may rewrite the payment's amount to the bank's figure (slice X1), which a
+ * reversal cannot put back. A shortcut would make two identical-looking actions behave differently,
  * with nothing on screen saying which one you got.
  *
  * ⚠️ THE SAFETY RULE SURVIVES INTACT ON THE NORMAL SIDE: a single Normal pick keeps taking

@@ -90,6 +90,7 @@ pick one ad-hoc; ask.
 | **May a transfer pay PART of a record?** (PS; slice TD's DEDUCTION answer is REMOVED) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `looks_like_tds`, `INTENT_PART_PAYMENT`, `VALID_INTENTS`) — pure. ⚠️ `deduction_eligibility` and the band/service gate are GONE: the import records no tax, `services/payment_tds.py` withholds SR tax at approval | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
+| **Can this leg be unreconciled, and what happens?** (#1271) | `services/outflow_import/unreconcile.py` (`leg_verdict`, `first_refusal`, `LegFacts`, `VERDICT_*`) — pure, B1; the ONE writer that acts on it is `api/outflow_import/unreconcile.unreconcile_row`, which `expenses.reverse_allocation` wraps with one leg | decide at a call site whether a leg may be reversed, or write a reversal anywhere else. The write path reads the facts UNDER its row / leg / target locks and asks here; a plan shown earlier is never trusted. One refused leg means NOTHING is written. Refusal sentences and their ORDER are pinned by `test_unreconcile.py` (a leg wrong in several ways is told only the first). Later verdicts (`revert_expense`, `delete_created`, `unsplit_payment`) are new branches here |
 | **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
@@ -2232,7 +2233,7 @@ wrong conclusion from the same reasoning.
 - ⏳ **PENDING (owner, 2026-09-13) — reversing a fan-out leg WITHHOLDS TDS on the payment.** Deferred
   to the planned **universal unreconcile** feature for this workflow; do not patch it in isolation.
   Found in the post-merge browser walk of `outflow-merge` (merge `81c037c8`, fan-out + SR-TDS).
-  **Mechanism:** `expenses._revert_payment` saves the payment `Paid -> Approved` through the document
+  **Mechanism:** `unreconcile._revert_payment` (in `expenses.py` before #1271) saves the payment `Paid -> Approved` through the document
   layer, and `integrations/controllers/project_payments.on_update` treats ANY transition into
   `Approved` as an approval, so `payment_tds.record_deduction_if_eligible` fires. For a Service Request
   payment with no existing `Payment TDS Deduction` row (e.g. paid before the SR-TDS feature, or a
@@ -2247,7 +2248,8 @@ wrong conclusion from the same reasoning.
   walk); (2) keep it — a reversed payment is a fresh approval and is netted, consistent with the
   backfill's treatment of still-Approved payments, but relinking breaks. **Not affected:** a payment
   approved after SR-TDS already has its PTD row, so `existing_deduction` makes the hook a no-op; the
-  `tds`-field refusal in `_guard_leg_is_plainly_reversible` is unrelated (PTD does not write `tds`).
+  `tds`-field refusal in `services/outflow_import/unreconcile.leg_verdict` is unrelated (PTD does not
+  write `tds`).
 - **Fixtures stay synthetic — the repo is public.** Real statements carry live beneficiary names,
   accounts and IFSC codes.
 
@@ -2923,8 +2925,10 @@ All measured against the live `localhost` DB on 2026-09-10.
 
 - **Routing must read INTENT, not tick count.** A single tick on a fresh row went to `settle_row`
   and its whole-transfer guard, so a first-leg-then-second-leg workflow had no path. The mode radio
-  is the fix, and Split ALWAYS routes via `allocate_row` — even a full-amount tick, because
-  `reverse_allocation` acts on legs and `settle_row` writes none.
+  is the fix, and Split ALWAYS routes via `allocate_row` — even a full-amount tick. ⚠️ The reason
+  once given here, "`settle_row` writes no leg", is FALSE (corrected at #1271): `settle_row` writes
+  a leg too (`_record_settlement`). The two paths differ in their GUARD (whole-transfer vs
+  remainder) and in slice X1's amount rewrite, which a reversal cannot put back (Ruling O).
 - **`bar.over` and the part-payment detour fire on the SAME band.** `SETTLE_WINDOW` and
   `AMOUNT_TOLERANCE` are literally the same constant, so a Confirm gate on `bar.over` made the
   TDS / part-payment detour unreachable from the product. Narrow the gate to the allocate path; do
@@ -3172,8 +3176,10 @@ Console across the whole walk: **one** exception, the pre-existing `index.html` 
 template — it fires identically on :8080. No React errors.
 
 ⚠️ **WHAT THE WALK DELIBERATELY DID NOT DO: click Confirm.** `settleOne`'s target-building is the one
-changed reader a click would exercise, and **a whole-transfer `settle_row` writes no legs, so it
-cannot be reversed from the screen** (ADR-0020 D1/A3) — irreversible even on fixture data. The
+changed reader a click would exercise, and **a whole-transfer settle cannot be reversed from the
+screen** — irreversible even on fixture data. (⚠️ Corrected at #1271: the reason is NOT that
+`settle_row` writes no leg — it writes one — but that the screen offers Reverse only on a
+`Partially Allocated` line, never a `Settled` one.) The
 evidence standing in its place: the "1 decided" count the bar shows comes from the SAME
 `decisionLinkKeys` call `settleOne` builds its `targets` from, and the swap it replaced
 (`decision.linkTargets ?? []`) returns the identical Set for every shape the app can produce today.
@@ -3476,9 +3482,10 @@ return "settle_row";
 
 - **Split always routes through `allocate_row`, including a single tick that equals the whole
   transfer.** The function cannot see an amount at all, which is what makes an amount-based shortcut
-  impossible rather than merely discouraged. Reversal operates on LEGS and `settle_row` writes none,
-  so a shortcut would make two identical-looking actions behave differently on undo with nothing on
-  screen saying which one you got.
+  impossible rather than merely discouraged. Both endpoints write a leg (the old claim that
+  `settle_row` writes none was FALSE, corrected at #1271), but they differ in their amount guard and
+  in slice X1's rewrite, which a reversal cannot put back — so a shortcut would make two
+  identical-looking actions behave differently with nothing on screen saying which one you got.
 - ⚠️ **The `ticks > 1` clause is NOT the old tick-count rule surviving.** It is a CAPACITY rule:
   `settle_row` takes ONE target, so routing a multi-pick there would settle the first record and
   silently DROP the rest. Normal's picker is single-select by construction, so the shape is
@@ -4323,7 +4330,7 @@ ICICI-settled record. Every guard that reads a stored reference therefore sees a
 | ICICI match run | contains-guard (#1257) | unchanged |
 | Manual UTR / import collision guard (`reference_guard.assert_reference_is_free`) | `utr = typed` | `utr = typed` **or** the stored `utr` CONTAINS an eligible token of it (`contains_guard.reference_is_inside`, same token rules). Both call sites (`_fulfil_payment`, `settle._assert_reference_is_free`) get it -- one function. SQL `strpos` pre-filter, pure predicate confirms |
 | Create inflow's second duplicate lookup (`inflows._already_booked`) | exact `BTRIM(utr) = bank_reference_no` + identity | the contains-match: same pool, same picker with #1258 claims, same verdict (`derive_duplicate_guard_outcome` → `skip_basis`). Refuses exactly when the match run would SKIP. Amount-off hits do not refuse (the "anyway?" flow is #1260) |
-| Reversal (`reverse_allocation` → `_revert_payment`) | stored `utr` == one value | stored `utr` in `settlement_references_of_row(row)`: the current surface AND the pre-#1259 value, so earlier ICICI settles stay reversible |
+| Reversal (`reverse_allocation` → `unreconcile.leg_verdict`, the re-point refusal; `_revert_payment` until #1271) | stored `utr` == one value | stored `utr` in `settlement_references_of_row(row)`: the current surface AND the pre-#1259 value, so earlier ICICI settles stay reversible |
 | Cashfree guards (`load_paid_*_by_reference`) | whole-string exact | **unchanged** (owner ruling) -- a Cashfree row cannot see an ICICI-settled narration; accepted |
 
 ### No backfill
@@ -4674,3 +4681,34 @@ A bank credit already recorded as a `Non Project Inflow` is now handled exactly 
   ACROSS batches is pinned purely and at create time; the bench match-run case is same-batch (the
   claim reader is doctype-agnostic).
   Every bench case shown RED with the ledger row and the create-time guard reverted.
+
+
+## #1271 (2026-09-15) — unreconcile prep: one decision module, one all-or-nothing write path
+
+No user-visible change. First slice of #1270 (Unreconcile, Skip and Unskip).
+
+- **Decision:** `services/outflow_import/unreconcile.py` (pure). `leg_verdict(LegFacts)` returns
+  `revert_payment` or `refused` (reason sentence + title + `fix_at`). It reproduces every refusal
+  `reverse_allocation` made, byte for byte and in the same order: already Reversed, not a Project
+  Payments leg, payment not found, non-zero TDS, balance half of a split, settled half of a split,
+  amount differs from the leg (exact), status not Paid, reference not one of
+  `settlement_references_of_row`. `_guard_leg_is_plainly_reversible` is gone; its reasoning moved
+  into the module docstring.
+- **Write:** `api/outflow_import/unreconcile.unreconcile_row(row, legs | "all", reason)`. **Not
+  whitelisted yet** — the narrower Admin + Accountant Lead gate comes in a later slice, and until then
+  the only way in is `reverse_allocation`. Lock order row → legs → targets (sorted), the same
+  row-then-payment order as `allocate_row`; before #1271 a reversal took no row lock. Verdicts are
+  computed for every leg before any write; one refusal throws that leg's sentence and writes nothing.
+  Writes go in one savepoint; then `_refresh_row_allocation`, the batch rollup, commit.
+- **Concurrency:** wrapped in `_concurrent_writer_refusal_as_sentence`, so a concurrent writer now gets
+  `CONCURRENT_ALLOCATION_MESSAGE` on a reversal too (it used to get raw database text).
+- **`reverse_allocation`** keeps its URL, arguments, response and sentences; it is a wrapper with one
+  leg. It imports `unreconcile` inside the function because `unreconcile` imports `expenses`.
+- **Docs corrected:** a whole-transfer `settle_row` DOES write a leg. The Split-routing rationale in
+  this doc, ADR-0020 and `allocationView.ts` said otherwise.
+- **Tests:** `services/outflow_import/test_unreconcile.py` (13, fact-snapshot table),
+  `api/outflow_import/test_unreconcile_row.py` (14: two legs one refused writes nothing, `"all"`,
+  foreign leg, one bare name, a verdict with no write rolls back, concurrency sentence on both entry
+  points, mid-write rollback). A mutation that writes
+  the good legs and skips the refused one fails exactly the two all-or-nothing tests.
+  `test_reverse_allocation.py` (22) passes unchanged.

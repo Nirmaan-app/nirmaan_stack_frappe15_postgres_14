@@ -73,9 +73,6 @@ from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, TARGE
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
-from nirmaan_stack.services.outflow_import.settlement_reference import (
-    settlement_references_of_row,
-)
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
 # and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
 # PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
@@ -95,7 +92,6 @@ from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
     ExpenseSettlementError,
-    _outflow_import_write,
     create_expense_from_row,
     settle_existing_expense,
     settle_payment,
@@ -123,7 +119,6 @@ from nirmaan_stack.services.outflow_import.status import (
 # here from a private `expenses.py` helper at review -- it is pure arithmetic-plus-wording over
 # legs, which is this module's job, not `api/`'s.
 from nirmaan_stack.services.outflow_import.allocation import (
-    MATCH_REVERSED,
     MATCH_SETTLED,
     allocated_of,
     allocation_fits,
@@ -474,256 +469,50 @@ def reverse_allocation(match: str, reason: str):
 
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.reverse_allocation
 
+    ⚠️ A WRAPPER SINCE #1271. The decision ("can this leg be undone?") lives in the pure
+    `services/outflow_import/unreconcile.py`, and the write in `api/outflow_import/unreconcile.py`'s
+    `unreconcile_row`, called here with ONE leg -- so there is one write path for a reversal. This
+    keeps the endpoint's arguments, response and every refusal sentence exactly as they were; what
+    changed underneath is that the verdict is now read under a row lock as well as the payment
+    lock, and a concurrent writer's refusal arrives as `CONCURRENT_ALLOCATION_MESSAGE` instead of
+    raw database text.
+
     ⚠️ SOFT, NOT A DELETE (ADR-0020 D3). A deleted record loses the fact that this was tried and
-    undone, and that fact is the point of a table whose rows mean money was written. The reversed
-    leg stops contributing to `allocated_of` and stops holding the partial unique key, so the same
-    payment can be allocated again -- which is the ONLY reason the index had to become partial.
+    undone. The reversed leg stops contributing to `allocated_of` and stops holding the partial
+    unique key, so the same payment can be allocated again.
 
-    ⚠️ A REASON IS REQUIRED. Same standard `skip_row` already holds: a decision that moves money
-    has to say why. There is no system-generated case here, so unlike a skip there is no exemption.
+    ⚠️ A REASON IS REQUIRED. A decision that moves money has to say why.
 
-    ⚠️ IT REFUSES A PAYMENT THAT CHANGED UNDERNEATH IT rather than forcing it back. If the utr or
-    the status is not what this leg wrote, somebody else has touched the record and this function
-    cannot know what they meant. Refusing leaves both halves consistent; guessing does not.
-
-    ⚠️ RULING O, WIDENED AT THE WHOLE-BRANCH REVIEW (F5) -- THERE ARE THREE WAYS A
-    `Project Payments` LEG CAN CARRY MORE THAN THIS FUNCTION UNDOES, AND ONLY THE FIRST WAS EVER
-    DOCUMENTED. The endpoint's only target guard was `target_doctype != PAYMENT_DOCTYPE`, but the
-    two OTHER settle paths write Project-Payments legs too, and both are materially worse than the
-    rewrite Ruling O was written about. The UI happens not to offer them (the Reverse button renders
-    only inside `AlreadyAllocatedSection`), but this is whitelisted and must refuse them itself:
-
-      1. THE REWRITE (the original Ruling O, ACCEPTED, NOT REFUSED). `settle_row` (slice X1)
-         rewrites the payment's `amount` to the bank's figure when the two differ within the settle
-         window; `allocate_row` never does (`rewrite_amount_to_bank=False`). After the fact the two
-         are indistinguishable from the match record alone -- BOTH read
-         `leg.target_amount == payment.amount` -- so there is nothing here to detect and nothing to
-         put back. Rather than a fifth reversal field carrying a pre-settle figure nobody but a rare
-         manual repair would read, this returns `reversed_amount` (the leg's own `target_amount`) so
-         a human can compare it against the payment's `Version` log (`Project Payments` carries
-         `track_changes: 1` and every settle saves with `ignore_version=False`).
-      2. A PAYMENT CARRYING A `tds` FIGURE -- REFUSED. The import no longer writes `tds` (ADR-0021;
-         the old `_settle_as_deduction` path is gone), but the payments screen still does and
-         historical settles carry one. `_revert_payment` clears status / `utr` / `payment_date` and
-         NOTHING ELSE, so reversing it would leave a withheld-tax figure sitting on a payment that
-         is back to `Approved` and awaiting payment again.
-      3. THE PARTIAL SETTLEMENT (`settle_row_partial`) -- REFUSED. That path SPLITS the payment
-         record: the original is trimmed to the settled part and a fresh `Approved` balance payment
-         is minted with `split_from` pointing back at it. Reversing the settled half does not
-         un-split anything, so ONE SANCTION SILENTLY BECOMES TWO Approved payments and the PO's
-         payment terms carry a division nobody asked for.
-
-    Both refusals NAME THE RULE AND THE REPAIR: neither is undoable from this screen, and both are
-    fixed by hand on the payments screen. Refusing is the same discipline as the utr/status guard
-    below -- leaving both halves consistent beats guessing at what a half-undo meant.
+    ⚠️ RULING O: ANY settle path's Project-Payments leg reaches this, including `settle_row`'s, which
+    may have rewritten the payment's amount to the bank's figure (slice X1). That is undetectable
+    after the fact and ACCEPTED -- the corrected figure survives -- so `reversed_amount` (the leg's
+    own figure) is returned for a human to compare against the payment's Version log. The two cases
+    that are NOT accepted, a `tds` figure and either half of a split, are refused by the decision
+    module; its docstring says why.
     """
-    actor = require_outflow_access()
+    # ⚠️ A FUNCTION-LOCAL IMPORT, BECAUSE `api/outflow_import/unreconcile.py` IMPORTS THIS MODULE
+    # (the shared row-allocation and concurrency helpers live here). Moving it to the top is a cycle.
+    from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, unreconcile_row
+
+    require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
-        frappe.throw("A reason is required to reverse an allocation.", title="Missing reason")
+        frappe.throw(REASON_REQUIRED, title="Missing reason")
 
-    leg = frappe.db.get_value(
-        MATCH_DOCTYPE,
-        match,
-        ["name", "import_row", "import_batch", "transfer_id", "target_doctype",
-         "target_name", "target_amount", "match_kind"],
-        as_dict=True,
-    )
-    if not leg:
+    row = frappe.db.get_value(MATCH_DOCTYPE, match, "import_row")
+    if not row:
         frappe.throw(f"Match record '{match}' not found.", title="Not found")
-    if leg.match_kind != MATCH_SETTLED:
-        frappe.throw(
-            "This allocation was already reversed. A correction supersedes rather than un-happens.",
-            title="Already reversed",
-        )
-    if leg.target_doctype != PAYMENT_DOCTYPE:
-        frappe.throw(
-            f"Only a {PAYMENT_DOCTYPE} allocation can be reversed here.", title="Not a payment"
-        )
-    _guard_leg_is_plainly_reversible(leg)
 
-    # ⚠️ THE SIXTH SITE, AND IT IS A READER OF WHAT THE FIVE WRITE (ADR-0020 B9). `_revert_payment`
-    # refuses to unwind a payment whose `utr` is not this transfer's -- so it must compare against
-    # what the settlement ACTUALLY WROTE, which since B9 is the resolved `settlement_reference` and
-    # not `bank_reference_no`. Left reading the bank column, a row with no bank reference would
-    # settle with its gateway reference and then be permanently UN-REVERSIBLE, refused with a
-    # message blaming a third party for re-pointing it. That is exactly the 61 rows this slice
-    # exists for. Found by review, not by a test -- no suite settled such a row and then reversed it.
-    #
-    # ⚠️ #1259: AN ICICI SETTLE WRITES THE WHOLE NARRATION, and one made before #1259 wrote the short
-    # reference -- so the reversal accepts EVERY value a settle of this row may have written
-    # (`settlement_references_of_row`). `remarks` is selected because the narration is built from it.
-    row = frappe.db.get_value(
-        ROW_DOCTYPE,
-        leg.import_row,
-        ["name", "bank_reference_no", "reference_id", "transfer_id", "source", "remarks",
-         "settlement_reference", "import_batch"],
-        as_dict=True,
-    )
-
-    savepoint = f"ofi_rev_{frappe.generate_hash(length=10)}"
-    frappe.db.savepoint(savepoint)
-    try:
-        _revert_payment(leg.target_name, settlement_references_of_row(row), actor)
-        doc = frappe.get_doc(MATCH_DOCTYPE, leg.name)
-        doc.match_kind = MATCH_REVERSED
-        doc.reversed_at = frappe.utils.now_datetime()
-        doc.reversed_by = actor
-        doc.reversal_reason = reason
-        doc.save(ignore_permissions=True)
-        new_status = _refresh_row_allocation(leg.import_row, actor)
-    except Exception:
-        # Roll back to the savepoint rather than the whole request -- same reasoning as every other
-        # call site in this module: the caller gets the real error and the database is exactly as
-        # it was before this reversal was attempted.
-        frappe.db.rollback(save_point=savepoint)
-        raise
-    frappe.db.release_savepoint(savepoint)
-
-    _refresh_batch_rollup(leg.import_batch)
-    frappe.db.commit()
-
-    legs = _live_legs(leg.import_row)
-    amount = frappe.db.get_value(ROW_DOCTYPE, leg.import_row, "amount")
+    done = unreconcile_row(row=row, legs=[match], reason=reason)
+    leg = done["reversed"][0]
     return {
-        "match": leg.name,
-        "row": leg.import_row,
-        "row_status": new_status,
-        "allocated": float(allocated_of(legs)),
-        "remaining": float(remaining_of(amount, legs)),
-        # Ruling O: the leg's own figure, so a human can compare it against the payment's Version
-        # log for the (rare) case this leg was originally written by `settle_row`, which -- unlike
-        # `allocate_row` -- may have rewritten the payment's amount to the bank's figure.
-        "reversed_amount": float(leg.target_amount),
+        "match": leg["match"],
+        "row": done["row"],
+        "row_status": done["row_status"],
+        "allocated": done["allocated"],
+        "remaining": done["remaining"],
+        "reversed_amount": leg["reversed_amount"],
     }
-
-
-def _guard_leg_is_plainly_reversible(leg) -> None:
-    """Refuse a Project-Payments leg that `_revert_payment` cannot correctly undo (review F5).
-
-    ⚠️ THE TARGET DOCTYPE WAS THE ONLY GUARD, AND IT IS NOT ENOUGH. Two of the four settle paths
-    write `Project Payments` legs that carry MORE than a status flip, and `_revert_payment` clears
-    status / `utr` / `payment_date` and nothing else. See `reverse_allocation`'s Ruling O block for
-    the three cases; the two refused here are a payment carrying `tds` (written by the payments
-    screen or a historical settle -- the import itself records no tax since ADR-0021) and the
-    partial settlement.
-
-    ⚠️ EACH REFUSAL NAMES THE RULE THAT STOPPED IT AND WHAT TO DO INSTEAD. Neither case is undoable
-    from the import screen: a withheld-tax figure and a split sanction are both repaired on the
-    payments screen, by hand, by somebody who can see both halves.
-
-    ⚠️ READ WITHOUT A LOCK, DELIBERATELY, AND IT IS NOT THE AUTHORITY -- same disposition as
-    `_approved_payment_amount`. `_revert_payment` re-reads under `FOR UPDATE` and re-asserts status
-    and reference there. What this decides is whether to ATTEMPT the reversal at all, and the three
-    facts it reads (`tds`, `split_from`, `amount`) only ever change through a deliberate hand edit,
-    which the amount check below is itself the guard against.
-    """
-    payment = frappe.db.get_value(
-        PAYMENT_DOCTYPE, leg.target_name, ["amount", "tds", "split_from"], as_dict=True
-    )
-    if not payment:
-        frappe.throw(f"Payment '{leg.target_name}' not found.", title="Not found")
-
-    if normalize_amount(payment.get("tds")):
-        frappe.throw(
-            f"{leg.target_name} carries a TDS figure -- withheld tax that "
-            f"this reversal does not clear -- putting it back to Approved would leave a tax figure "
-            f"on a payment that is waiting to be paid again. Reverse it on the payments screen, "
-            f"where both the status and the TDS can be corrected together.",
-            title="Settled with TDS",
-        )
-
-    # The SETTLED half of a partial settlement is the ORIGINAL, trimmed record; the BALANCE is a
-    # fresh payment carrying `split_from` back to it. So the marker on the settled half is a CHILD,
-    # not a field on itself -- and both directions are refused: a balance half whose sibling is Paid
-    # is just as entangled as the half that was settled.
-    if (payment.get("split_from") or "").strip():
-        frappe.throw(
-            f"{leg.target_name} is the carried-forward balance of a payment that was split, so "
-            f"reversing it here would leave that split half-undone. Correct it on the payments "
-            f"screen, where both halves are visible.",
-            title="Part of a split payment",
-        )
-    balance = frappe.db.get_value(PAYMENT_DOCTYPE, {"split_from": leg.target_name}, "name")
-    if balance:
-        frappe.throw(
-            f"{leg.target_name} was settled by a PARTIAL settlement, which split the record and "
-            f"left {balance} standing as its Approved balance. Reversing only the settled half "
-            f"would turn one sanction into two. Undo the split on the payments screen instead.",
-            title="Split by a partial settlement",
-        )
-
-    # ⚠️ EXACT, NO TOLERANCE WINDOW, AND THE REASONING IS IN `amounts.py`'s registry: both figures
-    # were written by the same settle from the same source, so ANY difference means the record has
-    # been edited since -- which is the same class of fact the utr/status guard in `_revert_payment`
-    # refuses on. A window here would silently permit the reversal over exactly that edit.
-    if normalize_amount(leg.target_amount) != normalize_amount(payment.get("amount")):
-        frappe.throw(
-            f"{leg.target_name} now reads {payment.get('amount')}, but this allocation wrote "
-            f"{leg.target_amount} against it. Somebody has changed the record since, so this "
-            f"reversal cannot know what to put back. Correct the payment by hand.",
-            title="Changed elsewhere",
-        )
-
-
-def _revert_payment(name: str, expected_references: tuple[str, ...], actor: str) -> None:
-    """Put the payment back to Approved, under a row lock, only if it still looks like ours.
-
-    `expected_references` is every value this transfer's settle may have written (#1259); a stored
-    `utr` equal to any of them is ours.
-
-    ⚠️ `doc.save()`, NOT `db.set_value`. The status is going `Paid -> Approved`, which is exactly
-    the transition `update_parent_amount_paid` watches -- and it SUMS the Paid payments rather than
-    incrementing, so the PO's `amount_paid` self-corrects with no code here. A `set_value` would
-    fire no hooks and leave the parent claiming money that is no longer paid.
-
-    ⚠️ THIS FUNCTION CLEARS STATUS / `utr` / `payment_date` AND NOTHING ELSE, WHICH IS WHY
-    `_guard_leg_is_plainly_reversible` RUNS FIRST (review F5). Ruling O below covers the one case
-    that is ACCEPTED -- an amount rewritten by `settle_row`. The two it does NOT cover, TDS written
-    onto the payment and a payment SPLIT by a partial settlement, are now REFUSED before this is
-    ever called, because each would leave a durable artefact (a withheld-tax figure, an orphan
-    Approved balance) on a record this puts back to `Approved`. If you add a field to this function,
-    check that guard: the two live and die together.
-
-    ⚠️ THE AMOUNT IS NOT RESTORED, AND THIS IS ONLY SAFE FOR AN ALLOCATION LEG (RULING O). The
-    allocation path never changed it (`rewrite_amount_to_bank=False`), so there is nothing to put
-    back. But `reverse_allocation` accepts ANY `Outflow Row Match` record, including one written by
-    the ordinary 1:1 `settle_row`, which DOES rewrite the payment's `amount` to the bank's figure
-    (slice X1) when the two differ within the settle window. The two are indistinguishable after the
-    fact -- both leave `leg.target_amount == payment.amount` -- so reversing a `settle_row` leg with
-    a corrected amount leaves the CORRECTED figure in place; it is not put back to whatever the
-    payment held before that settle. Deliberately not fixed by adding a fifth reversal field to carry
-    a pre-settle amount: Task 2's schema is shipped and migrated, and a second migration to serve a
-    rare manual repair is not worth it. The pre-settle figure survives only in the payment's own
-    `Version` log (`track_changes: 1`, `ignore_version=False` on every settle save) -- see
-    `reverse_allocation`'s `reversed_amount` in its response, which is the pointer a human needs to
-    go compare there.
-    """
-    current = frappe.db.get_value(
-        PAYMENT_DOCTYPE, name, ["status", "utr"], as_dict=True, for_update=True
-    )
-    if not current:
-        frappe.throw(f"Payment '{name}' not found.", title="Not found")
-    if (current.get("status") or "").strip() != "Paid":
-        frappe.throw(
-            f"{name} is '{current.get('status')}', not Paid. Somebody has already changed it.",
-            title="Changed elsewhere",
-        )
-    stored = (current.get("utr") or "").strip()
-    if stored and stored not in {(r or "").strip() for r in expected_references}:
-        frappe.throw(
-            f"{name} carries reference '{stored}', not this transfer's. Somebody has re-pointed "
-            f"it, so this allocation cannot be safely reversed.",
-            title="Changed elsewhere",
-        )
-
-    doc = frappe.get_doc(PAYMENT_DOCTYPE, name)
-    doc.status = "Approved"
-    doc.utr = None
-    doc.payment_date = None
-    doc.flags.from_outflow_import = True
-    with _outflow_import_write():
-        doc.save(ignore_permissions=True, ignore_version=False)
 
 
 def _parse_targets(targets) -> list:
