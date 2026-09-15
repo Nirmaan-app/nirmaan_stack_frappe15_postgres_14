@@ -1,18 +1,26 @@
 /**
- * Totals for the Payment TDS Deduction ledger — Gross, TDS Withheld, Net Paid, and the count.
+ * The Payment TDS Deduction ledger's summary strip — TDS Withheld and the deduction count.
  *
- * The figures come from the backend aggregate pass, so they describe the WHOLE filtered set, not
- * the visible page. Net is derived here rather than aggregated: there is no `net` column to sum
- * (see `services/payment_tds.py` — once a deduction exists, `Project Payments.amount` IS the net),
- * and `sum(gross) - sum(tds)` is exactly the same number.
+ * ⚠️ DELIBERATELY ONE SLIM ROW (owner ruling 2026-09-12). It was a three-tile card carrying Gross
+ * Amount, TDS Withheld and Net Paid at `text-2xl`, plus a two-line footnote; inside the Reports hub
+ * that pushed the table itself below the fold. Gross and Net are GONE from the screen, not merely
+ * hidden — the ledger's own Gross and Net Paid columns still carry them per row, so nothing is
+ * unreachable. Do not restore the tiles without the same ruling.
+ *
+ * The figure comes from the backend aggregate pass, so it describes the WHOLE filtered set, not the
+ * visible page. `sum_of_gross_amount` still arrives in the payload (the aggregates config is
+ * untouched) and is simply not rendered.
  */
 
-import React from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { TailSpin } from "react-loader-spinner";
 import { ColumnFiltersState } from "@tanstack/react-table";
-import { Percent } from "lucide-react";
+import { FileText, Info } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { ChallanListDialog } from "./ChallanListDialog";
 
 interface PaymentTDSSummaryCardProps {
     aggregates: {
@@ -25,6 +33,13 @@ interface PaymentTDSSummaryCardProps {
     searchTerm: string;
 }
 
+/** ⚠️ The gap this explains is real: `Service Requests.total_tds` counts PAID payments only, while
+ *  this ledger holds every recorded deduction from `Approved` onwards. The two totals are MEANT to
+ *  differ, and with no note at all that reads as a bug — so it survives the compaction as a
+ *  tooltip rather than the paragraph it used to be. */
+const SCOPE_NOTE =
+    "Includes every recorded deduction, including those on payments not yet marked Paid — so this total can run ahead of the TDS shown on a Service Request.";
+
 const AppliedFiltersDisplay: React.FC<{
     filters: ColumnFiltersState;
     search: string;
@@ -32,7 +47,7 @@ const AppliedFiltersDisplay: React.FC<{
     if (filters.length === 0 && !search) return null;
 
     return (
-        <div className="flex flex-wrap gap-1.5 items-center mt-2">
+        <div className="flex flex-wrap gap-1.5 items-center">
             <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                 Filtered:
             </span>
@@ -60,129 +75,59 @@ export const PaymentTDSSummaryCard: React.FC<PaymentTDSSummaryCardProps> = ({
     columnFilters,
     searchTerm,
 }) => {
-    const gross = aggregates?.sum_of_gross_amount || 0;
     const tds = aggregates?.sum_of_tds_amount || 0;
-    const net = gross - tds;
+    const [isChallanListOpen, setIsChallanListOpen] = useState(false);
 
     if (isAggregatesLoading) {
         return (
-            <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
-                <CardContent className="p-4 sm:p-6">
-                    <div className="flex justify-center items-center h-10 sm:h-16">
-                        <TailSpin height={24} width={24} color="#0d9488" />
-                    </div>
+            <Card className="border-0 shadow-sm bg-slate-50/60 dark:bg-slate-900/40">
+                <CardContent className="flex items-center justify-center px-4 py-2 h-9">
+                    <TailSpin height={16} width={16} color="#0d9488" />
                 </CardContent>
             </Card>
         );
     }
 
     return (
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
-            {/* ===== COMPACT MOBILE VIEW ===== */}
-            <div className="sm:hidden">
-                <CardContent className="p-3">
-                    {aggregates ? (
-                        <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-rose-500 to-red-500 flex items-center justify-center">
-                                <Percent className="h-5 w-5 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-baseline gap-2">
-                                    <span className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums">
-                                        {formatToRoundedIndianRupee(tds)}
-                                    </span>
-                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
-                                        TDS Withheld
-                                    </span>
-                                </div>
-                                <div className="flex items-baseline gap-2 mt-0.5">
-                                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 tabular-nums">
-                                        {formatToRoundedIndianRupee(gross)}
-                                    </span>
-                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
-                                        Gross
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex-shrink-0 text-right">
-                                <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md tabular-nums">
-                                    {totalCount}
-                                </span>
-                                <span className="block text-[9px] text-slate-400 dark:text-slate-500 mt-0.5">
-                                    deductions
-                                </span>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="text-xs text-center text-muted-foreground py-2">No data</div>
-                    )}
-                </CardContent>
-            </div>
-
-            {/* ===== EXPANDED DESKTOP VIEW ===== */}
-            <div className="hidden sm:block">
-                <CardHeader className="pb-2 pt-4 px-5">
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
-                            TDS Summary
-                        </CardTitle>
-                        <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
-                            <Percent className="h-3.5 w-3.5" />
-                            <span className="uppercase tracking-wider">
-                                {totalCount} Deduction{totalCount !== 1 ? "s" : ""}
+        <Card className="border-0 shadow-sm bg-slate-50/60 dark:bg-slate-900/40">
+            <CardContent className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
+                {aggregates ? (
+                    <>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-[11px] font-medium text-rose-600/80 dark:text-rose-400/80 uppercase tracking-wide">
+                                TDS Withheld
+                            </span>
+                            <span className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums leading-none">
+                                {formatToRoundedIndianRupee(tds)}
                             </span>
                         </div>
-                    </div>
-                    <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
-                </CardHeader>
-                <CardContent className="px-5 pb-4 pt-0">
-                    {aggregates ? (
-                        <>
-                            <div className="grid grid-cols-3 gap-4">
-                                {/* Gross — the amount BEFORE tax was withheld */}
-                                <div className="bg-gradient-to-br from-sky-50 to-blue-50/50 dark:from-sky-950/40 dark:to-blue-950/30 rounded-lg p-4 border border-sky-100 dark:border-sky-900/50">
-                                    <dt className="text-xs font-medium text-sky-600/80 dark:text-sky-400/80 uppercase tracking-wide mb-1">
-                                        Gross Amount
-                                    </dt>
-                                    <dd className="text-2xl font-bold text-sky-700 dark:text-sky-400 tabular-nums">
-                                        {formatToRoundedIndianRupee(gross)}
-                                    </dd>
-                                </div>
-                                {/* TDS — the point of the screen */}
-                                <div className="bg-gradient-to-br from-rose-50 to-red-50/50 dark:from-rose-950/40 dark:to-red-950/30 rounded-lg p-4 border border-rose-100 dark:border-rose-900/50">
-                                    <dt className="text-xs font-medium text-rose-600/80 dark:text-rose-400/80 uppercase tracking-wide mb-1">
-                                        TDS Withheld
-                                    </dt>
-                                    <dd className="text-2xl font-bold text-red-700 dark:text-red-400 tabular-nums">
-                                        {formatToRoundedIndianRupee(tds)}
-                                    </dd>
-                                </div>
-                                {/* Net — what actually left the bank */}
-                                <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-100 dark:border-emerald-900/50">
-                                    <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1">
-                                        Net Paid
-                                    </dt>
-                                    <dd className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                                        {formatToRoundedIndianRupee(net)}
-                                    </dd>
-                                </div>
-                            </div>
-                            {/* ⚠️ The gap this line explains is real: `Service Requests.total_tds`
-                                counts PAID payments only, while this ledger holds every recorded
-                                deduction from `Approved` onwards. The two totals are meant to
-                                differ, and without this note that reads as a bug. */}
-                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">
-                                Includes every recorded deduction, including those on payments not yet
-                                marked Paid — so this total can run ahead of the TDS shown on a Service Request.
-                            </p>
-                        </>
-                    ) : (
-                        <div className="text-sm text-center text-muted-foreground py-6">
-                            No summary data available.
-                        </div>
-                    )}
-                </CardContent>
-            </div>
+                        <span
+                            className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 tabular-nums"
+                            title={SCOPE_NOTE}
+                        >
+                            {totalCount} deduction{totalCount !== 1 ? "s" : ""}
+                            <Info className="h-3 w-3" />
+                        </span>
+                        <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                    </>
+                ) : (
+                    <span className="text-xs text-muted-foreground">No summary data available.</span>
+                )}
+
+                {/* `ml-auto` parks this at the right end of the strip whatever sits to its left —
+                    the filter chips grow and shrink, so a fixed position would drift. */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-7 text-xs"
+                    onClick={() => setIsChallanListOpen(true)}
+                >
+                    <FileText className="mr-1.5 h-3.5 w-3.5" />
+                    View Challans
+                </Button>
+            </CardContent>
+
+            <ChallanListDialog open={isChallanListOpen} onOpenChange={setIsChallanListOpen} />
         </Card>
     );
 };

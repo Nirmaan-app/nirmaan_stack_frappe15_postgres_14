@@ -1,0 +1,170 @@
+{
+ "actions": [],
+ "autoname": "TDC-.YY.-.#####",
+ "creation": "2026-09-11 18:41:25.522057",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "challan_section",
+  "financial_year",
+  "amount",
+  "date_of_deposit",
+  "tender_date",
+  "column_break_challan",
+  "mode_of_payment",
+  "bank_name",
+  "bank_reference_number",
+  "bsr_code",
+  "challan_no",
+  "attachment_section",
+  "challan_attachment",
+  "column_break_attachment",
+  "reconciled_amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "challan_section",
+   "fieldtype": "Section Break",
+   "label": "Challan Details"
+  },
+  {
+   "description": "As printed on the challan, format YYYY-YY (e.g. 2025-26). Entered, not derived from Date of Deposit: a challan deposited in April can still belong to the previous year.",
+   "fieldname": "financial_year",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Financial Year",
+   "reqd": 1
+  },
+  {
+   "description": "Part of the duplicate key (Amount + Bank Reference Number + BSR Code + Challan No).",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_of_deposit",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date of Deposit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tender_date",
+   "fieldtype": "Date",
+   "label": "Tender Date"
+  },
+  {
+   "fieldname": "column_break_challan",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Select",
+   "label": "Mode of Payment",
+   "options": "\nNet Banking\nDebit Card\nRTGS/NEFT\nPay at Bank Counter\nPayment Gateway"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "description": "Part of the duplicate key. Stored trimmed and upper-cased so the duplicate check matches regardless of how it was typed.",
+   "fieldname": "bank_reference_number",
+   "fieldtype": "Data",
+   "label": "Bank Reference Number",
+   "reqd": 1
+  },
+  {
+   "description": "Part of the duplicate key. Data, not Int - a BSR code can start with 0.",
+   "fieldname": "bsr_code",
+   "fieldtype": "Data",
+   "label": "BSR Code",
+   "reqd": 1
+  },
+  {
+   "description": "Part of the duplicate key. Data, not Int - the leading zeros (e.g. 00069) are part of the number.",
+   "fieldname": "challan_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Challan No",
+   "reqd": 1
+  },
+  {
+   "fieldname": "attachment_section",
+   "fieldtype": "Section Break",
+   "label": "Attachment & Reconciliation"
+  },
+  {
+   "fieldname": "challan_attachment",
+   "fieldtype": "Attach",
+   "label": "Challan Attachment",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_attachment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "How much of this challan's Amount has been paid out against TDS deductions. SERVER-OWNED: recomputed by the Pay TDS action as the SUM of the tds_amount of every Payment TDS Deduction linked to this challan -- never incremented by a delta, so any later repair pass lands on the same number. The unreconciled balance is Amount minus this: derived, never stored.",
+   "fieldname": "reconciled_amount",
+   "fieldtype": "Currency",
+   "label": "Reconciled Amount",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-12 09:56:08.862625",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "TDS Challan Attachment",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -3,12 +3,13 @@ import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { PMO_PROJECT_REPORTS, REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
+import { DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
 import {
     MATERIAL_PROCUREMENT_PROFILES,
+    PAYMENT_TDS_ACCESS,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
     isProcurementProfile,
@@ -23,6 +24,9 @@ const CustomerReports = React.lazy(() => import('./components/CustomerReports'))
 const DCMIRReports = React.lazy(() => import('./components/DCMIRReports'));
 const ITMDNDCQuantityReport = React.lazy(() => import('./components/ITMDNDCQuantityReport'));
 const ITMDispatchedReport = React.lazy(() => import('./components/ITMDispatchedReport'));
+// Tax Deducted at Source. The page lives outside ./components because it predates this tab --
+// it was a sidebar route of its own until the ledger moved in here.
+const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductions/PaymentTDSDeductions'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -65,6 +69,10 @@ const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
     { label: 'MIR Report', value: 'MIR Report' },
 ];
 
+const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] = [
+    { label: 'TDS Deduction', value: 'TDS Deduction' },
+];
+
 export default function ReportsContainer() {
     const { role } = useUserData(); // Get current user's role
     const selectedReportType = useReportStore((state) => state.selectedReportType);
@@ -80,7 +88,7 @@ export default function ReportsContainer() {
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
-        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS) return urlTab;
+        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS || urlTab === REPORTS_TABS.PAYMENT_TDS) return urlTab;
         return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
 
@@ -178,6 +186,16 @@ export default function ReportsContainer() {
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
+        // ⚠️ READS THE SHARED CONSTANT rather than listing profiles inline, unlike its
+        // neighbours above. `PAYMENT_TDS_ACCESS` is NARROWER than every other tab here and has
+        // to be: the `Payment TDS Deduction` doctype grants read to System Manager / Nirmaan
+        // Accountant / Nirmaan Accountant Lead only, so PMO, Project Lead and the procurement
+        // profiles would land on a PermissionError. The same constant drives the report-type
+        // default and the legacy-route redirect — an inline second copy drifts the day one of
+        // them is edited, and it fails quietly: a visible tab that cannot load.
+        if (PAYMENT_TDS_ACCESS.includes(role)) {
+            availableTabs.push({ label: "Payment TDS Deduction", value: REPORTS_TABS.PAYMENT_TDS });
+        }
         return availableTabs;
     }, [role]);
 
@@ -245,6 +263,8 @@ export default function ReportsContainer() {
                 return dcmirReportOptions;
             }
             return [];
+        } else if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
+            return PAYMENT_TDS_ACCESS.includes(role) ? paymentTdsReportOptions : [];
         }
         return [];
     }, [activeTab, role, canSee2BReconcileReport]);
@@ -343,6 +363,7 @@ export default function ReportsContainer() {
             return <POReports />;
         }
         if (activeTab === REPORTS_TABS.SR) return <SRReports />;
+        if (activeTab === REPORTS_TABS.PAYMENT_TDS) return <PaymentTDSDeductions />;
         if (activeTab === REPORTS_TABS.DCS_MIRS) {
             return (
                 <DCMIRReports

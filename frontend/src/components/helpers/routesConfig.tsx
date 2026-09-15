@@ -26,7 +26,6 @@ import { ProcurementRequests } from "@/pages/ProcurementRequests/procurement-req
 import { RenderProcurementRequest } from "@/pages/ProcurementRequests/render-procurement-requests";
 import { RenderProjectPaymentsComponent } from "@/pages/ProjectPayments/RenderProjectPaymentsComponent";
 import OrderPaymentSummary from "@/pages/ProjectPayments/order-payment-summary";
-import PaymentTDSDeductions from "@/pages/PaymentTDSDeductions/PaymentTDSDeductions";
 import { RenderSentBackComponent } from "@/pages/Sent Back Requests/RenderSentBackComponent";
 import { RenderSRComponent } from "@/pages/ServiceRequests/RenderSRComponent";
 import { ServiceRequestsTabs } from "@/pages/ServiceRequests/ServiceRequestsTabs";
@@ -61,7 +60,6 @@ import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewP
 import {
   BOQ_TEMPLATES_ACCESS,
   CUSTOMERS_ACCESS,
-  PAYMENT_TDS_ACCESS,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
 } from "@/constants/roles";
@@ -597,18 +595,15 @@ export const appRoutes: RouteObject[] = [
             ]
           },
           // --- Payment TDS Deduction (Tax Deducted at Source) ---
+          // The ledger MOVED into the Reports hub (Reports > "Payment TDS Deduction" tab), so this
+          // legacy path is now a redirect -- old links and bookmarks still land on the ledger.
+          // No RoleRoute: the tab itself is gated by PAYMENT_TDS_ACCESS inside ReportsContainer,
+          // and a guard here would only decide who gets bounced vs who sees "Access Denied".
           // ⚠️ NOT the `/tds-repository` / `/tds-approval` family above, which is the TECHNICAL
           // DATA SHEET module. The path is spelled out in full so the two never collide.
           {
-            element: <RoleRoute allowed={PAYMENT_TDS_ACCESS} what="Payment TDS Deduction" />,
-            children: [
-              {
-                path: "payment-tds-deductions",
-                children: [
-                  { index: true, element: <PaymentTDSDeductions /> },
-                ],
-              },
-            ],
+            path: "payment-tds-deductions",
+            element: <Navigate to="/reports?tab=payment_tds" replace />,
           },
           // --- Project Payments ---
           {

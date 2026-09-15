@@ -2,7 +2,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import nowdate
+from frappe.utils import flt, nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
@@ -245,6 +245,27 @@ def on_update(doc, method):
         return
 
     old_doc = doc.get_doc_before_save()
+
+    # SR tax already withheld — restate it when the AMOUNT is edited.
+    #
+    # ⚠️ IT MUST SIT ABOVE THE STATUS GUARD BELOW, WHICH RETURNS. An amount edit changes no status,
+    # so everything past that line is unreachable on the one event this needs to catch. Same shape
+    # as `after_insert`, where the deduction call sits above its own returning branch.
+    #
+    # Once a deduction exists, `amount` IS the net figure, so an edit to it is an edit to the net:
+    # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate, and
+    # recomputes any challan the tax was paid under. A payment with no deduction is untouched.
+    #
+    # ⚠️ ONLY WHEN A HUMAN EDITED THE AMOUNT. `on_update` cannot tell who moved the number, so the
+    # machine paths -- which flag themselves on the way in -- are excluded by name. The edit dialog
+    # writes a plain `updateDoc` and carries no flag, which is what makes this seam work.
+    if (
+        old_doc
+        and flt(old_doc.amount) != flt(doc.amount)
+        and not any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS)
+    ):
+        payment_tds.restate_deduction_on_amount_change(doc)
+
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
 
@@ -407,7 +428,26 @@ def on_trash(doc, method):
     # link-existence check AFTER `on_trash`. Left standing, that Link would refuse the delete
     # outright — the payment would simply become undeletable, with the error naming a doctype
     # most people have never opened.
+    #
+    # ⚠️ CAPTURE THE CHALLAN(S) BEFORE THE ROWS GO. A challan's `reconciled_amount` is the SUM of
+    # the deductions pointing at it, and this raw delete fires no hooks -- so without the recompute
+    # below the challan keeps counting tax paid against a row that no longer exists. Measured on
+    # localhost: a challan still reading Rs 150 used with ZERO deductions behind it, and therefore
+    # Rs 150 short of usable balance forever.
+    challans = frappe.db.sql_list(
+        """
+        SELECT DISTINCT tds_challan FROM "tabPayment TDS Deduction"
+        WHERE project_payment = %s AND tds_challan IS NOT NULL
+        """,
+        (doc.name,),
+    )
+
     frappe.db.delete("Payment TDS Deduction", {"project_payment": doc.name})
+
+    for challan in challans:
+        # RE-DERIVED FROM WHAT REMAINS, never decremented by the deleted figure: a `-=` would be a
+        # second arithmetic path that has to agree with the pay path forever.
+        payment_tds.recompute_challan_reconciled(challan)
 
     # Vendor credit recalculation on payment deletion
     if doc.document_type == "Procurement Orders":
