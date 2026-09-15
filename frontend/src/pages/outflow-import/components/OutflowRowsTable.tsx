@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Filter, List, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import {
     type SettlementLink,
     type SortState,
 } from "../outflowTableModel";
+import { UNRECONCILE_CASHBOOK_SENTENCE, unreconcileAffordance } from "../unreconcileView";
 
 interface Props {
     rows: OutflowImportRow[];
@@ -82,6 +83,13 @@ interface Props {
      * re-renders every row.
      */
     actionColumn?: TableActionColumn;
+    /**
+     * Open the Unreconcile dialog for a Settled line (#1275). PRESENCE IS THE GATE: the page passes it
+     * only for the undo roles, so a plain Accountant sees neither the button nor the Cashbook sentence.
+     *
+     * ⚠️ PASS A STABLE CALLBACK (`useCallback`). Every memoized row receives it.
+     */
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }
 
 export interface TableActionColumn {
@@ -117,6 +125,7 @@ export const OutflowRowsTable = ({
     onToggleAll,
     onOpenDecision,
     actionColumn,
+    onUnreconcile,
 }: Props) => {
     const columns = useMemo(
         () => OUTFLOW_COLUMNS.filter((c) => !hiddenColumns.has(c.id)),
@@ -191,6 +200,7 @@ export const OutflowRowsTable = ({
                             onToggleRow={onToggleRow}
                             onOpenDecision={onOpenDecision}
                             actionColumn={actionColumn}
+                            onUnreconcile={onUnreconcile}
                         />
                     ))}
                 </tbody>
@@ -469,6 +479,7 @@ interface RowProps {
     onToggleRow: (name: string) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
     actionColumn?: TableActionColumn;
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }
 
 const Row = memo(function Row({
@@ -483,6 +494,7 @@ const Row = memo(function Row({
     onToggleRow,
     onOpenDecision,
     actionColumn,
+    onUnreconcile,
 }: RowProps) {
     return (
         <tr className={`border-t ${selected ? "bg-primary/5" : "hover:bg-muted/40"}`}>
@@ -514,6 +526,7 @@ const Row = memo(function Row({
                         decided={decided}
                         origin={origin}
                         onOpenDecision={onOpenDecision}
+                        onUnreconcile={onUnreconcile}
                     />
                 </td>
             ))}
@@ -529,6 +542,7 @@ const Cell = ({
     decided,
     origin,
     onOpenDecision,
+    onUnreconcile,
 }: {
     row: OutflowImportRow;
     column: OutflowColumn;
@@ -536,6 +550,7 @@ const Cell = ({
     decided: boolean;
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }) => {
     switch (column.id) {
         case "added_on":
@@ -625,6 +640,7 @@ const Cell = ({
                     decided={decided}
                     origin={origin}
                     onOpenDecision={onOpenDecision}
+                    onUnreconcile={onUnreconcile}
                 />
             );
 
@@ -670,11 +686,13 @@ const OutcomeButton = ({
     decided,
     origin,
     onOpenDecision,
+    onUnreconcile,
 }: {
     row: OutflowImportRow;
     decided: boolean;
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }) => {
     // ⚠️ READ THE SET, never re-spell it. This was two string literals, the one place in the
     // client that duplicated the terminal vocabulary -- so a change to the module could not reach
@@ -688,6 +706,8 @@ const OutcomeButton = ({
     if (terminal) {
         // #1273: a hand skip says who and when, under the reason they typed.
         const byHand = skippedByHandLine(row);
+        // #1275: a Settled line gets Unreconcile below its record links; a Cashbook one says why not.
+        const undo = unreconcileAffordance(row, Boolean(onUnreconcile));
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
                 <span className="block truncate text-xs text-muted-foreground" title={note}>
@@ -701,6 +721,23 @@ const OutcomeButton = ({
                 {links.map((link) => (
                     <RecordLink key={`${link.href}-${link.label}`} link={link} />
                 ))}
+                {undo === "button" && onUnreconcile && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-xs"
+                        onClick={() => onUnreconcile(row)}
+                    >
+                        <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+                        Unreconcile
+                    </Button>
+                )}
+                {undo === "cashbook" && (
+                    <span className="block text-[11px] text-muted-foreground">
+                        {UNRECONCILE_CASHBOOK_SENTENCE}
+                    </span>
+                )}
             </div>
         );
     }

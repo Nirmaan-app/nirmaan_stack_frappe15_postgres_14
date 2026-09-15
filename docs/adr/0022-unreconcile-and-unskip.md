@@ -6,10 +6,11 @@ Date: 2026-09-15
 
 **Accepted** (owner grilling session 2026-09-15, Q1–Q19; spec #1270). Being built in slices; this
 record grows with them. Built so far: the one decision module and write path (#1271), one-line
-matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), and **Unskip (#1274)**. Still to
-come: Unreconcile for every settle path, import-created records, part-payment un-split, Confirm by hand.
+matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), and **Unreconcile for
+Project Payments (#1275)**. Still to come: existing expenses, import-created records, part-payment un-split,
+the post-write recomputes, Confirm by hand.
 
-As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*.
+As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*.
 Approved mockups: https://claude.ai/artifact/K6vEJXGoALunzfdqTfrVVt
 
 ## Context
@@ -34,7 +35,7 @@ Recorded so later work does not bring "no undo" back by mistake.
 
 | Ruling | Where | What replaces it |
 |---|---|---|
-| **Q9 — no undo of a settle from inside the import** | Bulk Import Outflow owner rulings; domain doc | Unreconcile, per record or Reverse all, all-or-nothing |
+| **Q9 — no undo of a settle from inside the import** | Bulk Import Outflow owner rulings; domain doc | **reversed by #1275, for Project Payments**: Unreconcile, per record or Reverse all, all-or-nothing |
 | **AR3 — an import-created inflow cannot be undone** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | an untouched import-created record is deleted by Unreconcile |
 | **R6 — `SHOW_SKIP_ROW` stays off; a line with nothing to link has no manual terminal state** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | **reversed by #1273**: the "Nothing to link?" Skip box |
 | **The 2026-08-10 hidden-skip ruling** (`DecisionDialog.tsx`, "hidden, not deleted") | owner ruling, 2026-08-10 | **reversed by #1273**: `SHOW_SKIP_ROW` is deleted |
@@ -82,6 +83,25 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
 - A released line's duplicate claim goes with it: a claim is only read off a Skipped line.
 - The Skipped popup shows an Unskip column to the undo roles: live for a hand skip, disabled with the
   cause in words for every other line; the result notice is built from the re-check's answer.
+
+### Unreconcile a Project Payments line (Q4, Q6, Q10, Q13, Q18) — built at #1275
+
+- Two endpoints, undo access: **`get_unreconcile_plan(row)`** (read only — each Settled leg's verdict, its
+  "what happens" sentence or its refusal) and **`unreconcile_row(row, legs | "all", reason)`** (the one write;
+  `reverse_allocation` wraps it). The write re-reads every fact under its locks; the plan is never trusted.
+- Covers a confirmed suggestion, a hand Link and a Split: each payment goes `Paid -> Approved` with UTR and
+  payment date cleared, each leg is stamped Reversed (kept, ADR-0020 D3), and the line is re-derived — open
+  again, keeping its previous suggestion — or Partially Allocated when legs remain.
+- **All or nothing:** one refused leg in a Reverse all writes nothing and returns that leg's sentence; the
+  screen turns Reverse all off in advance with "Reverse all is off because one record can't be undone.
+  Nothing changes unless every record can be undone."
+- **Cashbook** is refused by the decision module first ("Cashbook rows can't be unreconciled yet."), and the
+  table shows that sentence instead of the button.
+- **Audit:** `Outflow Row Match` now tracks changes, so the reversed leg has a Version row beside the
+  payment's; the line gets a comment naming who, why and which records came off.
+- **TDS on Approved (owner ruling):** putting a Service Request payment back to Approved may withhold TDS and
+  net its amount. That is left as it is; the response reports `amount_after` and the notice states the new
+  figure. Recorded under Known limits in the domain doc.
 
 ## Consequences
 

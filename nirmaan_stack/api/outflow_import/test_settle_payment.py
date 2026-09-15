@@ -276,6 +276,16 @@ class PaymentSettlementFixture(unittest.TestCase):
         )
 
     def tearDown(self):
+        # #1275: a reversal saves its match record through the document layer (a Version row, the
+        # doctype tracks changes) and comments on the line. Purged with what they describe.
+        legs = frappe.get_all(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]}, pluck="name")
+        if legs:
+            frappe.db.delete("Version", {"ref_doctype": MATCH_DOCTYPE, "docname": ["in", legs]})
+        rows = frappe.get_all(ROW_DOCTYPE, {"import_batch": ["in", self.batches]}, pluck="name")
+        if rows:
+            frappe.db.delete(
+                "Comment", {"reference_doctype": ROW_DOCTYPE, "reference_name": ["in", rows]}
+            )
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]})
         for name in self.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})

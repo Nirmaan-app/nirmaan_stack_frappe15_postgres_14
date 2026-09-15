@@ -26,7 +26,10 @@ import type {
     OutflowImportRow,
     OutflowImportSummary,
 } from "@/types/NirmaanStack/OutflowImportBatch";
-import { OPEN_ROW_STATUSES } from "./outflowImportStatus";
+import { useUserData } from "@/hooks/useUserData";
+import { OPEN_ROW_STATUSES, canUndoOutflow } from "./outflowImportStatus";
+import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } from "./unreconcileView";
+import { UnreconcileDialog } from "./components/UnreconcileDialog";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ExportButton } from "./components/ExportButton";
@@ -47,7 +50,6 @@ import {
 import {
     DEFAULT_SETTLE_MODE,
     chooseSettleEndpoint,
-    reversalNotice,
     type SettleMode,
 } from "./allocationView";
 import {
@@ -237,8 +239,15 @@ export const OutflowMasterPage = () => {
      * ⚠️ INLINE AND ON THE PAGE, NOT A TOAST and not in the dialog -- the toast rule is stated at
      * `exportError` above, and the dialog is closed by the time this is set. Cleared when the next
      * row is opened, so it can never describe a reversal the reviewer has moved on from.
+     *
+     * #1275: every undo -- the Unreconcile dialog and the decision dialog's "Already allocated"
+     * section -- ends here, worded by the pure `unreconcileNotice` from the server's response.
      */
-    const [reverseNotice, setReverseNotice] = useState<string | null>(null);
+    const [reverseNotice, setReverseNotice] = useState<UnreconcileNotice | null>(null);
+    /** The Settled line whose Unreconcile dialog is open (#1275), or `null`. */
+    const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
+    const { role, user_id } = useUserData();
+    const canUndo = canUndoOutflow(role, user_id);
     /**
      * The statement a just-finished import staged, waiting for its dialog to close.
      *
@@ -384,10 +393,6 @@ export const OutflowMasterPage = () => {
     // single tick on an untouched row always takes `settle_row`'s identical, stricter path.
     const { call: callAllocate } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.allocate_row"
-    );
-    // ⚠️ A REASON IS REQUIRED -- the endpoint throws without one, same standard `skip_row` holds.
-    const { call: callReverseAllocation } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.expenses.reverse_allocation"
     );
 
     /**
@@ -653,42 +658,27 @@ export const OutflowMasterPage = () => {
     );
 
     /**
-     * Undo one Settled leg of an allocation (Task 7, ADR-0020 fan-out). Shares `handleConfirmOne`'s
-     * error-handling shape: a refused reversal must surface the server's own sentence in the
-     * dialog's footer, not vanish.
+     * An Unreconcile landed (#1275) -- from a Settled line's dialog or from the decision dialog's
+     * "Already allocated" section. Both dialogs close, the notice says what came off (and any amount
+     * the save changed), and the page refetches. A refusal never reaches here: the panel shows it
+     * inline and stays open.
      */
-    const handleReverseAllocation = useCallback(
-        async (match: string, reason: string, targetName: string) => {
-            setBusy(true);
+    const handleUnreconciled = useCallback(
+        async (result: UnreconcileResult) => {
+            setUnreconcilingRow(null);
+            setOpenRow(null);
             setConfirmError(null);
-            setReverseNotice(null);
-            try {
-                const response: any = await callReverseAllocation({ match, reason });
-                setOpenRow(null);
-                // ⚠️ REVIEW F9 -- SAY THAT IT WORKED. Built from the RESPONSE, not from what was
-                // clicked: the server's `reversed_amount` / `allocated` / `remaining` are what
-                // actually happened, and the wording lives in the pure `reversalNotice` so both of
-                // its shapes are unit-testable. `targetName` comes from the leg the dialog was
-                // showing -- the response identifies the match record, not the payment, and a
-                // sentence about money is worth nothing without the record it names.
-                const message = response?.message ?? {};
-                setReverseNotice(
-                    reversalNotice({
-                        targetName,
-                        reversedAmount: Number(message.reversed_amount ?? 0),
-                        allocated: Number(message.allocated ?? 0),
-                        remaining: Number(message.remaining ?? 0),
-                    })
-                );
-                await refreshAll();
-            } catch (err: any) {
-                setConfirmError(describeFrappeError(err, "The reversal failed."));
-            } finally {
-                setBusy(false);
-            }
+            setReverseNotice(unreconcileNotice(result));
+            await refreshAll();
         },
-        [callReverseAllocation, refreshAll]
+        [refreshAll]
     );
+
+    /** Reference-stable: every memoized table row receives it. */
+    const handleOpenUnreconcile = useCallback((row: OutflowImportRow) => {
+        setReverseNotice(null);
+        setUnreconcilingRow(row);
+    }, []);
 
     const confirmOne = useCallback(async (confirmMismatch: boolean) => {
         if (!openRow) return;
@@ -1140,12 +1130,14 @@ export const OutflowMasterPage = () => {
 
             {/* ⚠️ REVIEW F9 -- THE ONE ACTION HERE THAT MOVES MONEY BACKWARDS NOW SAYS SO. Inline,
                 never a toast: this screen's standing convention (see `exportError`), and a reversal
-                is a fact somebody may have to quote later. The wording is the pure `reversalNotice`;
+                is a fact somebody may have to quote later. The wording is the pure `unreconcileNotice`;
                 this only renders it. Dismissable, and cleared automatically when the next row is
                 opened. */}
             {reverseNotice && !showingApproved && (
                 <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                    <span className="flex-1">{reverseNotice}</span>
+                    <span className="flex-1">
+                        <b className="font-semibold">{reverseNotice.title}</b> {reverseNotice.body}
+                    </span>
                     <button
                         type="button"
                         aria-label="Dismiss"
@@ -1247,6 +1239,8 @@ export const OutflowMasterPage = () => {
                         onFilter={table.setFilter}
                         onToggleRow={toggleRow}
                         onToggleAll={toggleAll}
+                        // #1275: presence is the gate -- a plain Accountant gets no Unreconcile.
+                        onUnreconcile={canUndo ? handleOpenUnreconcile : undefined}
                         // ⚠️ THE NOTICE IS CLEARED HERE, NOT ON A TIMER (review F9). Opening the
                         // next row is the moment the previous reversal stops being what the
                         // reviewer is looking at, so a sentence about it must not still be on
@@ -1346,6 +1340,12 @@ export const OutflowMasterPage = () => {
                 onChanged={refreshAll}
             />
 
+            <UnreconcileDialog
+                row={unreconcilingRow}
+                onClose={() => setUnreconcilingRow(null)}
+                onDone={handleUnreconciled}
+            />
+
             <DecisionDialog
                 row={openRow}
                 decision={openRow ? decisions.get(openRow.name) : undefined}
@@ -1355,7 +1355,7 @@ export const OutflowMasterPage = () => {
                 onConfirm={handleConfirmOne}
                 onPartialSettle={handlePartialSettle}
                 onCheckPartialSettle={handleCheckPartialSettle}
-                onReverseAllocation={handleReverseAllocation}
+                onUnreconciled={handleUnreconciled}
                 onSkip={async (reason) => {
                     if (openRow) await handleSkip(openRow, reason);
                 }}

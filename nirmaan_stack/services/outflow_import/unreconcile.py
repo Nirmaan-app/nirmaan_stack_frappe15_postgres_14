@@ -10,12 +10,14 @@ changing -- a plan shown on screen earlier is never trusted.
 
 TODAY IT KNOWS TWO VERDICTS: `revert_payment` and `refused`. The parent spec adds `revert_expense`,
 `delete_created` and `unsplit_payment` in later slices; each is a new branch HERE, never a check at
-a call site.
+a call site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile dialog shows
+beside the record -- so the screen never has to know what a verdict does to its target.
 
 ⚠️ EVERY REFUSAL SENTENCE IS THE ONE `expenses.reverse_allocation` PRINTED BEFORE THIS MODULE
 EXISTED, BYTE FOR BYTE, AND IN THE SAME ORDER. A leg can be wrong in several ways at once and the
 sentence names only the first, so reordering the checks changes what a reviewer is told. Both are
-pinned by `test_unreconcile.py`.
+pinned by `test_unreconcile.py`. The one refusal added since, CASHBOOK (#1275), is asked FIRST: it
+is a fact about the whole line, so every leg of a Cashbook line reads the same sentence.
 
 WHY EACH REFUSAL EXISTS (moved here from `_guard_leg_is_plainly_reversible`, review F5). Reverting a
 payment clears status / `utr` / `payment_date` and NOTHING ELSE, so a leg that carries more than a
@@ -44,6 +46,7 @@ from dataclasses import dataclass
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
 
 VERDICT_REVERT_PAYMENT = "revert_payment"
 VERDICT_REFUSED = "refused"
@@ -51,10 +54,20 @@ VERDICT_REFUSED = "refused"
 # Where a refused leg is repaired. `None` on a refusal means there is nothing to repair.
 FIX_ON_PAYMENTS_SCREEN = "the Payments screen"
 
+# ⚠️ THE SCREEN SHOWS THIS SENTENCE VERBATIM in the table's Outcome cell (`unreconcileView.ts`,
+# parent #1270 story 27), so the server's refusal and the table can never say two different things.
+CASHBOOK_REFUSAL = "Cashbook rows can't be unreconciled yet."
+
+# What each verdict does to its target, as the dialog says it. ⚠️ `_revert_payment` in the api layer
+# clears exactly these fields; change one and change the other.
+WHAT_HAPPENS_REVERT_PAYMENT = "Goes back to Approved. Its UTR and payment date are cleared."
+
 _PAID = "Paid"
 
 __all__ = [
+    "CASHBOOK_REFUSAL",
     "FIX_ON_PAYMENTS_SCREEN",
+    "WHAT_HAPPENS_REVERT_PAYMENT",
     "VERDICT_REFUSED",
     "VERDICT_REVERT_PAYMENT",
     "LegFacts",
@@ -88,6 +101,8 @@ class LegFacts:
     split_balance: str | None = None
     # Every value a settle of this leg's import line may have written as the reference.
     settlement_references: tuple = ()
+    # The IMPORT's source (`Outflow Import Batch.source`), not the row's denormalised copy.
+    source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +112,8 @@ class LegVerdict:
     reason: str | None = None
     title: str | None = None
     fix_at: str | None = None
+    # The dialog's one-line "what happens" sentence. `None` on a refusal, which says `reason` instead.
+    what_happens: str | None = None
 
 
 def _refused(facts: LegFacts, title: str, reason: str, fix_at: str | None = None) -> LegVerdict:
@@ -109,6 +126,10 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
     """The one verdict for one leg. See the module docstring for why each refusal exists."""
     name = facts.target_name
 
+    # Cashbook is the one source the matcher never runs over, and the one Unreconcile does not reach
+    # yet (#1270 Q13). The same predicate Skip and Unskip refuse it with.
+    if not source_runs_the_matcher((facts.source or "").strip()):
+        return _refused(facts, "Cashbook line", CASHBOOK_REFUSAL)
     if facts.match_kind != MATCH_SETTLED:
         return _refused(
             facts,
@@ -177,7 +198,11 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
             FIX_ON_PAYMENTS_SCREEN,
         )
 
-    return LegVerdict(leg=facts.leg, verdict=VERDICT_REVERT_PAYMENT)
+    return LegVerdict(
+        leg=facts.leg,
+        verdict=VERDICT_REVERT_PAYMENT,
+        what_happens=WHAT_HAPPENS_REVERT_PAYMENT,
+    )
 
 
 def first_refusal(verdicts) -> LegVerdict | None:

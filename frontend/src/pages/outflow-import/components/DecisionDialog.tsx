@@ -51,6 +51,8 @@ import {
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { ROW_PARTIALLY_ALLOCATED, canSkipByHand, canUndoOutflow } from "../outflowImportStatus";
 import { useUserData } from "@/hooks/useUserData";
+import type { UnreconcileResult } from "../unreconcileView";
+import { UnreconcilePanel } from "./UnreconcileDialog";
 import {
     INTENT_PART_PAYMENT,
     amountGapHint,
@@ -233,13 +235,11 @@ interface Props {
      */
     onCheckPartialSettle: (record: SettleableRecord) => Promise<boolean>;
     /**
-     * Undo one Settled leg of an allocation (Task 7, ADR-0020 fan-out). A reason is REQUIRED --
-     * `reverse_allocation` throws without one, the same standard `skip_row` already holds.
+     * An undo from the "Already allocated" section landed (#1275). The section is the shared
+     * `UnreconcilePanel`, which posts `unreconcile_row` itself and hands the response up, so the page
+     * can close this dialog, say what came off and refresh.
      */
-    // ⚠️ `targetName` RIDES ALONG (review F9). The response identifies the MATCH record, not the
-    // payment, and the page's success notice is a sentence about money that is worth nothing
-    // without the record it names. The dialog is the only side that has it.
-    onReverseAllocation: (match: string, reason: string, targetName: string) => Promise<void> | void;
+    onUnreconciled: (result: UnreconcileResult) => Promise<void> | void;
     onSkip: (reason: string) => Promise<void> | void;
     onRerun: () => Promise<void> | void;
     onClose: () => void;
@@ -279,7 +279,7 @@ export const DecisionDialog = ({
     onConfirm,
     onPartialSettle,
     onCheckPartialSettle,
-    onReverseAllocation,
+    onUnreconciled,
     onSkip,
     onRerun,
     onClose,
@@ -295,7 +295,6 @@ export const DecisionDialog = ({
     const [pickedRecords, setPickedRecords] = useState<SettleableRecord[]>([]);
     const picked = pickedRecords.length === 1 ? pickedRecords[0] : null;
     const [blocked, setBlocked] = useState<SettleBlock | null>(null);
-    const [reversingLeg, setReversingLeg] = useState<AllocatedLeg | null>(null);
 
     // ⚠️ FETCHED HERE, AT THE TOP, AND NOT INSIDE THE PICKER (slice N3). It used to have two
     // consumers -- the picker's row markers and the "Why the system suggests this" block, which
@@ -436,7 +435,6 @@ export const DecisionDialog = ({
     useEffect(() => {
         setPickedRecords([]);
         setBlocked(null);
-        setReversingLeg(null);
     }, [row?.name]);
 
     // Reference-stable, or the effect in `RecordPicker` that reports the selection would re-fire
@@ -450,18 +448,6 @@ export const DecisionDialog = ({
             onDismissError?.();
         },
         [onDismissError]
-    );
-
-    const handleReverseConfirm = useCallback(
-        async (reason: string) => {
-            if (!reversingLeg) return;
-            // Same shape as `AmountOutsideWindowDialog`'s `onPartialSettle` below: the parent
-            // catches and surfaces its own failure internally (see `handleReverseAllocation` in
-            // `OutflowMasterPage`), so this always closes the small confirm afterwards.
-            await onReverseAllocation(reversingLeg.name, reason, reversingLeg.target_name);
-            setReversingLeg(null);
-        },
-        [reversingLeg, onReverseAllocation]
     );
 
     /**
@@ -680,15 +666,26 @@ export const DecisionDialog = ({
                         `Partially Allocated` row already has money written against it; the reviewer
                         needs to see what is already settled BEFORE the picker offers what is left,
                         never the other way round. */}
-                    {isPartiallyAllocated && (
-                        <AlreadyAllocatedSection
-                            legs={allocatedLegs}
-                            loading={legsLoading}
-                            error={legsError ? describeFrappeError(legsError, "couldn't load") : null}
-                            onReverse={canUndoOutflow(role, user_id) ? setReversingLeg : undefined}
-                            busy={busy}
-                        />
-                    )}
+                    {/* ⚠️ #1275: THE UNDO ROLES GET THE SHARED UNRECONCILE LIST (per-record Reverse,
+                        one reason, Reverse all) -- the same surface as a Settled line's dialog. A
+                        plain Accountant, whom the plan endpoint refuses, keeps the read-only list. */}
+                    {isPartiallyAllocated &&
+                        (canUndoOutflow(role, user_id) ? (
+                            <div className="rounded-md border border-sky-600/30 bg-sky-50/40 px-3 py-2.5">
+                                <UnreconcilePanel
+                                    row={row.name}
+                                    heading="Already allocated"
+                                    disabled={busy}
+                                    onDone={onUnreconciled}
+                                />
+                            </div>
+                        ) : (
+                            <AlreadyAllocatedSection
+                                legs={allocatedLegs}
+                                loading={legsLoading}
+                                error={legsError ? describeFrappeError(legsError, "couldn't load") : null}
+                            />
+                        ))}
 
                     {/* ⚠️ ONE SECTION, ALWAYS OPEN. It replaced three cards -- one per ledger --
                         that made the reviewer say WHICH KIND of record this was before they were
@@ -916,12 +913,6 @@ export const DecisionDialog = ({
                 }}
             />
 
-            <ReverseAllocationDialog
-                leg={reversingLeg}
-                busy={busy}
-                onClose={() => setReversingLeg(null)}
-                onConfirm={handleReverseConfirm}
-            />
         </Dialog>
     );
 };
@@ -1270,16 +1261,13 @@ const SkipTransferBox = ({
  * `LinkPaymentSection`, so the reviewer sees what is already settled before the picker offers what
  * is left.
  *
- * ⚠️ ONLY A `Project Payments` LEG OFFERS `Reverse`. `reverse_allocation` throws on any other
- * doctype ("Only a Project Payments allocation can be reversed here") -- the button is WITHHELD
- * rather than offered and refused, the same discipline `allocate_row`'s payments-only scope holds.
+ * ⚠️ READ ONLY SINCE #1275. It is shown to a plain Accountant, who may not undo anything; the undo
+ * roles get the shared `UnreconcilePanel` in its place, which reads the server's plan.
  */
 const AlreadyAllocatedSection = ({
     legs,
     loading,
     error,
-    onReverse,
-    busy,
 }: {
     legs: AllocatedLeg[];
     /** ⚠️ REVIEW FIX 1 -- an explicit loading state, so an empty `legs` array while this is still
@@ -1288,12 +1276,6 @@ const AlreadyAllocatedSection = ({
     loading: boolean;
     /** The fetch's own refusal, already worded via `describeFrappeError`, or `null`. */
     error: string | null;
-    /**
-     * ⚠️ ABSENT FOR A PLAIN ACCOUNTANT (#1273). `reverse_allocation` is Admin + Accountant Lead only,
-     * so the button is withheld rather than offered and refused -- presence of the callback is the gate.
-     */
-    onReverse?: (leg: AllocatedLeg) => void;
-    busy: boolean;
 }) => {
     if (loading) {
         return (
@@ -1339,83 +1321,10 @@ const AlreadyAllocatedSection = ({
                                 </span>
                             )}
                         </div>
-                        {onReverse && leg.target_doctype === "Project Payments" && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                disabled={busy}
-                                onClick={() => onReverse(leg)}
-                            >
-                                Reverse
-                            </Button>
-                        )}
                     </div>
                 ))}
             </div>
         </div>
-    );
-};
-
-/**
- * The small confirm behind `Reverse` -- a REQUIRED typed reason, the same standard `skip_row`
- * already holds: a decision that moves money has to say why.
- */
-const ReverseAllocationDialog = ({
-    leg,
-    busy,
-    onClose,
-    onConfirm,
-}: {
-    leg: AllocatedLeg | null;
-    busy: boolean;
-    onClose: () => void;
-    onConfirm: (reason: string) => void;
-}) => {
-    const [reason, setReason] = useState("");
-
-    // A different leg is a different question -- carrying a reason across would attach one
-    // reversal's explanation to another.
-    useEffect(() => setReason(""), [leg?.name]);
-
-    return (
-        <AlertDialog open={Boolean(leg)} onOpenChange={(open) => !open && onClose()}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Reverse this allocation?</AlertDialogTitle>
-                    <AlertDialogDescription asChild>
-                        <div className="space-y-3 text-sm">
-                            <p>
-                                <span className="font-mono">{leg?.target_name}</span> (
-                                {formatToIndianRupee(leg?.target_amount ?? 0)}) goes back to
-                                Approved. This transfer's balance rises by the same amount, and the
-                                record can be allocated again -- here or on a different transfer.
-                            </p>
-                            <div className="space-y-1.5">
-                                <Label className="text-xs">Reason (required)</Label>
-                                <Input
-                                    autoFocus
-                                    value={reason}
-                                    placeholder="Why is this allocation being reversed?"
-                                    onChange={(e) => setReason(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                        disabled={!reason.trim() || busy}
-                        onClick={() => onConfirm(reason.trim())}
-                    >
-                        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Reverse
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
     );
 };
 

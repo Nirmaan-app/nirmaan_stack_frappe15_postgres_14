@@ -12,6 +12,7 @@ import unittest
 
 from nirmaan_stack.services.outflow_import import unreconcile
 from nirmaan_stack.services.outflow_import.unreconcile import (
+    CASHBOOK_REFUSAL,
     FIX_ON_PAYMENTS_SCREEN,
     VERDICT_REFUSED,
     VERDICT_REVERT_PAYMENT,
@@ -205,6 +206,44 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
     def test_a_status_change_is_named_before_a_re_point(self):
         verdict = leg_verdict(facts(target_status="Approved", target_reference="ELSE"))
         self.assertIn("not Paid", verdict.reason)
+
+
+class TestCashbook(unittest.TestCase):
+    """#1275, parent #1270 Q13: a Cashbook line cannot be unreconciled yet, whatever its legs."""
+
+    def test_a_cashbook_leg_is_refused_with_the_screen_sentence(self):
+        verdict = leg_verdict(facts(source="Cashbook"))
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertEqual(verdict.title, "Cashbook line")
+        self.assertEqual(verdict.reason, CASHBOOK_REFUSAL)
+        self.assertEqual(CASHBOOK_REFUSAL, "Cashbook rows can't be unreconciled yet.")
+        self.assertIsNone(verdict.what_happens)
+
+    def test_cashbook_is_named_before_every_other_refusal(self):
+        verdict = leg_verdict(
+            facts(source=" Cashbook ", match_kind="Reversed", target_doctype="Project Expenses")
+        )
+        self.assertEqual(verdict.reason, CASHBOOK_REFUSAL)
+
+    def test_every_other_source_is_judged_as_before(self):
+        for source in ("Cashfree", "ICICI", "", None):
+            with self.subTest(source=source):
+                self.assertEqual(leg_verdict(facts(source=source)).verdict, VERDICT_REVERT_PAYMENT)
+
+
+class TestWhatHappens(unittest.TestCase):
+    """The one-line sentence the Unreconcile dialog shows beside each record (#1275, mockup scene 2)."""
+
+    def test_a_reverted_payment_says_it_goes_back_to_approved(self):
+        self.assertEqual(
+            leg_verdict(REVERSIBLE).what_happens,
+            "Goes back to Approved. Its UTR and payment date are cleared.",
+        )
+
+    def test_a_refused_leg_has_no_what_happens_sentence(self):
+        for _, change, *_ in TestEveryRefusal.TABLE:
+            with self.subTest(change=change):
+                self.assertIsNone(leg_verdict(facts(**change)).what_happens)
 
 
 class TestFirstRefusal(unittest.TestCase):

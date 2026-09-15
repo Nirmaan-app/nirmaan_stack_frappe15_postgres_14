@@ -273,6 +273,8 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 **The same exception covers a field's `description` text, on the same terms** (minimum diff, reviewed, committed, a migrate run afterwards) — **OWNER-RATIFIED, and not to be narrowed back to `fieldtype`-only by a later reader who reads the widening as drift.** A description is what the next implementer reads before touching the field, so a stale one is a defect in the same class as a wrong `fieldtype` — and correcting it changes no column at all, which is exactly what makes it safe. It has been used this way on the two BCS doctypes, `BoQ Sheet` and `BoQ Row BCS Rate`, whose descriptions had outlived the widening that gave the cost layer a third stored rate. Such a diff must stay description-ONLY, verified by comparing the doctype JSON structurally with `description` stripped: identical field lists, identical everything else.
 
+**A doctype's `track_changes` flag may be turned ON the same way** (that one key, reviewed, committed, migrate afterwards) when an audit needs Version rows. Used on `Outflow Row Match`, so a reversed match record keeps its own history beside the payment it reverted. It adds no column. A save that must leave the Version row passes `ignore_version=False` explicitly: Frappe defaults it to `frappe.flags.in_test`, so without it the audit goes untested.
+
 ---
 
 ## Active Features

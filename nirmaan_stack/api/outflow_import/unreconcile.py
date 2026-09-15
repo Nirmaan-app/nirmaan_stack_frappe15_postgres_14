@@ -4,13 +4,19 @@
 """Undo settled legs of one import line, all or nothing (issue #1271, parent #1270).
 
 Thin orchestrator (ADR-0010 B4): authorize -> lock -> read facts -> ask the pure decision module
-(`services/outflow_import/unreconcile.py`) -> write -> re-derive -> commit.
+(`services/outflow_import/unreconcile.py`) -> write -> re-derive -> comment -> commit.
 
-⚠️ NOT WHITELISTED YET, ON PURPOSE. Until the Unreconcile slice exposes it, the ONE way in from the
-screen is `expenses.reverse_allocation`, which calls this with a single leg -- so there is exactly
-one write path for a reversal. Since #1273 it sits behind the narrower Admin + Accountant Lead check
-(`permissions.require_outflow_undo_access`), here AND at that wrapper, so a later caller cannot reach
-the write with only the module gate.
+TWO WHITELISTED ENDPOINTS SINCE #1275, both behind the narrower Admin + Accountant Lead check
+(`permissions.require_outflow_undo_access`):
+
+  * `get_unreconcile_plan(row)` -- READ ONLY. The bank-line facts and every Settled leg with its
+    verdict, its "what happens" sentence and any refusal. What the Unreconcile dialog renders.
+  * `unreconcile_row(row, legs | "all", reason)` -- the write. `expenses.reverse_allocation` is a
+    wrapper over it with one leg, so there is still exactly one write path for a reversal.
+
+⚠️ THE PLAN IS NEVER TRUSTED BY THE WRITE. Both read the same facts through `_read_facts` and ask the
+same `leg_verdict`, but the write reads them again UNDER ITS LOCKS; a plan shown a minute ago may be
+out of date, and the write refuses on what is true now.
 
 ⚠️ ALL OR NOTHING. Every requested leg's verdict is computed under the locks BEFORE anything is
 written; one refused leg throws that leg's sentence and nothing is written. The writes then happen
@@ -36,6 +42,7 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_ac
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
+    _batch_source,
     _refresh_batch_rollup,
 )
 from nirmaan_stack.services.outflow_import.allocation import (
@@ -49,7 +56,10 @@ from nirmaan_stack.services.outflow_import.settle import _outflow_import_write
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_references_of_row,
 )
+from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
+from nirmaan_stack.services.outflow_import.status import derive_batch_status
 from nirmaan_stack.services.outflow_import.unreconcile import (
+    VERDICT_REFUSED,
     VERDICT_REVERT_PAYMENT,
     LegFacts,
     first_refusal,
@@ -62,19 +72,89 @@ REASON_REQUIRED = "A reason is required to reverse an allocation."
 
 _ROW_FIELDS = [
     "name", "amount", "import_batch", "bank_reference_no", "reference_id", "transfer_id",
-    "source", "remarks", "settlement_reference",
+    "source", "remarks", "settlement_reference", "row_status", "beneficiary_name", "added_on",
 ]
 _LEG_FIELDS = [
     "name", "import_row", "import_batch", "target_doctype", "target_name", "target_amount",
-    "match_kind",
+    "match_kind", "matched_at",
 ]
 
 
+@frappe.whitelist()
+def get_unreconcile_plan(row: str) -> dict:
+    """What an Unreconcile of this line would do, leg by leg. WRITES NOTHING, TAKES NO LOCK (#1275).
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.unreconcile.get_unreconcile_plan
+
+    Returns the bank-line facts, what is allocated, and one entry per Settled leg: the record, the
+    leg's own amount, the verdict, the one-line `what_happens` sentence (`None` on a refusal) and the
+    refusal's `reason` / `title` / `fix_at` (`None` otherwise). `refused_count` is what turns Reverse
+    all off on the screen -- all-or-nothing is the write's rule, so one refused leg blocks it.
+
+    ⚠️ UNDO ACCESS, NOT THE MODULE GATE. The plan is only ever read to offer an undo, and a plain
+    Accountant is offered none (#1270 Q1).
+    """
+    require_outflow_undo_access()
+    line = frappe.db.get_value(ROW_DOCTYPE, row, _ROW_FIELDS, as_dict=True)
+    if not line:
+        frappe.throw(f"Import row '{row}' not found.", title="Not found")
+
+    legs = frappe.db.get_all(
+        MATCH_DOCTYPE,
+        filters={"import_row": line.name, "match_kind": MATCH_SETTLED},
+        fields=_LEG_FIELDS,
+        order_by="matched_at asc, name asc",
+    )
+    facts = _read_facts(
+        legs,
+        settlement_references_of_row(line),
+        _batch_source(line.import_batch),
+        for_update=False,
+    )
+    verdicts = {leg.name: leg_verdict(facts[leg.name]) for leg in legs}
+    return {
+        "row": line.name,
+        "row_status": line.row_status,
+        "amount": float(line.amount or 0),
+        "beneficiary_name": line.beneficiary_name,
+        "reference": (line.bank_reference_no or "").strip() or (line.transfer_id or "").strip(),
+        "added_on": line.added_on,
+        "allocated": float(allocated_of(legs)),
+        "refused_count": sum(1 for v in verdicts.values() if v.verdict == VERDICT_REFUSED),
+        "legs": [
+            {
+                "match": leg.name,
+                "target_doctype": leg.target_doctype,
+                "target_name": leg.target_name,
+                "target_amount": float(leg.target_amount or 0),
+                "matched_at": leg.matched_at,
+                "verdict": verdicts[leg.name].verdict,
+                "what_happens": verdicts[leg.name].what_happens,
+                "reason": verdicts[leg.name].reason,
+                "title": verdicts[leg.name].title,
+                "fix_at": verdicts[leg.name].fix_at,
+            }
+            for leg in legs
+        ],
+    }
+
+
+@frappe.whitelist(methods=["POST"])
 def unreconcile_row(row: str, legs, reason: str) -> dict:
     """Reverse `legs` (a list of match-record names, or `"all"`) on import line `row`.
 
-    Returns the line's re-derived status, what is allocated and remaining on it now, and one entry
-    per reversed leg with the verdict that was carried out.
+    URL: /api/method/nirmaan_stack.api.outflow_import.unreconcile.unreconcile_row
+
+    Returns the line's re-derived status, what is allocated and remaining on it now, the import's
+    `batch_status`, and one entry per reversed leg with the verdict that was carried out.
+
+    ⚠️ `amount_after` IS READ BACK AFTER THE SAVE, AND IT CAN DIFFER FROM `reversed_amount` (#1275,
+    owner ruling). Putting a Service Request payment back to Approved is an approval to its controller,
+    which may withhold TDS and NET the amount (`services/payment_tds.py`). That behaviour is left as it
+    is; the response reports the new figure so the screen can say so rather than hide it.
+
+    ⚠️ THE LINE GETS ONE COMMENT, inside the transaction: who, why, and which records came off. The
+    reason is also stamped on every reversed leg, and each save leaves a Version row.
     """
     actor = require_outflow_undo_access()
     reason = (reason or "").strip()
@@ -85,7 +165,9 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
         line = _lock_row(row)
         requested = _lock_legs(line, legs)
         references = settlement_references_of_row(line)
-        facts = _lock_targets_and_read_facts(requested, references)
+        facts = _read_facts(
+            requested, references, _batch_source(line.import_batch), for_update=True
+        )
 
         verdicts = [leg_verdict(facts[leg.name]) for leg in requested]
         refused = first_refusal(verdicts)
@@ -99,12 +181,13 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
                 _carry_out(verdict.verdict, leg)
                 _stamp_reversed(leg.name, actor, reason)
             new_status = _refresh_row_allocation(line.name, actor)
+            _comment_on_line(line.name, actor, reason, requested)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
             raise
         frappe.db.release_savepoint(savepoint)
 
-        _refresh_batch_rollup(line.import_batch)
+        statuses = _refresh_batch_rollup(line.import_batch)
         frappe.db.commit()
 
     remaining_legs = _live_legs(line.name)
@@ -113,6 +196,7 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
         "row_status": new_status,
         "allocated": float(allocated_of(remaining_legs)),
         "remaining": float(remaining_of(line.amount, remaining_legs)),
+        "batch_status": derive_batch_status(statuses),
         "reversed": [
             {
                 "match": leg.name,
@@ -121,10 +205,27 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
                 "verdict": verdict.verdict,
                 # Ruling O: the leg's own figure, for comparison against the target's Version log.
                 "reversed_amount": float(leg.target_amount),
+                "amount_after": _amount_after(leg),
             }
             for leg, verdict in zip(requested, verdicts)
         ],
     }
+
+
+def _amount_after(leg) -> float | None:
+    """The target's amount as it stands after the commit, or `None` when it no longer exists."""
+    amount = frappe.db.get_value(leg.target_doctype, leg.target_name, "amount")
+    return None if amount is None else float(amount)
+
+
+def _comment_on_line(row: str, actor: str, reason: str, legs) -> None:
+    """"Unreconciled by <user>: <reason> (<N> record(s): <names>)" on the import line (#1275)."""
+    count = len(legs)
+    names = ", ".join(leg.target_name for leg in legs)
+    noun = "record" if count == 1 else "records"
+    frappe.get_doc(ROW_DOCTYPE, row).add_comment(
+        "Comment", text=f"Unreconciled by {actor}: {reason} ({count} {noun}: {names})"
+    )
 
 
 def _carry_out(verdict: str, leg) -> None:
@@ -193,11 +294,16 @@ def _lock_legs(line, legs) -> list:
     ]
 
 
-def _lock_targets_and_read_facts(legs, references) -> dict:
-    """One `LegFacts` per leg, keyed by leg name. Targets are locked in name order (deadlock-safe).
+def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
+    """One `LegFacts` per leg, keyed by leg name. The ONE reader the plan and the write share.
 
-    ⚠️ ONLY A SETTLED PAYMENTS LEG IS READ. Anything else is refused by the decision on facts the leg
-    itself carries, and locking a record that will not be written would only widen the lock.
+    With `for_update` (the write) the targets are locked in name order (deadlock-safe); the plan reads
+    the same facts with no lock, so the two can only disagree when something changed in between -- and
+    then the write, reading under its locks, is the one that is right.
+
+    ⚠️ ONLY A SETTLED PAYMENTS LEG ON A MATCHABLE SOURCE IS READ. Anything else is refused by the
+    decision on facts the leg and the line already carry, and locking a record that will not be
+    written would only widen the lock.
     """
     facts = {}
     for leg in sorted(legs, key=lambda leg: (leg.target_doctype, leg.target_name)):
@@ -208,8 +314,13 @@ def _lock_targets_and_read_facts(legs, references) -> dict:
             "target_name": leg.target_name,
             "leg_amount": leg.target_amount,
             "settlement_references": references,
+            "source": source,
         }
-        if leg.match_kind != MATCH_SETTLED or leg.target_doctype != PAYMENT_DOCTYPE:
+        if (
+            leg.match_kind != MATCH_SETTLED
+            or leg.target_doctype != PAYMENT_DOCTYPE
+            or not source_runs_the_matcher(source)
+        ):
             facts[leg.name] = LegFacts(**base)
             continue
         payment = frappe.db.get_value(
@@ -217,7 +328,7 @@ def _lock_targets_and_read_facts(legs, references) -> dict:
             leg.target_name,
             ["status", "utr", "amount", "tds", "split_from"],
             as_dict=True,
-            for_update=True,
+            for_update=for_update,
         )
         if not payment:
             facts[leg.name] = LegFacts(**base, target_exists=False)
@@ -268,4 +379,6 @@ def _stamp_reversed(match: str, actor: str, reason: str) -> None:
     doc.reversed_at = frappe.utils.now_datetime()
     doc.reversed_by = actor
     doc.reversal_reason = reason
-    doc.save(ignore_permissions=True)
+    # ⚠️ `ignore_version=False` IS EXPLICIT (#1275): the doctype tracks changes since this slice, and
+    # Frappe defaults the flag to `frappe.flags.in_test`, which would leave the audit untested.
+    doc.save(ignore_permissions=True, ignore_version=False)
