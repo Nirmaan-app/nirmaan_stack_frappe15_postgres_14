@@ -218,6 +218,10 @@ interface PaymentStats {
     total_requested_payment_amount: number;
     total_ceo_pending_count: number;
     total_ceo_pending_amount: number;
+    /** Money that has LEFT the bank, awaiting bank confirmation. 0 until the
+     *  fulfil path writes the status — an honest zero, same as the tab. */
+    total_reconciliation_pending_count: number;
+    total_reconciliation_pending_amount: number;
     total_approval_done_today: number;
     total_approval_done_today_amount: number;
     total_approval_done_7_days: number;
