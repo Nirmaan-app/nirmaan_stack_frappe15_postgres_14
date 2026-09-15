@@ -18,7 +18,14 @@ correct to include and would be invisible to a users-table-only check.
 
 import frappe
 
-__all__ = ["OUTFLOW_IMPORT_PROFILES", "require_outflow_access", "has_outflow_access"]
+__all__ = [
+    "OUTFLOW_IMPORT_PROFILES",
+    "OUTFLOW_UNDO_PROFILES",
+    "require_outflow_access",
+    "has_outflow_access",
+    "require_outflow_undo_access",
+    "has_outflow_undo_access",
+]
 
 # Owner ruling: Accountant, Accountant Lead, Admin.
 OUTFLOW_IMPORT_PROFILES = frozenset(
@@ -56,6 +63,53 @@ def require_outflow_access(user: str | None = None) -> str:
         frappe.throw(
             "You do not have access to Bulk Import Outflow. "
             "This module is limited to Accountants and Admins.",
+            frappe.PermissionError,
+            title="Not permitted",
+        )
+    return user
+
+
+# Owner ruling (#1270 Q1): the actions that set work aside or undo it -- Skip, Unskip, Unreconcile and
+# the single-leg Reverse -- belong to Admin and Accountant Lead. A plain Accountant keeps matching and
+# confirming. The frontend mirrors this set in `outflowImportStatus.OUTFLOW_UNDO_PROFILES`, and
+# `outflowUndoAccessParity.test.ts` reads this file to keep the two in step.
+OUTFLOW_UNDO_PROFILES = frozenset(
+    {
+        "Nirmaan Admin Profile",
+        "Nirmaan Accountant Lead Profile",
+    }
+)
+
+
+def has_outflow_undo_access(user: str | None = None) -> bool:
+    """Whether this user may skip, unskip or undo work in this module. No side effects.
+
+    ⚠️ LAYERED ON `has_outflow_access`, NEVER A SECOND STANDALONE LIST. Every undo profile must also
+    pass the module gate, so a profile dropped from `OUTFLOW_IMPORT_PROFILES` loses both at once --
+    the Pricing Module's read/write split has the same shape. `None` / `""` mean what they mean there.
+    """
+    if user is None:
+        user = frappe.session.user
+    if not has_outflow_access(user):
+        return False
+    if user == "Administrator":
+        return True
+    profile = frappe.db.get_value("Nirmaan Users", user, "role_profile")
+    return profile in OUTFLOW_UNDO_PROFILES
+
+
+def require_outflow_undo_access(user: str | None = None) -> str:
+    """Gate Skip, Unskip, Unreconcile and Reverse. Returns the session user, or raises PermissionError.
+
+    The module gate runs first, so someone outside the module reads the module's sentence, and only
+    an Accountant inside it reads this narrower one.
+    """
+    if user is None:
+        user = frappe.session.user
+    require_outflow_access(user)
+    if not has_outflow_undo_access(user):
+        frappe.throw(
+            "Only an Admin or an Accountant Lead can skip, unskip or undo a transfer.",
             frappe.PermissionError,
             title="Not permitted",
         )

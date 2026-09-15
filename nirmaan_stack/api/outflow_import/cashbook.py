@@ -86,6 +86,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
+    SKIP_ORIGIN_SYSTEM,
 )
 
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -534,6 +535,8 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 or None,
                 "row_status": ROW_PENDING_MATCH if creating else ROW_SKIPPED,
                 "skip_reason": None if creating else planned.reason,
+                # A Cashbook skip is the import plan's decision, never a person's (#1273).
+                "skip_origin": None if creating else SKIP_ORIGIN_SYSTEM,
                 "suggested_doctype": planned.ledger if creating else None,
                 "suggested_expense_type": planned.expense_type if creating else None,
                 "resolved_project": (

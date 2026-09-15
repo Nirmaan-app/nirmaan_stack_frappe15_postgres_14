@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
-import { AlertTriangle, Check, ExternalLink, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
 
 import {
     AlertDialog,
@@ -49,7 +49,8 @@ import {
     descriptionRequired,
     INFLOW_TYPES,
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
-import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
+import { ROW_PARTIALLY_ALLOCATED, canSkipByHand, canUndoOutflow } from "../outflowImportStatus";
+import { useUserData } from "@/hooks/useUserData";
 import {
     INTENT_PART_PAYMENT,
     amountGapHint,
@@ -146,25 +147,11 @@ const NON_PROJECT_EXPENSE = "Non Project Expenses";
  */
 const SHOW_CREATE_NEW_EXPENSE = true;
 
-/**
- * ⚠️ HIDDEN, NOT DELETED (owner ruling 2026-08-10) -- same treatment, and for the same reason.
- * "Skip this row" is off this dialog. `review.skip_row`, its required-reason guard, the
- * `Skipped` status, the Skipped tab and the auto-skip path at upload are ALL untouched: automatic
- * skips (a failed transfer, an already-recorded duplicate) still happen and still land in that tab.
- * What is gone is the MANUAL skip button.
- *
- * ⚠️ STATE THE CONSEQUENCE RATHER THAN DISCOVER IT LATER -- AND IT CHANGED AT B5. While this and
- * `SHOW_CREATE_NEW_EXPENSE` were BOTH off, linking an approved record was the only way a person
- * could resolve an open row, so a transfer with genuinely nothing to settle against -- 145 of them
- * on the first real statement -- had no terminal state at all and stayed open indefinitely against
- * "Still open". Turning "Create a new expense" back on is what closes that hole: such a row is now
- * RECORDED rather than set aside, which is the better answer anyway because the money did leave the
- * account. What is still unavailable is declaring a row resolved WITHOUT writing anything -- a
- * genuine skip. Closing the import remains the only way to set one aside, and closing is
- * bookkeeping: it does not change a row's status. Flipping this one const back is the whole
- * reversal.
- */
-const SHOW_SKIP_ROW = false;
+// ⚠️ `SHOW_SKIP_ROW` IS GONE (#1273, ADR-0022), reversing the 2026-08-10 ruling that hid manual skip
+// and ADR-0016 R6. Skip is back as the "Nothing to link?" box at the BOTTOM of the body, under a
+// divider -- below every link and create option, so linking stays the obvious first choice -- and only
+// for Admin / Accountant Lead on an open, non-Cashbook line (`canSkipByHand`). The server re-checks
+// all of it in `review.skip_row`.
 
 /**
  * ⚠️ THE KILL SWITCH FOR PARTIAL SETTLEMENT (slice PS), in the same place and the same style as the
@@ -300,8 +287,7 @@ export const DecisionDialog = ({
     error = null,
     onDismissError,
 }: Props) => {
-    const [skipReason, setSkipReason] = useState("");
-    const [skipping, setSkipping] = useState(false);
+    const { role, user_id } = useUserData();
     // ⚠️ PLURAL SINCE TASK 7 (ADR-0020 fan-out) -- the picker is now a checkbox group. `picked`
     // below is the SINGLE-record derivation the pre-existing amount-window / partial-settle detour
     // needs; that detour is about ONE record against the whole transfer and does not generalise to
@@ -448,7 +434,6 @@ export const DecisionDialog = ({
     );
 
     useEffect(() => {
-        setSkipReason("");
         setPickedRecords([]);
         setBlocked(null);
         setReversingLeg(null);
@@ -700,7 +685,7 @@ export const DecisionDialog = ({
                             legs={allocatedLegs}
                             loading={legsLoading}
                             error={legsError ? describeFrappeError(legsError, "couldn't load") : null}
-                            onReverse={setReversingLeg}
+                            onReverse={canUndoOutflow(role, user_id) ? setReversingLeg : undefined}
                             busy={busy}
                         />
                     )}
@@ -873,6 +858,12 @@ export const DecisionDialog = ({
                             />
                         </TargetOption>
                     )}
+
+                    {/* ⚠️ LAST IN THE BODY, UNDER A DIVIDER (#1273). Keyed on the line so a half-typed
+                        reason never carries over to the next transfer opened. */}
+                    {canSkipByHand(row, role, user_id) && (
+                        <SkipTransferBox key={row.name} busy={busy} onSkip={onSkip} />
+                    )}
                 </div>
 
                 {/* ⚠️ IN THE FOOTER, BESIDE THE BUTTON THAT CAUSED IT -- not a toast. The reviewer
@@ -894,58 +885,19 @@ export const DecisionDialog = ({
                         Re-run match
                     </Button>
                     <div className="flex-1" />
-                    {SHOW_SKIP_ROW && skipping ? (
-                        <div className="flex w-full items-center gap-2 sm:w-auto">
-                            <Input
-                                autoFocus
-                                value={skipReason}
-                                placeholder="Why is this row being skipped?"
-                                onChange={(e) => setSkipReason(e.target.value)}
-                                className="h-8 w-full sm:w-72"
-                            />
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={!skipReason.trim() || busy}
-                                onClick={() => onSkip(skipReason.trim())}
-                            >
-                                Skip
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setSkipping(false)}>
-                                Cancel
-                            </Button>
-                        </div>
-                    ) : (
-                        <>
-                            {/* A skip is a DECISION, which is why it requires a typed reason. */}
-                            {SHOW_SKIP_ROW && (
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setSkipping(true)}
-                                >
-                                    Skip this row
-                                </Button>
-                            )}
-                            {/* ⚠️ GATED ON THE SAME `isConfirmable` THE BULK BAR COUNTS WITH, so
-                                the two surfaces can never disagree about whether a row is ready.
-                                It also closes a real hole: the ledger now arrives with the chosen
-                                record rather than from a card clicked first, so a cleared selection
-                                leaves no target at all -- and this button would have posted a
-                                settle with an undefined doctype. */}
-                            {/* ⚠️ #1239 -- `disabled` IS THE REASON, read as one. `confirmGate`
-                                deliberately exposes no `disabled` boolean: taking a boolean and
-                                never consulting the reason is the shape this ticket removed. */}
-                            <Button
-                                size="sm"
-                                onClick={handleConfirmClick}
-                                disabled={gate.reason !== null}
-                            >
-                                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {confirmLabel}
-                            </Button>
-                        </>
-                    )}
+                    {/* ⚠️ GATED ON THE SAME `isConfirmable` THE BULK BAR COUNTS WITH, so
+                        the two surfaces can never disagree about whether a row is ready.
+                        It also closes a real hole: the ledger now arrives with the chosen
+                        record rather than from a card clicked first, so a cleared selection
+                        leaves no target at all -- and this button would have posted a
+                        settle with an undefined doctype. */}
+                    {/* ⚠️ #1239 -- `disabled` IS THE REASON, read as one. `confirmGate`
+                        deliberately exposes no `disabled` boolean: taking a boolean and
+                        never consulting the reason is the shape this ticket removed. */}
+                    <Button size="sm" onClick={handleConfirmClick} disabled={gate.reason !== null}>
+                        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {confirmLabel}
+                    </Button>
                 </footer>
             </DialogContent>
 
@@ -1245,6 +1197,75 @@ const SettleModeChoice = ({
  */
 
 /**
+ * "Nothing to link?" -- skip an open line with a typed reason (#1273, mockup scene 4).
+ *
+ * ⚠️ THE SERVER'S REFUSAL IS SHOWN HERE, IN THE BOX, not left to an unhandled rejection. The page's
+ * `handleSkip` closes the dialog only on success, so a refusal -- someone settled the line a moment
+ * ago, a role was changed -- would otherwise do nothing visible at all.
+ */
+const SkipTransferBox = ({
+    busy,
+    onSkip,
+}: {
+    busy: boolean;
+    onSkip: (reason: string) => Promise<void> | void;
+}) => {
+    const [reason, setReason] = useState("");
+    const [error, setError] = useState<string | null>(null);
+    const trimmed = reason.trim();
+
+    const submit = async () => {
+        setError(null);
+        try {
+            await onSkip(trimmed);
+        } catch (err) {
+            setError(describeFrappeError(err, "The transfer was not skipped."));
+        }
+    };
+
+    return (
+        <div className="space-y-3 border-t border-dashed pt-4">
+            <div className="space-y-3 rounded-md border p-3">
+                <div>
+                    <p className="text-sm font-medium">Nothing to link?</p>
+                    <p className="text-xs text-muted-foreground">
+                        Skip this transfer. It moves to the Skipped list, marked as skipped by hand.
+                    </p>
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="skip-transfer-reason" className="text-xs">
+                        Reason (required)
+                    </Label>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                            id="skip-transfer-reason"
+                            value={reason}
+                            placeholder="Why does this transfer have nothing to link?"
+                            onChange={(e) => {
+                                setReason(e.target.value);
+                                setError(null);
+                            }}
+                            className="h-9 min-w-[12rem] flex-1"
+                        />
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800"
+                            disabled={!trimmed || busy}
+                            onClick={submit}
+                        >
+                            <SkipForward className="mr-1.5 h-4 w-4" />
+                            Skip transfer
+                        </Button>
+                    </div>
+                    {error && <p className="text-xs text-destructive">{error}</p>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/**
  * Settled legs already on this transfer (Task 7, ADR-0020 fan-out) -- rendered above
  * `LinkPaymentSection`, so the reviewer sees what is already settled before the picker offers what
  * is left.
@@ -1267,7 +1288,11 @@ const AlreadyAllocatedSection = ({
     loading: boolean;
     /** The fetch's own refusal, already worded via `describeFrappeError`, or `null`. */
     error: string | null;
-    onReverse: (leg: AllocatedLeg) => void;
+    /**
+     * ⚠️ ABSENT FOR A PLAIN ACCOUNTANT (#1273). `reverse_allocation` is Admin + Accountant Lead only,
+     * so the button is withheld rather than offered and refused -- presence of the callback is the gate.
+     */
+    onReverse?: (leg: AllocatedLeg) => void;
     busy: boolean;
 }) => {
     if (loading) {
@@ -1314,7 +1339,7 @@ const AlreadyAllocatedSection = ({
                                 </span>
                             )}
                         </div>
-                        {leg.target_doctype === "Project Payments" && (
+                        {onReverse && leg.target_doctype === "Project Payments" && (
                             <Button
                                 type="button"
                                 variant="outline"

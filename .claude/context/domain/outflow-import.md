@@ -127,6 +127,8 @@ pick one ad-hoc; ask.
 | **What a STATEMENT SOURCE can DO** (B4) | `services/outflow_import/sources.py` (`BANK_STATEMENT_SOURCES`, `source_has_settlement_path`; since #1272 `NEVER_MATCHED_SOURCES`, `source_runs_the_matcher`) — a PURE LEAF that imports nothing at all, not even from this package | spell the membership test out at a call site. It exists because the question got a SECOND caller with nowhere to ask it: the set lived as `upload._BANK_STATEMENT_SOURCES` while staging was the only thing that cared, and `review.match_batch` then needed the same answer — but an `api` module may not import another `api` module's private constant, so the alternatives were a second literal frozenset (two definitions of one fact, free to drift the day a source is added) or this. It moved DOWN to the layer both may import; `api` -> `services` is the one legal direction, and `upload` reads it back under its old private name so no call site changed. ⚠️ **CAPABILITIES ARE NAMED QUESTIONS, NOT A MEMBERSHIP TEST.** `source_has_settlement_path(source)` says what the caller wants to know; `source in BANK_STATEMENT_SOURCES` at a match-run call site would work today and say nothing about WHY the run behaves differently, and the next reader could not tell a deliberate capability gate from an incidental one. **FOUR things follow from membership and they are ONE decision, not four:** the statement states a `direction` per row, its non-spending lines are excluded at stage time, what survives lands `Mismatched` rather than `Pending match run` (Q31), and the match run offers it NO settlement candidate (Q31/Q31a). ⚠️ The strings are `parser.SUPPORTED_SOURCES` members VERBATIM and are also the `Outflow Import Batch.source` Select options — a rename moves all three together or every upload of that source fails Frappe's own Select validation with nothing on screen explaining why. ⚠️ **THE GATE IS ON THE AUTOMATIC PATH ONLY** — hand-linking is deliberately kept, so `get_row_candidates` and `search_settleable_records` still offer ranked records when a person opens one row |
 | **Which bank-statement lines are NOT work for a human** (B2) | `services/outflow_import/bank_exclusions.py` (`EXCLUSION_RULES`, `should_skip`, the ten `category_id`s) — pure, no `frappe`, no DB | decide that a narration is noise anywhere else, and it **MUST NOT IMPORT THE MATCHER** (`matcher`, `disambiguate`, `status`, `stacks`, `claims`, `candidates` — pinned by a test, the same fence `partial_settle` and `similarity` sit behind). This module decides only whether a line REACHES them; a widening made here because a narration looked like noise must never be able to change what settles unattended. **THREE DESIGN RULES, all load-bearing:** (a) **FAIL OPEN** — an unmatched row is INGESTED, never dropped, because the two failure modes are not symmetric: a wrongly-ingested row is VISIBLE and un-mapped in seconds, a wrongly-dropped one is INVISIBLE and nobody ever learns it existed. `should_skip` has no default-skip branch and must never grow one. (b) **DIRECTION IS PART OF THE TEST, NOT DECORATION** — `Ac xfr from gl 05051 to 60010` appears twice byte-identically, once as a ₹3.19 Cr Debit and once as a ₹3.19 Cr Credit, and only the populated amount column tells the two categories apart; every rule leads with `wd` or `dp` and none is direction-blind. (c) **THE IFSC BEATS THE TYPED LABEL** — three rows read `Cashbook Balanc` while carrying Cashfree's IFSC and one reads `Cashfree Balanc` carrying Cashbook's, so each `platform_*` rule checks the IFSC FIRST and the free-text label is a fallback. ⚠️ **THE ORDER IS PART OF THE POLICY** (first match wins; the three `platform_*` rules come first so rule (c) can resolve), and the rules are DATA — an ordered `(category_id, predicate)` sequence — so a policy change is diffable without reading mechanism; `should_skip` holds no policy at all. ⚠️ **SKIPPING THE PAYOUT WALLETS COSTS ₹11.59 Cr OF REAL DEBITS, and that is still correct** — what left the bank is a wallet TOP-UP, not a payment to anyone, and the real disbursements happen inside Cashfree / Cashbook / Porter and appear in no bank narration. **The consequence is that NOBODY MAY READ THE INGESTED OUTFLOW TOTAL AS "WHAT THE COMPANY SPENT"** — it is what was spent THROUGH THIS ACCOUNT DIRECTLY, and any total-spend figure has to add the platforms back. ⚠️ Exclusions run at STAGE time (Q16): all 1,274 rows are staged and 405 land `Skipped` carrying the rule's own sentence — **EXCLUSION-FIRST precedence**, ahead of already-imported and duplicate-in-file, so a re-upload still names the ten rules rather than reading "already imported in batch X" |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
+| **Who may Skip, Unskip, Unreconcile or Reverse** (#1273, ADR-0022) | `api/outflow_import/permissions.require_outflow_undo_access` (`OUTFLOW_UNDO_PROFILES`: Admin + Accountant Lead, plus `Administrator`) — LAYERED on the module check. Frontend mirror `outflowImportStatus.canUndoOutflow`, pinned by `outflowUndoAccessParity.test.ts` | gate an undo action on the module check alone, or spell the profile set a second time. Callers: `review.skip_row`, `expenses.reverse_allocation`, `unreconcile.unreconcile_row` (checked at both the wrapper and the write) |
+| **Who skipped a line, and may a person skip it** (#1273) | `services/outflow_import/status.py` (`SKIP_ORIGIN_*`, `RowOutcome.skip_origin`, `SYSTEM_SKIP_SENTENCES`) + `services/outflow_import/skip_origin.py` (`manual_skip_refusal`, `classify_skip_origin`) — pure | write `skip_origin = Manual` anywhere but `review.skip_row`, decide at a writer that a derived skip is anything but System (read `outcome.skip_origin`), or re-derive "may this be skipped by hand". ⚠️ A new skip SENTENCE joins `SYSTEM_SKIP_SENTENCES` in the same change, or the back-fill can call an old line with it Manual |
 | **What a Cashbook statement will CREATE** (Cashbook slice 4) | `services/outflow_import/cashbook.py` (`plan_statement`, `pick_expense_type`, `group_plan`) — pure | decide a ledger, a project or an expense type for a wallet row anywhere else. ⚠️ It must not reach `matcher`, `disambiguate`, `claims`, `stacks` or `settle` — pinned by a test, the same fence `similarity` and `partial_settle` sit behind. It decides what to CREATE; those decide what existing approved record a transfer PAYS, under an amount window this has no equivalent of |
 | Which keyword means which expense type | the `Outflow Import Expense Rule` doctype, read by `candidates.load_expense_rules` | hardcode a keyword map. The rules are per-LEDGER because the two expense vocabularies are nearly disjoint, and they arrive LONGEST KEYWORD FIRST — that order is the rule, not presentation |
 | What phrase means which project | the `Outflow Import Project Alias` doctype, read by `candidates.load_project_aliases` | grow a second nickname list. ⚠️ Deliberately NOT wired into `load_project_index`: Cashfree tier 2 settles money and its remarks name projects in full, so widening what it recognises would widen what settles unattended |
@@ -4775,3 +4777,64 @@ real start is a line that was SKIPPED while its siblings ran — which is exactl
 Unskip reports whatever `match_line` wrote, so its notice is true for the line as it now stands.
 
 - **Tests:** `api/outflow_import/test_match_line.py` (26).
+
+## #1273 (2026-09-15) — Skip returns for Admin and Accountant Lead, with a skipped-by-hand marker
+
+Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**. Mockups: scenes 4, 5.
+
+- **Access:** `permissions.require_outflow_undo_access` — `Administrator`, `Nirmaan Admin Profile`,
+  `Nirmaan Accountant Lead Profile`, layered on `require_outflow_access`. Now guards `skip_row`,
+  `reverse_allocation` and `unreconcile_row`. A plain Accountant gets "Only an Admin or an Accountant
+  Lead can skip, unskip or undo a transfer." Frontend: `outflowImportStatus.canUndoOutflow`, parity-pinned
+  (`outflowUndoAccessParity.test.ts` reads `permissions.py` and `sources.py` as text).
+- **`Outflow Import Row.skip_origin`** (Select: blank / System / Manual, read-only) — **[MIGRATE]**.
+  - **System** on every derived skip: `RowOutcome.skip_origin` is a property of the status, and the two
+    writers of a derived outcome — `upload._stage_batch` and `review._persist_row_outcome` (which serves
+    BOTH the gateway loop and the ICICI contains-guard) — write it. `cashbook._stage` stamps it too.
+    `_persist_row_outcome` writes it on every run, NULL when not skipped.
+  - ⚠️ An insert lands a blank Select as `''`, a `set_value` as `NULL`. Both mean blank; every read
+    here uses `COALESCE(skip_origin, '')` or truthiness.
+  - **Manual** in one place only: `review.skip_row`.
+- **`review.skip_row(row, reason)`** now: undo access → reason → row `FOR UPDATE` → refuse via the pure
+  `skip_origin.manual_skip_refusal` (Settled / Partially Allocated / **already Skipped** / any other
+  non-open status / Cashbook by BATCH source) → `doc.save(ignore_permissions=True, ignore_version=False)`
+  setting `row_status`, `skip_origin=Manual`, `skip_reason`, **`outcome_note = reason`**, `decided_at`,
+  `decided_by` → a `Comment` ("Skipped by hand by <user>: <reason>") → the scoped Settled-leg delete →
+  rollup → commit, all inside `_concurrent_writer_refusal_as_sentence`.
+  - ⚠️ **`ignore_version=False` is required.** Frappe defaults it to `frappe.flags.in_test`, so without it
+    no Version row is written under the test runner and the audit goes untested (found live: 0 Versions).
+  - ⚠️ Accepting an already-Skipped line was the hole: it relabelled a system skip as a hand skip, which
+    with Unskip coming would open a duplicate path.
+- **Skipped scope filter:** `get_outflow_rows` / `export_outflow_rows` take `skip_origin`
+  (`System`/`Manual`; anything else filters nothing) through `_row_filters`, and both return
+  `skip_origin`, `decided_by`, `decided_at`. `get_outflow_summary` adds **`skipped_by_hand_rows`**
+  (`skip_origin = Manual`, failed excluded) — deliberately NOT `manually_skipped_rows`, which keys on a
+  decider that an old re-skipped system skip also has.
+- **Back-fill patch:** `patches/v3_0/backfill_outflow_skip_origin.py` (wiring line added by the
+  maintainer, `[post_model_sync]`). Rule: `skip_origin.classify_skip_origin` — Manual only when
+  `decided_by` set AND `outcome_note` is not a `SYSTEM_SKIP_SENTENCES` sentence AND `skip_reason` is not
+  one AND the source runs the matcher (not Cashbook) AND `status_raw` is SUCCESS. The last rule is ours,
+  not the ticket's: a refused transfer re-skipped by hand kept no sentence. Only blank-origin Skipped
+  lines are read; a raw `UPDATE` (no `doc_events` on this doctype, no derived field) leaves `modified`
+  alone; a second run writes nothing. **Dev dry run (rolled back): Manual 7 (all the "walk C14" hand
+  skips), System 1,945; second run `{}`.** Known limit: an old repeat/exclusion upload skip re-skipped by
+  hand back-fills Manual (none on dev).
+- **Frontend:** `SHOW_SKIP_ROW` deleted. `SkipTransferBox` ("Nothing to link?", reason required, red
+  outline "Skip transfer", server refusal shown inline) sits LAST in the dialog body under a dashed
+  divider, gated by `outflowImportStatus.canSkipByHand(row, role, user_id)` (undo role + open status +
+  not in `NEVER_MATCHED_SOURCES`). The old footer skip control is gone. Skipped popup: fourth segment
+  "Skipped by hand" (`failed` filter value `manual` → `serverQuery.skip_origin = "Manual"`, count from
+  `skipped_by_hand_rows`), and the Outcome cell shows `skippedByHandLine` ("Skipped by hand · user ·
+  dd-MMM-yyyy") under the reason — keyed on `skip_origin`, never `decided_by`.
+- **Reverse button:** `AlreadyAllocatedSection` takes `onReverse` only when `canUndoOutflow` -- the
+  button is withheld from a plain Accountant rather than offered and refused (found at code review).
+- **Not in this slice:** Unskip and its column (next), so a hand skip still cannot be brought back from
+  the screen; the "skips are final" sentences elsewhere in this doc are corrected by that slice.
+- **Tests:** `services/outflow_import/test_skip_origin.py` (25: every derived skip is System, the
+  refusal rule, the back-fill classifier); `api/outflow_import/test_skip_row.py` (18: access on skip and
+  reverse, refusals write nothing, Manual + reason + who/when + Version + Comment + rollup, the Skipped
+  scope shows the typed reason, the by-hand filter and count); `test_skip_origin_backfill.py` (4: the
+  five shapes, re-run changes nothing, an existing origin and an open line untouched); one System test
+  per writer in `test_upload`, `test_review` (gateway + contains-guard) and `test_cashbook_import`;
+  vitest `outflowUndoAccessParity.test.ts` (11) + serverQuery / `skippedByHandLine` cases in
+  `outflowTableModel.test.ts`.

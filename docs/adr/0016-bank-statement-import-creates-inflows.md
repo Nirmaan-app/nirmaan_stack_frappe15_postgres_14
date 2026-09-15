@@ -238,6 +238,8 @@ record.
 
 **R6 — a row with nothing to link has no manual terminal state in v1 (Q12).** `SHOW_SKIP_ROW` stays
 off. Such a row stays `Mismatched` indefinitely.
+⚠️ **REVERSED by [ADR-0022](0022-unreconcile-and-unskip.md) (#1273, 2026-09-15):** Admin and Accountant
+Lead can skip an open line with a typed reason, marked `skip_origin = Manual`.
 
 **R7 — the ingested outflow total is NOT "what the company spent".** The three `platform_*`
 exclusion rules drop ₹11.59 Cr of real debits, because a payout-wallet top-up is not a payment to

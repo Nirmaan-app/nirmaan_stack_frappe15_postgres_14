@@ -22,9 +22,11 @@ import {
     highlightSegments,
     amountToneClass,
     isDateFilterValue,
+    outcomeNoteOf,
     referenceValue,
     rowSettlementLinks,
     shortReference,
+    skippedByHandLine,
     wrapRemarks,
     type ColumnFilters,
     type DecisionOrigin,
@@ -656,15 +658,23 @@ const OutcomeButton = ({
     // it. A `Partially Allocated` row must keep its Outcome button: it is frozen against
     // re-matching, but a person still owes it a decision.
     const terminal = TERMINAL_ROW_STATUSES.has(row.row_status);
-    const note = row.outcome_note || row.skip_reason || "";
+    // The one reading of "which note does this line show" -- a hand skip shows its typed reason (#1273).
+    const note = outcomeNoteOf(row);
     const links = rowSettlementLinks(row);
 
     if (terminal) {
+        // #1273: a hand skip says who and when, under the reason they typed.
+        const byHand = skippedByHandLine(row);
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
                 <span className="block truncate text-xs text-muted-foreground" title={note}>
                     {note || "—"}
                 </span>
+                {byHand && (
+                    <span className="block truncate text-[11px] text-muted-foreground/80" title={byHand}>
+                        {byHand}
+                    </span>
+                )}
                 {links.map((link) => (
                     <RecordLink key={`${link.href}-${link.label}`} link={link} />
                 ))}

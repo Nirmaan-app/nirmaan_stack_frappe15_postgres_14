@@ -59,7 +59,10 @@ from typing import NamedTuple
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.permissions import (
+    require_outflow_access,
+    require_outflow_undo_access,
+)
 from nirmaan_stack.api.outflow_import.review import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
@@ -494,7 +497,9 @@ def reverse_allocation(match: str, reason: str):
     # (the shared row-allocation and concurrency helpers live here). Moving it to the top is a cycle.
     from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, unreconcile_row
 
-    require_outflow_access()
+    # ⚠️ ADMIN + ACCOUNTANT LEAD SINCE #1273 (parent #1270 Q1). A plain Accountant matches and
+    # confirms; undoing money is not theirs. `unreconcile_row` checks the same gate again.
+    require_outflow_undo_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")

@@ -54,7 +54,8 @@ export interface OutflowExportColumn {
  * the point on the Reference column: `get` is `referenceValue` (the WHOLE reference, falling back to
  * a Cashbook row's `transfer_id`), never `shortReference`, whose 12-character tail is display-only
  * and must never leave the render layer -- a truncated UTR in an archived file is a reference that
- * finds nothing at the other end. The Outcome column's `get` is `outcome_note ?? skip_reason ?? ""`,
+ * finds nothing at the other end. The Outcome column's `get` is `outcomeNoteOf` (the outcome note, or
+ * a hand skip's typed reason),
  * which is right here for the same reason: on screen that cell is a BUTTON, and the note behind it
  * is the only part of it a file can carry.
  */

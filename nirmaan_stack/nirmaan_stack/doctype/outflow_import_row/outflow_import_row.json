@@ -40,6 +40,7 @@
   "decision_section",
   "row_status",
   "skip_reason",
+  "skip_origin",
   "outcome_note",
   "duplicate_basis",
   "decided_at",
@@ -251,6 +252,14 @@
    "label": "Skip Reason"
   },
   {
+   "description": "Who set this row aside (#1273). System = the software skipped it (upload staging or the match run: a failed transfer, a duplicate, an exclusion rule, money already recorded). Manual = a person skipped it with review.skip_row and typed skip_reason. Blank = the row is not Skipped. Only a Manual skip may ever be unskipped; a System skip stays skipped so the same money can never be recorded twice.",
+   "fieldname": "skip_origin",
+   "fieldtype": "Select",
+   "label": "Skip Origin",
+   "options": "\nSystem\nManual",
+   "read_only": 1
+  },
+  {
    "description": "Human-readable detail behind a non-terminal or exception outcome -- the amount delta and its implied rate, which payment the reference disagrees with, or the target's actual status. This is the reported finding; the feature never repairs what it reports.",
    "fieldname": "outcome_note",
    "fieldtype": "Text",
@@ -314,7 +323,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-09-14 00:00:00.000000",
+ "modified": "2026-09-15 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

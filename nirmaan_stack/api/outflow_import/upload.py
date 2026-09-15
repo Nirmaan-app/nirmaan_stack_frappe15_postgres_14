@@ -572,6 +572,8 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
                 # therefore land byte-identically to before.
                 "skip_reason": outcome.note if outcome.status == ROW_SKIPPED else None,
                 "outcome_note": (outcome.note or None) if outcome.status != ROW_SKIPPED else None,
+                # System on a skip, NULL otherwise (#1273) -- read off the outcome, never decided here.
+                "skip_origin": outcome.skip_origin,
             }
         )
         doc.insert(ignore_permissions=True)

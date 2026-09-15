@@ -136,6 +136,14 @@ export interface OutflowImportRow {
     suggested_name?: string;
     row_status: string;
     skip_reason?: string;
+    /**
+     * Who set a Skipped line aside (#1273): `System` (the software) or `Manual` (a person, with a
+     * typed `skip_reason`). Blank on a line that is not Skipped. Only a Manual skip can be unskipped.
+     */
+    skip_origin?: "" | "System" | "Manual" | null;
+    /** Who decided this line, and when -- the "Skipped by hand · user · date" line reads both. */
+    decided_by?: string | null;
+    decided_at?: string | null;
     outcome_note?: string;
     matches: OutflowRowMatch[];
     /**
@@ -506,6 +514,11 @@ export interface OutflowImportSummary {
     }[];
     auto_skipped_rows: number;
     manually_skipped_rows: number;
+    /**
+     * Lines with `skip_origin = Manual` (#1273) -- what the Skipped popup's "Skipped by hand" filter
+     * returns. NOT `manually_skipped_rows`, which keys on a decider. Optional for an older server.
+     */
+    skipped_by_hand_rows?: number;
 }
 
 /** Ranked candidates for one row, fetched on demand when a reviewer opens it. */

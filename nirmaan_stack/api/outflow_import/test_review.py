@@ -339,6 +339,13 @@ class TestMatchBatch(OutflowReviewFixture):
             f"Already recorded as Paid on Project Payment {self.pay_already}", row["outcome_note"]
         )
 
+    def test_a_match_run_skip_is_marked_system_and_a_match_is_not(self):
+        """#1273: the gateway match run's persister is a system skip path."""
+        rows = self._rows_by_transfer_suffix()
+        origin = lambda suffix: frappe.db.get_value(ROW_DOCTYPE, rows[suffix]["name"], "skip_origin")
+        self.assertEqual(origin("0003"), "System")
+        self.assertFalse(origin("0004"))
+
     def test_fan_out_matches_as_one_group(self):
         row = self._rows_by_transfer_suffix()["0004"]
         self.assertEqual(row["row_status"], "Matched")
@@ -4798,6 +4805,16 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
             f"Already recorded as Paid on Project Payment {self.bank_already_paid}",
             row["outcome_note"],
         )
+
+    def test_a_contains_guard_skip_is_marked_system(self):
+        """#1273: the ICICI contains-guard path is a system skip path; its other lines carry none."""
+        rows = self._bank_row_list()
+        origin = {r["name"]: frappe.db.get_value(ROW_DOCTYPE, r["name"], "skip_origin") for r in rows}
+        skipped = self._bank_rows()[_BANK_ALREADY_PAID]["name"]
+        self.assertEqual(origin[skipped], "System")
+        open_lines = [r["name"] for r in rows if r["row_status"] != ROW_SKIPPED]
+        self.assertTrue(open_lines)
+        self.assertEqual({origin[name] or None for name in open_lines}, {None})
 
     def test_the_skip_sentence_is_the_SHARED_one_not_a_bank_specific_retype(self):
         row = self._bank_rows()[_BANK_ALREADY_PAID]

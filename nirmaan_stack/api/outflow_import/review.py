@@ -38,7 +38,10 @@ from typing import Sequence
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.permissions import (
+    require_outflow_access,
+    require_outflow_undo_access,
+)
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -95,6 +98,7 @@ from nirmaan_stack.services.outflow_import.settlement_reference import (
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
 # it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
 # reviewer feedback, and a tuning change must not be able to alter what settles unattended.
+from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal
 from nirmaan_stack.services.outflow_import.similarity import (
     RecordSignals,
     build_row_signals,
@@ -125,6 +129,8 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
+    SKIP_ORIGIN_MANUAL,
+    SKIP_ORIGIN_SYSTEM,
     SettledLedgerEntry,
     StatusTally,
     batch_is_open,
@@ -655,6 +661,10 @@ def _persist_row_outcome(
         {
             "row_status": outcome.status,
             "outcome_note": outcome.note or None,
+            # ⚠️ WRITTEN ON EVERY RUN, INCLUDING AS NULL (#1273). This function is the match run's one
+            # writer for BOTH the gateway loop and the ICICI contains-guard, so every skip either
+            # makes lands System here. A frozen line never reaches it, so a hand skip keeps Manual.
+            "skip_origin": outcome.skip_origin,
             "resolved_vendor": _sole_vendor(result),
             "suggested_doctype": suggestion.doctype if suggestion else None,
             "suggested_name": suggestion.name if suggestion else None,
@@ -1288,54 +1298,78 @@ def _sole_vendor(result):
     return resolution.best.vendor.name
 
 
+SKIP_REASON_REQUIRED = "A reason is required to skip a transfer."
+
+
 @frappe.whitelist(methods=["POST"])
 def skip_row(row: str, reason: str):
-    """Manually skip a row. A REASON IS REQUIRED (owner ruling).
+    """A person skips an open line that has nothing to link. A REASON IS REQUIRED (owner ruling).
 
     Only a MANUAL skip needs one: an automatic skip -- a duplicate transfer, a failed transfer --
     carries a system-generated reason, because making someone type "duplicate" forty times is
     theatre rather than a control.
+
+    ⚠️ REWRITTEN AT #1273 (parent #1270, ADR-0022), which reversed the 2026-08-10 ruling that hid the
+    button. What changed, and why each matters:
+
+      * ADMIN + ACCOUNTANT LEAD ONLY (`require_outflow_undo_access`). A plain Accountant matches and
+        confirms.
+      * OPEN LINES ONLY, NEVER CASHBOOK (`skip_origin.manual_skip_refusal`). The old endpoint accepted
+        an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
+        as a hand skip; now only a Manual skip can be unskipped, so that relabelling would open a
+        duplicate hole.
+      * THE LINE IS LOCKED, AND THE WRITE GOES THROUGH THE DOCUMENT LAYER. `doc.save` writes a Version
+        row (the doctype tracks changes); the old `set_value` wrote none, so a hand skip left no
+        history of who or when beyond two overwritable columns.
+      * `skip_origin = Manual`, and `outcome_note` BECOMES THE REASON. The table shows
+        `outcome_note || skip_reason`, so the old matcher note used to hide the typed reason.
+      * A COMMENT on the line records who skipped it and why, beside the Version row.
     """
-    require_outflow_access()
+    # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
+    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+
+    actor = require_outflow_undo_access()
     reason = (reason or "").strip()
     if not reason:
-        frappe.throw("A reason is required to skip a row.", title="Missing reason")
+        frappe.throw(SKIP_REASON_REQUIRED, title="Missing reason")
 
-    current = frappe.db.get_value(ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True)
-    if not current:
-        frappe.throw(f"Import row '{row}' not found.", title="Not found")
-    if current.row_status == ROW_SETTLED:
-        frappe.throw(
-            "This row has already settled an expense and cannot be skipped.",
-            title="Already settled",
+    with _concurrent_writer_refusal_as_sentence("skip_row", row):
+        current = frappe.db.get_value(
+            ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True, for_update=True
         )
-    # ⚠️ A PARTIALLY ALLOCATED ROW MAY NOT BE SKIPPED. Money has already been written against it,
-    # and `Skipped` is terminal -- skipping would strand live `Outflow Row Match` records under a
-    # row that claims nothing was ever done. Reverse the allocations first (`reverse_allocation`),
-    # which returns the row to `Matched`/`Mismatched` and makes it skippable again.
-    if current.row_status == ROW_PARTIALLY_ALLOCATED:
-        frappe.throw(
-            "This row has already settled part of its amount. Reverse its allocations before "
-            "skipping it.",
-            title="Partially allocated",
+        if not current:
+            frappe.throw(f"Import row '{row}' not found.", title="Not found")
+        # The BATCH's source, as `match_line` reads it -- the run-level fact, not the denormalised copy.
+        refusal = manual_skip_refusal(
+            row_status=current.row_status, source=_batch_source(current.import_batch)
         )
+        if refusal:
+            frappe.throw(refusal, title="Cannot skip this transfer")
 
-    frappe.db.set_value(
-        ROW_DOCTYPE,
-        row,
-        {"row_status": ROW_SKIPPED, "skip_reason": reason,
-         "decided_at": frappe.utils.now_datetime(), "decided_by": frappe.session.user},
-        update_modified=False,
-    )
-    # ⚠️ SCOPED TO `Settled`, FOR THE SAME REASON AS `_persist_row_outcome`'s delete (review F4).
-    # The `Partially Allocated` guard above stops a skip while money is still written, but a row
-    # whose legs were ALL reversed is back to `Matched`/`Mismatched` and IS skippable -- and it is
-    # carrying exactly the `Reversed` records that ADR-0020 D3 says must never be deleted. Nothing
-    # else changes: a `Reversed` leg holds no unique key and adds nothing to `allocated_of`, so it
-    # cannot make the skipped row look settled.
-    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row, "match_kind": MATCH_SETTLED})
-    statuses = _refresh_batch_rollup(current.import_batch)
-    frappe.db.commit()
+        doc = frappe.get_doc(ROW_DOCTYPE, row)
+        doc.update(
+            {
+                "row_status": ROW_SKIPPED,
+                "skip_origin": SKIP_ORIGIN_MANUAL,
+                "skip_reason": reason,
+                "outcome_note": reason,
+                "decided_at": frappe.utils.now_datetime(),
+                "decided_by": actor,
+            }
+        )
+        # ⚠️ `ignore_version=False` IS EXPLICIT, as at `rate_master.py`'s audited save: Frappe defaults
+        # it to `frappe.flags.in_test`, so without it the Version row this skip exists to leave would
+        # be silently absent under the test runner and the audit would go untested.
+        doc.save(ignore_permissions=True, ignore_version=False)
+        doc.add_comment("Comment", text=f"Skipped by hand by {actor}: {reason}")
+
+        # ⚠️ SCOPED TO `Settled`, FOR THE SAME REASON AS `_persist_row_outcome`'s delete (review F4).
+        # An open line holds no Settled leg -- a line whose legs were ALL reversed is re-derived back
+        # to `Matched`/`Mismatched` -- but it may carry the `Reversed` records ADR-0020 D3 says must
+        # never be deleted, and this keeps them.
+        frappe.db.delete(MATCH_DOCTYPE, {"import_row": row, "match_kind": MATCH_SETTLED})
+        statuses = _refresh_batch_rollup(current.import_batch)
+        frappe.db.commit()
     return {"row": row, "status": ROW_SKIPPED, "batch_status": derive_batch_status(statuses)}
 
 
@@ -2454,6 +2488,7 @@ def get_outflow_rows(
     sort_dir: str = "desc",
     limit=_DEFAULT_PAGE_SIZE,
     offset=0,
+    skip_origin: str = None,
 ):
     """One page of transactions across EVERY import (slice X3).
 
@@ -2487,6 +2522,7 @@ def get_outflow_rows(
         amount_max=amount_max,
         facets=facets,
         failed=failed,
+        skip_origin=skip_origin,
     )
     scoped_where, scoped_params = _scope_clause(scope)
 
@@ -2508,6 +2544,8 @@ def get_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               -- Who skipped it, and when (#1273): the Skipped popup's "Skipped by hand" line.
+               r.skip_origin, r.decided_by, r.decided_at,
                -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
                -- governs FILTERING; this list governs what the row CARRIES, and slice Q1 initially
                -- changed only the first -- so the "Settled via" column rendered an em dash on all
@@ -2621,7 +2659,7 @@ def get_outflow_rows(
 
 
 def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None,
-                 failed=None):
+                 failed=None, skip_origin=None):
     """The WHERE fragments shared by the page query, its count, and the tab counts.
 
     ⚠️ ONE BUILDER FOR ALL FOUR (the facet-values query too), because a count computed under
@@ -2650,6 +2688,14 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
             f"UPPER(COALESCE(r.status_raw, '')) {'<>' if wanted else '='} %s"
         )
         params.append(BANK_SUCCESS_STATUS)
+
+    # The Skipped popup's "Skipped by hand" segment (#1273). A server filter, like `failed` above, so
+    # the page, its count and the export describe the same rows. An origin outside the vocabulary
+    # filters NOTHING, the same fail-open a stale facet gets in `_parsed_facets`.
+    origin = (skip_origin or "").strip()
+    if origin in (SKIP_ORIGIN_SYSTEM, SKIP_ORIGIN_MANUAL):
+        where.append("r.skip_origin = %s")
+        params.append(origin)
 
     text = (search or "").strip()
     if text:
@@ -2957,6 +3003,7 @@ def export_outflow_rows(
     facets=None,
     sort_by: str = "added_on",
     sort_dir: str = "desc",
+    skip_origin: str = None,
 ):
     """Every transfer the current view selects, unpaged, for a spreadsheet.
 
@@ -3002,6 +3049,7 @@ def export_outflow_rows(
         amount_max=amount_max,
         facets=facets,
         failed=failed,
+        skip_origin=skip_origin,
     )
     scoped_where, scoped_params = _scope_clause(scope)
 
@@ -3033,6 +3081,7 @@ def export_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               r.skip_origin, r.decided_by, r.decided_at,
                r.settlement_origin, r.source,
                {SETTLED_LEDGER_SQL}          AS settled_ledgers,
                {_SETTLED_NAME_SQL}           AS settled_target_names,
@@ -3644,13 +3693,18 @@ def get_outflow_summary(
                -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
                -- denormalised copy, so this stays ONE grouped query over ONE table.
                COALESCE(SUM(CASE WHEN r.settlement_origin = %s
-                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion
+                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion,
+               -- Lines a person skipped (#1273), for the Skipped popup's "Skipped by hand" segment.
+               COALESCE(SUM(CASE WHEN r.skip_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS skipped_by_hand
         FROM "tabOutflow Import Row" r
         {clause}
         GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
                  COALESCE(r.direction, '')
         """,
-        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED) + tuple(params) + (BANK_SUCCESS_STATUS,),
+        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
+        + tuple(params)
+        + (BANK_SUCCESS_STATUS,),
         as_dict=True,
     )
 
@@ -3701,6 +3755,15 @@ def get_outflow_summary(
         # differently because they mean different things: one is bookkeeping, one is a decision.
         "auto_skipped_rows": auto_skipped,
         "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
+        # ⚠️ NOT THE SAME NUMBER AS `manually_skipped_rows`, AND NOT MEANT TO BE (#1273). That one keys
+        # on a decider, which an OLD system skip re-skipped by hand also carries; this one counts
+        # `skip_origin = Manual` -- the lines that can be unskipped -- and is what the popup's
+        # "Skipped by hand" segment shows, because it is also what that segment's filter returns.
+        "skipped_by_hand_rows": sum(
+            int(g["skipped_by_hand"] or 0)
+            for g in grouped
+            if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
+        ),
     }
 
 

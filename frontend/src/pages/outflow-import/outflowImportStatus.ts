@@ -192,6 +192,50 @@ export const ROW_STATUS_LABEL: Record<string, string> = {
 /** The status as a person should read it. Falls through to the stored value for the other five. */
 export const rowStatusLabel = (status: string): string => ROW_STATUS_LABEL[status] || status;
 
+/**
+ * Who set a Skipped line aside (#1273). Mirrors `status.SKIP_ORIGIN_*`. Only a Manual skip can ever
+ * be unskipped, so the screen marks it and filters on it.
+ */
+export const SKIP_ORIGIN_SYSTEM = "System";
+export const SKIP_ORIGIN_MANUAL = "Manual";
+
+/**
+ * The profiles that may Skip, Unskip, Unreconcile and Reverse (#1270 Q1) -- Admin and Accountant Lead.
+ *
+ * ⚠️ CONVENIENCE ONLY. `permissions.require_outflow_undo_access` is the boundary; this hides buttons a
+ * plain Accountant would only be refused by. `outflowUndoAccessParity.test.ts` reads `permissions.py`
+ * and fails if the two sets differ.
+ */
+export const OUTFLOW_UNDO_PROFILES: ReadonlySet<string> = new Set([
+    "Nirmaan Admin Profile",
+    "Nirmaan Accountant Lead Profile",
+]);
+
+/** Mirrors `has_outflow_undo_access`: the Administrator user, or an undo profile. */
+export const canUndoOutflow = (role: string | null | undefined, userId: string | null | undefined): boolean =>
+    userId === "Administrator" || OUTFLOW_UNDO_PROFILES.has(role ?? "");
+
+/**
+ * The sources the matcher never runs over, which also get no Skip (#1270 Q16). Mirrors
+ * `sources.NEVER_MATCHED_SOURCES`; the parity test pins it.
+ */
+export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
+
+/**
+ * May this person see the "Nothing to link?" Skip box on this line? Mirrors the server's
+ * `skip_origin.manual_skip_refusal` plus the access check: an undo role, an OPEN line, not Cashbook.
+ * The server re-checks all three.
+ */
+export const canSkipByHand = (
+    row: { row_status: string; source?: string | null } | null | undefined,
+    role: string | null | undefined,
+    userId: string | null | undefined,
+): boolean =>
+    Boolean(row) &&
+    canUndoOutflow(role, userId) &&
+    isOpen(row!.row_status) &&
+    !NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim());
+
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the
 // screen with the tabbed table and X3 deleted it outright, leaving these buckets with no caller --

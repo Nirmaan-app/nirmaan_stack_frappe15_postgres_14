@@ -127,6 +127,22 @@ class TestStageBatch(unittest.TestCase):
         self.assertEqual(failed[0]["row_status"], "Skipped")
         self.assertIn("FAILED", failed[0]["skip_reason"])
 
+    def test_a_staged_skip_is_marked_system_and_a_staged_line_is_not(self):
+        """#1273: upload staging is a system skip path. Only a Manual skip can ever be unskipped."""
+        batch = self._stage()
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": batch.name},
+            fields=["row_status", "skip_origin"],
+        )
+        skipped = [r for r in rows if r["row_status"] == "Skipped"]
+        self.assertTrue(skipped)
+        self.assertEqual({r["skip_origin"] for r in skipped}, {"System"})
+        # Blank either way: an insert lands a Select's None as '', a set_value as NULL.
+        self.assertEqual(
+            {r["skip_origin"] or None for r in rows if r["row_status"] != "Skipped"}, {None}
+        )
+
     def test_successful_rows_are_pending_not_mismatched(self):
         # At upload nothing has been matched, so "Mismatched" would be a finding about work that
         # has not happened. That is the whole reason derive_staged_row_outcome exists.

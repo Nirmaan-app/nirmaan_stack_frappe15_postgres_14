@@ -1340,6 +1340,7 @@ export const OutflowMasterPage = () => {
                 batch={selectedImport}
                 skippedRows={summary?.totals?.skipped_rows}
                 failedRows={summary?.totals?.failed_rows}
+                skippedByHandRows={summary?.skipped_by_hand_rows}
                 open={showingSkipped}
                 onOpenChange={setShowingSkipped}
             />

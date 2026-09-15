@@ -114,6 +114,16 @@ class TestStaging(CashbookImportCase):
         self.assertIn("balances", top_up.skip_reason)
         self.assertIsNone(top_up.suggested_doctype)
 
+    def test_a_skipped_row_is_marked_system_and_a_planned_row_is_not(self):
+        """#1273: the Cashbook writer is a system skip path, like upload staging and the match run."""
+        origin = {
+            r.row_status: frappe.db.get_value("Outflow Import Row", r.name, "skip_origin")
+            for r in self._rows()
+        }
+        self.assertEqual(origin[ROW_SKIPPED], "System")
+        self.assertIn(ROW_PENDING_MATCH, origin)
+        self.assertFalse(origin[ROW_PENDING_MATCH])  # blank: '' on insert
+
     def test_a_row_to_be_created_carries_its_whole_plan(self):
         """⚠️ THE PLAN IS STORED, NOT RECOMPUTED BY THE JOB.
 

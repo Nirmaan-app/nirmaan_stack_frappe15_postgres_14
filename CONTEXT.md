@@ -89,6 +89,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Transaction direction (of an imported bank row)** — *Inflow* is money received (a bank credit); *Outflow* is money paid (a debit). A row whose source states no direction counts as Outflow. The import screen's own facet labels the same two values *Received* / *Paid*.
 
+- **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Only a line skipped by hand can later be brought back. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement — and stays skipped, so the same money is never recorded twice. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
+  *Avoid*: manual skip for a system skip a person merely confirmed.
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.

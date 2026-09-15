@@ -31,6 +31,8 @@ import { useOutflowRows } from "../useOutflowRows";
 import { exportFileBase, toExportColumns } from "../outflowExport";
 import {
     OUTFLOW_COLUMNS,
+    SKIPPED_BY_HAND_FILTER,
+    SKIPPED_BY_HAND_LABEL,
     SKIPPED_ON_PURPOSE_LABEL,
     SKIPPED_ON_PURPOSE_PHRASE,
     describeFrappeError,
@@ -54,12 +56,17 @@ interface Props {
      */
     skippedRows?: number;
     failedRows?: number;
+    /** `get_outflow_summary.skipped_by_hand_rows` -- the count the "Skipped by hand" filter returns. */
+    skippedByHandRows?: number;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }
 
-/** Which half of `Skipped` is on screen. `""` is both. */
-type BankFilter = "" | "recorded" | "failed";
+/**
+ * Which slice of `Skipped` is on screen. `""` is all of it. `manual` (#1273) is a subset of `recorded`
+ * -- the lines a person skipped -- offered as its own segment so they can be found fast.
+ */
+type BankFilter = "" | "recorded" | "failed" | typeof SKIPPED_BY_HAND_FILTER;
 
 /** Nothing here is selectable, so the shared empty set is passed rather than a new one per render. */
 const NOTHING: ReadonlySet<string> = new Set();
@@ -91,7 +98,14 @@ const NO_ORIGINS = new Map();
  * terminal cell already falls back `outcome_note || skip_reason`, which is why this dialog needs no
  * column of its own.
  */
-export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpenChange }: Props) => {
+export const SkippedRowsDialog = ({
+    batch,
+    skippedRows,
+    failedRows,
+    skippedByHandRows,
+    open,
+    onOpenChange,
+}: Props) => {
     // ⚠️ `enabled` MATTERS HERE. A dialog that is mounted but closed must not query -- this one sits
     // in the page's tree for the whole session and would otherwise fetch on every filter change
     // behind it.
@@ -206,6 +220,7 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                                 ["", "All", (skippedRows ?? 0) + (failedRows ?? 0)],
                                 ["recorded", SKIPPED_ON_PURPOSE_LABEL, skippedRows],
                                 ["failed", "Bank refused", failedRows],
+                                [SKIPPED_BY_HAND_FILTER, SKIPPED_BY_HAND_LABEL, skippedByHandRows],
                             ] as [BankFilter, string, number | undefined][]
                         ).map(([value, label, count]) => (
                             <button

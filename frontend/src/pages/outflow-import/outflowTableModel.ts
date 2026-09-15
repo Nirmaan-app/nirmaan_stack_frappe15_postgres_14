@@ -28,6 +28,7 @@ import {
     ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
+    SKIP_ORIGIN_MANUAL,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
@@ -434,7 +435,7 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // ⚠️ NARROWED FROM 320px (owner, 2026-08-10) once the outcome NOTE moved out of the button and
     // onto its own line. The old width existed to fit a sentence inside a control; the control now
     // holds a verb, and 320px of it was whitespace on every terminal row.
-    { id: "outcome", title: "Outcome", get: (r) => r.outcome_note ?? r.skip_reason ?? "", filter: "none", width: "220px" },
+    { id: "outcome", title: "Outcome", get: (r) => outcomeNoteOf(r), filter: "none", width: "220px" },
     // ⚠️ NEW AT X3, AND IT ONLY MAKES SENSE FROM X3 ON. The batch screen showed one import, so
     // naming it in every row would have been noise. The master table spans every import, and
     // "which statement did this come from" becomes a real question the moment it does.
@@ -973,6 +974,11 @@ export interface OutflowRowsQuery {
      * `Skipped`. Nothing could ask for one group or the other until this.
      */
     failed?: boolean;
+    /**
+     * `"Manual"` narrows the Skipped popup to lines a person skipped (#1273) -- the "Skipped by hand"
+     * segment. A server filter, so the page, its count and the export agree.
+     */
+    skip_origin?: typeof SKIP_ORIGIN_MANUAL;
     batch?: string;
     search?: string;
     facets?: Record<string, string[]>;
@@ -1050,6 +1056,9 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
     const bank = String(filters.failed ?? "").trim();
     if (bank === "failed") query.failed = true;
     if (bank === "recorded") query.failed = false;
+    // The fourth segment of the same control (#1273). Not a `failed` value: a hand skip is a
+    // successful transfer, and sending `failed` too would only restate that.
+    if (bank === SKIPPED_BY_HAND_FILTER) query.skip_origin = SKIP_ORIGIN_MANUAL;
 
     const amount = filters.amount as RangeFilter | undefined;
     if (amount?.min != null) query.amount_min = amount.min;
@@ -1112,6 +1121,50 @@ export interface SummaryTile {
  */
 export const SKIPPED_ON_PURPOSE_PHRASE = "skipped on purpose";
 export const SKIPPED_ON_PURPOSE_LABEL = "On purpose";
+
+/** The Skipped popup's fourth segment (#1273): the `failed` pseudo-filter value, and its label. */
+export const SKIPPED_BY_HAND_FILTER = "manual";
+export const SKIPPED_BY_HAND_LABEL = "Skipped by hand";
+
+/**
+ * The note a line's Outcome shows: for a line SKIPPED BY HAND the reason the person typed, otherwise the
+ * outcome note, falling back to the skip reason (#1273, option A).
+ *
+ * ⚠️ WHY A HAND SKIP READS `skip_reason` FIRST. A skip made from #1273 on writes the typed reason into
+ * BOTH fields, so for it either order agrees. A hand skip made BEFORE #1273 kept the matcher's old
+ * sentence ("No approved payment or expense matches…") in `outcome_note` and the typed reason only in
+ * `skip_reason`; the back-fill set `skip_origin` and deliberately rewrote nothing else. Reading
+ * `outcome_note` first would hide the reason on exactly those lines. Display only -- nothing is stored.
+ *
+ * ⚠️ KEYED ON `skip_origin`, never `decided_by`: an old SYSTEM skip re-skipped by hand also has a typed
+ * `skip_reason`, and its system sentence ("Already recorded as Paid on …") is the one that must show.
+ */
+export const outcomeNoteOf = (row: {
+    skip_origin?: string | null;
+    outcome_note?: string | null;
+    skip_reason?: string | null;
+}): string =>
+    (row.skip_origin === SKIP_ORIGIN_MANUAL && row.skip_reason) ||
+    row.outcome_note ||
+    row.skip_reason ||
+    "";
+
+/**
+ * "Skipped by hand · user · date" for a line a person skipped, or `null` for any other line (#1273).
+ *
+ * ⚠️ KEYED ON `skip_origin`, NEVER ON `decided_by` ALONE. An old system skip re-skipped by hand also
+ * carries a decider, and the back-fill deliberately keeps it System -- it must not read as a hand skip.
+ */
+export const skippedByHandLine = (
+    row: { skip_origin?: string | null; decided_by?: string | null; decided_at?: string | null },
+): string | null => {
+    if (row.skip_origin !== SKIP_ORIGIN_MANUAL) return null;
+    const parts = [SKIPPED_BY_HAND_LABEL];
+    if (row.decided_by) parts.push(row.decided_by);
+    const day = (row.decided_at ?? "").split(/[ T]/)[0];
+    if (day) parts.push(formatDate(day));
+    return parts.join(" · ");
+};
 
 export const summaryTiles = (totals: {
     matched_rows: number;

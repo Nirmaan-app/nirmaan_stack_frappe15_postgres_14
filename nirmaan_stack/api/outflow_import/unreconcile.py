@@ -6,10 +6,11 @@
 Thin orchestrator (ADR-0010 B4): authorize -> lock -> read facts -> ask the pure decision module
 (`services/outflow_import/unreconcile.py`) -> write -> re-derive -> commit.
 
-⚠️ NOT WHITELISTED YET, ON PURPOSE. The parent spec exposes this behind a narrower access check
-(Admin + Accountant Lead) that a later slice adds. Until then the ONE way in from the screen is
-`expenses.reverse_allocation`, which calls this with a single leg -- so there is exactly one write
-path for a reversal, and widening who can reach it stays that slice's decision.
+⚠️ NOT WHITELISTED YET, ON PURPOSE. Until the Unreconcile slice exposes it, the ONE way in from the
+screen is `expenses.reverse_allocation`, which calls this with a single leg -- so there is exactly
+one write path for a reversal. Since #1273 it sits behind the narrower Admin + Accountant Lead check
+(`permissions.require_outflow_undo_access`), here AND at that wrapper, so a later caller cannot reach
+the write with only the module gate.
 
 ⚠️ ALL OR NOTHING. Every requested leg's verdict is computed under the locks BEFORE anything is
 written; one refused leg throws that leg's sentence and nothing is written. The writes then happen
@@ -31,7 +32,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _live_legs,
     _refresh_row_allocation,
 )
-from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
@@ -75,7 +76,7 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
     Returns the line's re-derived status, what is allocated and remaining on it now, and one entry
     per reversed leg with the verdict that was carried out.
     """
-    actor = require_outflow_access()
+    actor = require_outflow_undo_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")

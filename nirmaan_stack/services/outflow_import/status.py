@@ -169,6 +169,10 @@ __all__ = [
     "SKIP_REASON_ALREADY_RECEIVED",
     "SKIP_REASON_EXCLUDED_AT_INGEST",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
+    "SKIP_ORIGIN_SYSTEM",
+    "SKIP_ORIGIN_MANUAL",
+    "SKIP_ORIGINS",
+    "SYSTEM_SKIP_SENTENCES",
 ]
 
 ROW_PENDING_MATCH = "Pending match run"
@@ -185,6 +189,17 @@ ROW_PARTIALLY_ALLOCATED = "Partially Allocated"
 ROW_SETTLED = "Settled"
 ROW_SKIPPED = "Skipped"
 ROW_ERROR = "Error"
+
+# Who set a `Skipped` line aside (#1273). The doctype's `skip_origin` Select carries exactly these, in
+# this order; blank means the line is not Skipped.
+#
+# ⚠️ ONLY A MANUAL SKIP MAY EVER BE UNSKIPPED (parent #1270 Q8). A System skip is a duplicate, money the
+# bank never moved, or an exclusion rule -- bringing one back is how the same money gets recorded twice.
+# So every skip THIS MODULE derives is System, by `RowOutcome.skip_origin`, and Manual is written in one
+# place only: `review.skip_row`.
+SKIP_ORIGIN_SYSTEM = "System"
+SKIP_ORIGIN_MANUAL = "Manual"
+SKIP_ORIGINS = ("", SKIP_ORIGIN_SYSTEM, SKIP_ORIGIN_MANUAL)
 
 # The vocabulary in the order a reviewer meets it. The doctype's `row_status` Select carries this
 # exact list in this exact order, and so does the frontend mirror.
@@ -315,6 +330,22 @@ STAGED_NOTE_NO_SETTLEMENT_PATH = (
     "Resolve it by creating a new record or linking an existing one."
 )
 
+# Every sentence the SOFTWARE writes when it skips a line -- at upload into `skip_reason`, at match time
+# into `outcome_note`. Read by `skip_origin.classify_skip_origin`, which back-fills lines skipped before
+# `skip_origin` existed and must tell a system skip from a hand one by its words.
+#
+# ⚠️ A NEW SKIP SENTENCE JOINS THIS TUPLE IN THE SAME CHANGE. Missing here, an old line skipped with it
+# and later re-skipped by hand would back-fill as Manual and become unskippable.
+SYSTEM_SKIP_SENTENCES = (
+    SKIP_REASON_NOT_SUCCESSFUL,
+    SKIP_REASON_ALREADY_IMPORTED,
+    SKIP_REASON_DUPLICATE_IN_FILE,
+    SKIP_REASON_ALREADY_PAID,
+    SKIP_REASON_ALREADY_RECEIVED,
+    _SKIP_REASON_ALREADY_RECORDED,
+    SKIP_REASON_EXCLUDED_AT_INGEST,
+)
+
 
 @dataclass(frozen=True)
 class RowOutcome:
@@ -330,6 +361,17 @@ class RowOutcome:
     @property
     def is_terminal(self) -> bool:
         return self.status in TERMINAL_ROW_STATUSES
+
+    @property
+    def skip_origin(self) -> str | None:
+        """`System` for a skip, `None` otherwise -- the value every writer lands in `skip_origin` (#1273).
+
+        ⚠️ A PROPERTY OF THE STATUS, NOT A FIELD A DERIVER SETS. Every outcome built here is the
+        software's own decision, so a derived skip is System by definition; a field would be one more
+        place a new skip branch could forget. `None` (not `""`) so a writer stores NULL, like the
+        other cleared columns.
+        """
+        return SKIP_ORIGIN_SYSTEM if self.status == ROW_SKIPPED else None
 
 
 @dataclass(frozen=True)

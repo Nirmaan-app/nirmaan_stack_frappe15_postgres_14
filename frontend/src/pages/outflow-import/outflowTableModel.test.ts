@@ -3605,6 +3605,94 @@ describe("serverQuery — the skipped split", () => {
         expect(activeFilterCount({ failed: "failed" })).toBe(1);
         expect(activeFilterCount({ failed: "" })).toBe(0);
     });
+
+    // #1273: the fourth segment asks the server for hand skips, and says nothing about `failed`.
+    it("asks for the lines skipped by hand", () => {
+        const query = serverQuery({
+            scope: "skipped",
+            filters: { failed: model.SKIPPED_BY_HAND_FILTER },
+        });
+        expect(query.skip_origin).toBe("Manual");
+        expect(query.failed).toBeUndefined();
+    });
+
+    it("sends no origin for any other segment", () => {
+        for (const failed of ["", "failed", "recorded"]) {
+            expect(serverQuery({ scope: "skipped", filters: { failed } }).skip_origin).toBeUndefined();
+        }
+    });
+});
+
+describe("skippedByHandLine — who skipped a line by hand, and when (#1273)", () => {
+    it("names the person and the day on a Manual skip", () => {
+        expect(
+            model.skippedByHandLine({
+                skip_origin: "Manual",
+                decided_by: "priya@nirmaan.app",
+                decided_at: "2026-09-12 10:31:04.123456",
+            }),
+        ).toBe("Skipped by hand · priya@nirmaan.app · 12-Sep-2026");
+    });
+
+    it("is null on a system skip, even one that carries a decider", () => {
+        expect(
+            model.skippedByHandLine({
+                skip_origin: "System",
+                decided_by: "priya@nirmaan.app",
+                decided_at: "2026-09-12 10:31:04",
+            }),
+        ).toBeNull();
+        expect(model.skippedByHandLine({ skip_origin: "" })).toBeNull();
+        expect(model.skippedByHandLine({})).toBeNull();
+    });
+
+    it("leaves out what it does not know rather than printing a blank", () => {
+        expect(model.skippedByHandLine({ skip_origin: "Manual" })).toBe("Skipped by hand");
+    });
+});
+
+describe("outcomeNoteOf — which note a line's Outcome shows (#1273, option A)", () => {
+    const MATCHER_NOTE = "No approved payment or expense matches this transfer.";
+
+    it("★ an OLD hand skip shows the typed reason, not the matcher's leftover note", () => {
+        // The back-fill set `skip_origin` only; `outcome_note` still holds the old sentence.
+        expect(
+            model.outcomeNoteOf({
+                skip_origin: "Manual",
+                outcome_note: MATCHER_NOTE,
+                skip_reason: "walk C14 - clearing the batch",
+            }),
+        ).toBe("walk C14 - clearing the batch");
+    });
+
+    it("a system skip re-skipped by hand still shows its system sentence", () => {
+        expect(
+            model.outcomeNoteOf({
+                skip_origin: "System",
+                outcome_note: "Already recorded as Paid on Project Payment PAY-1.",
+                skip_reason: "checked, duplicate",
+            }),
+        ).toBe("Already recorded as Paid on Project Payment PAY-1.");
+    });
+
+    it("every other line reads the outcome note, then the skip reason, then blank", () => {
+        expect(model.outcomeNoteOf({ outcome_note: MATCHER_NOTE, skip_reason: "x" })).toBe(MATCHER_NOTE);
+        expect(model.outcomeNoteOf({ outcome_note: "", skip_reason: "Transfer did not succeed" })).toBe(
+            "Transfer did not succeed",
+        );
+        expect(model.outcomeNoteOf({ skip_origin: "Manual", outcome_note: MATCHER_NOTE })).toBe(MATCHER_NOTE);
+        expect(model.outcomeNoteOf({})).toBe("");
+    });
+
+    it("the Outcome column (and so the CSV) reads the same helper", () => {
+        const outcome = model.OUTFLOW_COLUMNS.find((c) => c.id === "outcome")!;
+        const row = {
+            skip_origin: "Manual",
+            outcome_note: MATCHER_NOTE,
+            skip_reason: "typed reason",
+        } as unknown as OutflowImportRow;
+        expect(outcome.get(row)).toBe("typed reason");
+    });
 });
 
 describe("matchBasisLabel", () => {
