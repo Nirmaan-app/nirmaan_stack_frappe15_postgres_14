@@ -2,7 +2,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import nowdate
+from frappe.utils import flt, nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
@@ -245,6 +245,19 @@ def on_update(doc, method):
         return
 
     old_doc = doc.get_doc_before_save()
+
+    # SR tax already withheld — restate it when the AMOUNT is edited.
+    #
+    # ⚠️ IT MUST SIT ABOVE THE STATUS GUARD BELOW, WHICH RETURNS. An amount edit changes no status,
+    # so everything past that line is unreachable on the one event this needs to catch. Same shape
+    # as `after_insert`, where the deduction call sits above its own returning branch.
+    #
+    # Once a deduction exists, `amount` IS the net figure, so an edit to it is an edit to the net:
+    # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate, and
+    # recomputes any challan the tax was paid under. A payment with no deduction is untouched.
+    if old_doc and flt(old_doc.amount) != flt(doc.amount):
+        payment_tds.restate_deduction_on_amount_change(doc)
+
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
 

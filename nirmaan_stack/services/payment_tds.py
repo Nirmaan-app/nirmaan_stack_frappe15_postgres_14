@@ -179,6 +179,78 @@ def recompute_challan_reconciled(challan: str | None) -> float | None:
 	return total
 
 
+def restate_deduction_on_amount_change(doc) -> str | None:
+	"""Re-derive an existing deduction after its payment's amount was edited.
+
+	⚠️ THE EDITED FIGURE IS THE NET, NOT THE GROSS. Once a deduction exists, `Project Payments.amount`
+	IS what leaves the bank -- the gross survives ONLY on the deduction row -- so an edit to it is an
+	edit to the net, and the other two figures are re-derived from it:
+
+	    gross = net / (1 - rate/100)          tds = gross - net
+
+	⚠️ AT THE DEDUCTION'S OWN SNAPSHOTTED RATE, NEVER THE VENDOR'S CURRENT ONE. 561 of 629 rows
+	already carry a rate that differs from their vendor's today, so re-reading the master would
+	restate a historical deduction at a rate that was never withheld from anyone.
+
+	⚠️ IT MUST NOT RE-NET THE PAYMENT. `write_deduction` rewrites `amount` ONCE, at creation.
+	Subtracting the tax again here would shrink the payment on every edit -- silently, and
+	compounding with each save.
+
+	⚠️ IT REFUSES RATHER THAN OVER-APPLY A CHALLAN. Where the tax was already paid under one, a
+	RAISE can exceed what that challan holds; the edit is rejected loudly instead of leaving a
+	challan claiming to have paid out more than its face value. A reduction always fits.
+
+	Returns the deduction's name when it was looked at, or None when the payment carries none.
+	"""
+	name = existing_deduction(doc.name)
+	if not name:
+		return None
+
+	row = frappe.db.get_value(
+		TDS_DOCTYPE,
+		name,
+		["gross_amount", "tds_amount", "tds_percentage", "tds_challan"],
+		as_dict=True,
+	)
+	rate = flt(row.get("tds_percentage"))
+	net = flt(doc.get("amount"))
+
+	# A rate of 0 or >= 100 cannot be inverted (the divisor would be zero or negative) and a
+	# non-positive net has no tax to carry. Leave the row exactly as it was withheld.
+	if rate <= 0 or rate >= 100 or net <= 0:
+		return name
+
+	gross = flt(net / (1 - rate / 100.0), 2)
+	tds = flt(gross - net, 2)
+	old_tds = flt(row.get("tds_amount"), 2)
+
+	if gross == flt(row.get("gross_amount"), 2) and tds == old_tds:
+		return name
+
+	challan = row.get("tds_challan")
+	if challan and tds > old_tds:
+		# Checked BEFORE anything is written, so a refusal leaves the deduction untouched.
+		capacity = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "amount"), 2)
+		current = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "reconciled_amount"), 2)
+		would_be = flt(current - old_tds + tds, 2)
+		if would_be > capacity + 0.01:
+			frappe.throw(
+				f"This edit raises the tax withheld on {doc.name} from {old_tds} to {tds}, "
+				f"which challan {challan} cannot cover ({current} of {capacity} already used). "
+				f"Reduce the change, or pay the difference under another challan first."
+			)
+
+	frappe.db.set_value(TDS_DOCTYPE, name, {"gross_amount": gross, "tds_amount": tds})
+
+	# The challan's total is the SUM of its deductions, so a changed figure moves it.
+	if challan:
+		recompute_challan_reconciled(challan)
+
+	# And the parent's running total, which counts PAID payments -- this may well be one.
+	sync_total_tds(doc.get("document_type"), doc.get("document_name"))
+	return name
+
+
 def write_deduction(
 	doc,
 	*,
