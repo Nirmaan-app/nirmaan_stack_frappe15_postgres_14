@@ -299,6 +299,17 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
     meta: { exportHeaderName: "Total PO+SR Value incl. GST (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalInvoiced), isNumeric: true }
   },
   {
+    accessorKey: "notionalGst",
+    header: ({ column }) => (
+      <HeaderWithInfo tooltip="Sum of GST Amount for Work Orders where GST is marked off in the system">
+        <DataTableColumnHeader column={column} title="Notional GST" />
+      </HeaderWithInfo>
+    ),
+    cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
+    size: 120,
+    meta: { exportHeaderName: "Notional GST (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.notionalGst), isNumeric: true }
+  },
+  {
     accessorKey: "totalPoSrInvoiced",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoice Received" className="[&_button]:whitespace-normal text-left" />,
     cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,

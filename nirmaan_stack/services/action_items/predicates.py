@@ -17,9 +17,10 @@ Key correctness invariants (from the red-team, §14):
     predicate can NEVER disagree with a PO's own derived status.
   * `is_dispatched` is a BOOLEAN, not a quantity: a dispatched item's expected qty is
     `item.quantity`.
-  * DC_PENDING is tested at the ITEM level ("a DN exists" == ∃ item received_quantity>0),
-    NOT via PO status — a sticky `Partially Dispatched` PO that has deliveries would be
-    a false-negative if keyed on status.
+  * DC_PENDING is tested at the ITEM level on BOTH halves: "a DN exists" == ∃ item
+    received_quantity>0 (NOT via PO status — a sticky `Partially Dispatched` PO that has
+    deliveries would be a false-negative if keyed on status), and "a DC covers it" is a
+    per-line challaned quantity, NOT the mere existence of a challan document on the PO.
   * NULL / "" billing_status counts as Billable.
 """
 
@@ -116,28 +117,47 @@ def is_dn_pending(po_status, billing_status, items) -> bool:
     return False
 
 
-def is_dc_pending(po_status, billing_status, items, has_delivery_challan) -> bool:
-    """DC_PENDING — "a delivery happened but no Delivery Challan was filed".
+def is_dc_pending(po_status, billing_status, items, challaned_qty) -> bool:
+    """DC_PENDING — "material was received that no Delivery Challan covers".
 
     True iff the PO is Billable AND live AND at least one real item has actually been
     received (``received_quantity > 0`` — i.e. a DN exists, tested at the ITEM level so
-    a sticky `Partially Dispatched` PO with deliveries is NOT missed) AND there is NO
-    non-stub Delivery-Challan ``PO Delivery Documents`` parented to the PO.
+    a sticky `Partially Dispatched` PO with deliveries is NOT missed) AND that item has
+    ZERO challaned quantity.
 
-    ``has_delivery_challan`` is the caller's pre-computed boolean ("a non-stub
-    type=='Delivery Challan' PDD exists for this PO").
+    ``challaned_qty`` is a callable ``(category, item_id) -> float`` returning the total
+    quantity for that line across every non-stub type=='Delivery Challan' PDD on the PO.
+
+    THIS TEST IS PER-ITEM, and that is the whole point. It used to take a PO-wide
+    boolean ("does any challan document exist?") and short-circuit on it, which made the
+    obligation dischargeable by filing a challan for ANYTHING: cover one line and the PO
+    left the Action Center permanently, however many received lines were still
+    unchallaned. PO/146/00074/25-26 (Maconns Noida) is the case that exposed it — two
+    challans on file, six of seven lines covered, and 8.20 units of GI OVAL VCD 22/20G
+    received against 0.00 challaned, invisible to this predicate.
+
+    It now mirrors the DN>DC report's `no_dc_update` verdict exactly, INCLUDING the
+    item-level Billable filter, so the Overview tile and that report agree by
+    construction rather than by coincidence. Measured on live data the two definitions
+    differed on 10 POs (3,063 vs 3,071).
     """
     if not is_billable(billing_status):
         return False
     if po_status not in LIVE_STATUSES:
         return False
-    if has_delivery_challan:
-        return False
 
     for item in items:
         if _item_get(item, "category") == _ADDITIONAL_CHARGES:
             continue
-        if _to_float(_item_get(item, "received_quantity"), 0) > 0:
+        # Item-level Billable check, absent from the old PO-level-only version. A DC
+        # cannot be filed against a Non-Billable line, so it can never be an obligation.
+        if not is_billable(_item_get(item, "billing_status")):
+            continue
+        if _to_float(_item_get(item, "received_quantity"), 0) <= 0:
+            continue
+        if challaned_qty(
+            _item_get(item, "category"), _item_get(item, "item_id")
+        ) == 0:
             return True
     return False
 

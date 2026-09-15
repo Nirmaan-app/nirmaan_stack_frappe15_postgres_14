@@ -4,6 +4,59 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-09-11: Notional GST on Work Orders raised with GST off
+
+**Summary:** New derived figure "Notional GST" = 18% of Approved WOs with `gst != "true"` (the GST never
+charged on them), on the Projects list, the project WO Summary tab and the Cash Sheet report. Commit
+`1b67d01b` (+ `b8dd426a`, Projects list column widths) on `bug/po-dc`. Frontend detail:
+`frontend/.claude/CHANGELOG.md` (same date). Rule + owner ruling: `.claude/context/domain/projects.md`
+§ Notional GST; term in `CONTEXT.md`.
+
+### What was built
+
+- **`api/projects/project_aggregates.py`:** `get_projects_financial_rollup` gains `notional_gst` (added to
+  `_ROLLUP_KEYS`, summed in the existing Approved-SR loop, which now also fetches `gst` — no extra query);
+  `get_project_sr_summary_aggregates` gains `total_notional_gst`. Both use `gst != "true"` →
+  `total_amount × 0.18`, the same GST test as `_calculate_sr_totals`.
+- **`api/projects/test_project_aggregates.py`:** `TestProjectNotionalGst` — its own project + teardown;
+  `gst` is set explicitly on every fixture because `new_doc` defaults it to `"true"`. Asserts rollup 270,
+  card 270 and `po_wo_amount` 3500 (GST-off Approved counted; GST-on and non-Approved excluded).
+
+### Verification
+
+- The seven pre-existing rollup keys are identical before/after on all 102 projects, and the three
+  pre-existing WO Summary card totals on all 85 projects with Approved WOs (DIFF: 0).
+- `notional_gst` and `total_notional_gst` equal a direct SQL sum on every project (0 mismatches), and
+  each other.
+- `test_project_aggregates`: 5/6 pass. `test_invoice_totals_pending_plus_approved` was already failing —
+  it reads `["message"]` from `get_invoice_totals_by_document`, which returns the map directly (see its
+  docstring). Not touched.
+
+---
+
+## 2026-09-11: Critical PO links → `Critical PO Task Child Table` on Procurement Orders
+
+**Summary:** Critical PO Task ↔ PO links moved off the task's `associated_pos` JSON onto the PO, one child
+row per (PO, task). Nine `feat(critical-po-child-table)` commits on `bug/po-dc` (`7340a28c`..`869f3517`).
+Frontend detail: `frontend/.claude/CHANGELOG.md` (same date).
+
+### What was built
+
+- **Doctypes:** new child `Critical PO Task Child Table` (`critical_po_task`, `task_name`,
+  `critical_po_category`, `sub_category`; index on `critical_po_task`); `Procurement Orders.critical_po_tasks`
+  Table field; `Critical PO Tasks.linked_po_count` (read-only Int). `associated_pos` kept, unused.
+- **`api/critical_po_tasks/po_links.py`:** `update_po_task_links(add, remove)` — the only writer (task write
+  permission, same-project check, direct child-row insert/delete so the PO is never saved);
+  `refresh_task_po_counts` recounts from the rows; `get_task_pos` / `get_project_task_pos` readers.
+- **Hooks (`integrations/controllers/critical_po_tasks.py`):** task `on_update` keeps each row's `task_name`
+  / `sub_category` in step; task `on_trash` clears its rows before the link check; PO `on_update` /
+  `after_delete` recount the affected tasks. `critical_po_items` rename cascade updates the rows too.
+- **`material_plan_api.py`:** reads links from the child table; response keys `linked_pos` / `linked_pos_count`.
+- **Patch `v3_0.migrate_critical_po_links_to_po_child`** (one patch, idempotent): JSON → rows, skips
+  dead PO refs, re-syncs labels on existing rows, recomputes every count and asserts the row total.
+
+---
+
 ## 2026-07-31: Reminder Schedule & Action Center
 
 **Summary:** Implemented a comprehensive Reminder Schedule feature and Action Center for role-based compliance task reminders. Features a pure-math services layer for schedule calculation, a daily cron worker (8 AM) gated by `notify_before_days`, and a unified frontend Action Center (right-rail panel) to display actionable tasks to users based on their Role Profiles. Includes Mark Done with remarks, completion history, real-time updates, and schedule edit reconciliation.

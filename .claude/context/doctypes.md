@@ -129,7 +129,14 @@ Asset Category
 |---------|---------|
 | **Critical PO Category** | Category definitions with `critical_po_sub_category` for granular categorization |
 | **Critical PO Items** | Items linked to critical PO categories |
-| **Critical PO Tasks** | Task tracking for critical PO workflow |
+| **Critical PO Tasks** | Per-project task tracking for the critical PO workflow. `linked_po_count` (read-only Int) = stored count of linked POs, recomputed from the child table below. `associated_pos` (JSON) is legacy — kept in the schema, read/written by nothing |
+| **Critical PO Task Child Table** | Child of **Procurement Orders** (field `critical_po_tasks`) — one row per PO ↔ task link. Written only by `api/critical_po_tasks/po_links.update_po_task_links` |
+
+### Critical PO Task Child Table Fields
+- `critical_po_task` (Link → Critical PO Tasks, reqd; indexed)
+- `task_name` (Data, read-only) — display label: `item_name`, plus ` (sub_category)` when set
+- `critical_po_category` (Link, read-only), `sub_category` (Data, read-only)
+- `task_name` / `sub_category` have no `fetch_from` — kept in step by the task `on_update` hook and the Critical PO Items rename cascade
 
 ## BOQ (Bill of Quantities)
 

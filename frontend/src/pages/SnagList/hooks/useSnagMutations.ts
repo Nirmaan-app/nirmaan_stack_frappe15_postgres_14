@@ -36,6 +36,7 @@ export interface UseSnagMutationsResult {
   isBulkSaving: boolean;
   isAdding: boolean;
   isSavingDetails: boolean;
+  isRenamingBatch: boolean;
 
   /**
    * ONE row's status, and the remark that rides it (ADR-0018).
@@ -74,6 +75,12 @@ export interface UseSnagMutationsResult {
    * required check would refuse what the server accepts.
    */
   updateSnagDetails: (payload: UpdateSnagDetailsPayload) => Promise<boolean>;
+  /**
+   * Rename ONE batch — the label its tab, Import History, the Edit dialog and the PDF all
+   * show. Only the label moves: snags link to the batch by its document `name`, so nothing
+   * else is rewritten. Resolves `true` once the server accepted the name.
+   */
+  renameBatch: (batch: string, batchName: string) => Promise<boolean>;
 }
 
 /**
@@ -93,11 +100,13 @@ export function useSnagMutations(
   const { call: callUpdateDetails } = useFrappePostCall(
     SNAG_ENDPOINTS.updateSnagDetails
   );
+  const { call: callRenameBatch } = useFrappePostCall(SNAG_ENDPOINTS.renameBatch);
 
   const [savingStatusFor, setSavingStatusFor] = useState<string | null>(null);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingDetails, setIsSavingDetails] = useState(false);
+  const [isRenamingBatch, setIsRenamingBatch] = useState(false);
 
   const updateStatus = useCallback(
     async (snag: string, status: SnagStatus, remark?: string) => {
@@ -231,14 +240,45 @@ export function useSnagMutations(
     [callUpdateDetails, onChanged]
   );
 
+  const renameBatch = useCallback(
+    async (batch: string, batchName: string) => {
+      setIsRenamingBatch(true);
+      try {
+        // The server strips too; trimming here only makes the toast match what is stored.
+        const next = batchName.trim();
+        await callRenameBatch({ batch, batch_name: next });
+        toast({
+          title: "Batch renamed",
+          description: `The batch is now called “${next}”.`,
+          variant: "success",
+        });
+        // Refetches the batch list, which is what relabels the tab.
+        onChanged?.();
+        return true;
+      } catch (e: any) {
+        toast({
+          title: "Could not rename the batch",
+          description: errText(e, "The name was not changed."),
+          variant: "destructive",
+        });
+        return false;
+      } finally {
+        setIsRenamingBatch(false);
+      }
+    },
+    [callRenameBatch, onChanged]
+  );
+
   return {
     savingStatusFor,
     isBulkSaving,
     isAdding,
     isSavingDetails,
+    isRenamingBatch,
     updateStatus,
     bulkUpdateStatus,
     addManualSnag,
     updateSnagDetails,
+    renameBatch,
   };
 }

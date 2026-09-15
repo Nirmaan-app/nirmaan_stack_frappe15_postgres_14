@@ -1705,6 +1705,98 @@ class TestSnagApi(FrappeTestCase):
         self.assertFalse(frappe.db.exists("Project Snag Batch", batch))
         self.assertEqual(frappe.db.count("Project Snag", {"batch": batch}), 0)
 
+    # -- rename ----------------------------------------------------------------
+
+    def test_rename_batch_changes_only_the_label_and_keeps_every_snag_attached(self):
+        result = self._one_sheet(sheet="Relabel", batch_name="VRB_Food Box_Snag_List (1)")
+        batch = result["batch"]
+        snags_before = sorted(
+            frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")
+        )
+
+        out = tracking.rename_batch(batch=batch, batch_name="  Block A - Round 2  ")
+
+        # Stripped, like every other free-text label this feature stores.
+        self.assertEqual(out, {"batch": batch, "batch_name": "Block A - Round 2"})
+        self.assertEqual(
+            frappe.db.get_value("Project Snag Batch", batch, "batch_name"), "Block A - Round 2"
+        )
+        # Snags point at the batch's NAME, not its label -- a rename moves none of them.
+        self.assertEqual(
+            sorted(frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")),
+            snags_before,
+        )
+        # NO Version-row assertion, deliberately: Frappe skips versions under test
+        # (`Document._save` sets `ignore_version = frappe.flags.in_test`), so one would never
+        # appear here even though the rename goes through `doc.save` and is versioned live.
+
+    def test_rename_batch_refuses_a_blank_or_over_long_name_and_a_project_manager(self):
+        result = self._one_sheet(sheet="Keep", batch_name="Kept name")
+        batch = result["batch"]
+
+        with self.assertRaises(frappe.ValidationError):
+            tracking.rename_batch(batch=batch, batch_name="   ")
+        with self.assertRaises(frappe.ValidationError):
+            tracking.rename_batch(batch=batch, batch_name="x" * (tracking.BATCH_NAME_MAX_LEN + 1))
+
+        # Managing a batch is the IMPORT tier: a Project Manager may move a snag's status,
+        # but not relabel an import.
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: "Nirmaan Project Manager Profile"
+        frappe.session.user = "snag-pm@example.com"
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                tracking.rename_batch(batch=batch, batch_name="PM rename")
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+        self.assertEqual(frappe.db.get_value("Project Snag Batch", batch, "batch_name"), "Kept name")
+
+    def test_rename_batch_refuses_a_name_another_batch_in_the_project_already_has(self):
+        taken = f"Tower B {frappe.generate_hash(length=5)}"
+        self._one_sheet(sheet="Taken", batch_name=taken)
+        other = self._one_sheet(sheet="Other", batch_name=f"Other {frappe.generate_hash(length=5)}")[
+            "batch"
+        ]
+        original = frappe.db.get_value("Project Snag Batch", other, "batch_name")
+
+        # Case and spacing do not make a different name -- all three read as the same tab.
+        for attempt in (taken, taken.upper(), f"  {taken.replace(' ', '   ')}  "):
+            with self.assertRaises(frappe.ValidationError):
+                tracking.rename_batch(batch=other, batch_name=attempt)
+
+        self.assertEqual(frappe.db.get_value("Project Snag Batch", other, "batch_name"), original)
+
+    def test_rename_batch_allows_a_name_used_in_a_different_project(self):
+        shared = f"Round 1 {frappe.generate_hash(length=5)}"
+        other_project = "TEST-SNAGP-" + frappe.generate_hash(length=8)
+        other_batch = "TEST-SNAGB-" + frappe.generate_hash(length=8)
+        # Raw rows: only the fields the uniqueness check reads, no hooks.
+        for doctype, fields in (
+            ("Projects", {"name": other_project, "project_name": other_project}),
+            (
+                "Project Snag Batch",
+                {"name": other_batch, "project": other_project, "batch_name": shared},
+            ),
+        ):
+            row = frappe.new_doc(doctype)
+            row.update(fields)
+            row.db_insert()
+
+        def cleanup():
+            frappe.db.delete("Project Snag Batch", {"name": other_batch})
+            frappe.db.delete("Projects", {"name": other_project})
+            frappe.db.commit()
+
+        self.addCleanup(cleanup)
+
+        batch = self._one_sheet(sheet="Elsewhere", batch_name="Before rename")["batch"]
+        tracking.rename_batch(batch=batch, batch_name=shared)
+        self.assertEqual(frappe.db.get_value("Project Snag Batch", batch, "batch_name"), shared)
+
     # -- stats -----------------------------------------------------------------
 
     def test_get_snag_stats_counts_every_status_including_zeroes(self):

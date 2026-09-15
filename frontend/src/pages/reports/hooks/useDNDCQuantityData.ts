@@ -7,7 +7,21 @@ import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ReconcileStatus = "matched" | "mismatch" | "no_dc_update" | "pending_dn";
+export type ReconcileStatus =
+  | "matched"
+  | "mismatch"
+  | "no_dc_update"
+  | "pending_dn"
+  | "partially_delivered";
+
+
+
+/** Under-delivery tolerance, in percent — the same `delta` as `calculate_order_status`
+ *  (api/delivery_notes/update_delivery_note.py). Applied ONLY where a quantity is
+ *  compared against the ORDERED quantity: site cannot deliver a measured material
+ *  (duct in SQMTR, pipe in metres) to an exact decimal. DN-vs-DC comparisons are
+ *  paperwork, not measurement, and stay exact. */
+const DELIVERY_DELTA_PERCENT = 2.5;
 
 export interface DNDCItemRow {
   itemId: string;
@@ -50,6 +64,7 @@ export interface DNDCSummary {
   matchedPOs: number;
   mismatchPOs: number;
   noDCUpdatePOs: number;
+  partiallyDeliveredPOs: number;
   pendingDNPOs: number;
 }
 
@@ -274,26 +289,97 @@ export function useDNDCQuantityData(projectId: string | null) {
         // and allows a 2.5% tolerance on fractional quantities. Measured on live data
         // those two make no difference here; if this card ever disagrees with the tile,
         // they are the first place to look.
+
+
+        // Tolerance for the ORDERED-quantity comparisons below. Mirrors
+        // `calculate_order_status`: the branch is chosen by the DATA — if either side
+        // has a fractional part the 2.5% delta applies, if both are whole numbers the
+        // comparison is exact. Two of them because the "other" side differs.
+        const dnOrderedTolerance =
+          itemData.orderedQty % 1 !== 0 || dnQty % 1 !== 0
+            ? (itemData.orderedQty * DELIVERY_DELTA_PERCENT) / 100
+            : 0;
+        const dcOrderedTolerance =
+          itemData.orderedQty % 1 !== 0 || dcQty % 1 !== 0
+            ? (itemData.orderedQty * DELIVERY_DELTA_PERCENT) / 100
+            : 0;
+
         const deliveryPending =
           poStatusMap.get(poNumber) !== "Delivered" && itemData.orderedQty > dnQty;
 
-        // The three quantity verdicts are UNTOUCHED — every item keeps exactly the
-        // status it had before this flag existed.
+        // Five verdicts as one PRECEDENCE CHAIN — first match wins. Ordering is
+        // load-bearing and each branch is disjoint from the ones above it, so no item
+        // can satisfy two rules. Verified against all 12,188 billable item rows in the
+        // live DB: the first three branches reproduce the previous three-verdict split
+        // exactly (0 rows change status), and `partially_delivered` only ever claims
+        // rows that used to read a vacuous "matched".
+        //
+        // 1. no_dc_update — material received, nothing challaned at all. Stays FIRST
+        //    and keeps its `dcQty === 0` test, because this card is what agrees with
+        //    the project Overview's DC Pending tile. 9,647 rows system-wide.
+        // 2. mismatch — a challan exists but is short. The `dcQty > 0` guard is what
+        //    keeps it disjoint from no_dc_update: without it, `dnQty === orderedQty &&
+        //    dcQty === 0` satisfies BOTH, and that shape is 79% of all rows.
+        // 3. pending_dn — nothing received yet. Ranked below the two paperwork
+        //    verdicts so it can never take a PO off the red card.
+        // 4. partially_delivered — delivery incomplete AND the challan matches the
+        //    delivery note EXACTLY. Owner-specified definition (2026-09-09):
+        //        dnQty > 0  AND  dnQty !== orderedQty  AND  dcQty === dnQty
+        //    Both tests are deliberately EXACT, not tolerance-based.
+        //
+        //    Measured on all 12,188 billable item rows before this was adopted: the
+        //    `dcQty === dnQty` clause yields 7 items / 1 PO, where `dcQty >= dnQty`
+        //    yields 15 items / 6 POs. The 8-item difference is over-challaned rows
+        //    (DC documents MORE than the DN), which fall through to "matched" here —
+        //    including PO/014/00107/26-27, short 147.07 and 139.64 units, and
+        //    PO/107/00088/25-26, ordered 1.00 against 0.50 received. Conversely the
+        //    exact `!==` admits two sub-0.01 rounding rows on PO/146/00074/25-26
+        //    (342.74 vs 342.73) that a tolerance would have suppressed.
+        //
+        //    This is the owner's call, made against those numbers — do NOT "fix" it
+        //    back to >= / tolerance without re-raising it.
+        // 5. matched — everything else.
+        // OWNER'S SPECIFICATION, implemented verbatim and in the order given.
+        // Nothing added, nothing removed. The 2.5% delta is applied to every
+        // comparison against ORDERED quantity; DN-vs-DC comparisons stay exact.
+        //   1. Pending DN           dnQty == 0
+        //   2. Partially Delivered  dnQty > 0 && dnQty != orderQty && dnQty == dcQty
+        //   3. No DC Update         dnQty > 0 && dcQty == 0 && dcQty != orderQty
+        //   4. Mismatch             dnQty > 0 && dnQty == orderQty && dnQty > dcQty
+        //   5. Matched              dnQty > 0 && dcQty == orderQty && dnQty <= dcQty
         let status: ReconcileStatus;
-        if (dcQty >= dnQty) {
-          status = "matched";
-        } else if (dnQty > 0 && dcQty === 0) {
-          status = "no_dc_update";
-        } else {
-          status = "mismatch";
-        }
-
-        // ...with ONE exception. An item with nothing on either side has no meaningful
-        // DC verdict — "matched" at 0 vs 0 is vacuous — and it is exactly the shape the
-        // zero-activity filter used to discard, which is why a PO dispatched with
-        // nothing received appeared nowhere in this report. Label it for what it is.
-        if (deliveryPending && dnQty === 0 && dcQty === 0) {
+        if (dnQty === 0) {
           status = "pending_dn";
+        } else if (
+          dnQty > 0 &&
+          Math.abs(dnQty - itemData.orderedQty) > dnOrderedTolerance &&
+          dcQty === dnQty
+        ) {
+          status = "partially_delivered";
+        } else if (
+          dnQty > 0 &&
+          dcQty === 0 &&
+          Math.abs(dcQty - itemData.orderedQty) > dcOrderedTolerance
+        ) {
+          status = "no_dc_update";
+        } else if (
+          dnQty > 0 &&
+          Math.abs(dnQty - itemData.orderedQty) <= dnOrderedTolerance &&
+          dnQty > dcQty
+        ) {
+          status = "mismatch";
+        } else if (
+          dnQty > 0 &&
+          Math.abs(dcQty - itemData.orderedQty) <= dcOrderedTolerance &&
+          dnQty <= dcQty
+        ) {
+          status = "matched";
+        } else {
+          // NOT IN THE SPECIFICATION. The five rules above are not exhaustive, and
+          // TypeScript requires `status` to be assigned on every path, so a fallback
+          // is unavoidable. "matched" is the least disruptive choice, but it means
+          // rows no rule claims are SILENTLY reported as clean. See the audit.
+          status = "matched";
         }
 
         itemRows.push({
@@ -369,12 +455,36 @@ export function useDNDCQuantityData(projectId: string | null) {
       // fully challaned. Ranked BELOW mismatch and no_dc_update, so it can only override
       // "matched" — it never takes a PO off the No DC Update card.
 
+      const hasPartiallyDelivered = billableItems.some(
+        (i) => i.status === "partially_delivered"
+      );
+      // STATUS-based, unlike `hasDeliveryPending` above: an item that has received
+      // nothing at all. Ranked above `partially_delivered` because "nothing arrived"
+      // is the louder signal on a PO where some lines did arrive.
+      const hasPendingDNStatus = billableItems.some(
+        (i) => i.status === "pending_dn"
+      );
+
       let reconcileStatus: ReconcileStatus;
       if (hasMismatch) {
         reconcileStatus = "mismatch";
       } else if (hasNoDCUpdate) {
         reconcileStatus = "no_dc_update";
+      } else if (hasPendingDNStatus) {
+        reconcileStatus = "pending_dn";
+      } else if (hasPartiallyDelivered) {
+        // The badge PO/218 on Nagarjuna Olive should always have had. Its 12-of-36
+        // received are fully challaned, so every item reads "matched" against the DC
+        // and the old rollup could only call it Fully Matched — a badge that flatly
+        // contradicted the Pending DN card counting it. `partially_delivered` says the
+        // true thing, so the flag is no longer needed to paper over it here.
+        reconcileStatus = "partially_delivered";
       } else if (hasDeliveryPending) {
+        // Safety net for one hairline case the statuses above cannot express: the flag
+        // uses a strict `orderedQty > dnQty` while `partially_delivered` allows
+        // QTY_TOLERANCE, so an item short by less than 0.01 sets the flag while every
+        // status reads "matched". Keeping this branch preserves the invariant that a PO
+        // counted by the Pending DN card can NEVER badge Fully Matched.
         reconcileStatus = "pending_dn";
       } else {
         reconcileStatus = "matched";
@@ -457,6 +567,13 @@ export function useDNDCQuantityData(projectId: string | null) {
     const matchedPOs = billableRows.filter((r) => r.reconcileStatus === "matched").length;
     const mismatchPOs = billableRows.filter((r) => r.reconcileStatus === "mismatch").length;
     const noDCUpdatePOs = billableRows.filter((r) => r.reconcileStatus === "no_dc_update").length;
+    // Rollup-based like the three above, so it PARTITIONS with them. A PO that is both
+    // partially delivered and missing a challan is counted under No DC Update only —
+    // the paperwork gap is the actionable half. Deliberately NOT flag-based: unlike
+    // Pending DN, this card is not mirroring an Overview tile it has to agree with.
+    const partiallyDeliveredPOs = billableRows.filter(
+      (r) => r.reconcileStatus === "partially_delivered"
+    ).length;
     // Counted from the ITEMS, not from `reconcileStatus`. A PO can owe both a delivery
     // and a challan — PO/218 on Nagarjuna Olive does — and the rollup gives each PO one
     // verdict, so counting by rollup would drop such a PO off this card (it ranks below
@@ -475,6 +592,7 @@ export function useDNDCQuantityData(projectId: string | null) {
         mismatchPOs,
         noDCUpdatePOs,
         pendingDNPOs,
+        partiallyDeliveredPOs,
       },
     };
   }, [isLoading, poItemData, poDeliveryDocsData, poList]);

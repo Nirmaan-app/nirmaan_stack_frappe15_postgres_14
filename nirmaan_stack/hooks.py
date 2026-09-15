@@ -201,6 +201,10 @@ doc_events = {
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.on_update",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.on_trash"
     },
+    "Critical PO Tasks": {
+        "on_update": "nirmaan_stack.integrations.controllers.critical_po_tasks.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.critical_po_tasks.on_trash"
+    },
     "Procurement Requests": {
         # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
         "validate": "nirmaan_stack.integrations.controllers.procurement_requests.validate",
@@ -219,7 +223,9 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_procurement_order",
             "nirmaan_stack.services.action_items.doc_hooks.on_po_update",
+            "nirmaan_stack.integrations.controllers.critical_po_tasks.refresh_counts_on_po_update",
         ],
+        "after_delete": "nirmaan_stack.integrations.controllers.critical_po_tasks.refresh_counts_on_po_delete",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",

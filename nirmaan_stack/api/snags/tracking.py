@@ -1,5 +1,5 @@
 """Snag tracking endpoints -- status (+ its remark), manual entry, detail edit, batch
-delete, stats, field-value suggestions.
+rename + delete, stats, field-value suggestions.
 
 Wire contract: `frontend/src/pages/SnagList/types.ts`.
 Storage decision + delete consequences: `docs/adr/0017-snag-rows-are-standalone-documents.md`.
@@ -498,6 +498,89 @@ def delete_batch(batch=None):
     frappe.db.commit()
 
     return {"batch": batch, "deleted_snags": len(names)}
+
+
+# ---------------------------------------------------------------------------
+# Batch rename
+# ---------------------------------------------------------------------------
+
+#: `Project Snag Batch.batch_name` is a Data field -- varchar(140). Checked here so an
+#: over-long name gets a sentence, not Frappe's CharacterLengthExceededError.
+BATCH_NAME_MAX_LEN = 140
+
+
+def _batch_name_key(name):
+    """How two batch names are compared for "the same name": case and spacing ignored.
+
+    "Block A", "block a" and " Block  A " read as the same tab, so they count as one name.
+    Mirrored by `batchNameKey` in `RenameBatchDialog.tsx`, which only lets the dialog warn
+    while typing -- this is the boundary.
+    """
+    return " ".join((name or "").split()).casefold()
+
+
+@frappe.whitelist(methods=["POST"])
+def rename_batch(batch=None, batch_name=None):
+    """Rename a batch -- the label its tab, Import History, the Edit dialog's provenance
+    line and the PDF's "File" list all show. Admin / Project Lead / PMO.
+
+    The label starts life as the uploaded file's name (`import_wizard._default_batch_name`),
+    which is routinely something like `VRB_Food Box_Snag_List_04.09.2026be17ff (1)`, so it
+    has to be correctable after the fact.
+
+    ONLY `batch_name` MOVES, and nothing downstream needs rewriting: every snag links to
+    the batch by its document `name` (`SNAGB-...`), never by this label, and every surface
+    that shows the label reads it live. `source_file` is untouched, so the original workbook
+    stays downloadable under its own file name -- a rename loses no provenance.
+
+    Same tier as `delete_batch`: renaming is managing the batch.
+
+    THE NAME MUST BE UNIQUE WITHIN THE PROJECT (compared by `_batch_name_key`, so case and
+    spacing do not make a different name): two tabs reading the same could only be told
+    apart by position. A batch in ANOTHER project may share it. Import does NOT apply this
+    rule -- uploading one file twice still lands as two same-named tabs, and renaming one
+    of them is how they are told apart.
+
+    DOCUMENT LAYER (`doc.save`), not `frappe.db.set_value`, so `track_changes` records the
+    old and new name in the Version log.
+    """
+    if not batch:
+        frappe.throw("batch is required.", title="Missing field: batch")
+    require_import_access("rename a snag batch")
+
+    label = (batch_name or "").strip()
+    if not label:
+        frappe.throw("A batch name is required.", title="Missing field: batch_name")
+    if len(label) > BATCH_NAME_MAX_LEN:
+        frappe.throw(
+            f"A batch name can be at most {BATCH_NAME_MAX_LEN} characters.",
+            title="Batch name too long",
+        )
+    project = frappe.db.get_value("Project Snag Batch", batch, "project")
+    if project is None:
+        frappe.throw(f"Snag batch '{batch}' not found.", title="Not found")
+
+    # A project holds a handful of batches, so its names are compared here in Python --
+    # one key function for both sides, rather than re-expressing it in SQL.
+    other_names = frappe.get_all(
+        "Project Snag Batch",
+        filters={"project": project, "name": ("!=", batch)},
+        pluck="batch_name",
+        limit_page_length=0,
+    )
+    key = _batch_name_key(label)
+    if any(_batch_name_key(other) == key for other in other_names):
+        frappe.throw(
+            f"Another batch in this project is already called “{label}”. Choose a different name.",
+            title="Name already used",
+        )
+
+    doc = frappe.get_doc("Project Snag Batch", batch)
+    doc.batch_name = label
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"batch": doc.name, "batch_name": doc.batch_name}
 
 
 # ---------------------------------------------------------------------------

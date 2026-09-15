@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { CriticalPOTask } from '@/types/NirmaanStack/CriticalPOTasks';
+import { useAllPOTaskLinks } from '@/pages/projects/data/critical-po/useCriticalPOQueries';
 import { queryKeys } from '@/config/queryKeys';
 
 // --- Child table item interface ---
@@ -131,16 +132,20 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
 
     const {
         data: criticalTasks,
-        isLoading: tasksLoading,
+        isLoading: tasksListLoading,
         error: tasksError,
     } = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
-            fields: ["name", "critical_po_category", "item_name", "sub_category", "po_release_date", "status", "associated_pos"],
+            fields: ["name", "critical_po_category", "item_name", "sub_category", "po_release_date", "status"],
             limit: 0,
         },
         ["Critical PO Tasks", "all_for_reports"]
     );
+
+    // Which POs each task has comes from the Critical PO Task Child Table.
+    const { taskPOMap, isLoading: linksLoading } = useAllPOTaskLinks();
+    const tasksLoading = tasksListLoading || linksLoading;
 
     // --- Create Lookup Maps (Memoized) ---
     const projectMap = useMemo(() => {
@@ -161,22 +166,14 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
         const map = new Map<string, CriticalPOTask[]>();
         if (!criticalTasks) return map;
         for (const task of criticalTasks) {
-            try {
-                const associated = typeof task.associated_pos === "string"
-                    ? JSON.parse(task.associated_pos)
-                    : task.associated_pos;
-                const pos: string[] = associated?.pos || [];
-                for (const po of pos) {
-                    const existing = map.get(po) || [];
-                    existing.push(task);
-                    map.set(po, existing);
-                }
-            } catch {
-                // skip malformed entries
+            for (const po of taskPOMap.get(task.name) ?? []) {
+                const existing = map.get(po) || [];
+                existing.push(task);
+                map.set(po, existing);
             }
         }
         return map;
-    }, [criticalTasks]);
+    }, [criticalTasks, taskPOMap]);
 
     // --- Transform and enrich data (Memoized) ---
     const reportData = useMemo<DCMIRReportRowData[] | null>(() => {
