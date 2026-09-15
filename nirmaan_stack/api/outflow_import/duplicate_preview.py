@@ -51,6 +51,7 @@ from nirmaan_stack.services.outflow_import.contains_guard import claims_of_skip
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     source_has_settlement_path,
+    source_runs_the_matcher,
 )
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MISMATCHED,
@@ -147,6 +148,9 @@ def _batches_to_preview(batch: str | None) -> list:
 
 def _guard_verdicts(batch: str, matchable, carried: list):
     """Yield `(row, group, verdict)` per unfrozen row, through the fork `match_batch` takes."""
+    # The run writes nothing to a Cashbook batch (#1272), so the preview reports nothing for one.
+    if not source_runs_the_matcher(_batch_source(batch)):
+        return
     if not source_has_settlement_path(_batch_source(batch)):
         for row, group, outcome, basis in _contains_guard_outcomes(batch, matchable, carried):
             if basis:

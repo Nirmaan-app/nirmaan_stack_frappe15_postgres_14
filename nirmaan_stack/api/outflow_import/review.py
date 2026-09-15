@@ -103,6 +103,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     source_has_settlement_path,
+    source_runs_the_matcher,
 )
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
@@ -223,6 +224,85 @@ def match_batch(batch: str):
 
     rows = [_StagedRow(r) for r in _load_rows(batch)]
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
+    result = _match_rows(batch, matchable)
+    frappe.db.commit()
+    return result
+
+
+def match_line(row: str) -> dict:
+    """Run the matcher over ONE open import line and persist its outcome (#1272, for Unskip).
+
+    Not whitelisted: the unskip endpoint is its caller and owns the narrower access check, the write
+    that re-opens the line, and the COMMIT. This function checks only the module gate and commits
+    nothing, so the re-open and the re-check land together or not at all.
+
+    Returns the line's `row_status`, `outcome_note`, `suggested_doctype`, `suggested_name` and
+    `duplicate_basis`, with the batch-level run result under `run` (its `status` is the IMPORT's).
+
+    ⚠️ IT IS `match_batch` WITH A ONE-LINE `matchable`, NOT A SECOND MATCHER. Both call `_match_rows`,
+    so the per-row loop, the four passes and the ICICI contains-guard are the same code. What a
+    one-line scope changes is which lines count as THIS run's -- and only the passes that WRITE
+    across lines care:
+
+      * the claim pass may release only this line (`Claim.releasable`), so a sibling that holds the
+        record keeps it, even when a batch run would have handed it to this (earlier) line;
+      * the stack pass pairs only lines with no pick, so siblings already paired keep their pairs,
+        even when a batch run would have found the stack unbalanced and paired nothing.
+
+      * Option B treats every sibling's stored pick as claimed, so a returning line may take a
+        different one of several identical records than a batch run would give it;
+      * the ICICI contains-guard does not re-check an earlier open sibling, so the returning line can
+        skip on a record that sibling would have claimed first.
+
+    All four are pinned in `test_match_line.py` and written up in the domain doc's #1272 section.
+    Every other outcome -- skip, suggestion, no candidate, a claimed record, the duplicate basis -- is
+    identical to a batch run on the same database.
+
+    Refuses (and writes nothing to) a FROZEN line -- Settled, Skipped, Partially Allocated -- and any
+    line of a source the matcher never runs over (Cashbook).
+    """
+    require_outflow_access()
+    batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch") if row else None
+    if not batch:
+        frappe.throw(f"Import line '{row}' not found.", title="Not found")
+
+    doc = next(iter(_load_rows(batch, row=row)), None)
+    if doc is None:
+        frappe.throw(f"Import line '{row}' not found.", title="Not found")
+    if (doc["row_status"] or "") in _FROZEN_ROW_STATUSES:
+        frappe.throw(
+            f"This line is {doc['row_status']}, and the matcher never re-checks a line in that state.",
+            title="Line is not open",
+        )
+    # Refused LOUDLY here; `_match_rows` also fences it SILENTLY for `match_batch`. Same predicate.
+    if not source_runs_the_matcher(_batch_source(batch)):
+        frappe.throw(
+            "Cashbook lines are never run through the matcher.", title="Line is not matchable"
+        )
+
+    result = _match_rows(batch, [_StagedRow(doc)])
+    line = frappe.db.get_value(
+        ROW_DOCTYPE,
+        row,
+        ["row_status", "outcome_note", "suggested_doctype", "suggested_name", "duplicate_basis"],
+        as_dict=True,
+    )
+    return {"row": row, **line, "run": result}
+
+
+def _match_rows(batch: str, matchable) -> dict:
+    """The match run over `matchable` -- every unfrozen line of `batch`, or one of them. WRITES, NEVER
+    COMMITS: `match_batch` commits, and `match_line`'s caller does.
+
+    ⚠️ ONE BODY FOR BOTH SCOPES (#1272). A line-scoped copy of this would be a second matcher, free to
+    drift from the first the day a pass is added; see `match_line` for the two places the scope shows.
+    """
+    # ⚠️ ABOVE THE SETTLEMENT FORK, AND IT WRITES NOTHING AT ALL (#1272). A Cashbook row carries the
+    # plan its own job reads, and this run would clear it. The rollup is not refreshed either: the
+    # Cashbook job owns that batch's counters.
+    if not source_runs_the_matcher(_batch_source(batch)):
+        statuses = _row_statuses(batch)
+        return _run_result(batch, 0, statuses)
 
     # ⚠️ THE FORK IS HERE, ABOVE EVERYTHING, AND IT IS A DIFFERENT PATH RATHER THAN A FILTER (slice
     # B4). A source with no settlement path must produce NO settlement candidate -- so the run for
@@ -278,10 +358,20 @@ def match_batch(batch: str):
         swept = _sweep_unresolved_to_mismatched(results, noted_surplus)
 
     statuses = _refresh_batch_rollup(batch)
-    frappe.db.commit()
+    return _run_result(
+        batch, len(matchable), statuses, paired=paired, released=released, picked=picked, swept=swept
+    )
+
+
+def _run_result(batch, examined, statuses, *, paired=0, released=0, picked=0, swept=0) -> dict:
+    """The one return shape of every match run. `match_period` sums it across batches.
+
+    ⚠️ A PATH WHERE A PASS DID NOT RUN REPORTS ITS COUNTER AS ZERO, NEVER OMITS IT: a zero is the
+    truth, while a missing key is an absence every caller would have to special-case.
+    """
     return {
         "batch": batch,
-        "matched_rows": len(matchable),
+        "matched_rows": examined,
         "stack_paired_rows": paired,
         # How many rows gave up a record another transfer had an equal hold on. Reported so a run
         # that releases a lot is visible rather than silently producing "needs a choice" rows.
@@ -346,22 +436,13 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     ⚠️ THE RETURN SHAPE IS THE FULL ONE, WITH THE FOUR PASS COUNTERS AT ZERO. `match_period` sums
     these across batches and the screen reads them; omitting a key would be an absence the caller
     has to special-case, while a zero is the truth -- no pass ran, so no pass did anything.
+
+    It commits nothing; `_match_rows`' callers do (#1272).
     """
     for row, _group, outcome, basis in _contains_guard_outcomes(batch, matchable):
         _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
 
-    statuses = _refresh_batch_rollup(batch)
-    frappe.db.commit()
-    return {
-        "batch": batch,
-        "matched_rows": len(matchable),
-        "stack_paired_rows": 0,
-        "released_rows": 0,
-        "rule_picked_rows": 0,
-        "swept_to_mismatched_rows": 0,
-        "counters": derive_batch_counters(statuses),
-        "status": derive_batch_status(statuses),
-    }
+    return _run_result(batch, len(matchable), _refresh_batch_rollup(batch))
 
 
 def _contains_guard_outcomes(batch: str, matchable, carried_claims=()):
@@ -3413,7 +3494,9 @@ def _assert_batch(batch: str) -> None:
         frappe.throw(f"Import batch '{batch}' not found.", title="Not found")
 
 
-def _load_rows(batch: str) -> list:
+def _load_rows(batch: str, row: str = None) -> list:
+    """Every row of `batch` in match order -- or, given `row`, just that one, through the SAME
+    projection, so a line-scoped run adapts exactly the fields a batch run does (#1272)."""
     return frappe.db.sql(
         """
         SELECT name, transfer_id, reference_id, added_on, amount, status_raw, beneficiary_name,
@@ -3429,10 +3512,11 @@ def _load_rows(batch: str) -> list:
                -- #1257: the ICICI contains-guard scopes its ledgers by the money's direction.
                direction
         FROM "tabOutflow Import Row"
-        WHERE import_batch = %s
+        WHERE import_batch = %(batch)s
+          AND (%(row)s IS NULL OR name = %(row)s)
         ORDER BY added_on ASC, name ASC
         """,
-        (batch,),
+        {"batch": batch, "row": row},
         as_dict=True,
     )
 
@@ -3445,7 +3529,16 @@ def _refresh_batch_rollup(batch: str) -> list:
     ruling (see the note where its endpoints used to be). The field survives on the doctype holding
     the history of batches closed before then, and nothing writes or reads it.
     """
-    statuses = [
+    statuses = _row_statuses(batch)
+    values = dict(derive_batch_counters(statuses))
+    values["status"] = derive_batch_status(statuses)
+    frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
+    return statuses
+
+
+def _row_statuses(batch: str) -> list:
+    """Every row's status in `batch` -- the one input the rollup deriver reads. Reads only."""
+    return [
         r["row_status"] or ""
         for r in frappe.db.sql(
             """SELECT row_status FROM "tabOutflow Import Row" WHERE import_batch = %s""",
@@ -3453,10 +3546,6 @@ def _refresh_batch_rollup(batch: str) -> list:
             as_dict=True,
         )
     ]
-    values = dict(derive_batch_counters(statuses))
-    values["status"] = derive_batch_status(statuses)
-    frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
-    return statuses
 
 
 @frappe.whitelist()

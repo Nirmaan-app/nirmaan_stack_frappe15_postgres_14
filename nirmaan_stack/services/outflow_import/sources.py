@@ -29,8 +29,10 @@ need the wide identity without being a passbook, or the reverse.
 
 __all__ = [
     "BANK_STATEMENT_SOURCES",
+    "NEVER_MATCHED_SOURCES",
     "TRANSFER_ID_REFERENCE_SOURCES",
     "source_has_settlement_path",
+    "source_runs_the_matcher",
     "source_has_preamble",
     "source_transfer_id_is_its_reference",
     "source_writes_its_match_surface",
@@ -65,6 +67,13 @@ BANK_STATEMENT_SOURCES = frozenset({"ICICI Bank Statement"})
 #: ONE resolution, is also what stops it being re-derived at a write site: the whole point of
 #: resolving once is that every write site reads one field and no path can diverge from another.
 TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook"})
+
+#: Sources whose rows the match run must never reach (#1272).
+#:
+#: ⚠️ A DIFFERENT SET FROM `TRANSFER_ID_REFERENCE_SOURCES`, holding the same string today. That one
+#: answers "which reference does a settle store?"; this one answers "may the matcher write to these
+#: rows at all?". Do not merge them.
+NEVER_MATCHED_SOURCES = frozenset({"Cashbook"})
 
 
 def source_has_settlement_path(source: str) -> bool:
@@ -111,6 +120,22 @@ def source_has_settlement_path(source: str) -> bool:
     a second passbook lands, adding its string here is the whole change.
     """
     return (source or "").strip() not in BANK_STATEMENT_SOURCES
+
+
+def source_runs_the_matcher(source: str) -> bool:
+    """May a match run -- whole-batch or one line -- write to this source's rows? (#1272)
+
+    `False` for the petty-cash wallet (Cashbook). Its rows carry the PLAN its own job writes from
+    (`suggested_doctype`, `resolved_project`), and they sit `Pending match run` until that job runs.
+    A match run clears every suggestion it does not re-find, so reaching one would erase the plan --
+    and the tier ladder could only ever find an approved payment that happens to share an amount
+    (see `api/outflow_import/cashbook.py`). The Cashbook import never called `match_batch`, but
+    nothing stopped `match_period` from reaching an open Cashbook batch until this gate.
+
+    `True` for everything else, a blank or unknown source included: the same default
+    `source_has_settlement_path` takes, so every existing import stays on the path it is on.
+    """
+    return (source or "").strip() not in NEVER_MATCHED_SOURCES
 
 
 def source_transfer_id_is_its_reference(source: str) -> bool:

@@ -124,7 +124,7 @@ pick one ad-hoc; ask.
 | The date filter CONTROL and its vocabulary | `components/data-table/dateFilterModel.ts` (pure) + `date-filter-popover.tsx` (the popover) | write a second date filter. `DataTableDateFilter` is now a thin TanStack binding over the same popover, so every screen offers one set of operators. Adding an operator or a timespan means teaching `dateFilterRange.ts` in the SAME change, or a control offers an option that silently filters nothing |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
 | Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`, `stack_surplus_note`) | decide a stack's membership, its pairing, or why it did not pair, anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
-| **What a STATEMENT SOURCE can DO** (B4) | `services/outflow_import/sources.py` (`BANK_STATEMENT_SOURCES`, `source_has_settlement_path`) — a PURE LEAF that imports nothing at all, not even from this package | spell the membership test out at a call site. It exists because the question got a SECOND caller with nowhere to ask it: the set lived as `upload._BANK_STATEMENT_SOURCES` while staging was the only thing that cared, and `review.match_batch` then needed the same answer — but an `api` module may not import another `api` module's private constant, so the alternatives were a second literal frozenset (two definitions of one fact, free to drift the day a source is added) or this. It moved DOWN to the layer both may import; `api` -> `services` is the one legal direction, and `upload` reads it back under its old private name so no call site changed. ⚠️ **CAPABILITIES ARE NAMED QUESTIONS, NOT A MEMBERSHIP TEST.** `source_has_settlement_path(source)` says what the caller wants to know; `source in BANK_STATEMENT_SOURCES` at a match-run call site would work today and say nothing about WHY the run behaves differently, and the next reader could not tell a deliberate capability gate from an incidental one. **FOUR things follow from membership and they are ONE decision, not four:** the statement states a `direction` per row, its non-spending lines are excluded at stage time, what survives lands `Mismatched` rather than `Pending match run` (Q31), and the match run offers it NO settlement candidate (Q31/Q31a). ⚠️ The strings are `parser.SUPPORTED_SOURCES` members VERBATIM and are also the `Outflow Import Batch.source` Select options — a rename moves all three together or every upload of that source fails Frappe's own Select validation with nothing on screen explaining why. ⚠️ **THE GATE IS ON THE AUTOMATIC PATH ONLY** — hand-linking is deliberately kept, so `get_row_candidates` and `search_settleable_records` still offer ranked records when a person opens one row |
+| **What a STATEMENT SOURCE can DO** (B4) | `services/outflow_import/sources.py` (`BANK_STATEMENT_SOURCES`, `source_has_settlement_path`; since #1272 `NEVER_MATCHED_SOURCES`, `source_runs_the_matcher`) — a PURE LEAF that imports nothing at all, not even from this package | spell the membership test out at a call site. It exists because the question got a SECOND caller with nowhere to ask it: the set lived as `upload._BANK_STATEMENT_SOURCES` while staging was the only thing that cared, and `review.match_batch` then needed the same answer — but an `api` module may not import another `api` module's private constant, so the alternatives were a second literal frozenset (two definitions of one fact, free to drift the day a source is added) or this. It moved DOWN to the layer both may import; `api` -> `services` is the one legal direction, and `upload` reads it back under its old private name so no call site changed. ⚠️ **CAPABILITIES ARE NAMED QUESTIONS, NOT A MEMBERSHIP TEST.** `source_has_settlement_path(source)` says what the caller wants to know; `source in BANK_STATEMENT_SOURCES` at a match-run call site would work today and say nothing about WHY the run behaves differently, and the next reader could not tell a deliberate capability gate from an incidental one. **FOUR things follow from membership and they are ONE decision, not four:** the statement states a `direction` per row, its non-spending lines are excluded at stage time, what survives lands `Mismatched` rather than `Pending match run` (Q31), and the match run offers it NO settlement candidate (Q31/Q31a). ⚠️ The strings are `parser.SUPPORTED_SOURCES` members VERBATIM and are also the `Outflow Import Batch.source` Select options — a rename moves all three together or every upload of that source fails Frappe's own Select validation with nothing on screen explaining why. ⚠️ **THE GATE IS ON THE AUTOMATIC PATH ONLY** — hand-linking is deliberately kept, so `get_row_candidates` and `search_settleable_records` still offer ranked records when a person opens one row |
 | **Which bank-statement lines are NOT work for a human** (B2) | `services/outflow_import/bank_exclusions.py` (`EXCLUSION_RULES`, `should_skip`, the ten `category_id`s) — pure, no `frappe`, no DB | decide that a narration is noise anywhere else, and it **MUST NOT IMPORT THE MATCHER** (`matcher`, `disambiguate`, `status`, `stacks`, `claims`, `candidates` — pinned by a test, the same fence `partial_settle` and `similarity` sit behind). This module decides only whether a line REACHES them; a widening made here because a narration looked like noise must never be able to change what settles unattended. **THREE DESIGN RULES, all load-bearing:** (a) **FAIL OPEN** — an unmatched row is INGESTED, never dropped, because the two failure modes are not symmetric: a wrongly-ingested row is VISIBLE and un-mapped in seconds, a wrongly-dropped one is INVISIBLE and nobody ever learns it existed. `should_skip` has no default-skip branch and must never grow one. (b) **DIRECTION IS PART OF THE TEST, NOT DECORATION** — `Ac xfr from gl 05051 to 60010` appears twice byte-identically, once as a ₹3.19 Cr Debit and once as a ₹3.19 Cr Credit, and only the populated amount column tells the two categories apart; every rule leads with `wd` or `dp` and none is direction-blind. (c) **THE IFSC BEATS THE TYPED LABEL** — three rows read `Cashbook Balanc` while carrying Cashfree's IFSC and one reads `Cashfree Balanc` carrying Cashbook's, so each `platform_*` rule checks the IFSC FIRST and the free-text label is a fallback. ⚠️ **THE ORDER IS PART OF THE POLICY** (first match wins; the three `platform_*` rules come first so rule (c) can resolve), and the rules are DATA — an ordered `(category_id, predicate)` sequence — so a policy change is diffable without reading mechanism; `should_skip` holds no policy at all. ⚠️ **SKIPPING THE PAYOUT WALLETS COSTS ₹11.59 Cr OF REAL DEBITS, and that is still correct** — what left the bank is a wallet TOP-UP, not a payment to anyone, and the real disbursements happen inside Cashfree / Cashbook / Porter and appear in no bank narration. **The consequence is that NOBODY MAY READ THE INGESTED OUTFLOW TOTAL AS "WHAT THE COMPANY SPENT"** — it is what was spent THROUGH THIS ACCOUNT DIRECTLY, and any total-spend figure has to add the platforms back. ⚠️ Exclusions run at STAGE time (Q16): all 1,274 rows are staged and 405 land `Skipped` carrying the rule's own sentence — **EXCLUSION-FIRST precedence**, ahead of already-imported and duplicate-in-file, so a re-upload still names the ten rules rather than reading "already imported in batch X" |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
 | **What a Cashbook statement will CREATE** (Cashbook slice 4) | `services/outflow_import/cashbook.py` (`plan_statement`, `pick_expense_type`, `group_plan`) — pure | decide a ledger, a project or an expense type for a wallet row anywhere else. ⚠️ It must not reach `matcher`, `disambiguate`, `claims`, `stacks` or `settle` — pinned by a test, the same fence `similarity` and `partial_settle` sit behind. It decides what to CREATE; those decide what existing approved record a transfer PAYS, under an amount window this has no equivalent of |
@@ -407,8 +407,10 @@ docstring claimed the fixture was "saved the way a real export saves it" — fal
 
 ## The match run, in order — one per-row loop and FOUR global passes
 
-`review.match_batch` is the only orchestrator. **The order is load-bearing at every joint** and each
-comment in that function says which defect the position prevents.
+`review._match_rows` is the only orchestrator; `match_batch` hands it every unfrozen row of a batch
+and `match_line` (#1272) hands it one. **The order is load-bearing at every joint** and each
+comment in that function says which defect the position prevents. A Cashbook batch stops above
+everything and writes nothing (`sources.source_runs_the_matcher`, #1272).
 
 ```
 for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
@@ -2260,7 +2262,7 @@ wrong conclusion from the same reasoning.
 | Suite | How |
 |---|---|
 | pure services (**878** tests, measured 2026-09-11) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (862 before #1244, 441 before D3, 409 before PS) |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — measured 2026-09-11: `test_upload` **83** (76 before #1244), `test_review` **258** (251 before #1243), `test_expenses` **45**, `test_settle_payment` **63** (56 before #1244), `test_approved` **29**, `test_cashbook_import` **35** (34 before #1244), `test_cashbook_rules` **13**, `test_inflows` **44**, `test_allocate_row` **17**, `test_reverse_allocation` **17**, `test_match_record` **12** |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — measured 2026-09-11: `test_upload` **83** (76 before #1244), `test_review` **258** (251 before #1243), `test_expenses` **45**, `test_settle_payment` **63** (56 before #1244), `test_approved` **29**, `test_cashbook_import` **35** (34 before #1244), `test_cashbook_rules` **13**, `test_inflows` **44**, `test_allocate_row` **17**, `test_reverse_allocation` **17**, `test_match_record` **12**, `test_match_line` **26** (#1272) |
 | ⚠️ a suite against a WORKTREE | `bench` resolves `nirmaan_stack` through the MAIN checkout, so worktree backend code is invisible to it. Set `PYTHONPATH=<worktree root>` — it wins, and the doctype JSON follows (Frappe locates it from the module's `__file__`). The binary is `/home/frappe/.local/bin/bench`, NOT under `env/bin`. |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
 | frontend | `yarn test` (vitest, `node` environment — pure helpers only). **639** across 12 files under `src/pages/outflow-import` (622 across 11 before #1243); **3,504** repo-wide (3,487 before #1243). ⚠️ The older figure recorded here was *"317 across this feature"*, counted before several suites joined the folder — read the folder total, not a remembered number. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
@@ -4712,3 +4714,64 @@ No user-visible change. First slice of #1270 (Unreconcile, Skip and Unskip).
   points, mid-write rollback). A mutation that writes
   the good legs and skips the refused one fails exactly the two all-or-nothing tests.
   `test_reverse_allocation.py` (22) passes unchanged.
+
+## #1272 (2026-09-15) — unskip prep: the matcher runs on ONE line
+
+No user-visible change. Prep for Unskip (#1270), which must re-check a line straight away.
+
+- **Entry point:** `review.match_line(row)`. **Not whitelisted** — the unskip endpoint will own
+  access, the re-open write and the COMMIT; `match_line` commits nothing. Returns the line's
+  `row_status`, `outcome_note`, `suggested_doctype`, `suggested_name`, `duplicate_basis`, with the
+  run's counters under `run`.
+- **One body, two scopes:** the old `match_batch` body is now `_match_rows(batch, matchable)`.
+  `match_batch` passes every unfrozen row and commits; `match_line` passes `[that row]`. The per-row
+  loop, the four passes and the ICICI contains-guard are the same code. `_load_rows` takes an
+  optional `row` so both adapt the same projection. `_guard_duplicates_only` no longer commits.
+- **Refusals:** `match_line` throws (writes nothing) on a frozen line (Settled, Skipped, Partially
+  Allocated) and on a Cashbook line.
+- **Cashbook fence (new, both paths):** `sources.source_runs_the_matcher` (set
+  `NEVER_MATCHED_SOURCES`). Before this, nothing stopped `match_period` reaching an open Cashbook
+  batch: its rows sit `Pending match run` until the job runs, and the run would have cleared the
+  stored plan (`suggested_doctype`) the job writes from. Now `_match_rows` returns zero counters and
+  writes nothing — not even the rollup. `duplicate_preview` takes the same fence, so it reports
+  nothing for a Cashbook batch either.
+
+### Where one line differs from a batch run — pinned, not silent
+
+Measured by: run the batch, re-open the line, `match_line`; re-open again, `match_batch`; compare.
+**Identical** for an exact-reference skip (Cashfree), a contains-guard skip with its basis (ICICI), an
+ICICI line whose record another line's skip claims (stays Not-Matched), a claim-pass loser (stays
+`Matched`, no pick, claim note), a single suggestion, a fan-out, and no candidate.
+
+The rule behind every difference: **a one-line run never re-decides a sibling.** A batch run
+re-derives every open line; a one-line run sees the siblings as they stand.
+
+1. **Claim contest.** Line A (earlier) was skipped, so B took the shared record. A comes back. A batch
+   run hands the record to A and strips B. `match_line(A)` may release only A (`Claim.releasable`),
+   so B keeps it and A gets the claim note. Pinned:
+   `TestAOneLineRunNeverTakesARecordFromASibling`.
+2. **Stack.** Two transfers paired against two identical payments; a third identical transfer was
+   skipped and comes back. A batch run sees 3 vs 2 (unbalanced): nothing pairs, both siblings lose
+   their picks, all three get the surplus note. `match_line` leaves both pairs standing; the returning
+   line finds both records spoken for and reads `several_found_note(2)`. Pinned:
+   `TestAOneLineRunNeverUnpairsAStack`.
+3. **ICICI one-record-one-line claim.** Claims come from the database (skips' `duplicate_basis`,
+   Settled legs). Two lines carry one reference; the later was hand-skipped before the money was
+   recorded; then one Paid record appears and the later line comes back. A batch run re-checks the
+   EARLIER open line too, which claims the record first, so the returning line stays Not-Matched.
+   `match_line` does not run the earlier line, so the returning line skips on the record instead.
+   Pinned: `TestAOneLineRunNeverLetsAnOpenSiblingClaimFirst`.
+4. **Option B picks.** `_disambiguate_matched` counts every open line's STORED pick as claimed. Two
+   transfers with no account, two identical approved records; the earlier transfer was skipped, so
+   the later one took the first by name (M3). The earlier one comes back. A batch run clears both
+   picks and re-picks in date order: earlier → first record, later → second. `match_line` sees the
+   later one's pick as claimed: the returning line takes the SECOND record and the sibling keeps the
+   first. The same holds for M1/M2/M4: a rule whose preferred record a sibling holds abstains, and the
+   line can be swept to "several found". Pinned: `TestAOneLineRunNeverTakesATwinASiblingPicked`.
+
+⚠️ The parity cases above are measured from a line that took part in the previous batch run. Unskip's
+real start is a line that was SKIPPED while its siblings ran — which is exactly where 1–4 appear.
+
+Unskip reports whatever `match_line` wrote, so its notice is true for the line as it now stands.
+
+- **Tests:** `api/outflow_import/test_match_line.py` (26).
