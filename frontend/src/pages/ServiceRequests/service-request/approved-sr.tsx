@@ -226,7 +226,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     // Tax withheld from this order's payments. Keyed by payment so a row can show its own
     // deduction and the summary can restrict itself to the PAID ones.
-    const { data: tdsDeductions } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
+    const { data: tdsDeductions, mutate: tdsDeductionsMutate } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
         fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on"],
         filters: [["document_name", "=", id]],
         limit: 100,
@@ -238,10 +238,29 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         return map;
     }, [tdsDeductions]);
 
+    // A new request can be auto-approved with TDS withheld at insert, so both lists must refresh
+    // together -- otherwise the new row shows its net amount with no TDS and the request cap misses it.
+    const refreshPayments = useCallback(
+        () => Promise.all([projectPaymentsMutate(), tdsDeductionsMutate()]),
+        [projectPaymentsMutate, tdsDeductionsMutate]
+    );
+
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
 
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
+
+    // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
+    // part of what was requested -- so the Request Payment cap counts each payment GROSS.
+    const grossRequested = useMemo(() => {
+        const tdsFor = (statuses: string[]) => (projectPayments || [])
+            .filter(i => statuses.includes(i?.status))
+            .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
+        return {
+            paid: getAmountPaid + tdsFor(["Paid"]),
+            pending: amountPending + tdsFor(["Requested", "CEO Pending", "Approved"]),
+        };
+    }, [projectPayments, tdsByPayment, getAmountPaid, amountPending]);
 
     useEffect(() => {
         if (service_request) {
@@ -594,14 +613,14 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <RequestPaymentDialog
                                         totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
                                         totalExGST={getTotal || 0}
-                                        paid={getAmountPaid}
-                                        pending={amountPending}
+                                        paid={grossRequested.paid}
+                                        pending={grossRequested.pending}
                                         gst={orderData?.gst === "true"}
                                         docType="Service Requests"
                                         docName={orderData?.name || "Unknown"}
                                         project={orderData?.project || "Unknown"}
                                         vendor={orderData?.vendor || "Unknown"}
-                                        onSuccess={projectPaymentsMutate}
+                                        onSuccess={refreshPayments}
                                     />
                                 </>
                             )}
