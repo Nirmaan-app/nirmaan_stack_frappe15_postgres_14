@@ -61,12 +61,12 @@ PAYMENT = "Project Payments"
 PROJECT_EXPENSE = "Project Expenses"
 NON_PROJECT_EXPENSE = "Non Project Expenses"
 
-# ⚠️ REGEX-GUARDED, NOT `NULLIF(btrim(...), '')`. The blank guard stops an EMPTY string; it does not
-# stop `"n/a"`, and `CAST('n/a' AS numeric)` fails the whole statement. See asymmetry 2.
-_PROJECT_EXPENSE_AMOUNT = (
-    "CASE WHEN btrim(e.amount) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
-    "THEN CAST(btrim(e.amount) AS numeric) ELSE NULL END"
-)
+# A plain column read since `Project Expenses.amount` became Currency (16 Sep 2026) -- see
+# asymmetry 2. Kept as a named constant so `select` and `amount_expr` cannot drift apart.
+#
+# ⚠️ The regex guard that stood here was REMOVED, not kept: `btrim(numeric)` is a hard
+# Postgres error. Junk is now impossible at the column level instead.
+_PROJECT_EXPENSE_AMOUNT = "e.amount"
 
 
 @dataclass(frozen=True)

@@ -2190,9 +2190,9 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
             WHERE e.status IN ({status_ph})
-              AND e.amount IS NOT NULL AND btrim(e.amount) <> ''
+              AND e.amount IS NOT NULL
               {where_search}
-            ORDER BY abs(CAST(NULLIF(btrim(e.amount), '') AS numeric) - %s) ASC, e.modified DESC
+            ORDER BY abs(e.amount - %s) ASC, e.modified DESC
             LIMIT %s
         """
     else:

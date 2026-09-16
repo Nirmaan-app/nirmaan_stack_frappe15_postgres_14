@@ -443,19 +443,14 @@ def _already_booked(parsed) -> dict:
     for doctype in EXPENSE_DOCTYPES:
         # ⚠️ `ORDER BY creation ASC` for the same reason `_already_imported` needs it: the message
         # names the FIRST agreeing sighting, and the first booking is the one worth naming.
-        if doctype == PROJECT_EXPENSE_DOCTYPE:
-            amount_expr = "CAST(NULLIF(BTRIM(amount), '') AS numeric)"
-            extra = " AND COALESCE(BTRIM(amount), '') <> ''"
-        else:
-            amount_expr = "amount"
-            extra = ""
+        # Both ledgers store `amount` as Currency since 16 Sep 2026, so one expression serves
+        # both. The loop stays because they are still two tables with two name sets.
         rows = frappe.db.sql(
             f"""
             SELECT name, BTRIM(payment_ref) AS payment_ref,
-                   {amount_expr} AS amount, payment_date
+                   amount, payment_date
             FROM "tab{doctype}"
             WHERE BTRIM(COALESCE(payment_ref, '')) IN ({placeholders})
-              {extra}
             ORDER BY creation ASC
             """,
             tuple(ids),

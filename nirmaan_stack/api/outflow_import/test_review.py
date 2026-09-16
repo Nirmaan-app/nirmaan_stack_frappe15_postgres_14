@@ -697,14 +697,14 @@ class TestSuggestionIsPersisted(OutflowReviewFixture):
         Rs 5 -- a precondition that under-counts is worse than none, because it reports "no
         collision" while one exists.
 
-        `Project Expenses.amount` is a Data column of numeric strings and the non-project one is
-        real Currency -- the same asymmetry the candidate queries carry.
+        Both columns are real Currency since 16 Sep 2026, so the two counts read identically.
+        They stay two queries because they are two tables, not because they are two shapes.
         """
         window = float(AMOUNT_TOLERANCE)
         project = frappe.db.sql(
             """SELECT count(*) FROM "tabProject Expenses"
-               WHERE status = 'Approved' AND amount IS NOT NULL AND btrim(amount) <> ''
-                 AND abs(CAST(btrim(amount) AS numeric) - %s) <= %s""",
+               WHERE status = 'Approved' AND amount IS NOT NULL
+                 AND abs(amount - %s) <= %s""",
             (amount, window),
         )[0][0]
         non_project = frappe.db.sql(
