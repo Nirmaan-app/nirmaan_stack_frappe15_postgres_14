@@ -103,11 +103,11 @@ export interface ApprovalQueueRow {
  * column changes it on every tab at once, because there is only one of it.
  */
 export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
-  // "Payment Pending Approval" — `tier` is here and ONLY here: it says what your
-  // click does, finish the approval or forward it to the CEO.
+  // "Payment Pending Approval" — `tier` was removed from the screen by owner request;
+  // it is still written to the CSV export (approvalExportColumns.ts).
   [PP_TABS.APPROVE_PAYMENTS]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "tier", "raised_by",
+    "vendor", "project", "amount", "raised_by",
   ],
   // "Payment Pending CEO Approval" — no `tier`: every row here is L1+L2 by
   // definition, so it would be one word repeated down the page. The two CEO-only

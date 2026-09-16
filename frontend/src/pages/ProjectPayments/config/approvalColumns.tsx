@@ -283,6 +283,7 @@ const REGISTRY: Record<
             docName={r.document_name}
             docType={r.document_type}
             vendorLabel={r.vendor ? ctx.vendorLabels.get(r.vendor) : undefined}
+            projectId={r.project || undefined}
             projectLabel={r.project ? ctx.projectLabels.get(r.project) : undefined}
           >
             {body}
