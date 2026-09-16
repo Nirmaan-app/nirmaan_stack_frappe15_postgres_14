@@ -180,16 +180,16 @@ const REGISTRY: Record<
       }
 
       if (ctx.tab === PP_TABS.NEW_PAYMENTS) {
-        // "Mark as Done", not "Mark as Paid" (owner, 15 Sep). It no longer records
-        // the payment — it states that the money went out, moving the row to
-        // Reconciliation Pending. The UTR / date / proof are captured later, on the
-        // Reconciliation Pending tab, which is what actually settles it.
+        // "Mark as Paid" (owner, 16 Sep — reverses the 15 Sep "Mark as Done" label).
+        // ⚠️ THE LABEL IS NOT THE STATUS: it does NOT write `Paid`. It states that the
+        // money went out, moving the row to Reconciliation Pending; the UTR / date /
+        // proof are captured later on that tab, which is what actually settles it.
         return (
           <div className="flex items-center gap-2">
             <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
               onClick={() => ctx.onRecordPayment?.(r)}>
               <IndianRupee className="mr-1 h-3.5 w-3.5" />
-              Mark as Done
+              Mark as Paid
             </Button>
             {ctx.onDelete && (
               <Button variant="ghost" size="icon" aria-label="Delete"

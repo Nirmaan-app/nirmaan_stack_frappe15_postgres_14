@@ -60,6 +60,9 @@ import { useOrderTotals } from "@/hooks/useOrderTotals";
 import PaymentSummaryCards from "../PaymentSummaryCards"
 import { useUserData } from "@/hooks/useUserData"
 import { canViewPaymentSummary } from "@/constants/roles"
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
+import { countLabel, summarizeSelection } from "../bulkSelectionSummary"
+import { IndianRupee } from "lucide-react"
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -104,10 +107,15 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
     const { getTotalAmount, getDeliveredAmount } = useOrderTotals()
 
-    // "Mark as Done" — a plain confirmation, NOT the payment-details dialog.
-    const [confirmDoneRow, setConfirmDoneRow] = useState<ApprovalQueueRow | null>(null);
-    const [markingDone, setMarkingDone] = useState(false);
-    // The payment-details dialog no longer lives on this tab. "Mark as Done" is a
+    // "Mark as Paid" — a plain confirmation, NOT the payment-details dialog.
+    // ONE dialog for both entry points: the row button confirms `[row]`, the bulk
+    // toolbar button confirms the ticked rows. The rows are SNAPSHOT at click time, so a
+    // realtime refetch while the dialog is open cannot change what gets written.
+    const [confirmPaidRows, setConfirmPaidRows] = useState<ApprovalQueueRow[] | null>(null);
+    // How many rows have been written so far; null when idle.
+    const [markingProgress, setMarkingProgress] = useState<number | null>(null);
+    const markingPaid = markingProgress !== null;
+    // The payment-details dialog no longer lives on this tab. "Mark as Paid" is a
     // plain confirmation; the UTR / date / proof are captured on the Reconciliation
     // Pending tab, which is what actually settles the row.
     const { updateDoc } = useFrappeUpdateDoc();
@@ -218,7 +226,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // status — so the audit's DIFF = 0 proof is unaffected; without it this
         // figure would silently under-report the moment the fulfil path switches over.
         getAmountPaid: (docName) => getTotalAmountPaidForPO(docName, [...SETTLED_STATUSES]),
-        onRecordPayment: (row) => setConfirmDoneRow(row),
+        onRecordPayment: (row) => setConfirmPaidRows([row]),
         // Delete is deliberately NOT offered here (owner, 15 Sep). The registry renders
         // the trash icon only when `onDelete` is supplied, so withholding it is the
         // whole change — the dialog and its "delete" mode stay intact for any caller
@@ -272,7 +280,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // silently refuses rows the accountant is looking straight at.
         //
         // Note this is NOT the bank-details rule: an expense is fully actionable here via
-        // its own Mark-as-Done button, so it must never pick up NO_BANK_DETAILS_ROW_CLASSES
+        // its own Mark-as-Paid button, so it must never pick up NO_BANK_DETAILS_ROW_CLASSES
         // (those carry pointer-events-none and would kill that button).
         if (row.original.source !== "Vendor Payment") return true;
         return hasBankDetails(row.original.vendor);
@@ -365,31 +373,71 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
      * This is the MONEY-OUT event — the moment the system says the cash has left.
      * The UTR, date and proof are captured afterwards on the Reconciliation Pending
      * tab, which is what moves it to Paid.
+     *
+     * ⚠️ SEQUENTIAL ON PURPOSE, one write per row through the same `updateDoc` the row
+     * button always used, so each row runs its own doctype hooks exactly as before.
+     * Two payments on the SAME PO both recompute that PO in their hooks; firing them in
+     * parallel races those parent writes. Each row commits on its own, so one failure
+     * never rolls back the others — it is reported, and the rest still move.
      */
-    const handleMarkDone = useCallback(async () => {
-        if (!confirmDoneRow) return;
-        setMarkingDone(true);
-        try {
-            await updateDoc(confirmDoneRow.doctype, confirmDoneRow.name, {
-                status: APPROVAL_STATUS.RECONCILIATION_PENDING,
-            });
+    const handleMarkPaid = useCallback(async () => {
+        if (!confirmPaidRows?.length) return;
+        const rows = confirmPaidRows;
+        const failed: { row: ApprovalQueueRow; reason: string }[] = [];
+        setMarkingProgress(0);
+        for (let i = 0; i < rows.length; i++) {
+            try {
+                await updateDoc(rows[i].doctype, rows[i].name, {
+                    status: APPROVAL_STATUS.RECONCILIATION_PENDING,
+                });
+            } catch (e: any) {
+                failed.push({ row: rows[i], reason: e?.message || "Please try again." });
+            }
+            setMarkingProgress(i + 1);
+        }
+        setMarkingProgress(null);
+
+        const movedCount = rows.length - failed.length;
+        if (failed.length === 0) {
             toast({
-                title: "Marked as Done",
-                description: `${confirmDoneRow.against_primary} moved to Reconciliation Pending.`,
+                title: "Marked as Paid",
+                description: rows.length === 1
+                    ? `${rows[0].against_primary} moved to Reconciliation Pending.`
+                    : `${countLabel(summarizeSelection(rows))} moved to Reconciliation Pending.`,
                 variant: "success",
             });
-            setConfirmDoneRow(null);
-            await refetch();
-        } catch (e: any) {
+        } else {
+            const failedList = failed
+                .slice(0, 3)
+                .map((f) => `${f.row.against_primary}: ${f.reason}`)
+                .join(" · ");
             toast({
-                title: "Could not mark as Done",
-                description: e?.message || "Please try again.",
+                title: movedCount > 0
+                    ? `${movedCount} marked as Paid, ${failed.length} failed`
+                    : "Could not mark as Paid",
+                description: failed.length > 3 ? `${failedList} · +${failed.length - 3} more` : failedList,
                 variant: "destructive",
             });
-        } finally {
-            setMarkingDone(false);
         }
-    }, [confirmDoneRow, updateDoc, toast, refetch]);
+
+        // Nothing written → keep the dialog open so the accountant can retry, as the row
+        // button always did.
+        if (movedCount === 0) return;
+        setConfirmPaidRows(null);
+        // ⚠️ RESET, EVEN AFTER A SINGLE ROW. Selection is keyed by row INDEX (the table
+        // has no getRowId), so once moved rows drop out of the list every tick shifts
+        // onto a different payment — and the bulk button and the bank-file export both
+        // act on those ticks.
+        table.resetRowSelection();
+        invalidateSidebarCounts();
+        await refetch();
+    }, [confirmPaidRows, updateDoc, toast, refetch, table]);
+
+    const selectedRows = table.getSelectedRowModel().rows;
+    const confirmPaidTotal = useMemo(
+        () => (confirmPaidRows ?? []).reduce((sum, r) => sum + parseNumber(r.amount), 0),
+        [confirmPaidRows]
+    );
 
     // --- CSV Export Logic using papaparse ---
     const handlePrepareExport = () => {
@@ -593,11 +641,27 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     showRowSelection={isRowSelectionActive}
                     getRowClassName={getRowClassName}
                     toolbarActions={
-                        <ApprovalExportButton
-                            onClick={exportAll}
-                            isExporting={isExportingAll}
-                            label="Export table"
-                        />
+                        <>
+                            {/* Bulk "Mark as Paid": the ticked rows → Reconciliation Pending.
+                                Same checkboxes as the bank-file export — but the export
+                                clears them when it finishes, so tick again before this. */}
+                            {tab === "New Payments" && selectedRows.length > 0 && (
+                                <Button
+                                    size="sm"
+                                    className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
+                                    disabled={markingPaid}
+                                    onClick={() => setConfirmPaidRows(selectedRows.map((r) => r.original))}
+                                >
+                                    <IndianRupee className="h-4 w-4" />
+                                    Mark as Paid ({selectedRows.length})
+                                </Button>
+                            )}
+                            <ApprovalExportButton
+                                onClick={exportAll}
+                                isExporting={isExportingAll}
+                                label="Export table"
+                            />
+                        </>
                     }
                 />
             )}
@@ -658,43 +722,64 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             </Dialog>
 
             <AlertDialog
-                open={!!confirmDoneRow}
-                onOpenChange={(open) => { if (!open && !markingDone) setConfirmDoneRow(null); }}
+                open={!!confirmPaidRows}
+                onOpenChange={(open) => { if (!open && !markingPaid) setConfirmPaidRows(null); }}
             >
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Mark this payment as Done?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                            {confirmPaidRows && confirmPaidRows.length > 1
+                                ? `Mark ${countLabel(summarizeSelection(confirmPaidRows))} as Paid?`
+                                : "Mark this payment as Paid?"}
+                        </AlertDialogTitle>
                         <AlertDialogDescription asChild>
                             <div className="space-y-2 text-sm">
                                 <p>
-                                    This records that the money has gone out. It moves to{" "}
+                                    This records that the money has gone out.{" "}
+                                    {confirmPaidRows && confirmPaidRows.length > 1 ? "They move" : "It moves"} to{" "}
                                     <span className="font-medium text-foreground">Reconciliation Pending</span>,
-                                    where you add the UTR and proof to finish it.
+                                    where you add the UTR and proof to finish {confirmPaidRows && confirmPaidRows.length > 1 ? "them" : "it"}.
                                 </p>
-                                {confirmDoneRow && (
-                                    <div className="rounded border bg-muted/40 p-2">
-                                        <div className="font-medium text-foreground">
-                                            {confirmDoneRow.against_primary}
-                                        </div>
-                                        <div className="text-muted-foreground">
-                                            {formatToRoundedIndianRupee(confirmDoneRow.amount)}
-                                            {confirmDoneRow.vendor
-                                                ? ` · ${vendorLabelMap.get(confirmDoneRow.vendor) || confirmDoneRow.vendor}`
-                                                : ""}
-                                        </div>
+                                {confirmPaidRows && confirmPaidRows.length > 1 && (
+                                    <div className="flex items-center justify-between rounded border bg-muted/40 px-2 py-1.5">
+                                        <span className="text-muted-foreground">Total</span>
+                                        <span className="font-semibold tabular-nums text-foreground">
+                                            {formatToRoundedIndianRupee(confirmPaidTotal)}
+                                        </span>
                                     </div>
                                 )}
+                                {/* Every row is listed, not just counted: this is the last look
+                                    before money is recorded as gone for all of them. */}
+                                <div className="max-h-60 space-y-1.5 overflow-y-auto">
+                                    {confirmPaidRows?.map((row) => (
+                                        <div key={`${row.doctype}:${row.name}`} className="rounded border bg-muted/40 p-2">
+                                            <div className="font-medium text-foreground">
+                                                {row.against_primary}
+                                            </div>
+                                            <div className="text-muted-foreground">
+                                                {formatToRoundedIndianRupee(row.amount)}
+                                                {row.vendor
+                                                    ? ` · ${vendorLabelMap.get(row.vendor) || row.vendor}`
+                                                    : ""}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel disabled={markingDone}>No</AlertDialogCancel>
+                        <AlertDialogCancel disabled={markingPaid}>No</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={(e) => { e.preventDefault(); handleMarkDone(); }}
-                            disabled={markingDone}
+                            onClick={(e) => { e.preventDefault(); handleMarkPaid(); }}
+                            disabled={markingPaid}
                             className="bg-green-600 hover:bg-green-700"
                         >
-                            {markingDone ? "Marking…" : "Yes, mark as Done"}
+                            {markingPaid
+                                ? (confirmPaidRows && confirmPaidRows.length > 1
+                                    ? `Marking ${markingProgress}/${confirmPaidRows.length}…`
+                                    : "Marking…")
+                                : "Yes, mark as Paid"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
