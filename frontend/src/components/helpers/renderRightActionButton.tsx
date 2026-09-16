@@ -162,7 +162,12 @@ export const RenderRightActionButton = ({
     // two creation targets (see "Add New PR" above), and it avoids opening a Radix
     // modal from inside another Radix modal — both creation dialogs are AlertDialogs.
     //
-    // ROLE GATE (owner, 15 Sep 2026): procurement + accountant + admin only.
+    // ROLE GATE (owner, 15 Sep 2026): procurement + accountant + admin + HR Executive.
+    //
+    // HR EXECUTIVE ONLY, NOT HR LEAD. Neither HR role carries create on Project Expenses /
+    // Non Project Expenses; HR Executive saves only because its role profile also holds
+    // System Manager. HR Lead's profile does not, so a button shown to HR Lead would open a
+    // dialog whose save fails with a PermissionError. Widen this only with the permission.
     //
     // Deliberately NARROWER than the two expense buttons below, which are ungated. It
     // is also narrower than the /project-payments audience: Project Lead and PMO can
@@ -176,7 +181,8 @@ export const RenderRightActionButton = ({
       user_id === "Administrator" ||
       role === "Nirmaan Admin Profile" ||
       PP_ACCOUNTANT_ROLES.includes(role as string) ||
-      PROCUREMENT_PROFILES.includes(role as string);
+      PROCUREMENT_PROFILES.includes(role as string) ||
+      role === "Nirmaan HR Executive Profile";
     if (!canRaiseExpense) return null;
     return (
       <DropdownMenu>

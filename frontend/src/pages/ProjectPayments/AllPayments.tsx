@@ -322,10 +322,17 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         handleSeenNotification, openPayDialog,
     ]);
 
-    const columns = useMemo(
-        () => buildApprovalColumns(TAB_COLUMNS[tab as ApprovalTab], columnCtx),
-        [tab, columnCtx]
-    );
+    const columns = useMemo(() => {
+        const ids = TAB_COLUMNS[tab as ApprovalTab];
+        // On the settled tab the Actions column holds ONLY the admin Edit pencil, so for
+        // anyone else it was an empty column with a header. Drop it outright rather than
+        // render it blank — keyed on the SAME `isAdmin` that wires `onEdit`, so the header
+        // and the pencil can never disagree.
+        const visibleIds = tab === "Payments Done" && !isAdmin
+            ? ids.filter((id) => id !== "actions")
+            : ids;
+        return buildApprovalColumns(visibleIds, columnCtx);
+    }, [tab, isAdmin, columnCtx]);
 
     // Status varies only on the mixed-status tabs, so the facet is offered there.
     const approvalFacets = useApprovalFacets({

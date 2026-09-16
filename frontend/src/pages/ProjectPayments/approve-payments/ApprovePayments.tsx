@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   FrappeConfig,
   FrappeContext,
@@ -27,6 +27,7 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import {
+  BULK_MAX_SELECTION,
   DOC_TYPES,
   PAYMENT_STATUS,
   DIALOG_ACTION_TYPES,
@@ -468,6 +469,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     vendorLabels: vendorLabelMap,
   });
 
+  // Live selected-row count, read by `enableRowSelection` below at CLICK time. Declared
+  // ahead of the hook because the config closure captures it; see the cap block under
+  // the hook for what it is for.
+  const selectedRowCountRef = useRef(0);
+
   // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
   const {
     table,
@@ -497,11 +503,55 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // Work queues open OLDEST-first. Sorting happens over the UNION, so age order
     // is correct across ledgers rather than within each one.
     defaultSort: TAB_DEFAULT_SORT[activeTab],
+    // Two clauses, two different jobs. The CEO-Hold clause is the pre-existing one.
+    // The cap clause reads a REF (never state — a state read here would be a render
+    // ago, and this runs on click) so an unselected row's checkbox goes disabled once
+    // BULK_MAX_SELECTION are ticked; an already-ticked row stays selectable so it can
+    // always be UN-ticked. This clause alone does NOT cover "select all on this page" —
+    // TanStack evaluates it against one stale count for the whole loop — which is what
+    // the effect below is for.
     enableRowSelection: !readOnly
-      ? (row) => !ceoHoldProjectIds.has(row.original.project)
+      ? (row) =>
+          !ceoHoldProjectIds.has(row.original.project) &&
+          (selectedRowCountRef.current < BULK_MAX_SELECTION || row.getIsSelected())
       : false,
+    // ONE PAGE = ONE FULL BULK BATCH. The header checkbox is "select all on THIS page",
+    // so a page that holds exactly BULK_MAX_SELECTION rows makes select-all land on the
+    // cap naturally instead of overshooting into the trim below. Only the DEFAULT — the
+    // `_pageSize` URL param still wins, so the Rows-per-page selector works as before.
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: BULK_MAX_SELECTION },
+    },
     additionalFilters: staticFilters,
   });
+
+  // ── Bulk selection cap ────────────────────────────────────────────────────────
+  // The bulk endpoints throw the WHOLE batch back above BULK_MAX_SELECTION, before any
+  // write — so an over-sized selection approves NOTHING. It is reachable because the
+  // page-size selector goes to 10,000: at 500 rows per page the entire CEO-Pending
+  // queue is ONE page, and the header checkbox is "select all on this page".
+  //
+  // `getSelectedRowModel()` only ever holds rows from the current page's data, which is
+  // exactly the set BulkActionBar submits — so this counts what would actually be sent.
+  const selectedRowCount = table.getSelectedRowModel().rows.length;
+  selectedRowCountRef.current = selectedRowCount;
+
+  useEffect(() => {
+    if (selectedRowCount <= BULK_MAX_SELECTION) return;
+    // Keeps the first N in row-model order and drops the rest. Depends on the COUNT (a
+    // number), never on the selection object or on `table` — per the repo's effect rules.
+    const kept = table
+      .getSelectedRowModel()
+      .rows.slice(0, BULK_MAX_SELECTION)
+      .map((r) => [r.id, true] as const);
+    table.setRowSelection(Object.fromEntries(kept));
+    toast({
+      title: `Kept the first ${BULK_MAX_SELECTION}`,
+      description: `Only ${BULK_MAX_SELECTION} rows can be approved or rejected at once. Action these, then select the rest.`,
+      variant: "default",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRowCount]);
 
   // Full-table CSV, all columns, whole filtered queue. Rendered through
   // `toolbarActions` rather than the built-in export button — see the note on the
