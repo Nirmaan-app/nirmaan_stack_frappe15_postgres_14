@@ -182,6 +182,26 @@ export const canActionInvoiceApprovals = (
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
 
 /**
+ * May see the "Payment Summary" card atop the payments tables (Approve Payments,
+ * Accountant tabs, All Payments) — Admin + Accountant + Accountant Lead (owner
+ * ruling). UI-only: `get_payment_dashboard_stats` has no role check, so this
+ * decides whether the card renders (and fetches), not what the server returns.
+ */
+const PAYMENT_SUMMARY_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
+];
+
+/** True when `role` (a role PROFILE) may see the Payment Summary card. */
+export const canViewPaymentSummary = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && PAYMENT_SUMMARY_PROFILES.includes(role));
+
+/**
  * May see Target Progress in the Work Report: the Target column beside Actual,
  * and the "With / Without Target Progress" choice in the DPR download dialog.
  *

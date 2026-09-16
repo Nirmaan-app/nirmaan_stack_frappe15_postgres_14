@@ -34,6 +34,8 @@ import {
   DialogActionType,
 } from "./constants";
 import PaymentSummaryCards from "../PaymentSummaryCards";
+import { useUserData } from "@/hooks/useUserData";
+import { canViewPaymentSummary } from "@/constants/roles";
 
 // --- Hooks & Utils ---
 import { Row } from "@tanstack/react-table";
@@ -102,6 +104,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const isCEOMode = mode === "ceo";
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
+  const { role, user_id } = useUserData();
   // const { mutate } = useSWRConfig();
   // --- State for Dialogs ---
   const [selectedPayment, setSelectedPayment] =
@@ -764,7 +767,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           //     toggle: toggleItemSearch,
           //     label: "Item Search"
           // }}
-          summaryCard={<PaymentSummaryCards totalCount={totalCount} />}
+          summaryCard={canViewPaymentSummary(role, user_id) ? <PaymentSummaryCards totalCount={totalCount} /> : null}
           facetFilterOptions={approvalFacets}
           dateFilterColumns={dateColumns}
           // ⚠️ THE BUILT-IN EXPORT BUTTON IS OFF ON THIS SCREEN, DELIBERATELY.

@@ -58,6 +58,8 @@ import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 import PaymentSummaryCards from "../PaymentSummaryCards"
+import { useUserData } from "@/hooks/useUserData"
+import { canViewPaymentSummary } from "@/constants/roles"
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -94,6 +96,7 @@ const NO_BANK_DETAILS_ROW_CLASSES =
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
+    const { role, user_id } = useUserData();
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -558,7 +561,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
                     summaryCard={
-                        <PaymentSummaryCards totalCount={totalCount} />
+                        canViewPaymentSummary(role, user_id) ? <PaymentSummaryCards totalCount={totalCount} /> : null
                     }
                     // globalFilterValue={globalFilter}
                     // onGlobalFilterChange={setGlobalFilter}

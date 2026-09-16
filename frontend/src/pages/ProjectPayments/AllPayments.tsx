@@ -51,6 +51,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 
 
 import PaymentSummaryCards from "./PaymentSummaryCards"
+import { canViewPaymentSummary } from "@/constants/roles"
 
 interface SelectOption { label: string; value: string; }
 
@@ -129,7 +130,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     contextKey = "all" // Default context for URL key
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
-    const { role } = useUserData(); // Get user role
+    const { role, user_id } = useUserData(); // Get user role
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -439,7 +440,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     onExport={exportAll}
                     isExporting={isExporting || isExportingAll}
                     exportFileName={exportFileName}
-                    summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
+                    summaryCard={projectId || customerId || !canViewPaymentSummary(role, user_id) ? null : <PaymentSummaryCards totalCount={totalCount} />}
                     getRowClassName={getRowClassName}
 
                 // toolbarActions={
