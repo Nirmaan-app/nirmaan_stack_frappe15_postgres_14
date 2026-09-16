@@ -432,6 +432,10 @@ class TestExpenseRequests(FrappeTestCase):
 		row.update({"type": NON_PROJECT_TYPE, "status": "Approved", "amount": 900,
 		            "description": "exr_test_ direct expense"})
 		row.insert(ignore_permissions=True)
+		# This row has no request id, so `tearDownClass` (which finds ledger rows by the id in
+		# their description) never sees it -- it leaked one Paid row per run until deleted here.
+		self.addCleanup(lambda: (frappe.delete_doc("Non Project Expenses", row.name, force=True,
+		                                           ignore_permissions=True), frappe.db.commit()))
 		row.status = "Paid"
 		row.save(ignore_permissions=True)
 		frappe.db.commit()
