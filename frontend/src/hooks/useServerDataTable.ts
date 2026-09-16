@@ -376,7 +376,11 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- State Management ---
     const [pagination, setPagination] = useState<PaginationState>(() => ({
         pageIndex: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageIdx`, 0) : (initialState.pagination?.pageIndex ?? 0),
-        pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, 50) : (initialState.pagination?.pageSize ?? 50),
+        // The URL wins when it carries a size; otherwise a caller's seeded page size is
+        // the default, exactly as every other URL-synced param below treats initialState.
+        // This branch used a literal 50, so a page passing BOTH `urlSyncKey` and a seeded
+        // pageSize silently got 50 — no caller did until now, so nothing else moves.
+        pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, initialState.pagination?.pageSize ?? 50) : (initialState.pagination?.pageSize ?? 50),
     }));
 
     const [sorting, setSorting] = useState<SortingState>(() =>

@@ -16,14 +16,24 @@ Both share one approval lifecycle and are entered/managed together in a single u
 
 ## Domain rules (source of truth: `CONTEXT.md`)
 
-- **Status lifecycle:** `Requested → Approved → Paid` (one-way). *Approved* = sanctioned
+- **Status lifecycle:** `Requested → CEO Pending → Approved → Reconciliation Pending → Paid`
+  (one-way; both expense doctypes carry all five plus `Rejected`). *Approved* = sanctioned
   but not yet paid (staging); *Paid* = cash actually went out (final).
 - **Settled spend = Paid only.** Only `Paid` expenses count in **every** financial rollup.
   `Requested`/`Approved` are commitments, excluded from those numbers.
-- **Auto-approval:** a positive amount `<= ₹10,000` is created directly at `Approved`
-  (skips `Requested`); a refund (non-positive) or `> ₹10,000` takes the full path.
-  (2026-09-04: raised from ₹5,000, and the comparison made INCLUSIVE — exactly
-  ₹10,000 auto-approves, reversing the original strict `<`.)
+- **The amount rule is NOT owned here.** It lives in `services/approval_tiers.py` (pure,
+  mirrored by `frontend/src/utils/approvalTiers.ts` and pinned to it by a parity test that
+  reads the Python source). Both expense ledgers pass `TIER_L2_ABOVE_EXPENSES` explicitly:
+  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`.
+  - `₹15,000 – ₹50,000` → **L1 only**; the Admin / Accountant Lead tick FINISHES it.
+  - `> ₹50,000` → **L1 then L2**; L1's tick writes `CEO Pending`, the CEO approves.
+  - **A refund (amount ≤ 0) is never auto-approved**, then banded by its size like any
+    other amount.
+  ⚠️ TWO SUPERSEDED RULINGS, because anything written against either is stale: the
+  `<= ₹10,000` INCLUSIVE auto line of 2026-09-04 (the lower edge is now ₹15,000 and
+  **EXCLUSIVE** — exactly ₹15,000 needs L1), and the expense-only ₹30,000 CEO line of
+  2026-09-15 (moved to ₹50,000 on 2026-09-16, so all three money-out ledgers now band
+  identically).
 - **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009).
 
 ---
@@ -98,7 +108,8 @@ sections; all 5 columns verified via `has_column`.
   plain "Accommodation" all qualify). Defined identically in `NewProjectExpenseDialog.tsx` +
   `EditProjectExpenseDialog.tsx` (`isUncappedExpenseType`); any new project-flagged type
   containing the keyword is exempt automatically — no code change needed. Unrelated to the
-  ₹10,000 backend auto-approve threshold (that still applies). No backend cap enforcement
+  backend auto-approve threshold (which still applies — see the amount rule above; it is
+  ₹15,000 exclusive, not the ₹10,000 this line used to quote). No backend cap enforcement
   exists.
 
 ### Description widened to `Text` (2026-07-28, migrate-carrying)
@@ -121,13 +132,15 @@ otherwise. The rule lives in ONE pure module, `frontend/src/utils/expenseApprova
 (`EXPENSE_AUTO_APPROVE_LIMIT`, `isAutoApprovedExpenseAmount`, `getExpenseSubmitLabel`,
 `EXPENSE_SUBMIT_LABELS`) — ADR-0010 F1/F4, unit-tested in `expenseApproval.test.ts` (10 tests).
 
-**Owner ruling: the label mirrors the BACKEND predicate `0 < amount <= 10000` exactly.** The
-edges that depend on it and must not be "simplified":
-- **Exactly ₹10,000 → "Raise Expense"** — the comparison is `<=`, so the limit itself
-  auto-approves (owner ruling 2026-09-04, which REVERSED the original strict `<`; anything
-  written against "exactly the limit needs approval" is stale).
+**Owner ruling: the label mirrors the BACKEND predicate exactly** — which since 2026-09-15 is
+`isAutoApproved` from `approvalTiers.ts`, NOT a number this module holds. `expenseApproval.ts`
+owns COPY only; it had its own `10000` and drifted, quietly telling users "Send for Approval"
+for amounts the backend had already auto-approved. The edges that must not be "simplified":
+- **Exactly ₹15,000 → "Send for Approval"** — the lower edge is EXCLUSIVE, so the limit
+  itself needs L1. ⚠️ This REVERSES the 2026-09-04 ruling that made exactly ₹10,000
+  auto-approve; anything written against "exactly the limit auto-approves" is stale.
 - **A refund (negative amount, which Non-Project explicitly supports) → "Send for Approval"** —
-  it is "less than 10000" but takes the full `Requested → Approved → Paid` path.
+  it is "less than 15,000" but the sign blocks auto-approval and it takes the full path.
 - A blank / unparseable amount → "Send for Approval" (`parseNumber` yields 0, which fails `> 0`).
 
 Edit dialogs are untouched (create-only scope). ⚠️ `AUTO_APPROVE_LIMIT = 10000` (inclusive) now exists in

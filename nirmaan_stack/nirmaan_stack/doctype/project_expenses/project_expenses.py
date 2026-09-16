@@ -14,11 +14,13 @@ from nirmaan_stack.services.approval_tiers import (
 # place, `services/approval_tiers.py`, shared with payments and mirrored in
 # TypeScript by a parity test that reads the Python source:
 #     < Rs 15,000        auto-approved, no human
-#     15,000 - 30,000    L1 only (Admin / Accountant Lead) finishes it
-#     > Rs 30,000        L1 forwards, then the CEO approves
-# ⚠️ The CEO line is 30,000 HERE and 50,000 on Project Payments (owner, 15 Sep),
-# so this passes `TIER_L2_ABOVE_EXPENSES` explicitly rather than taking the
-# module default, which is the payments line.
+#     15,000 - 50,000    L1 only (Admin / Accountant Lead) finishes it
+#     > Rs 50,000        L1 forwards, then the CEO approves
+# ⚠️ THE CEO LINE MOVED 30,000 -> 50,000 (owner, 16 Sep 2026), so it now matches
+# Project Payments and an expense of 30,000-50,000 FINISHES AT L1. This still
+# passes `TIER_L2_ABOVE_EXPENSES` explicitly rather than taking the module
+# default: the two numbers coincide today, and the named seam is what keeps the
+# next divergence a one-line change.
 # A refund (<= 0) is never auto-approved; it is banded by its SIZE like any
 # other amount, which is what the old `0 < amount` guard did.
 
@@ -34,7 +36,7 @@ class ProjectExpenses(Document):
 			return
 
 		# ⚠️ flt() FIRST. `Project Expenses.amount` is a Data / varchar column, so a
-		# raw string compare would read "9000" as greater than "30000" and route a
+		# raw string compare would read "9000" as greater than "50000" and route a
 		# Rs 9,000 expense to the CEO. The deriver coerces too, but the value is
 		# normalised here so every branch below sees the same number.
 		amount = flt(self.amount)

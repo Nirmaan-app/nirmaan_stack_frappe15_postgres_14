@@ -365,11 +365,12 @@ def get_approval_queue(
         # Derived SERVER-side, from the same cast amount the routing will use, so
         # the chip on screen and the gate that runs can never disagree.
         #
-        # ⚠️ THE CEO LINE IS PER-LEDGER, SO THE TIER MUST BE TOO (owner, 15 Sep):
-        # 50,000 on Project Payments, 30,000 on both expense ledgers. Deriving every
-        # row against the module default made a Rs 40,000 expense read `L1` -- "your
-        # approval finishes this" -- while the approval it triggers forwards it to
-        # the CEO. The chip would have been describing the wrong ledger's rule.
+        # ⚠️ THE TIER IS DERIVED PER-LEDGER even though all three ledgers share the
+        # 50,000 CEO line today (owner, 16 Sep 2026). It was briefly 30,000 for the
+        # two expense ledgers, and deriving every row against the module default
+        # then made a Rs 40,000 expense read `L1` -- "your approval finishes this" --
+        # while the approval it triggered forwarded it to the CEO. Keeping the
+        # per-source lookup means a future split cannot reopen that gap.
         r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
         r["amount"] = flt(r.get("amount"))
         r["has_proof"] = bool(r.get("proof"))

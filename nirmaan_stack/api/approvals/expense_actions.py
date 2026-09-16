@@ -19,14 +19,15 @@ What IS shared is imported rather than copied: the two authorisation gates, the
 batch ceiling and the `Rejected` literal all come from that module, so a role change
 lands in one place and cannot drift between the two queues.
 
-THE AMOUNT RULE. Both ledgers carry their OWN CEO line -- 30,000, against 50,000 on
-Project Payments (owner, 15 Sep 2026) -- so `status_after_l1` is called with
-`TIER_L2_ABOVE_EXPENSES` explicitly. An L1 tick therefore FINISHES a Rs 20,000
-expense and FORWARDS a Rs 40,000 one, in the same batch, which is exactly what the
-payments engine had to learn to do per-row.
+THE AMOUNT RULE. `status_after_l1` is called with `TIER_L2_ABOVE_EXPENSES` explicitly
+rather than taking the module default. Since 16 Sep 2026 that constant equals the
+payments line at 50,000 (it was 30,000 for one day), so an L1 tick FINISHES a Rs 40,000
+expense and FORWARDS a Rs 60,000 one, in the same batch -- exactly what the payments
+engine had to learn to do per-row. The explicit argument stays: it costs nothing while
+the lines coincide, and it is the seam if they part again.
 
 ⚠️ `Project Expenses.amount` is a `Data` / varchar column. `flt()` before the tier
-test or "9000" compares above "30000" and a Rs 9,000 expense is routed to the CEO.
+test or "9000" compares above "50000" and a Rs 9,000 expense is routed to the CEO.
 
 DELIBERATELY NOT HERE (each exists because a payment has a parent and an expense
 does not): PO term mirroring, SR tax withholding, vendor-credit recalculation,
@@ -243,8 +244,10 @@ def _process_expense(
         # An L2 approval always finishes it -- there is no third gate to forward to.
         target_status = STATUS_APPROVED
     else:
-        # ⚠️ flt() FIRST: `Project Expenses.amount` is a varchar column, and this
-        # ledger's CEO line is 30,000, not the module default of 50,000.
+        # ⚠️ flt() FIRST: `Project Expenses.amount` is a varchar column, so an
+        # unconverted value would be banded by its characters. The explicit
+        # `TIER_L2_ABOVE_EXPENSES` equals the module default today (both 50,000);
+        # it is passed anyway so a future split lands here without a code change.
         target_status = status_after_l1(flt(row["amount"]), TIER_L2_ABOVE_EXPENSES)
 
     savepoint = f"bulk_exp_{frappe.generate_hash(length=12)}"

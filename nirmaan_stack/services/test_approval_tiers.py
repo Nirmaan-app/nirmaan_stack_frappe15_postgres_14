@@ -153,26 +153,37 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestPerLedgerCeoLine(unittest.TestCase):
-    """The AUTO line is shared; the CEO line is NOT (owner, 15 Sep 2026).
+class TestSharedCeoLine(unittest.TestCase):
+    """All three ledgers band IDENTICALLY (owner, 16 Sep 2026).
 
-    Project Payments take the CEO from 50,000; both expense ledgers from 30,000.
-    A single constant cannot express that, so the threshold is a parameter and
-    the two values are pinned here -- if either moves, this test says so.
+    ⚠️ THIS CLASS INVERTS THE 15 Sep PINS, which asserted the CEO lines DIFFERED
+    (payments 50,000, both expense ledgers 30,000). The band that moved is
+    30,000-50,000: an expense there used to need the CEO and now FINISHES AT L1.
+    The old assertions are kept in inverted form rather than deleted, so a silent
+    revert to 30,000 fails here instead of passing unnoticed.
+
+    The threshold stays a PARAMETER even though both values coincide -- that is
+    what lets the lines part again without touching a call site.
     """
 
-    def test_the_two_lines_are_different_and_pinned(self):
+    def test_both_lines_are_50k_and_pinned(self):
         self.assertEqual(TIER_L2_ABOVE, 50000.0)
-        self.assertEqual(TIER_L2_ABOVE_EXPENSES, 30000.0)
+        self.assertEqual(TIER_L2_ABOVE_EXPENSES, 50000.0)
+        self.assertEqual(TIER_L2_ABOVE, TIER_L2_ABOVE_EXPENSES)
 
-    def test_40k_splits_the_two_ledgers(self):
-        """40,000 is the amount that proves the lines are really independent."""
+    def test_40k_finishes_at_l1_on_every_ledger(self):
+        """40,000 is the amount that MOVED -- it used to split the two ledgers."""
         self.assertEqual(required_tier(40_000), TIER_L1)
-        self.assertEqual(required_tier(40_000, TIER_L2_ABOVE_EXPENSES), TIER_L1_L2)
+        self.assertEqual(required_tier(40_000, TIER_L2_ABOVE_EXPENSES), TIER_L1)
         self.assertEqual(status_after_l1(40_000), STATUS_APPROVED)
         self.assertEqual(
-            status_after_l1(40_000, TIER_L2_ABOVE_EXPENSES), STATUS_CEO_PENDING
+            status_after_l1(40_000, TIER_L2_ABOVE_EXPENSES), STATUS_APPROVED
         )
+
+    def test_60k_still_needs_the_ceo_on_every_ledger(self):
+        for l2_above in (TIER_L2_ABOVE, TIER_L2_ABOVE_EXPENSES):
+            self.assertEqual(required_tier(60_000, l2_above), TIER_L1_L2)
+            self.assertEqual(status_after_l1(60_000, l2_above), STATUS_CEO_PENDING)
 
     def test_the_auto_band_is_identical_on_both(self):
         for amount in (0.01, 1, 14_999, 14_999.99):

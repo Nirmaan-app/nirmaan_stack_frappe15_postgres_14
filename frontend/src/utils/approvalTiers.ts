@@ -27,12 +27,18 @@ import { parseNumber } from "./parseNumber";
 /** Strictly BELOW this needs no human at all. */
 export const TIER_AUTO_APPROVE_BELOW = 15000;
 /** Strictly ABOVE this needs the CEO on top of L1. */
-// ⚠️ THE CEO LINE IS PER-LEDGER (owner, 15 Sep 2026). The auto line is shared at
-// 15,000; the CEO line is 50,000 for Project Payments and 30,000 for both expense
-// ledgers. The default here is the PAYMENTS line, matching the Python module.
+// ⚠️ ALL THREE LEDGERS NOW SHARE BOTH LINES (owner, 16 Sep 2026): auto below 15,000,
+// L1 only from 15,000 to 50,000, CEO above 50,000. This REVERSES the per-ledger split
+// of 15 Sep, which held the expense CEO line at 30,000 -- an expense between 30,000
+// and 50,000 now FINISHES AT L1 instead of going to the CEO.
 export const TIER_L2_ABOVE = 50000;
-/** The expense ledgers' own CEO line. */
-export const TIER_L2_ABOVE_EXPENSES = 30000;
+/**
+ * The expense ledgers' CEO line. Kept as its own name even though it now equals
+ * `TIER_L2_ABOVE`, so a future divergence is one line rather than a hunt through every
+ * expense call site. Mirrors `TIER_L2_ABOVE_EXPENSES` in the Python module, which is the
+ * authority; `approvalTiers.test.ts` reads the Python source and pins the two together.
+ */
+export const TIER_L2_ABOVE_EXPENSES = 50000;
 
 export const APPROVAL_TIERS = {
   auto: "auto",
@@ -61,7 +67,7 @@ export const TIER_ACTION_HINTS: Record<ApprovalTier, string> = {
  *
  * ⚠️ `parseNumber` is load-bearing, not tidiness. `Project Expenses.amount` is a `Data`
  * column, so an amount arrives as a STRING -- and a raw string compare puts "9000" above
- * "30000", routing a ₹9,000 expense to the CEO. Anything unreadable parses to 0, which
+ * "50000", routing a ₹9,000 expense to the CEO. Anything unreadable parses to 0, which
  * falls into the `<= 0` branch: L1, and never auto. Not-auto is the property that matters --
  * guessing a tier wrong costs a signature, guessing AUTO wrong lets money out unreviewed.
  */

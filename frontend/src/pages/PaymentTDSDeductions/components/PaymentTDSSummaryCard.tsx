@@ -31,6 +31,9 @@ interface PaymentTDSSummaryCardProps {
     totalCount: number;
     columnFilters: ColumnFiltersState;
     searchTerm: string;
+    /** Caption over the figure. The ledger is split Pending / Paid, and the same sum means
+     *  "still owed to the department" on one tab and "already remitted" on the other. */
+    label?: string;
 }
 
 /** ⚠️ The gap this explains is real: `Service Requests.total_tds` counts PAID payments only, while
@@ -74,6 +77,7 @@ export const PaymentTDSSummaryCard: React.FC<PaymentTDSSummaryCardProps> = ({
     totalCount,
     columnFilters,
     searchTerm,
+    label = "TDS Withheld",
 }) => {
     const tds = aggregates?.sum_of_tds_amount || 0;
     const [isChallanListOpen, setIsChallanListOpen] = useState(false);
@@ -95,7 +99,7 @@ export const PaymentTDSSummaryCard: React.FC<PaymentTDSSummaryCardProps> = ({
                     <>
                         <div className="flex items-baseline gap-2">
                             <span className="text-[11px] font-medium text-rose-600/80 dark:text-rose-400/80 uppercase tracking-wide">
-                                TDS Withheld
+                                {label}
                             </span>
                             <span className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums leading-none">
                                 {formatToRoundedIndianRupee(tds)}
