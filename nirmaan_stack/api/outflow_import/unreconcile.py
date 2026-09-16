@@ -69,6 +69,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPES,
     PAYMENT_DOCTYPE,
     is_expense_doctype,
+    settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.settle import (
     _outflow_import_write,
@@ -94,6 +95,16 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
 ALL_LEGS = "all"
 
 REASON_REQUIRED = "A reason is required to reverse an allocation."
+
+#: Where a reverted record lands, read from the ONE settleable map (#1289).
+#:
+#: ⚠️ IT WAS THE LITERAL `"Approved"`, AND THAT BECAME A DEAD END THE DAY THE SETTLE ANCHOR MOVED.
+#: Unreconciling exists so a record can wait for the RIGHT bank line; reverting it to `Approved`
+#: while the import settles only from `Reconciliation Pending` put it one step further back than it
+#: started, so the next line could not settle it until somebody pressed Mark as Done again. The two
+#: statuses are a pair -- a revert goes back to wherever a settle comes from, and reading the same
+#: map is what keeps that true through the next move as well.
+_REVERT_STATUS = settleable_statuses(PAYMENT_DOCTYPE)[0]
 
 _ROW_FIELDS = [
     "name", "amount", "import_batch", "bank_reference_no", "reference_id", "transfer_id",
@@ -445,7 +456,7 @@ def _revert_expense(doctype: str, name: str, statement_file_url: str | None) -> 
     amount is NOT restored (Ruling O).
     """
     doc = frappe.get_doc(doctype, name)
-    doc.status = "Approved"
+    doc.status = _REVERT_STATUS
     doc.payment_date = None
     doc.payment_ref = None
     if doc.meta.has_field("payment_by"):
@@ -457,7 +468,7 @@ def _revert_expense(doctype: str, name: str, statement_file_url: str | None) -> 
 
 
 def _revert_payment(name: str, statement_file_url: str | None) -> None:
-    """Put a payment back to Approved. The verdict already said it may; this only writes.
+    """Put a payment back where it waits for a bank line. The verdict already said it may.
 
     ⚠️ `doc.save()`, NOT `db.set_value`. `Paid -> Approved` is exactly the transition
     `update_parent_amount_paid` watches, and it SUMS the Paid payments rather than incrementing, so
@@ -473,7 +484,7 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
     inside the savepoint would make the all-or-nothing rollback a silent no-op.
     """
     doc = frappe.get_doc(PAYMENT_DOCTYPE, name)
-    doc.status = "Approved"
+    doc.status = _REVERT_STATUS
     doc.utr = None
     doc.payment_date = None
     clear_statement_attachment(doc, statement_file_url)

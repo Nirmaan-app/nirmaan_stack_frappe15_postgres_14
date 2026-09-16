@@ -128,7 +128,7 @@ class TestEveryRefusal(unittest.TestCase):
             {"tds": 1.5},
             "Settled with TDS",
             "PAY-1 carries a TDS figure -- withheld tax that this reversal does not clear -- "
-            "putting it back to Approved would leave a tax figure on a payment that is waiting to "
+            "putting it back would leave a tax figure on a payment that is waiting to "
             "be paid again. Reverse it on the payments screen, where both the status and the TDS "
             "can be corrected together.",
             FIX_ON_PAYMENTS_SCREEN,
@@ -162,7 +162,7 @@ class TestEveryRefusal(unittest.TestCase):
             {"split_children": (SplitChild(name="PAY-2"),)},
             "Split by a partial settlement",
             "PAY-1 was settled by a PARTIAL settlement, which split the record and left PAY-2 "
-            "standing as its Approved balance. Reversing only the settled half would turn one "
+            "standing as its unpaid balance. Reversing only the settled half would turn one "
             "sanction into two. Undo the split on the payments screen instead.",
             FIX_ON_PAYMENTS_SCREEN,
         ),
@@ -282,7 +282,7 @@ class TestWhatHappens(unittest.TestCase):
     def test_a_reverted_payment_says_it_goes_back_to_approved(self):
         self.assertEqual(
             leg_verdict(REVERSIBLE).what_happens,
-            "Goes back to Approved. Its UTR and payment date are cleared.",
+            "Goes back to Reconciliation Pending. Its UTR and payment date are cleared.",
         )
 
     def test_a_refused_leg_has_no_what_happens_sentence(self):
@@ -293,7 +293,7 @@ class TestWhatHappens(unittest.TestCase):
 
 EXP = "EXP-1"
 
-# An expense leg that CAN be reverted: a hand Link to an Approved expense this import did not create.
+# An expense leg that CAN be reverted: a hand Link to an expense this import did not create.
 REVERTIBLE_EXPENSE = LegFacts(
     leg="MATCH-9",
     match_kind="Settled",
@@ -315,7 +315,7 @@ def expense(**changes) -> LegFacts:
 
 
 class TestAnExistingExpense(unittest.TestCase):
-    """#1277: a leg on an expense the import did not create goes back to Approved."""
+    """#1277: a leg on an expense the import did not create goes back to where a settle takes it."""
 
     def test_a_project_expense_reverts_and_says_paid_by_is_cleared(self):
         verdict = leg_verdict(REVERTIBLE_EXPENSE)
@@ -323,14 +323,15 @@ class TestAnExistingExpense(unittest.TestCase):
         self.assertIsNone(verdict.reason)
         self.assertEqual(
             verdict.what_happens,
-            "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+            "Goes back to Reconciliation Pending. Payment date, reference and 'paid by' are cleared.",
         )
 
     def test_a_non_project_expense_reverts_and_has_no_paid_by_to_mention(self):
         verdict = leg_verdict(expense(target_doctype="Non Project Expenses", target_amount=500.0))
         self.assertEqual(verdict.verdict, VERDICT_REVERT_EXPENSE)
         self.assertEqual(
-            verdict.what_happens, "Goes back to Approved. Payment date and reference are cleared."
+            verdict.what_happens,
+            "Goes back to Reconciliation Pending. Payment date and reference are cleared.",
         )
 
     def test_payment_only_facts_never_refuse_an_expense(self):
@@ -574,12 +575,18 @@ class TestTheBackfillRule(unittest.TestCase):
 
 MATCHED = datetime(2026, 9, 15, 10, 0, 0)
 
-# The balance `settle_row_partial` minted in the same request as the leg: Approved, untouched.
+# The balance `settle_row_partial` minted in the same request as the leg: untouched, and waiting at
+# the settleable status for its OWN bank line.
+#
+# ⚠️ IT WAS `Approved` UNTIL #1289. `unsplit` reads the leftover's expected status out of
+# `ledgers.SETTLEABLE_STATUSES` now rather than spelling it, precisely so this fixture and the
+# production write cannot drift: a stale `Approved` here would have gone green against a rule that
+# refuses every leftover the import actually creates.
 LEFTOVER = SplitChild(
     name="PAY-2",
     created=MATCHED - timedelta(seconds=1),
     amount=40.0,
-    status="Approved",
+    status="Reconciliation Pending",
     tds=0,
     has_term=True,
 )
@@ -617,7 +624,7 @@ class TestAPartPayment(unittest.TestCase):
 
     def test_every_shape_of_an_untouched_leftover_is_un_split(self):
         for label, change in [
-            ("status with whitespace", {"status": " Approved "}),
+            ("status with whitespace", {"status": " Reconciliation Pending "}),
             ("tds None", {"tds": None}),
             ("tds blank", {"tds": ""}),
             ("minted in the same instant as the leg", {"created": MATCHED}),
@@ -676,10 +683,11 @@ class TestAPartPayment(unittest.TestCase):
             FIX_ON_PAYMENTS_SCREEN,
         ),
         (
-            "the leftover is no longer Approved",
+            "the leftover is no longer waiting for its own bank line",
             {"status": "Paid"},
             "Leftover changed",
-            "Its leftover PAY-2 is 'Paid', not Approved. Fix it on the Payments screen first.",
+            "Its leftover PAY-2 is 'Paid', not Reconciliation Pending. Fix it on the Payments "
+            "screen first.",
             FIX_ON_PAYMENTS_SCREEN,
         ),
         (

@@ -28,6 +28,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
 )
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
 MATCH_DOCTYPE = "Outflow Row Match"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -84,7 +85,7 @@ class TestAllOrNothing(UnreconcileFixture):
             sorted(r["target_name"] for r in result["reversed"]), sorted([a, b])
         )
         for payment in (a, b):
-            self.assertEqual(frappe.db.get_value("Project Payments", payment, "status"), "Approved")
+            self.assertEqual(frappe.db.get_value("Project Payments", payment, "status"), SETTLEABLE)
         self.assertEqual(frappe.db.get_value("Project Payments", c, "status"), "Paid")
 
     def test_all_reverses_every_settled_leg_and_reopens_the_line(self):
@@ -96,7 +97,7 @@ class TestAllOrNothing(UnreconcileFixture):
             frappe.db.count(MATCH_DOCTYPE, {"import_row": row, "match_kind": "Reversed"}), 3
         )
         for payment in pays:
-            self.assertEqual(frappe.db.get_value("Project Payments", payment, "status"), "Approved")
+            self.assertEqual(frappe.db.get_value("Project Payments", payment, "status"), SETTLEABLE)
         reversed_leg = frappe.db.get_value(
             MATCH_DOCTYPE, self._leg(row, pays[0]), ["reversal_reason", "reversed_by"], as_dict=True
         )
@@ -127,7 +128,7 @@ class TestWhatItRefusesBeforeLooking(UnreconcileFixture):
     def test_one_bare_match_name_is_accepted(self):
         row, (a, _, _) = self._allocated()
         unreconcile_row(row=row, legs=self._leg(row, a), reason="wrong PO")
-        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), SETTLEABLE)
 
     def test_a_verdict_with_no_write_rolls_everything_back(self):
         """A verdict the decision module learns before the write path does must not stamp a leg

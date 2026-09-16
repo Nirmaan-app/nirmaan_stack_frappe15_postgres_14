@@ -422,4 +422,4 @@ def pick_note(
             f"{pick.name} was selected arbitrarily: every candidate is the same amount on the same "
             f"project, so nothing distinguishes them. Check the project before confirming."
         )
-    return f"{total} approved records match this amount. {why}"
+    return f"{total} Reconciliation Pending records match this amount. {why}"

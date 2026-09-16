@@ -104,14 +104,20 @@ CASHBOOK_REFUSAL = "Cashbook rows can't be unreconciled yet."
 
 # What each verdict does to its target, as the dialog says it. ⚠️ `_revert_payment` in the api layer
 # clears exactly these fields; change one and change the other.
-WHAT_HAPPENS_REVERT_PAYMENT = "Goes back to Approved. Its UTR and payment date are cleared."
+#
+# ⚠️ ALL THREE SAID "Goes back to Approved" UNTIL #1289. A revert now lands a record back where a
+# settle takes it FROM (`unreconcile._REVERT_STATUS`), which is the only way the next bank line can
+# settle it without somebody pressing Mark as Done a second time.
+WHAT_HAPPENS_REVERT_PAYMENT = (
+    "Goes back to Reconciliation Pending. Its UTR and payment date are cleared."
+)
 # ⚠️ `_revert_expense` clears exactly these. `Non Project Expenses` has no "paid by" field, so its
 # sentence does not promise to clear one.
 WHAT_HAPPENS_REVERT_PROJECT_EXPENSE = (
-    "Goes back to Approved. Payment date, reference and 'paid by' are cleared."
+    "Goes back to Reconciliation Pending. Payment date, reference and 'paid by' are cleared."
 )
 WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE = (
-    "Goes back to Approved. Payment date and reference are cleared."
+    "Goes back to Reconciliation Pending. Payment date and reference are cleared."
 )
 # ⚠️ `api/outflow_import/unreconcile_created.delete_created` deletes the record; the dialog renders it red.
 WHAT_HAPPENS_DELETE = "Will be deleted."
@@ -262,7 +268,7 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
             facts,
             "Settled with TDS",
             f"{name} carries a TDS figure -- withheld tax that "
-            f"this reversal does not clear -- putting it back to Approved would leave a tax figure "
+            f"this reversal does not clear -- putting it back would leave a tax figure "
             f"on a payment that is waiting to be paid again. Reverse it on the payments screen, "
             f"where both the status and the TDS can be corrected together.",
             FIX_ON_PAYMENTS_SCREEN,
@@ -290,7 +296,7 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
                 facts,
                 "Split by a partial settlement",
                 f"{name} was settled by a PARTIAL settlement, which split the record and "
-                f"left {other} standing as its Approved balance. Reversing only the "
+                f"left {other} standing as its unpaid balance. Reversing only the "
                 f"settled half would turn one sanction into two. Undo the split on the payments "
                 f"screen instead.",
                 FIX_ON_PAYMENTS_SCREEN,

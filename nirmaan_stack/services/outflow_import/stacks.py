@@ -346,7 +346,7 @@ def stack_note(stack: Stack, record_name: str, basis: str = PAIR_BASIS_ARBITRARY
     """
     lead = (
         f"One of {stack.size} identical transfers of {stack.key.amount} to this account, "
-        f"paired 1:1 with {len(stack.records)} approved records. "
+        f"paired 1:1 with {len(stack.records)} Reconciliation Pending records. "
     )
     if basis == PAIR_BASIS_DATE:
         return (
@@ -378,7 +378,7 @@ def stack_surplus_note(stack: Stack) -> str:
     records = len(stack.records)
     lead = (
         f"One of {transfers} identical transfers of {stack.key.amount} to this account, "
-        f"against {records} approved record{'' if records == 1 else 's'}."
+        f"against {records} Reconciliation Pending record{'' if records == 1 else 's'}."
     )
     if records == 0:
         return (

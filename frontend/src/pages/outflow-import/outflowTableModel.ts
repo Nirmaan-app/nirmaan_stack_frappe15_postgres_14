@@ -2503,7 +2503,11 @@ export const settlementLink = (
                 title: `Open ${order} — the order ${name} is against`,
             };
         }
-        const tab = settled ? "Payments Done" : "All Payments";
+        // ⚠️ THE TOOLTIP'S TAB AND `paymentHref`'S MUST AGREE, AND THIS IS THE SECOND SPELLING OF
+        // ONE FACT. A suggestion goes to the Reconciliation Pending tab from #1289 -- the status the
+        // import settles FROM -- so naming "All Payments" here would state a destination the link
+        // does not go to, which is the exact defect the "names the SAME tab" test exists to catch.
+        const tab = settled ? "Payments Done" : "Reconciliation Pending";
         return {
             href: paymentHref(name, settled),
             label: name,
@@ -2535,35 +2539,28 @@ export const settlementLink = (
         };
     }
     if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {
-        const isProject = doctype === "Project Expenses";
-        // ⚠️ THE STATUS TAB RIDES THE URL, AND IT FOLLOWS `settled` RATHER THAN BEING HARDCODED
-        // (owner ruling 2026-09-09). Both lists read a namespaced status param on mount and
-        // subscribe to it — `pe_status` (`ProjectExpensesList`) and `npe_status`
-        // (`NonProjectExpensesPage`), each documented there as supporting an external deep link.
+        // ⚠️ NO LINK, DELIBERATELY, AND THIS IS A NARROWING RATHER THAN A DELETION (#1289, owner
+        // ruling). Every destination this branch could offer is now a list that cannot hold the
+        // record it names:
         //
-        // ⚠️ WITHOUT IT THE LINK LANDED ON THE PAGE'S DEFAULT TAB, WHICH IS ROLE-BASED AND NEVER
-        // `Paid`: `Requested` for most users, `Approved` for an Accountant. So a SETTLED expense —
-        // which is `Paid` by definition, this import having just written it — sent the reviewer to a
-        // tab that provably could not contain it, with nothing on screen explaining the empty table.
+        //   * the `Approved` tab -- where a SUGGESTED expense used to be sent -- can no longer
+        //     contain it, because a record only becomes settleable once somebody has marked it done
+        //     and it sits at `Reconciliation Pending`; and
+        //   * neither expense list has a tab for that status at all (their tabs are
+        //     Requested / Approved / Paid / All), while the Payments screen, which does have one,
+        //     lists Project Payments only.
         //
-        // ⚠️ AND THAT IS EXACTLY WHY THE TAB IS NOT HARDCODED TO `Paid`. A SUGGESTION has settled
-        // nothing and its expense is still `Approved` (`SETTLEABLE_STATUSES` is Approved-only), so
-        // pinning `Paid` here would reproduce the same defect pointing the other way — the one the
-        // payment branch above already records finding live.
-        const tab = settled ? "Paid" : "Approved";
-        const base = isProject ? "/expense/project" : "/expense/non-project";
-        const param = isProject ? "pe_status" : "npe_status";
-        return {
-            href: `${base}?${param}=${tab}`,
-            label: name,
-            // ⚠️ STILL `false`, AND THE TAB DOES NOT CHANGE THAT. `exact` means "this lands on the
-            // record", and it does not: neither table has the record id in its searchable fields
-            // (`PE_SEARCHABLE_FIELDS` / `NPE_SEARCHABLE_FIELDS`) and there is no `/expense/:id`
-            // route, so the reviewer still arrives at a filtered LIST. Flipping this to `true`
-            // because the tab narrowed would overstate what the link does.
-            exact: false,
-            title: `Open ${isProject ? "Project" : "Non Project"} Expenses → ${tab} — ${name} is in this list; it cannot be linked to directly`,
-        };
+        // A link that lands on an empty table with nothing on screen explaining why is worse than
+        // no link: the reviewer reads it as "the record is gone". The owner has parked the question
+        // of where these should point, so until then this returns `null` and the row renders the
+        // name as plain text -- exactly as it did for an expense before a link existed.
+        //
+        // ⚠️ IT COVERS SETTLED EXPENSES TOO. Their `Paid` tab does still hold them, so that half
+        // works today -- but the owner asked for one rule ("block it for anything other than a
+        // Project Payment") rather than a link that appears and disappears depending on a status
+        // the reviewer cannot see from here. Restoring this branch is one edit when the destination
+        // is settled.
+        return null;
     }
     return null;
 };

@@ -38,6 +38,7 @@ from nirmaan_stack.api.outflow_import.test_review import (
     _stage_icici_statement,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MATCHED,
@@ -328,7 +329,7 @@ class _ClaimFixture(OutflowReviewFixture):
         cls.late = cls._claim_row("0004", cls.ACCOUNTS[1], "2026-01-03 09:00:00")
         cls.planted = sorted(
             cls._insert_payment_row(
-                amount=cls.AMOUNT, status="Approved", utr="PO/CLAIM/01272/25-26",
+                amount=cls.AMOUNT, status=SETTLEABLE, utr="PO/CLAIM/01272/25-26",
                 payment_date=None, project=cls.claim_project,
             )
             for _ in range(cls.PAYMENT_COUNT)
@@ -490,7 +491,7 @@ class TestAOneLineRunNeverUnpairsAStack(OutflowReviewFixture):
         cls.stack_payments = []
         for _ in range(2):
             name = cls._insert_payment_row(
-                amount=cls.AMOUNT, status="Approved", utr="PO/STACK/01272/25-26",
+                amount=cls.AMOUNT, status=SETTLEABLE, utr="PO/STACK/01272/25-26",
                 payment_date=None, project=cls.project,
             )
             frappe.db.set_value("Project Payments", name, "vendor", cls.vendor, update_modified=False)

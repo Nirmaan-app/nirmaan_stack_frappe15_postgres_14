@@ -33,7 +33,7 @@ export const WHAT_HAPPENS_UNSPLIT = "The split is undone:";
  *  so it leads "Can't be undone yet." (mockup scene 3) where every other refusal says "here". */
 export const LEFTOVER_PAID_TITLE = "Leftover paid";
 
-/** The verdicts that put a record back to Approved (blue in the dialog). */
+/** The verdicts that put a record back to the settleable status (blue in the dialog). */
 const BACK_TO_APPROVED = new Set([VERDICT_REVERT_PAYMENT, VERDICT_REVERT_EXPENSE]);
 
 /** Mirrors `unreconcile.CASHBOOK_REFUSAL`, shown in the table instead of a button (story 27). */
@@ -101,7 +101,7 @@ export interface UnreconcileResult {
     reversed: ReversedLeg[];
 }
 
-/** Blue = back to Approved, red = deleted, amber = a split joined back, grey = refused (mockup scene
+/** Blue = back to the settleable status, red = deleted, amber = a split joined back, grey = refused (mockup scene
  *  3). `other` is a verdict this screen has no colour for yet; it still shows the server's sentence. */
 export type LegTone = "back" | "deleted" | "split" | "refused" | "other";
 
@@ -119,7 +119,7 @@ export interface LegOutcomeLine {
  * put on the leg. The PO terms bullet only when there are terms to join.
  */
 export const unsplitConsequences = (leg: UnreconcilePlanLeg): string[] => [
-    `${leg.target_name} goes back to ${formatToRoundedIndianRupee(leg.restored_amount ?? 0)}, Approved`,
+    `${leg.target_name} goes back to ${formatToRoundedIndianRupee(leg.restored_amount ?? 0)}, Reconciliation Pending`,
     `the leftover ${leg.leftover ?? ""} (${formatToRoundedIndianRupee(leg.leftover_amount ?? 0)}) is deleted`,
     ...(leg.joins_terms ? ["the PO's two payment terms join back into one"] : []),
 ];
@@ -207,7 +207,7 @@ export interface UnreconcileNotice {
  */
 export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice => {
     const total = result.reversed.length;
-    // An un-split payment goes back to Approved too (#1279); its split gets its own sentence below.
+    // An un-split payment goes back to the settleable status too (#1279); its split gets its own sentence below.
     const reverted = result.reversed.filter(
         (leg) => BACK_TO_APPROVED.has(leg.verdict) || leg.verdict === VERDICT_UNSPLIT_PAYMENT,
     ).length;
@@ -215,11 +215,11 @@ export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice 
     const wasDeleted = (count: number) => (count === 1 ? "was deleted" : "were deleted");
     const head =
         reverted === total
-            ? `${records(total)} came off this transfer and went back to Approved.`
+            ? `${records(total)} came off this transfer and went back to Reconciliation Pending.`
             : deleted === total
               ? `${records(total)} came off this transfer and ${wasDeleted(total)}.`
               : reverted + deleted === total
-                ? `${records(total)} came off this transfer: ${reverted} went back to Approved and ${deleted} ${wasDeleted(deleted)}.`
+                ? `${records(total)} came off this transfer: ${reverted} went back to Reconciliation Pending and ${deleted} ${wasDeleted(deleted)}.`
                 : `${records(total)} came off this transfer.`;
     const where =
         result.row_status === ROW_PARTIALLY_ALLOCATED

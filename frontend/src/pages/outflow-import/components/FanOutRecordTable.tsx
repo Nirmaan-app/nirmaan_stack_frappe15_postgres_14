@@ -185,7 +185,7 @@ export const FanOutRecordTable = ({
                     ))}
                 </tr>
             </thead>
-            <tbody role="group" aria-label="Approved records to allocate">
+            <tbody role="group" aria-label="Records waiting for a bank line, to allocate">
                 {records.map((record) => (
                     <RecordRow
                         key={recordKey(record)}

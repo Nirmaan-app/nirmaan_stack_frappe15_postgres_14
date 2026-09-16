@@ -61,6 +61,11 @@ SR = "Service Requests"
 TDS = payment_tds.TDS_DOCTYPE
 U = "Administrator"
 
+#: Where **Mark as Done** puts an Approved payment, and so where the Bulk Import settles it FROM
+#: (#1289). Spelled here rather than read from `outflow_import.ledgers`: this fixture belongs to the
+#: payments module and must not grow a dependency on the import to describe its own lifecycle.
+RECONCILIATION_PENDING = "Reconciliation Pending"
+
 
 class TaxedWorkOrderFixture:
     """Plants projects, vendors, Service Requests and taxed payments, and purges all of them."""
@@ -169,6 +174,27 @@ class TaxedWorkOrderFixture:
             tds=flt(tax.tds_amount),
             net=flt(frappe.db.get_value(PAYMENT, name, "amount")),
         )
+
+    def mark_as_done(self, payment: str) -> str:
+        """Move an Approved payment to `Reconciliation Pending`, as an Accountant's **Mark as Done**
+        does. Commits. Returns the status written, so a caller can assert against one name.
+
+        ⚠️ THE IMPORT CANNOT SETTLE A PAYMENT WITHOUT THIS STEP FROM #1289 ON, which is why the
+        fixture grew it rather than each suite writing its own. `payment()` leaves a payment exactly
+        where its CEO approval leaves it -- `Approved`, taxed once -- and that is now one step short
+        of what a bank line can settle.
+
+        ⚠️ `doc.save()`, NOT `db.set_value`. The whole reason this fixture exists is to reach the tax
+        code: a `set_value` fires no `on_update`, so a test built on it could not see a deduction
+        written (or wrongly written) on this transition. It also proves the transition ITSELF taxes
+        nothing -- `payment_tds.is_approval_from_an_earlier_step` is what makes that true, and a
+        fixture that stepped around the hooks could never have shown it.
+        """
+        doc = frappe.get_doc(PAYMENT, payment)
+        doc.status = RECONCILIATION_PENDING
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return RECONCILIATION_PENDING
 
     # -- cleanup --------------------------------------------------------------------------------
     def purge(self) -> None:

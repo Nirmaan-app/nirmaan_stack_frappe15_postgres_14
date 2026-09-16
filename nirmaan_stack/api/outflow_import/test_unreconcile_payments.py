@@ -31,6 +31,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REVERT_PAYMENT,
     WHAT_HAPPENS_REVERT_PAYMENT,
 )
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
 MATCH_DOCTYPE = "Outflow Row Match"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -68,7 +69,7 @@ class PaymentUnreconcileFixture(AllocationFixture):
 
     def _assert_free(self, payment):
         stored = self._payment(payment)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertFalse(stored.utr)
         self.assertFalse(stored.payment_date)
 
@@ -209,7 +210,7 @@ class TestTheAudit(PaymentUnreconcileFixture):
         payment_versions = frappe.get_all(
             "Version", filters={"ref_doctype": PAYMENT, "docname": a}, pluck="data"
         )
-        self.assertTrue(any('"Approved"' in data for data in payment_versions))
+        self.assertTrue(any(f'"{SETTLEABLE}"' in data for data in payment_versions))
         leg_versions = frappe.get_all(
             "Version", filters={"ref_doctype": MATCH_DOCTYPE, "docname": leg}, pluck="data"
         )
@@ -310,8 +311,8 @@ class TestUnreconcileNeverWithholdsTds(PaymentUnreconcileFixture):
             """INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
                    docstatus, idx, project, vendor, status, total_amount, amount_paid)
                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s,
-                   'Approved', 100000, 0)""",
-            (self.sr, self._allocation_project(), self.vendor),
+                   %s, 100000, 0)""",
+            (self.sr, self._allocation_project(), self.vendor, "Approved"),
         )
         frappe.db.commit()
 
@@ -335,8 +336,8 @@ class TestUnreconcileNeverWithholdsTds(PaymentUnreconcileFixture):
                    (name, creation, modified, modified_by, owner, docstatus, idx,
                     project, vendor, amount, status, document_type, document_name)
                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                   %s, %s, %s, 'Approved', 'Service Requests', %s)""",
-            (name, self._allocation_project(), self.vendor, float(amount), self.sr),
+                   %s, %s, %s, %s, 'Service Requests', %s)""",
+            (name, self._allocation_project(), self.vendor, float(amount), SETTLEABLE, self.sr),
         )
         self.payments.append(name)
         frappe.db.commit()

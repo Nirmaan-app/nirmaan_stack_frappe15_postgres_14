@@ -787,7 +787,7 @@ export const DecisionDialog = ({
                     {!canLinkPayment && (
                         <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                             This transfer is money received, so it is recorded rather than settled
-                            against an approved payable. Choose one of the options below — a project
+                            against a payable. Choose one of the options below — a project
                             inflow, or a non-project inflow.
                         </p>
                     )}
@@ -1004,15 +1004,15 @@ const AmountOutsideWindowDialog = ({
                                             {offer.impliedPct.toFixed(2)}% of the payment — a common
                                             TDS rate. If tax was withheld rather than part of the
                                             money being unpaid, do not split this: record it in the
-                                            payments screen. Splitting would create an approved
-                                            balance nobody owes.
+                                            payments screen. Splitting would create a balance nobody
+                                            owes.
                                         </p>
                                     )}
                                     {/* The confirmation names what will be CREATED, because there
                                         is no undo from inside the import (ruling Q9). */}
                                     <p className="font-medium text-foreground">
                                         This settles {formatToIndianRupee(offer.keep)} and creates a
-                                        new approved payment of{" "}
+                                        new payment of{" "}
                                         {formatToIndianRupee(offer.remainder)} for the balance.
                                     </p>
                                 </>
@@ -1076,7 +1076,7 @@ const AmountOutsideWindowDialog = ({
  * It was a two-option radio group -- "A part payment" / "A deduction (TDS or similar)" -- with
  * the second greyed and reasoned when the payment's parent was not a Service Request or the gap
  * fell outside 0.95-2.05%. It existed because a reviewer offered only "part payment" on a real
- * withholding will take it, and that mints an approved balance nobody owes.
+ * withholding will take it, and that mints a balance nobody owes.
  *
  * THAT RISK DID NOT GO AWAY; ITS ANSWER MOVED. SR tax is now withheld at approval by
  * `services/payment_tds.py`, which nets `Project Payments.amount`, so an approved SR payment
@@ -1376,8 +1376,8 @@ const LinkPaymentSection = ({
                     expense" is true of Split and false of Normal in both halves at once, and the
                     line sits directly above the control whose shape it is describing. */}
                 {mode === "split"
-                    ? "the approved payments this transfer is being split across"
-                    : "the one approved record this transfer paid — payment or expense"}
+                    ? "the Reconciliation Pending payments this transfer is being split across"
+                    : "the one Reconciliation Pending record this transfer paid — payment or expense"}
             </p>
         </div>
         <div className="border-t px-3 py-3">
@@ -1734,7 +1734,7 @@ const RecordPicker = ({
             )}
 
             <div className="space-y-1.5">
-                <Label className="text-xs">Find an approved record</Label>
+                <Label className="text-xs">Find a record waiting for a bank line</Label>
                 <Input
                     className="h-8"
                     // It searches the nickname and the contact person too, and says so: those two
@@ -1753,8 +1753,8 @@ const RecordPicker = ({
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
                         {options.length === pool.length
-                            ? `${pool.length} approved record${pool.length === 1 ? "" : "s"}`
-                            : `Showing ${options.length} of ${pool.length} approved records`}
+                            ? `${pool.length} record${pool.length === 1 ? "" : "s"}`
+                            : `Showing ${options.length} of ${pool.length} records`}
                     </span>
                     {hasActiveFilters(filters, sort) && (
                         <Button
@@ -1808,7 +1808,7 @@ const RecordPicker = ({
                 // way back, because the filters that emptied the table are in a header the table no
                 // longer renders -- the control that caused this can hide itself.
                 <div className="space-y-2 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                    <p>No approved record matches the filters you have set.</p>
+                    <p>No record matches the filters you have set.</p>
                     <Button
                         variant="outline"
                         size="sm"

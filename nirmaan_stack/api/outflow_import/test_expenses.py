@@ -49,6 +49,12 @@ from nirmaan_stack.services.outflow_import.settle import (
     WrongStatusError,
     format_amount_for,
 )
+from nirmaan_stack.services.outflow_import.ledgers import settleable_statuses
+
+#: The status an expense must be in for this import to settle it, read from the ONE map (#1289).
+#: It was the literal `"Approved"`; the lifecycle gained a Mark-as-Done step, and a fixture planted
+#: at the old status tests a refusal everywhere it means to test a settle.
+SETTLEABLE = settleable_statuses(PROJECT_EXPENSE)[0]
 
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
@@ -160,7 +166,7 @@ class SettlementFixture(unittest.TestCase):
         self.assertTrue(rows, "no settleable row left in the fixture batch")
         return rows[0]
 
-    def _make_expense(self, doctype, amount, status="Approved", description="planted by test"):
+    def _make_expense(self, doctype, amount, status=SETTLEABLE, description="planted by test"):
         """Plant an expense in EXACTLY the requested status.
 
         ⚠️ THE STATUS IS RE-ASSERTED AFTER THE INSERT, AND WITHOUT THAT THE `Requested` FIXTURES
@@ -379,7 +385,7 @@ class TestRefusals(SettlementFixture):
         with self.assertRaises(frappe.ValidationError):
             settle_expense(row["name"], PROJECT_EXPENSE, second)
         # The second expense is untouched -- the refusal happened before any write.
-        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, second, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, second, "status"), SETTLEABLE)
 
     def test_a_skipped_row_cannot_be_settled(self):
         row = self._row("0002")  # the FAILED transfer, auto-skipped at upload
@@ -455,8 +461,14 @@ class TestTheDirectionGuard(SettlementFixture):
 
     def test_a_credit_can_never_settle_an_approved_expense(self):
         """⚠️ THE SHARPEST OF THE THREE: everything else about this settlement is valid. The expense
-        is Approved, the amount matches to the paise, the row is settleable. Without the guard this
-        call SUCCEEDS and books a deposit as a payment out."""
+        is at the settleable status, the amount matches to the paise, the row is settleable. Without
+        the guard this call SUCCEEDS and books a deposit as a payment out.
+
+        ⚠️ THE FIXTURE'S STATUS IS THE WHOLE PREMISE (#1289). Planted at a status the write path
+        refuses, this test still goes green -- on the wrong refusal -- and stops saying anything
+        about the direction guard at all. `_make_expense`'s default reads the settleable map for
+        exactly that reason.
+        """
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
         self._as_credit(row["name"])
@@ -470,7 +482,7 @@ class TestTheDirectionGuard(SettlementFixture):
         self.assertIn("debit", message)
         self.assertIn("credit", message)
         # Nothing moved: not the expense, not the row, not a match record claiming a settlement.
-        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), SETTLEABLE)
         self.assertNotEqual(
             frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
         )
@@ -691,7 +703,7 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         after = frappe.db.get_value(
             PROJECT_EXPENSE, expense, ["status", "amount"], as_dict=True
         )
-        self.assertEqual(after.status, "Approved", "the settle committed inside its own savepoint")
+        self.assertEqual(after.status, SETTLEABLE, "the settle committed inside its own savepoint")
         self.assertEqual(Decimal(after.amount), Decimal(str(float(row["amount"]) - 0.31)))
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
         self.assertNotEqual(

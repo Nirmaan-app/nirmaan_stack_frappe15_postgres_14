@@ -363,7 +363,7 @@ describe("visibleRecords composes filter then sort", () => {
     });
 });
 
-describe("splitCandidates -- Split mode lists approved payments only (ADR-0020 B2/B3)", () => {
+describe("splitCandidates -- Split mode lists settleable payments only (ADR-0020 B2/B3)", () => {
     const pool = [
         record({ target_doctype: "Project Payments", name: "PAY-1" }),
         record({ target_doctype: "Project Expenses", name: "PE-1" }),
@@ -401,8 +401,13 @@ describe("splitCandidates -- Split mode lists approved payments only (ADR-0020 B
 
     it("says why the list is narrowed, and what to do when it is empty", () => {
         // The sentences are pinned because both are the ONLY thing on screen explaining an absence.
-        expect(SPLIT_PAYMENTS_ONLY_NOTE).toMatch(/approved project payments/i);
-        expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/no approved project payment/i);
+        // ⚠️ INVERTED AT #1289: both sentences said "approved", and the import no longer settles
+        // an Approved record -- it settles one somebody has marked as done. Asserting the OLD word
+        // is ABSENT is what stops it drifting back in beside the new one.
+        expect(SPLIT_PAYMENTS_ONLY_NOTE).toMatch(/reconciliation pending project payments/i);
+        expect(SPLIT_PAYMENTS_ONLY_NOTE).not.toMatch(/approved/i);
+        expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/no reconciliation pending project payment/i);
+        expect(SPLIT_NO_CANDIDATES_NOTE).not.toMatch(/approved/i);
         // ⚠️ THE EMPTY STATE MUST NAME THE WAY OUT, not merely report the absence.
         expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/normal/i);
     });
@@ -466,7 +471,12 @@ describe("recordPoolMessage -- one sentence per state, per mode", () => {
     it("keeps both empty sentences exactly as they were", () => {
         expect(recordPoolMessage("empty", "split")).toBe(SPLIT_NO_CANDIDATES_NOTE);
         expect(recordPoolMessage("empty", "normal")).toBe(NORMAL_NO_CANDIDATES_NOTE);
-        expect(NORMAL_NO_CANDIDATES_NOTE).toBe("There are no approved payments or expenses to link to.");
+        // ⚠️ INVERTED AT #1289. The old sentence named the wrong status AND stopped short: a
+        // reviewer meeting an empty pool needs to know the records are not missing, they simply
+        // have not been marked as done yet -- which is the one thing that would fill this list.
+        expect(NORMAL_NO_CANDIDATES_NOTE).toBe(
+            "There are no payments or expenses at Reconciliation Pending to link to. A record has to be marked as done before a bank line can settle it.",
+        );
     });
 
     it("says the list could not be loaded -- and claims nothing about what exists", () => {

@@ -753,7 +753,7 @@ class TestMatched(unittest.TestCase):
             _match([_payment("PAY-A", amount="5000"), _payment("PAY-B", amount="4000")]),
         )
         self.assertEqual(outcome.status, ROW_MATCHED)
-        self.assertIn("2 approved payments", outcome.note)
+        self.assertIn("2 Reconciliation Pending payments", outcome.note)
 
     def test_several_candidates_are_matched_and_the_note_refuses_to_choose(self):
         """Owner: the screen never guesses between two real records. The status says something was
@@ -762,7 +762,7 @@ class TestMatched(unittest.TestCase):
             _Row(), _match([_payment("PAY-1")], expenses=[_expense("PE-1")])
         )
         self.assertEqual(outcome.status, ROW_MATCHED)
-        self.assertIn("2 approved records", outcome.note)
+        self.assertIn("2 Reconciliation Pending records", outcome.note)
         self.assertIn("Choose", outcome.note)
 
     def test_the_note_COUNTS_separate_payments_instead_of_claiming_there_is_one(self):
@@ -773,9 +773,9 @@ class TestMatched(unittest.TestCase):
             _Row(), _match_many([_payment(f"PAY-{i}") for i in range(6)])
         )
         self.assertEqual(outcome.status, ROW_MATCHED)
-        self.assertIn("6 approved records", outcome.note)
+        self.assertIn("6 Reconciliation Pending records", outcome.note)
         self.assertIn("Choose", outcome.note)
-        self.assertNotIn("One approved record", outcome.note)
+        self.assertNotIn("One Reconciliation Pending record", outcome.note)
 
 
 class TestSoleSuggestion(unittest.TestCase):
@@ -907,12 +907,12 @@ class TestNothingFound(unittest.TestCase):
             paid_duplicate=_group([_payment("PAY-7", amount="9000")]),
         ).note
 
-        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertIn("No Reconciliation Pending payment or expense matches", nothing_found)
         self.assertNotIn("Already recorded as Paid", nothing_found)
 
         self.assertIn("PAY-7", disagreement)
         self.assertIn("Already recorded as Paid", disagreement)
-        self.assertNotIn("No approved payment or expense matches", disagreement)
+        self.assertNotIn("No Reconciliation Pending payment or expense matches", disagreement)
 
     def test_all_THREE_mismatched_causes_stay_distinguishable(self):
         """⚠️ THE MERGE TEST, WIDENED -- `Mismatched` now carries a THIRD fact (2026-08-11).
@@ -933,11 +933,11 @@ class TestNothingFound(unittest.TestCase):
         nothing_found = derive_row_outcome(_Row(), _match()).note
         several = several_found_note(6)
 
-        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertIn("No Reconciliation Pending payment or expense matches", nothing_found)
         self.assertNotIn("6", nothing_found)
 
-        self.assertIn("6 approved records match", several)
-        self.assertNotIn("No approved payment or expense matches", several)
+        self.assertIn("6 Reconciliation Pending records match", several)
+        self.assertNotIn("No Reconciliation Pending payment or expense matches", several)
         self.assertNotIn("Already recorded as Paid", several)
 
     def test_the_several_note_says_what_to_do_not_just_what_happened(self):
@@ -1116,7 +1116,7 @@ class TestDeriveDuplicateGuardOutcome(unittest.TestCase):
         self.assertEqual(
             derive_duplicate_guard_outcome(_Row()).note, STAGED_NOTE_NO_SETTLEMENT_PATH
         )
-        self.assertNotIn("No approved payment", derive_duplicate_guard_outcome(_Row()).note)
+        self.assertNotIn("No Reconciliation Pending payment", derive_duplicate_guard_outcome(_Row()).note)
 
     def test_the_already_paid_guard_still_fires_and_names_the_record(self):
         """THE 41-of-711 CASE, AND THE REASON THIS SOURCE STILL REACHES THE MATCH RUN AT ALL."""

@@ -165,7 +165,7 @@ export const SettleableRecordTable = ({
                     ))}
                 </tr>
             </thead>
-            <tbody role="radiogroup" aria-label="Approved records this transfer could have paid">
+            <tbody role="radiogroup" aria-label="Records waiting for a bank line that this transfer could have paid">
                 {records.map((record) => (
                     <RecordRow
                         key={recordKey(record)}

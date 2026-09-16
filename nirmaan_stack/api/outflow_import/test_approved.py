@@ -22,18 +22,32 @@ from nirmaan_stack.api.outflow_import.approved import (
     list_approved_records,
 )
 from nirmaan_stack.services.outflow_import.ledger_read import LEDGER_SOURCES
+from nirmaan_stack.services.outflow_import.ledgers import settleable_statuses
 
 PAYMENT = "Project Payments"
 PROJECT_EXPENSE = "Project Expenses"
 NON_PROJECT_EXPENSE = "Non Project Expenses"
+
+#: What this inbox actually lists, read from the ONE map (#1289). It was the literal `"Approved"`
+#: until the lifecycle gained a Mark-as-Done step; the inbox shows what is WAITING FOR A BANK LINE,
+#: which is a different set from what has merely been sanctioned.
+SETTLEABLE = settleable_statuses(PAYMENT)[0]
 
 
 class TestApprovedInbox(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # One planted record, so the suite has something it OWNS to assert exact behaviour on
-        # without depending on whatever the live ledgers happen to hold today.
+        # Planted records, so the suite has something it OWNS to assert exact behaviour on without
+        # depending on whatever the live ledgers happen to hold today.
+        #
+        # ⚠️ THE PAYMENT WAS ADDED AT #1289, AND WITHOUT IT THREE TESTS BELOW ARE AT THE MERCY OF
+        # LIVE DATA. They read the payment ledger, and the union of all three, off whatever is
+        # sitting at the settleable status -- which was `Approved` (1,082 live payments, so always
+        # plentiful) and is now `Reconciliation Pending`, of which the local database holds NONE
+        # until Accountants start pressing Mark as Done. An empty live set made them fail on an
+        # empty list rather than on anything they were written to test. Owning a row of each ledger
+        # is what the class docstring's "plants nothing" note was always one step short of.
         cls.planted = f"TEST-NPE-{frappe.generate_hash(length=10)}"
         frappe.db.sql(
             """
@@ -42,14 +56,27 @@ class TestApprovedInbox(FrappeTestCase):
                  amount, status, description)
             VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
             """,
-            (cls.planted, "Administrator", "Administrator", 4242.42, "Approved",
+            (cls.planted, "Administrator", "Administrator", 4242.42, SETTLEABLE,
              "TESTZEPHYR unmistakable description"),
+        )
+        cls.planted_project = frappe.db.get_value("Projects", {}, "name")
+        cls.planted_payment = f"TEST-OFI-APP-PAY-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProject Payments"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 project, amount, status)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+            """,
+            (cls.planted_payment, "Administrator", "Administrator",
+             cls.planted_project, 4343.43, SETTLEABLE),
         )
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(NON_PROJECT_EXPENSE, {"name": cls.planted})
+        frappe.db.delete(PAYMENT, {"name": cls.planted_payment})
         frappe.db.commit()
         super().tearDownClass()
 
@@ -74,7 +101,7 @@ class TestApprovedInbox(FrappeTestCase):
 
     def test_only_approved_records_are_listed(self):
         for row in list_approved_records(limit=100)["rows"]:
-            self.assertEqual(row["status"], "Approved")
+            self.assertEqual(row["status"], SETTLEABLE)
 
     # --- asymmetry 1: only payments have an approval date --------------------------------------
 
@@ -111,7 +138,7 @@ class TestApprovedInbox(FrappeTestCase):
                  amount, status, description, projects)
             VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s)
             """,
-            (junk, "Administrator", "Administrator", "not a number", "Approved",
+            (junk, "Administrator", "Administrator", "not a number", SETTLEABLE,
              "TESTJUNKAMOUNT", project),
         )
         frappe.db.commit()
@@ -274,7 +301,7 @@ class TestTheApprovedExport(FrappeTestCase):
         values, params = [], []
         for i, name in enumerate(cls.names):
             values.append("(%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)")
-            params.extend([name, "Administrator", "Administrator", 100 + i, "Approved",
+            params.extend([name, "Administrator", "Administrator", 100 + i, SETTLEABLE,
                            f"{cls.TOKEN} row {i}"])
         frappe.db.sql(
             """
@@ -297,7 +324,7 @@ class TestTheApprovedExport(FrappeTestCase):
                  amount, status, description, projects)
             VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s)
             """,
-            (cls.expense, "Administrator", "Administrator", "777.5", "Approved",
+            (cls.expense, "Administrator", "Administrator", "777.5", SETTLEABLE,
              f"{cls.TOKEN} expense", cls.expense_project),
         )
         frappe.db.commit()

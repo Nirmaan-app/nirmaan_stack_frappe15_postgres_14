@@ -58,7 +58,7 @@ const leg = (over: Partial<UnreconcilePlanLeg> = {}): UnreconcilePlanLeg => ({
     target_amount: 100000,
     matched_at: "2026-09-10 10:00:00",
     verdict: VERDICT_REVERT_PAYMENT,
-    what_happens: "Goes back to Approved. Its UTR and payment date are cleared.",
+    what_happens: "Goes back to Reconciliation Pending. Its UTR and payment date are cleared.",
     reason: null,
     title: null,
     fix_at: null,
@@ -129,7 +129,7 @@ describe("a part payment (#1279)", () => {
             lead: null,
             text: "The split is undone:",
             items: [
-                "PAY-01388-011 goes back to ₹1,00,000, Approved",
+                "PAY-01388-011 goes back to ₹1,00,000, Reconciliation Pending",
                 "the leftover PAY-01388-012 (₹40,000) is deleted",
                 "the PO's two payment terms join back into one",
             ],
@@ -138,7 +138,7 @@ describe("a part payment (#1279)", () => {
 
     it("a payment with no PO terms promises no terms", () => {
         expect(legOutcomeLine(unsplitLeg({ joins_terms: false })).items).toEqual([
-            "PAY-01388-011 goes back to ₹1,00,000, Approved",
+            "PAY-01388-011 goes back to ₹1,00,000, Reconciliation Pending",
             "the leftover PAY-01388-012 (₹40,000) is deleted",
         ]);
     });
@@ -189,7 +189,7 @@ describe("a part payment (#1279)", () => {
 
     it("the notice says the split was undone, and the restored amount is no surprise", () => {
         expect(unreconcileNotice(unsplitResult(100000)).body).toBe(
-            "1 record came off this transfer and went back to Approved. It now needs a record. " +
+            "1 record came off this transfer and went back to Reconciliation Pending. It now needs a record. " +
                 "The split on PAY-01388-011 was undone and its leftover PAY-01388-012 deleted.",
         );
     });
@@ -240,22 +240,22 @@ describe("an existing expense (#1277)", () => {
         target_doctype: "Project Expenses",
         target_name: "EXP-1",
         verdict: VERDICT_REVERT_EXPENSE,
-        what_happens: "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+        what_happens: "Goes back to Reconciliation Pending. Payment date, reference and 'paid by' are cleared.",
     });
 
     it("is blue like a payment and says what the server says", () => {
         expect(legOutcomeLine(expenseLeg)).toEqual({
             tone: "back",
             lead: null,
-            text: "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+            text: "Goes back to Reconciliation Pending. Payment date, reference and 'paid by' are cleared.",
         });
     });
 
     it("shows the server's sentences verbatim", () => {
         expect(decisionSource).toContain(
-            `"Goes back to Approved. Payment date, reference and 'paid by' are cleared."`,
+            `"Goes back to Reconciliation Pending. Payment date, reference and 'paid by' are cleared."`,
         );
-        expect(decisionSource).toContain(`"Goes back to Approved. Payment date and reference are cleared."`);
+        expect(decisionSource).toContain(`"Goes back to Reconciliation Pending. Payment date and reference are cleared."`);
     });
 
     it("an expense changed elsewhere names the Expenses screen", () => {
@@ -286,7 +286,7 @@ describe("an existing expense (#1277)", () => {
         );
     });
 
-    it("the notice says it went back to Approved", () => {
+    it("the notice says it went back to Reconciliation Pending", () => {
         const result: UnreconcileResult = {
             row: "ROW-1",
             row_status: "Mismatched",
@@ -304,7 +304,7 @@ describe("an existing expense (#1277)", () => {
             ],
         };
         expect(unreconcileNotice(result).body).toBe(
-            "1 record came off this transfer and went back to Approved. It now needs a record.",
+            "1 record came off this transfer and went back to Reconciliation Pending. It now needs a record.",
         );
     });
 });
@@ -314,7 +314,7 @@ describe("legOutcomeLine -- the coloured 'what happens' line (mockup scene 2)", 
         expect(legOutcomeLine(leg())).toEqual({
             tone: "back",
             lead: null,
-            text: "Goes back to Approved. Its UTR and payment date are cleared.",
+            text: "Goes back to Reconciliation Pending. Its UTR and payment date are cleared.",
         });
     });
 
@@ -406,13 +406,13 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
     it("an open line needs a record again (mockup scene 6)", () => {
         expect(unreconcileNotice(result())).toEqual({
             title: "Unreconciled.",
-            body: "2 records came off this transfer and went back to Approved. It now needs a record.",
+            body: "2 records came off this transfer and went back to Reconciliation Pending. It now needs a record.",
         });
     });
 
     it("a Matched line needs a record too -- its old pick is not a decision", () => {
         expect(unreconcileNotice(result({ row_status: "Matched" })).body).toBe(
-            "2 records came off this transfer and went back to Approved. It now needs a record.",
+            "2 records came off this transfer and went back to Reconciliation Pending. It now needs a record.",
         );
     });
 
@@ -424,7 +424,7 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
             reversed: [result().reversed[0]],
         });
         expect(unreconcileNotice(one).body).toBe(
-            "1 record came off this transfer and went back to Approved. ₹1,00,000 of it is unallocated again.",
+            "1 record came off this transfer and went back to Reconciliation Pending. ₹1,00,000 of it is unallocated again.",
         );
     });
 
@@ -437,7 +437,7 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
             reversed: [{ ...result().reversed[0], reversed_amount: 1000, amount_after: 1000 }],
         });
         expect(unreconcileNotice(untouched).body).toBe(
-            "1 record came off this transfer and went back to Approved. It now needs a record.",
+            "1 record came off this transfer and went back to Reconciliation Pending. It now needs a record.",
         );
     });
 
@@ -448,12 +448,12 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
             reversed: [{ ...result().reversed[0], reversed_amount: 1000, amount_after: 980 }],
         });
         expect(unreconcileNotice(netted).body).toBe(
-            "1 record came off this transfer and went back to Approved. It now needs a record. " +
+            "1 record came off this transfer and went back to Reconciliation Pending. It now needs a record. " +
                 "PAY-1 is now ₹980, not ₹1,000.",
         );
     });
 
-    it("a deleted record says it was deleted, never that it went back to Approved", () => {
+    it("a deleted record says it was deleted, never that it went back to Reconciliation Pending", () => {
         const deleted = {
             match: "M9",
             target_doctype: "Non Project Inflows",
@@ -477,7 +477,7 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
             amount_after: null,
         };
         expect(unreconcileNotice(result({ reversed: [result().reversed[0], deleted] })).body).toBe(
-            "2 records came off this transfer: 1 went back to Approved and 1 was deleted. It now needs a record.",
+            "2 records came off this transfer: 1 went back to Reconciliation Pending and 1 was deleted. It now needs a record.",
         );
     });
 

@@ -326,7 +326,7 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
 # A reader who took the stronger claim as a rule would have no reason to let this source reach the
 # run at all, and would silently delete the guard.
 STAGED_NOTE_NO_SETTLEMENT_PATH = (
-    "This statement creates records rather than settling approved ones. "
+    "This statement creates records rather than settling Reconciliation Pending ones. "
     "Resolve it by creating a new record or linking an existing one."
 )
 
@@ -795,13 +795,14 @@ def _matched_note(candidates: Sequence, tier: str = "") -> str:
         targets = getattr(only, "targets", None)
         if targets and len(targets) > 1:
             return _joined(
-                f"One transfer settling {len(targets)} approved payments: {names}.", because
+                f"One transfer settling {len(targets)} Reconciliation Pending payments: {names}.",
+                because,
             )
-        return _joined(f"One approved record at this amount: {names}.", because)
+        return _joined(f"One Reconciliation Pending record at this amount: {names}.", because)
     listed = ", ".join(_name_list(c) for c in candidates[:3])
     more = "" if len(candidates) <= 3 else f" and {len(candidates) - 3} more"
     return _joined(
-        f"{len(candidates)} approved records match this amount: {listed}{more}.",
+        f"{len(candidates)} Reconciliation Pending records match this amount: {listed}{more}.",
         because,
         "Choose which one this transfer settled.",
     )
@@ -819,8 +820,8 @@ def _nothing_found_note() -> str:
     the reader has nothing else to go on.
     """
     return (
-        "No approved payment or expense matches this transfer. Record a new expense, or link one "
-        "by hand."
+        "No Reconciliation Pending payment or expense matches this transfer. Record a new expense, "
+        "or link one by hand."
     )
 
 
@@ -843,7 +844,8 @@ def several_found_note(count: int) -> str:
     create a duplicate expense for money that is already approved and waiting.
     """
     return (
-        f"{count} approved records match this transfer and nothing could separate them. "
+        f"{count} Reconciliation Pending records match this transfer and nothing could separate "
+        f"them. "
         f"Open the row and pick which one it settled."
     )
 

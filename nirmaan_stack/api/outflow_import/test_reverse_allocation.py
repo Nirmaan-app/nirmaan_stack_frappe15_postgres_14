@@ -13,17 +13,18 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
 )
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
 MATCH_DOCTYPE = "Outflow Row Match"
 ROW_DOCTYPE = "Outflow Import Row"
 
 
 class TestReversingALeg(AllocationFixture):
-    def test_the_payment_returns_to_approved_with_no_utr(self):
+    def test_the_payment_returns_to_the_settleable_status_with_no_utr(self):
         row, (a, _, _) = self._allocated()
         leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": a}, "name")
         reverse_allocation(match=leg, reason="wrong PO")
-        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), SETTLEABLE)
         self.assertFalse((frappe.db.get_value("Project Payments", a, "utr") or "").strip())
         self.assertIsNone(frappe.db.get_value("Project Payments", a, "payment_date"))
 
@@ -123,7 +124,7 @@ class TestRulingOKnownLimit(AllocationFixture):
 
         # The payment returns to Approved, but its amount is NOT restored to 100 -- that figure
         # was never stored anywhere reversal can read it back from.
-        self.assertEqual(frappe.db.get_value("Project Payments", payment, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Project Payments", payment, "status"), SETTLEABLE)
         self.assertEqual(float(frappe.db.get_value("Project Payments", payment, "amount")), 103.0)
         self.assertEqual(float(result["reversed_amount"]), 103.0)
 
@@ -311,7 +312,7 @@ class TestReversingALegSettledWithAResolvedReference(AllocationFixture):
         reverse_allocation(match=leg, reason="wrong PO")
 
         self.assertEqual(
-            frappe.db.get_value("Project Payments", pays[0], "status"), "Approved"
+            frappe.db.get_value("Project Payments", pays[0], "status"), SETTLEABLE
         )
         self.assertFalse(
             (frappe.db.get_value("Project Payments", pays[0], "utr") or "").strip()
@@ -370,7 +371,7 @@ class TestReversingAnICICILeg(AllocationFixture):
 
         reverse_allocation(match=self._leg(row, pays[0]), reason="wrong PO")
 
-        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "status"), SETTLEABLE)
         self.assertFalse((frappe.db.get_value("Project Payments", pays[0], "utr") or "").strip())
 
     def test_a_leg_settled_before_1259_with_the_short_reference_still_reverses(self):
@@ -384,7 +385,7 @@ class TestReversingAnICICILeg(AllocationFixture):
 
         reverse_allocation(match=self._leg(row, pays[0]), reason="wrong PO")
 
-        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "status"), SETTLEABLE)
 
     def test_a_re_pointed_icici_payment_is_still_refused(self):
         row, _, _ = self._icici_row()

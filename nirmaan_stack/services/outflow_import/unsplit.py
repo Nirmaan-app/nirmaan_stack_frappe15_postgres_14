@@ -26,6 +26,10 @@ and refusing that would make "Unreconcile that transfer first" a dead end. An X1
 from dataclasses import dataclass
 from datetime import datetime
 
+from nirmaan_stack.services.outflow_import.ledgers import (
+    PAYMENT_DOCTYPE,
+    settleable_statuses,
+)
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 
 #: A record minted in the same request as its leg is written within this many seconds before it. Shared
@@ -42,7 +46,16 @@ LEFTOVER_WRITTEN_FIELDS = frozenset({"status", "utr", "payment_date", "payment_a
 #: transfer is unreconciled. `unreconcileView.ts` mirrors it.
 LEFTOVER_PAID_TITLE = "Leftover paid"
 
-_APPROVED = "Approved"
+#: The status this import's part-settle LEAVES A LEFTOVER AT -- so the one it must still be in for the
+#: split to be joinable back together.
+#:
+#: ⚠️ IT IS DERIVED FROM THE SETTLEABLE MAP, NOT SPELLED (#1289). It used to be a private
+#: `_APPROVED = "Approved"` beside `expenses._APPROVED`, and when the anchor moved to
+#: `Reconciliation Pending` a spelled copy here would have refused EVERY leftover the import had just
+#: created -- "Leftover changed", on a leftover nobody had touched. The coupling is real, not
+#: incidental: `expenses.settle_row_partial` creates the leftover at exactly this status, because a
+#: leftover is a record waiting for its own bank line.
+_LEFTOVER_UNTOUCHED_STATUSES = settleable_statuses(PAYMENT_DOCTYPE)
 _FIX_ON_PAYMENTS_SCREEN = "the Payments screen"
 
 __all__ = [
@@ -119,10 +132,11 @@ def leftover_refusal(leftover: SplitChild) -> tuple | None:
             f"Its leftover {name} has TDS on it. Fix the tax on the Payments screen first.",
             _FIX_ON_PAYMENTS_SCREEN,
         )
-    if (leftover.status or "").strip() != _APPROVED:
+    if (leftover.status or "").strip() not in _LEFTOVER_UNTOUCHED_STATUSES:
+        expected = " or ".join(_LEFTOVER_UNTOUCHED_STATUSES)
         return (
             "Leftover changed",
-            f"Its leftover {name} is '{leftover.status}', not Approved. Fix it on the Payments "
+            f"Its leftover {name} is '{leftover.status}', not {expected}. Fix it on the Payments "
             f"screen first.",
             _FIX_ON_PAYMENTS_SCREEN,
         )

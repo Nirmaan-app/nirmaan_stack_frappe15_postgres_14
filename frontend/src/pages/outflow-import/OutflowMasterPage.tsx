@@ -1133,10 +1133,10 @@ export const OutflowMasterPage = () => {
                     className="ml-auto mb-1"
                     aria-pressed={showingApproved}
                     onClick={() => setShowingApproved((on) => !on)}
-                    title="Everything approved and not yet paid, across all three ledgers — not scoped to any import"
+                    title="Everything marked as done and waiting for a bank line, across all three ledgers — not scoped to any import"
                 >
                     <Wallet className="mr-2 h-4 w-4" />
-                    Approved Payments/Expenses
+                    Awaiting Bank Line
                 </Button>
             </div>
 

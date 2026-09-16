@@ -34,6 +34,7 @@ from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, u
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
 PAYMENT = "Project Payments"
 PTD = "Payment TDS Deduction"
@@ -69,16 +70,31 @@ class TaxedWorkOrderUnreconcileFixture(PaymentSettlementFixture):
 
     def _taxed_payment(self, gross: float = GROSS):
         """Approved through the real `ceo_approve_payment`, so the deduction row and the netted
-        amount come from production code."""
-        return self.taxed.payment(
+        amount come from production code, then MARKED AS DONE so a bank line can settle it.
+
+        ⚠️ THE SECOND STEP IS NOT SETUP NOISE (#1289). The import settles from
+        `Reconciliation Pending`, and this fixture's whole point is to reach the tax code -- so the
+        transition runs through `doc.save()` and is itself part of what these tests prove: the money
+        is taxed ONCE, at the CEO's approval, and neither the mark-as-done nor anything after it
+        writes a second deduction row.
+        """
+        made = self.taxed.payment(
             gross,
             project=self.wo_project,
             vendor=self.wo_vendor,
             service_request=self.wo_sr,
         )
+        self.taxed.mark_as_done(made.name)
+        return made
 
-    def _untaxed_payment(self, amount: float = GROSS) -> str:
-        """An Approved Work Order payment carrying NO deduction row -- Bug A's shape.
+    def _untaxed_payment(self, amount: float = GROSS, status: str = SETTLEABLE) -> str:
+        """A Work Order payment carrying NO deduction row -- Bug A's shape.
+
+        ⚠️ IT IS PLANTED AT THE SETTLEABLE STATUS, NOT `Approved` (#1289), because every test but one
+        settles it from a bank line. The exception passes `status="Approved"` explicitly: proving the
+        tax code is REACHABLE means asking `is_deductible`, which answers only about a payment
+        sitting at `Approved` -- that is the status tax is withheld on, and the whole point of the
+        rest of this suite is that nothing downstream of it withholds again.
 
         ⚠️ A REAL SHAPE, NOT A CONTRIVANCE. Every one of the 1,331 legacy Paid SR payments predates
         `Payment TDS Deduction` and carries none, and a bulk approval whose post-commit deduction
@@ -90,8 +106,8 @@ class TaxedWorkOrderUnreconcileFixture(PaymentSettlementFixture):
             """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
                    docstatus, idx, project, vendor, amount, status, document_type, document_name)
                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                   %s, %s, %s, 'Approved', %s, %s)""",
-            (name, self.wo_project, self.wo_vendor, float(amount), SR, self.wo_sr),
+                   %s, %s, %s, %s, %s, %s)""",
+            (name, self.wo_project, self.wo_vendor, float(amount), status, SR, self.wo_sr),
         )
         self.extra_payments.append(name)
         frappe.db.commit()
@@ -115,7 +131,7 @@ class TestAnUntaxedWorkOrderPayment(TaxedWorkOrderUnreconcileFixture):
     def test_it_is_deductible_so_the_tax_code_really_is_reachable(self):
         """⚠️ THE GUARD ON THE OTHER TESTS IN THIS CLASS. If the fixture ever stopped reaching the
         tax code, they would pass for the wrong reason -- which is exactly how Bug A survived."""
-        doc = frappe.get_doc(PAYMENT, self._untaxed_payment())
+        doc = frappe.get_doc(PAYMENT, self._untaxed_payment(status="Approved"))
         self.assertTrue(payment_tds.vendor_rate(self.wo_vendor))
         self.assertTrue(payment_tds.is_deductible(doc))
 
@@ -127,7 +143,7 @@ class TestAnUntaxedWorkOrderPayment(TaxedWorkOrderUnreconcileFixture):
         result = unreconcile_row(row=row, legs="all", reason="wrong record")
 
         stored = self._stored(pay)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertEqual(float(stored.amount), self.GROSS, "the amount must be untouched")
         self.assertFalse(stored.utr)
         self.assertEqual(self._deductions(pay), [], "no tax row may be written by an undo")
@@ -162,7 +178,7 @@ class TestATaxedWorkOrderPayment(TaxedWorkOrderUnreconcileFixture):
         unreconcile_row(row=row, legs="all", reason="wrong record")
 
         stored = self._stored(made.name)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertEqual(float(stored.amount), self.NET)
         self.assertEqual(self._deductions(made.name), [made.deduction], "one row, the same one")
         self.assertEqual(
@@ -200,7 +216,7 @@ class TestAPartPaymentsLeftover(TaxedWorkOrderUnreconcileFixture):
         unreconcile_row(row=second, legs="all", reason="wrong balance")
 
         stored = self._stored(leftover)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertEqual(float(stored.amount), self.LEFTOVER)
         self.assertEqual(self._deductions(leftover), [])
 
@@ -220,6 +236,6 @@ class TestAPartPaymentsLeftover(TaxedWorkOrderUnreconcileFixture):
 
         self.assertFalse(frappe.db.exists(PAYMENT, leftover), "the leftover is deleted")
         stored = self._stored(made.name)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertEqual(float(stored.amount), self.NET, "the original gets its net amount back")
         self.assertEqual(self._deductions(made.name), [made.deduction], "still taxed exactly once")

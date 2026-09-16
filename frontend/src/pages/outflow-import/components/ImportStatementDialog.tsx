@@ -1304,7 +1304,7 @@ const StagedSummary = ({
         {matching && (
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Matching them against approved payments and expenses…
+                Matching them against payments and expenses waiting for a bank line…
             </p>
         )}
         {result.warnings.length > 0 && (

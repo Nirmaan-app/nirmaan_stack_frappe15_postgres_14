@@ -3,9 +3,9 @@
 
 """Tests for the partial-settlement eligibility gate.
 
-The amounts are shaped after the case that motivated the slice: one approved payment covered by two
-bank transfers, which is why every "eligible" fixture is a record STRICTLY larger than the transfer
-by more than the settle window.
+The amounts are shaped after the case that motivated the slice: one payment covered by two bank
+transfers, which is why every "eligible" fixture is a record STRICTLY larger than the transfer by
+more than the settle window.
 
 ⚠️ THE SHARPEST TEST IN HERE IS `TestTheRankingNeverReachesTheMatcher`'s cousin at the bottom --
 `test_nothing_in_the_matching_chain_imports_this`. The whole write safety of this feature is "the
@@ -34,7 +34,14 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
 PAYMENT = "Project Payments"
 
 
-def eligible(record="500000", bank="200000", doctype=PAYMENT, status="Approved"):
+#: ⚠️ THE DEFAULT MOVED FROM `"Approved"` AT #1289, and it is a single line on purpose: the gate
+#: reads `ledgers.settleable_statuses`, so this file's whole notion of "a splittable payment" is
+#: this one word. A stale default here would have turned every test below green against a gate that
+#: refuses every real record.
+SETTLEABLE = "Reconciliation Pending"
+
+
+def eligible(record="500000", bank="200000", doctype=PAYMENT, status=SETTLEABLE):
     return partial_eligibility(record, bank, doctype, status)
 
 
@@ -59,18 +66,18 @@ class TestTheHappyShape(unittest.TestCase):
             ("7.50", "1.25"),
         ):
             with self.subTest(record=record, bank=bank):
-                verdict = partial_eligibility(record, bank, PAYMENT, "Approved")
+                verdict = partial_eligibility(record, bank, PAYMENT, SETTLEABLE)
                 self.assertTrue(verdict.eligible)
                 self.assertEqual(verdict.keep + verdict.remainder, Decimal(record))
 
     def test_the_kept_amount_is_the_bank_figure_and_nothing_else(self):
         """⚠️ THERE IS NO ROUNDING HERE AND THERE MUST NEVER BE. The reviewer types no amount --
         the bank already decided it -- so the only correct kept value is the one that moved."""
-        verdict = partial_eligibility("18678.69", "12000.34", PAYMENT, "Approved")
+        verdict = partial_eligibility("18678.69", "12000.34", PAYMENT, SETTLEABLE)
         self.assertEqual(verdict.keep, Decimal("12000.34"))
 
     def test_the_implied_percentage_describes_the_shortfall(self):
-        verdict = partial_eligibility("500000", "490000", PAYMENT, "Approved")
+        verdict = partial_eligibility("500000", "490000", PAYMENT, SETTLEABLE)
         self.assertEqual(verdict.implied_pct, Decimal("2"))
 
 
@@ -83,10 +90,16 @@ class TestTheGate(unittest.TestCase):
                 self.assertFalse(verdict.eligible)
                 self.assertEqual(verdict.refusal, REFUSAL_NOT_A_PAYMENT)
 
-    def test_only_an_approved_payment_may_be_split(self):
+    def test_only_a_reconciliation_pending_payment_may_be_split(self):
         """⚠️ READ FROM `ledgers`, NEVER RESTATED. Two copies of the settleable-status map is a
-        defect this feature has already shipped once."""
-        for status in ("Requested", "CEO Pending", "Paid", "Rejected", ""):
+        defect this feature has already shipped once.
+
+        ⚠️ `"Approved"` IS IN THE REFUSED LIST FROM #1289 -- an INVERSION of what this test used to
+        say, kept rather than deleted. `Approved` means sanctioned, not sent: splitting there would
+        carve up a payment nobody has confirmed left the bank, and (on a Work Order) re-withhold its
+        tax on the way through.
+        """
+        for status in ("Approved", "Requested", "CEO Pending", "Paid", "Rejected", ""):
             with self.subTest(status=status):
                 verdict = eligible(status=status)
                 self.assertFalse(verdict.eligible)
@@ -107,7 +120,7 @@ class TestTheGate(unittest.TestCase):
     def test_a_gap_inside_the_settle_window_is_refused(self):
         """The ordinary settle already handles this and rewrites the record to the bank's figure
         (slice X1). Splitting here would mint a sub-Rs 5 payment nobody will ever chase."""
-        verdict = partial_eligibility("200005", "200000", PAYMENT, "Approved")
+        verdict = partial_eligibility("200005", "200000", PAYMENT, SETTLEABLE)
         self.assertFalse(verdict.eligible)
         self.assertEqual(verdict.refusal, REFUSAL_WITHIN_WINDOW)
 
@@ -116,12 +129,12 @@ class TestTheGate(unittest.TestCase):
         boundary (`amounts_match`). A split must start strictly beyond it, or both paths would
         claim the same gap and the reviewer would be offered a choice the server refuses."""
         window = AMOUNT_TOLERANCE
-        at_boundary = partial_eligibility(Decimal("200000") + window, "200000", PAYMENT, "Approved")
+        at_boundary = partial_eligibility(Decimal("200000") + window, "200000", PAYMENT, SETTLEABLE)
         self.assertFalse(at_boundary.eligible)
         self.assertEqual(at_boundary.refusal, REFUSAL_WITHIN_WINDOW)
 
         just_beyond = partial_eligibility(
-            Decimal("200000") + window + Decimal("0.01"), "200000", PAYMENT, "Approved"
+            Decimal("200000") + window + Decimal("0.01"), "200000", PAYMENT, SETTLEABLE
         )
         self.assertTrue(just_beyond.eligible)
 
@@ -130,7 +143,7 @@ class TestTheGate(unittest.TestCase):
         Splitting one is meaningless from either direction."""
         for record, bank in (("-50000", "10000"), ("50000", "-10000"), ("0", "10000")):
             with self.subTest(record=record, bank=bank):
-                verdict = partial_eligibility(record, bank, PAYMENT, "Approved")
+                verdict = partial_eligibility(record, bank, PAYMENT, SETTLEABLE)
                 self.assertFalse(verdict.eligible)
                 self.assertEqual(verdict.refusal, REFUSAL_NOT_POSITIVE)
 
@@ -141,7 +154,7 @@ class TestTheGate(unittest.TestCase):
             eligible(doctype="Project Expenses"),
             eligible(status="Paid"),
             eligible(record="1", bank="500000"),
-            partial_eligibility("200001", "200000", PAYMENT, "Approved"),
+            partial_eligibility("200001", "200000", PAYMENT, SETTLEABLE),
             eligible(record="-5"),
         ):
             self.assertFalse(verdict.eligible)
@@ -167,7 +180,7 @@ class TestTheTdsHint(unittest.TestCase):
 
     def test_it_is_computed_from_the_verdict_the_gate_produced(self):
         """The 2% shape end to end: Rs 5,00,000 approved, Rs 4,90,000 moved."""
-        verdict = partial_eligibility("500000", "490000", PAYMENT, "Approved")
+        verdict = partial_eligibility("500000", "490000", PAYMENT, SETTLEABLE)
         self.assertTrue(verdict.eligible, "the shape permits a split")
         self.assertTrue(
             looks_like_tds(verdict.implied_pct),
@@ -178,7 +191,7 @@ class TestTheTdsHint(unittest.TestCase):
         """⚠️ THE LOAD-BEARING HALF. A TDS-shaped gap is still ELIGIBLE -- the reviewer may
         genuinely have made a 2% part payment. The hint asks them to look twice; wiring it to a
         refusal would convert a warning into a guess about money."""
-        verdict = partial_eligibility("500000", "490000", PAYMENT, "Approved")
+        verdict = partial_eligibility("500000", "490000", PAYMENT, SETTLEABLE)
         self.assertTrue(verdict.eligible)
         self.assertEqual(verdict.refusal, "")
 

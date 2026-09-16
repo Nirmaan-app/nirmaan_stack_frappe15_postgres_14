@@ -42,6 +42,7 @@ from nirmaan_stack.api.outflow_import.test_settle_payment import (
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_reference
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 from nirmaan_stack.services.outflow_import.settle import NON_PROJECT_EXPENSE
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MISMATCHED,
@@ -146,7 +147,7 @@ class RecordedMoneyFixture(PaymentSettlementFixture):
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), status)
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
         for doctype, name in approved:
-            self.assertEqual(frappe.db.get_value(doctype, name, "status"), "Approved")
+            self.assertEqual(frappe.db.get_value(doctype, name, "status"), SETTLEABLE)
 
     def _created_from(self, row):
         """Non Project Expenses carrying what a create from `row` would write as `payment_ref` --
@@ -165,7 +166,7 @@ class TestLinkRefusesRecordedMoney(RecordedMoneyFixture):
         row = self._line(source=CASHFREE, amount="5000")
         reference = frappe.db.get_value(ROW_DOCTYPE, row, "bank_reference_no")
         paid = self._non_project_expense(amount="5000", status="Paid", payment_ref=reference)
-        approved = self._non_project_expense(amount="5000", status="Approved")
+        approved = self._non_project_expense(amount="5000", status=SETTLEABLE)
 
         with self.assertRaises(MoneyAlreadyRecordedError) as caught:
             settle_row(row, NON_PROJECT_EXPENSE, approved)
@@ -179,7 +180,7 @@ class TestLinkRefusesRecordedMoney(RecordedMoneyFixture):
         row = self._line(source=CASHFREE, amount="5000")
         reference = frappe.db.get_value(ROW_DOCTYPE, row, "bank_reference_no")
         self._non_project_expense(amount="7000", status="Paid", payment_ref=reference)
-        approved = self._non_project_expense(amount="5000", status="Approved")
+        approved = self._non_project_expense(amount="5000", status=SETTLEABLE)
 
         with self.assertRaises(RecordedMoneyNeedsConfirmationError):
             settle_row(row, NON_PROJECT_EXPENSE, approved)
@@ -194,7 +195,7 @@ class TestLinkRefusesRecordedMoney(RecordedMoneyFixture):
         row = self._line(source=ICICI, amount="5000", narration=narration)
         utr = narration.split("/")[2]
         self._non_project_expense(amount="5000", status="Paid", payment_ref=f"{utr} ICICI")
-        approved = self._non_project_expense(amount="5000", status="Approved")
+        approved = self._non_project_expense(amount="5000", status=SETTLEABLE)
 
         with self.assertRaises(MoneyAlreadyRecordedError):
             settle_row(row, NON_PROJECT_EXPENSE, approved)
@@ -202,7 +203,7 @@ class TestLinkRefusesRecordedMoney(RecordedMoneyFixture):
 
     def test_a_clean_line_still_links(self):
         row = self._line(source=CASHFREE, amount="5000")
-        approved = self._non_project_expense(amount="5000", status="Approved")
+        approved = self._non_project_expense(amount="5000", status=SETTLEABLE)
 
         settle_row(row, NON_PROJECT_EXPENSE, approved)
 
@@ -249,7 +250,7 @@ class TestPartialSettleRefusesRecordedMoney(PartialSettlementFixture):
     def _assert_partial_untouched(self):
         frappe.db.commit()
         self.assertEqual(float(frappe.db.get_value(PAYMENT, self.big_payment, "amount")), self.RECORD)
-        self.assertEqual(frappe.db.get_value(PAYMENT, self.big_payment, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(PAYMENT, self.big_payment, "status"), SETTLEABLE)
         self.assertEqual(self._balance_of(self.big_payment), [])
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": self.partial_row.name}), 0)
 

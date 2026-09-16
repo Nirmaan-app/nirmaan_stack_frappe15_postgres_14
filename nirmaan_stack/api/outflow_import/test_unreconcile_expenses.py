@@ -31,6 +31,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE,
     WHAT_HAPPENS_REVERT_PROJECT_EXPENSE,
 )
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
 PROJECT_EXPENSE = "Project Expenses"
 NON_PROJECT_EXPENSE = "Non Project Expenses"
@@ -70,7 +71,7 @@ class ExpenseUnreconcileFixture(PaymentUnreconcileFixture):
                     else {"non_project": 1, "project": 0},
                     "name",
                 ),
-                "status": "Approved",
+                "status": SETTLEABLE,
                 "amount": str(amount) if doctype == PROJECT_EXPENSE else float(amount),
                 "description": "planted by test_unreconcile_expenses",
             }
@@ -78,7 +79,7 @@ class ExpenseUnreconcileFixture(PaymentUnreconcileFixture):
         if doctype == PROJECT_EXPENSE:
             doc.projects = self._allocation_project()
         doc.insert(ignore_permissions=True)
-        frappe.db.set_value(doctype, doc.name, "status", "Approved", update_modified=False)
+        frappe.db.set_value(doctype, doc.name, "status", SETTLEABLE, update_modified=False)
         self.expenses.append((doctype, doc.name))
         frappe.db.commit()
         return doc.name
@@ -100,7 +101,7 @@ class ExpenseUnreconcileFixture(PaymentUnreconcileFixture):
 
     def _assert_free(self, doctype, name):
         stored = self._stored(doctype, name)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertFalse(stored.payment_date)
         self.assertFalse(stored.payment_ref)
         if doctype == PROJECT_EXPENSE:
@@ -124,7 +125,7 @@ class TestAProjectExpense(ExpenseUnreconcileFixture):
         self.assertEqual(leg["what_happens"], WHAT_HAPPENS_REVERT_PROJECT_EXPENSE)
         self.assertEqual(
             WHAT_HAPPENS_REVERT_PROJECT_EXPENSE,
-            "Goes back to Approved. Payment date, reference and 'paid by' are cleared.",
+            "Goes back to Reconciliation Pending. Payment date, reference and 'paid by' are cleared.",
         )
 
     def test_it_goes_back_to_approved_the_line_opens_and_it_resettles_elsewhere(self):
@@ -221,7 +222,7 @@ class TestRefusals(ExpenseUnreconcileFixture):
     def test_an_expense_no_longer_paid_is_refused_as_changed_elsewhere(self):
         row, name = self._linked(NON_PROJECT_EXPENSE)
         # A raw write on purpose: it stands in for an edit made elsewhere, hooks and all skipped.
-        frappe.db.set_value(NON_PROJECT_EXPENSE, name, "status", "Approved", update_modified=False)
+        frappe.db.set_value(NON_PROJECT_EXPENSE, name, "status", SETTLEABLE, update_modified=False)
         frappe.db.commit()
         plan = get_unreconcile_plan(row=row)
         self.assertIn("not Paid", plan["legs"][0]["reason"])

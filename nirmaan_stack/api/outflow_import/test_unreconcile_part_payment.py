@@ -28,6 +28,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_UNSPLIT,
 )
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
 MATCH_DOCTYPE = "Outflow Row Match"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -104,7 +105,7 @@ class TestAnUntouchedLeftover(PartPaymentFixture):
 
         self.assertFalse(frappe.db.exists(PAYMENT, leftover), "the leftover is deleted")
         stored = self._payment(self.big_payment)
-        self.assertEqual(stored.status, "Approved")
+        self.assertEqual(stored.status, SETTLEABLE)
         self.assertEqual(float(stored.amount), self.RECORD)
         self.assertFalse(stored.utr)
         self.assertFalse(stored.payment_date)
@@ -113,7 +114,7 @@ class TestAnUntouchedLeftover(PartPaymentFixture):
         self.assertEqual(float(term.amount), self.PO_TOTAL, "one term summing to the PO total")
         self.assertEqual(term.project_payment, self.big_payment)
         self.assertEqual(term.label, "Advance Payment")
-        self.assertEqual(term.term_status, "Approved")
+        self.assertEqual(term.term_status, SETTLEABLE)
         self.assertEqual(
             float(frappe.db.get_value("Procurement Orders", self.split_po, "amount_paid") or 0), 0.0
         )
@@ -180,7 +181,7 @@ class TestALeftoverThatIsNotUntouched(PartPaymentFixture):
         # The sentence is an instruction, so following it must work: the balance's own transfer is
         # undoable, and then the split is.
         unreconcile_row(row=other, legs="all", reason="paid the wrong balance")
-        self.assertEqual(self._payment(leftover).status, "Approved")
+        self.assertEqual(self._payment(leftover).status, SETTLEABLE)
         unreconcile_row(row=row, legs="all", reason="wrong payment picked")
         self.assertFalse(frappe.db.exists(PAYMENT, leftover))
         self.assertEqual(float(self._payment(self.big_payment).amount), self.RECORD)

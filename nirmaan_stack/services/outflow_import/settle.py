@@ -116,6 +116,7 @@ from nirmaan_stack.services.outflow_import.amounts import (
     rewrite_amount,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
+    APPROVED,
     NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
     NON_PROJECT_INFLOW_DOCTYPE as NON_PROJECT_INFLOW,
     PAYMENT_DOCTYPE,
@@ -429,6 +430,30 @@ def _assert_type_scope(doctype: str, expense_type: str) -> None:
         )
 
 
+def _not_settleable_message(name: str, status: str) -> str:
+    """Why this record cannot be settled, in the reviewer's words. ONE sentence for BOTH gates.
+
+    ⚠️ `Approved` GETS ITS OWN ANSWER, AND THAT IS THE WHOLE POINT (#1289). Every other refused
+    status -- `Requested`, `CEO Pending`, `Rejected` -- means the record is not ready and there is
+    nothing the person holding the statement can do about it from here. `Approved` means the money
+    IS sanctioned and somebody simply has not said it went out yet: one press of **Mark as Done** on
+    the record makes this exact line settle. A bare "cannot be settled" on that status sends a
+    reviewer looking for a fault that does not exist, and the likeliest thing they do next is press
+    Create -- recording the money a second time, which is the defect this whole change closes.
+
+    ⚠️ THE TWO GATES SHARE IT RATHER THAN EACH SPELLING IT. The payment gate used to say
+    "not Approved" and the expense gate said nothing about status at all, so the same situation read
+    differently depending on which ledger a line happened to hit.
+    """
+    if status == APPROVED:
+        return (
+            f"{name} is still Approved, which means the money is sanctioned but nobody has said it "
+            "left the bank yet. Mark it as done on the record first, then settle this transfer "
+            "against it."
+        )
+    return f"{name} is '{status}' and cannot be settled from a bank statement."
+
+
 def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -> Decimal:
     """Re-read the target UNDER A ROW LOCK and re-assert everything the reviewer saw.
 
@@ -455,7 +480,7 @@ def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -
         )
     if status not in settleable_statuses(doctype):
         frappe.throw(
-            f"{name} is '{status}' and cannot be settled from a bank statement.",
+            _not_settleable_message(name, status),
             WrongStatusError,
             title="Not settleable",
         )
@@ -749,13 +774,14 @@ def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Deci
             title="Already settled",
         )
     if status not in settleable_statuses(PAYMENT_DOCTYPE):
-        # Requested and CEO Pending land here. There is deliberately NO approval link and no nudge
-        # -- nothing that cannot be settled is offered (owner ruling), and such a row should have
-        # arrived as `Unmatched` rather than reaching this function at all.
+        # Requested and CEO Pending land here with no nudge and no approval link -- nothing that
+        # cannot be settled is offered (owner ruling), and such a row should have arrived as
+        # `Unmatched` rather than reaching this function at all. `Approved` is the ONE exception,
+        # and it is the reason this message is shared with the expense gate -- see #1289 below.
         frappe.throw(
-            f"{name} is '{status}', not Approved, and cannot be settled from a bank statement.",
+            _not_settleable_message(name, status),
             WrongStatusError,
-            title="Not approved",
+            title="Not settleable",
         )
 
     amount = normalize_amount(current.get("amount"))

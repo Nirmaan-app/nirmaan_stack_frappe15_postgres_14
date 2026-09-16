@@ -16,6 +16,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     allocate_row,
 )
 from nirmaan_stack.api.outflow_import.test_settle_payment import PaymentSettlementFixture
+from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 from nirmaan_stack.services.outflow_import.settle import ExpenseSettlementError
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MATCHED,
@@ -213,7 +214,7 @@ class TestRefusals(AllocationFixture):
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
         for p in pays:
             self.assertEqual(
-                frappe.db.get_value("Project Payments", p, "status"), "Approved"
+                frappe.db.get_value("Project Payments", p, "status"), SETTLEABLE
             )
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_MATCHED)
 
@@ -226,7 +227,7 @@ class TestRefusals(AllocationFixture):
         with self.assertRaises(frappe.ValidationError):
             allocate_row(row=row, targets=self._targets([a, b]))
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
-        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), SETTLEABLE)
 
     def test_a_credit_row_is_refused(self):
         """⚠️ FIX 3 (review, Task 4). `assertRaises(Exception)` passes on a fixture failure, an
@@ -275,7 +276,7 @@ class TestAConcurrentLoser(AllocationFixture):
     def _assert_nothing_written(self, row, pays):
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
         for p in pays:
-            self.assertEqual(frappe.db.get_value("Project Payments", p, "status"), "Approved")
+            self.assertEqual(frappe.db.get_value("Project Payments", p, "status"), SETTLEABLE)
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_MATCHED)
 
     def test_the_loser_is_told_in_a_sentence_not_database_text(self):

@@ -317,7 +317,7 @@ export const splitCandidates = (
  * mode can do before they switch away from a row it would have handled.
  */
 export const SPLIT_PAYMENTS_ONLY_NOTE =
-    "Splitting a transfer works on approved Project Payments only, so expenses are not listed here. To settle an expense, switch back to Normal.";
+    "Splitting a transfer works on Reconciliation Pending Project Payments only, so expenses are not listed here. To settle an expense, switch back to Normal.";
 
 /**
  * The empty state.
@@ -327,10 +327,11 @@ export const SPLIT_PAYMENTS_ONLY_NOTE =
  * already stopped looking at.
  */
 export const SPLIT_NO_CANDIDATES_NOTE =
-    "There are no approved Project Payments to split this transfer across. If this transfer paid an expense, or one record settles it in full, switch back to Normal.";
+    "There are no Reconciliation Pending Project Payments to split this transfer across. If this transfer paid an expense, or one record settles it in full, switch back to Normal.";
 
 /** The Normal empty state -- the whole pool, all three ledgers, came back with nothing in it. */
-export const NORMAL_NO_CANDIDATES_NOTE = "There are no approved payments or expenses to link to.";
+export const NORMAL_NO_CANDIDATES_NOTE =
+    "There are no payments or expenses at Reconciliation Pending to link to. A record has to be marked as done before a bank line can settle it.";
 
 /**
  * The record search FAILED (issue #1248).
@@ -341,7 +342,7 @@ export const NORMAL_NO_CANDIDATES_NOTE = "There are no approved payments or expe
  * not be settled. The same sentence serves both modes: it is about the request, not the pool.
  */
 export const RECORD_POOL_FAILED_NOTE =
-    "The approved records could not be loaded, so this list is not showing what exists. Try again.";
+    "The records could not be loaded, so this list is not showing what exists. Try again.";
 
 export const RECORD_POOL_LOADING_NOTE = "Loading records…";
 

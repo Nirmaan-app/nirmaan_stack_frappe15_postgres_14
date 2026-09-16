@@ -72,7 +72,14 @@ from nirmaan_stack.api.outflow_import.review import (
     _refresh_batch_rollup,
     derive_batch_status,
 )
-from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, TARGET_SNAPSHOT_FIELDS
+from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
+    recompute_for_settled_payment,
+)
+from nirmaan_stack.services.outflow_import.ledgers import (
+    PAYMENT_DOCTYPE,
+    TARGET_SNAPSHOT_FIELDS,
+    settleable_statuses,
+)
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
@@ -131,9 +138,16 @@ from nirmaan_stack.services.outflow_import.allocation import (
     status_for_allocation,
 )
 
-# The one status a partial settlement reads or writes. Both halves are Approved: the money was
-# already sanctioned, and this import re-partitions a sanction rather than creating one.
-_APPROVED = "Approved"
+# The one status a partial settlement reads or writes. Both halves come out `Reconciliation Pending`:
+# the money was already sanctioned AND already marked as gone, and this import re-partitions that
+# rather than creating it. The kept half is written `Paid` a moment later by `settle_payment`; the
+# balance stays here, waiting for its own bank line.
+#
+# ⚠️ IT SAID `"Approved"` UNTIL #1289, AND IT IS READ FROM THE SHARED MAP NOW RATHER THAN SPELLED.
+# A spelled copy is how the split comes to expect a status the settle no longer produces: the anchor
+# moved in `ledgers.py` and this literal would have made `split_payment` throw
+# "This payment is 'Reconciliation Pending', not 'Approved'" on EVERY part settle.
+_SETTLEABLE_STATUS = settleable_statuses(PAYMENT_DOCTYPE)[0]
 
 
 # ⚠️ OWNER'S WORDING (issue #1246, 2026-09-11): "just put a message about some other user might
@@ -289,6 +303,7 @@ def _settle_and_commit(
             result = settle_payment(
                 staged, target_name, actor, statement_file_url=statement_file_url
             )
+            recompute_for_settled_payment(target_name)
         else:
             result = settle_existing_expense(
                 staged,
@@ -451,6 +466,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
                 expected_amount=amount,
             )
             results.append(result)
+            recompute_for_settled_payment(target["target_name"])
             _record_settlement(staged, doc, result, actor)
             legs = _live_legs(staged.name)
         # ⚠️ A BACKSTOP THAT THE ROW LOCK MAKES UNREACHABLE SINGLE-THREADED, AND IT STAYS (review
@@ -546,7 +562,10 @@ def _parse_targets(targets) -> list:
     if isinstance(targets, str):
         targets = frappe.parse_json(targets)
     if not targets:
-        frappe.throw("Select at least one approved payment to allocate.", title="Nothing selected")
+        frappe.throw(
+            "Select at least one Reconciliation Pending payment to allocate.",
+            title="Nothing selected",
+        )
     parsed, seen = [], set()
     for target in targets:
         doctype = (target.get("target_doctype") or "").strip()
@@ -732,10 +751,18 @@ def settle_row_partial(row: str, target_name: str, intent: str, confirm_mismatch
         split = split_payment(
             target_name,
             float(eligibility.keep),
-            # The payment is ALREADY Approved -- that is what makes it settleable at all -- and the
-            # balance stays Approved because the money stays sanctioned.
-            expect_status=_APPROVED,
-            remainder_status=_APPROVED,
+            # The payment is ALREADY `Reconciliation Pending` -- that is what makes it settleable at
+            # all -- and the balance is created there too, because it is money that was sanctioned,
+            # was marked as gone, and is now waiting for its OWN bank line.
+            expect_status=_SETTLEABLE_STATUS,
+            remainder_status=_SETTLEABLE_STATUS,
+            # ⚠️ PASSED EXPLICITLY, AND #1284 EXISTS FOR THIS ONE LINE. Its default is `Approved`,
+            # which is right for the CEO part-approval (that IS the approval) and wrong here in two
+            # ways: it moves the kept half BACKWARDS a step, and on a Work Order payment ANY save
+            # into `Approved` withholds TDS -- a second time, on money already taxed at its first
+            # approval. `settle_payment` writes `Paid` over this a moment later, so the status is
+            # momentary; the tax row it would have minted is not.
+            keep_status=_SETTLEABLE_STATUS,
             # ⚠️ FALSE, AND LOAD-BEARING. `ceo_approval_date` records when the CEO approved this
             # money; `ledgers.DECIDED_ON_SQL` reads exactly that column to decide which record a
             # later transfer was nearest to. Stamping today's date would overwrite an approval fact
@@ -745,6 +772,7 @@ def settle_row_partial(row: str, target_name: str, intent: str, confirm_mismatch
         result = settle_payment(
             staged, target_name, actor, statement_file_url=statement_file_url
         )
+        recompute_for_settled_payment(target_name)
         _record_settlement(staged, doc, result, actor)
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
         # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
@@ -854,10 +882,15 @@ def _assert_partially_settleable(target_name: str, bank_amount):
 # constraint here to preserve, and nothing should reintroduce one.
 _PARTIAL_REFUSALS = {
     REFUSAL_NOT_A_PAYMENT: (
-        "Only an approved payment can be settled in parts. An expense has no balance to carry."
+        "Only a payment can be settled in parts. An expense has no balance to carry."
     ),
+    # ⚠️ THE NAME STILL READS `NOT_APPROVED` AND THE SENTENCE NO LONGER DOES (#1289). The refusal
+    # constant is `partial_settle`'s pure vocabulary and renaming it would reach a pure module's
+    # public names for a copy change; the SENTENCE is what a reviewer reads, and it has to name the
+    # status the import actually settles from, plus the one press that gets a record there.
     REFUSAL_NOT_APPROVED: (
-        "This payment is not Approved, so nothing about it can be settled from a statement."
+        "This payment is not Reconciliation Pending, so nothing about it can be settled from a "
+        "statement. If it is still Approved, mark it as done on the record first."
     ),
     REFUSAL_NOT_SHORT: (
         "This transfer is not smaller than the record, so there is no balance to carry forward."
@@ -893,11 +926,12 @@ def _record_partial_provenance(staged, split: dict, declared_intent: str) -> Non
         (split["approved_payment"], (
             f"Partially settled from a bank statement: {kept} of {original} left the bank "
             f"({reference}). The reviewer recorded this as a PART PAYMENT, so the balance of "
-            f"{balance} was carried forward as {split['remainder_payment']} and stays approved."
+            f"{balance} was carried forward as {split['remainder_payment']} and waits for its own "
+            f"bank line."
         )),
         (split["remainder_payment"], (
             f"Balance of {balance} carried forward from {split['approved_payment']}, of which "
-            f"{kept} was settled by {reference}. Still approved and still owed."
+            f"{kept} was settled by {reference}. Still owed, and waiting for its own bank line."
         )),
     ):
         try:
@@ -1139,7 +1173,7 @@ def _guard_is_a_debit(doc) -> None:
     # "invalid direction" would leave a reviewer with a row they cannot dispose of and no idea that
     # the two credit dispositions exist one tab away.
     frappe.throw(
-        "Only a debit can settle an approved record or be recorded as an expense. This transfer "
+        "Only a debit can settle a record or be recorded as an expense. This transfer "
         "is a credit, so it brought money IN -- record it as a project inflow or as a "
         "non-project inflow instead.",
         ExpenseSettlementError,

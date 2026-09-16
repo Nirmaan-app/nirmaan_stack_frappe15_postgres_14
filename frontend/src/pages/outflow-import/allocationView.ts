@@ -165,8 +165,8 @@ export const SETTLE_MODE_LABEL: Record<SettleMode, string> = {
 };
 
 export const SETTLE_MODE_HINT: Record<SettleMode, string> = {
-    normal: "One approved record settles this whole transfer.",
-    split: "Allocate this transfer across several approved payments, over as many sittings as you need.",
+    normal: "One Reconciliation Pending record settles this whole transfer.",
+    split: "Allocate this transfer across several Reconciliation Pending payments, over as many sittings as you need.",
 };
 
 /**

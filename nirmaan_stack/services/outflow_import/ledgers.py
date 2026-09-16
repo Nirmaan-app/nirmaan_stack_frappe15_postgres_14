@@ -11,16 +11,26 @@ one rule is how one gets tightened and the other does not -- and here the failur
 screen refuses to offer a record the write path would happily have paid, or worse, the reverse.
 ADR-0010 B1/B2: a rule the business names gets ONE owner.
 
-THE RULE, and it is an owner ruling, not an implementation detail (Q3, 2026-08-06):
+THE RULE, and it is an owner ruling, not an implementation detail (Q3, 2026-08-06; MOVED at #1289):
 
-    APPROVED ONLY. All three ledgers. No exception.
+    RECONCILIATION PENDING ONLY. All three ledgers. No exception.
+
+⚠️ IT SAID `APPROVED ONLY` UNTIL #1289, AND THE NEW ANCHOR REPLACES THE OLD ONE RATHER THAN JOINING
+IT. The lifecycle gained a step (#1282): an Accountant presses **Mark as Done** when the money has
+actually gone out, which moves a record from `Approved` to `Reconciliation Pending`. `Approved` now
+means only "sanctioned" -- settling from it marks Paid money nobody has confirmed left the bank. The
+sharper failure was the other way round: a bank line for a record already marked done found NOTHING,
+sat unmatched, and a reviewer pressing Create recorded the same money a second time. Accepting BOTH
+statuses would have left that second hole open, which is why this is a move and not a widening.
+
+⚠️ THE `Paid`-ONLY GUARDS ARE UNTOUCHED BY THAT MOVE. A `Reconciliation Pending` record is the thing
+a line settles, never a duplicate finding; adding it to the duplicate or recorded-money guards would
+skip exactly the lines this anchor exists to settle.
 
 ⚠️ THE NON-PROJECT EXCEPTION IS GONE. v2 accepted `Requested` on `Non Project Expenses`, reasoning
-that the doctype has no separate approval step in practice so an Approved-only pool would be empty.
-The owner overruled it: the import PAYS what someone has already approved, and "the queue is empty"
-is not a reason to pay something nobody approved. An empty pool is the correct answer when nothing
-is approved -- 7 live `Requested` non-project expenses now stay out of reach of this import, and
-they are approved in the expense screen exactly as they always were.
+that the doctype has no separate approval step in practice so a narrow pool would be empty. The owner
+overruled it: the import PAYS what someone has already approved, and "the queue is empty" is not a
+reason to pay something nobody approved. An empty pool is the correct answer when nothing is waiting.
 
 ⚠️ NOTHING HERE FILTERS BY `Paid`. An already-Paid record is not a settle candidate at all; it is a
 DUPLICATE FINDING, loaded by a separate query (`candidates.load_paid_payments_by_reference`) and
@@ -46,6 +56,7 @@ __all__ = [
     "TARGET_SNAPSHOT_FIELDS",
     "PAID",
     "APPROVED",
+    "RECONCILIATION_PENDING",
     "DECIDED_ON_SQL",
     "SETTLED_LEDGER_SEPARATOR",
     "SETTLED_LEDGER_SQL",
@@ -61,6 +72,11 @@ NON_PROJECT_EXPENSE_DOCTYPE = "Non Project Expenses"
 
 APPROVED = "Approved"
 PAID = "Paid"
+
+# The step between the two, added to the payment and expense lifecycle by #1282: an Accountant
+# presses **Mark as Done** when the money has gone out, and the record waits here for its bank line.
+# THIS is what the import settles from, from #1289 on -- see `SETTLEABLE_STATUSES`.
+RECONCILIATION_PENDING = "Reconciliation Pending"
 
 # The two ledgers the import may CREATE a record in. A `Project Payment` is born from a PO or SR
 # request and the import must never mint one -- that is half the v3 spine, and the reason this
@@ -140,12 +156,19 @@ LEDGER_NOUNS: dict[str, tuple[str, str]] = {
     NON_PROJECT_INFLOW_DOCTYPE: ("Non Project Inflow", "Non Project Inflows"),
 }
 
-# THE single source of the Approved-only rule. Read by `candidates.py` (what may be offered) and by
-# `settle.py` (what may be written), so the two can never disagree about the same record.
+# THE single source of the settleable-status rule. Read by `candidates.py` (what may be offered) and
+# by `settle.py` (what may be written), so the two can never disagree about the same record.
+#
+# ⚠️ IT WAS `Approved` UNTIL #1289, AND THE NEW VALUE **REPLACES** IT RATHER THAN WIDENING IT. The
+# lifecycle now runs `Requested -> CEO Pending -> Approved -> Reconciliation Pending -> Paid`, and
+# `Approved` means sanctioned, not sent. Settling from it marked money Paid that nobody had confirmed
+# left the bank; worse, a record an Accountant HAD marked done matched nothing, sat unmatched, and a
+# reviewer pressing Create then recorded the same money twice. Both halves of that are closed by
+# moving the anchor one step, not by accepting both.
 SETTLEABLE_STATUSES: dict[str, tuple[str, ...]] = {
-    PAYMENT_DOCTYPE: (APPROVED,),
-    PROJECT_EXPENSE_DOCTYPE: (APPROVED,),
-    NON_PROJECT_EXPENSE_DOCTYPE: (APPROVED,),
+    PAYMENT_DOCTYPE: (RECONCILIATION_PENDING,),
+    PROJECT_EXPENSE_DOCTYPE: (RECONCILIATION_PENDING,),
+    NON_PROJECT_EXPENSE_DOCTYPE: (RECONCILIATION_PENDING,),
 }
 
 

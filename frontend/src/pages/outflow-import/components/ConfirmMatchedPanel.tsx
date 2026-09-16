@@ -344,7 +344,7 @@ export const ConfirmMatchedPanel = ({
                     <Description className="text-sm text-muted-foreground">
                         {outcomes
                             ? "Each row was settled on its own. A failure left the others untouched."
-                            : "Each transfer is recorded against the approved record the matcher picked. Nothing here approves anything."}
+                            : "Each transfer is recorded against the record the matcher picked. Nothing here approves anything."}
                     </Description>
                 </div>
 

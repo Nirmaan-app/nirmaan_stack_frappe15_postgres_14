@@ -58,7 +58,16 @@ from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.contains_guard import find_hits
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
-from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPE
+from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPE,
+    PAYMENT_DOCTYPE,
+    settleable_statuses,
+)
+
+#: The status this import settles a record FROM, read from the ONE map (#1289). It was the literal
+#: `"Approved"` in 21 places in this file; the lifecycle gained a Mark-as-Done step, and a fixture
+#: left at the old status quietly turns every settle test into a refusal test.
+SETTLEABLE = settleable_statuses(PAYMENT_DOCTYPE)[0]
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.sources import (
@@ -182,7 +191,7 @@ class OutflowReviewFixture(unittest.TestCase):
 
     @classmethod
     def _insert_project_expense(
-        cls, *, amount, status="Approved", vendor=None, project=None, expense_type=None,
+        cls, *, amount, status=SETTLEABLE, vendor=None, project=None, expense_type=None,
         payment_ref=None, payment_date=None,
     ):
         """A `Project Expenses` ROW, inserted raw for the same reasons as a payment.
@@ -258,7 +267,7 @@ class OutflowReviewFixture(unittest.TestCase):
         thing while still passing something.
         """
         # 0001 -- APPROVED, exact amount: the clean settle candidate. -> Matched
-        cls.pay_clean = cls._make_payment(cls._row("0001"), status="Approved")
+        cls.pay_clean = cls._make_payment(cls._row("0001"), status=SETTLEABLE)
         # 0003 -- PAID, exact amount: somebody ticked it by hand before this upload. Owner ruling
         # Q14, and the reason it exists: without this the row reads Mismatched and the obvious next
         # click books the same money twice. -> Skipped
@@ -266,8 +275,8 @@ class OutflowReviewFixture(unittest.TestCase):
         # 0004 + 0005 -- a FAN-OUT of APPROVED payments: one bank reference, two payments whose
         # total equals the row. -> Matched, as one group
         fan = cls._row("0004")
-        cls.pay_fan_a = cls._make_payment(fan, amount=float(fan.amount) / 2, status="Approved")
-        cls.pay_fan_b = cls._make_payment(fan, amount=float(fan.amount) / 2, status="Approved")
+        cls.pay_fan_a = cls._make_payment(fan, amount=float(fan.amount) / 2, status=SETTLEABLE)
+        cls.pay_fan_b = cls._make_payment(fan, amount=float(fan.amount) / 2, status=SETTLEABLE)
         # 0006 -- CEO PENDING. The reversal: v2 called this a `Control exception` and nudged
         # somebody to approve it. v3 offers nothing that cannot be settled, so the payment is not
         # in the pool at all. -> Mismatched
@@ -278,9 +287,23 @@ class OutflowReviewFixture(unittest.TestCase):
         cls.pay_short = cls._make_payment(
             seven, amount=float(seven.amount) + 100, status="Paid"
         )
-        # 0008 -- REQUESTED. Proves the narrowing is not CEO-Pending-specific: nothing below
-        # Approved is settleable, on any ledger (owner ruling Q3). -> Mismatched
+        # 0008 -- REQUESTED. Proves the narrowing is not CEO-Pending-specific: nothing short of the
+        # settleable status settles, on any ledger (owner ruling Q3). -> Mismatched
         cls.pay_requested = cls._make_payment(cls._row("0008"), status="Requested")
+        # An APPROVED payment on the SAME amount as the clean candidate, planted at #1289 so the
+        # negative is a real one. `Approved` used to BE the settleable status; it now means the money
+        # is sanctioned and nobody has said it left the bank. It must never be matched or offered --
+        # and without a row carrying it, every "an Approved record stays out" assertion in this file
+        # would pass on an empty set.
+        #
+        # ⚠️ ITS OWN AMOUNT AND A BLANK REFERENCE, DELIBERATELY. `_make_payment` falls back to the
+        # ROW's bank reference when `utr` is None, and a second payment carrying a planted row's
+        # reference is a decoy for the reference tier and the claim guard both -- it perturbed four
+        # unrelated tests before this was pinned down. The picker returns the WHOLE settleable pool,
+        # so an amount nothing else uses still proves the exclusion.
+        cls.pay_sanctioned_only = cls._insert_payment_row(
+            amount=987654.21, status="Approved", utr="", payment_date=None
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -349,7 +372,7 @@ class TestMatchBatch(OutflowReviewFixture):
     def test_fan_out_matches_as_one_group(self):
         row = self._rows_by_transfer_suffix()["0004"]
         self.assertEqual(row["row_status"], "Matched")
-        self.assertIn("2 approved payments", row["outcome_note"])
+        self.assertIn("2 Reconciliation Pending payments", row["outcome_note"])
         self.assertIn(self.pay_fan_a, row["outcome_note"])
         self.assertIn(self.pay_fan_b, row["outcome_note"])
 
@@ -465,10 +488,10 @@ class TestMatchBatch(OutflowReviewFixture):
         confirmation; nothing settles itself, ever").
         """
         planted = {
-            self.pay_clean: "Approved",
+            self.pay_clean: SETTLEABLE,
             self.pay_already: "Paid",
-            self.pay_fan_a: "Approved",
-            self.pay_fan_b: "Approved",
+            self.pay_fan_a: SETTLEABLE,
+            self.pay_fan_b: SETTLEABLE,
             self.pay_unapproved: "CEO Pending",
             self.pay_short: "Paid",
             self.pay_requested: "Requested",
@@ -511,10 +534,12 @@ class TestACashfreeRowAlreadyPaidOnAnExpenseIsSkipped(OutflowReviewFixture):
             payment_date=three.added_on.date(),
         )
         six = cls._row("0006")
-        # 0006 -- APPROVED Project Expense carrying the same reference. Approved is still WAITING to
-        # be paid, so it is never "already recorded". -> not Skipped
+        # 0006 -- Project Expense at the SETTLEABLE status, carrying the same reference. It is still
+        # WAITING for its bank line, so it is never "already recorded" -- the duplicate guard stays
+        # `Paid`-only (#1289), which is exactly what lets this line settle rather than be skipped.
+        # -> not Skipped
         cls.exp_approved = cls._insert_project_expense(
-            amount=six.amount, status="Approved", payment_ref=six.bank_reference_no,
+            amount=six.amount, status=SETTLEABLE, payment_ref=six.bank_reference_no,
             payment_date=six.added_on.date(),
         )
         seven = cls._row("0007")
@@ -630,7 +655,7 @@ class TestACashfreeRowAlreadyPaidOnAnExpenseIsSkipped(OutflowReviewFixture):
     def test_the_run_writes_nothing_to_any_planted_expense(self):
         for doctype, name, status in (
             ("Project Expenses", self.exp_paid, "Paid"),
-            ("Project Expenses", self.exp_approved, "Approved"),
+            ("Project Expenses", self.exp_approved, SETTLEABLE),
             ("Non Project Expenses", self.npe_paid, "Paid"),
         ):
             self.assertEqual(frappe.db.get_value(doctype, name, "status"), status, name)
@@ -659,7 +684,7 @@ class TestSuggestionIsPersisted(OutflowReviewFixture):
         # 0009 has no planted target in the base fixture -- it is the "nothing to match" row -- so
         # planting here gives this class a row whose entire candidate set is one payment.
         cls.solo_row = cls._row("0009")
-        cls.pay_solo = cls._make_payment(cls.solo_row, status="Approved")
+        cls.pay_solo = cls._make_payment(cls.solo_row, status=SETTLEABLE)
         frappe.db.commit()
         match_batch(cls.batch.name)
 
@@ -835,7 +860,7 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         # It is unsettleable against the whole transfer and settleable against a comparison amount
         # of its own value, which is exactly the record a partly-allocated row needs to find.
         cls.pay_remainder = cls._insert_payment_row(
-            amount=cls.REMAINDER_AMOUNT, status="Approved", utr=None, payment_date=None
+            amount=cls.REMAINDER_AMOUNT, status=SETTLEABLE, utr=None, payment_date=None
         )
         frappe.db.commit()
 
@@ -912,12 +937,18 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         with self.assertRaises(frappe.ValidationError):
             search_settleable_records(self._row_name(), "Procurement Orders")
 
-    def test_nothing_below_approved_is_ever_offered(self):
+    def test_nothing_outside_the_settleable_status_is_ever_offered(self):
         """Browsing is not a way around the ladder (owner ruling Q3). `pay_requested` and
-        `pay_unapproved` are planted precisely to be absent from this list."""
+        `pay_unapproved` are planted precisely to be absent from this list.
+
+        ⚠️ AN `Approved` PAYMENT JOINED THEM AT #1289 -- an INVERSION of what this test was named
+        for. `Approved` now means sanctioned-but-not-sent, so offering one in the picker would let a
+        reviewer link a bank line to money nobody has confirmed went out.
+        """
         names = {r["name"] for r in search_settleable_records(self._row_name(), "", limit=200)}
         self.assertNotIn(self.pay_requested, names)
         self.assertNotIn(self.pay_unapproved, names)
+        self.assertNotIn(self.pay_sanctioned_only, names)
 
     def test_the_merged_list_respects_the_limit(self):
         records = search_settleable_records(self._row_name(), "", limit=2)
@@ -925,7 +956,7 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
 
     # --- slice N1: the whole pool, ranked -------------------------------------------------------
 
-    def test_the_default_now_returns_every_approved_payment_not_a_page_of_fifty(self):
+    def test_the_default_now_returns_every_settleable_payment_not_a_page_of_fifty(self):
         """⚠️ THE DEFECT THIS FIXES, AND IT WAS NOT MERELY A SHORT LIST.
 
         The old default asked each ledger for 50 rows ORDERED BY AMOUNT CLOSENESS. A record whose
@@ -939,7 +970,10 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         }
         approved = set(
             frappe.get_all(
-                "Project Payments", filters={"status": "Approved"}, pluck="name", limit_page_length=0
+                "Project Payments",
+                filters={"status": SETTLEABLE},
+                pluck="name",
+                limit_page_length=0,
             )
         )
         self.assertEqual(offered, approved)
@@ -1476,11 +1510,11 @@ class TestTheCandidatesTheMatcherCouldNotSeparate(OutflowReviewFixture):
             update_modified=False,
         )
         cls.pay_low = cls._insert_payment_row(
-            amount=cls.NEAR_LOW, status="Approved", utr="PO/AMB/00001/25-26",
+            amount=cls.NEAR_LOW, status=SETTLEABLE, utr="PO/AMB/00001/25-26",
             payment_date=None, project=cls.amb_project,
         )
         cls.pay_high = cls._insert_payment_row(
-            amount=cls.NEAR_HIGH, status="Approved", utr="PO/AMB/00002/25-26",
+            amount=cls.NEAR_HIGH, status=SETTLEABLE, utr="PO/AMB/00002/25-26",
             payment_date=None, project=cls.amb_project,
         )
         frappe.db.commit()
@@ -2767,7 +2801,7 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
              cls.tier1_row.bank_account, cls.tier1_row.ifsc),
         )
         cls.pay_tier1 = cls._insert_payment_row(
-            amount=cls.tier1_row.amount, status="Approved",
+            amount=cls.tier1_row.amount, status=SETTLEABLE,
             utr="PO/077/00066/25-26", payment_date=None, project=cls.test_project,
         )
         frappe.db.set_value(
@@ -2778,7 +2812,7 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         # its remark is the only thing that can match it.
         cls.tier2_row = cls._row("0009")
         cls.pay_tier2 = cls._insert_payment_row(
-            amount=cls.tier2_row.amount, status="Approved",
+            amount=cls.tier2_row.amount, status=SETTLEABLE,
             utr="refund", payment_date=None, project=cls.test_project,
         )
         frappe.db.set_value(
@@ -2794,7 +2828,7 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         # company runs). Row 0006's own planted payment is CEO Pending and so is not in any pool.
         cls.control_row = cls._row("0006")
         cls.pay_control = cls._insert_payment_row(
-            amount=cls.control_row.amount, status="Approved",
+            amount=cls.control_row.amount, status=SETTLEABLE,
             utr="refund", payment_date=None, project=cls.test_project,
         )
 
@@ -2952,7 +2986,7 @@ class TestStackAutoPairing(OutflowReviewFixture):
     def _stack_payment(cls, amount) -> str:
         """An approved payment to the stack's vendor. Junk UTR, so tier 0 cannot reach it."""
         name = cls._insert_payment_row(
-            amount=amount, status="Approved", utr="PO/STACK/00001/25-26",
+            amount=amount, status=SETTLEABLE, utr="PO/STACK/00001/25-26",
             payment_date=None, project=cls.project,
         )
         frappe.db.set_value(
@@ -3272,7 +3306,7 @@ class TestARecordIsClaimedOnce(OutflowReviewFixture):
             cls._claim_row("0004", "70000000002", "2026-01-03 09:00:00"),
         ]
         cls.payment = cls._insert_payment_row(
-            amount=cls.AMOUNT, status="Approved", utr="PO/CLAIM/00001/25-26",
+            amount=cls.AMOUNT, status=SETTLEABLE, utr="PO/CLAIM/00001/25-26",
             payment_date=None, project=cls.claim_project,
         )
         frappe.db.commit()
@@ -3340,7 +3374,7 @@ class TestARecordIsClaimedOnce(OutflowReviewFixture):
         self.assertEqual(self._suggested(self.rows[1]).row_status, "Matched")
 
     def test_the_loser_note_names_the_record_so_the_reviewer_can_go_and_look(self):
-        """⚠️ THE OLD NOTE WOULD BE WORSE THAN THE OLD SUGGESTION. It said "One approved record at
+        """⚠️ THE OLD NOTE WOULD BE WORSE THAN THE OLD SUGGESTION. It said "One Reconciliation Pending record at
         this amount", of a row that now shows nothing at all."""
         note = self._suggested(self.rows[1]).outcome_note or ""
         self.assertIn(self.payment, note)
@@ -3361,7 +3395,7 @@ class TestARecordIsClaimedOnce(OutflowReviewFixture):
     def test_no_payment_was_written_to(self):
         """The claim rule touches import rows only. It must never reach a ledger."""
         self.assertEqual(
-            frappe.db.get_value("Project Payments", self.payment, "status"), "Approved"
+            frappe.db.get_value("Project Payments", self.payment, "status"), SETTLEABLE
         )
 
 
@@ -4626,7 +4660,7 @@ class BankStatementFixture(OutflowReviewFixture):
         # with a pre-selected suggestion (`TestMatchBatch`). Here it must produce nothing.
         cls.bank_perfect = cls._insert_payment_row(
             amount=float(perfect.amount),
-            status="Approved",
+            status=SETTLEABLE,
             utr=perfect.bank_reference_no,
             payment_date=perfect.added_on.date() if perfect.added_on else None,
         )
@@ -4929,7 +4963,7 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         self.assertEqual({r["row_status"] for r in untouched}, {ROW_MISMATCHED})
 
     def test_the_note_says_CREATE_a_record_rather_than_claiming_nothing_matched(self):
-        """⚠️ "No approved payment or expense matches this transfer" would be a finding about a
+        """⚠️ "No Reconciliation Pending payment or expense matches this transfer" would be a finding about a
         search that never ran, and it sends a reviewer hunting for a record that does not exist."""
         note = self._bank_rows()[_BANK_PLAIN]["outcome_note"]
         self.assertEqual(note, STAGED_NOTE_NO_SETTLEMENT_PATH)

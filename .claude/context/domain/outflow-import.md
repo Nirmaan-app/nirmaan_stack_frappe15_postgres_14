@@ -5462,3 +5462,120 @@ a scoped test recomputes the whole site.
   endpoint**, faking only the multipart transport with a genuine `werkzeug` `FileStorage`. The payload
   keys are built inline in the endpoint, so a test one layer down would prove the parser returned the
   figure and never that it ARRIVES — the standing cross-seam rule.
+
+---
+
+## #1289 (2026-09-16) — the import settles at *Reconciliation Pending*, including part payments
+
+**The anchor moved one step, and it MOVED rather than widened.** `ledgers.SETTLEABLE_STATUSES` was
+`Approved` on all three ledgers since V1; it is now `Reconciliation Pending`. The payment and expense
+lifecycle gained that step at #1282: an Accountant presses **Mark as Done** when the money has
+actually gone out, and only then is the record waiting for its bank line.
+
+**Two defects, and the second is why accepting BOTH statuses was not an option.** Settling from
+`Approved` marks Paid money nobody has confirmed left the bank. The sharper one is the other way
+round: a bank line for a record already marked done found NOTHING, sat unmatched, and a reviewer
+pressing Create recorded the same money a second time. Keeping `Approved` in the map would have left
+that hole open.
+
+**One map, and it reaches everything.** `candidates.py`'s three pools, both lock-and-assert gates in
+`settle.py`, `partial_settle.partial_eligibility`, `ledger_read` (so the inbox follows), and
+`review`'s record search all read `settleable_statuses`. Three modules kept a PRIVATE
+`_APPROVED = "Approved"` beside it and each is now derived from the map:
+`api…expenses._SETTLEABLE_STATUS`, `services…unsplit._LEFTOVER_UNTOUCHED_STATUSES` and
+`api…unreconcile_split._SETTLEABLE_STATUS`. ⚠️ **Those copies did not DISAGREE until the day the map
+changed** — a value comparison could never have caught them, which is why
+`test_ledgers.test_no_write_path_spells_the_settleable_status_for_itself` is a SOURCE-level scan of
+all four write-path modules. The old one-copy test hunted for the single v2 literal pair and went
+blunt the moment the value moved.
+
+**The `Paid`-only guards are UNTOUCHED.** A `Reconciliation Pending` record is the thing a line
+settles, never a duplicate finding; adding it to the duplicate or recorded-money guards would skip
+exactly the lines this change exists to settle.
+
+**An `Approved` record is refused BY NAME.** `settle._not_settleable_message` is one sentence shared
+by the payment and the expense gate (the payment gate used to say "not Approved"; the expense gate
+said nothing about status at all, so one situation read two ways). Every other refused status is a
+dead end for the person holding the statement; `Approved` is one press away from working, so it says
+so — *"still Approved … Mark it as done on the record first"*. Without that, the likeliest next act
+is Create, which is the double-recording this whole change closes.
+
+### Part payments
+
+`expenses.settle_row_partial` now passes all three statuses explicitly — `expect_status`,
+`remainder_status` and, for the first time, **`keep_status`** (the parameter #1284 added). ⚠️ **The
+default `keep_status="Approved"` is right for the CEO part-approval and wrong here in two ways**: it
+moves the kept half BACKWARDS a step, and on a Work Order payment any save into `Approved` withholds
+TDS a second time on money already taxed at its first approval. `settle_payment` writes `Paid` over
+it a moment later, so the status is momentary; the tax row it would have minted is not.
+
+The leftover is created at `Reconciliation Pending` and the PO's balance term mirrors it (one
+parameter drives payment and term, by `payment_split`'s own design). `unreconcile_split` passes
+`expect_leftover_status` to match — the default would have refused to undo every split the import had
+just made, while `unsplit.leftover_refusal`, reading the same map, said the leftover was fine.
+
+### Vendor credit
+
+`controllers/project_payments.on_update` recalculates vendor credit on exactly one transition,
+`Approved -> Paid`, and neither of this feature's writes is that transition any more. The controller's
+branch is **deliberately left alone** — widening it would change behaviour for every screen that
+fulfils a payment by hand, on a ticket about a bank import. Instead `api/outflow_import/
+vendor_credit_refresh.py` owns the repair for both directions: `recompute_for_settled_payment` at each
+of the three `settle_payment` call sites, and `recompute_vendor_credit` for the unreconcile clean-up
+that already needed it (#1276). A Service Request payment has no PO and reads as a quiet no-op.
+
+### Unreconcile came with it (owner ruling, mid-slice)
+
+#1289 filed Unreconcile's target as a separate ticket, and that could not stand: a reverted record
+landed at `Approved` while a settle needed `Reconciliation Pending`, so **unreconciling a line made it
+unsettleable until somebody pressed Mark as Done again** — caught by two existing `test_confirm_by_hand`
+tests. `unreconcile._REVERT_STATUS` now reads the same map. The two statuses are a pair: a revert goes
+back to wherever a settle comes from, and sharing the map keeps that true through the next move too.
+All three `WHAT_HAPPENS_REVERT_*` sentences changed with it.
+
+### The frontend
+
+Copy: the record picker's four notes, both settle-mode hints, the decision dialog's labels and
+counts, the wizard's no-match sentences, the inbox's headline / button / empty state, and the export
+stem (`outflow-approved-not-yet-paid` → `outflow-awaiting-bank-line`).
+
+**A suggested PAYMENT now deep-links to the Reconciliation Pending tab** (`paymentHref`), which is the
+tab that actually holds it; it went to "All Payments" only because the settleable status had no tab.
+
+⚠️ **AN EXPENSE GETS NO LINK AT ALL** (owner ruling, parked). Every destination died with the status:
+the `Approved` tab can no longer contain a settleable expense, neither expense list has a
+*Reconciliation Pending* tab, and the screen that does lists Project Payments only. A link landing on
+an empty table reads as "the record is gone", which is worse than no link — so `settlementLink`
+returns `null` for both expense ledgers, settled or suggested, until the destination is decided. The
+pins are INVERTED rather than deleted, so restoring a link turns them red.
+
+### Tests
+
+| Suite | Result |
+|---|---|
+| `services/outflow_import` (pure) | 399 OK across status/matcher/disambiguate/stacks/unreconcile; `test_ledgers` **12 OK**, `test_partial_settle` 20 OK |
+| `api…test_settle_payment` | **64 OK** (was 63) |
+| `api…test_review` | **324 OK / 2 skip** |
+| `api…test_expenses` · `test_approved` | 50 OK · 29 OK |
+| every `test_unreconcile_*`, `test_allocate_row`, `test_match_line`, `test_recorded_money_guard`, `test_confirm_by_hand`, `test_reverse_allocation` | OK |
+| `api…test_payment_split` · `test_taxed_work_order_fixture` · `services…test_payment_tds` | 41 · 7 · 39 OK — unchanged |
+| frontend vitest | **3,882 OK / 104 files** |
+
+**Every pin was INVERTED, never deleted** — `test_ledgers.test_approved_is_settleable_from_nowhere_any_more`,
+`test_partial_settle`'s gate (now refusing `Approved`), `test_settle_payment`'s partial-refusal list and
+its new `test_an_approved_payment_is_refused_and_told_to_be_marked_done_first`, `test_review`'s
+picker exclusion (with a new `pay_sanctioned_only` fixture, since without a row carrying `Approved`
+the assertion passed on an empty set), and the frontend's expense-link and copy pins.
+
+**Two pre-existing fixture defects were fixed on the way, because AC #4 could not pass over them.**
+`PaymentSettlementFixture` takes `frappe.db.get_value("Projects", {}, "name")` — an ARBITRARY live
+project, `Tendering` on 114 of 218 — and the part-settle's balance is the one payment inserted through
+the DOCUMENT layer, so it met `validate_won` and the whole partial class errored or passed on the row
+order of a table nobody controls (8 errors on the unchanged baseline). It now reuses the throwaway
+`Won` project the allocation helpers already mint. And `test_approved` read the live ledgers for its
+payment and union assertions, which is empty at the new status until Accountants start pressing Mark
+as Done; it plants a payment of its own.
+
+`TaxedWorkOrderFixture.mark_as_done` is the new step the tax suites needed — through `doc.save()`, not
+`set_value`, so the transition itself is part of what those tests prove: the money is taxed once, at
+the CEO's approval, and nothing downstream withholds again.

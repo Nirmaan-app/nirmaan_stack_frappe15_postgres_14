@@ -10,6 +10,8 @@ Each figure is RECOMPUTED FROM SOURCE, never rolled back from memory (root `CLAU
 here because the payment's own hooks do not get it right on a `Paid -> Approved` save:
 
   * VENDOR CREDIT -- `controllers/project_payments.on_update` recalculates only on `Approved -> Paid`.
+    The shared helper lives in `vendor_credit_refresh.py` from #1289, because the SETTLE side needs
+    the same repair now that it writes `Reconciliation Pending -> Paid`, which that branch misses too.
   * CEO HOLD -- `project_cashflow_hold_update.trigger_check` claims a per-request, per-project flag,
     so the SECOND payment of one project in a Reverse all is never evaluated: the gap it leaves
     counts every payment but the first.
@@ -31,7 +33,7 @@ count.
 
 import frappe
 
-from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.api.outflow_import.vendor_credit_refresh import recompute_vendor_credit
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import (
     sync_cashflow_reason,
 )
@@ -71,7 +73,9 @@ def restore_derived_state(carried, statement_file_url: str | None) -> None:
         )
         for doctype, name in parents:
             recompute_latest_payment_date(doctype, name)
-        _recompute_vendor_credit([name for doctype, name in parents if doctype == PO_DOCTYPE])
+        recompute_vendor_credit(
+            [name for doctype, name in parents if doctype == PO_DOCTYPE], LEDGER_ENTRY_TYPE
+        )
         projects |= {p.project for p in payments if p.project}
 
     expense_names = sorted(by_doctype.get(PROJECT_EXPENSE_DOCTYPE, ()))
@@ -109,26 +113,6 @@ def delete_statement_file_links(doctype: str, names, statement_file_url: str | N
             "attached_to_name": ["in", list(names)],
         },
     )
-
-
-def _recompute_vendor_credit(po_names) -> None:
-    """One full recompute per vendor -- `recalculate_vendor_credit` sums every PO of the vendor, so a
-    second call for the same vendor would only add a zero ledger entry. The entry names every PO."""
-    by_vendor = {}
-    for po in sorted(set(po_names)):
-        values = frappe.db.get_value(PO_DOCTYPE, po, ["vendor", "project"], as_dict=True)
-        if values and values.vendor:
-            by_vendor.setdefault(values.vendor, []).append((po, values.project))
-    for vendor, pos in sorted(by_vendor.items()):
-        po_ids = ", ".join(po for po, _ in pos)
-        projects = {project for _, project in pos}
-        recalculate_vendor_credit(
-            vendor,
-            LEDGER_ENTRY_TYPE,
-            po_id=po_ids,
-            project=projects.pop() if len(projects) == 1 else None,
-            description=f"{LEDGER_ENTRY_TYPE} for {po_ids}",
-        )
 
 
 def _resync_cashflow_hold(project: str) -> None:

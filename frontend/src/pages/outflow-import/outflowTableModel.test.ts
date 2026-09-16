@@ -2115,79 +2115,63 @@ describe("links to the record a row settles — the app's own route (slice E3)",
         // are the same answer: there is no order to open.
         for (const missing of [undefined, null, "", "   "]) {
             const link = settlementLink("Project Payments", "PAY-1", false, missing)!;
-            expect(link.href).toContain("tab=All+Payments");
+            expect(link.href).toContain("tab=Reconciliation+Pending");
         }
     });
 
     it("never routes an EXPENSE to the payments route, whatever it is handed", () => {
         // `document_name` holds the expense TYPE on both expense ledgers, so an order id passed
         // here would be a category name, not a document.
-        // ⚠️ `toMatch(/^…/)`, NOT `toBe`. The href now carries a status-tab query param, and the
-        // claim under test is the ROUTE — that an expense never reaches the payments route — not the
-        // exact string. Pinning the whole href here would make this test fail for a reason it is not
-        // about, the next time the tab rule changes.
-        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toMatch(
-            /^\/expense\/project(\?|$)/
-        );
-        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toMatch(
-            /^\/expense\/non-project(\?|$)/
-        );
+        // ⚠️ THE CLAIM SURVIVED #1289 AND ITS EVIDENCE CHANGED. It used to assert the href started
+        // with the expense route; there is no href now (see the "no link at all" block above), and
+        // `null` reaches the payments route even less than a wrong route would. What must never
+        // happen is an ORDER NAME turning an expense into a payments link, and that is what is
+        // asserted: handed an order, an expense still yields nothing.
+        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")).toBeNull();
+        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")).toBeNull();
     });
 });
 
-describe("⚠️ an expense link lands on the tab the record is actually IN", () => {
-    // Both lists read a namespaced status param on mount and subscribe to it — `pe_status` in
-    // `ProjectExpensesList`, `npe_status` in `NonProjectExpensesPage` — each documented there as
-    // supporting an external deep link.
-    it("sends a SETTLED expense to Paid, on both ledgers", () => {
-        // ⚠️ THE DEFECT THIS FIXES. Without the param the link landed on each page's DEFAULT tab,
-        // which is role-based and never `Paid`: `Requested` for most users, `Approved` for an
-        // Accountant. A settled expense is `Paid` by definition — this import just wrote it — so the
-        // reviewer was sent to a tab that provably could not contain it, with nothing on screen
-        // explaining the empty table.
-        expect(settlementLink("Project Expenses", "PE-1", true)!.href).toBe(
-            "/expense/project?pe_status=Paid",
-        );
-        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toBe(
-            "/expense/non-project?npe_status=Paid",
-        );
+describe("⚠️ an expense gets NO link at all (#1289) — INVERTED, not deleted", () => {
+    // ⚠️ THIS BLOCK USED TO PIN THE OPPOSITE: a settled expense to `Paid`, a suggested one to
+    // `Approved`. Both destinations died with the settleable status.
+    //
+    // A SUGGESTED expense is no longer `Approved` — a record only becomes settleable once somebody
+    // has marked it done, which puts it at `Reconciliation Pending`. Neither expense list has a tab
+    // for that status (theirs are Requested / Approved / Paid / All), and the one screen that does
+    // have such a tab lists Project Payments only. Every destination this branch could offer is now
+    // a list that cannot contain the record it names, and a link landing on an empty table reads as
+    // "the record is gone" — worse than no link at all.
+    //
+    // The owner has PARKED where these should point and asked for the link to be blocked for
+    // anything other than a Project Payment meanwhile. These assertions are kept, saying the
+    // opposite of what they said, so restoring a link is a deliberate act that turns them red
+    // rather than something that quietly slips back in.
+    it("returns no link for either expense ledger, settled or merely suggested", () => {
+        for (const settled of [true, false]) {
+            expect(settlementLink("Project Expenses", "PE-1", settled)).toBeNull();
+            expect(settlementLink("Non Project Expenses", "NPE-1", settled)).toBeNull();
+        }
     });
 
-    it("⚠️ sends a SUGGESTED expense to Approved, NOT to Paid", () => {
-        // A suggestion has settled nothing and its expense is still `Approved` —
-        // `SETTLEABLE_STATUSES` is Approved-only. Hardcoding `Paid` would reproduce the very defect
-        // above pointing the other way, which is the shape the payment branch already records
-        // finding live.
-        expect(settlementLink("Project Expenses", "PE-1", false)!.href).toBe(
-            "/expense/project?pe_status=Approved",
-        );
-        expect(settlementLink("Non Project Expenses", "NPE-1", false)!.href).toBe(
-            "/expense/non-project?npe_status=Approved",
-        );
+    it("⚠️ offers no `pe_status` / `npe_status` destination any more", () => {
+        // The param keys were a CONTRACT WITH ANOTHER MODULE while the link existed. Nothing here
+        // may reach for them now: a link built on the `Approved` tab is exactly the stranded-on-an-
+        // empty-table failure this whole block was originally written to prevent, pointing the
+        // other way.
+        for (const settled of [true, false]) {
+            expect(settlementLink("Project Expenses", "PE-1", settled)).toBeNull();
+            expect(settlementLink("Non Project Expenses", "NPE-1", settled)).toBeNull();
+        }
     });
 
-    it("⚠️ stays `exact: false` — a tab is not a record", () => {
-        // `exact` means "this lands on the record", and it still does not: neither table has the id
-        // in its searchable fields and there is no `/expense/:id` route, so the reviewer arrives at
-        // a filtered LIST. Narrowing the tab must not be mistaken for pinpointing the row.
-        expect(settlementLink("Project Expenses", "PE-1", true)!.exact).toBe(false);
-        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.exact).toBe(false);
-    });
-
-    it("names the tab in the title, so the destination is stated before the click", () => {
-        expect(settlementLink("Project Expenses", "PE-1", true)!.title).toContain("→ Paid");
-        expect(settlementLink("Non Project Expenses", "NPE-1", false)!.title).toContain(
-            "→ Approved",
-        );
-    });
-
-    it("⚠️ the param keys are the ones those pages actually read", () => {
-        // Spelled out as literals because they are a CONTRACT WITH ANOTHER MODULE, not a local
-        // choice: `pe_status` / `npe_status` are namespaced in those files precisely so they cannot
-        // collide with a project page's own `?tab=`. A rename there silently strands this link on
-        // the default tab — the failure this whole block exists to prevent — so it must break here.
-        expect(settlementLink("Project Expenses", "PE-1", true)!.href).toContain("pe_status=");
-        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toContain("npe_status=");
+    it("leaves every OTHER ledger's link untouched", () => {
+        // The narrowing is to the two expense ledgers and nothing else — a payment, a project
+        // inflow and a non-project inflow all still link, and each of those lands somewhere that
+        // genuinely holds the record.
+        expect(settlementLink("Project Payments", "PAY-1", false)).not.toBeNull();
+        expect(settlementLink("Project Inflows", "PAYIN-1", true)).not.toBeNull();
+        expect(settlementLink("Non Project Inflows", "NPI-1", true)).not.toBeNull();
     });
 });
 
@@ -2256,12 +2240,15 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         expect(link.href).toContain("PAY-00105-038");
     });
 
-    it("sends an UNSETTLED payment to All Payments, because it is not Paid yet", () => {
+    it("sends an UNSETTLED payment to Reconciliation Pending, because it is not Paid yet", () => {
         // ⚠️ Verified live before this branch existed: "Payments Done" filters status = Paid, so a
-        // merely SUGGESTED payment -- still Approved -- landed on an empty table with nothing on
-        // screen explaining why. "All Payments" carries no status filter.
+        // merely SUGGESTED payment landed on an empty table with nothing on screen explaining why.
+        // ⚠️ THE DESTINATION MOVED FROM "All Payments" AT #1289, and this assertion is the
+        // inversion. "All Payments" carried no status filter and was the only honest answer while
+        // the settleable status had no tab of its own; the lifecycle now has one, and a suggestion
+        // belongs among exactly the records a bank line could pay.
         const link = settlementLink("Project Payments", "PAY-00107-044", false)!;
-        expect(link.href).toContain("tab=All+Payments");
+        expect(link.href).toContain("tab=Reconciliation+Pending");
         expect(link.href).not.toContain("Payments+Done");
         expect(link.href).toContain("PAY-00107-044");
     });
@@ -2272,36 +2259,31 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         const settled = settlementLink("Project Payments", "PAY-1", true)!;
         expect(settled.title).toContain("Payments Done");
         const open = settlementLink("Project Payments", "PAY-1", false)!;
-        expect(open.title).toContain("All Payments");
+        expect(open.title).toContain("Reconciliation Pending");
         expect(open.title).not.toContain("Payments Done");
     });
 
-    it("says out loud that an expense link is not the record itself", () => {
-        expect(settlementLink("Project Expenses", "i87sop52n3")!.title).toContain(
-            "cannot be linked to directly"
-        );
+    it("⚠️ offers an expense no link to be wrong about (#1289)", () => {
+        // It used to say "cannot be linked to directly" on a link to the `Approved` tab. There is
+        // no link now: every tab this could reach is one the record cannot appear in, and the
+        // destination is parked with the owner. INVERTED, not deleted.
+        expect(settlementLink("Project Expenses", "i87sop52n3")).toBeNull();
     });
 
     it("defaults to the unsettled destination, which is the safe one", () => {
         // If a caller forgets, the link still finds the record; the reverse default would hide it.
-        expect(settlementLink("Project Payments", "PAY-1")!.href).toContain("tab=All+Payments");
+        expect(settlementLink("Project Payments", "PAY-1")!.href).toContain(
+            "tab=Reconciliation+Pending",
+        );
     });
 
-    it("marks an expense link INEXACT, because its table cannot be searched by record id", () => {
-        // Not a shortcoming of this helper: PE_SEARCHABLE_FIELDS / NPE_SEARCHABLE_FIELDS cover
-        // description, type, vendor and amount -- never `name`. Rendering it like a payment link
-        // would promise a precision it does not have.
-        // ⚠️ THE HREF NOW CARRIES A STATUS TAB, AND `exact` IS STILL FALSE — the two are different
-        // claims and this test is about the second. Landing on the right TAB narrows the list; it
-        // does not find the ROW, because the id is still not searchable. Both calls omit `settled`,
-        // so they default to the suggestion case: `Approved`.
-        const pe = settlementLink("Project Expenses", "i87sop52n3")!;
-        expect(pe.exact).toBe(false);
-        expect(pe.href).toBe("/expense/project?pe_status=Approved");
-
-        const npe = settlementLink("Non Project Expenses", "abc123")!;
-        expect(npe.exact).toBe(false);
-        expect(npe.href).toBe("/expense/non-project?npe_status=Approved");
+    it("⚠️ no longer has an expense link to mark INEXACT (#1289)", () => {
+        // It used to assert `exact: false` on a link to a status TAB, because landing on the right
+        // tab narrows a list without finding the row: PE_SEARCHABLE_FIELDS / NPE_SEARCHABLE_FIELDS
+        // cover description, type, vendor and amount -- never `name`. That is still true, and moot:
+        // there is no link. INVERTED, not deleted, so re-adding one has to face this test.
+        expect(settlementLink("Project Expenses", "i87sop52n3")).toBeNull();
+        expect(settlementLink("Non Project Expenses", "abc123")).toBeNull();
     });
 
     it("refuses a half-written or unknown target", () => {
@@ -2356,8 +2338,8 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         });
         const [link] = rowSettlementLinks(matched);
         expect(link.label).toBe("PAY-00105-038");
-        // Nothing has been written, so the payment is still Approved -> All Payments.
-        expect(link.href).toContain("tab=All+Payments");
+        // Nothing has been written, so the payment is still waiting -> Reconciliation Pending.
+        expect(link.href).toContain("tab=Reconciliation+Pending");
     });
 
     it("links a SKIPPED duplicate to the payment somebody already ticked Paid", () => {
@@ -2430,11 +2412,11 @@ describe("links to the record a row settles — the FALLBACK path, with no order
                 { target_doctype: "Non Project Expenses", target_name: "1t69cnkk6v" },
             ],
         });
+        // ⚠️ THE TWO EXPENSE ROWS DROP OUT ENTIRELY AT #1289 — they used to land on the Paid tab.
+        // `rowSettlementLinks` filters out a null link, so a skipped row naming three records now
+        // renders one. The note still NAMES all three; only the links narrowed.
         expect(rowSettlementLinks(skipped).map((l) => l.href)).toEqual([
             "/project-payments/PO&=1&=25-26",
-            // A related record is already PAID, so an expense lands on the Paid tab.
-            "/expense/project?pe_status=Paid",
-            "/expense/non-project?npe_status=Paid",
         ]);
     });
 
