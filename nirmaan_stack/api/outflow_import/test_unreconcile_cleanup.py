@@ -124,6 +124,77 @@ class TestVendorCredit(CleanupFixture):
         self.assertEqual(float(entry.delta_amount), 60.0)
 
 
+class TestVendorCreditOnTheSettleItself(TestVendorCredit):
+    """#1289: a SETTLE recomputes vendor credit too, not only the unreconcile that undoes it.
+
+    ⚠️ THE CONTROLLER CANNOT SEE THIS TRANSITION. `controllers/project_payments.on_update`
+    recalculates on exactly one edge, `Approved -> Paid`. The import now writes
+    `Reconciliation Pending -> Paid`, so that branch never fires and the vendor's credit would sit
+    at whatever it was before the money went out -- wrong in the direction that MATTERS, because
+    `recalculate_vendor_credit` is what clears an On-Hold vendor once credit is freed.
+
+    ⚠️ IT SHARES `TestVendorCredit`'s FIXTURE ON PURPOSE. That class plants the vendor, points the
+    allocation PO at it and sets `po_amount_delivered`, and the two tests are the two directions of
+    one rule -- a settle and the unreconcile that reverses it. Reading them side by side is what
+    shows the pair is closed.
+    """
+
+    def test_settling_recomputes_the_credit_and_writes_a_ledger_entry_naming_the_po(self):
+        before = frappe.get_all(LEDGER, {"parent": self.vendor}, pluck="name")
+
+        row, pay = self._one_settled_payment("60")
+
+        vendor = frappe.get_doc("Vendors", self.vendor)
+        # RECOMPUTED FROM SOURCE, never nudged by a delta (root `CLAUDE.md`): the stored figure must
+        # equal what a fresh sum of the vendor's POs says, or nothing downstream can be trusted.
+        self.assertEqual(float(vendor.credit_used), float(_compute_credit_used(vendor)))
+        # 100 delivered less the 60 now paid.
+        self.assertEqual(float(vendor.credit_used), 40.0)
+
+        entries = frappe.get_all(
+            LEDGER,
+            filters={"parent": self.vendor, "name": ["not in", before or [""]]},
+            fields=["entry_type", "po_id", "delta_amount", "credit_used_after"],
+        )
+        self.assertEqual(len(entries), 1, "one recompute per vendor, not one per call")
+        [entry] = entries
+        # ⚠️ THE SAME WORDS THE MANUAL FULFIL PATH USES. A vendor's credit ledger must not read as
+        # two different histories depending on whether the money left via the Payments screen or a
+        # bank statement.
+        self.assertEqual(entry.entry_type, "Payment Fulfilled")
+        self.assertEqual(entry.po_id, self._allocation_po())
+        self.assertEqual(float(entry.credit_used_after), 40.0)
+        # ⚠️ THE DELTA IS THE MOVE THIS RECOMPUTE MADE, NOT THE PAYMENT'S AMOUNT, and the two are
+        # not the same number here: the fixture plants the vendor at a STALE `credit_used` of 0
+        # while its PO already has 100 delivered. The recompute reads the POs and writes 40, so the
+        # entry records +40. An implementation that nudged the stored figure by the payment instead
+        # would have written -60 and left `credit_used` at -60 -- which is the whole reason the rule
+        # is "recompute from source, never increment by a delta".
+        self.assertEqual(float(entry.delta_amount), 40.0)
+
+    def test_both_directions_land_on_a_fresh_recompute_rather_than_on_each_other(self):
+        """The pair closes, and it closes on the DATABASE rather than on arithmetic.
+
+        ⚠️ IT DELIBERATELY DOES NOT ASSERT THE FIGURE RETURNS TO WHERE IT STARTED, and that would
+        have been the obvious thing to write. The fixture plants the vendor at a stale
+        `credit_used` of 0 against a PO with 100 delivered, so "back to where it started" would pin
+        the STALE value and pass only for an implementation that added and subtracted the same
+        number. What must be true is stronger and simpler: after each write the stored figure equals
+        a fresh sum of the vendor's POs -- 40 with the payment Paid, 100 with it reverted.
+        """
+        row, pay = self._one_settled_payment("60")
+
+        after_settle = frappe.get_doc("Vendors", self.vendor)
+        self.assertEqual(float(after_settle.credit_used), float(_compute_credit_used(after_settle)))
+        self.assertEqual(float(after_settle.credit_used), 40.0)
+
+        unreconcile_row(row=row, legs="all", reason="wrong vendor")
+
+        after_revert = frappe.get_doc("Vendors", self.vendor)
+        self.assertEqual(float(after_revert.credit_used), float(_compute_credit_used(after_revert)))
+        self.assertEqual(float(after_revert.credit_used), 100.0)
+
+
 class TestCeoHold(CleanupFixture):
     def test_two_payments_of_one_project_leave_the_gap_equal_to_a_fresh_evaluation(self):
         row, (a, b, c) = self._allocated()
