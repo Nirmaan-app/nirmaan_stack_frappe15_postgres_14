@@ -2238,7 +2238,9 @@ wrong conclusion from the same reasoning.
   transfer recorded?". Deliberate scope decision, not an oversight.
 - ~~**Unreconciling a Service Request payment can WITHHOLD TDS and net its amount — left unchanged by owner
   ruling (#1270, recorded at #1275).**~~ **FIXED at #1288 (ADR-0022 Amendment A); the ruling is RETIRED.**
-  `unreconcile._revert_payment` still saves the payment `Paid -> Approved` through the document layer, but
+  `unreconcile._revert_payment` saved the payment `Paid -> Approved` through the document layer at the time
+  (it writes `Paid -> Reconciliation Pending` from #1289 on -- ADR-0022 Amendment B -- so it no longer
+  enters `Approved` from this path at all), but
   `integrations/controllers/project_payments.on_update` no longer treats ANY transition into `Approved` as
   an approval: it asks `payment_tds.is_approval_from_an_earlier_step`, which is true only for
   `Requested` / `CEO Pending` / `Rejected` -> `Approved`. **So an unreconcile writes no deduction and
@@ -5532,6 +5534,15 @@ unsettleable until somebody pressed Mark as Done again** — caught by two exist
 tests. `unreconcile._REVERT_STATUS` now reads the same map. The two statuses are a pair: a revert goes
 back to wherever a settle comes from, and sharing the map keeps that true through the next move too.
 All three `WHAT_HAPPENS_REVERT_*` sentences changed with it.
+
+⚠️ **EVERY "Approved" QUOTED IN AN EARLIER SLICE RECORD ABOVE IS HISTORICAL FROM HERE ON.** The slice
+narratives for #1275 / #1277 / #1279 / #1280 quote the copy as it read at the time -- "Goes back to
+Approved", "went back to Approved", "N went back to Approved and M was/were deleted", the leftover's
+"not Approved" refusal. Each of those sentences now names **Reconciliation Pending**. They are kept
+verbatim rather than rewritten, because a slice record's job is to say what that slice shipped; this
+note is the one place that says they have all moved. Source of truth for the current wording is
+`services/outflow_import/unreconcile.py` (`WHAT_HAPPENS_REVERT_*`), `unsplit.leftover_refusal` and
+`unreconcileView.ts` -- and the target itself is `unreconcile._REVERT_STATUS`, never a literal.
 
 ### The frontend
 

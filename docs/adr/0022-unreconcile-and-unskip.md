@@ -252,6 +252,61 @@ The Known-limits entry in `.claude/context/domain/outflow-import.md` is retired 
 pins that held the old behaviour — `test_unreconcile_payments.TestTheTdsOnApprovedPin` and the
 `unreconcileView` vitest — are **inverted to assert the new rule, never deleted**.
 
+## Amendment B — a revert lands at *Reconciliation Pending*, not *Approved* (2026-09-16, #1291, built at #1289, parent #1283)
+
+**Every "goes back to Approved" in this ADR now reads *Reconciliation Pending*.** It supersedes the
+target named under *Unreconcile a Project Payments line*, *Unreconcile an existing expense* and
+*Unreconcile a part payment* above. Nothing else about those sections changes: the same verdicts, the
+same refusals, the same all-or-nothing write, the same cleared fields.
+
+- A reverted **Project Payment** goes to *Reconciliation Pending* with UTR and payment date cleared.
+- A reverted existing **Project Expense** or **Non-Project Expense** goes to *Reconciliation Pending*
+  with payment date, reference and — on a Project Expense — "paid by" cleared.
+- A record the import **created** is still deleted. A revert target is meaningless for a record that
+  is not going to exist.
+- A part payment's **leftover** is created at *Reconciliation Pending* and must still be there to be
+  joinable; the *"is `<status>`, not Approved"* refusal now names that status. After the join the
+  original reverts to *Reconciliation Pending* like any payment.
+
+**Why.** #1289 moved the status the import settles **from** — `ledgers.SETTLEABLE_STATUSES` — one step
+forward, from *Approved* to *Reconciliation Pending*, because *Approved* means sanctioned and not yet
+sent. The revert target did not move with it, and the pair came apart: a reverted record landed one step
+**behind** where a settle now starts, so the very next bank line could not settle it until somebody
+pressed **Mark as Done** a second time. Unreconcile exists so a record can wait for the right line; it
+had stopped being able to wait. Two existing `test_confirm_by_hand` tests caught it, which is why the
+change shipped inside #1289 rather than waiting for its own ticket.
+
+**The two statuses are a pair, and that is now enforced by construction.** `unreconcile._REVERT_STATUS`
+reads `settleable_statuses(PAYMENT_DOCTYPE)`, and `unreconcile_split` passes `expect_leftover_status`
+from the same map rather than taking `unsplit_payment`'s *Approved* default. **A revert goes back to
+wherever a settle comes from** — so the next move of the anchor carries the revert with it, and no
+reader has to notice a second literal. `unsplit.leftover_refusal` reads the same map, so the screen
+ahead of the write and the write itself can never disagree about the same leftover.
+
+⚠️ **One `_REVERT_STATUS` serves all three ledgers, and it reads the PAYMENT's entry in a map that
+is keyed per ledger.** That is correct today only because all three entries hold the same value. If a
+ledger's settleable status ever diverges, `_revert_expense` would write the payment's status onto an
+expense — a value the expense doctype may not even offer, so the save would fail loudly rather than
+corrupt anything, but it would fail for a reason nobody reading the call site could see. The fix, when
+that day comes, is one line: read `settleable_statuses(doctype)` in `_revert_expense` rather than the
+shared constant. It is recorded here rather than pre-emptively changed, because a per-ledger read with
+nothing to distinguish would look arbitrary today.
+
+**What this does NOT change.** Tax is still withheld only on an approval from an earlier step
+(Amendment A) — and a revert no longer enters *Approved* at all, so that guard is now reached from one
+side fewer, not relaxed. `amount_after` is still read back and still reported; the notice is still the
+backstop Amendment A describes. `Paid` remains the only status that counts as settled spend.
+
+**Consequences for this ADR's own text.** Amendment A's reasoning quotes the old behaviour —
+"Unreconcile writes *Paid → Approved*" — as the fact that made the TDS-on-Approved ruling unsafe. That
+sentence is kept as the historical record of **why** the ruling fell, not as a statement of what
+Unreconcile writes today. The dialog sentences, the notice, the "Settled with TDS" refusal (which loses
+its "back to Approved" clause) and the Bulk Import unreconcile view all name the new status. Every pin
+that held the old target — the unreconcile payments, expenses, part-payment, row and reverse-allocation
+suites, and the `unreconcileView` vitest — is **inverted to assert the new one, never deleted**; they
+now read a shared `SETTLEABLE` constant, so a future move of the anchor cannot leave a stale literal
+behind in a test either.
+
 ## Consequences
 
 - A hand skip is reversible from the screen, and so is its reversal auditable (Version row, comment).
