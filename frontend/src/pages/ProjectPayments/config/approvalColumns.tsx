@@ -312,8 +312,9 @@ const REGISTRY: Record<
   }),
 
   // One column, not two: the age sub-line makes a separate Waiting column
-  // unnecessary. Anything past 30 days reads red — that is the whole point of
-  // sorting these queues oldest-first.
+  // unnecessary. Anything past 30 days reads red — and since the queues now open
+  // NEWEST-first (owner, 2026-09-16), that red age IS how a long-waiting row is
+  // found, rather than it sitting at the top by default.
   requested_on: (ctx) => ({
     // Same rule: the id is `creation`, the field the union exposes — that is what
     // makes both the sort AND the date filter on this column reach the server.

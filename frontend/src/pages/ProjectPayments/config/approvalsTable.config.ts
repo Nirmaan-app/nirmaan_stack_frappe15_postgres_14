@@ -164,14 +164,23 @@ export const TAB_ALLOWS_SELECTION: Record<ApprovalTab, boolean> = {
   [PP_TABS.PO_WISE]: false,
 };
 
-/** Work queues open oldest-first; settled lists open on what moved most recently. */
+/**
+ * Every tab opens NEWEST-FIRST (owner, 2026-09-16).
+ *
+ * ⚠️ THE FIELDS ARE UNCHANGED AND ARE PER TAB ON PURPOSE — each tab sorts on the
+ * date of its OWN step (`approved_on` on the pay queue, `paid_on` on the two
+ * settled ones), not on `creation`. Only the DIRECTION moved.
+ *
+ * The three work queues used to open OLDEST-first, to surface the rows that had
+ * been waiting longest. The owner reversed that: the rows people act on are the
+ * ones that just arrived, and the oldest-first view buried every new request
+ * behind a backlog that is worked from its own filters instead.
+ */
 export const TAB_DEFAULT_SORT: Record<ApprovalTab, string> = {
-  // Work queues open OLDEST-first — that is what surfaces the rows that have been
-  // waiting since April. Settled lists open on what moved most recently.
-  [PP_TABS.APPROVE_PAYMENTS]: "creation asc",
-  [PP_TABS.CEO_PENDING]: "creation asc",
-  [PP_TABS.NEW_PAYMENTS]: "approved_on asc",
-  [PP_TABS.RECONCILIATION_PENDING]: "paid_on asc",
+  [PP_TABS.APPROVE_PAYMENTS]: "creation desc",
+  [PP_TABS.CEO_PENDING]: "creation desc",
+  [PP_TABS.NEW_PAYMENTS]: "approved_on desc",
+  [PP_TABS.RECONCILIATION_PENDING]: "paid_on desc",
   [PP_TABS.PAYMENTS_DONE]: "paid_on desc",
   [PP_TABS.PAYMENTS_PENDING]: "creation desc",
   [PP_TABS.ALL_PAYMENTS]: "creation desc",
