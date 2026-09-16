@@ -384,7 +384,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `services/expense_request_routing.py` (which REPLACED the temporary
   `services/expense_request_catalog.py`, deleted 2026-08-18) — it caches per request, because
   `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe
-  Desk; the app only ASSIGNS one** (Packages Settings → Expense Packages → Edit).
+  Desk.** Since 2026-09-16 the category is **not shown anywhere in the app** (request picker or
+  Expense Packages): a new type is saved as `Uncategorized`, an edit keeps the current one.
 - **⚠️ THERE IS NO ROW SCOPING ON READS (owner ruling, 2026-08-18).** The
   `permission_query_conditions` hook was REMOVED, so a list read returns everything the
   caller's ROLE may read — and **eight roles hold read DocPerm** (System Manager, PM, HR

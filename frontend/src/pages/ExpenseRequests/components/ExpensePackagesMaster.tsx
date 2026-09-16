@@ -8,6 +8,9 @@
 //   non-project only  -> the Project field is HIDDEN; approval writes Non Project Expenses
 //   both              -> the field is OPTIONAL and the requester's choice picks the ledger
 //   neither           -> unusable; the request form refuses the type outright
+//
+// ⚠️ The category is deliberately NOT shown here (owner ruling 2026-09-16). It still exists:
+// a new type is saved as "Uncategorized" and an edit keeps the type's current category.
 
 import React, { useMemo, useState } from "react";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -20,9 +23,6 @@ import {
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,11 +33,8 @@ import { cn } from "@/lib/utils";
 
 import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
-interface ExpenseCategoryRow { name: string }
-
-// Every type belongs to a category; where none of the named ones fit, that category is
-// "Uncategorized". There is deliberately no blank option -- an uncategorised type appears
-// in no category list.
+// Where none of the named categories fit, a type belongs to "Uncategorized". The category is
+// no longer picked on this screen, so every new type lands here.
 const FALLBACK_CATEGORY = "Uncategorized";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
 
@@ -63,6 +60,7 @@ interface EditState {
     expense_name: string;
     project: boolean;
     non_project: boolean;
+    /** Not editable here -- carried so an edit keeps the type's current category. */
     expense_category: string;
 }
 
@@ -81,13 +79,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                  "expense_category"],
         limit: 0,
         orderBy: { field: "expense_name", order: "asc" },
-    });
-
-    // Categories are CREATED in Frappe Desk (owner ruling); this screen only assigns one.
-    const { data: categories } = useFrappeGetDocList<ExpenseCategoryRow>("Expense Category", {
-        fields: ["name"],
-        limit: 0,
-        orderBy: { field: "name", order: "asc" },
     });
 
     // ADMIN-GATED endpoints, not raw doc writes: `Expense Type` carries write for ~15 roles
@@ -115,14 +106,6 @@ export const ExpensePackagesMaster: React.FC = () => {
             toast({ title: "Name is required", variant: "destructive" });
             return;
         }
-        if (!edit.expense_category) {
-            toast({
-                title: "Pick a category",
-                description: "Use 'Uncategorized' if none of the named ones fit.",
-                variant: "destructive",
-            });
-            return;
-        }
         if (!edit.project && !edit.non_project) {
             toast({
                 title: "Pick at least one scope",
@@ -145,7 +128,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                     expense_name: name,
                     project: edit.project ? 1 : 0,
                     non_project: edit.non_project ? 1 : 0,
-                    expense_category: edit.expense_category,
+                    expense_category: FALLBACK_CATEGORY,
                 });
                 toast({ title: "Expense type added", description: name, variant: "success" });
             }
@@ -196,7 +179,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Expense Type</TableHead>
-                            <TableHead>Category</TableHead>
                             <TableHead>Scope</TableHead>
                             <TableHead>Request Form</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -209,11 +191,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                             return (
                                 <TableRow key={t.name}>
                                     <TableCell className="font-medium">{t.name}</TableCell>
-                                    <TableCell className="text-sm">
-                                        {t.expense_category || (
-                                            <span className="text-amber-700">uncategorised</span>
-                                        )}
-                                    </TableCell>
                                     <TableCell>
                                         <Badge className={cn(SCOPE_STYLE[scope], "hover:bg-inherit")}>
                                             {scope}
@@ -246,7 +223,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         })}
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                                <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
                                     No expense types match “{search}”.
                                 </TableCell>
                             </TableRow>
@@ -282,27 +259,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                                     editing its scope and is not offered here.
                                 </p>
                             )}
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <Label>Category <span className="text-destructive">*</span></Label>
-                            <Select
-                                value={edit.expense_category}
-                                onValueChange={(v) => setEdit((s) => ({ ...s, expense_category: v }))}
-                            >
-                                <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
-                                <SelectContent>
-                                    {(categories ?? []).map((c) => (
-                                        <SelectItem key={c.name} value={c.name}>
-                                            {c.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <p className="text-xs text-muted-foreground">
-                                Categories are added in Frappe Desk; use “Uncategorized” if none of
-                                the named ones fit.
-                            </p>
                         </div>
 
                         <div className="space-y-2">

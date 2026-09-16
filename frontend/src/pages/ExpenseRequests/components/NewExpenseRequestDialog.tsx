@@ -47,27 +47,21 @@ import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
 
-/** One option per expense type, carrying the category it belongs to.
+/** One option per expense type.
  *
- *  The old picker grouped the list under category headings; a searchable one cannot keep
- *  react-select groups (the token scorer walks a FLAT list), so the category travels ON each
- *  option instead -- shown on the right of the row and SEARCHABLE, which is the part the
- *  headings could not do. Typing "hotel" or "travel" now surfaces the whole group.
- */
+ *  ⚠️ The category is deliberately NOT shown or searched (owner ruling 2026-09-16): it still
+ *  exists on the master, but requesters pick by type name alone. */
 interface ExpenseTypeOption extends FuzzyOptionType {
     value: string;
     label: string;
-    category: string;
 }
 
-// The type name is what people search by; the category is a weaker secondary, exactly as
-// `vendor-select` weights the vendor name over its id.
 const EXPENSE_TYPE_SEARCH: TokenSearchConfig = {
-    searchFields: ["label", "category"],
+    searchFields: ["label"],
     minSearchLength: 1,
     partialMatch: true,
     minTokenLength: 1,
-    fieldWeights: { label: 2.0, category: 1.2 },
+    fieldWeights: { label: 2.0 },
     minTokenMatches: 1,
 };
 
@@ -175,8 +169,11 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         () => categories
             .filter((c) => c.types.length > 0)
             .flatMap((c) => c.types.map((t) => ({
-                value: t.expense_type, label: t.expense_type, category: c.category,
-            }))),
+                value: t.expense_type, label: t.expense_type,
+            })))
+            // The catalog arrives grouped by category; with the category hidden that order
+            // reads as random, so the list is alphabetical instead.
+            .sort((a, b) => a.label.localeCompare(b.label)),
         [categories]
     );
     // Resolved from the options rather than held in state, so the chosen row and the form's
@@ -411,19 +408,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             // Clearing the type would leave the form with a format and no type
                             // to file it under; switching to another type is the way out.
                             isClearable={false}
-                            formatOptionLabel={(option, meta) => {
-                                // The chosen row stays a clean type name; the category only
-                                // helps while choosing -- the VendorSelect convention.
-                                if (meta.context === "value") return option.label;
-                                return (
-                                    <span className="flex items-center justify-between gap-2 w-full">
-                                        <span className="truncate">{option.label}</span>
-                                        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                                            {option.category}
-                                        </span>
-                                    </span>
-                                );
-                            }}
                         />
                     </div>
 
