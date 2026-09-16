@@ -22,10 +22,13 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 	PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.api.expense_requests.flatten import (
+	NATIVE_INVOICE_SECTION,
 	SEP,
+	filled_against_a_form,
 	first_mapped_attachment,
 	flatten_pairs,
 	flatten_source_data,
+	native_invoice,
 	render_description_template,
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
@@ -42,6 +45,23 @@ def target_doctype(req) -> str:
 	return PROJECT_EXPENSE_DOCTYPE if req.projects else NON_PROJECT_EXPENSE_DOCTYPE
 
 
+def applicable_format(source_format, form_enabled, source_data) -> str | None:
+	"""The format that governs a request, or None when it is a STANDARD request.
+
+	The type's `source_format_enabled` switch decides -- EXCEPT for a request already filled
+	against the form (`templateId` in its answers): that one keeps its form even if the switch
+	was turned off after it was raised, or its answers would convert unlabelled.
+
+	ONE rule, shared by the conversion, the promotion at create and the reviewer's detail
+	list, so the approval screen and the ledger row cannot disagree about which form applies.
+	"""
+	if not (source_format or "").strip():
+		return None
+	if form_enabled or filled_against_a_form(source_data):
+		return source_format
+	return None
+
+
 def _source_format_for(req) -> str | None:
 	"""The type's format, used only to LABEL the flatten and locate the mapped attachment.
 
@@ -49,7 +69,12 @@ def _source_format_for(req) -> str | None:
 	corrected on the master should improve an approval made afterwards. The snapshot governs
 	how the request RENDERS, which is a different question.
 	"""
-	return frappe.db.get_value("Expense Type", req.type, "source_format")
+	row = frappe.db.get_value(
+		"Expense Type", req.type, ["source_format", "source_format_enabled"], as_dict=True
+	)
+	if not row:
+		return None
+	return applicable_format(row.source_format, row.source_format_enabled, req.get("source_data"))
 
 
 def compose_description(req, source_format=None) -> str:
@@ -79,7 +104,11 @@ def compose_description(req, source_format=None) -> str:
 	elif source_format:
 		body = flatten_source_data(req.source_data, source_format)
 	else:
-		body = SEP.join(value for _label, value in flatten_pairs(req.source_data))
+		# The invoice answers of a standard request land in their own ledger columns.
+		body = SEP.join(
+			value for _label, value
+			in flatten_pairs(req.source_data, skip_sections=(NATIVE_INVOICE_SECTION,))
+		)
 	return " · ".join(p for p in (body, f"[{req.name}]") if p)
 
 
@@ -152,6 +181,9 @@ def create_ledger_row(req):
 	bill = first_mapped_attachment(req.source_data, source_format)
 	if bill:
 		values["invoice_attachment"] = bill
+	if not source_format:
+		# A standard request carries its invoice details as answers, not a declared slot.
+		values.update(native_invoice(req.source_data))
 	if doctype == PROJECT_EXPENSE_DOCTYPE:
 		# `Non Project Expenses` has NEITHER of these columns, so both are project-only.
 		# ⚠️ The vendor is copied as a plain field, exactly like the project -- it reached the

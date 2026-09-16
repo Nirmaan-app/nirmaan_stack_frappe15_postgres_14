@@ -34,7 +34,8 @@ interface Props {
     expenseType: ExpenseType | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onSaved: () => void;
+    /** `hasFormat` is false when the save CLEARED the format. */
+    onSaved: (hasFormat: boolean) => void;
 }
 
 export const ExpenseFormatDialog: React.FC<Props> = ({
@@ -98,12 +99,14 @@ export const ExpenseFormatDialog: React.FC<Props> = ({
             await saveFormat({ name: expenseType.name, source_format: text.trim() || null });
             toast({
                 title: "Format saved",
+                // Whether requesters SEE the form is the type's JSON switch, not this save --
+                // clearing the format switches it off on the server.
                 description: v.status === "empty"
-                    ? `${expenseType.name} now uses the plain request form.`
-                    : `${expenseType.name} will render its custom form.`,
+                    ? `${expenseType.name} has no format now, so requests use the standard fields.`
+                    : `Format saved for ${expenseType.name}.`,
                 variant: "success",
             });
-            onSaved();
+            onSaved(v.status !== "empty");
             onOpenChange(false);
         } catch (e) {
             toast({

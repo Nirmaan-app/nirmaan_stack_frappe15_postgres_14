@@ -11,7 +11,13 @@ import json
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable
-from nirmaan_stack.api.expense_requests.flatten import flat_responses, mapped_fields
+from nirmaan_stack.api.expense_requests.flatten import (
+	filled_against_a_form,
+	flat_responses,
+	mapped_fields,
+	native_description,
+	native_invoice,
+)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -52,6 +58,8 @@ def create_expense_request(
 	# The client may send the answers as an object or as a JSON string; store one shape.
 	if source_data is not None and not isinstance(source_data, str):
 		source_data = json.dumps(source_data)
+
+	guard_request_form(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
 	# submission block). Both surfaces WARN and neither stops anyone: the create dialog calls
@@ -105,6 +113,45 @@ def guard_vendor_scope(vendor, projects) -> str | None:
 	return vendor
 
 
+def guard_request_form(expense_type: str, source_data) -> None:
+	"""The answers must match the type's `source_format_enabled` switch -- when it is OFF.
+
+	SHARED with `update`, like `guard_vendor_scope`. With the form OFF the request is a
+	STANDARD one and must carry what a directly-entered expense requires: a description, and
+	invoice details that hang together (a date whenever any invoice detail is given, a
+	reference whenever a file is attached -- the direct-entry dialogs' own rules).
+
+	⚠️ ONLY THE OFF SIDE IS ENFORCED. A form's own required answers have never been checked
+	server-side (the dialog checks them), and nothing here changes that.
+	"""
+	row = frappe.db.get_value(
+		"Expense Type", expense_type, ["source_format_enabled", "source_format"], as_dict=True
+	)
+	if row and row.source_format_enabled and (row.source_format or "").strip():
+		return
+
+	if filled_against_a_form(source_data):
+		frappe.throw(
+			f"The request form for '{expense_type}' is switched off. "
+			"Reopen the dialog and fill in the standard fields.",
+			title="Request form is off",
+		)
+	if not native_description(source_data):
+		frappe.throw("A description is required.", title="Description required")
+
+	invoice = native_invoice(source_data)
+	if invoice.get("invoice_attachment") and not invoice.get("invoice_ref"):
+		frappe.throw(
+			"An invoice reference is required when an invoice is attached.",
+			title="Invoice reference required",
+		)
+	if invoice and not invoice.get("invoice_date"):
+		frappe.throw(
+			"An invoice date is required when recording invoice details.",
+			title="Invoice date required",
+		)
+
+
 # The columns a format is allowed to write into. A CLOSED allowlist, deliberately: `maps_to`
 # is read from data an admin edits, so an open one would let a format aim at any column on the
 # doctype -- `status` and `amount` included.
@@ -119,7 +166,7 @@ def _promote_mapped(expense_type: str, source_data) -> dict:
 	"""
 	from nirmaan_stack.api.expense_requests.convert import _source_format_for
 
-	fmt = _source_format_for(frappe._dict({"type": expense_type}))
+	fmt = _source_format_for(frappe._dict({"type": expense_type, "source_data": source_data}))
 	mapping = mapped_fields(fmt)
 	if not mapping:
 		return {}

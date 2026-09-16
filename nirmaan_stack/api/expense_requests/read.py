@@ -11,7 +11,11 @@ URLs:
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, caller_role_profile
-from nirmaan_stack.api.expense_requests.convert import target_doctype, target_status
+from nirmaan_stack.api.expense_requests.convert import (
+	applicable_format,
+	target_doctype,
+	target_status,
+)
 from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_request_routing import (
@@ -61,8 +65,9 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 
 	# One read of the formats for the whole page, rather than one per row.
 	formats = {
-		f["name"]: f["source_format"]
-		for f in frappe.get_all("Expense Type", fields=["name", "source_format"],
+		f["name"]: f
+		for f in frappe.get_all("Expense Type",
+		                        fields=["name", "source_format", "source_format_enabled"],
 		                        filters={"source_format": ["is", "set"]})
 	}
 
@@ -84,9 +89,14 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# can never describe the request differently.
 		# EVERY request, formatted or not -- `source_data` is the only home for the detail
 		# now, so this block is the only thing that shows what was asked for.
+		fmt = formats.get(r["type"]) or {}
 		r["detail"] = [
 			{"label": label, "value": value}
-			for label, value in flatten_pairs(r.get("source_data"), formats.get(r["type"]))
+			for label, value in flatten_pairs(
+				r.get("source_data"),
+				applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
+				                  r.get("source_data")),
+			)
 		]
 		# Which ledger this becomes, AND what status it will land at -- both resolved
 		# server-side so the dialog states the outcome rather than re-deriving the rule.
@@ -101,6 +111,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 @frappe.whitelist()
 def get_request_catalog():
 	"""The requestable types with their flags and format, for the create dialog.
+
+	`has_format` is true only when the type's form is switched ON and actually written.
 
 	Categories come from the `Expense Category` master, so adding one or re-pointing its
 	reviewer is an edit in the app rather than a deploy.
@@ -117,7 +129,7 @@ def get_request_catalog():
 	rows = frappe.get_all(
 		"Expense Type",
 		filters={"name": ["in", list(types)]},
-		fields=["name", "project", "non_project", "source_format"],
+		fields=["name", "project", "non_project", "source_format", "source_format_enabled"],
 	) if types else []
 	by_name = {r["name"]: r for r in rows}
 
@@ -138,7 +150,9 @@ def get_request_catalog():
 					# project-only => required; non-project-only => hidden; both => optional
 					"project_required": bool(f["project"]) and not bool(f["non_project"]),
 					"project_allowed": bool(f["project"]),
-					"has_format": bool((f.get("source_format") or "").strip()),
+					"has_format": bool(
+						f.get("source_format_enabled") and (f.get("source_format") or "").strip()
+					),
 				}
 			)
 		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})
@@ -148,6 +162,13 @@ def get_request_catalog():
 
 @frappe.whitelist()
 def get_expense_format(expense_type: str):
-	"""The raw `source_format` for one type, or None. Read by the create dialog on pick."""
-	fmt = frappe.db.get_value("Expense Type", expense_type, "source_format")
+	"""The `source_format` for one type, or None. Read by the create dialog on pick.
+
+	None when the type's form is switched OFF, even if one is written -- the dialog then asks
+	the standard fields, so this is the one place that decision reaches the screen.
+	"""
+	row = frappe.db.get_value(
+		"Expense Type", expense_type, ["source_format", "source_format_enabled"], as_dict=True
+	)
+	fmt = row.source_format if row and row.source_format_enabled else None
 	return {"expense_type": expense_type, "source_format": (fmt or None)}

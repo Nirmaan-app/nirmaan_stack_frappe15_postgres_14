@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     answersFromSourceData, isKnownBinding, parseFormat, readDetailDescription,
-    seedAnswers, validateFormat,
+    readNativeInvoice, seedAnswers, validateFormat,
 } from "./expenseFormat";
 
 const FMT = parseFormat(JSON.stringify({
@@ -189,5 +189,31 @@ describe("readDetailDescription", () => {
     it("returns '' for absent, blank or malformed input", () => {
         [undefined, null, "", "{", '{"responses":{"detail":[]}}']
             .forEach((raw) => expect(readDetailDescription(raw as string | null)).toBe(""));
+    });
+});
+
+describe("readNativeInvoice", () => {
+    it("reads a standard request's invoice answers and its first invoice file", () => {
+        expect(readNativeInvoice(JSON.stringify({
+            responses: {
+                detail: { description: "Cement" },
+                invoice: { invoice_date: "2026-09-01", invoice_ref: "INV-7" },
+            },
+            attachments: { invoice: ["/private/files/a.pdf", "/private/files/b.pdf"], bill: ["/x"] },
+        }))).toEqual({
+            invoice_date: "2026-09-01", invoice_ref: "INV-7", invoice_attachment: "/private/files/a.pdf",
+        });
+    });
+
+    it("ignores a form's own slots -- only the standard `invoice` slot is an invoice", () => {
+        expect(readNativeInvoice(JSON.stringify({ attachments: { bill: ["/x.pdf"] } })).invoice_attachment)
+            .toBe("");
+    });
+
+    it("returns blanks for absent, malformed or non-string input", () => {
+        const blank = { invoice_date: "", invoice_ref: "", invoice_attachment: "" };
+        [undefined, null, "", "{", '{"responses":{"invoice":[]}}',
+         '{"responses":{"invoice":{"invoice_date":7}},"attachments":{"invoice":[{}]}}']
+            .forEach((raw) => expect(readNativeInvoice(raw as string | null)).toEqual(blank));
     });
 });

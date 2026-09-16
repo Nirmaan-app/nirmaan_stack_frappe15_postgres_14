@@ -61,6 +61,8 @@ export interface RequestCatalogType {
   project_required: boolean;
   /** false => the Project field is hidden entirely */
   project_allowed: boolean;
+  /** True only when the type's "Enable Source" switch is ON and a format is written.
+   *  False => the dialog asks the standard fields. */
   has_format: boolean;
 }
 

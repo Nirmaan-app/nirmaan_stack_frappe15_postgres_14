@@ -118,6 +118,25 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 
 
 @frappe.whitelist(methods=["POST"])
+def set_expense_form_enabled(name: str, enabled=0):
+	"""Switch a type's request form on or off.
+
+	OFF keeps the written format but the request dialog asks the standard project /
+	non-project fields instead. ON needs a format -- the doctype's `validate` refuses it
+	otherwise, so Desk and this endpoint share one rule.
+	"""
+	_require_admin()
+	if not frappe.db.exists("Expense Type", name):
+		frappe.throw(f"'{name}' is not an expense type.", title="Unknown expense type")
+
+	doc = frappe.get_doc("Expense Type", name)
+	doc.source_format_enabled = 1 if int(enabled or 0) else 0
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	return {"name": name, "source_format_enabled": doc.source_format_enabled}
+
+
+@frappe.whitelist(methods=["POST"])
 def save_expense_format(name: str, source_format=None):
 	"""Author (or clear) a type's request form format.
 
@@ -143,6 +162,11 @@ def save_expense_format(name: str, source_format=None):
 		if not isinstance(parsed, dict):
 			frappe.throw("The format must be a JSON object.", title="Invalid format")
 
-	frappe.db.set_value("Expense Type", name, "source_format", raw or None)
+	# ⚠️ `set_value` skips `validate`, so clearing the format switches the form OFF here
+	# explicitly -- a switch left ON over no format would promise a form that is not there.
+	values = {"source_format": raw or None}
+	if not raw:
+		values["source_format_enabled"] = 0
+	frappe.db.set_value("Expense Type", name, values)
 	frappe.db.commit()
 	return {"name": name, "has_format": bool(raw)}

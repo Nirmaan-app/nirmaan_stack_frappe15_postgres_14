@@ -111,8 +111,11 @@ def _render(value) -> str | None:
 	return str(value)
 
 
-def flatten_pairs(source_data, source_format=None) -> list[tuple[str, str]]:
+def flatten_pairs(source_data, source_format=None, skip_sections=()) -> list[tuple[str, str]]:
 	"""The same walk as `flatten_source_data`, but as (label, value) PAIRS.
+
+	`skip_sections` leaves whole response sections out -- the ledger description of a
+	standard request skips `invoice`, whose answers land in their own columns instead.
 
 	The reviewer's dialog needs the answers as a readable list, not a joined sentence, so the
 	two share ONE walk rather than one parsing the other's output. `flatten_source_data` is
@@ -139,7 +142,9 @@ def flatten_pairs(source_data, source_format=None) -> list[tuple[str, str]]:
 		return []
 
 	out: list[tuple[str, str]] = []
-	for section in responses.values():
+	for section_key, section in responses.items():
+		if section_key in skip_sections:
+			continue
 		if isinstance(section, dict):
 			for key, value in section.items():
 				if key in skip:
@@ -259,6 +264,60 @@ def flat_responses(source_data) -> dict:
 	for section in responses.values():
 		if isinstance(section, dict):
 			out.update(section)
+	return out
+
+
+# --- The standard request (the type's form switched OFF) ------------------------------
+#
+# With the form off the dialog asks the standard expense fields instead, and they ride the
+# SAME envelope under keys WE mint -- the request doctype has no columns for them:
+#
+#   responses.detail.description               -> the ledger row's description
+#   responses.invoice.invoice_date / invoice_ref -> the ledger columns of the same name
+#   attachments.invoice                        -> the ledger row's invoice_attachment
+#
+# Both ledgers (`Project Expenses`, `Non Project Expenses`) carry all three invoice columns.
+
+NATIVE_DETAIL_SECTION = "detail"
+NATIVE_INVOICE_SECTION = "invoice"
+NATIVE_INVOICE_SLOT = "invoice"
+
+
+def filled_against_a_form(source_data) -> bool:
+	"""Were these answers filled against a type's form? The dialog stamps `templateId` on
+	every form-filled request and never on a standard one."""
+	data = _as_dict(source_data)
+	return bool(data and data.get("templateId"))
+
+
+def _native_section(source_data, section: str) -> dict:
+	responses = (_as_dict(source_data) or {}).get("responses")
+	value = responses.get(section) if isinstance(responses, dict) else None
+	return value if isinstance(value, dict) else {}
+
+
+def native_description(source_data) -> str:
+	value = _native_section(source_data, NATIVE_DETAIL_SECTION).get("description")
+	return value.strip() if isinstance(value, str) else ""
+
+
+def native_invoice(source_data) -> dict:
+	"""`{invoice_date, invoice_ref, invoice_attachment}` -- only the ones actually given."""
+	out = {}
+	invoice = _native_section(source_data, NATIVE_INVOICE_SECTION)
+	for key in ("invoice_date", "invoice_ref"):
+		value = invoice.get(key)
+		if isinstance(value, str) and value.strip():
+			out[key] = value.strip()
+
+	attachments = (_as_dict(source_data) or {}).get("attachments")
+	files = attachments.get(NATIVE_INVOICE_SLOT) if isinstance(attachments, dict) else None
+	if isinstance(files, str):
+		files = [files]
+	for f in files if isinstance(files, (list, tuple)) else ():
+		if isinstance(f, str) and f.strip():
+			out["invoice_attachment"] = f.strip()
+			break
 	return out
 
 

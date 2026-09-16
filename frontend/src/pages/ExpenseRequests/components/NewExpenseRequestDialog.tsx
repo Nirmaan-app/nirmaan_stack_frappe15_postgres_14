@@ -9,6 +9,11 @@
 //   project only     -> shown and required
 //   non-project only -> hidden entirely
 //   both             -> shown and optional; the choice picks the ledger
+//
+// The type's "Enable Source" switch decides the rest of the form. ON: the type's own
+// format. OFF (or no format): the STANDARD fields a directly-entered expense needs --
+// a required Description, a required Vendor once a project is chosen, and optional invoice
+// details that reach the ledger row's invoice columns at approval.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -24,6 +29,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import {
     FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig,
 } from "@/components/ui/fuzzy-search-select";
@@ -41,7 +48,8 @@ import type {
     ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
-    answersFromSourceData, parseFormat, readDetailDescription, seedAnswers,
+    answersFromSourceData, NATIVE_INVOICE_SECTION, NATIVE_INVOICE_SLOT, parseFormat,
+    readDetailDescription, readNativeInvoice, seedAnswers,
 } from "@/utils/expenseFormat";
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
@@ -86,11 +94,20 @@ interface FormState {
     amount: string;
     description: string;
     comment: string;
+    // Standard-request invoice details (form OFF only).
+    recordInvoice: boolean;
+    invoice_date: string;
+    invoice_ref: string;
+    /** The file already on a request being edited; kept unless replaced or removed. */
+    existingInvoiceUrl: string;
 }
 
 const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
+    recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
 };
+
+const INVOICE_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
 
 export const NewExpenseRequestDialog: React.FC<Props> = ({
     onSuccess, editing = null, onEditingChange,
@@ -103,6 +120,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const [answers, setAnswers] = useState<FormatAnswers>({});
     // Files are held, not uploaded, until submit -- a cancelled dialog then cannot orphan one.
     const [files, setFiles] = useState<FormatFiles>({});
+    const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
     const [submitting, setSubmitting] = useState(false);
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
@@ -123,9 +141,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     );
     const { upload } = useFrappeFileUpload();
 
-    // Fetched only once a type with a format is picked -- most types have none, so this
-    // stays off the critical path for the common case.
-    const { data: formatRes } = useFrappeGetCall<{ message: { source_format: string | null } }>(
+    // Fetched once a type is picked. Returns null when the type's form is switched OFF, which
+    // is how that switch reaches this screen.
+    const { data: formatRes, isLoading: formatLoading } = useFrappeGetCall<{ message: { source_format: string | null } }>(
         "nirmaan_stack.api.expense_requests.read.get_expense_format",
         { expense_type: form.expense_type },
         form.expense_type ? `expense_format_${form.expense_type}` : null
@@ -223,9 +241,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     // project is on screen is what keeps the request and the ledger row able to agree.
     const showVendor = showProject && !!form.projects;
 
-    // Description is the FALLBACK for a type with no format. Where a format exists its fields
-    // ARE the description, so asking for both invites the same fact in two places.
-    const showDescription = !parsedFormat;
+    // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
+    // dialog asks what a directly-entered expense needs. While a switched-on format is still
+    // loading neither mode is shown, so the standard fields never flash up and vanish.
+    const formatPending = !!selected?.has_format && formatLoading;
+    const isStandard = !!selected && !parsedFormat && !formatPending;
+    const showDescription = isStandard;
 
     const set = useCallback(
         <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v })),
@@ -237,6 +258,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const handleTypeChange = useCallback((value: string) => {
         setAnswers({});
         setFiles({});
+        setInvoiceFile(null);
         // Clear the project: a stale value on a type that just became non-project would be
         // refused by the server, which reads as the form ignoring what was typed. The vendor
         // hangs off the project, so it goes with it -- a vendor left behind on a now
@@ -256,11 +278,25 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
         [parsedFormat, answers]
     );
+    // The standard request's own requirements -- the SAME rules the server's
+    // `guard_request_form` applies, plus the vendor pick, which only this screen can see
+    // ("Others (No Vendor)" and an untouched field both reach the server as nothing).
+    const hasInvoiceFile = !!invoiceFile || !!form.existingInvoiceUrl;
+    const standardComplete =
+        !isStandard || (
+            !!form.description.trim() &&
+            (!showVendor || !!form.vendor) &&
+            (!form.recordInvoice || (
+                !!form.invoice_date && (!hasInvoiceFile || !!form.invoice_ref.trim())
+            ))
+        );
     const canSubmit =
         !!form.expense_type &&
         amountValue > 0 &&
         (!projectRequired || !!form.projects) &&
+        !formatPending &&
         missingFormatAnswers.length === 0 &&
+        standardComplete &&
         !submitting;
 
     const close = useCallback(() => {
@@ -268,6 +304,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setChangingProject(false);
         setAnswers({});
         setFiles({});
+        setInvoiceFile(null);
         setNewExpenseRequestDialog(false);
         onEditingChange?.(null);
     }, [setNewExpenseRequestDialog, onEditingChange]);
@@ -277,6 +314,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     // requester mid-edit and discard what they had typed.
     useEffect(() => {
         if (!editing) return;
+        const invoice = readNativeInvoice(editing.source_data);
         setForm({
             expense_type: editing.type ?? "",
             projects: editing.projects ?? "",
@@ -292,11 +330,16 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             // key -- the doctype has no `description` column to read it back from.
             description: readDetailDescription(editing.source_data),
             comment: editing.comment ?? "",
+            recordInvoice: !!(invoice.invoice_date || invoice.invoice_ref || invoice.invoice_attachment),
+            invoice_date: invoice.invoice_date,
+            invoice_ref: invoice.invoice_ref,
+            existingInvoiceUrl: invoice.invoice_attachment,
         });
         setChangingProject(false);
         skipNextSeed.current = true;
         setAnswers(answersFromSourceData(editing.source_data));
         setFiles({});
+        setInvoiceFile(null);
     }, [editing?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSubmit = useCallback(async () => {
@@ -314,6 +357,20 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                     doctype: "Expense Request", fieldname: "source_data", isPrivate: true,
                 });
                 attachments[slotKey] = [uploaded.file_url];
+            }
+
+            // A standard request's invoice file: a new pick replaces the one already on the
+            // request; unticking "Add invoice details" drops both.
+            let invoiceUrl = "";
+            if (isStandard && form.recordInvoice) {
+                if (invoiceFile) {
+                    const uploaded = await upload(invoiceFile, {
+                        doctype: "Expense Request", fieldname: "source_data", isPrivate: true,
+                    });
+                    invoiceUrl = uploaded.file_url;
+                } else {
+                    invoiceUrl = form.existingInvoiceUrl;
+                }
             }
 
             const submit = isEdit ? updateRequest : createRequest;
@@ -352,8 +409,21 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         responses: toResponses(answers),
                         ...(Object.keys(attachments).length ? { attachments } : {}),
                     }
-                    : form.description.trim()
-                        ? { responses: { detail: { description: form.description.trim() } } }
+                    : isStandard
+                        ? {
+                            responses: {
+                                detail: { description: form.description.trim() },
+                                ...(form.recordInvoice ? {
+                                    [NATIVE_INVOICE_SECTION]: {
+                                        invoice_date: form.invoice_date,
+                                        ...(form.invoice_ref.trim()
+                                            ? { invoice_ref: form.invoice_ref.trim() } : {}),
+                                    },
+                                } : {}),
+                            },
+                            ...(invoiceUrl
+                                ? { attachments: { [NATIVE_INVOICE_SLOT]: [invoiceUrl] } } : {}),
+                        }
                         : undefined,
             });
             const created = (res as any)?.message;
@@ -377,8 +447,8 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             setSubmitting(false);
         }
     }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
-        amountValue, showProject, showVendor,
-        showDescription, parsedFormat, answers, toast, close, onSuccess]);
+        amountValue, showProject, showVendor, isStandard, invoiceFile,
+        parsedFormat, answers, toast, close, onSuccess]);
 
     return (
         <AlertDialog
@@ -452,14 +522,17 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
 
                     {showVendor && (
                         <div className="space-y-1.5">
-                            <Label>Vendor</Label>
+                            <Label>
+                                Vendor {isStandard && <span className="text-destructive">*</span>}
+                            </Label>
                             <VendorSelect
                                 usePortal
                                 value={form.vendor}
                                 onChange={(o) => set("vendor", o?.value ?? "")}
                             />
                             <p className="text-xs text-muted-foreground">
-                                Optional. Choose "Others (No Vendor)" if the payee is not on record.
+                                {isStandard ? "" : "Optional. "}
+                                Choose "Others (No Vendor)" if the payee is not on record.
                             </p>
                         </div>
                     )}
@@ -479,12 +552,75 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
 
                     {showDescription && (
                         <div className="space-y-1.5">
-                            <Label>Description</Label>
+                            <Label>Description <span className="text-destructive">*</span></Label>
                             <Textarea
                                 placeholder="What is this for?"
                                 value={form.description}
                                 onChange={(e) => set("description", e.target.value)}
                             />
+                        </div>
+                    )}
+
+                    {isStandard && (
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-medium">
+                                <Checkbox
+                                    checked={form.recordInvoice}
+                                    onCheckedChange={(v) => set("recordInvoice", !!v)}
+                                    disabled={submitting}
+                                />
+                                Add invoice details
+                            </label>
+                            {form.recordInvoice && (
+                                <div className="ml-2 space-y-3 border-l-2 border-dashed pl-4">
+                                    <div className="space-y-1.5">
+                                        <Label>Invoice Date <span className="text-destructive">*</span></Label>
+                                        <Input
+                                            type="date"
+                                            value={form.invoice_date}
+                                            onChange={(e) => set("invoice_date", e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>
+                                            Invoice Ref {hasInvoiceFile && <span className="text-destructive">*</span>}
+                                        </Label>
+                                        <Input
+                                            value={form.invoice_ref}
+                                            onChange={(e) => set("invoice_ref", e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Invoice Attachment</Label>
+                                        {form.existingInvoiceUrl && !invoiceFile ? (
+                                            <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                                                <span className="truncate text-sm">
+                                                    {form.existingInvoiceUrl.split("/").pop()}
+                                                </span>
+                                                <Button
+                                                    type="button" variant="ghost" size="sm"
+                                                    className="h-7 shrink-0 text-xs"
+                                                    onClick={() => set("existingInvoiceUrl", "")}
+                                                >
+                                                    Remove
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <CustomAttachment
+                                                label="Upload Invoice Document"
+                                                selectedFile={invoiceFile}
+                                                onFileSelect={setInvoiceFile}
+                                                onError={({ message }) =>
+                                                    toast({ title: "Attachment", description: message, variant: "destructive" })
+                                                }
+                                                maxFileSize={5 * 1024 * 1024}
+                                                acceptedTypes={INVOICE_ACCEPTED_TYPES}
+                                                disabled={submitting}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 

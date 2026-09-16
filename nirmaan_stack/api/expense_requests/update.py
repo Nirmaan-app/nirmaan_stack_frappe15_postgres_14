@@ -34,7 +34,11 @@ import json
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_admin
-from nirmaan_stack.api.expense_requests.create import _promote_mapped, guard_vendor_scope
+from nirmaan_stack.api.expense_requests.create import (
+	_promote_mapped,
+	guard_request_form,
+	guard_vendor_scope,
+)
 
 
 def can_edit(req, user: str | None = None) -> bool:
@@ -89,6 +93,8 @@ def update_expense_request(
 
 	if source_data is not None and not isinstance(source_data, str):
 		source_data = json.dumps(source_data)
+
+	guard_request_form(expense_type, source_data)
 
 	promoted = _promote_mapped(expense_type, source_data)
 

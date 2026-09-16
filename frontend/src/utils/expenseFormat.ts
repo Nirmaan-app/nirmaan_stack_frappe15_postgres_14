@@ -356,7 +356,42 @@ export const readDetailDescription = (raw?: string | null): string => {
     return typeof value === "string" ? value : "";
 };
 
-/** `source_data.responses`, or {}. Shared by the two readers above so the envelope is
+/** Keys a STANDARD request (the type's form switched OFF) is stored under. They mirror the
+ *  backend's `flatten.NATIVE_*` constants, which read them back at approval to fill the ledger
+ *  row's invoice columns -- rename one side and the invoice silently stops reaching the ledger. */
+export const NATIVE_INVOICE_SECTION = "invoice";
+export const NATIVE_INVOICE_SLOT = "invoice";
+
+export interface NativeInvoice {
+    invoice_date: string;
+    invoice_ref: string;
+    /** The already-uploaded file URL, or "" */
+    invoice_attachment: string;
+}
+
+/** The invoice details of a STANDARD request, for re-seeding the edit dialog. */
+export const readNativeInvoice = (raw?: string | null): NativeInvoice => {
+    const section = parseResponses(raw)[NATIVE_INVOICE_SECTION];
+    const invoice = section && typeof section === "object" && !Array.isArray(section)
+        ? (section as Record<string, unknown>)
+        : {};
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
+    let attachment = "";
+    try {
+        const files = JSON.parse(raw || "{}")?.attachments?.[NATIVE_INVOICE_SLOT];
+        const first = Array.isArray(files) ? files[0] : files;
+        attachment = text(first);
+    } catch {
+        attachment = "";
+    }
+    return {
+        invoice_date: text(invoice.invoice_date),
+        invoice_ref: text(invoice.invoice_ref),
+        invoice_attachment: attachment,
+    };
+};
+
+/** `source_data.responses`, or {}. Shared by the readers above so the envelope is
  *  understood in ONE place. */
 const parseResponses = (raw?: string | null): Record<string, unknown> => {
     if (!raw) return {};

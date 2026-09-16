@@ -1,7 +1,8 @@
 // src/pages/ExpenseRequests/components/ExpensePackagesMaster.tsx
 //
 // Packages Settings → "Expense Packages". Manages the `Expense Type` master: add a type,
-// edit its project / non-project scope, and author the Expense Request form format.
+// edit its project / non-project scope, author the Expense Request form format, and switch
+// that form on or off.
 //
 // The scope checkboxes are not cosmetic — they drive real behaviour downstream:
 //   project only      -> the request form REQUIRES a project; approval writes Project Expenses
@@ -27,9 +28,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
@@ -73,10 +76,14 @@ export const ExpensePackagesMaster: React.FC = () => {
     const [search, setSearch] = useState("");
     const [edit, setEdit] = useState<EditState>(BLANK);
     const [formatFor, setFormatFor] = useState<ExpenseType | null>(null);
+    const [toggling, setToggling] = useState<string | null>(null);
+    // A type switched ON with no format yet: its format dialog is open, and a non-empty save
+    // there finishes the switch-on.
+    const [enableAfterSave, setEnableAfterSave] = useState<string | null>(null);
 
     const { data, isLoading, error, mutate } = useFrappeGetDocList<ExpenseType>("Expense Type", {
         fields: ["name", "expense_name", "project", "non_project", "source_format",
-                 "expense_category"],
+                 "source_format_enabled", "expense_category"],
         limit: 0,
         orderBy: { field: "expense_name", order: "asc" },
     });
@@ -87,6 +94,8 @@ export const ExpensePackagesMaster: React.FC = () => {
         "nirmaan_stack.api.expense_requests.masters.create_expense_type");
     const { call: updateType, loading: updating } = useFrappePostCall(
         "nirmaan_stack.api.expense_requests.masters.update_expense_type");
+    const { call: setFormEnabled } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.masters.set_expense_form_enabled");
     const busy = creating || updating;
 
     const rows = useMemo(() => {
@@ -95,10 +104,43 @@ export const ExpensePackagesMaster: React.FC = () => {
         return q ? all.filter((t) => t.name.toLowerCase().includes(q)) : all;
     }, [data, search]);
 
-    const withFormat = useMemo(
-        () => (data ?? []).filter((t) => (t.source_format || "").trim()).length,
+    const formsOn = useMemo(
+        () => (data ?? []).filter((t) => !!t.source_format_enabled && (t.source_format || "").trim()).length,
         [data]
     );
+
+    const handleToggleForm = async (t: ExpenseType, enabled: boolean) => {
+        // Nothing to enable yet: open the format dialog instead. The server refuses the switch
+        // without a format, so it is turned on only once a non-empty format is saved.
+        if (enabled && !(t.source_format || "").trim()) {
+            setEnableAfterSave(t.name);
+            setFormatFor(t);
+            return;
+        }
+        setToggling(t.name);
+        try {
+            await setFormEnabled({ name: t.name, enabled: enabled ? 1 : 0 });
+            await mutate();
+        } catch (e) {
+            toast({ title: "Could not switch the form", description: getFrappeError(e), variant: "destructive" });
+        } finally {
+            setToggling(null);
+        }
+    };
+
+    const handleFormatSaved = async (hasFormat: boolean) => {
+        // Read from this render's closure: the dialog closes (clearing both) right after.
+        const pending = enableAfterSave;
+        if (hasFormat && pending && pending === formatFor?.name) {
+            try {
+                await setFormEnabled({ name: pending, enabled: 1 });
+                toast({ title: "JSON format enabled", description: pending, variant: "success" });
+            } catch (e) {
+                toast({ title: "Could not switch the form", description: getFrappeError(e), variant: "destructive" });
+            }
+        }
+        mutate();
+    };
 
     const handleSave = async () => {
         const name = edit.expense_name.trim();
@@ -135,7 +177,7 @@ export const ExpensePackagesMaster: React.FC = () => {
             setEdit(BLANK);
             mutate();
         } catch (e) {
-            toast({ title: "Could not save", description: (e as Error).message, variant: "destructive" });
+            toast({ title: "Could not save", description: getFrappeError(e), variant: "destructive" });
         }
     };
 
@@ -156,7 +198,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                 <div>
                     <h2 className="text-lg font-semibold">Expense Packages</h2>
                     <p className="text-sm text-muted-foreground">
-                        {data?.length ?? 0} expense types · {withFormat} with a request form
+                        {data?.length ?? 0} expense types · {formsOn} using a request form
                     </p>
                 </div>
                 <Button size="sm" onClick={() => setEdit({ ...BLANK, open: true })}>
@@ -180,7 +222,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         <TableRow>
                             <TableHead>Expense Type</TableHead>
                             <TableHead>Scope</TableHead>
-                            <TableHead>Request Form</TableHead>
+                            <TableHead>JSON Format</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -188,6 +230,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         {rows.map((t) => {
                             const scope = scopeOf(t);
                             const hasFormat = !!(t.source_format || "").trim();
+                            const formOn = hasFormat && !!t.source_format_enabled;
                             return (
                                 <TableRow key={t.name}>
                                     <TableCell className="font-medium">{t.name}</TableCell>
@@ -197,11 +240,26 @@ export const ExpensePackagesMaster: React.FC = () => {
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        {hasFormat ? (
-                                            <span className="text-xs text-emerald-700">Custom form</span>
-                                        ) : (
-                                            <span className="text-xs text-muted-foreground">Plain form</span>
-                                        )}
+                                        <div className="flex flex-col gap-1">
+                                            <label
+                                                className="flex items-center gap-2"
+                                                title={formOn
+                                                    ? "Requests use this type's JSON form"
+                                                    : "Requests use the standard fields"}
+                                            >
+                                                <Switch
+                                                    checked={formOn}
+                                                    disabled={toggling === t.name}
+                                                    onCheckedChange={(v) => handleToggleForm(t, v)}
+                                                />
+                                                <span className={cn("text-xs", formOn ? "text-emerald-700" : "text-muted-foreground")}>
+                                                    {formOn ? "Enabled" : "Disabled"}
+                                                </span>
+                                            </label>
+                                            <span className={cn("text-[11px]", hasFormat ? "text-emerald-700" : "text-amber-700")}>
+                                                {hasFormat ? "Format added" : "No format (empty)"}
+                                            </span>
+                                        </div>
                                     </TableCell>
                                     <TableCell className="text-right whitespace-nowrap">
                                         <Button
@@ -301,8 +359,13 @@ export const ExpensePackagesMaster: React.FC = () => {
             <ExpenseFormatDialog
                 expenseType={formatFor}
                 open={!!formatFor}
-                onOpenChange={(o) => !o && setFormatFor(null)}
-                onSaved={mutate}
+                onOpenChange={(o) => {
+                    if (!o) {
+                        setFormatFor(null);
+                        setEnableAfterSave(null);
+                    }
+                }}
+                onSaved={handleFormatSaved}
             />
         </div>
     );

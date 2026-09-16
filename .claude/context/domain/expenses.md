@@ -338,7 +338,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
 | `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
 ### Load-bearing invariants
@@ -386,6 +386,18 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe
   Desk.** Since 2026-09-16 the category is **not shown anywhere in the app** (request picker or
   Expense Packages): a new type is saved as `Uncategorized`, an edit keeps the current one.
+- **"Enable Source" switch (`Expense Type.source_format_enabled`, 2026-09-16).** ON → the
+  request dialog shows the type's `source_format`; OFF → the STANDARD fields a direct expense
+  needs: Description (required), Vendor (required once a project is chosen; "Others" allowed —
+  UI-only, the server cannot tell it from blank) and optional invoice details. Those ride
+  `source_data` under minted keys (`responses.detail.description`,
+  `responses.invoice.{invoice_date, invoice_ref}`, `attachments.invoice`) and approval copies them
+  to the ledger's invoice columns (`flatten.native_invoice`). **Cannot be ON without a format**
+  (doctype `validate`); clearing a format switches it OFF (`save_expense_format`). ONE rule picks
+  the governing form — `convert.applicable_format`: the switch, EXCEPT a request already filled
+  against the form (`templateId` in its answers) keeps it after the switch goes off. **Only the
+  OFF side is server-enforced** (`create.guard_request_form`: description, invoice coherence,
+  refuses form answers); a form's own required answers are still dialog-only, as before.
 - **⚠️ THERE IS NO ROW SCOPING ON READS (owner ruling, 2026-08-18).** The
   `permission_query_conditions` hook was REMOVED, so a list read returns everything the
   caller's ROLE may read — and **eight roles hold read DocPerm** (System Manager, PM, HR

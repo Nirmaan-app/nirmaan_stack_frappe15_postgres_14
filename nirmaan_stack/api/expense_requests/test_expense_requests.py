@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expense_requests.create import create_expense_request
 from nirmaan_stack.api.expense_requests.read import (
+	get_expense_format,
 	get_my_expense_requests,
 	get_request_catalog,
 )
@@ -143,10 +144,17 @@ class TestExpenseRequests(FrappeTestCase):
 		hardcoded None silently wiped one of them, which is precisely the failure the
 		capture-the-original rule exists to prevent.
 		"""
-		original = frappe.db.get_value("Expense Type", expense_type, "source_format")
-		frappe.db.set_value("Expense Type", expense_type, "source_format", fmt)
+		# The "Enable Source" switch follows the format, so a test that sets one exercises
+		# it whatever the site's switch happens to say. Both are captured and restored.
+		original = frappe.db.get_value(
+			"Expense Type", expense_type, ["source_format", "source_format_enabled"], as_dict=True
+		)
+		frappe.db.set_value("Expense Type", expense_type,
+		                    {"source_format": fmt, "source_format_enabled": 1 if fmt else 0})
 		self.addCleanup(
-			frappe.db.set_value, "Expense Type", expense_type, "source_format", original
+			frappe.db.set_value, "Expense Type", expense_type,
+			{"source_format": original.source_format,
+			 "source_format_enabled": original.source_format_enabled},
 		)
 
 	# --- create --------------------------------------------------------------
@@ -979,10 +987,113 @@ class TestExpenseRequests(FrappeTestCase):
 		# accommodation/travel formats shipped, then when `GST Payment` was authored one --
 		# because formats are authored in the app, so any hardcoded example is a guess about
 		# what an admin has not done yet. Derived, it cannot rot.
+		# Since 2026-09-16 it also needs the type's "Enable Source" switch ON.
 		for name, entry in by_type.items():
-			stored = frappe.db.get_value("Expense Type", name, "source_format")
-			self.assertEqual(entry["has_format"], bool((stored or "").strip()),
-			                 msg=f"has_format disagrees with the stored format for {name}")
+			stored = frappe.db.get_value("Expense Type", name,
+			                             ["source_format", "source_format_enabled"], as_dict=True)
+			self.assertEqual(
+				entry["has_format"],
+				bool(stored.source_format_enabled and (stored.source_format or "").strip()),
+				msg=f"has_format disagrees with the stored format/switch for {name}")
+
+	# --- the request-form switch (2026-09-16) --------------------------------
+	#
+	# These build their OWN types, so they hold whatever the site's seeded switches say about
+	# the real ones.
+
+	def _own_type(self, *, project=0, non_project=1, fmt=None, enabled=0):
+		name = f"exr_test_et_{frappe.generate_hash(length=6)}"
+		d = frappe.new_doc("Expense Type")
+		d.update({"expense_name": name, "project": project, "non_project": non_project,
+		          "expense_category": "Uncategorized", "source_format": fmt,
+		          "source_format_enabled": enabled})
+		d.insert(ignore_permissions=True)
+		frappe.db.commit()
+		routing.clear_cache()
+
+		def _drop():
+			frappe.set_user("Administrator")
+			frappe.delete_doc("Expense Type", name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+		self.addCleanup(_drop)
+		return name
+
+	def _catalog_types(self, **kw):
+		routing.clear_cache()
+		return {t["expense_type"]: t
+		        for c in get_request_catalog(**kw)["categories"] for t in c["types"]}
+
+	def test_a_switched_off_form_is_not_served_and_its_answers_are_refused(self):
+		fmt = json.dumps({"templateId": "exr-test-off", "templateVersion": 1, "sections": []})
+		off = self._own_type(fmt=fmt, enabled=0)
+		self.assertIsNone(get_expense_format(off)["source_format"])
+		self.assertFalse(self._catalog_types()[off]["has_format"])
+
+		with self.assertRaises(frappe.ValidationError):
+			self._raise_as(PM_USER, expense_type=off, source_data={
+				"templateId": "exr-test-off", "templateVersion": 1, "responses": {}})
+		with self.assertRaises(frappe.ValidationError):
+			self._raise_as(PM_USER, expense_type=off, description="")
+		self.assertTrue(self._raise_as(PM_USER, expense_type=off, description="ok")["name"])
+
+		on = self._own_type(fmt=fmt, enabled=1)
+		self.assertEqual(get_expense_format(on)["source_format"], fmt)
+		self.assertTrue(self._catalog_types()[on]["has_format"])
+
+	def test_the_switch_cannot_be_on_without_a_format(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._own_type(enabled=1)
+
+	def test_standard_invoice_details_must_hang_together(self):
+		off = self._own_type()
+
+		def raise_with(invoice=None, files=None):
+			data = {"responses": {"detail": {"description": "cement"}}}
+			if invoice is not None:
+				data["responses"]["invoice"] = invoice
+			if files is not None:
+				data["attachments"] = {"invoice": files}
+			return self._raise_as(PM_USER, expense_type=off, source_data=data)
+
+		with self.assertRaises(frappe.ValidationError):   # a file needs a reference
+			raise_with({"invoice_date": "2026-09-01"}, ["/private/files/exr_test_inv.pdf"])
+		with self.assertRaises(frappe.ValidationError):   # any detail needs a date
+			raise_with({"invoice_ref": "INV-1"})
+		self.assertTrue(raise_with({"invoice_date": "2026-09-01"})["name"])
+
+	def test_a_standard_request_carries_its_invoice_to_the_ledger(self):
+		off = self._own_type()
+		res = self._raise_as(PM_USER, expense_type=off, source_data={
+			"responses": {"detail": {"description": "Cement bags"},
+			              "invoice": {"invoice_date": "2026-09-01", "invoice_ref": "INV-77"}},
+			"attachments": {"invoice": ["/private/files/exr_test_inv.pdf"]},
+		})
+		out = approve_expense_request(res["name"])
+		row = frappe.db.get_value(
+			"Non Project Expenses", out["created_expense"],
+			["description", "invoice_date", "invoice_ref", "invoice_attachment"], as_dict=True)
+		self.assertEqual(row.description, f"Cement bags · [{res['name']}]")
+		self.assertEqual(str(row.invoice_date), "2026-09-01")
+		self.assertEqual(row.invoice_ref, "INV-77")
+		self.assertEqual(row.invoice_attachment, "/private/files/exr_test_inv.pdf")
+
+	def test_a_request_filled_against_a_form_keeps_it_after_the_switch_goes_off(self):
+		fmt = json.dumps({
+			"templateId": "exr-test-keep", "templateVersion": 1,
+			"description_template": "Stay for {guest}.",
+			"sections": [{"id": "detail", "type": "fields", "fields": [
+				{"key": "guest", "label": "Guest", "type": "text", "required": True}]}],
+		})
+		typ = self._own_type(fmt=fmt, enabled=1)
+		res = self._raise_as(PM_USER, expense_type=typ, source_data={
+			"templateId": "exr-test-keep", "templateVersion": 1,
+			"responses": {"detail": {"guest": "Asha"}}})
+
+		frappe.db.set_value("Expense Type", typ, "source_format_enabled", 0)
+		frappe.db.commit()
+		out = approve_expense_request(res["name"])
+		desc = frappe.db.get_value("Non Project Expenses", out["created_expense"], "description")
+		self.assertEqual(desc, f"Stay for Asha. · [{res['name']}]")
 
 
 class TestExpenseTypeMasters(FrappeTestCase):
@@ -1109,3 +1220,35 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		# EMPTY IS LEGITIMATE -- it clears the format and the type stays fully requestable.
 		save_expense_format(name=name, source_format="")
 		self.assertIsNone(frappe.db.get_value("Expense Type", name, "source_format"))
+
+	# --- the request-form switch (2026-09-16) --------------------------------
+
+	def _made_type(self, **kw):
+		from nirmaan_stack.api.expense_requests.masters import create_expense_type
+		name = f"exr_test_m_{frappe.generate_hash(length=5)}"
+		self.made.append(create_expense_type(expense_name=name, non_project=1,
+		                                     expense_category="Uncategorized", **kw)["name"])
+		return name
+
+	def test_the_form_switch_needs_a_format_and_clearing_the_format_turns_it_off(self):
+		from nirmaan_stack.api.expense_requests.masters import (
+			save_expense_format, set_expense_form_enabled,
+		)
+		name = self._made_type()
+		with self.assertRaises(frappe.ValidationError):
+			set_expense_form_enabled(name=name, enabled=1)
+
+		save_expense_format(name=name, source_format='{"templateId":"x","templateVersion":1}')
+		set_expense_form_enabled(name=name, enabled=1)
+		self.assertEqual(frappe.db.get_value("Expense Type", name, "source_format_enabled"), 1)
+
+		save_expense_format(name=name, source_format="")
+		self.assertEqual(frappe.db.get_value("Expense Type", name, "source_format_enabled"), 0)
+
+	def test_pm_cannot_switch_a_form(self):
+		from nirmaan_stack.api.expense_requests.masters import set_expense_form_enabled
+		name = self._made_type()
+		frappe.set_user(PM_USER)
+		with self.assertRaises(frappe.PermissionError):
+			set_expense_form_enabled(name=name, enabled=0)
+		frappe.set_user("Administrator")
