@@ -328,14 +328,23 @@ export interface OutflowImportOption {
     source?: string;
     total_rows?: number;
     /**
-     * How many of this statement's transfers the bank actually moved (slice CF/S4).
+     * How many of this statement's transfers the bank actually moved OUT (slice CF/S4, #1287).
      *
      * ⚠️ NOT `total_rows`, WHICH INCLUDES REFUSED TRANSFERS. It pairs with `gross_amount`, which has
      * excluded them since parse time — printing `total_rows` beside that amount would put a count
      * and a figure describing different populations on one line.
+     *
+     * ⚠️ AND SINCE #1287 IT EXCLUDES MONEY-IN LINES TOO, FOR THE SAME REASON. `gross_amount` became
+     * debit-only when a source started carrying receipts, so a success-only count would have
+     * re-opened that split on a new axis — the live ICICI batch would read 170 transfers beside an
+     * amount covering 147. The server narrows the count in step; nothing is derived here.
      */
     successful_rows?: number;
-    /** Money that actually left the account. Bank-refused transfers were never in it. */
+    /**
+     * Money that actually left the account. Bank-refused transfers were never in it, and since
+     * #1287 neither are money-IN lines — this is the statement's withdrawals, not its net movement.
+     * Money that came in is not stored anywhere; it exists on the upload preview only.
+     */
     gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
@@ -638,7 +647,34 @@ export interface OutflowPreviewResult {
     total_rows: number;
     successful_rows: number;
     failed_rows: number;
+    /**
+     * Gross Outflow -- the money that LEFT the account, successful DEBIT lines only.
+     *
+     * ⚠️ IT STOPPED BEING "every successful line" at ticket #1287. On a passbook, which has no status
+     * column and no sign, that older sum was withdrawals PLUS deposits.
+     */
     gross_amount: number;
+    /**
+     * Gross Inflow -- the money that ARRIVED, every CREDIT line, including the ones this import will
+     * later skip by rule, so it can be checked against the statement's own deposit total.
+     *
+     * ⚠️ OPTIONAL, AND CHECKED WITH `!== undefined` RATHER THAN FOR TRUTHINESS -- a real `0` and an
+     * unsent key are different facts, the rule the direction tallies already follow. An older server
+     * sends neither this nor `inflow_rows`, and the screen then looks exactly as it did before.
+     *
+     * ⚠️ NEVER STORED. There is no `gross_inflow_amount` column on the batch, so this figure exists
+     * on the preview screen and nowhere else.
+     */
+    gross_inflow_amount?: number;
+    /**
+     * How many lines the statement itself called money IN.
+     *
+     * ⚠️ THIS, NOT `gross_inflow_amount > 0`, IS WHAT DECIDES WHETHER THE MONEY-IN SECTION RENDERS.
+     * "Has this statement any receipts?" is a question about LINES; deriving it from the money would
+     * hide a zero-value receipt and, on a debit-only source, would be answering a row question with
+     * a money answer.
+     */
+    inflow_rows?: number;
     charges_amount: number;
     duplicate_rows: number;
     new_rows: number;

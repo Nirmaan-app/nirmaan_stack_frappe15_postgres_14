@@ -2155,6 +2155,36 @@ export const statementDebit = (preview: {
 };
 
 /**
+ * What ARRIVED in the account, or `null` when this statement has no money-in lines (#1287).
+ *
+ * ⚠️ `null` IS THE "DO NOT RENDER THE SECTION" ANSWER, and it is deliberately not a zero. A debit-only
+ * source -- Cashfree, Cashbook -- cannot state a credit at all, so a zero-filled "Gross Inflow" tile
+ * would claim receipts were possible where none can occur. Same rule the summary panel's `Total
+ * received` band already follows, for the same reason.
+ *
+ * ⚠️ THE DECISION IS `inflow_rows`, NEVER `gross_inflow_amount > 0`. "Has this statement any
+ * receipts?" is a question about LINES. Reading it off the money would hide a zero-value receipt, and
+ * on a source that cannot carry a credit it would be answering a row question with a money answer.
+ *
+ * ⚠️ BOTH KEYS ARE CHECKED WITH `!== undefined`, NEVER FOR TRUTHINESS -- a real `0` and an unsent key
+ * are different facts. An older server sends neither, and this returns `null`, so the upload screen
+ * keeps its pre-#1287 shape rather than rendering a figure the server never computed.
+ */
+export interface StatementCredit {
+    inflow: number;
+    rows: number;
+}
+
+export const statementCredit = (preview: {
+    gross_inflow_amount?: number;
+    inflow_rows?: number;
+}): StatementCredit | null => {
+    if (preview.inflow_rows === undefined || preview.gross_inflow_amount === undefined) return null;
+    if (preview.inflow_rows <= 0) return null;
+    return { inflow: preview.gross_inflow_amount, rows: preview.inflow_rows };
+};
+
+/**
  * The transfer counts the preview states, with the two exclusions named separately.
  *
  * ⚠️ THERE IS DELIBERATELY NO COMBINED "how many will I actually work on" FIGURE. The two

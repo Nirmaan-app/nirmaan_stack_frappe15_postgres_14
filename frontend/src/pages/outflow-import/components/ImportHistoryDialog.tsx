@@ -136,6 +136,10 @@ export const ImportHistoryDialog = ({
  * That amount has excluded bank-refused transfers since parse time (invariant 13), so pairing it
  * with a count that includes them would put two figures describing different populations on one
  * line — the same defect as a chip reading 20 that opens a list of 47.
+ *
+ * ⚠️ SINCE #1287 THAT AMOUNT IS ALSO DEBIT-ONLY, and `successful_rows` was narrowed with it, in
+ * `review.list_imports`. The pair must move TOGETHER or this row reports a count and an amount over
+ * different populations again — which is the whole point of the note above, on a second axis.
  */
 const HistoryRow = ({
     option,

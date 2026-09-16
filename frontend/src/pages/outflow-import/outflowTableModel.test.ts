@@ -48,6 +48,7 @@ import {
     settleBlockText,
     settleBlocker,
     previewCounts,
+    statementCredit,
     statementDebit,
     tabCountParts,
     amountToneClass,
@@ -3161,6 +3162,38 @@ describe("statementDebit", () => {
         // because it looks like the feature is broken rather than the data being absent.
         expect(statementDebit({}).total).toBe(0);
         expect(statementDebit({ gross_amount: 100 }).total).toBe(100);
+    });
+});
+
+describe("statementCredit", () => {
+    it("reports the money that arrived when the statement has money-in lines", () => {
+        expect(
+            statementCredit({ gross_inflow_amount: 53_54_387, inflow_rows: 7 }),
+        ).toEqual({ inflow: 53_54_387, rows: 7 });
+    });
+
+    it("is null when the statement has no money-in lines, so the section never renders", () => {
+        // ⚠️ NULL, NOT A ZERO. Cashfree and Cashbook cannot state a credit at all, so a zero-filled
+        // "Gross Inflow" tile would claim receipts were possible where none can occur.
+        expect(statementCredit({ gross_inflow_amount: 0, inflow_rows: 0 })).toBeNull();
+    });
+
+    it("is null against an older server that sends neither key", () => {
+        // ⚠️ CHECKED WITH `!== undefined`, NEVER FOR TRUTHINESS -- a real 0 and an unsent key are
+        // different facts. An absent key means "this server does not compute it", and the screen must
+        // then look exactly as it did before #1287 rather than showing ₹0.
+        expect(statementCredit({})).toBeNull();
+        expect(statementCredit({ inflow_rows: 7 })).toBeNull();
+        expect(statementCredit({ gross_inflow_amount: 53_54_387 })).toBeNull();
+    });
+
+    it("renders a zero-value receipt, because the decision is the LINE COUNT not the money", () => {
+        // The whole reason `inflow_rows` is sent at all. A statement with a receipt of nothing in it
+        // still has a receipt, and `gross_inflow_amount > 0` would hide it.
+        expect(statementCredit({ gross_inflow_amount: 0, inflow_rows: 1 })).toEqual({
+            inflow: 0,
+            rows: 1,
+        });
     });
 });
 

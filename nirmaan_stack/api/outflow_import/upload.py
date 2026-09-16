@@ -135,6 +135,14 @@ def preview_outflow_statement():
         "successful_rows": parsed.success_count,
         "failed_rows": len(parsed.rows) - parsed.success_count,
         "gross_amount": float(parsed.gross_amount),
+        # ⚠️ TWO KEYS, AND THE COUNT IS NOT REDUNDANT (ticket #1287). The money-in section on the
+        # upload screen appears only when the statement HAS money-in lines, which is a question about
+        # ROWS -- answering it from `gross_inflow_amount > 0` would hide a zero-value receipt and, on
+        # a source that cannot state a credit at all, would be deriving a row fact from a money fact.
+        # `gross_inflow_amount` is 0 and `inflow_rows` is 0 for Cashfree and Cashbook, so their
+        # screens are unchanged. Neither figure is stored anywhere -- see `ParseResult`.
+        "gross_inflow_amount": float(parsed.gross_inflow_amount),
+        "inflow_rows": parsed.inflow_count,
         "charges_amount": float(parsed.charges_amount),
         "duplicate_rows": verdict.duplicates,
         "new_rows": verdict.new,

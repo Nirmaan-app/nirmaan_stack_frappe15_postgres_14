@@ -3979,6 +3979,87 @@ class TestTheHistoryFigures(OutflowReviewFixture):
         self.assertEqual(float(row["gross_amount"]), float(self.parsed.gross_amount))
 
 
+class TestTheHistoryCountFollowsTheDirectionSplit(unittest.TestCase):
+    """`list_imports` -- the count moved WITH `gross_amount` at #1287.
+
+    ⚠️ THE COUNT AND THE AMOUNT MUST DESCRIBE ONE POPULATION, WHICH IS THE WHOLE POINT OF
+    `successful_rows` EXISTING. `gross_amount` stopped being "every successful row" when a source
+    started carrying money in, so a success-only count re-opens that split on a new axis: the live
+    ICICI batch would have printed **170 transfers** beside an amount covering **147** of them, with
+    Rs 2,50,17,955 of deposits inside the count and outside the money.
+
+    ⚠️ IT PLANTS ITS OWN BATCH BECAUSE THE SHARED FIXTURE CANNOT SHOW THIS. `OutflowReviewFixture`
+    stages a Cashfree statement, and every Cashfree row states `Debit` -- so a credit row simply does
+    not occur there, and a test over it would pass because the failing case is absent.
+
+    ⚠️ RUNS AGAINST THE LIVE SITE DATABASE; the batch and its rows are purged in `tearDown`.
+    """
+
+    def setUp(self):
+        self.batch = frappe.new_doc(BATCH_DOCTYPE)
+        self.batch.update(
+            {
+                "source": "ICICI Bank Statement",
+                "original_filename": "history-count-fixture.csv",
+                "gross_amount": 600,
+                "charges_amount": 0,
+                "uploaded_by": "Administrator",
+                "uploaded_at": frappe.utils.now_datetime(),
+                "status": "Draft",
+                "total_rows": 4,
+            }
+        )
+        self.batch.insert(ignore_permissions=True)
+        # 400 + 200 out, 300 in, and one the statement never directed -- which the parser would have
+        # left with a blank amount too, so it belongs in neither figure.
+        for position, (amount, direction) in enumerate(
+            [("400", "Debit"), ("200", "Debit"), ("300", "Credit"), ("0", "")], start=1
+        ):
+            row = frappe.new_doc(ROW_DOCTYPE)
+            row.update(
+                {
+                    "import_batch": self.batch.name,
+                    "source": "ICICI Bank Statement",
+                    "transfer_id": f"{self.batch.name}-{position}",
+                    "amount": amount,
+                    "direction": direction,
+                    "status_raw": "SUCCESS",
+                    "row_status": ROW_MISMATCHED,
+                }
+            )
+            row.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.delete(ROW_DOCTYPE, {"import_batch": self.batch.name})
+        frappe.db.delete(BATCH_DOCTYPE, {"name": self.batch.name})
+        frappe.db.commit()
+
+    def _row(self):
+        return next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
+
+    def test_a_money_in_line_is_out_of_the_count_the_way_it_is_out_of_the_amount(self):
+        row = self._row()
+        self.assertEqual(row["successful_rows"], 2)
+        self.assertEqual(float(row["gross_amount"]), 600.0)
+        # The pre-#1287 count, asserted ABSENT so a widened filter cannot come back quietly.
+        self.assertNotEqual(row["successful_rows"], 4)
+
+    def test_total_rows_still_reports_the_whole_file(self):
+        """The narrowing is on the PAIR, not on the file. `total_rows` is what says how much is in
+        the statement, and it must keep saying so."""
+        self.assertEqual(self._row()["total_rows"], 4)
+
+    def test_a_padded_direction_still_counts_as_money_out(self):
+        """The `TRIM` mirrors every other spelling of this predicate. No stored row carries padding
+        today, which is exactly why it is planted."""
+        frappe.db.set_value(
+            ROW_DOCTYPE, f"{self.batch.name}-1", "direction", " Debit ", update_modified=False
+        )
+        frappe.db.commit()
+        self.assertEqual(self._row()["successful_rows"], 2)
+
+
 class TestTheMatchingOrder(unittest.TestCase):
     """`_match_order` -- which batch `match_period` matches FIRST (slice CF/S3).
 

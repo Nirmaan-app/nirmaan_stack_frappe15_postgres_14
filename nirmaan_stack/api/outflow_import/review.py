@@ -89,6 +89,7 @@ from nirmaan_stack.services.outflow_import.allocation import MATCH_REVERSED, MAT
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
+    DIRECTION_DEBIT,
     source_can_carry_credit,
 )
 from nirmaan_stack.services.outflow_import.settlement_reference import (
@@ -3646,11 +3647,31 @@ def list_imports(limit=60):
     with the dropdown about which statements exist and in what order -- and the History dialog's
     rows are clickable, so a disagreement would offer a statement the picker cannot select.
 
-    ⚠️ `successful_rows` IS COUNTED, NOT READ OFF `total_rows`. The batch stores `total_rows`
-    including transfers the bank REFUSED, while `gross_amount` has excluded them since parse time
-    (invariant 13). Printing those two side by side would put a count and an amount describing
-    different populations on one line -- the Skipped-chip defect, in a smaller frame. The definition
-    of "successful" is BOUND from `parser.BANK_SUCCESS_STATUS`, never spelled a second time.
+    ⚠️ `successful_rows` IS COUNTED, NOT READ OFF `total_rows`, AND IT IS COUNTED OVER EXACTLY THE
+    POPULATION `gross_amount` SUMS. The batch stores `total_rows` including transfers the bank
+    REFUSED, while `gross_amount` has excluded them since parse time (invariant 13). Printing those
+    two side by side would put a count and an amount describing different populations on one line --
+    the Skipped-chip defect, in a smaller frame. The definition of "successful" is BOUND from
+    `parser.BANK_SUCCESS_STATUS`, never spelled a second time.
+
+    ⚠️ THE DIRECTION TERM JOINED THE FILTER AT #1287, AND IT IS THE SAME RULE, NOT A SECOND ONE.
+    `gross_amount` stopped being "every successful row" the day a source carried money IN -- it is now
+    successful DEBITS only (`parser.gross_by_direction`). A success-only count would therefore have
+    re-opened the exact split this note forbids, on a new axis: the live ICICI batch would have read
+    **170 transfers** beside an amount covering **147** of them, with Rs 2,50,17,955 of deposits
+    inside the count and outside the money. Measured 2026-09-16, narrowing moves nothing on the other
+    two sources -- every one of their 2,205 Cashfree and 274 Cashbook successful rows already states
+    `Debit`. A row the statement left undirected is out of both, which is correct rather than
+    lossy: such a row contributes 0 to the amount too (the parser blanks amount and direction
+    together), so dropping it keeps the pair on one population.
+
+    ⚠️ THE MONEY THAT CAME **IN** IS DELIBERATELY ABSENT FROM THIS READER (ticket #1287 scope). The
+    history list reports what left the account; gross inflow lives on the upload preview only and is
+    not stored. Adding it here is a decision, not a fill-in.
+
+    ⚠️ `TRIM` MIRRORS EVERY OTHER SPELLING OF THIS PREDICATE -- `status.is_received_direction`, the
+    direction facet's `CASE`, the client's `isCreditRow`, and `parser._states`. No stored row carries
+    padding today, which is precisely why each one strips.
 
     ⚠️ A BATCH WITH NO ROWS STILL APPEARS, at zero. `LEFT JOIN` rather than `JOIN`: an import that
     staged nothing is exactly the one somebody goes looking for in a history, and dropping it would
@@ -3663,6 +3684,7 @@ def list_imports(limit=60):
                b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by,
                COUNT(r.name) FILTER (
                    WHERE UPPER(COALESCE(r.status_raw, '')) = %s
+                     AND TRIM(COALESCE(r.direction, '')) = %s
                ) AS successful_rows
         FROM "tabOutflow Import Batch" b
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
@@ -3671,7 +3693,7 @@ def list_imports(limit=60):
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         LIMIT %s
         """,
-        (BANK_SUCCESS_STATUS, max(1, min(int(limit or 60), 200))),
+        (BANK_SUCCESS_STATUS, DIRECTION_DEBIT, max(1, min(int(limit or 60), 200))),
         as_dict=True,
     )
 

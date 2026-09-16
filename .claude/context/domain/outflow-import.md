@@ -5333,3 +5333,127 @@ from real bank lines except the `TEST-1286-` prefix. Sweeping first makes a prev
 self-heal. The batch is swept by its own `original_filename` marker, **never by "has no rows left"**:
 a real import whose rows all settled has no open rows either. Verified after a run — 0 leftover rows,
 0 leftover batches, live figure back to ₹1,06,41,945 / 272.
+
+---
+
+## #1287 (2026-09-16) — Gross Outflow counts money OUT only; Gross Inflow is new
+
+The upload screen's **Gross Outflow** was **withdrawals plus deposits** on any statement that carries
+money in. Measured on the one live ICICI import, `OFI-26-04616`: stored **₹4,51,73,447.94**, which is
+**₹2,01,55,492.44** out plus **₹2,50,17,955.50** in. Corrected to ₹2,01,55,492.44 by the patch below.
+
+### The rule now lives in ONE pure function
+
+**`parser.gross_by_direction(rows) -> (gross_outflow, gross_inflow)`**, called once from `_parse`.
+`ParseResult.gross_amount` keeps its name (it is the figure the screen calls *Gross Outflow* and the
+batch stores) and gains a sibling `gross_inflow_amount`, defaulted so every hand-built `ParseResult`
+in the suites still constructs.
+
+⚠️ **A BLANK DIRECTION IS IN NEITHER TOTAL.** `RawRow.direction` is `""` where the statement did not
+say; counting such a row as a debit "by default" is the thing `parser.py` forbids in as many words.
+
+⚠️ **THE TWO FILTERS ARE ASYMMETRIC ON SUCCESS, AND THAT IS THE CONTRACT.** Outflow counts SUCCESSFUL
+debits (a failed transfer's money never left). Inflow counts EVERY credit, because it exists to be
+checked against the bank's own deposit total, **including the lines this import will later skip by
+rule**. On every shipped source the two readings coincide and cannot be told apart — the only source
+that carries credits is ICICI, whose rows all state the synthetic `SUCCESS`
+(`_ICICI_SYNTHETIC_STATUS`). So it is PLANTED in `TestGrossByDirection`, never left as a claim.
+
+⚠️ **CASHFREE AND CASHBOOK ARE BYTE-IDENTICAL** — `source_can_carry_credit` is False for both, so
+their gross is unchanged (57,727.50 / 6,750, both already pinned) and their upload screen does not
+change at all.
+
+### The payload carries TWO keys, and the count is not redundant
+
+`preview_outflow_statement` gains **`gross_inflow_amount`** and **`inflow_rows`**
+(`ParseResult.inflow_count`).
+
+⚠️ **THE SECTION RENDERS OFF `inflow_rows`, NEVER `gross_inflow_amount > 0`.** "Has this statement any
+receipts?" is a question about LINES. Reading it off the money hides a zero-value receipt and answers a
+row question with a money answer — the same class of mistake the D14 band rules already fence off.
+⚠️ Both are **OPTIONAL and checked with `!== undefined`, never for truthiness** — a real `0` and an
+unsent key are different facts, and an older server must leave the screen at its pre-#1287 shape.
+⚠️ **NOT STORED.** No schema change; there is no `gross_inflow_amount` column and a test asserts its
+absence. A second stored figure for the same statement is the two-keys-for-one-money shape `status.py`
+warns about, and there would be no history to correct it on.
+
+### The screen
+
+`outflowTableModel.statementCredit(preview)` returns `{inflow, rows}` or **`null`** — null is the "do
+not render" answer, deliberately not a zero. `ImportStatementDialog` **APPENDS** a
+`CAME INTO THE BANK` section after `Left the bank`, which therefore never moves (the D9/D14 rule).
+⚠️ **It does NOT foot into a total the way the debit column does** — the bank takes its fee on money
+going out, so there is no second figure on the way in and a "Total credited" line over one number
+would imply one is missing.
+
+Walked live 2026-09-16 on the ICICI fixture: *Gross Outflow* **₹37,27,536** · *Gross Inflow*
+**₹53,54,387** · *Money-in lines* **7**, beside the warning that row 17 had a figure in both money
+columns. Cashfree in the same session: ₹57,728 / ₹95 / ₹57,822, **no money-in section** — unchanged.
+
+### The Import History pair moved WITH it
+
+⚠️ **`review.list_imports`'s `successful_rows` GAINED THE SAME DIRECTION TERM, AND HAD TO.** That
+count exists to describe *exactly* the population `gross_amount` sums — its own docstring forbids
+"a count and an amount describing different populations on one line". Narrowing the amount without
+the count re-opened that split on a new axis: `OFI-26-04616` would have printed **170 transfers**
+beside an amount covering **147** of them, with ₹2,50,17,955 of deposits inside the count and
+outside the money. **The pair must always move together.** Measured 2026-09-16, the narrowing moves
+nothing on the other two sources — all 2,205 Cashfree and 274 Cashbook successful rows already state
+`Debit`. An undirected row leaves both, correctly: the parser blanks amount and direction together,
+so it contributed 0 to the amount anyway. `total_rows` is untouched and still reports the whole file.
+Pinned by `test_review.TestTheHistoryCountFollowsTheDirectionSplit` (3), which plants its own
+ICICI-shaped batch — the shared Cashfree fixture cannot produce a credit row, so a test over it would
+pass because the failing case is absent. The two notes that asserted the old rule
+(`OutflowImportBatch.ts`, `ImportHistoryDialog.tsx`) were updated in the same change.
+⚠️ **Gross inflow is still ABSENT from this reader** — history reports what left the account, and
+adding the money-in figure there is a decision, not a fill-in (parent spec, out of scope).
+
+⚠️ **The upload preview has the MILDER form of the same split and it is closed with COPY, not a
+figure.** "In this file" counts the whole file while "Left the bank" is money-out only, so on a
+both-directions statement the column gains one line: *Gross Outflow counts money-out lines only.*
+Gated on the same `credit !== null`, so a single-direction statement is unchanged. A "Money-out
+lines" FIGURE was rejected: it would have to be **read as sent** (deriving it from Successful minus
+the money-in count invents a number nothing computed, and the undirected row is in neither), meaning
+a payload key this ticket did not ask for. The two sections are headed differently and are not a
+pair on one line — which is why a sentence suffices here and did not in `list_imports`.
+
+### The patch
+
+**`v3_0.recompute_icici_gross_outflow`** (wired into `patches.txt`). Recomputes `gross_amount` from
+the batch's OWN staged rows, `SUM(amount) WHERE TRIM(direction) = 'Debit'` — **recomputed from
+source, never a delta**, which is what makes a second run provably a no-op.
+
+⚠️ **SCOPED TO `ICICI Bank Statement`, AND THE SCOPE IS LOAD-BEARING.** Cashfree and Cashbook rows may
+legitimately read BLANK on `direction`, so a debit-only row sum over them would silently **shrink** a
+correct total. The source name is written out rather than imported, on the `backfill_outflow_row_
+direction` reasoning: a patch is append-only history.
+⚠️ **NO STATUS TERM, DELIBERATELY** — an ICICI row's `SUCCESS` is synthetic, so `AND status_raw =
+'SUCCESS'` would be true of every row and would read as a guard against a case that cannot occur.
+⚠️ **`modified` IS NOT BUMPED.** The batch was not edited; a stale derivation was corrected.
+⚠️ `recompute_gross_outflow(batches=...)` exists so the suite can scope itself — `execute()` is the
+unscoped call. `batches=[]` and `batches=None` are **different instructions**; collapsing them is how
+a scoped test recomputes the whole site.
+
+### Tests
+
+| Suite | Result |
+|---|---|
+| `services/outflow_import` (pure) | **1077 OK** (was 1066) |
+| `api…test_upload` | **90 OK** (was 85) |
+| `api…test_icici_gross_outflow_patch` (new) | **9 OK** |
+| `api…test_review` | **324 OK / 1 skip** (was 321) — +3 for the history pair |
+| `api…test_cashbook_import` | 36 OK — unchanged |
+| frontend vitest | **3,883** — 1 failure, the pre-existing `writeOffControl.test.ts` 5 s timeout under full-suite load; passes alone (19 OK) |
+| `tsc --noEmit` | 0 errors under `src/pages/outflow-import/` and on `OutflowImportBatch.ts` |
+
+- `test_parser.TestAmounts.test_gross_sums_successful_debit_rows_only` is the **INVERTED** old pin: it
+  used to re-derive the sum with no direction term, which was the defect itself.
+- `test_the_two_figures_no_longer_add_up_to_the_old_single_total` states the bug rather than the fix —
+  if ₹90,81,923 ever reappears as either figure, the split has been undone.
+- `TestGrossByDirection` plants rows, because **the fixtures cannot prove the rule that matters most**:
+  every marker form fills amount and direction in one resolution, so a row that loses its direction
+  loses its amount with it (ICICI row 17 is exactly that), and excluding a zero is arithmetically free.
+- `TestPreviewPayloadCarriesBothDirections` is the one class in `test_upload` that calls the **real
+  endpoint**, faking only the multipart transport with a genuine `werkzeug` `FileStorage`. The payload
+  keys are built inline in the endpoint, so a test one layer down would prove the parser returned the
+  figure and never that it ARRIVES — the standing cross-seam rule.

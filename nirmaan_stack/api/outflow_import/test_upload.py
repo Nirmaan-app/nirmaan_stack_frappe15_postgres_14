@@ -957,6 +957,25 @@ class TestStageBankStatement(unittest.TestCase):
         insert would fail Frappe's own Select validation. This is that check, end to end."""
         self.assertEqual(self.batch.source, "ICICI Bank Statement")
 
+    def test_the_stored_gross_is_the_withdrawals_alone(self):
+        """⚠️ THE STORED FIGURE IS NOW OUTFLOW-ONLY (ticket #1287).
+
+        Rs 37,27,536 is the fixture's `Withdrawal Amt (INR)` column. It used to store Rs 90,81,923 --
+        withdrawals plus deposits -- because a passbook has no status column to tell the old
+        every-successful-row sum apart from a deposit. The pre-#1287 number is asserted ABSENT so the
+        old rule cannot come back quietly, and `v3_0.recompute_icici_gross_outflow` is what corrects
+        the batches staged before this.
+        """
+        self.assertEqual(float(self.batch.gross_amount), 3727536.0)
+        self.assertNotEqual(float(self.batch.gross_amount), 9081923.0)
+
+    def test_the_money_that_came_IN_is_not_stored_anywhere_on_the_batch(self):
+        """⚠️ DELIBERATELY NO SCHEMA CHANGE. Gross inflow rides the preview payload only. A stored
+        second figure for the same statement is the two-keys-for-one-money shape `status.py` warns
+        about, and there would be no history to correct it on."""
+        self.assertFalse(frappe.db.has_column(BATCH_DOCTYPE, "gross_inflow_amount"))
+        self.assertEqual(float(self.parsed.gross_inflow_amount), 5354387.0)
+
     def test_every_row_is_staged_including_the_ones_already_known_not_to_be_work(self):
         """405 of the real 1,274 rows are excluded, and every one of them is still STAGED.
 
@@ -1715,6 +1734,76 @@ def _wide_statement(columns: int) -> bytes:
          "1,000.00", "", "-1,000.00"] + ["x"] * (columns - 10)
     )
     return buffer.getvalue().encode()
+
+
+class TestPreviewPayloadCarriesBothDirections(unittest.TestCase):
+    """The preview payload's two gross figures, through the REAL endpoint (ticket #1287).
+
+    ⚠️ THIS IS THE ONE CLASS HERE THAT CALLS `preview_outflow_statement` ITSELF, and it has to.
+    Everything else in this module exercises `_stage_batch` for the reason in the module docstring --
+    the endpoint's extra work is authorization and a multipart read. But the payload's KEYS are built
+    inline in the endpoint and nowhere else, so a test one layer down would assert what the parser
+    returned and never that it ARRIVES: the producer's pin and the consumer's pin can both be green
+    while the join is broken (the standing cross-seam rule in `CLAUDE.md`). The multipart read is
+    faked with a real `werkzeug` `FileStorage`, which is the type the endpoint actually receives, so
+    the only fake is the transport.
+
+    WRITES NOTHING -- the preview is read-only by contract, so there is nothing to purge.
+    """
+
+    def _preview(self, path: str, source: str, filename: str) -> dict:
+        import io as _io
+
+        from werkzeug.datastructures import FileStorage, MultiDict
+
+        from nirmaan_stack.api.outflow_import.upload import preview_outflow_statement
+
+        with open(path, "rb") as handle:
+            content = handle.read()
+
+        class _Request:
+            """Only `.files` is read by `_read_and_parse`; everything else comes off form_dict."""
+
+            files = MultiDict(
+                {"file": FileStorage(stream=_io.BytesIO(content), filename=filename)}
+            )
+
+        previous_request = getattr(frappe.local, "request", None)
+        previous_form = dict(frappe.form_dict)
+        frappe.set_user("Administrator")
+        frappe.local.request = _Request()
+        frappe.form_dict["source"] = source
+        frappe.form_dict.pop("header_row", None)
+        try:
+            return preview_outflow_statement()
+        finally:
+            frappe.local.request = previous_request
+            frappe.local.form_dict = frappe._dict(previous_form)
+
+    def test_an_icici_preview_reports_the_two_directions_separately(self):
+        payload = self._preview(ICICI_FIXTURE, "ICICI Bank Statement", "icici.csv")
+        self.assertEqual(payload["gross_amount"], 3727536.0)
+        self.assertEqual(payload["gross_inflow_amount"], 5354387.0)
+        # The pre-#1287 single total, asserted ABSENT from both keys.
+        self.assertNotEqual(payload["gross_amount"], 9081923.0)
+        self.assertNotEqual(payload["gross_inflow_amount"], 9081923.0)
+
+    def test_an_icici_preview_reports_how_many_lines_were_money_in(self):
+        """⚠️ A COUNT, NOT A DERIVATION FROM THE MONEY. The screen shows its money-in section only
+        when the statement HAS money-in lines, and `gross_inflow_amount > 0` is a different question
+        -- see the comment at the payload."""
+        payload = self._preview(ICICI_FIXTURE, "ICICI Bank Statement", "icici.csv")
+        self.assertEqual(payload["inflow_rows"], 7)
+
+    def test_a_cashfree_preview_reports_no_money_in_at_all(self):
+        """⚠️ THE UNCHANGED-SCREEN CRITERION. Cashfree cannot state a credit, so both keys are zero
+        and the upload screen looks exactly as it does today. The keys are still PRESENT -- a real 0
+        and an absent key are different facts, and the client checks for the key, not for truthiness.
+        """
+        payload = self._preview(FIXTURE, "Cashfree", "cashfree.csv")
+        self.assertEqual(payload["gross_inflow_amount"], 0.0)
+        self.assertEqual(payload["inflow_rows"], 0)
+        self.assertEqual(payload["gross_amount"], 57727.5)
 
 
 if __name__ == "__main__":

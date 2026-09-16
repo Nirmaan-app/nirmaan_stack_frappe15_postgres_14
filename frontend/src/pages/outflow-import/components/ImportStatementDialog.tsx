@@ -35,7 +35,12 @@ import {
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { describeFrappeError, previewCounts, statementDebit } from "../outflowTableModel";
+import {
+    describeFrappeError,
+    previewCounts,
+    statementCredit,
+    statementDebit,
+} from "../outflowTableModel";
 import {
     CashbookConfirmResult,
     CashbookPreviewResult,
@@ -1046,6 +1051,10 @@ const StatementPreview = ({
 }) => {
     const counts = previewCounts(preview);
     const debit = statementDebit(preview);
+    // `null` when this statement has no money-in lines, which is every Cashfree and Cashbook import
+    // and any debit-only ICICI period -- see `statementCredit`. The section below is then not
+    // rendered at all rather than zero-filled.
+    const credit = statementCredit(preview);
     return (
     <div className="space-y-4 rounded-md border bg-muted/30 p-4">
         {/* Two columns, two questions: what is IN this file, and what LEFT the bank. They are
@@ -1119,7 +1128,58 @@ const StatementPreview = ({
                         {counts.failed === 1 ? "transfer" : "transfers"}.
                     </p>
                 )}
+                {/* ⚠️ ONLY ON A STATEMENT THAT CARRIES BOTH DIRECTIONS, and it is COPY, not a new
+                    figure. The counts in "In this file" span the whole file while this column is
+                    money-out only, so without this line a reader sees "Successful 20" beside an
+                    amount covering twelve of them and nothing says why. It is gated on the SAME
+                    `credit !== null` as the section below, so a single-direction statement -- every
+                    Cashfree and Cashbook import -- reads exactly as it did before #1287.
+
+                    A "Money-out lines" FIGURE was the other option and was not taken: the count
+                    would have to be READ AS SENT from the server (deriving it from `Successful`
+                    minus the money-in count would invent a number nothing computed, and the
+                    undirected row sits in neither), which means a payload key this ticket did not
+                    ask for. The two sections are headed differently on purpose; they are not a pair
+                    on one line, which is what makes a sentence enough here and was not enough in
+                    `list_imports`. */}
+                {credit !== null && (
+                    <p className="pt-0.5 text-xs text-muted-foreground">
+                        Gross Outflow counts money-out lines only.
+                    </p>
+                )}
             </section>
+
+            {/* ⚠️ APPENDED, AND SHOWN ONLY WHEN THE STATEMENT HAS MONEY-IN LINES (#1287). Appending
+                is what keeps "Left the bank" exactly where it has always been -- the same rule the
+                summary panel's Received band follows, for the same reason: Cashfree and Cashbook are
+                single-direction sources, so a zero-filled money-in section would claim receipts were
+                possible where none can occur. `statementCredit` is `null` in that case, so nothing
+                renders and the screen is byte-identical to before.
+
+                ⚠️ IT DELIBERATELY DOES NOT FOOT INTO A TOTAL THE WAY THE DEBIT COLUMN DOES. The bank
+                takes its fee on money going OUT; there is no charges figure on the way in, so there
+                are not two numbers to add. A "Total credited" line over one figure would imply a
+                second one is missing. */}
+            {credit !== null && (
+                <section className="space-y-1.5">
+                    <SectionLabel>Came into the bank</SectionLabel>
+                    <PreviewFigure
+                        label="Gross Inflow"
+                        value={formatToRoundedIndianRupee(credit.inflow)}
+                    />
+                    <PreviewFigure
+                        label="Money-in lines"
+                        value={String(credit.rows)}
+                        tone="muted"
+                    />
+                    {/* Says what is IN the figure rather than what it excludes: an accountant checks
+                        it against the statement's own deposit total, which counts every deposit
+                        line -- including the ones this import will skip by rule. */}
+                    <p className="pt-0.5 text-xs text-muted-foreground">
+                        Gross Inflow counts every money-in line, including any this import will skip.
+                    </p>
+                </section>
+            )}
         </div>
 
         {preview.duplicate_message && (
