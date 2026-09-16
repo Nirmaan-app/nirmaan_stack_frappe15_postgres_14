@@ -4,11 +4,11 @@ import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { APPROVAL_COUNTS_API, APPROVAL_STATUS } from "./config/approvalsTable.config";
+import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
 import { NewProjectExpenseDialog } from "../ProjectExpenses/components/NewProjectExpenseDialog";
 import { NewNonProjectExpense } from "../NonProjectExpenses/components/NewNonProjectExpense";
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFrappeDocTypeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
@@ -42,7 +42,24 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // leaves the sidebar store — shared with other screens — completely untouched.
     const { data: queueCounts, mutate: mutateQueueCounts } = useFrappeGetCall<{
         message: { counts: Record<string, number>; amounts: Record<string, number> };
-    }>(APPROVAL_COUNTS_API, undefined, "approval-queue-counts");
+    }>(APPROVAL_COUNTS_API, undefined, APPROVAL_COUNTS_SWR_KEY);
+
+    // ── Keep the badges live ──────────────────────────────────────────────────
+    // Actions on this page refresh them directly (`useRefreshApprovalCounts`). These
+    // listeners cover everything else — another user approving or paying, a bulk
+    // import settling rows — which would otherwise leave the badges stale until a
+    // reload. Debounced so a bulk action's burst of events costs one refetch.
+    const countsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scheduleCountsRefresh = useCallback(() => {
+        if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
+        countsDebounceRef.current = setTimeout(() => { mutateQueueCounts(); }, 500);
+    }, [mutateQueueCounts]);
+    useFrappeDocTypeEventListener("Project Payments", scheduleCountsRefresh);
+    useFrappeDocTypeEventListener("Project Expenses", scheduleCountsRefresh);
+    useFrappeDocTypeEventListener("Non Project Expenses", scheduleCountsRefresh);
+    useEffect(() => () => {
+        if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
+    }, []);
 
     const unionCount = useCallback(
         (status: string, fallback: number | string) => {

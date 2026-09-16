@@ -13,6 +13,8 @@ export const APPROVAL_QUEUE_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue";
 export const APPROVAL_COUNTS_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue_counts";
+/** SWR key of the tab-badge fetch — shared so a child tab can refresh the badges. */
+export const APPROVAL_COUNTS_SWR_KEY = "approval-queue-counts";
 
 /** The five statuses in sequence, plus the end state. `Paid` means RECONCILED. */
 export const APPROVAL_STATUS = {
@@ -57,6 +59,12 @@ export type ApprovalColumnId =
 export interface ApprovalQueueRow {
   name: string;
   source: "Vendor Payment" | "Project Expense" | "Non-Project";
+  /**
+   * What the Type column shows and filters on — `source` with a vendor payment split by
+   * its parent. Display + filter ONLY: every ledger branch keeps reading `source`.
+   * "Vendor Payment" survives here only as the server's fallback for an unrecognised parent.
+   */
+  source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project";
   doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
   status: string;
   amount: number;
@@ -271,6 +279,34 @@ export const SOURCE_LABEL: Record<ApprovalQueueRow["source"], string> = {
   "Non-Project": "Non Project Expense",
 };
 
+const SOURCE_BADGE_BASE: Record<ApprovalQueueRow["source"], string> = {
+  "Vendor Payment": "bg-sky-50 text-sky-700 ring-sky-200",
+  "Project Expense": "bg-violet-50 text-violet-700 ring-violet-200",
+  "Non-Project": "bg-amber-50 text-amber-800 ring-amber-200",
+};
+
+/** What the Type column READS. Stored values are what the facet filter and the endpoint match on. */
+export const TYPE_LABEL: Record<ApprovalQueueRow["source_type"], string> = {
+  "PO Payment": "PO Payment",
+  "SR Payment": "SR Payment",
+  "Vendor Payment": "Payment",
+  "Project Expense": "Project Expense",
+  "Non-Project": "Non Project Expense",
+};
+
+/** The Type filter's options. The "Vendor Payment" fallback is left out: no row carries it today. */
+export const TYPE_FILTER_VALUES: ApprovalQueueRow["source_type"][] = [
+  "PO Payment", "SR Payment", "Project Expense", "Non-Project",
+];
+
+export const TYPE_BADGE: Record<ApprovalQueueRow["source_type"], string> = {
+  "PO Payment": SOURCE_BADGE_BASE["Vendor Payment"],
+  "SR Payment": "bg-teal-50 text-teal-700 ring-teal-200",
+  "Vendor Payment": SOURCE_BADGE_BASE["Vendor Payment"],
+  "Project Expense": SOURCE_BADGE_BASE["Project Expense"],
+  "Non-Project": SOURCE_BADGE_BASE["Non-Project"],
+};
+
 /**
  * Line 1 of an expense description — the one thing that identifies the row.
  *
@@ -285,8 +321,4 @@ export const descriptionFirstLine = (text?: string): string =>
   (text || "").split("\n")[0].trim();
 
 /** One soft badge per ledger, so the three read apart at a glance. */
-export const SOURCE_BADGE: Record<ApprovalQueueRow["source"], string> = {
-  "Vendor Payment": "bg-sky-50 text-sky-700 ring-sky-200",
-  "Project Expense": "bg-violet-50 text-violet-700 ring-violet-200",
-  "Non-Project": "bg-amber-50 text-amber-800 ring-amber-200",
-};
+export const SOURCE_BADGE: Record<ApprovalQueueRow["source"], string> = SOURCE_BADGE_BASE;

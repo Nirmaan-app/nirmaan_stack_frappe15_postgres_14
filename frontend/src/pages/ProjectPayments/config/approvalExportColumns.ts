@@ -33,7 +33,7 @@ import { formatDate } from "@/utils/FormatDate";
 
 import {
   ApprovalQueueRow,
-  SOURCE_LABEL,
+  TYPE_LABEL,
   TIER_LABEL,
 } from "./approvalsTable.config";
 import { ApprovalColumnCtx } from "./approvalColumns";
@@ -63,8 +63,8 @@ export const buildApprovalExportColumns = (
   ctx: ApprovalColumnCtx,
 ): ColumnDef<ApprovalQueueRow>[] => [
   col("name", "ID", (r) => r.name),
-  col("source", "Source", (r) => SOURCE_LABEL[r.source] ?? r.source),
-  // The ledger a row came from. Invisible on screen — Source is the friendly form —
+  col("source_type", "Type", (r) => TYPE_LABEL[r.source_type] ?? r.source_type),
+  // The ledger a row came from. Invisible on screen — Type is the friendly form —
   // but it is what makes a merged export traceable back to a doctype.
   col("doctype", "Ledger", (r) => r.doctype),
   col("status", "Status", (r) => r.status),

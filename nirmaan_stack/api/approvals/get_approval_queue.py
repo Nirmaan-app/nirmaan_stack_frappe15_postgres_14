@@ -53,6 +53,12 @@ SOURCE_VENDOR_PAYMENT = "Vendor Payment"
 SOURCE_PROJECT_EXPENSE = "Project Expense"
 SOURCE_NON_PROJECT = "Non-Project"
 
+# What the Type column reads and filters on. Finer than `source`: a vendor payment splits
+# by its parent into PO / SR. `source` itself is UNCHANGED -- the tier line, the bank-file
+# export and the bulk engines all branch on it -- so this is an extra column, not a rename.
+TYPE_PO_PAYMENT = "PO Payment"
+TYPE_SR_PAYMENT = "SR Payment"
+
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
     SOURCE_PROJECT_EXPENSE: "Project Expenses",
@@ -73,7 +79,7 @@ _EXPENSE_AMOUNT = 'COALESCE(e."amount", 0)::numeric'
 # values are parameterized, but the identifiers are interpolated, so an allowlist
 # is what keeps that safe.
 SORTABLE = {
-    "name", "source", "status", "amount", "against_primary", "vendor", "project",
+    "name", "source", "source_type", "status", "amount", "against_primary", "vendor", "project",
     "raised_by", "creation", "approved_on", "paid_on", "utr_ref", "payment_by",
     "expense_type", "doctype",
 }
@@ -102,6 +108,14 @@ def _payments_select():
         SELECT
             p."name"                        AS name,
             '{src}'                         AS source,
+            -- ⚠️ POSITIONAL: UNION ALL matches columns by ORDER, so `source_type` must sit
+            -- at this same position in `_expense_select`. An unrecognised parent falls
+            -- back to the plain ledger name rather than being claimed as a PO payment.
+            CASE p."document_type"
+                WHEN 'Procurement Orders' THEN '{po}'
+                WHEN 'Service Requests' THEN '{sr}'
+                ELSE '{src}'
+            END                             AS source_type,
             'Project Payments'              AS doctype,
             p."status"                      AS status,
             COALESCE(p."amount", 0)::numeric AS amount,
@@ -133,7 +147,7 @@ def _payments_select():
             NULL::date                      AS reconciled_on,
             COALESCE(p."auto_approved", 0)  AS auto_approved
         FROM "tabProject Payments" p
-    """.format(src=SOURCE_VENDOR_PAYMENT)
+    """.format(src=SOURCE_VENDOR_PAYMENT, po=TYPE_PO_PAYMENT, sr=TYPE_SR_PAYMENT)
 
 
 def _expense_select(table, source, project_col):
@@ -148,6 +162,7 @@ def _expense_select(table, source, project_col):
         SELECT
             e."name"                        AS name,
             '{source}'                      AS source,
+            '{source}'                      AS source_type,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
             {_EXPENSE_AMOUNT}               AS amount,
@@ -407,7 +422,7 @@ def get_approval_queue_counts():
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in
 # Python from the amount, not stored, so there is nothing in SQL to group by --
 # and a closed 3-value set needs no server round trip anyway.
-FACETABLE = {"source", "status", "vendor", "project", "doctype", "expense_type"}
+FACETABLE = {"source", "source_type", "status", "vendor", "project", "doctype", "expense_type"}
 
 
 @frappe.whitelist(allow_guest=False)

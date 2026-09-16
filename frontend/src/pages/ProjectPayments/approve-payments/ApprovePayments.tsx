@@ -74,6 +74,7 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -105,6 +106,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { role, user_id } = useUserData();
+  const refreshTabCounts = useRefreshApprovalCounts();
   // const { mutate } = useSWRConfig();
   // --- State for Dialogs ---
   const [selectedPayment, setSelectedPayment] =
@@ -674,6 +676,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         refetch();
         closeDialog();
         invalidateSidebarCounts();
+        refreshTabCounts();
 
         toast({
           title: "Success!",
@@ -693,7 +696,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch]
+    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.

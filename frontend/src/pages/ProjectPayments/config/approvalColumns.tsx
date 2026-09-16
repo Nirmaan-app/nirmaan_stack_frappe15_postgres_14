@@ -31,9 +31,9 @@ import {
   ApprovalQueueRow,
   ApprovalTab,
   descriptionFirstLine,
-  SOURCE_BADGE,
-  SOURCE_LABEL,
   TIER_LABEL,
+  TYPE_BADGE,
+  TYPE_LABEL,
 } from "./approvalsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
 
@@ -107,9 +107,9 @@ const daysSince = (iso?: string | null): number | null => {
   return Math.floor((Date.now() - then) / 86_400_000);
 };
 
-const SourceChip = ({ source }: { source: ApprovalQueueRow["source"] }) => (
-  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${SOURCE_BADGE[source]}`}>
-    {SOURCE_LABEL[source]}
+const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => (
+  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
+    {TYPE_LABEL[type] ?? type}
   </span>
 );
 
@@ -230,15 +230,17 @@ const REGISTRY: Record<
     },
   }),
 
-  // The only column unification adds. Faceted, so the queue narrows to one ledger.
+  // The only column unification adds. Faceted, so the queue narrows to one ledger — or,
+  // for payments, to PO or SR. The registry key stays `source`; the column id is the
+  // server field it filters and sorts on (see the id note on `against` below).
   source: () => ({
-    id: "source",
-    accessorKey: "source",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
-    cell: ({ row }) => <SourceChip source={row.original.source} />,
+    id: "source_type",
+    accessorKey: "source_type",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    cell: ({ row }) => <TypeChip type={row.original.source_type} />,
     // Sized for the longest label, "Non Project Expense", rendered as a pill.
     size: 158,
-    meta: { exportHeaderName: "Source", exportValue: (r: ApprovalQueueRow) => SOURCE_LABEL[r.source] },
+    meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },
   }),
 
   against: (ctx) => ({

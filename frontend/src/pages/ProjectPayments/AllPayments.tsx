@@ -51,6 +51,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 
 
 import PaymentSummaryCards from "./PaymentSummaryCards"
+import { useRefreshApprovalCounts } from "./hooks/useRefreshApprovalCounts"
 import { canViewPaymentSummary } from "@/constants/roles"
 
 interface SelectOption { label: string; value: string; }
@@ -131,6 +132,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData(); // Get user role
+    const refreshTabCounts = useRefreshApprovalCounts();
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -456,7 +458,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 <UpdatePaymentRequestDialog
                     mode="fulfil"
                     payment={payPayment}
-                    onSuccess={() => { setPayPayment(null); refetch(); }}
+                    onSuccess={() => { setPayPayment(null); refetch(); refreshTabCounts(); }}
                 />
             )}
 
@@ -466,7 +468,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     setIsOpen={(open) => { if (!open) setPayRow(null); }}
                     expense={payExpenseDoc}
                     markAsPaid
-                    onSuccess={() => { setPayRow(null); refetch(); }}
+                    onSuccess={() => { setPayRow(null); refetch(); refreshTabCounts(); }}
                     getProjectName={(id) => projectMap.get(id || "") || id || ""}
                     getVendorName={(id) => vendorLabelMap.get(id || "") || id || ""}
                 />
@@ -478,7 +480,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     setIsOpen={(open) => { if (!open) setPayRow(null); }}
                     expense={payExpenseDoc}
                     markAsPaid
-                    onSuccess={() => { setPayRow(null); refetch(); }}
+                    onSuccess={() => { setPayRow(null); refetch(); refreshTabCounts(); }}
                 />
             )}
 
@@ -488,6 +490,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     payment={paymentToEdit}
                     onSuccess={() => {
                         refetch(); // Refetch the table data after a successful edit
+                        refreshTabCounts();
                         setPaymentToEdit(null); // Clear the state
                         // The dialog will close itself by calling its store setter.
                     }}

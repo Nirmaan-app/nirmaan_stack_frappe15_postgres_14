@@ -61,6 +61,7 @@ import PaymentSummaryCards from "../PaymentSummaryCards"
 import { useUserData } from "@/hooks/useUserData"
 import { canViewPaymentSummary } from "@/constants/roles"
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
+import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
 import { countLabel, summarizeSelection } from "../bulkSelectionSummary"
 import { IndianRupee } from "lucide-react"
 
@@ -119,6 +120,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // plain confirmation; the UTR / date / proof are captured on the Reconciliation
     // Pending tab, which is what actually settles the row.
     const { updateDoc } = useFrappeUpdateDoc();
+    const refreshTabCounts = useRefreshApprovalCounts();
 
 
     // --- State for Export Dialog ---
@@ -430,8 +432,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // act on those ticks.
         table.resetRowSelection();
         invalidateSidebarCounts();
+        refreshTabCounts();
         await refetch();
-    }, [confirmPaidRows, updateDoc, toast, refetch, table]);
+    }, [confirmPaidRows, updateDoc, toast, refetch, table, refreshTabCounts]);
 
     const selectedRows = table.getSelectedRowModel().rows;
     const confirmPaidTotal = useMemo(
