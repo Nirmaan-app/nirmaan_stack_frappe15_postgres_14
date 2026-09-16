@@ -206,7 +206,7 @@ export const getNonProjectExpenseColumns = ({
     header: ({ column }) => (
       <DataTableColumnHeader
         column={column}
-        title="Amount"
+        title="Req. Amount"
         className="justify-end"
       />
     ),
@@ -224,7 +224,7 @@ export const getNonProjectExpenseColumns = ({
       );
     },
     meta: {
-      exportHeaderName: "Amount",
+      exportHeaderName: "Req. Amount",
       exportValue: (row: NonProjectExpenses) => formatForReport(row.amount),
     },
   };

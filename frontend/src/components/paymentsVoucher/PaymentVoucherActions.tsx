@@ -9,6 +9,7 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { TailSpin } from "react-loader-spinner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
+import { buildVoucherFilename } from "./voucherFilename";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // Assuming this is the correct import
 
 // The Frappe Print Format Name from the user's template
@@ -132,10 +133,7 @@ export const PaymentVoucherActions = ({ payment, orderName, onVoucherUpdate, hid
         const creationDate = new Date(payment.creation);
         const paymentDatePart = payment.payment_date ? format(new Date(payment.payment_date), 'yyyyMMdd') : format(creationDate, 'yyyyMMdd');
         const timePart = format(creationDate, 'HHmmss');
-        const utrPart = payment.utr ? `_${payment.utr.replace(/[^a-zA-Z0-9]/g, '')}` : ''; // Sanitize UTR
-        
-        // Final filename format: ORDERID_PAYMENTNAME_DATE_UTR.pdf
-        return `${orderName}_${payment.name}_${paymentDatePart}_${utrPart}.pdf`;
+        return buildVoucherFilename({ orderName, paymentName: payment.name, datePart: paymentDatePart, utr: payment.utr });
     }, [payment, orderName]);
 
     // Frappe PDF download URL (forces a download with the correct filename)

@@ -161,6 +161,8 @@ export const SNAG_ENDPOINTS = {
   snagFieldValues: "nirmaan_stack.api.snags.tracking.get_snag_field_values",
   batchDeletePreview: "nirmaan_stack.api.snags.tracking.get_batch_delete_preview",
   deleteBatch: "nirmaan_stack.api.snags.tracking.delete_batch",
+  /** Relabel a batch (its tab name). Only `batch_name` moves — snags link by `name`. */
+  renameBatch: "nirmaan_stack.api.snags.tracking.rename_batch",
   /** Cross-project roll-up behind the `/snag-list` sidebar page. Takes no params. */
   projectSummaries: "nirmaan_stack.api.snags.project_list.get_projects_with_snag_stats",
 } as const;

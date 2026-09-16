@@ -10,6 +10,7 @@ import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPri
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -113,12 +114,11 @@ export const PaymentsDataDialog = ({
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
                               <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer"
                               >
-                                  {payment?.utr}
-                                  
+                                  <TruncatedText text={payment?.utr} fallback="" className="max-w-28" />
                               </a>
                       </TableCell>
                       ) : (
-                          <TableCell className="font-semibold overflow-hidden truncate max-w-28">{payment?.utr || "--"}</TableCell>
+                          <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={payment?.utr} className="max-w-28" /></TableCell>
                       )}
                     </TableRow>
                   ))

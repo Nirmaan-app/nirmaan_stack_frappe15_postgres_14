@@ -866,7 +866,7 @@ The Reports module reads from virtually every other module:
 | Vendor Ledger | Vendors, POs, SRs, Project Invoices, Project Payments |
 | PO Reports | Procurement Orders, Project Invoices, Project Payments, PO Delivery Documents |
 | WO Reports | Service Requests, Project Invoices, Project Payments |
-| DC / MIR Reports | PO Delivery Documents, Critical PO Tasks |
+| DC / MIR Reports | PO Delivery Documents, Critical PO Tasks, Critical PO Task Child Table |
 | Inventory Report | Remaining Items Reports, Project Estimates |
 | DN > DC Report | Procurement Orders, PO Delivery Documents |
 

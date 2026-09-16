@@ -12,7 +12,6 @@ is invisible -- the money already moved, so the books simply become quietly wron
 the guards more load-bearing than the happy path.
 """
 
-import inspect
 import unittest
 from dataclasses import replace
 from decimal import Decimal
@@ -28,6 +27,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     settle_row,
     settle_row_partial,
 )
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
@@ -47,10 +47,14 @@ from nirmaan_stack.services.outflow_import.settle import (
     ExpenseSettlementError,
     ExpenseTypeScopeError,
     WrongStatusError,
-    create_expense_from_row,
-    create_non_project_receipt_from_row,
     format_amount_for,
 )
+from nirmaan_stack.services.outflow_import.ledgers import settleable_statuses
+
+#: The status an expense must be in for this import to settle it, read from the ONE map (#1289).
+#: It was the literal `"Approved"`; the lifecycle gained a Mark-as-Done step, and a fixture planted
+#: at the old status tests a refusal everywhere it means to test a settle.
+SETTLEABLE = settleable_statuses(PROJECT_EXPENSE)[0]
 
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
@@ -162,7 +166,19 @@ class SettlementFixture(unittest.TestCase):
         self.assertTrue(rows, "no settleable row left in the fixture batch")
         return rows[0]
 
-    def _make_expense(self, doctype, amount, status="Approved", description="planted by test"):
+    def _make_expense(self, doctype, amount, status=SETTLEABLE, description="planted by test"):
+        """Plant an expense in EXACTLY the requested status.
+
+        ⚠️ THE STATUS IS RE-ASSERTED AFTER THE INSERT, AND WITHOUT THAT THE `Requested` FIXTURES
+        SILENTLY PLANT AN `Approved` RECORD. Both expense controllers auto-approve on create --
+        `validate` flips a `Requested` row to `Approved` when `0 < amount <= AUTO_APPROVE_LIMIT`
+        (Rs 10,000), a feature added independently of this module -- and these fixtures are built
+        from a statement row's own amount, which is usually well under it. The two refusal tests
+        then planted an approvable record, `settle_expense` correctly settled it, and
+        `assertRaises(WrongStatusError)` failed for a reason that had nothing to do with the guard
+        it was pinning. The write is a raw `set_value` on purpose: going back through the document
+        layer would re-run the very `validate` being stepped around.
+        """
         doc = frappe.new_doc(doctype)
         doc.update({"type": self.project_type if doctype == PROJECT_EXPENSE else self.non_project_type,
                     "status": status,
@@ -171,6 +187,8 @@ class SettlementFixture(unittest.TestCase):
         if doctype == PROJECT_EXPENSE:
             doc.projects = self.project
         doc.insert(ignore_permissions=True)
+        if doc.status != status:
+            frappe.db.set_value(doctype, doc.name, "status", status, update_modified=False)
         bucket = (
             self.project_expenses if doctype == PROJECT_EXPENSE else self.non_project_expenses
         )
@@ -367,13 +385,23 @@ class TestRefusals(SettlementFixture):
         with self.assertRaises(frappe.ValidationError):
             settle_expense(row["name"], PROJECT_EXPENSE, second)
         # The second expense is untouched -- the refusal happened before any write.
-        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, second, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, second, "status"), SETTLEABLE)
 
     def test_a_skipped_row_cannot_be_settled(self):
         row = self._row("0002")  # the FAILED transfer, auto-skipped at upload
         expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as refused:
             settle_expense(row["name"], PROJECT_EXPENSE, expense)
+        # ⚠️ INVERTED AT #1253. The refusal used to say "Re-run the match to reconsider it", and that
+        # remedy does not exist: `match_batch` never revisits a Skipped row (it is frozen). The
+        # sentence must say the skip is final and name the one real way out.
+        # ⚠️ INVERTED AGAIN AT #1274. That way out was "an admin corrects it in Desk"; a hand skip is
+        # now unskipped from the Skipped list, so Desk must no longer be named and Unskip must be.
+        message = str(refused.exception)
+        self.assertNotIn("Re-run the match", message)
+        self.assertIn("does not reopen it", message)
+        self.assertNotIn("Desk", message)
+        self.assertIn("unskip it from the Skipped list", message)
 
     def test_a_failed_settlement_leaves_nothing_behind(self):
         # Savepoint isolation: the refusal must not leave a match record claiming a settlement
@@ -433,8 +461,14 @@ class TestTheDirectionGuard(SettlementFixture):
 
     def test_a_credit_can_never_settle_an_approved_expense(self):
         """⚠️ THE SHARPEST OF THE THREE: everything else about this settlement is valid. The expense
-        is Approved, the amount matches to the paise, the row is settleable. Without the guard this
-        call SUCCEEDS and books a deposit as a payment out."""
+        is at the settleable status, the amount matches to the paise, the row is settleable. Without
+        the guard this call SUCCEEDS and books a deposit as a payment out.
+
+        ⚠️ THE FIXTURE'S STATUS IS THE WHOLE PREMISE (#1289). Planted at a status the write path
+        refuses, this test still goes green -- on the wrong refusal -- and stops saying anything
+        about the direction guard at all. `_make_expense`'s default reads the settleable map for
+        exactly that reason.
+        """
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
         self._as_credit(row["name"])
@@ -448,7 +482,7 @@ class TestTheDirectionGuard(SettlementFixture):
         self.assertIn("debit", message)
         self.assertIn("credit", message)
         # Nothing moved: not the expense, not the row, not a match record claiming a settlement.
-        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), SETTLEABLE)
         self.assertNotEqual(
             frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
         )
@@ -580,21 +614,22 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         self.assertEqual(after.status, "Paid")
         self.assertEqual(Decimal(str(after.amount)), Decimal(str(row["amount"])))
 
-    def test_the_corrected_project_amount_is_still_a_bare_numeric_string(self):
-        """⚠️ `Project Expenses.amount` IS A DATA COLUMN and 2,574 live rows hold bare numeric
-        strings. Writing a float through the rewrite would store '5000.0' beside every neighbour's
-        '5000' -- the numeric CAST the candidate query relies on would still work, which is exactly
-        why this drift would go unnoticed. `format_amount_for` is what prevents it, on the rewrite
-        as much as on a create."""
+    def test_the_corrected_project_amount_is_stored_as_a_number(self):
+        """⚠️ THIS ASSERTION FLIPPED ON 16 Sep 2026 and the flip IS the record of the change.
+
+        `Project Expenses.amount` WAS a Data column, so the rewrite had to write a bare numeric
+        string: a float would have stored '5000.0' beside every neighbour's '5000', and the numeric
+        CAST the candidate query relied on would STILL have worked -- which is exactly why that
+        drift would have gone unnoticed. The column is Currency now, so the rewrite writes a number
+        and the column itself is what keeps it self-consistent."""
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 1)
 
         settle_expense(row["name"], PROJECT_EXPENSE, expense)
 
         stored = frappe.db.get_value(PROJECT_EXPENSE, expense, "amount")
-        self.assertIsInstance(stored, str)
-        self.assertNotIn(",", stored)
-        self.assertEqual(Decimal(stored), Decimal(str(row["amount"])))
+        self.assertNotIsInstance(stored, str)
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
 
     def test_a_non_project_expense_takes_it_too_as_a_number(self):
         """The other ledger, and the other storage shape -- `Non Project Expenses.amount` is real
@@ -669,7 +704,7 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         after = frappe.db.get_value(
             PROJECT_EXPENSE, expense, ["status", "amount"], as_dict=True
         )
-        self.assertEqual(after.status, "Approved", "the settle committed inside its own savepoint")
+        self.assertEqual(after.status, SETTLEABLE, "the settle committed inside its own savepoint")
         self.assertEqual(Decimal(after.amount), Decimal(str(float(row["amount"]) - 0.31)))
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
         self.assertNotEqual(
@@ -709,16 +744,17 @@ class TestCreateExpense(SettlementFixture):
         # Visible provenance: the match record is durable but invisible on the expense form.
         self.assertIn(self.batch.name, doc.comment)
 
-    def test_the_project_amount_is_stored_as_a_bare_numeric_string(self):
-        # Project Expenses.amount is a Data column; 2,574 live rows hold '2935', not '2935.0'.
+    def test_the_project_amount_is_stored_as_a_number(self):
+        # INVERTED 16 Sep 2026: Project Expenses.amount was a Data column holding '2935', not
+        # '2935.0'. It is Currency now, so a create stores a real number.
         row = self._next_settleable_row()
         result = create_expense(
             row["name"], PROJECT_EXPENSE, self.project_type, project=self.project
         )
         self.project_expenses.append(result["settled"]["name"])
         stored = frappe.db.get_value(PROJECT_EXPENSE, result["settled"]["name"], "amount")
-        self.assertNotIn(",", stored)
-        self.assertEqual(Decimal(stored), Decimal(str(row["amount"])))
+        self.assertNotIsInstance(stored, str)
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
 
     def test_creates_a_non_project_expense_without_payment_by(self):
         # Non Project Expenses has no payment_by and no vendor column at all.
@@ -754,20 +790,109 @@ class TestCreateExpense(SettlementFixture):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type)
 
 
+class TestALongReferenceIsWrittenWhole(SettlementFixture):
+    """#1254: the reference fields are Text, so a long bank narration saves instead of failing
+    Frappe's 140-character check -- on the import row and on both expense ledgers."""
+
+    def test_settling_a_project_expense_stores_the_whole_narration(self):
+        row = self._next_settleable_row()
+        narration = _give_row_a_long_reference(self, row["name"])
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_ref"), narration)
+
+    def test_creating_a_non_project_expense_stores_the_whole_narration(self):
+        row = self._next_settleable_row()
+        narration = _give_row_a_long_reference(self, row["name"])
+
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        name = result["settled"]["name"]
+        self.non_project_expenses.append(name)
+
+        self.assertEqual(frappe.db.get_value(NON_PROJECT_EXPENSE, name, "payment_ref"), narration)
+
+
+class TestAnICICISettleStoresTheFullNarration(SettlementFixture):
+    """#1259: an ICICI row's settle or create stores the line's whole match surface as `payment_ref`
+    -- the narration, plus the cheque number on a cheque-clearing line -- so the contains-guard finds
+    the record again. A Cashfree row keeps its clean bank reference.
+
+    The fixture is a Cashfree statement, so a row is turned into an ICICI debit in place: the writers
+    read only `source`, `remarks`, `reference_id` and `direction` for this."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _as_icici_debit(self, row, narration, cheque=""):
+        frappe.db.set_value(
+            ROW_DOCTYPE, row["name"],
+            {"source": self.ICICI, "remarks": narration, "reference_id": cheque, "direction": "Debit"},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    @staticmethod
+    def _narration():
+        return f"MMT/IMPS/{frappe.generate_hash(length=12).upper()}/TEST VENDOR/UTIB0000052"
+
+    def test_settling_a_project_expense_stores_the_narration(self):
+        row = self._next_settleable_row()
+        narration = self._narration()
+        self._as_icici_debit(row, narration)
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_ref"), narration)
+
+    def test_creating_an_expense_stores_the_narration(self):
+        row = self._next_settleable_row()
+        narration = self._narration()
+        self._as_icici_debit(row, narration)
+
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        self.non_project_expenses.append(result["settled"]["name"])
+
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "payment_ref"), narration
+        )
+
+    def test_a_cheque_clearing_line_stores_its_narration_and_cheque_number(self):
+        row = self._next_settleable_row()
+        self._as_icici_debit(row, "CLG/SUMAN ELECTRIC UDYOGS P/HSB", cheque="004521")
+
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        self.non_project_expenses.append(result["settled"]["name"])
+
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "payment_ref"),
+            "CLG/SUMAN ELECTRIC UDYOGS P/HSB 004521",
+        )
+
+    def test_a_cashfree_settle_still_stores_its_clean_bank_reference(self):
+        row = self._next_settleable_row()
+        staged = frappe.db.get_value(
+            ROW_DOCTYPE, row["name"], ["source", "bank_reference_no", "remarks"], as_dict=True
+        )
+        self.assertEqual(staged.source, "Cashfree")
+        self.assertTrue(staged.bank_reference_no, "fixture precondition: a bank reference")
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(
+            frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_ref"), staged.bank_reference_no
+        )
+
+
 class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
-    """⚠️ SLICE B7 OPENED A SIGNED WRITE IN `settle.py`. THESE PIN THAT IT DID NOT REACH HERE.
+    """`create_expense_from_row` -- the DEBIT path -- refuses `amount <= 0`, because for a debit that
+    guard is correct: a transfer OUT of zero or less is not a spend.
 
-    B7 records a bank CREDIT that belongs to no project as a NEGATIVE `Non Project Expense`
-    (`create_non_project_receipt_from_row`). `create_expense_from_row` -- the DEBIT path, and a live
-    one -- keeps its `amount <= 0` guard exactly as it was, because for a debit that guard is
-    correct: a transfer OUT of zero or less is not a spend.
-
-    The safety here is structural rather than promised, and each half is pinned below:
-      * the two functions are SEPARATE, so there is no mode flag whose wrong branch is one boolean
-        away from turning every debit signed;
-      * the signed one takes NO `doctype` argument, so a credit can never be written as a negative
-        `Project Expense` -- whose `amount` is a **Data** column and whose project / vendor /
-        payment_by fields mean nothing on a receipt.
+    Slice B7 once added a signed write beside it (a NEGATIVE `Non Project Expense` for a credit).
+    #1266 removed that path (ADR-0016 Amendment A-D2) -- a credit with no project now becomes a
+    positive `Non Project Inflow` -- and these still pin that no negative amount gets through here.
     """
 
     def _row_at(self, amount):
@@ -782,9 +907,7 @@ class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type, project=self.project)
 
     def test_a_NEGATIVE_amount_row_is_still_refused(self):
-        """The case B7 makes worth asserting rather than assuming.
-
-        A staged row's `amount` is the positive MAGNITUDE on every source by design (ADR-0016
+        """A staged row's `amount` is the positive MAGNITUDE on every source by design (ADR-0016
         rejected a signed amount column outright), so this shape should not occur -- which is
         exactly why the guard has to stay: if one ever did, this path must refuse it rather than
         create an expense that quietly reads as income.
@@ -795,22 +918,11 @@ class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
         self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row["name"]}))
 
     def test_a_negative_amount_is_refused_on_the_NON_PROJECT_ledger_too(self):
-        """The ledger B7 writes signed. Reaching it through the DEBIT endpoint must still refuse."""
+        """Old negative `Non Project Expenses` exist (hand-entered, and from the removed B7 path).
+        Reaching that ledger through the DEBIT endpoint must still refuse one."""
         row = self._row_at(-2500)
         with self.assertRaises(AmountMismatchError):
             create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
-
-    def test_the_signed_writer_is_a_separate_function_that_cannot_be_told_a_doctype(self):
-        """A signature pin, because this is where "a credit never becomes a negative Project
-        Expense" actually lives. Not a comment: an argument nobody can pass is a guarantee, and a
-        `doctype` parameter added here would silently demote it to a convention."""
-        params = inspect.signature(create_non_project_receipt_from_row).parameters
-        self.assertNotIn("doctype", params)
-        # And `direction` is REQUIRED on it -- the sibling `create_inflow_from_row` tolerates
-        # `None`, which would be an open door where the direction chooses a SIGN.
-        self.assertIs(params["direction"].default, inspect.Parameter.empty)
-        # The debit writer still takes one, and still guards the amount. Two writers, two rules.
-        self.assertIn("doctype", inspect.signature(create_expense_from_row).parameters)
 
 
 class TestExpenseTypeScoping(SettlementFixture):
@@ -861,13 +973,14 @@ class TestTheStatementIsAttachedToWhatItSettled(SettlementFixture):
 
 
 class TestFormatAmountFor(unittest.TestCase):
-    def test_project_expenses_get_a_bare_string(self):
-        self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("5000")), "5000")
-        self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("5000.00")), "5000")
-        self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("351.72")), "351.72")
-
-    def test_non_project_expenses_get_a_number(self):
-        self.assertIsInstance(format_amount_for(NON_PROJECT_EXPENSE, Decimal("5000")), float)
+    def test_every_ledger_gets_a_number(self):
+        """⚠️ `Project Expenses` MOVED FROM THE STRING BRANCH TO THIS ONE on 16 Sep 2026, when its
+        column became Currency. It was the LAST Data-amount ledger (`Project Inflows` left at
+        #1255), so the string branch is gone entirely -- `doctype` no longer changes the answer."""
+        for doctype in (PROJECT_EXPENSE, NON_PROJECT_EXPENSE):
+            self.assertIsInstance(format_amount_for(doctype, Decimal("5000")), float)
+            self.assertEqual(format_amount_for(doctype, Decimal("5000.00")), 5000.0)
+            self.assertEqual(format_amount_for(doctype, Decimal("351.72")), 351.72)
 
 
 if __name__ == "__main__":

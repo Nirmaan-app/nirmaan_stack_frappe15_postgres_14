@@ -240,6 +240,32 @@ class TestTier0BankReference(unittest.TestCase):
         targets = [TargetRef("Project Payments", "PAY-1", Decimal("5000"), "Approved", "VEN-0001", "")]
         self.assertEqual(match_by_reference(_Row(amount="5000"), targets), ())
 
+    def test_the_resolved_settlement_reference_is_invisible_here(self):
+        """⚠️ THE NEGATIVE HALF OF ADR-0020 B9, AND THE HALF THAT PROTECTS MATCHING. A row whose
+        BANK reference is blank now carries a `settlement_reference` -- possibly the payment
+        gateway's own `reference_id`, which is NOT unique (2,237 Cashfree rows carry 523 distinct
+        values) and is not a bank reference at all. This tier and the duplicate guard behind it
+        compare the BANK's reference, so the resolved value must be invisible to both: reading it
+        here would group a transfer with a payment that merely shares a gateway id, and the
+        duplicate guard would then SKIP a real transfer on that resemblance.
+
+        Proving the write works is the easy half. This is the half that proves the read stayed put.
+        """
+        colliding = "900000000001"
+        targets = [
+            TargetRef(
+                "Project Payments", "PAY-1", Decimal("5000"), "Approved", "VEN-0001", colliding
+            )
+        ]
+        row = _Row(amount="5000", bank_reference_no="")
+        # The row carries it, exactly as a staged row does since B9 -- and the matcher must not care.
+        row.settlement_reference = colliding
+
+        self.assertEqual(match_by_reference(row, targets), ())
+        # The positive control: the SAME value in the field the matcher DOES read still matches, so
+        # this test cannot pass merely because the target or the value was wrong.
+        self.assertTrue(match_by_reference(_Row(amount="5000", bank_reference_no=colliding), targets))
+
 
 class TestTier1AccountAndIfsc(unittest.TestCase):
     """The nearly-certain tier: the money went to an account this company holds for that vendor."""

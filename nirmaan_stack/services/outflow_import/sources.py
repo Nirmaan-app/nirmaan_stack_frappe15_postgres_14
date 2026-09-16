@@ -29,8 +29,13 @@ need the wide identity without being a passbook, or the reverse.
 
 __all__ = [
     "BANK_STATEMENT_SOURCES",
+    "NEVER_MATCHED_SOURCES",
+    "TRANSFER_ID_REFERENCE_SOURCES",
     "source_has_settlement_path",
+    "source_runs_the_matcher",
     "source_has_preamble",
+    "source_transfer_id_is_its_reference",
+    "source_writes_its_match_surface",
 ]
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
@@ -48,6 +53,27 @@ __all__ = [
 #: source fails Frappe's own Select validation with nothing on screen explaining why. `test_upload`
 #: pins this set against both, and `test_review` pins the match run's reading of it.
 BANK_STATEMENT_SOURCES = frozenset({"ICICI Bank Statement"})
+
+#: Sources whose OWN transfer id is the only reference they will ever have.
+#:
+#: A petty-cash wallet issues no UTR and no gateway reference: `parser._CASHBOOK_COLUMNS` maps
+#: neither `bank_reference_no` nor `reference_id`, deliberately and permanently. Its `Txn Id` is
+#: therefore the only thing on the row an accountant can reconcile a settled record against, and
+#: `settlement_reference.resolve_settlement_reference` reads this set to say so.
+#:
+#: ⚠️ THIS IS THE THIRD RUNG OF THE LADDER AND IT IS PER-SOURCE ON PURPOSE (ADR-0020 B9). A gateway
+#: HAS a `transfer_id` too, and it is not a settlement reference -- widening the fallback to every
+#: source would stamp one onto 2,237 Cashfree rows nobody asked for. Keeping the rung here, at the
+#: ONE resolution, is also what stops it being re-derived at a write site: the whole point of
+#: resolving once is that every write site reads one field and no path can diverge from another.
+TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook"})
+
+#: Sources whose rows the match run must never reach (#1272).
+#:
+#: ⚠️ A DIFFERENT SET FROM `TRANSFER_ID_REFERENCE_SOURCES`, holding the same string today. That one
+#: answers "which reference does a settle store?"; this one answers "may the matcher write to these
+#: rows at all?". Do not merge them.
+NEVER_MATCHED_SOURCES = frozenset({"Cashbook"})
 
 
 def source_has_settlement_path(source: str) -> bool:
@@ -96,6 +122,45 @@ def source_has_settlement_path(source: str) -> bool:
     return (source or "").strip() not in BANK_STATEMENT_SOURCES
 
 
+def source_runs_the_matcher(source: str) -> bool:
+    """May a match run -- whole-batch or one line -- write to this source's rows? (#1272)
+
+    `False` for the petty-cash wallet (Cashbook). Its rows carry the PLAN its own job writes from
+    (`suggested_doctype`, `resolved_project`), and they sit `Pending match run` until that job runs.
+    A match run clears every suggestion it does not re-find, so reaching one would erase the plan --
+    and the tier ladder could only ever find an approved payment that happens to share an amount
+    (see `api/outflow_import/cashbook.py`). The Cashbook import never called `match_batch`, but
+    nothing stopped `match_period` from reaching an open Cashbook batch until this gate.
+
+    `True` for everything else, a blank or unknown source included: the same default
+    `source_has_settlement_path` takes, so every existing import stays on the path it is on.
+    """
+    return (source or "").strip() not in NEVER_MATCHED_SOURCES
+
+
+def source_transfer_id_is_its_reference(source: str) -> bool:
+    """Is this source's own transfer id the only reference it will ever have?
+
+    `True` for the petty-cash wallet (Cashbook). It issues no UTR and the export carries no gateway
+    reference column, so its `Txn Id` is the last rung of the settlement-reference ladder rather
+    than a fourth identifier nobody reconciles against. All 222 of its settled expenses already
+    carry it -- the expense path had been passing it by hand, which is exactly the per-path remedy
+    ADR-0020 B9 replaces with one resolution at ingest.
+
+    `False` for a payout gateway and for a bank passbook. Both have a real reference of their own,
+    and a gateway `transfer_id` written into `Project Payments.utr` would be a fourth kind of
+    non-bank string in a column that already holds hundreds.
+
+    ⚠️ AN UNKNOWN OR BLANK SOURCE ANSWERS `False`, AND THE DIRECTION OF THAT DEFAULT IS THE
+    OPPOSITE OF `source_has_settlement_path`'S -- deliberately, because the two defaults protect
+    different things. That one keeps an unrecognised source on the path it has always been on.
+    This one declines to WRITE a value into the ledger on a source nobody has thought about yet:
+    such a row lands exactly where it lands today, blank and visibly so, instead of carrying an
+    identifier whose meaning nobody has established.
+    """
+    return (source or "").strip() in TRANSFER_ID_REFERENCE_SOURCES
+
+
 def source_has_preamble(source: str) -> bool:
     """Does this source's export WRAP its table in rows that are not part of the table?
 
@@ -131,5 +196,22 @@ def source_has_preamble(source: str) -> bool:
     ⚠️ SAME DEFAULT DIRECTION AS `source_has_settlement_path`: an unknown or blank source answers
     `False` and therefore keeps the row-1 behaviour every source has had since slice S1. A new
     passbook is opted IN by being added to `BANK_STATEMENT_SOURCES`.
+    """
+    return (source or "").strip() in BANK_STATEMENT_SOURCES
+
+
+def source_writes_its_match_surface(source: str) -> bool:
+    """Does a settle from this source store the line's whole MATCH SURFACE as the reference? (#1259)
+
+    `True` for a bank passbook. Its narration is the only reference it has, and the short value the
+    parser extracts from it is not always there. Storing the whole surface
+    (`contains_guard.match_surface`: the narration, plus the cheque number on a cheque-clearing line)
+    is what lets the ICICI contains-guard find the record again when the same money reappears.
+
+    `False` for a payout gateway, which keeps its clean bank reference (the Cashfree guards compare
+    it whole-string), and for the wallet, which keeps its transaction id.
+
+    ⚠️ AN UNKNOWN OR BLANK SOURCE ANSWERS `False`: a narration in `utr` on a source nobody has thought
+    about is a value no guard of that source has been taught to read.
     """
     return (source or "").strip() in BANK_STATEMENT_SOURCES

@@ -36,8 +36,8 @@ def get_customer_ledger_data(customer_id):
     )
 
     # --- Step 2: Inflows received from the customer ---
-    # `amount` is a Data (varchar) field on this doctype -- flt() is mandatory,
-    # a raw compare/sum would be lexicographic.
+    # `amount` is Currency since #1255 (it was Data/varchar); flt() stays so a NULL
+    # amount on a migrated row reads as 0.
     inflows = frappe.get_all(
         "Project Inflows",
         filters={"customer": customer_id},

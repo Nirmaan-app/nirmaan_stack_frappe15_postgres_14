@@ -13,6 +13,7 @@
  *  | Action                                          | Who                          |
  *  |-------------------------------------------------|------------------------------|
  *  | Import / delete batch / add manual snag         | Admin, Project Lead, PMO     |
+ *  | Rename a batch (its tab label)                  | Admin, Project Lead, PMO     |
  *  | View import history (the batches icon)          | Admin, Project Lead, PMO     |
  *  | Change ONE row's status (+ its remark)          | Admin, Project Lead, PMO, PM |
  *  | EDIT one row's Area / Category / Description    | Admin, Project Lead, PMO     |
@@ -39,7 +40,7 @@ export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
  */
 export const ROLE_LOADING = "Loading";
 
-/** Manage the batch lifecycle: import, delete a batch, add a manual snag. */
+/** Manage the batch lifecycle: import, rename or delete a batch, add a manual snag. */
 export const SNAG_MANAGE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
   PROJECT_LEAD_PROFILE,
@@ -85,6 +86,17 @@ export const canImport = (actor: SnagActor): boolean =>
 export const canDeleteBatch = (actor: SnagActor): boolean =>
   hasProfile(actor, SNAG_MANAGE_PROFILES);
 
+/**
+ * May rename a batch — change the label its tab shows (`tracking.rename_batch`).
+ *
+ * Non-destructive (only the label moves; snags link to the batch by its document name),
+ * but it is still managing the batch, so it sits on the same list as import and delete.
+ * Its own named predicate for the same reason as `canViewBatches`: a later change to
+ * either question must not silently move the other.
+ */
+export const canRenameBatch = (actor: SnagActor): boolean =>
+  hasProfile(actor, SNAG_MANAGE_PROFILES);
+
 /** May add a one-off snag with no batch. */
 export const canAddManual = (actor: SnagActor): boolean =>
   hasProfile(actor, SNAG_MANAGE_PROFILES);
@@ -123,6 +135,7 @@ export const canBulkEdit = (actor: SnagActor): boolean =>
 export interface SnagPermissions {
   canImport: boolean;
   canDeleteBatch: boolean;
+  canRenameBatch: boolean;
   canAddManual: boolean;
   canViewBatches: boolean;
   canEditStatus: boolean;
@@ -137,6 +150,7 @@ export function resolveSnagPermissions(actor: SnagActor): SnagPermissions {
   const perms = {
     canImport: canImport(actor),
     canDeleteBatch: canDeleteBatch(actor),
+    canRenameBatch: canRenameBatch(actor),
     canAddManual: canAddManual(actor),
     canViewBatches: canViewBatches(actor),
     canEditStatus: canEditStatus(actor),
@@ -156,6 +170,8 @@ export function resolveSnagPermissions(actor: SnagActor): SnagPermissions {
     // the SAME list `canImport` / `canDeleteBatch` / `canAddManual` / `canViewBatches`
     // already use, so it cannot be the only true predicate for anybody and this line
     // is unmoved. Nobody's read-only banner changes.
+    //
+    // CHECKED for `canRenameBatch` (2026-09-11): also `SNAG_MANAGE_PROFILES` — unmoved.
     isReadOnly: !Object.values(perms).some(Boolean),
   };
 }

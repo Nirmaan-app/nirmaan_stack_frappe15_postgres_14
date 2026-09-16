@@ -8,6 +8,7 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment"; // You
 import { usePaymentScreenshotHandler } from '../hooks/usePaymentScreenshotHandler';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { TailSpin } from 'react-loader-spinner';
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 interface PaymentScreenshotDialogProps {
     isOpen: boolean;
@@ -39,7 +40,7 @@ export const PaymentScreenshotDialog: React.FC<PaymentScreenshotDialogProps> = (
                 <AlertDialogHeader>
                     <AlertDialogTitle className="text-center">Upload Payment Screenshot</AlertDialogTitle>
                     <AlertDialogDescription className="text-center text-sm">
-                        For Payment ID: {paymentDoc.name} (UTR: {paymentDoc.utr || 'N/A'})
+                        For Payment ID: {paymentDoc.name} (UTR: <TruncatedText text={paymentDoc.utr} fallback="N/A" />)
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="py-4">

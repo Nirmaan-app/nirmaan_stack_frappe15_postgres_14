@@ -19,6 +19,9 @@ from typing import Protocol, TypedDict
 INVOICE = "invoice"
 PAYMENT = "payment"
 CUSTOMER_PO = "customer_po"
+# An Income Tax Department challan receipt (ITNS 281) — TAX DEDUCTED AT SOURCE, not the Technical
+# Data Sheet family that shares the letters "TDS" elsewhere in this repo.
+TDS_CHALLAN = "tds_challan"
 
 
 class Entity(TypedDict):

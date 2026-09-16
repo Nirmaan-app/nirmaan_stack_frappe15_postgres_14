@@ -28,6 +28,15 @@ export interface ProjectPayments{
 	amount: number
 	/**	TDS : Data	*/
 	tds?: number
+	/**
+	 * Payment TDS : Link - Payment TDS Deduction (read-only)
+	 *
+	 * The tax deduction withheld from this payment. A MIRROR, not the authority:
+	 * `Payment TDS Deduction.project_payment` is the real link and is UNIQUE, which is what makes
+	 * the deduction flow idempotent. Written by `services/payment_tds.write_deduction` when the
+	 * deduction is recorded, and repaired on the next save if found blank — never set it by hand.
+	 */
+	payment_tds?: string
 	payment_date?: string
 	approval_date?: string
 	status: string

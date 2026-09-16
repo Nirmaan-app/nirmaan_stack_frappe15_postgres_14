@@ -20,6 +20,7 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { PaymentScreenshotDialog } from '@/pages/vendors/components/PaymentScreenshotDialog';
 import { SRRequestPaymentDialog } from './SRRequestPaymentDialog';
 import { useUserData } from '@/hooks/useUserData';
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 
 interface SRPaymentsSectionProps {
@@ -86,9 +87,9 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
                     <div className="flex items-center gap-1.5">
                         {payment.utr && payment.payment_attachment ? (
                             <a href={`${SITEURL}${payment.payment_attachment}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                                {payment.utr || "View"}
+                                <TruncatedText text={payment.utr} />
                             </a>
-                        ) : payment.utr || "-"}
+                        ) : <TruncatedText text={payment.utr} fallback="-" />}
                         {payment.utr && !payment.payment_attachment && canRecordPaidEntry && payment.status === "Paid" && (
                             <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={() => setScreenshotPayment(payment)}>
                                 <Paperclip className="h-3.5 w-3.5 text-primary" />

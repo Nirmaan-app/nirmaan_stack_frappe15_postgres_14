@@ -17,7 +17,7 @@
 // never disagree about what a cell holds.
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
-import type { OutflowColumn } from "./outflowTableModel";
+import { isCreditRow, type OutflowColumn } from "./outflowTableModel";
 
 /**
  * One column as `exportToCsv` reads it.
@@ -54,7 +54,8 @@ export interface OutflowExportColumn {
  * the point on the Reference column: `get` is `referenceValue` (the WHOLE reference, falling back to
  * a Cashbook row's `transfer_id`), never `shortReference`, whose 12-character tail is display-only
  * and must never leave the render layer -- a truncated UTR in an archived file is a reference that
- * finds nothing at the other end. The Outcome column's `get` is `outcome_note ?? skip_reason ?? ""`,
+ * finds nothing at the other end. The Outcome column's `get` is `outcomeNoteOf` (the outcome note, or
+ * a hand skip's typed reason),
  * which is right here for the same reason: on screen that cell is a BUTTON, and the note behind it
  * is the only part of it a file can carry.
  */
@@ -62,7 +63,7 @@ export interface OutflowExportColumn {
  * The two settlement facts the CSV carries that the SCREEN does not have.
  *
  * ⚠️ THEY ARE NOT IN `OUTFLOW_COLUMNS`, AND THEY MUST NOT BE. `get_outflow_rows` does not select
- * `settled_target_name` / `settled_target_amount`; only `export_outflow_rows` does. A column
+ * `settled_target_names` / `settled_target_amounts`; only `export_outflow_rows` does. A column
  * declared on the screen for a field its own query never returns renders an em dash on every row
  * forever -- the mirror image of the `settlement_origin` defect, where a facet was registered
  * without adding the field to the SELECT and 849 settled rows read blank.
@@ -71,27 +72,48 @@ export interface OutflowExportColumn {
  * screen's order, so somebody comparing a download against the table reads the same sequence; the
  * facts the screen cannot show sit after them, where supplementary data belongs.
  *
- * `Settled amount` is the RECORD's amount, which is not the transfer's `Amount Paid` -- on a
- * partial settle the two differ, and that difference is a reason somebody exports a spreadsheet in
- * the first place. It stays BLANK rather than 0 on an unsettled row: 0 is a claim that nothing was
- * owed, absence is the truth (the same blank-is-not-a-zero rule the BCS cost layer states).
+ * ⚠️ RENAMED FROM SINGULAR SCALARS AT TASK 6 (ADR-0020 fan-out) -- `settled_target_name` /
+ * `settled_target_amount` came off three independent `LIMIT 1` subqueries with no `ORDER BY`,
+ * which could each pick a DIFFERENT leg on a fan-out: one CSV line could carry one payment's name
+ * beside a different payment's amount. The plural keys are `string_agg`'d server-side under one
+ * shared `matched_at, name` ordering, so a cell here still reads as ONE pipe-joined string -- there
+ * is no list to `.join()` on the client, and doing so would be a second place that has to know the
+ * separator.
+ *
+ * `Settled amounts` are the RECORD(S)' own amount(s), which is not the transfer's `Amount Paid` --
+ * on a partial settle the two differ, and that difference is a reason somebody exports a
+ * spreadsheet in the first place. It stays BLANK rather than 0 on an unsettled row: 0 is a claim
+ * that nothing was owed, absence is the truth (the same blank-is-not-a-zero rule the BCS cost layer
+ * states).
  */
 export const EXPORT_ONLY_COLUMNS: readonly OutflowExportColumn[] = [
+    // ⚠️ DIRECTION MOVED HERE WHEN THE SCREEN DROPPED ITS COLUMN (owner, 2026-09-14). On screen the
+    // Amount colour and the tabs say it; a CSV has neither, and every amount in it is a positive
+    // figure, so without this an export of the All tab could not tell money in from money out.
+    // `Paid` / `Received` on every row -- never blank -- via the one predicate, `isCreditRow`.
     {
-        id: "settled_target_name",
-        header: "Settled record",
+        id: "direction",
+        header: "Direction",
         meta: {
-            exportHeaderName: "Settled record",
-            exportValue: (row: OutflowImportRow) => row.settled_target_name ?? "",
+            exportHeaderName: "Direction",
+            exportValue: (row: OutflowImportRow) => (isCreditRow(row) ? "Received" : "Paid"),
         },
     },
     {
-        id: "settled_target_amount",
-        header: "Settled amount",
+        id: "settled_target_names",
+        header: "Settled record(s)",
         meta: {
-            exportHeaderName: "Settled amount",
+            exportHeaderName: "Settled record(s)",
+            exportValue: (row: OutflowImportRow) => row.settled_target_names ?? "",
+        },
+    },
+    {
+        id: "settled_target_amounts",
+        header: "Settled amount(s)",
+        meta: {
+            exportHeaderName: "Settled amount(s)",
             // ⚠️ `?? ""`, never `?? 0`. See the block comment above.
-            exportValue: (row: OutflowImportRow) => row.settled_target_amount ?? "",
+            exportValue: (row: OutflowImportRow) => row.settled_target_amounts ?? "",
         },
     },
 ];
@@ -140,10 +162,21 @@ export const exportFileBase = (scope: string): string => {
     switch ((scope || "").trim()) {
         case "all":
             return "outflow-transfers-all";
+        // The pre-#1264 ids a stale client can still send name the same outflow files.
         case "not_matched":
+        case "not_matched_outflow":
             return "outflow-transfers-not-matched";
+        case "partly_outflow":
+            return "outflow-transfers-partly-allocated";
         case "matched":
+        case "matched_outflow":
             return "outflow-transfers-matched";
+        // ⚠️ AN INFLOW FILE MUST NOT BE NAMED `outflow-…`: that name would tell a reconciler the
+        // opposite of what the rows are.
+        case "not_matched_inflow":
+            return "inflow-transfers-not-matched";
+        case "settled_inflow":
+            return "inflow-transfers-settled";
         case "skipped":
             return "outflow-skipped";
         default:

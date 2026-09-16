@@ -11,6 +11,9 @@ export const PAYMENT_STATUS = {
   REQUESTED: "Requested" as const,
   CEO_PENDING: "CEO Pending" as const,
   APPROVED: "Approved" as const,
+  // Money has LEFT the bank but the bank statement has not confirmed it yet.
+  // `Paid` now means reconciled; this is the state between the two.
+  RECONCILIATION_PENDING: "Reconciliation Pending" as const,
   REJECTED: "Rejected" as const,
   SCHEDULED: "Scheduled" as const,
   CREATED: "Created" as const,
@@ -32,3 +35,14 @@ export const DIALOG_ACTION_TYPES = {
 
 // You can define types based on these constants
 export type DialogActionType = typeof DIALOG_ACTION_TYPES[keyof typeof DIALOG_ACTION_TYPES];
+
+// Hard ceiling on one bulk selection in the approvals queue. MUST mirror
+// `nirmaan_stack/api/payments/bulk_actions.py::MAX_BATCH_SIZE` — and the expense engine,
+// which imports that same constant. The endpoint throws the WHOLE batch back when it is
+// exceeded, before any write, so a 140-row selection approves NOTHING; capping the
+// selection is what keeps the user from ever reaching that throw.
+//
+// It is reachable at all because the page-size selector goes up to 10,000 rows: at 500
+// rows per page the entire CEO-Pending queue sits on one page, and "select all on this
+// page" is then the whole queue.
+export const BULK_MAX_SELECTION = 100;

@@ -132,7 +132,7 @@
    "label": "Amounts"
   },
   {
-   "description": "Sum of the beneficiary Amount column across SUCCESS rows. EXCLUDES service charge and tax -- this is what reached beneficiaries, not what left the bank.",
+   "description": "Sum of the beneficiary Amount column across SUCCESS rows that the statement called a DEBIT. EXCLUDES service charge and tax -- this is what reached beneficiaries, not what left the bank. A credit row (money IN) is NOT in this figure and a row whose direction the statement never stated is in no figure at all; before ticket #1287 both were added in, which made an ICICI passbook's Gross Outflow its withdrawals plus its deposits. The money-in total is not stored -- it rides the preview payload only.",
    "fieldname": "gross_amount",
    "fieldtype": "Currency",
    "label": "Gross Amount"

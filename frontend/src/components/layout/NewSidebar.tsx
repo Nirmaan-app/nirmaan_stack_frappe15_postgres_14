@@ -22,6 +22,7 @@ import {
   ClipboardCheck,
   ClipboardMinus,
   HandCoins,
+  PiggyBank,
   ReceiptText, FileUp,
   CreditCard,
   Dices,
@@ -31,7 +32,6 @@ import {
   FileChartLine,
   Tickets,
   Table2,
-  Percent,
   TriangleAlert
 } from "lucide-react";
 
@@ -71,7 +71,7 @@ import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
   MATERIAL_PROCUREMENT_PROFILES,
-  PAYMENT_TDS_ACCESS,
+  NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
   isMaterialProcurementProfile,
@@ -555,45 +555,49 @@ export function NewSidebar() {
         {
           key: '/project-payments',
           icon: CircleDollarSign,
-          label: 'Project Payments',
+          // Renamed 2026-09-15: the screen is becoming the unified money-out queue,
+          // carrying project + non-project EXPENSES alongside vendor payments.
+          // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+          // The ROUTE stays `/project-payments`: eight backend notification deep links
+          // point at it, so renaming the key would 404 live and historical sends.
+          label: 'Project Payment & Expense',
         },
       ]
       : []),
-    // Payment TDS Deduction -- Tax Deducted at Source, sitting directly under the payments it is
-    // withheld from.
+    // Payment TDS Deduction (Tax Deducted at Source) has NO sidebar item of its own -- the ledger
+    // lives in the Reports hub as the "Payment TDS Deduction" tab (pages/reports), gated there by
+    // the same PAYMENT_TDS_ACCESS constant. `/payment-tds-deductions` still resolves; routesConfig
+    // redirects it into that tab.
+    // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
     //
-    // ⚠️ NARROWER THAN THE ENTRY ABOVE, AND IT HAS TO BE. The `Payment TDS Deduction` doctype
-    // grants read to System Manager / Nirmaan Accountant / Nirmaan Accountant Lead only, so the
-    // PMO, Project Lead and procurement profiles listed above would follow this link into a
-    // PermissionError.
+    // Expenses are now raised and worked from "Project Payment & Expense": the unified
+    // queue lists all three money-out ledgers, and the top-bar "Expense Request"
+    // dropdown creates either kind. A second nav entry pointing at the same records
+    // was two doors into one room.
     //
-    // ⚠️ READS THE SHARED CONSTANT RATHER THAN LISTING PROFILES INLINE, unlike its neighbours.
-    // `PAYMENT_TDS_ACCESS` also guards the ROUTE (routesConfig.tsx), and the nav item and the
-    // route have to agree: an inline second copy drifts the day one of them is edited, and it
-    // fails in the quiet direction -- a visible link that dead-ends on "Access Denied".
+    // ⚠️ HIDDEN, NOT DELETED — exactly like PO Wise / All Payments on the payments tab
+    // strip. `/expense/project` and `/expense/non-project` still RESOLVE
+    // (routesConfig.tsx), so existing links, bookmarks and any deep link keep working;
+    // only the nav button is gone. Restoring it is un-commenting this block.
     //
-    // ⚠️ NOT RELATED TO 'TDS Repository' / 'TDS Approval' further down this same menu -- those are
-    // the TECHNICAL DATA SHEET module. Same three letters, unrelated concepts.
-    ...(user_id == "Administrator" || PAYMENT_TDS_ACCESS.includes(role as string)
-      ? [
-        {
-          key: '/payment-tds-deductions',
-          icon: Percent,
-          label: 'Payment TDS Deduction',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
-      ? [
-        {
-          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
-          // default (Misc Project) tab; the tab strip handles switching.
-          key: '/expense/project',
-          icon: Landmark,
-          label: 'Expense',
-        },
-      ]
-      : []),
+    // ⚠️ IF RESTORED, the label must ALSO go back into the flat-nav Set further down
+    // (search: "Credit Payments") — that Set is matched by LABEL, and an entry missing
+    // from it renders as a collapsible group with a chevron that swallows the click.
+    //
+    // ⚠️ ONE ROLE LOSES ACCESS FROM THE NAV: Nirmaan HR Executive Profile was in this
+    // gate but is NOT in the "/project-payments" gate above, so HR has no nav route to
+    // expenses any more. The URL still works. Flagged to the owner.
+    // ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
+    //   ? [
+    //     {
+    //       // Unified Expense module: Misc Project + Non-Project tabs. Links to the
+    //       // default (Misc Project) tab; the tab strip handles switching.
+    //       key: '/expense/project',
+    //       icon: Landmark,
+    //       label: 'Expense',
+    //     },
+    //   ]
+    //   : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
@@ -611,6 +615,17 @@ export function NewSidebar() {
           key: '/in-flow-payments',
           icon: HandCoins,
           label: 'In-Flow Payments',
+        },
+      ]
+      : []),
+    // Non-Project Inflows (#1265) -- directly under In-Flow Payments. Reads the same constant as the
+    // route guard (routesConfig.tsx) so the link and the route agree.
+    ...(user_id == "Administrator" || NON_PROJECT_INFLOWS_ACCESS.includes(role as string)
+      ? [
+        {
+          key: '/non-project-inflows',
+          icon: PiggyBank,
+          label: 'Non-Project Inflows',
         },
       ]
       : []),
@@ -798,9 +813,9 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
-    "payment-tds-deductions",
     "credits",
     "in-flow-payments",
+    "non-project-inflows",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -852,9 +867,9 @@ export function NewSidebar() {
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
     "/project-payments": ["project-payments"],
-    "/payment-tds-deductions": ["payment-tds-deductions"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
+    "/non-project-inflows": ["non-project-inflows"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     "/expense/project": ["expense"],
@@ -971,14 +986,16 @@ export function NewSidebar() {
                     "TDS Repository",
                     "Procurement Requests",
                     "Purchase Orders",
-                    "Project Payments",
-                    "Payment TDS Deduction",
+                    "Project Payment & Expense",
                     "Credit Payments",
                     "Sent Back Requests",
                     "Projects",
                     "Work Orders",
                     "In-Flow Payments",
                     "Project Inflows",
+                    // Non-Project Inflows (#1265): flat nav button. It was first shipped WITHOUT this
+                    // label, so it rendered as an empty group -- a chevron and a click that went nowhere.
+                    "Non-Project Inflows",
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
@@ -993,7 +1010,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    "Expense",
+                    // "Expense",  // hidden from the nav — see the commented block above
                     "Users",
                     "Assets",
                     "Vendors",

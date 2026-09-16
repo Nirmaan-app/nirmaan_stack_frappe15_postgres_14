@@ -64,14 +64,49 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
 
-- **Expense status** — the single field describing where an Expense sits in its lifecycle. It advances in one direction: *Requested* → *Approved* → *Paid*. An Expense holds exactly one at a time.
+- **Expense and Payment status** — the single field describing where an Expense or a Project Payment sits in its lifecycle. It advances in one direction: *Requested* → *CEO Pending* → *Approved* → *Reconciliation Pending* → *Paid*, with *Rejected* as the one way out. A record holds exactly one at a time. Not every record meets every step: only a payment above the CEO's threshold waits at *CEO Pending*, and a small Expense is auto-approved straight to *Approved*.
   - **Requested** — entered, awaiting approval; not yet sanctioned and no cash has gone out.
+  - **CEO Pending** — approved by the team and waiting for the CEO, who may approve it in full or approve part of it and leave the balance here.
   - **Approved** — sanctioned to spend, but the money has **not** yet left. A staging state, not settled spend.
-  - **Paid** — the cash has actually gone out. The **final** state and the **only** one that counts as real spend.
+  - **Reconciliation Pending** — an Accountant has pressed **Mark as Done**: the money has gone out of the bank, and the record is now waiting to be matched against the bank line that paid it. Still not settled spend — the money is gone but nothing has proved it yet.
+  - **Paid** — the cash has gone out **and** a bank line has been matched to it, or somebody marked it reconciled by hand. The **final** state and the **only** one that counts as real spend.
+  - **Rejected** — refused. It counts toward nothing, and re-approving it from here withholds Work Order tax as a first approval does.
+
+- **Mark as Done** — the Accountant's action that moves a record from *Approved* to *Reconciliation Pending*, meaning "the money has left the bank". It is the step that makes a record visible to Bulk Import: from 2026-09-16 the import settles a record only from *Reconciliation Pending*, never from *Approved*. A record still sitting at *Approved* cannot be matched to a bank line, and the import says so by name — "mark it as done first" — rather than refusing without explanation. *Avoid*: marking it paid, settling it. (2026-09-16, #1289.)
 
 - **Settled spend (outflow)** — expense money that has actually left, i.e. an Expense at status *Paid*. **Only** *Paid* Expenses are included in any financial rollup — project outflow, the cashflow gap / CEO-Hold, project Financials totals, the Outflow reports, and the 30-day payment dashboard. *Requested* and *Approved* Expenses are commitments, not settled spend, and are excluded from every such number.
 
 - **Auto-approval (of a small Expense)** — a positive Expense of ₹10,000 or less is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount above ₹10,000 follows the full *Requested → Approved → Paid* path. (2026-09-04: threshold raised from ₹5,000 and the comparison made inclusive — exactly ₹10,000 auto-approves.)
+
+## Inflows
+
+- **Project Inflow** — money received from a customer against a specific Project, optionally against one of that Project's invoices. It counts the moment it is recorded; there is no approval step.
+
+- **Non-Project Inflow** — money the company receives that belongs to no Project and no customer. Like a Project Inflow it counts the moment it is recorded (no approval step), and it is never netted against spend. (2026-09-14: introduced; replaces the negative Non-Project Expense "receipt" as the way a bank-statement credit with no project is recorded.)
+  *Avoid*: receipt, negative expense.
+
+- **Inflow Type** — the kind of a Non-Project Inflow, exactly one of:
+  - **Interest Payout** — interest paid to the company (e.g. on a deposit).
+  - **FD Closure** — proceeds of a fixed deposit that was closed.
+  - **Loan Received** — a loan disbursed to the company.
+  - **Others** — anything else; a description saying what it is is then required.
+  A **vendor refund** is conceptually separate and will get its own workflow; until then it is recorded as a Non-Project Inflow of type *Others*.
+
+- **Transaction direction (of an imported bank row)** — *Inflow* is money received (a bank credit); *Outflow* is money paid (a debit). A row whose source states no direction counts as Outflow. The import screen's own facet labels the same two values *Received* / *Paid*.
+
+- **Total Unreconciled Outflow** — how much bank money has been paid out and still needs reconciling: every imported bank line whose direction is *Outflow* and which still owes somebody a decision, across every import, every source and all time. Shown on the Payments summary card with the number of lines. It excludes lines already settled, lines skipped, and transfers the bank refused, because none of those is outstanding work. It is the same figure Bulk Import shows as *Still open* under *Paid out* with no filters, and the two are never allowed to disagree. It is **not** a 30-day figure and is never added to the 30-day outflow beside it. (2026-09-16.)
+  *Avoid*: unmatched outflow, open outflow, unreconciled payments.
+
+- **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Only a line skipped by hand can later be brought back. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement — and stays skipped, so the same money is never recorded twice. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
+  *Avoid*: manual skip for a system skip a person merely confirmed.
+
+- **Unreconcile (an imported bank line)** — undoing a match on a settled bank line, with a typed reason, one record at a time or all at once (**Reverse all**, which changes nothing unless every record can be undone). Each record says first what will happen to it; a Project Payment goes back to *Reconciliation Pending* with its UTR and payment date cleared, and an existing Project Expense or Non-Project Expense goes back to *Reconciliation Pending* with its payment date, reference and "paid by" cleared — the status a bank line settles FROM, so the record can be matched to the right line without anyone pressing Mark as Done a second time; either is then free to match another line. A record the import itself created (a Project Inflow, a Non-Project Inflow, or a new expense) is deleted instead — unless someone edited it after the import made it — and a bank credit whose inflow was deleted can be recorded again. A **part payment** is joined back together — the leftover payment is deleted, the payment gets its full amount back and the PO's two payment terms become one — but only while the leftover is untouched; a leftover already paid by another transfer must have that transfer unreconciled first. The match record is kept, marked Reversed. The line keeps its previous suggestion but is marked **Confirm by hand**: "Confirm all matched" leaves it out and refuses it, until a person settles it from the line itself. Unreconciling a Work Order payment **never changes its amount and never withholds tax** — see *TDS withheld*. Cashbook lines cannot be unreconciled yet. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); the revert target amended 2026-09-16 by [Amendment B](docs/adr/0022-unreconcile-and-unskip.md).)
+
+- **TDS withheld (on a Work Order payment)** — tax deducted at source, kept back from what a vendor is paid on a Work Order and later paid to the tax department under a challan. It is withheld **once, when the payment is approved from an earlier step**: when it is approved from *Requested*, *CEO Pending* or *Rejected*, or when it is created already *Approved*. A payment that comes back to *Approved* from *Reconciliation Pending* or *Paid* is **not** withheld from again, because that is an undo, not a decision to pay. Undoing a reconciliation no longer enters *Approved* at all — since 2026-09-16 it lands at *Reconciliation Pending* — so it is doubly clear of this rule; the *Approved* cases above are kept for every other way a payment can step back. The amount stored on the payment is the **net** figure, what actually leaves the bank; the original gross survives only on the tax record. Tax already withheld is never removed by any of this — nothing in the app can reverse a tax record. A payment the CEO part-approves is the one deliberate exception: each part is taxed at its own approval, so such a payment can carry one tax record per part. A leftover created by splitting a payment in Bulk Import carries none — the tax stays withheld once, on the original. (2026-09-16, [ADR-0022 Amendment A](docs/adr/0022-unreconcile-and-unskip.md).)
+  ⚠️ **Not the Technical Data Sheet**, which the same three letters name elsewhere in this system.
+  *Avoid*: tax deducted again, re-deduction, TDS on Approved.
+
+- **Unskip (an imported bank line)** — bringing a line **skipped by hand** back, with a typed reason. The line goes back to matching and is checked again straight away: it may come back needing a record, matched to a record, or skipped again because its money has since been recorded — and a line skipped again that way is a system skip and cannot be unskipped. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
 
 ## Vendor invoices & credit notes
 
@@ -90,6 +125,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Credit Note** — a **Purchase-Order-only** Vendor Invoice variant recording a vendor credit: its amount is stored negative and it is excluded from the PO's invoiced quantity. Work Orders (Service Requests) have no credit notes.
 
 - **Admin (Nirmaan)** — the elevated actor these financial-mutation rules gate on: the *Administrator* user or a holder of the *Nirmaan Admin Profile*. Deliberately narrower than the broader "privileged" role sets (e.g. PMO Executive, Accountant Lead) used on read/visibility surfaces.
+
+## Work-order GST
+
+- **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No).
+
+- **Notional GST** — the GST a GST-off Work Order *would* have carried: 18% of its total. It is not owed, paid or invoiced anywhere — a what-if figure showing how much GST was never charged on work ordered without it. A GST-on Work Order has none (its GST is real and already inside its total). Only **Approved** Work Orders count — the same set as the Work Order side of "PO + WO Amount" — so a Work Order under amendment drops out of both until it is approved again. *Avoid*: GST payable, GST liability, missing GST.
 
 ## Module residence
 

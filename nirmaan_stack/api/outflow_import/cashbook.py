@@ -78,11 +78,15 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
+from nirmaan_stack.services.outflow_import.settlement_reference import (
+    resolve_settlement_reference,
+)
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
+    SKIP_ORIGIN_SYSTEM,
 )
 
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -269,9 +273,11 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
         payment_by=(doc.get("added_by_raw") or "").strip() or None,
-        # ⚠️ THE WALLET'S TRANSACTION ID, because there is no UTR. It is the only value that will
-        # find this spend again in the wallet's own records.
-        payment_ref=(doc.get("transfer_id") or "").strip() or None,
+        # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
+        # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
+        # fixed THIS write site and left the payment one blank for this source. `_stage` now
+        # resolves the same value into `settlement_reference` at ingest, so `staged` carries it and
+        # every write site reads the one field.
     )
 
     match = frappe.new_doc(MATCH_DOCTYPE)
@@ -286,6 +292,8 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
             "match_kind": "Settled",
             "match_basis": MATCH_BASIS,
             "settlement_origin": "Suggestion accepted",
+            # #1278: the Cashbook writer only ever creates (`create_expense_from_row` above).
+            "created_by_import": 1 if result.created else 0,
             "matched_at": frappe.utils.now_datetime(),
             "matched_by": actor,
         }
@@ -435,19 +443,14 @@ def _already_booked(parsed) -> dict:
     for doctype in EXPENSE_DOCTYPES:
         # ⚠️ `ORDER BY creation ASC` for the same reason `_already_imported` needs it: the message
         # names the FIRST agreeing sighting, and the first booking is the one worth naming.
-        if doctype == PROJECT_EXPENSE_DOCTYPE:
-            amount_expr = "CAST(NULLIF(BTRIM(amount), '') AS numeric)"
-            extra = " AND COALESCE(BTRIM(amount), '') <> ''"
-        else:
-            amount_expr = "amount"
-            extra = ""
+        # Both ledgers store `amount` as Currency since 16 Sep 2026, so one expression serves
+        # both. The loop stays because they are still two tables with two name sets.
         rows = frappe.db.sql(
             f"""
             SELECT name, BTRIM(payment_ref) AS payment_ref,
-                   {amount_expr} AS amount, payment_date
+                   amount, payment_date
             FROM "tab{doctype}"
             WHERE BTRIM(COALESCE(payment_ref, '')) IN ({placeholders})
-              {extra}
             ORDER BY creation ASC
             """,
             tuple(ids),
@@ -512,8 +515,25 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 "beneficiary_name": raw.beneficiary_name,
                 "remarks": raw.remarks,
                 "added_by_raw": raw.added_by_raw,
+                # ⚠️ THE SAME ONE RESOLUTION THE GATEWAY PATH USES (ADR-0020 B9), called here rather
+                # than assumed away. A wallet row carries neither reference field -- `_CASHBOOK_COLUMNS`
+                # maps neither, deliberately and permanently -- so the ladder always lands on the
+                # third rung and this is always `transfer_id`. Writing `raw.transfer_id` directly
+                # would produce the identical string today and would be the SECOND definition of
+                # the ladder: the per-path divergence this slice exists to remove, reintroduced at
+                # the very source that made it necessary.
+                "settlement_reference": resolve_settlement_reference(
+                    bank_reference_no=raw.bank_reference_no,
+                    reference_id=raw.reference_id,
+                    transfer_id=raw.transfer_id,
+                    remarks=raw.remarks,
+                    source=SOURCE,
+                )
+                or None,
                 "row_status": ROW_PENDING_MATCH if creating else ROW_SKIPPED,
                 "skip_reason": None if creating else planned.reason,
+                # A Cashbook skip is the import plan's decision, never a person's (#1273).
+                "skip_origin": None if creating else SKIP_ORIGIN_SYSTEM,
                 "suggested_doctype": planned.ledger if creating else None,
                 "suggested_expense_type": planned.expense_type if creating else None,
                 "resolved_project": (

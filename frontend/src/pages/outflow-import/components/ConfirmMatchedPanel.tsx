@@ -50,6 +50,7 @@ import {
     type ConfirmOutcome,
     type NodeSelection,
 } from "../outflowTableModel";
+import { CONFIRM_BY_HAND_CHIP, splitNeedsYou } from "../unreconcileView";
 
 interface Props {
     /**
@@ -218,6 +219,8 @@ export const ConfirmMatchedPanel = ({
 
     const ready = useMemo(() => data?.message?.ready ?? [], [data]);
     const needsYou = useMemo(() => data?.message?.needs_you ?? [], [data]);
+    // #1280: an unreconciled line is in `needs_you` too, but did not match "more than one record".
+    const { several, byHand } = useMemo(() => splitNeedsYou(needsYou), [needsYou]);
     const stale = useMemo(() => data?.message?.stale ?? [], [data]);
     const funnel = useMemo(() => confirmFunnel(data?.message), [data]);
 
@@ -298,6 +301,9 @@ export const ConfirmMatchedPanel = ({
                     row: row.name,
                     target_doctype: row.target_doctype,
                     target_name: row.target_name,
+                    // #1280: this is a bulk confirm, so the server refuses a line marked Confirm by
+                    // hand -- the half of the guard that does not depend on this list being fresh.
+                    bulk: 1,
                 });
                 results.push({ row, ok: true });
             } catch (err: any) {
@@ -338,7 +344,7 @@ export const ConfirmMatchedPanel = ({
                     <Description className="text-sm text-muted-foreground">
                         {outcomes
                             ? "Each row was settled on its own. A failure left the others untouched."
-                            : "Each transfer is recorded against the approved record the matcher picked. Nothing here approves anything."}
+                            : "Each transfer is recorded against the record the matcher picked. Nothing here approves anything."}
                     </Description>
                 </div>
 
@@ -433,8 +439,12 @@ export const ConfirmMatchedPanel = ({
                                 <span className="font-medium text-foreground">
                                     {funnel.ready} ready to confirm
                                 </span>
-                                {funnel.needsYou > 0 && (
-                                    <> · {funnel.needsYou} matched more than one record</>
+                                {/* #1280: the two halves of `needs_you`, each under its own true name. */}
+                                {several.length > 0 && (
+                                    <> · {several.length} matched more than one record</>
+                                )}
+                                {byHand.length > 0 && (
+                                    <> · {byHand.length} to confirm by hand</>
                                 )}
                                 {funnel.stale > 0 && (
                                     <> · {funnel.stale} point at a record that no longer exists</>
@@ -590,25 +600,49 @@ export const ConfirmMatchedPanel = ({
                         {/* ⚠️ LISTED, NEVER CONFIRMABLE. These matched SEVERAL approved records, so
                             the matcher deliberately picked none -- there is nothing to confirm them
                             against, and a checkbox here would be a promise this dialog cannot keep. */}
-                        {needsYou.length > 0 && (
+                        {several.length > 0 && (
                             <div className="rounded-md border bg-muted/30 p-3">
                                 <p className="text-sm font-medium">
-                                    {needsYou.length} matched more than one record
+                                    {several.length} matched more than one record
                                 </p>
                                 <p className="mb-2 text-xs text-muted-foreground">
                                     Nothing was pre-selected for these, so they are not part of this
                                     action. Open each one from the table to choose.
                                 </p>
                                 <ul className="space-y-0.5 text-xs text-muted-foreground">
-                                    {needsYou.slice(0, 8).map((row) => (
+                                    {several.slice(0, 8).map((row) => (
                                         <li key={row.name} className="truncate">
                                             {row.beneficiary_name} ·{" "}
                                             {formatToRoundedIndianRupee(row.amount)}
                                         </li>
                                     ))}
-                                    {needsYou.length > 8 && (
-                                        <li>and {needsYou.length - 8} more</li>
+                                    {several.length > 8 && (
+                                        <li>and {several.length - 8} more</li>
                                     )}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* #1280: LISTED, NEVER CONFIRMABLE. Each was confirmed once and unreconciled,
+                            and still carries that pick -- so it is left out here, and the server refuses
+                            a bulk confirm of it even if a stale list sent one. */}
+                        {byHand.length > 0 && (
+                            <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3">
+                                <p className="text-sm font-medium text-amber-900">
+                                    {byHand.length} {byHand.length === 1 ? "was" : "were"} unreconciled
+                                </p>
+                                <p className="mb-2 text-xs text-amber-800">
+                                    {CONFIRM_BY_HAND_CHIP}: these keep their previous pick, so they are
+                                    not part of this action. Open each one from the table to confirm it.
+                                </p>
+                                <ul className="space-y-0.5 text-xs text-amber-800">
+                                    {byHand.slice(0, 8).map((row) => (
+                                        <li key={row.name} className="truncate">
+                                            {row.beneficiary_name} ·{" "}
+                                            {formatToRoundedIndianRupee(row.amount)}
+                                        </li>
+                                    ))}
+                                    {byHand.length > 8 && <li>and {byHand.length - 8} more</li>}
                                 </ul>
                             </div>
                         )}

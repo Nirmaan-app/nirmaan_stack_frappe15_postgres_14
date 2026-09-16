@@ -9,6 +9,7 @@ import { TailSpin } from "react-loader-spinner";
 import {
     AlertDialog,
     AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -25,7 +26,10 @@ import type {
     OutflowImportRow,
     OutflowImportSummary,
 } from "@/types/NirmaanStack/OutflowImportBatch";
-import { OPEN_ROW_STATUSES } from "./outflowImportStatus";
+import { useUserData } from "@/hooks/useUserData";
+import { OPEN_ROW_STATUSES, canUndoOutflow } from "./outflowImportStatus";
+import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } from "./unreconcileView";
+import { UnreconcileDialog } from "./components/UnreconcileDialog";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ExportButton } from "./components/ExportButton";
@@ -44,12 +48,19 @@ import {
     TablePagination,
 } from "./components/OutflowRowsTable";
 import {
-    DEFAULT_TAB,
+    DEFAULT_SETTLE_MODE,
+    chooseSettleEndpoint,
+    type SettleMode,
+} from "./allocationView";
+import {
     OUTFLOW_COLUMNS,
-    OUTFLOW_TABS,
     decidedRows,
+    clearedPick,
+    decisionLinkKeys,
+    pickFitsSingleSelect,
     decisionOrigin,
     isConfirmable,
+    parseRecordKey,
     seedDecisions,
     SCOPE_FOR_TAB,
     type DecisionOrigin,
@@ -57,24 +68,17 @@ import {
     type PartialIntent,
     type RowDecision,
     type SettleableRecord,
+    bulkRecordAnywayHint,
     describeFrappeError,
+    needsRecordAnywayConfirmation,
+    recordAnywayWording,
     tabCountParts,
+    inflowTabsVisible,
+    postImportTab,
+    reachableTab,
+    tabFromCarried,
+    visibleTabs,
 } from "./outflowTableModel";
-
-/**
- * Which tab a finished import lands on, for the sources that need to move off the default.
- *
- * ⚠️ A LOOKUP WITH A DEFAULT, NOT A `source === "Cashbook"` LITERAL (slice C8). Absence from this
- * map is the ordinary case and means "stay where the reader was" — so a source is listed here only
- * because its rows would otherwise land somewhere they cannot be seen. A third source is an entry
- * or an omission; it is DATA, and the question is answered in one place rather than at the branch.
- *
- * The per-source reasoning lives at the one call site, in `handleImported`, beside the pin it has
- * to travel with.
- */
-const POST_IMPORT_TAB: Record<string, OutflowTab> = {
-    Cashbook: "matched",
-};
 
 /**
  * Bulk Import Transactions -- ONE screen (slices X3 + X4).
@@ -143,43 +147,73 @@ export const OutflowMasterPage = () => {
     );
 
     /**
-     * Which of the three tabs is open.
+     * Which of the six tabs is open (#1264 split the three working tabs by direction).
      *
      * ⚠️ IT SEEDS FROM THE HISTORY ENTRY'S STATE, and that is the ONE thing carrying a tab across a
      * remount. Selecting an import navigates between two separate route entries, which unmounts and
      * rebuilds this component — correct in general (different rows, so a stale selection and
-     * un-confirmed decisions should go), but it would also throw away the `matched` tab a Cashbook
+     * un-confirmed decisions should go), but it would also throw away the `matchedOutflow` tab a Cashbook
      * import deliberately moves to, at the exact moment the pin sends the reader to that statement.
      * The period does not need this because it lives in a module-level store; a tab is nobody
      * else's business, so it travels with the one navigation that has a reason to keep it.
      *
      * An unrecognised value falls back to the default rather than being trusted — the state comes
-     * off a history entry a bookmark or a back button can carry.
+     * off a history entry a bookmark or a back button can carry. A pre-#1264 id lands on its
+     * Outflow variant (`tabFromCarried`).
      */
-    const [tab, setTab] = useState<OutflowTab>(() => {
-        const carried = (location.state as { outflowTab?: unknown } | null)?.outflowTab;
-        return OUTFLOW_TABS.some((t) => t.id === carried) ? (carried as OutflowTab) : DEFAULT_TAB;
-    });
+    const [tab, setTab] = useState<OutflowTab>(() =>
+        tabFromCarried((location.state as { outflowTab?: unknown } | null)?.outflowTab)
+    );
     // Read by the import handler, which runs while `tab`'s own setter is still queued.
     const tabRef = useRef(tab);
     tabRef.current = tab;
     /**
-     * The far-right view, which is NOT one of the three tabs.
+     * The far-right view, which is NOT one of the tabs.
      *
-     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The three tabs are three SCOPES over
+     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The tabs are SCOPES over
      * `Outflow Import Row`; this reads the three LEDGERS and has no import row anywhere in it. A
-     * fourth entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
+     * new entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
      * it to, and would hand it a `tab_counts` number describing a different population entirely.
      */
     const [showingApproved, setShowingApproved] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [decisions, setDecisions] = useState<ReadonlyMap<string, RowDecision>>(new Map());
     const [openRow, setOpenRow] = useState<OutflowImportRow | null>(null);
+    /**
+     * How the OPEN row is being settled (issue #1241, ADR-0020 B3).
+     *
+     * ⚠️ IT LIVES HERE RATHER THAN IN THE DIALOG BECAUSE `settleOne` IS HERE. The mode has to be
+     * readable at confirm time, and a copy in the dialog would have to be shipped up on every
+     * change and trusted to agree at the one moment it decides where money is written.
+     *
+     * ⚠️ IT IS NOT REMEMBERED BETWEEN ROWS -- a sticky mode is how a transfer gets split by
+     * accident. The reset rides the OPEN, through `openDecisionRow`, rather than an effect on
+     * `openRow`: "opening a row" and "the mode it opens on" are then one action and cannot come
+     * apart, where an effect can be re-ordered, gated or dropped while both halves still look
+     * present. `closeDecisionRow` resets too, but that is belt-and-braces -- every route back into
+     * the dialog goes through the open.
+     *
+     * ⚠️ AND IT IS THE *CHOSEN* MODE, NOT THE EFFECTIVE ONE. `effectiveSettleMode` -- which forces
+     * Split on a `Partially Allocated` row -- is applied inside `chooseSettleEndpoint` and again by
+     * the dialog for its own rendering, so this never needs to hold a value the reviewer did not
+     * pick.
+     */
+    const [settleMode, setSettleMode] = useState<SettleMode>(DEFAULT_SETTLE_MODE);
     const [busy, setBusy] = useState(false);
     // The server's refusal for a SINGLE-row confirm. Rendered inside the decision dialog, where
     // the click happened -- a toast would be gone before the reviewer looked up from the record
     // list they are about to correct.
     const [confirmError, setConfirmError] = useState<string | null>(null);
+    /**
+     * The "Create / Link anyway?" question (#1260): the server refused because a record already
+     * carries this transfer's reference but the amounts differ, and a person may overrule that.
+     *
+     * ⚠️ A DUPLICATE NEVER LANDS HERE. The server refuses one outright with a different error, and
+     * `needsRecordAnywayConfirmation` answers no to it -- it shows in `confirmError` like any refusal.
+     */
+    const [recordAnyway, setRecordAnyway] = useState<
+        { title: string; action: string; message: string; retry: () => Promise<void> } | null
+    >(null);
     const [importing, setImporting] = useState(false);
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
@@ -193,6 +227,27 @@ export const OutflowMasterPage = () => {
      * nobody can act on.
      */
     const [exportError, setExportError] = useState<string | null>(null);
+    /**
+     * What a SUCCESSFUL reversal says (review F9).
+     *
+     * ⚠️ THIS SCREEN HAD NOTHING FOR A SUCCESSFUL REVERSE. The dialog closed and the table
+     * refetched, which is indistinguishable from a click that did nothing -- on the one action here
+     * that moves money BACKWARDS, and therefore the one a reviewer is most likely to repeat when
+     * unsure. Repeating it is REFUSED ("This allocation was already reversed"), so the silence was
+     * training a second click that then read as a failure.
+     *
+     * ⚠️ INLINE AND ON THE PAGE, NOT A TOAST and not in the dialog -- the toast rule is stated at
+     * `exportError` above, and the dialog is closed by the time this is set. Cleared when the next
+     * row is opened, so it can never describe a reversal the reviewer has moved on from.
+     *
+     * #1275: every undo -- the Unreconcile dialog and the decision dialog's "Already allocated"
+     * section -- ends here, worded by the pure `unreconcileNotice` from the server's response.
+     */
+    const [reverseNotice, setReverseNotice] = useState<UnreconcileNotice | null>(null);
+    /** The Settled line whose Unreconcile dialog is open (#1275), or `null`. */
+    const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
+    const { role, user_id } = useUserData();
+    const canUndo = canUndoOutflow(role, user_id);
     /**
      * The statement a just-finished import staged, waiting for its dialog to close.
      *
@@ -214,6 +269,27 @@ export const OutflowMasterPage = () => {
      */
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
+
+    /**
+     * The Inflow tabs hide when the chosen source can never carry a credit (#1264). The SERVER
+     * answers that from each source's own column map — no list of source names lives here.
+     *
+     * ⚠️ AN OPEN INFLOW TAB THAT HIDES MOVES TO ITS OUTFLOW TWIN, rather than staying selected while
+     * invisible: a strip with no highlighted tab over a table of rows reads as a broken screen. The
+     * deps are two strings, so this fires only when the tab really has to move.
+     *
+     * ⚠️ AN EFFECT, NOT A DERIVATION, ON PURPOSE. Rendering `shownTab` while `tab` stayed on the
+     * hidden id would keep the ticked selection of the hidden tab's rows alive under a different
+     * table, and the import handler reads `tabRef`. Visibility is only known once the server has
+     * answered, so there is no user event to hang the move on.
+     */
+    const inflowVisible = inflowTabsVisible(table.canCarryCredit, table.tabCounts);
+    const shownTab = reachableTab(tab, inflowVisible);
+    useEffect(() => {
+        if (shownTab === tab) return;
+        setTab(shownTab);
+        setSelected(new Set());
+    }, [shownTab, tab]);
 
     /**
      * The period the whole screen is scoped to (slice P1).
@@ -295,17 +371,11 @@ export const OutflowMasterPage = () => {
     const { call: callCreateInflow } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.inflows.create_inflow"
     );
-    // ⚠️ THE SECOND CREDIT DISPOSITION (slice B7), AND THE ONLY SIGNED WRITE IN THIS SCREEN. It
-    // records a credit that belongs to no project as a NEGATIVE `Non Project Expense` — there is no
-    // non-project inflow doctype in this app and none is being created (owner ruling Q3, ADR-0016
-    // decision 3). It lives in `inflows.py` because this module splits on DIRECTION, not doctype:
-    // `expenses.py`'s stated property is that every endpoint in it writes an OUTFLOW, and its
-    // `amount <= 0` guard is read against that.
-    //
-    // ⚠️ THE PAYLOAD CARRIES NO AMOUNT AND NO SIGN. The magnitude, date and reference are read
-    // server-side off the staged row, and the negation is applied there from the row's `direction`.
-    const { call: callCreateReceipt } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.inflows.create_non_project_receipt"
+    // THE SECOND CREDIT DISPOSITION (#1266): a credit that belongs to no project, recorded as a
+    // `Non Project Inflow` (ADR-0016 Amendment A-D2). It replaced the B7 non-project receipt.
+    // ⚠️ THE PAYLOAD CARRIES NO AMOUNT: magnitude, date and reference are read server-side.
+    const { call: callCreateNonProjectInflow } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.inflows.create_non_project_inflow"
     );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
@@ -313,6 +383,16 @@ export const OutflowMasterPage = () => {
     // without widening it.
     const { call: callSettlePartial } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.settle_row_partial"
+    );
+    // Read-only: would that partial be refused outright? Asked before its question opens (#1269).
+    const { call: callCheckPartial } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.expenses.check_partial_settle"
+    );
+    // ⚠️ ADR-0020 (Task 7): the fan-out sibling of `settle_row`. `settleOne` below routes to this
+    // one, NEVER inline, via `chooseSettleEndpoint` -- the ONE home for the routing rule, so a
+    // single tick on an untouched row always takes `settle_row`'s identical, stricter path.
+    const { call: callAllocate } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.expenses.allocate_row"
     );
 
     /**
@@ -408,9 +488,87 @@ export const OutflowMasterPage = () => {
         setDecisions((prev) => new Map(prev).set(name, decision));
     }, []);
 
-    /** Settle ONE row. The endpoint is per-row and atomic; a failure here leaves the rest alone. */
+    /**
+     * Open / close the decision dialog, resetting the settle mode with it (issue #1241).
+     *
+     * ⚠️ THE RESET IS PART OF THE OPEN, NOT AN EFFECT WATCHING `openRow`. "Mode is not remembered
+     * between rows" is a rule about an ACTION, and expressing it as one assignment beside the other
+     * is what stops the two coming apart -- an effect can be re-ordered, gated or dropped while
+     * both of its halves still look present.
+     */
+    const openDecisionRow = useCallback(
+        (row: OutflowImportRow) => {
+            setOpenRow(row);
+            setSettleMode(DEFAULT_SETTLE_MODE);
+            // ⚠️ A PICK THE OPENING MODE CANNOT SHOW IS DROPPED, NOT TRUNCATED (issue #1241, found
+            // in review). Decisions OUTLIVE the dialog -- they live in `decisions` while the mode
+            // resets here on every open -- so a Split tick-set reaches a Normal picker with no mode
+            // switch at all: tick two payments, close WITHOUT confirming, reopen. The radio table
+            // can show only one of them while `settleOne` still reads both through
+            // `decisionLinkKeys` and posts them, so the screen would show one record and settle
+            // two. Clearing rather than keeping the first is deliberate: a wrong write is worse
+            // than a lost selection, and the reviewer can see that nothing is picked.
+            const current = decisions.get(row.name);
+            if (current && !pickFitsSingleSelect(current)) {
+                setDecision(row.name, clearedPick(current));
+            }
+        },
+        [decisions, setDecision]
+    );
+
+    const closeDecisionRow = useCallback(() => {
+        setOpenRow(null);
+        setSettleMode(DEFAULT_SETTLE_MODE);
+    }, []);
+
+    /**
+     * Switch the settle mode, and CLEAR THE PICK (ADR-0020 B3).
+     *
+     * ⚠️ CLEARING IS NOT TIDINESS. The two modes store the pick in DIFFERENT fields -- Normal in
+     * `linkTo`, Split in `linkTargets` -- and mean different things by it: one record that settles
+     * the whole transfer, versus one leg of several. Carrying a pick across would present the same
+     * record as an answer to a different question, and `decisionLinkKeys` would keep counting the
+     * row as decided while the picker beside it showed nothing ticked.
+     *
+     * ⚠️ THE CLEARING ITSELF LIVES IN `clearedPick`, NOT SPELLED OUT HERE (ADR-0010 F4). It is a
+     * domain rule about `outflowTableModel`'s own two-field shape -- both fields go, because
+     * `decisionLinkKeys` lets a non-empty `linkTargets` win and a `linkTo` left behind is invisible
+     * while ticks exist and speaks again the moment the last one comes off. Spelled inline it would
+     * be a rule inside a page component, untestable where it sat in a repo with no DOM environment;
+     * `outflowTableModel.test` pins it instead.
+     */
+    const handleSettleModeChange = useCallback(
+        (next: SettleMode) => {
+            setSettleMode(next);
+            setConfirmError(null);
+            if (!openRow) return;
+            const current = decisions.get(openRow.name);
+            if (!current) return;
+            setDecision(openRow.name, clearedPick(current));
+        },
+        [openRow, decisions, setDecision]
+    );
+
+    /**
+     * Settle ONE row. The endpoint is per-row and atomic; a failure here leaves the rest alone.
+     *
+     * ⚠️ `mode` IS OPTIONAL AND ITS ABSENCE MEANS NORMAL -- PERMANENTLY (issue #1241, ADR-0020 B3).
+     * The BULK "confirm all matched" path calls this in a loop with no mode, because it has no
+     * dialog and therefore no radio, and splitting a transfer is a judgement call that does not
+     * belong in a fifty-row action. Do not give the bulk caller a mode to pass.
+     */
     const settleOne = useCallback(
-        async (row: OutflowImportRow, decision: RowDecision) => {
+        async (
+            row: OutflowImportRow,
+            decision: RowDecision,
+            mode?: SettleMode,
+            confirmMismatch = false,
+            bulk = false
+        ) => {
+            // ⚠️ SENT ONLY AS THE ANSWER TO "... anyway?" (#1260), so every other call's payload is
+            // byte-identical to what it was. The server re-derives the verdict every time; the flag
+            // overrules only an amount-off hit, never a duplicate.
+            const anyway = confirmMismatch ? { confirm_mismatch: 1 } : {};
             if (decision.target === "new") {
                 const form = decision.newExpense!;
                 await callCreate({
@@ -420,6 +578,7 @@ export const OutflowMasterPage = () => {
                     project: form.project || undefined,
                     description: form.description || undefined,
                     vendor: form.vendor || undefined,
+                    ...anyway,
                 });
             } else if (decision.target === "inflow") {
                 // ⚠️ NO AMOUNT, DATE OR REFERENCE IN THE PAYLOAD, exactly as the create-expense
@@ -433,32 +592,99 @@ export const OutflowMasterPage = () => {
                     project: form.project,
                     customer: form.customer || undefined,
                     invoice: form.invoice || undefined,
+                    ...anyway,
                 });
-            } else if (decision.target === "receipt") {
-                // ⚠️ NO AMOUNT AND, ABOVE ALL, NO SIGN IN THE PAYLOAD (slice B7). The server reads
-                // the magnitude off the staged row and negates it from that row's own `direction`.
-                // A client that could post a negative number could book a debit as income.
-                //
-                // ⚠️ AND NO `doctype`, EITHER: the endpoint writes `Non Project Expenses` and only
-                // that, so a credit can never land as a negative `Project Expense`.
-                const form = decision.newReceipt!;
-                await callCreateReceipt({
+            } else if (decision.target === "nonProjectInflow") {
+                // ⚠️ NO AMOUNT, DATE OR REFERENCE IN THE PAYLOAD, exactly as the inflow branch
+                // sends none: the server reads all three off the staged row.
+                const form = decision.newNonProjectInflow!;
+                await callCreateNonProjectInflow({
                     row: row.name,
-                    expense_type: form.expenseType,
-                    description: form.description || undefined,
+                    inflow_type: form.inflowType,
+                    description: form.description?.trim() || undefined,
+                    ...anyway,
                 });
             } else {
-                await callSettle({
-                    row: row.name,
-                    target_doctype: decision.target,
-                    target_name: decision.linkTo,
+                // ⚠️ THE ROUTING RULE HAS ONE HOME: `chooseSettleEndpoint` (ADR-0020, Task 7;
+                // it reads the MODE since issue #1241). NEVER an inline `mode === "split"` or
+                // `linkTargets.size > 1` condition here -- that is exactly the duplication that
+                // would let a later edit send a pick down the wrong path by accident. A single
+                // NORMAL pick keeps calling `settle_row`, byte-unchanged, with its stricter
+                // whole-transfer amount guard; Split always reaches `allocate_row`, whatever the
+                // amount, so that reversal has legs to act on.
+                //
+                // ⚠️ AND THE PICK IS READ THROUGH `decisionLinkKeys` (issue #1240), never off one
+                // field. A decision reaching here may name its record in `linkTo` (the Normal
+                // picker) or in `linkTargets` (the Split one), and THIS PATH SERVES THE BULK
+                // "confirm all matched" BUTTON TOO, which has no dialog and therefore no mode --
+                // so a field read here would silently submit nothing for one of the two shapes.
+                const targets = [...decisionLinkKeys(decision)]
+                    .map(parseRecordKey)
+                    .filter((t): t is NonNullable<typeof t> => t !== null);
+                const endpoint = chooseSettleEndpoint({
+                    ticks: targets.length,
+                    rowStatus: row.row_status,
+                    mode,
                 });
+                if (endpoint === "settle_row") {
+                    const [only] = targets;
+                    await callSettle({
+                        row: row.name,
+                        target_doctype: only.target,
+                        target_name: only.name,
+                        ...anyway,
+                        // #1280: only a bulk caller sends it; the server then refuses a line
+                        // marked Confirm by hand.
+                        ...(bulk ? { bulk: 1 } : {}),
+                    });
+                } else if (endpoint === "allocate_row") {
+                    await callAllocate({
+                        row: row.name,
+                        // ⚠️ STRINGIFIED, matching this screen's own convention for a nested-JSON
+                        // postcall field (see `facets: JSON.stringify(...)` elsewhere in this
+                        // file). `allocate_row`'s `_parse_targets` accepts either a JSON string or
+                        // an already-parsed list, so this is a belt-and-braces choice, not a
+                        // requirement.
+                        targets: JSON.stringify(
+                            targets.map((t) => ({
+                                target_doctype: t.target,
+                                target_name: t.name,
+                            }))
+                        ),
+                        ...anyway,
+                    });
+                }
+                // `endpoint === null` means nothing was ticked, which `isConfirmable` already
+                // refuses before `settleOne` is ever called -- see `handleConfirmOne`.
             }
         },
-        [callCreate, callCreateInflow, callCreateReceipt, callSettle]
+        [callAllocate, callCreate, callCreateInflow, callCreateNonProjectInflow, callSettle]
     );
 
-    const handleConfirmOne = useCallback(async () => {
+    /**
+     * An Unreconcile landed (#1275) -- from a Settled line's dialog or from the decision dialog's
+     * "Already allocated" section. Both dialogs close, the notice says what came off (and any amount
+     * the save changed), and the page refetches. A refusal never reaches here: the panel shows it
+     * inline and stays open.
+     */
+    const handleUnreconciled = useCallback(
+        async (result: UnreconcileResult) => {
+            setUnreconcilingRow(null);
+            setOpenRow(null);
+            setConfirmError(null);
+            setReverseNotice(unreconcileNotice(result));
+            await refreshAll();
+        },
+        [refreshAll]
+    );
+
+    /** Reference-stable: every memoized table row receives it. */
+    const handleOpenUnreconcile = useCallback((row: OutflowImportRow) => {
+        setReverseNotice(null);
+        setUnreconcilingRow(row);
+    }, []);
+
+    const confirmOne = useCallback(async (confirmMismatch: boolean) => {
         if (!openRow) return;
         const decision = decisions.get(openRow.name);
         // Backstop to the dialog's disabled Confirm button: never post a settle for a row that is
@@ -468,10 +694,22 @@ export const OutflowMasterPage = () => {
         setBusy(true);
         setConfirmError(null);
         try {
-            await settleOne(openRow, decision);
-            setOpenRow(null);
+            // ⚠️ THE DIALOG'S OWN MODE RIDES THE CONFIRM (issue #1241). This is the ONE call site
+            // that has one; the bulk loop below deliberately passes none.
+            await settleOne(openRow, decision, settleMode, confirmMismatch);
+            closeDecisionRow();
             await refreshAll();
         } catch (err: any) {
+            // ⚠️ ASKED ONCE (#1260). An amount-off hit is a question for the reviewer, not a failure;
+            // a refusal on the confirmed re-call is a real one and lands in the footer below.
+            if (!confirmMismatch && needsRecordAnywayConfirmation(err)) {
+                setRecordAnyway({
+                    ...recordAnywayWording(decision),
+                    message: describeFrappeError(err, "A record already carries this transfer."),
+                    retry: () => confirmOne(true),
+                });
+                return;
+            }
             // ⚠️ THIS `catch` IS THE DEFECT THE OWNER REPORTED, AND ITS ABSENCE WAS THE WHOLE BUG.
             // A refused settle rejected the promise, nothing caught it, and the dialog just sat
             // there -- so a deliberate server rule ("this record is 2,19,000 away from the
@@ -481,7 +719,11 @@ export const OutflowMasterPage = () => {
         } finally {
             setBusy(false);
         }
-    }, [openRow, decisions, settleOne, refreshAll]);
+    }, [openRow, decisions, settleMode, settleOne, closeDecisionRow, refreshAll]);
+
+    // The dialog's Confirm: never pre-confirmed. `confirmOne(true)` is reachable only from the
+    // "... anyway?" answer below.
+    const handleConfirmOne = useCallback(() => confirmOne(false), [confirmOne]);
 
     /**
      * Settle part of an approved payment and carry the balance forward (slice PS).
@@ -492,7 +734,7 @@ export const OutflowMasterPage = () => {
      * recreate, one dialog deeper.
      */
     const handlePartialSettle = useCallback(
-        async (record: SettleableRecord, intent: PartialIntent) => {
+        async (record: SettleableRecord, intent: PartialIntent, confirmMismatch = false) => {
             if (!openRow) return;
             setBusy(true);
             setConfirmError(null);
@@ -501,16 +743,52 @@ export const OutflowMasterPage = () => {
                     row: openRow.name,
                     target_name: record.name,
                     intent,
+                    // #1260: only as the answer to "Link anyway?" -- see `settleOne`.
+                    ...(confirmMismatch ? { confirm_mismatch: 1 } : {}),
                 });
                 setOpenRow(null);
                 await refreshAll();
             } catch (err: any) {
+                if (!confirmMismatch && needsRecordAnywayConfirmation(err)) {
+                    setRecordAnyway({
+                        ...recordAnywayWording({ target: "Project Payments" }),
+                        message: describeFrappeError(err, "A record already carries this transfer."),
+                        retry: () => handlePartialSettle(record, intent, true),
+                    });
+                    return;
+                }
                 setConfirmError(describeFrappeError(err, "The partial settle failed."));
             } finally {
                 setBusy(false);
             }
         },
         [openRow, callSettlePartial, refreshAll]
+    );
+
+    /**
+     * Ask whether `handlePartialSettle` would be refused outright, before its question opens (#1269).
+     *
+     * ⚠️ A REFUSAL LANDS IN THE SAME FOOTER A REFUSED SETTLE DOES, and the question never opens. Any
+     * failure -- a refusal or a dropped request -- keeps the question closed: offering a split the
+     * server was not asked about is the defect this exists to remove. The server still re-checks
+     * everything when the split is sent.
+     */
+    const handleCheckPartialSettle = useCallback(
+        async (record: SettleableRecord) => {
+            if (!openRow) return false;
+            setBusy(true);
+            setConfirmError(null);
+            try {
+                await callCheckPartial({ row: openRow.name, target_name: record.name });
+                return true;
+            } catch (err: any) {
+                setConfirmError(describeFrappeError(err, "Could not check this transfer."));
+                return false;
+            } finally {
+                setBusy(false);
+            }
+        },
+        [openRow, callCheckPartial]
     );
 
     /**
@@ -526,7 +804,21 @@ export const OutflowMasterPage = () => {
         try {
             for (const row of readyToConfirm) {
                 try {
-                    await settleOne(row, decisions.get(row.name)!);
+                    // ⚠️ NO MODE, PERMANENTLY (issue #1241, ADR-0020 B3). This path has no dialog
+                    // and therefore no radio, so every row here takes `settle_row`'s stricter
+                    // whole-transfer guard -- exactly as it did before the mode existed. Splitting
+                    // a transfer is a judgement call and does not belong in a fifty-row action.
+                    // ⚠️ `bulk` WHEN THE PICK IS STILL THE MACHINE'S OWN (#1280). Ticking an
+                    // unreconciled line here would otherwise put the same wrong pick straight back
+                    // -- the accident Confirm by hand exists to stop. A pick a person changed in the
+                    // dialog is a hand decision, so it is not refused.
+                    await settleOne(
+                        row,
+                        decisions.get(row.name)!,
+                        undefined,
+                        false,
+                        originByRow.get(row.name) === "suggested"
+                    );
                     setSelected((prev) => {
                         const next = new Set(prev);
                         next.delete(row.name);
@@ -535,7 +827,8 @@ export const OutflowMasterPage = () => {
                 } catch (err: any) {
                     // The server's own sentence, not Frappe's "There was an error." envelope.
                     failures.push(
-                        `${row.beneficiary_name}: ${describeFrappeError(err, "the settle failed")}`
+                        `${row.beneficiary_name}: ${describeFrappeError(err, "the settle failed")}` +
+                            bulkRecordAnywayHint(err)
                     );
                 }
             }
@@ -547,7 +840,7 @@ export const OutflowMasterPage = () => {
             // Named, not counted: "3 failed" tells nobody which three to go and look at.
             alert(`Some rows could not be settled:\n\n${failures.join("\n")}`);
         }
-    }, [readyToConfirm, decisions, settleOne, refreshAll]);
+    }, [readyToConfirm, decisions, originByRow, settleOne, refreshAll]);
 
     const handleSkip = useCallback(
         async (row: OutflowImportRow, reason: string) => {
@@ -678,7 +971,7 @@ export const OutflowMasterPage = () => {
              * to prevent, arriving from the other direction.
              *
              * ⚠️ WHICH IS WHY THE EXCEPTION IS A LOOKUP AND THE DEFAULT IS "DO NOT MOVE" (see
-             * `POST_IMPORT_TAB`). Staying put can only ever leave a reader where they chose to be;
+             * `postImportTab`). Staying put can only ever leave a reader where they chose to be;
              * moving them is the act that can hide their work, so it is the one that has to be
              * asked for by name.
              *
@@ -689,8 +982,7 @@ export const OutflowMasterPage = () => {
              * prevent. Setting it here STILL matters for the case where the pin navigates nowhere
              * (re-importing while already pinned to that same statement, where nothing remounts).
              */
-            const nextTab: OutflowTab =
-                (source ? POST_IMPORT_TAB[source] : undefined) ?? tabRef.current;
+            const nextTab: OutflowTab = postImportTab(source, tabRef.current);
             setTab(nextTab);
 
             // Remembered, not acted on — the pin fires when the dialog closes. See the ref's own
@@ -782,7 +1074,7 @@ export const OutflowMasterPage = () => {
                 fact in the place a reader looks for it. */}
 
             <div className="flex flex-wrap items-center gap-2 border-b">
-                {OUTFLOW_TABS.map((t) => (
+                {visibleTabs(inflowVisible).map((t) => (
                     <button
                         key={t.id}
                         onClick={() => {
@@ -800,18 +1092,18 @@ export const OutflowMasterPage = () => {
                         {/* ⚠️ THE COUNTS DESCRIBE THE CURRENT SEARCH, not the whole table. A search
                             matching four rows must not show "Settled 812" beside it.
 
-                            ⚠️ THE `matched` TAB RENDERS TWO NUMBERS, and that is a correctness fix
+                            ⚠️ THE `matchedOutflow` TAB RENDERS TWO NUMBERS, and that is a correctness fix
                             rather than decoration -- it holds an OPEN status beside a TERMINAL one,
                             so one number there meant two things and was read as the terminal one
                             (863 under "Matched / Settled" while nothing was settled). The split
-                            comes from the pure `tabCountParts`; the other two tabs are unchanged.
+                            comes from the pure `tabCountParts`; the other tabs render one number.
 
                             ⚠️ KEYED THROUGH `SCOPE_FOR_TAB` inside that helper, never by the tab id.
                             The endpoint returns its counts under the SCOPE names, and the two
                             vocabularies differ on purpose -- the pre-retab code special-cased the
                             one tab whose id and scope disagreed, which is a bug waiting for the
                             second one. */}
-                        {tabCountParts(t.id, table.tabCounts, table.statusCounts).map((part) => (
+                        {tabCountParts(t.id, table.tabCounts, table.directionStatusCounts).map((part) => (
                             <span
                                 key={part.key}
                                 className={`rounded-full px-1.5 text-xs tabular-nums ${
@@ -825,8 +1117,8 @@ export const OutflowMasterPage = () => {
                     </button>
                 ))}
 
-                {/* ⚠️ A BUTTON, NOT A FOURTH TAB (owner, 2026-08-11), and the distinction is the
-                    whole reason it looks different. The three tabs to its left are three SCOPES over
+                {/* ⚠️ A BUTTON, NOT A FIFTH TAB (owner, 2026-08-11), and the distinction is the
+                    whole reason it looks different. The tabs to its left are SCOPES over
                     ONE population — `Outflow Import Row` — so their counts sit in a row precisely
                     because they can be compared and subtracted. This opens a view over three OTHER
                     doctypes with no import row in it at all. Rendering it as a tab put a control for
@@ -841,14 +1133,35 @@ export const OutflowMasterPage = () => {
                     className="ml-auto mb-1"
                     aria-pressed={showingApproved}
                     onClick={() => setShowingApproved((on) => !on)}
-                    title="Everything approved and not yet paid, across all three ledgers — not scoped to any import"
+                    title="Everything marked as done and waiting for a bank line, across all three ledgers — not scoped to any import"
                 >
                     <Wallet className="mr-2 h-4 w-4" />
-                    Approved Payments/Expenses
+                    Awaiting Bank Line
                 </Button>
             </div>
 
             {showingApproved && <ApprovedRecordsPanel />}
+
+            {/* ⚠️ REVIEW F9 -- THE ONE ACTION HERE THAT MOVES MONEY BACKWARDS NOW SAYS SO. Inline,
+                never a toast: this screen's standing convention (see `exportError`), and a reversal
+                is a fact somebody may have to quote later. The wording is the pure `unreconcileNotice`;
+                this only renders it. Dismissable, and cleared automatically when the next row is
+                opened. */}
+            {reverseNotice && !showingApproved && (
+                <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    <span className="flex-1">
+                        <b className="font-semibold">{reverseNotice.title}</b> {reverseNotice.body}
+                    </span>
+                    <button
+                        type="button"
+                        aria-label="Dismiss"
+                        className="text-emerald-700"
+                        onClick={() => setReverseNotice(null)}
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                </div>
+            )}
 
             <div className={showingApproved ? "hidden" : "flex flex-wrap items-center gap-2"}>
                 <div className="relative max-w-sm flex-1">
@@ -940,7 +1253,17 @@ export const OutflowMasterPage = () => {
                         onFilter={table.setFilter}
                         onToggleRow={toggleRow}
                         onToggleAll={toggleAll}
-                        onOpenDecision={setOpenRow}
+                        // #1275: presence is the gate -- a plain Accountant gets no Unreconcile.
+                        onUnreconcile={canUndo ? handleOpenUnreconcile : undefined}
+                        // ⚠️ THE NOTICE IS CLEARED HERE, NOT ON A TIMER (review F9). Opening the
+                        // next row is the moment the previous reversal stops being what the
+                        // reviewer is looking at, so a sentence about it must not still be on
+                        // screen above a different transfer.
+                        onOpenDecision={(row) => {
+                            setReverseNotice(null);
+                            // ⚠️ THE ONE WAY IN, AND IT RESETS THE SETTLE MODE (issue #1241).
+                            openDecisionRow(row);
+                        }}
                     />
                     <TablePagination
                         total={table.total}
@@ -1025,28 +1348,66 @@ export const OutflowMasterPage = () => {
                 batch={selectedImport}
                 skippedRows={summary?.totals?.skipped_rows}
                 failedRows={summary?.totals?.failed_rows}
+                skippedByHandRows={summary?.skipped_by_hand_rows}
                 open={showingSkipped}
                 onOpenChange={setShowingSkipped}
+                onChanged={refreshAll}
+            />
+
+            <UnreconcileDialog
+                row={unreconcilingRow}
+                onClose={() => setUnreconcilingRow(null)}
+                onDone={handleUnreconciled}
             />
 
             <DecisionDialog
                 row={openRow}
                 decision={openRow ? decisions.get(openRow.name) : undefined}
                 onChange={(decision) => openRow && setDecision(openRow.name, decision)}
+                settleMode={settleMode}
+                onSettleModeChange={handleSettleModeChange}
                 onConfirm={handleConfirmOne}
                 onPartialSettle={handlePartialSettle}
+                onCheckPartialSettle={handleCheckPartialSettle}
+                onUnreconciled={handleUnreconciled}
                 onSkip={async (reason) => {
                     if (openRow) await handleSkip(openRow, reason);
                 }}
                 onRerun={handleMatch}
                 onClose={() => {
-                    setOpenRow(null);
+                    closeDecisionRow();
                     setConfirmError(null);
                 }}
                 busy={busy}
                 error={confirmError}
                 onDismissError={dismissConfirmError}
             />
+
+            <AlertDialog
+                open={recordAnyway !== null}
+                onOpenChange={(open) => !open && setRecordAnyway(null)}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{recordAnyway?.title}</AlertDialogTitle>
+                        {/* The server's own sentence: it names every record, its ledger and the
+                            difference, which is what the reviewer is being asked to judge. */}
+                        <AlertDialogDescription>{recordAnyway?.message}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => {
+                                const retry = recordAnyway?.retry;
+                                setRecordAnyway(null);
+                                void retry?.();
+                            }}
+                        >
+                            {recordAnyway?.action}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

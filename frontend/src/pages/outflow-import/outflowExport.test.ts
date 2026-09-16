@@ -26,7 +26,7 @@ const row = (over: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     }) as OutflowImportRow;
 
 describe("toExportColumns", () => {
-    it("produces one entry per column, in the table's order, then the export-only pair", () => {
+    it("produces one entry per column, in the table's order, then the export-only columns", () => {
         const columns = toExportColumns(OUTFLOW_COLUMNS);
         expect(columns).toHaveLength(OUTFLOW_COLUMNS.length + EXPORT_ONLY_COLUMNS.length);
         // The screen's columns come first, in the screen's order, so somebody comparing a download
@@ -35,8 +35,9 @@ describe("toExportColumns", () => {
             OUTFLOW_COLUMNS.map((c) => c.id)
         );
         expect(columns.slice(OUTFLOW_COLUMNS.length).map((c) => c.id)).toEqual([
-            "settled_target_name",
-            "settled_target_amount",
+            "direction",
+            "settled_target_names",
+            "settled_target_amounts",
         ]);
     });
 
@@ -44,20 +45,27 @@ describe("toExportColumns", () => {
         // ⚠️ These are export-only: `get_outflow_rows` does not select them, only
         // `export_outflow_rows` does. Declaring them in `OUTFLOW_COLUMNS` would render an em dash
         // on every row forever — the `settlement_origin` defect wearing the other face.
+        //
+        // ⚠️ RENAMED FROM SINGULAR SCALARS AT TASK 6 (ADR-0020 fan-out): `settled_target_name` /
+        // `settled_target_amount` are GONE, replaced by pipe-joined, plural keys that stay strings
+        // (one entry per settled leg, never a list) so a stale reader gets `undefined` rather than
+        // one arbitrarily-picked leg.
         const modelIds = new Set(OUTFLOW_COLUMNS.map((c) => c.id));
-        expect(modelIds.has("settled_target_name")).toBe(false);
-        expect(modelIds.has("settled_target_amount")).toBe(false);
+        expect(modelIds.has("settled_target_names")).toBe(false);
+        expect(modelIds.has("settled_target_amounts")).toBe(false);
 
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
-        expect(byId.get("settled_target_name")!.meta.exportHeaderName).toBe("Settled record");
-        expect(byId.get("settled_target_amount")!.meta.exportHeaderName).toBe("Settled amount");
+        expect(byId.get("settled_target_names")!.meta.exportHeaderName).toBe("Settled record(s)");
+        expect(byId.get("settled_target_amounts")!.meta.exportHeaderName).toBe(
+            "Settled amount(s)"
+        );
 
         const settled = row({
-            settled_target_name: "PAY-26-00042",
-            settled_target_amount: 27504.31,
+            settled_target_names: "PAY-26-00042",
+            settled_target_amounts: "27504.31",
         });
-        expect(byId.get("settled_target_name")!.meta.exportValue(settled)).toBe("PAY-26-00042");
-        expect(byId.get("settled_target_amount")!.meta.exportValue(settled)).toBe(27504.31);
+        expect(byId.get("settled_target_names")!.meta.exportValue(settled)).toBe("PAY-26-00042");
+        expect(byId.get("settled_target_amounts")!.meta.exportValue(settled)).toBe("27504.31");
     });
 
     it("leaves an unsettled row BLANK, never zero", () => {
@@ -65,9 +73,11 @@ describe("toExportColumns", () => {
         // settled YET, and only absence says that.
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
         const open = row({});
-        expect(byId.get("settled_target_name")!.meta.exportValue(open)).toBe("");
-        expect(byId.get("settled_target_amount")!.meta.exportValue(open)).toBe("");
-        expect(byId.get("settled_target_amount")!.meta.exportValue(row({ settled_target_amount: null }))).toBe("");
+        expect(byId.get("settled_target_names")!.meta.exportValue(open)).toBe("");
+        expect(byId.get("settled_target_amounts")!.meta.exportValue(open)).toBe("");
+        expect(
+            byId.get("settled_target_amounts")!.meta.exportValue(row({ settled_target_amounts: undefined }))
+        ).toBe("");
     });
 
     it("names every heading with the column's own title, on both keys the writer reads", () => {
@@ -99,10 +109,14 @@ describe("toExportColumns", () => {
         expect(byId.get("time")!.meta.exportValue(sample)).toBe("14:32");
     });
 
-    it("carries a Direction column, headed as the screen heads it", () => {
+    it("still carries a Direction column, as an EXPORT-ONLY one", () => {
+        // ⚠️ The screen dropped its Direction column (owner, 2026-09-14) -- colour and the tabs say
+        // it there. A CSV has neither, and every amount in it is a positive figure, so without this
+        // column an export of the All tab could not tell money in from money out.
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
         expect(byId.get("direction")!.header).toBe("Direction");
         expect(byId.get("direction")!.meta.exportHeaderName).toBe("Direction");
+        expect(EXPORT_ONLY_COLUMNS.map((c) => c.id)).toContain("direction");
     });
 
     it("⚠️ writes Paid or Received on EVERY row, never a blank direction cell", () => {
@@ -146,9 +160,13 @@ describe("toExportColumns", () => {
         // Falls back to the skip reason, then to blank — never to `undefined` in a cell.
         expect(
             byId.get("outcome")!.meta.exportValue(
-                row({ outcome_note: undefined, skip_reason: "Already recorded as Paid" })
+                row({
+                    outcome_note: undefined,
+                    // Inverted at #1253: the sentence names the ledger beside the record.
+                    skip_reason: "Already recorded as Paid on Project Payment PAY-0091.",
+                })
             )
-        ).toBe("Already recorded as Paid");
+        ).toBe("Already recorded as Paid on Project Payment PAY-0091.");
         expect(
             byId.get("outcome")!.meta.exportValue(
                 row({ outcome_note: undefined, skip_reason: undefined })
@@ -179,12 +197,13 @@ describe("toExportColumns", () => {
         expect(JSON.stringify(OUTFLOW_COLUMNS.map((c) => [c.id, c.title, c.width]))).toBe(before);
     });
 
-    it("invents no screen column for an empty model, but still carries the settlement pair", () => {
-        // The export-only pair does not come from the screen's model, so it does not disappear with
-        // it. Both callers must produce the same file shape whatever they pass.
+    it("invents no screen column for an empty model, but still carries the export-only columns", () => {
+        // The export-only columns do not come from the screen's model, so they do not disappear
+        // with it. Both callers must produce the same file shape whatever they pass.
         expect(toExportColumns([]).map((c) => c.id)).toEqual([
-            "settled_target_name",
-            "settled_target_amount",
+            "direction",
+            "settled_target_names",
+            "settled_target_amounts",
         ]);
     });
 });
@@ -195,6 +214,12 @@ describe("exportFileBase", () => {
         expect(exportFileBase("not_matched")).toBe("outflow-transfers-not-matched");
         expect(exportFileBase("matched")).toBe("outflow-transfers-matched");
         expect(exportFileBase("skipped")).toBe("outflow-skipped");
+        // The direction tabs (#1264) say their direction in the name, because the file cannot.
+        expect(exportFileBase("not_matched_outflow")).toBe("outflow-transfers-not-matched");
+        expect(exportFileBase("partly_outflow")).toBe("outflow-transfers-partly-allocated");
+        expect(exportFileBase("matched_outflow")).toBe("outflow-transfers-matched");
+        expect(exportFileBase("not_matched_inflow")).toBe("inflow-transfers-not-matched");
+        expect(exportFileBase("settled_inflow")).toBe("inflow-transfers-settled");
     });
 
     it("falls back to the bare stem for a scope this screen does not have", () => {

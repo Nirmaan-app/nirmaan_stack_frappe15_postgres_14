@@ -27,10 +27,13 @@ shortfall landed in a measured 0.95–2.05% band, the import derived `tds = amou
 the legacy **Data** column `Project Payments.tds`, left `amount` GROSS, and marked the payment Paid.
 The invariant it maintained was `bank = amount − tds`, matching `_fulfil_payment`.
 
-**Then SR tax withholding moved upstream.** `services/payment_tds.py` now fires on the transition
-into `Approved`: it writes one `Payment TDS Deduction` row (gross amount, snapshotted vendor rate,
-tds amount) and **rewrites `Project Payments.amount` to the NET figure**. `Service Requests.amount_due`
-became `total_amount − amount_paid − total_tds`.
+**Then SR tax withholding moved upstream.** `services/payment_tds.py` now fires when a payment is
+**approved from an earlier step**: it writes one `Payment TDS Deduction` row (gross amount,
+snapshotted vendor rate, tds amount) and **rewrites `Project Payments.amount` to the NET figure**.
+`Service Requests.amount_due` became `total_amount − amount_paid − total_tds`.
+(It fired on *any* transition into `Approved` until #1288 narrowed it —
+[ADR-0022 Amendment A](0022-unreconcile-and-unskip.md). Nothing in this ADR turns on which: the
+import has never written tax either way, and the population is unchanged.)
 
 That put two mechanisms on **exactly the same population** — `DEDUCTIBLE_PARENTS` is
 `{"Service Requests"}`, and slice TD's gate was `Service Requests` only — with **opposite storage

@@ -73,23 +73,6 @@ export const getProgressColor = (percentage: number): string => {
 };
 
 /**
- * Parse associated POs from JSON string or object
- */
-export const parseAssociatedPOs = (associated: any): string[] => {
-    try {
-        if (typeof associated === "string") {
-            const parsed = JSON.parse(associated);
-            return parsed?.pos || [];
-        } else if (associated && typeof associated === "object") {
-            return associated.pos || [];
-        }
-        return [];
-    } catch {
-        return [];
-    }
-};
-
-/**
  * Extract PO ID (second part after /)
  * e.g., "PO/2024/001" -> "2024/001"
  */
@@ -133,3 +116,127 @@ export const CRITICAL_PO_STATUS_OPTIONS = [
     { label: "Released", value: "Released" },
     { label: "Not Applicable", value: "Not Applicable" },
 ];
+
+/**
+ * ─── PO → procurement package resolution ─────────────────────
+ *
+ * `Procurement Requests.work_package` used to hold the package name, but the v3.0
+ * `migrate_work_package_to_pr_tags` patch moved packages onto the PR's tag rows and
+ * left `work_package` carrying only the PR type — "Normal" or "Custom". A handful of
+ * pre-patch PRs still carry a real package name there, so that value is honoured as a
+ * fallback but the tags are the source of truth.
+ */
+
+/** PR type markers that `work_package` holds post-v3.0 — never real packages. */
+const PR_TYPE_MARKERS = new Set(["Normal", "Custom"]);
+
+/** The "Custom" entry appended to the package dropdown. Not a Procurement Package. */
+export const CUSTOM_PACKAGE_OPTION = "Custom";
+
+/** One `Procurement Requests` row per PR Tag Child Table row (see useCriticalPOProcurementRequests). */
+export interface PRPackageRow {
+    name: string;
+    work_package?: string | null;
+    /** From the joined `PR Tag Child Table`; null when the PR carries no tags. */
+    tag_package?: string | null;
+}
+
+export interface PRPackageInfo {
+    /** Every procurement package this PR is tagged with. */
+    packages: Set<string>;
+    /** PR was raised through the Custom PR flow. */
+    isCustomPR: boolean;
+}
+
+/**
+ * Folds the tag-joined PR rows (one row per tag) into one entry per PR.
+ */
+export const buildPRPackageMap = (
+    prRows: PRPackageRow[] | undefined
+): Map<string, PRPackageInfo> => {
+    const map = new Map<string, PRPackageInfo>();
+
+    prRows?.forEach((row) => {
+        if (!row?.name) return;
+
+        let info = map.get(row.name);
+        if (!info) {
+            info = { packages: new Set<string>(), isCustomPR: false };
+            map.set(row.name, info);
+        }
+
+        const tag = row.tag_package?.trim();
+        if (tag) info.packages.add(tag);
+
+        const legacy = row.work_package?.trim();
+        if (legacy) {
+            if (legacy === CUSTOM_PACKAGE_OPTION) info.isCustomPR = true;
+            // Pre-v3.0 rows still holding a real package name.
+            else if (!PR_TYPE_MARKERS.has(legacy)) info.packages.add(legacy);
+        }
+    });
+
+    return map;
+};
+
+interface POWithPR {
+    name: string;
+    procurement_request?: string | null;
+}
+
+/**
+ * Keeps the POs belonging to `selectedPackage`, resolved through their PR's tags.
+ *
+ * "Custom" additionally keeps the POs no package can be resolved for (an untagged PR,
+ * or a PO with no PR at all) so they stay reachable, as they were before v3.0.
+ */
+export const filterPOsByPackage = <T extends POWithPR>(
+    pos: T[] | undefined,
+    prRows: PRPackageRow[] | undefined,
+    selectedPackage: string
+): T[] => {
+    if (!pos) return [];
+    if (!selectedPackage) return pos;
+
+    const prPackages = buildPRPackageMap(prRows);
+    const isCustomSelection = selectedPackage === CUSTOM_PACKAGE_OPTION;
+
+    return pos.filter((po) => {
+        const info = prPackages.get(po.procurement_request ?? "");
+        if (!info || info.packages.size === 0) return isCustomSelection;
+        if (info.packages.has(selectedPackage)) return true;
+        return isCustomSelection && info.isCustomPR;
+    });
+};
+
+/**
+ * ─── Task ↔ PO links (Critical PO Task Child Table) ──────────
+ *
+ * The link lives on the PO: one `Critical PO Task Child Table` row per (PO, task). useProjectPOTaskLinks
+ * reads those rows through a parent-join query, one row per link.
+ */
+export interface POTaskLinkRow {
+    /** Procurement Orders name */
+    name: string;
+    critical_po_task: string;
+}
+
+/** Fold the link rows into task → PO names, each list sorted by PO name. */
+export const buildTaskPOMap = (rows: POTaskLinkRow[] | undefined): Map<string, string[]> => {
+    const map = new Map<string, string[]>();
+    rows?.forEach((row) => {
+        if (!row?.name || !row.critical_po_task) return;
+        const pos = map.get(row.critical_po_task);
+        if (!pos) map.set(row.critical_po_task, [row.name]);
+        else if (!pos.includes(row.name)) pos.push(row.name);
+    });
+    map.forEach((pos) => pos.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
+    return map;
+};
+
+/** Attach each task's linked POs as `linked_pos`. */
+export const attachLinkedPOs = <T extends { name: string }>(
+    tasks: T[] | undefined,
+    taskPOMap: Map<string, string[]>
+): (T & { linked_pos: string[] })[] | undefined =>
+    tasks?.map((task) => ({ ...task, linked_pos: taskPOMap.get(task.name) ?? [] }));

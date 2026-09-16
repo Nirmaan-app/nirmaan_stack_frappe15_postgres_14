@@ -1,4 +1,4 @@
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import { captureApiError } from "@/utils/sentry/captureApiError";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
@@ -11,6 +11,11 @@ const overviewTabKeys = {
 
 export const useProjectOverviewApi = (projectName?: string, projectTypeId?: string) => {
   const createDocResponse = useFrappeCreateDoc();
+  // Admin-only on the server (`api/projects/assignees.py`); the card only shows the ✕ to
+  // Admin (`canRemoveProjectAssignee`).
+  const removeAssigneeResponse = useFrappePostCall(
+    "nirmaan_stack.api.projects.assignees.remove_project_assignee"
+  );
 
   const projectInflowsResponse = useFrappeGetDocList<ProjectInflows>(
     "Project Inflows",
@@ -61,6 +66,23 @@ export const useProjectOverviewApi = (projectName?: string, projectTypeId?: stri
     }
   };
 
+  /** Take `user` off `project` — deletes the assignment and the card's mirror row. */
+  const removeProjectAssignee = async (user: string, project: string) => {
+    try {
+      return await removeAssigneeResponse.call({ user, project });
+    } catch (error) {
+      captureApiError({
+        hook: "useProjectOverviewApi",
+        api: "Remove Project Assignee",
+        feature: "projects-tab-overview",
+        doctype: "User Permission",
+        entity_id: project,
+        error,
+      });
+      throw error;
+    }
+  };
+
   useApiErrorLogger(projectInflowsResponse.error, {
     hook: "useProjectOverviewApi",
     api: "Project Inflows List",
@@ -85,6 +107,8 @@ export const useProjectOverviewApi = (projectName?: string, projectTypeId?: stri
   return {
     createUserPermission,
     createDocLoading: createDocResponse.loading,
+    removeProjectAssignee,
+    removeAssigneeLoading: removeAssigneeResponse.loading,
     projectInflowsResponse,
     projectTypeResponse,
     projectAssigneesResponse,

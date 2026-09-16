@@ -11,8 +11,13 @@ The same warning is already written into `Vendors.tds_deduction_percentage`'s ow
 
 THE SPINE
 ---------
-A deduction is recorded when a payment REACHES `Approved`, from its vendor's rate, and is never
-recomputed afterwards. Two consequences follow and both are load-bearing:
+A deduction is recorded when a payment is APPROVED FROM AN EARLIER STEP -- it enters `Approved` from
+`Requested`, `CEO Pending` or `Rejected`, or it is created already `Approved` -- from its vendor's
+rate, and is never recomputed afterwards.
+
+⚠️ "APPROVED FROM AN EARLIER STEP", NOT "REACHES `Approved`" (#1288, retiring the ADR-0022 owner
+ruling "TDS on Approved") -- `APPROVAL_SOURCE_STATUSES` below holds the reasoning and the measured
+cases. Two consequences follow from the snapshot rule and both are load-bearing:
 
   * The RATE IS SNAPSHOTTED onto the row. `Vendors.tds_deduction_percentage` is editable (1,105 of
     1,106 vendors sit at 2%, one at 3%), and a historical deduction that re-read the vendor would
@@ -72,12 +77,64 @@ NOT here, and each absence is deliberate:
 import frappe
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.services import settlement
+
 TDS_DOCTYPE = "Payment TDS Deduction"
 PAYMENT_DOCTYPE = "Project Payments"
 SERVICE_REQUEST_DOCTYPE = "Service Requests"
+CHALLAN_DOCTYPE = "TDS Challan Attachment"
 
-APPROVED = "Approved"
-PAID = "Paid"
+# Saves that are NOT a human editing the amount, and must therefore never restate a deduction.
+# `on_update` cannot tell who moved the number, so every machine path flags itself on the way in and
+# is excluded here by name. The edit dialog writes a plain `updateDoc` and carries no flag, which is
+# what makes this seam work at all.
+#
+# ⚠️ `from_outflow_import` -- THE BANK-STATEMENT IMPORT. It writes the bank's ACTUAL figure onto the
+# payment (`services/outflow_import/settle.py`), and any difference there is at most the Rs 5 settle
+# window: ROUNDING, not a change in the amount the tax was computed from. Restating off it INVENTS
+# TAX -- measured 2026-09-15, a Rs 1 bank difference moved a deduction from 875.56 to 875.58, on a
+# row whose tax was already withheld and remitted. That function's own contract is explicit: "NO TDS
+# IS EVER WRITTEN ... the window must never be widened to reach a deduction."
+#
+# ⚠️ `split_approval` -- SPLITTING A PAYMENT THAT ALREADY CARRIES TAX (owner ruling 2026-09-15:
+# KEEP THE TAX AS WITHHELD). A split trims the original and carries the balance forward, and the
+# amount-change listener read that trim as a new tax base -- measured: a half-split took 875.56 to
+# 437.78, rewriting tax that was withheld against the original approval and very likely already paid
+# to the department under a challan. A split changes what is still OWED to the vendor, never what was
+# already SENT to the government. The ordinary first split is unaffected either way: no deduction
+# exists at that moment, so each half is taxed on its own amount when it is approved.
+#
+# `from_adjustment` needs no entry: `controllers/project_payments.on_update` returns on that flag
+# before it ever reaches the restatement.
+NO_RESTATE_FLAGS = ("from_outflow_import", "split_approval")
+
+# ⚠️ BOUND TO `services/settlement`, NOT RE-SPELT. That module owns the payment lifecycle's
+# vocabulary, and this one now reads three more of its names below -- a local `"Approved"` beside a
+# `settlement.STATUS_*` in the SAME expression would be two sources for one word.
+APPROVED = settlement.STATUS_APPROVED
+PAID = settlement.STATUS_PAID
+
+#: The statuses a payment may be approved FROM for tax to be withheld at that approval.
+#:
+#: ⚠️ THIS RETIRES THE OWNER RULING "TDS ON APPROVED" (ADR-0022, #1288). Withholding on ANY save
+#: into `Approved` was correct only while `Approved` could be reached in one direction. The lifecycle
+#: gained `Reconciliation Pending` after it (#1282), and Bulk Import's Unreconcile writes
+#: `Paid -> Approved` -- so an ordinary undo read as a fresh approval and withheld the tax a SECOND
+#: time. Measured on the local site through the real endpoints: a payment with no deduction row was
+#: netted 50,000 -> 49,000 by an unreconcile, and a part payment's leftover 38,000 -> 37,240 on top
+#: of the original's tax, after which the first line could no longer be unreconciled at all
+#: ("Leftover taxed").
+#:
+#: An approval FROM AN EARLIER STEP is the only thing that means "this money has just been
+#: sanctioned": `Requested` and `CEO Pending` are the two gates ahead of it, and `Rejected` is the
+#: one way back to them (a payment rejected before its first approval is still taxed when it is
+#: re-approved). Coming back from `Reconciliation Pending` or `Paid` is an UNDO, never a decision.
+#:
+#: ⚠️ A SET, NOT "anything except the settled statuses". A new status inserted into the lifecycle
+#: later must be considered on its merits rather than silently inheriting the tax.
+APPROVAL_SOURCE_STATUSES = frozenset(
+	{settlement.STATUS_REQUESTED, settlement.STATUS_CEO_PENDING, settlement.STATUS_REJECTED}
+)
 
 #: The ledgers a deduction may be taken from. A frozenset rather than an `==` at each call site so
 #: widening to `Procurement Orders` is one edit here plus a `total_tds` field on that doctype --
@@ -85,7 +142,9 @@ PAID = "Paid"
 DEDUCTIBLE_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE})
 
 __all__ = [
+	"APPROVAL_SOURCE_STATUSES",
 	"DEDUCTIBLE_PARENTS",
+	"is_approval_from_an_earlier_step",
 	"is_deductible",
 	"existing_deduction",
 	"write_deduction",
@@ -94,6 +153,29 @@ __all__ = [
 	"total_tds_of",
 	"sync_total_tds",
 ]
+
+
+def is_approval_from_an_earlier_step(previous_status, new_status) -> bool:
+	"""Did this save APPROVE the payment, rather than merely put it back in `Approved`?
+
+	PURE -- no database, no document. The controller already holds both statuses
+	(`get_doc_before_save`), and this is the one place that says what they mean, so a second call
+	site cannot express the rule slightly differently.
+
+	⚠️ THE INSERT PATH IS NOT THIS QUESTION. A payment BORN `Approved` (auto-approve below the
+	threshold) has no previous status at all and is handled by `after_insert`, which reaches
+	`record_deduction_if_eligible` directly. Passing `None` here answers False, which is right for a
+	transition and would be wrong for an insert -- so an insert must never be routed through here.
+
+	⚠️ IT ANSWERS "WAS THIS AN APPROVAL", NOT "MAY TAX BE WITHHELD". `is_deductible` is the other
+	half and stays the caller's concern: the two are deliberately separate because one is about the
+	TRANSITION and the other about the payment's CURRENT state, and only the second is answerable
+	on an insert.
+	"""
+	return (
+		(new_status or "").strip() == APPROVED
+		and (previous_status or "").strip() in APPROVAL_SOURCE_STATUSES
+	)
 
 
 def is_deductible(doc) -> bool:
@@ -135,12 +217,127 @@ def vendor_rate(vendor: str):
 	return rate if rate > 0 else None
 
 
+def recompute_challan_reconciled(challan: str | None) -> float | None:
+	"""A challan's `reconciled_amount` IS the sum of the deductions pointing at it. Re-derive it.
+
+	⚠️ THIS EXISTS BECAUSE PAYING IS NOT THE ONLY THING THAT MOVES THE NUMBER. Deleting a payment
+	deletes its deduction (`controllers/project_payments.on_trash`), and that delete is RAW SQL, so
+	no hook fires and nothing would otherwise notice that a challan just stopped being spent. The
+	measured symptom: a challan still reading Rs 150 used, with zero deductions behind it.
+
+	⚠️ ALWAYS RECOMPUTED FROM SOURCE, NEVER ADJUSTED BY A DELTA (the repo's standing rule for a
+	derived field). A `-= tds_amount` on delete would be a second arithmetic path that has to agree
+	with the first forever; re-deriving means any caller, in any order, lands on the same number.
+
+	⚠️ IT MUST NOT RAISE. Every caller is a side-effect of something the user actually asked for --
+	a delete, a payment -- and a bookkeeping total must never be the reason a delete fails. The
+	over-application guard belongs to the PAY path, which checks capacity before it writes.
+
+	Lives here, not in `api/tds_challan/pay_tds.py`, so a CONTROLLER can call it: api may import
+	service, service may not import api, and a controller reaching into `api/` is the wrong
+	direction. `pay_tds` imports this one definition rather than keeping its own.
+
+	Returns the recomputed total, or None when there is nothing to recompute.
+	"""
+	if not challan:
+		return None
+	if not frappe.db.exists(CHALLAN_DOCTYPE, challan):
+		return None
+
+	total = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(tds_amount), 0)
+		FROM "tab{TDS_DOCTYPE}"
+		WHERE tds_challan = %s
+		""",
+		(challan,),
+	)[0][0]
+	total = flt(total, 2)
+
+	# `update_modified=False`: re-deriving a total is not an edit a person made, and stamping it
+	# would push the challan to the top of every list sorted by `modified`.
+	frappe.db.set_value(CHALLAN_DOCTYPE, challan, "reconciled_amount", total, update_modified=False)
+	return total
+
+
+def restate_deduction_on_amount_change(doc) -> str | None:
+	"""Re-derive an existing deduction after its payment's amount was edited.
+
+	⚠️ THE EDITED FIGURE IS THE NET, NOT THE GROSS. Once a deduction exists, `Project Payments.amount`
+	IS what leaves the bank -- the gross survives ONLY on the deduction row -- so an edit to it is an
+	edit to the net, and the other two figures are re-derived from it:
+
+	    gross = net / (1 - rate/100)          tds = gross - net
+
+	⚠️ AT THE DEDUCTION'S OWN SNAPSHOTTED RATE, NEVER THE VENDOR'S CURRENT ONE. 561 of 629 rows
+	already carry a rate that differs from their vendor's today, so re-reading the master would
+	restate a historical deduction at a rate that was never withheld from anyone.
+
+	⚠️ IT MUST NOT RE-NET THE PAYMENT. `write_deduction` rewrites `amount` ONCE, at creation.
+	Subtracting the tax again here would shrink the payment on every edit -- silently, and
+	compounding with each save.
+
+	⚠️ IT REFUSES RATHER THAN OVER-APPLY A CHALLAN. Where the tax was already paid under one, a
+	RAISE can exceed what that challan holds; the edit is rejected loudly instead of leaving a
+	challan claiming to have paid out more than its face value. A reduction always fits.
+
+	Returns the deduction's name when it was looked at, or None when the payment carries none.
+	"""
+	name = existing_deduction(doc.name)
+	if not name:
+		return None
+
+	row = frappe.db.get_value(
+		TDS_DOCTYPE,
+		name,
+		["gross_amount", "tds_amount", "tds_percentage", "tds_challan"],
+		as_dict=True,
+	)
+	rate = flt(row.get("tds_percentage"))
+	net = flt(doc.get("amount"))
+
+	# A rate of 0 or >= 100 cannot be inverted (the divisor would be zero or negative) and a
+	# non-positive net has no tax to carry. Leave the row exactly as it was withheld.
+	if rate <= 0 or rate >= 100 or net <= 0:
+		return name
+
+	gross = flt(net / (1 - rate / 100.0), 2)
+	tds = flt(gross - net, 2)
+	old_tds = flt(row.get("tds_amount"), 2)
+
+	if gross == flt(row.get("gross_amount"), 2) and tds == old_tds:
+		return name
+
+	challan = row.get("tds_challan")
+	if challan and tds > old_tds:
+		# Checked BEFORE anything is written, so a refusal leaves the deduction untouched.
+		capacity = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "amount"), 2)
+		current = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "reconciled_amount"), 2)
+		would_be = flt(current - old_tds + tds, 2)
+		if would_be > capacity + 0.01:
+			frappe.throw(
+				f"This edit raises the tax withheld on {doc.name} from {old_tds} to {tds}, "
+				f"which challan {challan} cannot cover ({current} of {capacity} already used). "
+				f"Reduce the change, or pay the difference under another challan first."
+			)
+
+	frappe.db.set_value(TDS_DOCTYPE, name, {"gross_amount": gross, "tds_amount": tds})
+
+	# The challan's total is the SUM of its deductions, so a changed figure moves it.
+	if challan:
+		recompute_challan_reconciled(challan)
+
+	# And the parent's running total, which counts PAID payments -- this may well be one.
+	sync_total_tds(doc.get("document_type"), doc.get("document_name"))
+	return name
+
+
 def write_deduction(
 	doc,
 	*,
 	tds_amount,
 	tds_percentage,
-	deducted_on: str | None = None,
+	payment_approved_on: str | None = None,
 	update_modified: bool = True,
 ) -> str | None:
 	"""Record ONE deduction and net the payment. The caller supplies the FIGURES; this owns the
@@ -158,6 +355,13 @@ def write_deduction(
 	"""
 	existing = existing_deduction(doc.name)
 	if existing:
+		# SELF-HEAL THE MIRROR. `Payment TDS Deduction` is the authority; the payment's
+		# `payment_tds` is a convenience copy, so a blank one -- a row written before the field
+		# existed, or a write that died between the insert and the mirror -- is repaired by any
+		# later save rather than staying wrong forever. This is what keeps the second copy from
+		# drifting. `update_modified=False`: repairing a mirror is not an edit anyone made.
+		if not doc.get("payment_tds"):
+			doc.db_set("payment_tds", existing, update_modified=False)
 		return existing
 
 	gross = flt(doc.get("amount"))
@@ -182,10 +386,22 @@ def write_deduction(
 			"gross_amount": gross,
 			"tds_percentage": flt(tds_percentage, 2),
 			"tds_amount": tds_amount,
-			"deducted_on": deducted_on or nowdate(),
+			"payment_approved_on": payment_approved_on or nowdate(),
 		}
 	)
 	row.insert(ignore_permissions=True)
+
+	# Mirror the deduction onto the payment (owner request 2026-09-15), so the link can be read
+	# from the payment side without a reverse lookup.
+	#
+	# ⚠️ THE DEDUCTION ROW REMAINS THE AUTHORITY. `project_payment` is UNIQUE and that constraint
+	# is what makes this whole flow idempotent; this column is a copy, and a copy can disagree --
+	# which is why it is READ-ONLY on the form, written only here, and repaired by the early-return
+	# branch above whenever it is found blank.
+	#
+	# `db_set`, not assignment, for the same reason as `amount` below: on the hook path this runs
+	# inside the payment's own save, so a plain assignment would be discarded.
+	doc.db_set("payment_tds", row.name, update_modified=update_modified)
 
 	# The payment now states what will actually leave the bank (owner ruling 2026-09-10).
 	#
@@ -203,7 +419,7 @@ def write_deduction(
 	return row.name
 
 
-def record_deduction(doc, *, deducted_on: str | None = None, update_modified: bool = True) -> str | None:
+def record_deduction(doc, *, payment_approved_on: str | None = None, update_modified: bool = True) -> str | None:
 	"""Withhold tax from one approved payment AT THE VENDOR'S CURRENT RATE. The forward path.
 
 	IDEMPOTENT: an already-recorded payment returns the existing row untouched. This is reached from
@@ -235,7 +451,12 @@ def record_deduction(doc, *, deducted_on: str | None = None, update_modified: bo
 		tds_percentage=rate,
 		# `None` on the hook path -> today, which IS the approval day there. The backfill passes the
 		# historical approval date instead, so a record always carries the day it was decided.
-		deducted_on=deducted_on,
+		#
+		# ⚠️ THE ALREADY-RUN BACKFILL PATCH STILL CALLS THIS WITH THE OLD KEYWORD `deducted_on=`.
+		# `patches/` is append-only history and that patch has run everywhere, so it is left alone;
+		# it would only raise on a fresh site that replays the whole patch log, which this repo
+		# never does (new environments restore a backup, and the Patch Log travels with it).
+		payment_approved_on=payment_approved_on,
 		update_modified=update_modified,
 	)
 

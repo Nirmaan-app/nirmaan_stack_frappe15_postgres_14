@@ -170,8 +170,8 @@ export const clickableStepIndex = (
  */
 export const confirmEmptyCopy = (importedRows: number): string =>
     importedRows > 0
-        ? `None of these ${importedRows} transfers matched an approved record. They are waiting in the Not-Matched list, where each one can be linked by hand.`
-        : "Nothing matched an approved record. Anything still open is in the Not-Matched list.";
+        ? `None of these ${importedRows} transfers matched a record waiting for a bank line. They are waiting in the Not-Matched list, where each one can be linked by hand.`
+        : "Nothing matched a record waiting for a bank line. Anything still open is in the Not-Matched list.";
 
 /**
  * The heading over step 4.

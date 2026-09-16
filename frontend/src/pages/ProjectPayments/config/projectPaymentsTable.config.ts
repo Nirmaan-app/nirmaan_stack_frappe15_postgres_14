@@ -44,9 +44,16 @@ export const buildPaymentsUrlSyncKey = (contextKey: string, tab: string): string
  *
  * ⚠️ THE TAB MUST MATCH THE PAYMENT'S STATUS, AND GETTING THIS WRONG FAILS SILENTLY. "Payments
  * Done" filters `status = Paid`. A payment that has been SETTLED is Paid and belongs there -- but a
- * payment merely SUGGESTED by a matcher is still `Approved`, and that same link lands on an empty
+ * payment merely SUGGESTED by a matcher has not been paid, and that same link lands on an empty
  * table with no hint as to why. Verified live before this parameter existed. So callers say which
  * they have, and an unsettled record goes to "All Payments", which carries no status filter at all.
+ *
+ * ⚠️ THE UNSETTLED TAB MUST STAY UNFILTERED, AND #1289 BRIEFLY BROKE THAT. Pointing it at
+ * "Reconciliation Pending" reads well for the Bulk Import, whose suggestions really are at that
+ * status -- but this helper is SHARED, and `PaymentTDSDeductions` passes `false` precisely BECAUSE
+ * it cannot know the status: a deduction row carries none, and its payment may be `Approved` or
+ * `Paid`. Any status filter here lands that link on an empty table. A caller that does know its
+ * record's status and wants a narrower tab must build its own href rather than narrow this one.
  *
  * ⚠️ COLD LOADS BOUNCE. Opening one of these in a FRESH tab redirects to `/` -- the app does that
  * before auth resolves, which is pre-existing behaviour and not specific to this link. An in-app
@@ -76,6 +83,11 @@ export const getProjectPaymentsStaticFilters = (tab: string): Array<[string, str
         case "CEO Pending": return [...base, ["status", "=", PAYMENT_STATUS.CEO_PENDING]];
         case "New Payments": return [...base, ["status", "=", PAYMENT_STATUS.APPROVED]];
         case "Fulfilled Payments": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
+        // Tab four. Empty until the fulfil path writes this status -- but it MUST be
+        // filtered from day one: without a case here the switch falls through to
+        // `default: base`, i.e. NO status filter, and the tab would show every payment
+        // in the system while claiming to show unreconciled ones.
+        case "Reconciliation Pending": return [...base, ["status", "=", PAYMENT_STATUS.RECONCILIATION_PENDING]];
         case "Payments Done": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
         case "Payments Pending": return [...base, ["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.CEO_PENDING, PAYMENT_STATUS.APPROVED]]];
         case "All Payments": return [];

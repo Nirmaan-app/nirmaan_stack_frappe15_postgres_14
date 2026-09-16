@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import CUSTOMER_PO, INVOICE, Entity, LineItem
+from .base import CUSTOMER_PO, INVOICE, TDS_CHALLAN, Entity, LineItem
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -44,10 +44,23 @@ _CUSTOMER_PO_FIELDS = (
     "customer_po_value_inctax", "customer_po_value_exctax",
     "project_reference", "customer_name", "customer_gstin",
 )
+# ITNS 281 challan receipt. ⚠️ `bsr_code` and `challan_no` are deliberately NOT in _NUMERIC below:
+# both carry meaningful LEADING ZEROS on the receipt ("00069"), which a numeric type destroys.
+# The breakup_* fields are validation-only — they must sum to `amount`, which is what catches a
+# misread amount before it becomes the ceiling on what can be paid against the challan.
+_TDS_CHALLAN_FIELDS = (
+    "financial_year", "amount", "mode_of_payment", "bank_name",
+    "bank_reference_number", "date_of_deposit", "bsr_code", "challan_no",
+    "tender_date",
+    "breakup_tax", "breakup_surcharge", "breakup_cess", "breakup_interest",
+    "breakup_penalty", "breakup_fee",
+)
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
     "other_charges", "tcs_amount", "transfer_amount",
     "customer_po_value_inctax", "customer_po_value_exctax",
+    "amount", "breakup_tax", "breakup_surcharge", "breakup_cess",
+    "breakup_interest", "breakup_penalty", "breakup_fee",
 }
 
 # Per-row fields of an invoice's line-item table. `amount` is the line's taxable
@@ -115,6 +128,26 @@ _CUSTOMER_PO_PROMPT = (
     "- payment_terms = the payment schedule as a list of milestones; for EACH milestone "
     "give label (e.g. Advance, On Delivery, On Installation), percentage (a number, no % "
     "sign), and a short description. Return an empty list if no payment terms are stated.\n"
+    "- If a field is not clearly present, return JSON null. Do NOT guess."
+)
+
+
+_TDS_CHALLAN_PROMPT = (
+    "Extract the listed fields from this Indian Income Tax Department challan receipt "
+    "(ITNS 281 / e-Pay Tax) and return JSON only.\n"
+    "- financial_year = the FINANCIAL YEAR exactly as printed, e.g. 2025-26. This is NOT the "
+    "Assessment Year, which is also printed on the receipt and is one year later — do not "
+    "return the Assessment Year.\n"
+    "- amount = the challan amount in rupees, the 'Amount (in Rs.)' figure.\n"
+    "- mode_of_payment = as printed, e.g. Net Banking, Debit Card, RTGS/NEFT, Pay at Bank "
+    "Counter, Payment Gateway.\n"
+    "- bank_name = the bank shown; bank_reference_number = the Bank Reference Number.\n"
+    "- date_of_deposit and tender_date in YYYY-MM-DD format.\n"
+    "- bsr_code = the BSR code; challan_no = the Challan No. Return BOTH AS STRINGS EXACTLY AS "
+    "PRINTED, PRESERVING ANY LEADING ZEROS (e.g. '00069' stays '00069', never 69).\n"
+    "- breakup_tax, breakup_surcharge, breakup_cess, breakup_interest, breakup_penalty, "
+    "breakup_fee = the rows of the 'Tax Breakup Details' table (Tax, Surcharge, Cess, Interest, "
+    "Penalty, Fee under section 234E). Return 0 where the row shows 0.\n"
     "- If a field is not clearly present, return JSON null. Do NOT guess."
 )
 
@@ -230,6 +263,12 @@ class GeminiExtractor:
             fields = _CUSTOMER_PO_FIELDS + ("payment_terms",)
             prompt = _CUSTOMER_PO_PROMPT
             schema = _customer_po_schema()
+            is_invoice = False
+        elif doc_kind == TDS_CHALLAN:
+            # A challan receipt has no line-item table, so line_items stays [] like payment.
+            fields = _TDS_CHALLAN_FIELDS
+            prompt = _TDS_CHALLAN_PROMPT
+            schema = _schema(fields)
             is_invoice = False
         else:
             is_invoice = doc_kind == INVOICE

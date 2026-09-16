@@ -25,6 +25,11 @@
 export const ROW_PENDING_MATCH = "Pending match run";
 export const ROW_MATCHED = "Matched";
 export const ROW_MISMATCHED = "Mismatched";
+/**
+ * Money is written and work remains -- the first status for which both are true (ADR-0020).
+ * One transfer may settle several approved payments, allocated over several sittings.
+ */
+export const ROW_PARTIALLY_ALLOCATED = "Partially Allocated";
 export const ROW_SETTLED = "Settled";
 export const ROW_SKIPPED = "Skipped";
 export const ROW_ERROR = "Error";
@@ -33,6 +38,7 @@ export type RowStatus =
     | typeof ROW_PENDING_MATCH
     | typeof ROW_MATCHED
     | typeof ROW_MISMATCHED
+    | typeof ROW_PARTIALLY_ALLOCATED
     | typeof ROW_SETTLED
     | typeof ROW_SKIPPED
     | typeof ROW_ERROR;
@@ -42,6 +48,7 @@ export const ROW_STATUSES: RowStatus[] = [
     ROW_PENDING_MATCH,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_ERROR,
@@ -62,6 +69,20 @@ export const OPEN_ROW_STATUSES: ReadonlySet<string> = new Set([
     ROW_MISMATCHED,
     ROW_ERROR,
 ]);
+
+/**
+ * Still needs a human, whether or not money has already moved against it.
+ *
+ * ⚠️ NOT `!isTerminal`. `Partially Allocated` is in neither `OPEN_ROW_STATUSES` nor
+ * `TERMINAL_ROW_STATUSES` -- see the Python `ACTIVE_ROW_STATUSES` comment for why each of the two
+ * obvious placements is a silent defect. `ACTIVE === OPEN` until a partial allocation exists.
+ */
+export const ACTIVE_ROW_STATUSES: ReadonlySet<string> = new Set([
+    ...OPEN_ROW_STATUSES,
+    ROW_PARTIALLY_ALLOCATED,
+]);
+
+export const isActive = (status: string): boolean => ACTIVE_ROW_STATUSES.has(status);
 
 export const BATCH_DRAFT = "Draft";
 export const BATCH_IN_REVIEW = "In Review";
@@ -87,10 +108,14 @@ export const isOpen = (status: string): boolean => OPEN_ROW_STATUSES.has(status)
  */
 export function deriveBatchStatus(rowStatuses: string[]): string {
     if (!rowStatuses.length) return BATCH_DRAFT;
-    const open = rowStatuses.filter(isOpen);
-    const terminal = rowStatuses.filter(isTerminal);
-    if (!open.length) return BATCH_COMPLETED;
-    if (terminal.length) return BATCH_PARTIALLY_SETTLED;
+    // ⚠️ `active`, not `open` -- see the Python twin. A status in neither set would make the
+    // `!active.length` branch report `Completed` on a batch full of unfinished work.
+    const active = rowStatuses.filter(isActive);
+    const banked = rowStatuses.filter(
+        (s) => isTerminal(s) || s === ROW_PARTIALLY_ALLOCATED,
+    );
+    if (!active.length) return BATCH_COMPLETED;
+    if (banked.length) return BATCH_PARTIALLY_SETTLED;
     return BATCH_IN_REVIEW;
 }
 
@@ -128,6 +153,7 @@ export const ROW_STATUS_TONE: Record<string, string> = {
     [ROW_PENDING_MATCH]: "bg-gray-100 text-gray-700",
     [ROW_MATCHED]: "bg-emerald-50 text-emerald-700",
     [ROW_MISMATCHED]: "bg-amber-50 text-amber-700",
+    [ROW_PARTIALLY_ALLOCATED]: "bg-sky-50 text-sky-700",
     [ROW_SETTLED]: "bg-indigo-50 text-indigo-700",
     [ROW_SKIPPED]: "bg-gray-100 text-gray-500",
     [ROW_ERROR]: "bg-red-50 text-red-700",
@@ -165,6 +191,50 @@ export const ROW_STATUS_LABEL: Record<string, string> = {
 
 /** The status as a person should read it. Falls through to the stored value for the other five. */
 export const rowStatusLabel = (status: string): string => ROW_STATUS_LABEL[status] || status;
+
+/**
+ * Who set a Skipped line aside (#1273). Mirrors `status.SKIP_ORIGIN_*`. Only a Manual skip can ever
+ * be unskipped, so the screen marks it and filters on it.
+ */
+export const SKIP_ORIGIN_SYSTEM = "System";
+export const SKIP_ORIGIN_MANUAL = "Manual";
+
+/**
+ * The profiles that may Skip, Unskip, Unreconcile and Reverse (#1270 Q1) -- Admin and Accountant Lead.
+ *
+ * ⚠️ CONVENIENCE ONLY. `permissions.require_outflow_undo_access` is the boundary; this hides buttons a
+ * plain Accountant would only be refused by. `outflowUndoAccessParity.test.ts` reads `permissions.py`
+ * and fails if the two sets differ.
+ */
+export const OUTFLOW_UNDO_PROFILES: ReadonlySet<string> = new Set([
+    "Nirmaan Admin Profile",
+    "Nirmaan Accountant Lead Profile",
+]);
+
+/** Mirrors `has_outflow_undo_access`: the Administrator user, or an undo profile. */
+export const canUndoOutflow = (role: string | null | undefined, userId: string | null | undefined): boolean =>
+    userId === "Administrator" || OUTFLOW_UNDO_PROFILES.has(role ?? "");
+
+/**
+ * The sources the matcher never runs over, which also get no Skip (#1270 Q16). Mirrors
+ * `sources.NEVER_MATCHED_SOURCES`; the parity test pins it.
+ */
+export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
+
+/**
+ * May this person see the "Nothing to link?" Skip box on this line? Mirrors the server's
+ * `skip_origin.manual_skip_refusal` plus the access check: an undo role, an OPEN line, not Cashbook.
+ * The server re-checks all three.
+ */
+export const canSkipByHand = (
+    row: { row_status: string; source?: string | null } | null | undefined,
+    role: string | null | undefined,
+    userId: string | null | undefined,
+): boolean =>
+    Boolean(row) &&
+    canUndoOutflow(role, userId) &&
+    isOpen(row!.row_status) &&
+    !NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim());
 
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the

@@ -53,8 +53,36 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
   * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
-  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check
-  * `similarity._amount_score`              -- the browse list's RANKING axis, SETTLE window
+  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_already_recorded_
+                                               outcome`, reached through `_failed_or_already_paid`,
+                                               shared with `derive_duplicate_guard_outcome` -- and,
+                                               since #1260, with `derive_recorded_money_verdict`,
+                                               the refusal on the five write endpoints, so a button
+                                               and the match run judge one window).
+                                               SETTLE window. Since #1256 its pool includes Paid
+                                               EXPENSES on a gateway row, from
+                                               `candidates.load_paid_expenses_by_reference` -- ⚠️ A
+                                               QUERY WITH NO AMOUNT PREDICATE ON PURPOSE, so an
+                                               amount-off hit still reaches here and reads
+                                               `Mismatched` naming the expense.
+  * `status.pick_duplicate_group` (#1256)   -- SETTLE window. Chooses WHICH already-recorded group
+                                               (payments, expenses, both) the check above then
+                                               judges. It must use the SAME window, or the pick
+                                               could disagree with the verdict it feeds.
+  * `contains_guard.pick_recorded_group` (#1257) -- SETTLE window, the ICICI contains-guard's
+                                               picker: one hit record, then a same-reference group,
+                                               then all hits, each judged with `amounts_match`
+                                               before `_failed_or_already_paid` re-judges the chosen
+                                               group with the same window. Since #1258 its `_agrees`
+                                               also decides whether a CLAIMED record is what made a
+                                               group agree -- same window, so "blocked by one record,
+                                               one line" can never mean "would not have skipped
+                                               anyway". Its pool,
+                                               `candidates.load_recorded_by_contains`, carries NO
+                                               amount predicate, so an amount-off hit still reads
+                                               `Mismatched` naming the record. Never stretched to
+                                               reach TDS (owner ruling on #1252).
+  * `similarity._amount_score`             -- the browse list's RANKING axis, SETTLE window
                                                (slice N1). ⚠️ THE ONE SITE THAT DECIDES NOTHING:
                                                it shapes the ORDER of a list a person reads, and
                                                `similarity` is forbidden from reaching any module
@@ -62,6 +90,40 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                is "every amount comparison in this feature", not
                                                "every one that writes" -- and an unlisted site is
                                                exactly how the fifth one went wrong.
+  * `allocation.is_fully_allocated`         -- SETTLE window, and ⚠️ ONE-SIDED (ADR-0020). It reads
+                                               `remaining <= AMOUNT_TOLERANCE`, NOT an absolute
+                                               difference, so an OVER-allocated row (a large
+                                               NEGATIVE remainder) still answers `True`. On purpose:
+                                               `status_for_allocation` has no fourth status to give
+                                               that case, and "remaining is very negative" must not
+                                               read as `Partially Allocated`. What keeps a row from
+                                               ever landing there is the SEPARATE
+                                               `is_over_allocated`, not this window.
+  * `allocation.allocation_fits`            -- SETTLE window, REMAINDER-bounded: a candidate may be
+                                               written if it does not exceed what is left, plus the
+                                               window. ⚠️ DELIBERATELY WEAKER than `settle_row`'s
+                                               whole-transfer guard -- a leg is by definition
+                                               smaller than the transfer, so nothing stronger can be
+                                               asserted about one.
+  * `allocation.is_over_allocated`          -- SETTLE window, the other side of that same number
+                                               (`remaining < -AMOUNT_TOLERANCE`). `allocate_row`'s
+                                               post-loop backstop.
+  * `allocationView.AMOUNT_TOLERANCE`       -- the FRONTEND mirror (ADR-0020), a SECOND one beside
+                                               the TDS band's. SETTLE window; it feeds the balance
+                                               bar's `allocated / remaining / over / complete`.
+                                               ⚠️ Its `complete` is TWO-SIDED where the server's
+                                               `is_fully_allocated` is one-sided (above) -- a button
+                                               must not label an over-tick "completes this transfer"
+                                               -- and it must not be STRICTER than the server
+                                               anywhere else: erring toward OFFERING is safe because
+                                               the server re-asserts, erring the other way hides a
+                                               choice the server would have accepted.
+NOT ON THIS LIST, AND SAYING WHY IS PART OF THE RULE: `expenses.reverse_allocation`'s "has the
+payment changed underneath this leg" check (whole-branch review, F5) compares `leg.target_amount`
+against the payment's own `amount` EXACTLY, through `normalize_amount`, with NO window at all. It
+is not asking "is this the same money" -- both figures were written by the same settle from the
+same source, so ANY difference means somebody edited the record afterwards, which is exactly what
+it refuses on. A tolerance there would silently permit a reversal over the edit it exists to catch.
 These are easy to fix independently and catastrophic to fix inconsistently: a pool wider than the
 guard offers a record the confirm then refuses; a guard wider than the pool silently permits a
 settlement the screen never proposed. The SQL half cannot import this module's function, so it takes

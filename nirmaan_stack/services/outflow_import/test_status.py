@@ -18,12 +18,15 @@ or one half of the app renders a status the other has never heard of.
 """
 
 import unittest
+from datetime import date
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.contains_guard import RecordClaim, RecordedGroup
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPE,
     LEDGER_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE,
+    NON_PROJECT_INFLOW_DOCTYPE,
     RECEIVED_LEDGER_DOCTYPES,
     SETTLEABLE_STATUSES,
 )
@@ -45,10 +48,12 @@ from nirmaan_stack.services.outflow_import.status import (
     BATCH_IN_REVIEW,
     BATCH_PARTIALLY_SETTLED,
     BATCH_STATUSES,
+    ACTIVE_ROW_STATUSES,
     OPEN_ROW_STATUSES,
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -71,9 +76,14 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_batch_status,
     derive_import_summary,
     STAGED_NOTE_NO_SETTLEMENT_PATH,
+    RECORDED_DUPLICATE,
+    RECORDED_NEEDS_CONFIRMATION,
     derive_duplicate_guard_outcome,
+    derive_guard_verdict,
+    derive_recorded_money_verdict,
     derive_row_outcome,
     derive_staged_row_outcome,
+    pick_duplicate_group,
     several_found_note,
     sole_suggestion,
 )
@@ -132,13 +142,17 @@ def _match_many(targets=(), expenses=(), basis=BASIS_BANK_REFERENCE):
 
 
 class TestVocabulary(unittest.TestCase):
-    def test_exactly_six_row_statuses_in_reviewer_order(self):
+    # REPLACES test_exactly_six_row_statuses_in_reviewer_order
+    def test_exactly_seven_row_statuses_in_reviewer_order(self):
+        """`Partially Allocated` sits between Mismatched and Settled -- the order a reviewer meets
+        it: nothing lined up, then part of it did, then all of it did."""
         self.assertEqual(
             ROW_STATUSES,
             (
                 "Pending match run",
                 "Matched",
                 "Mismatched",
+                "Partially Allocated",
                 "Settled",
                 "Skipped",
                 "Error",
@@ -183,9 +197,61 @@ class TestVocabulary(unittest.TestCase):
         v3 settles, so a row that found something and was not confirmed is unfinished work."""
         self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED}))
 
-    def test_open_and_terminal_partition_the_vocabulary(self):
-        self.assertEqual(set(ROW_STATUSES), OPEN_ROW_STATUSES | TERMINAL_ROW_STATUSES)
+    # REPLACES test_open_and_terminal_partition_the_vocabulary -- INVERTED, not deleted.
+    def test_open_and_terminal_no_longer_partition_the_vocabulary(self):
+        """⚠️ THE PARTITION IS DELIBERATELY BROKEN (ADR-0020 D5). `Partially Allocated` is the first
+        status where MONEY IS ALREADY WRITTEN BUT WORK REMAINS, so it is in neither set. Kept as an
+        inverted pin rather than deleted: a future reader restoring the partition would put the
+        status into one of the two sets, and either choice is a silent defect -- OPEN enrols it in
+        cross-batch claim contention, TERMINAL tells the screen it is finished.
+        """
+        self.assertNotIn(ROW_PARTIALLY_ALLOCATED, OPEN_ROW_STATUSES)
+        self.assertNotIn(ROW_PARTIALLY_ALLOCATED, TERMINAL_ROW_STATUSES)
+        self.assertNotEqual(set(ROW_STATUSES), OPEN_ROW_STATUSES | TERMINAL_ROW_STATUSES)
         self.assertFalse(OPEN_ROW_STATUSES & TERMINAL_ROW_STATUSES)
+
+    def test_active_and_terminal_partition_the_vocabulary(self):
+        """The partition that replaced it. ACTIVE means 'still needs a human'."""
+        self.assertEqual(set(ROW_STATUSES), ACTIVE_ROW_STATUSES | TERMINAL_ROW_STATUSES)
+        self.assertFalse(ACTIVE_ROW_STATUSES & TERMINAL_ROW_STATUSES)
+
+    def test_active_is_exactly_open_plus_partially_allocated(self):
+        self.assertEqual(
+            ACTIVE_ROW_STATUSES, OPEN_ROW_STATUSES | {ROW_PARTIALLY_ALLOCATED}
+        )
+
+    def test_a_batch_of_only_partially_allocated_rows_is_not_completed(self):
+        """⚠️ THE BUG THIS TASK EXISTS TO PREVENT. `derive_batch_status`'s first branch is
+        `if not open_rows: return BATCH_COMPLETED`. A status in NEITHER set makes that branch fire
+        on a batch full of unfinished work -- and `batch_is_open` then drops the statement out of
+        `match_period` forever, the invisible-exclusion class its own docstring warns about.
+        """
+        self.assertEqual(
+            derive_batch_status([ROW_PARTIALLY_ALLOCATED] * 3), BATCH_PARTIALLY_SETTLED
+        )
+        self.assertEqual(
+            derive_batch_status([ROW_PARTIALLY_ALLOCATED, ROW_MATCHED]),
+            BATCH_PARTIALLY_SETTLED,
+        )
+
+    def test_batch_status_is_byte_identical_for_every_pre_existing_shape(self):
+        """ACTIVE == OPEN until a partial allocation exists, so nothing already in the database
+        moves. Pinned so the substitution can never be a silent behaviour change."""
+        self.assertEqual(derive_batch_status([]), BATCH_DRAFT)
+        self.assertEqual(derive_batch_status([ROW_SETTLED, ROW_SKIPPED]), BATCH_COMPLETED)
+        self.assertEqual(derive_batch_status([ROW_MATCHED, ROW_MISMATCHED]), BATCH_IN_REVIEW)
+        self.assertEqual(
+            derive_batch_status([ROW_MATCHED, ROW_SETTLED]), BATCH_PARTIALLY_SETTLED
+        )
+
+    def test_a_partial_allocation_is_reviewed_but_not_settled(self):
+        """`derive_batch_counters` needs NO change -- `settled_rows` keys on `== ROW_SETTLED` and
+        `reviewed_rows` on `!= ROW_PENDING_MATCH`, both of which are already right. Pinned so a
+        later 'tidy-up' cannot fold the new status into settled_rows."""
+        counters = derive_batch_counters([ROW_PARTIALLY_ALLOCATED])
+        self.assertEqual(counters["settled_rows"], 0)
+        self.assertEqual(counters["reviewed_rows"], 1)
+        self.assertEqual(counters["total_rows"], 1)
 
     def test_matched_and_mismatched_are_both_open(self):
         """Owner ruling: a mismatch must be RESOLVABLE, not merely reported. Marking it terminal
@@ -245,8 +311,13 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
             paid_duplicate=_group([_payment("PAY-00066-003", amount="5000", status="Paid")]),
         )
         self.assertEqual(outcome.status, ROW_SKIPPED)
-        self.assertIn("Already recorded as Paid", outcome.note)
-        self.assertIn("PAY-00066-003", outcome.note)
+        # ⚠️ INVERTED AT #1253 (was: "Already recorded as Paid" + the bare name). The note now names
+        # the LEDGER beside the record, because a guard reaching four ledgers cannot leave a reader
+        # to guess which book "PAY-00066-003" -- or a random expense id -- lives in.
+        self.assertEqual(
+            outcome.note, "Already recorded as Paid on Project Payment PAY-00066-003."
+        )
+        self.assertNotIn("Paid on PAY-00066-003", outcome.note)
 
     def test_a_sub_rupee_gap_is_the_bank_rounding_and_still_skips(self):
         """⚠️ THE REGRESSION THIS PINS COST 8 OF 26 ROWS IN A LIVE STATEMENT.
@@ -349,6 +420,317 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
         self.assertEqual(outcome.status, ROW_MATCHED)
 
 
+# --- a duplicate note names the ledger, in that ledger's own words (#1253) ------------------------
+
+
+def _paid_expense(
+    name="ecuu6rldvp",
+    amount="2935",
+    doctype="Project Expenses",
+    description="Site accommodation for the electrical team",
+    paid_on=date(2026, 9, 12),
+):
+    return TargetRef(
+        doctype, name, Decimal(str(amount)), "Paid", None, "", paid_on, None, description
+    )
+
+
+def _inflow(name="PAYIN-00190-01", amount="5000"):
+    return TargetRef("Project Inflows", name, Decimal(str(amount)))
+
+
+class TestDuplicateNotesNameTheLedger(unittest.TestCase):
+    """The prefactor for a duplicate guard that reaches all four ledgers (#1253).
+
+    Until now only a Paid `Project Payment` could be a duplicate, so a bare `PAY-…` name was enough
+    and "Paid" and "TDS" were always true. Neither survives four ledgers: an expense's name is a
+    random id nobody can search for, an inflow is never "Paid", and TDS is deducted from payments.
+    """
+
+    def test_a_payment_fan_out_names_the_ledger_once_for_all_its_records(self):
+        outcome = derive_row_outcome(
+            _Row(amount="9000"),
+            _match(),
+            paid_duplicate=_group(
+                [
+                    _payment("PAY-A", amount="5000", status="Paid"),
+                    _payment("PAY-B", amount="4000", status="Paid"),
+                ]
+            ),
+        )
+        self.assertEqual(outcome.note, "Already recorded as Paid on Project Payments PAY-A, PAY-B.")
+
+    def test_an_expense_is_described_never_shown_as_its_bare_random_id(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"), _match(), paid_duplicate=_group([_paid_expense()])
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(
+            outcome.note,
+            'Already recorded as Paid on Project Expense "Site accommodation for the electrical '
+            'team" of 2935.00 paid on 12-Sep-2026.',
+        )
+        self.assertNotIn("ecuu6rldvp", outcome.note)
+
+    def test_a_non_project_expense_with_no_description_still_reads_as_a_record(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"),
+            _match(),
+            paid_duplicate=_group(
+                [_paid_expense("1t69cnkk6v", doctype="Non Project Expenses", description="")]
+            ),
+        )
+        self.assertEqual(
+            outcome.note,
+            "Already recorded as Paid on Non Project Expense of 2935.00 paid on 12-Sep-2026.",
+        )
+        self.assertNotIn("1t69cnkk6v", outcome.note)
+
+    def test_a_long_description_is_shortened_rather_than_flooding_the_note(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"),
+            _match(),
+            paid_duplicate=_group([_paid_expense(description="x" * 200)]),
+        )
+        self.assertIn('"' + "x" * 60 + '…"', outcome.note)
+        self.assertNotIn("x" * 61, outcome.note)
+
+    def test_an_expense_with_no_paid_date_drops_the_date_not_the_sentence(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"),
+            _match(),
+            paid_duplicate=_group([_paid_expense(description="Hotel", paid_on=None)]),
+        )
+        self.assertEqual(
+            outcome.note, 'Already recorded as Paid on Project Expense "Hotel" of 2935.00.'
+        )
+
+    def test_an_inflow_is_received_never_paid(self):
+        outcome = derive_duplicate_guard_outcome(
+            _Row(amount="5000"), paid_duplicate=_group([_inflow()])
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(
+            outcome.note, "Already recorded as received on Project Inflow PAYIN-00190-01."
+        )
+        self.assertNotIn("Paid", outcome.note)
+
+    def test_an_inflow_amount_disagreement_says_received_and_never_suggests_tds(self):
+        less = derive_duplicate_guard_outcome(
+            _Row(amount="4800"), paid_duplicate=_group([_inflow(amount="5000")])
+        )
+        more = derive_duplicate_guard_outcome(
+            _Row(amount="5200"), paid_duplicate=_group([_inflow(amount="5000")])
+        )
+        for outcome in (less, more):
+            self.assertEqual(outcome.status, ROW_MISMATCHED)
+            self.assertIn("received", outcome.note)
+            self.assertIn("Project Inflow PAYIN-00190-01", outcome.note)
+            self.assertNotIn("Paid", outcome.note)
+            self.assertNotIn("TDS", outcome.note)
+            self.assertNotIn("left the account", outcome.note)
+        self.assertIn("less", less.note)
+        self.assertIn("MORE", more.note)
+
+    def test_tds_is_a_payments_concept_so_an_expense_shortfall_never_suggests_it(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2800"), _match(), paid_duplicate=_group([_paid_expense(amount="2935")])
+        )
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("less", outcome.note)
+        self.assertNotIn("TDS", outcome.note)
+        self.assertIn("Project Expense", outcome.note)
+
+    def test_a_payment_shortfall_keeps_its_tds_hint(self):
+        outcome = derive_row_outcome(
+            _Row(amount="98000"),
+            _match(),
+            paid_duplicate=_group([_payment("PAY-9", amount="100000", status="Paid")]),
+        )
+        self.assertIn("TDS", outcome.note)
+        self.assertIn("Already recorded as Paid on Project Payment PAY-9.", outcome.note)
+
+    def test_records_from_two_ledgers_are_each_named_under_their_own_ledger(self):
+        outcome = derive_row_outcome(
+            _Row(amount="7935"),
+            _match(),
+            paid_duplicate=_group(
+                [
+                    _payment("PAY-A", amount="5000", status="Paid"),
+                    _paid_expense(description="Hotel"),
+                ]
+            ),
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(
+            outcome.note,
+            'Already recorded as Paid on Project Payment PAY-A; Project Expense "Hotel" of '
+            "2935.00 paid on 12-Sep-2026.",
+        )
+
+
+# --- which already-recorded group decides a gateway row (#1256) ---------------------------------
+
+
+class TestPickDuplicateGroup(unittest.TestCase):
+    """A gateway row's reference can sit on Paid payments AND Paid expenses at once.
+
+    ⚠️ THE PAYMENT GROUP IS TRIED FIRST, SO THE EXISTING SKIP IS UNCHANGED (#1256 acceptance: "Existing
+    Paid-payment skip behaviour unchanged"). Summing every hit into one group -- the first cut -- turned
+    a row whose payment agreed exactly into `Mismatched` the moment an expense shared its reference.
+    """
+
+    def test_a_payment_that_agrees_wins_even_when_an_expense_shares_the_reference(self):
+        payments = _group([_payment("PAY-A", "5000", "Paid")])
+        expenses = _group([_paid_expense(amount="5000")])
+        picked = pick_duplicate_group(_Row("5000"), (payments, expenses))
+        self.assertIs(picked, payments)
+
+    def test_the_expense_group_decides_when_the_payments_do_not_agree(self):
+        payments = _group([_payment("PAY-A", "9000", "Paid")])
+        expenses = _group([_paid_expense(amount="5003")])
+        self.assertIs(pick_duplicate_group(_Row("5000"), (payments, expenses)), expenses)
+
+    def test_the_combined_group_decides_when_only_the_sum_agrees(self):
+        payments = _group([_payment("PAY-A", "3000", "Paid")])
+        expenses = _group([_paid_expense(amount="2000")])
+        combined = _group([*payments.targets, *expenses.targets])
+        self.assertIs(
+            pick_duplicate_group(_Row("5000"), (payments, expenses, combined)), combined
+        )
+
+    def test_when_nothing_agrees_the_FIRST_group_is_reported(self):
+        """So an amount-off payment reads exactly the `Mismatched` note it always has."""
+        payments = _group([_payment("PAY-A", "9000", "Paid")])
+        expenses = _group([_paid_expense(amount="7000")])
+        self.assertIs(pick_duplicate_group(_Row("5000"), (payments, expenses)), payments)
+
+    def test_absent_and_empty_groups_are_ignored(self):
+        expenses = _group([_paid_expense(amount="7000")])
+        self.assertIs(pick_duplicate_group(_Row("5000"), (None, _group([]), expenses)), expenses)
+        self.assertIsNone(pick_duplicate_group(_Row("5000"), (None, _group([]))))
+
+
+class TestRecordedMoneyVerdict(unittest.TestCase):
+    """What a WRITE endpoint does with a line whose money is already recorded (#1260).
+
+    The five buttons that record money ask the match run's own question and must reach the match
+    run's own answer: a line the run would SKIP is refused; a line the run would leave MISMATCHED
+    naming a record needs a confirmation; anything else proceeds. The sentences are the run's too.
+    """
+
+    def _used(self, group):
+        claim = RecordClaim("Project Payments", "PAY-A", "OIR-OTHER", "OIB-26-000007")
+        return RecordedGroup(targets=group.targets, used_by=(claim,))
+
+    def test_no_group_or_an_empty_one_is_clean(self):
+        self.assertIsNone(derive_recorded_money_verdict(_Row("5000"), None))
+        self.assertIsNone(derive_recorded_money_verdict(_Row("5000"), _group([])))
+
+    def test_an_agreeing_record_is_a_duplicate_named_as_the_run_names_it(self):
+        group = _group([_payment("PAY-A", "5000", "Paid")])
+        verdict = derive_recorded_money_verdict(_Row("5000"), group)
+
+        self.assertEqual(verdict.kind, RECORDED_DUPLICATE)
+        self.assertEqual(verdict.note, derive_duplicate_guard_outcome(_Row("5000"), group).note)
+        self.assertIn("PAY-A", verdict.note)
+
+    def test_an_amount_off_record_needs_confirmation(self):
+        group = _group([_paid_expense(amount="7000")])
+        verdict = derive_recorded_money_verdict(_Row("5000"), group)
+
+        self.assertEqual(verdict.kind, RECORDED_NEEDS_CONFIRMATION)
+        self.assertEqual(verdict.note, derive_duplicate_guard_outcome(_Row("5000"), group).note)
+
+    def test_an_agreeing_record_already_used_by_another_line_needs_confirmation(self):
+        """#1258's case: the run leaves it Mismatched, so a write asks rather than refuses."""
+        group = self._used(_group([_payment("PAY-A", "5000", "Paid")]))
+        verdict = derive_recorded_money_verdict(_Row("5000"), group)
+
+        self.assertEqual(verdict.kind, RECORDED_NEEDS_CONFIRMATION)
+        self.assertIn("OIB-26-000007", verdict.note)
+
+    def test_inside_the_settle_window_is_still_a_duplicate(self):
+        group = _group([_payment("PAY-A", "5004.50", "Paid")])
+        self.assertEqual(
+            derive_recorded_money_verdict(_Row("5000"), group).kind, RECORDED_DUPLICATE
+        )
+
+    def test_it_agrees_with_the_match_run_on_every_shape(self):
+        """The screen and the button can never disagree: Skipped <-> refuse, Mismatched <-> ask."""
+        shapes = [
+            _group([_payment("PAY-A", "5000", "Paid")]),
+            _group([_payment("PAY-A", "9000", "Paid")]),
+            _group([_paid_expense(amount="2935"), _payment("PAY-B", "2065", "Paid")]),
+            _group([_inflow(amount="5000")]),
+            _group([_inflow(amount="4000")]),
+            self._used(_group([_payment("PAY-A", "5000", "Paid")])),
+        ]
+        expected = {ROW_SKIPPED: RECORDED_DUPLICATE, ROW_MISMATCHED: RECORDED_NEEDS_CONFIRMATION}
+        for group in shapes:
+            with self.subTest(group=group):
+                outcome = derive_duplicate_guard_outcome(_Row("5000"), paid_duplicate=group)
+                verdict = derive_recorded_money_verdict(_Row("5000"), group)
+                self.assertEqual(verdict.kind, expected[outcome.status])
+                self.assertEqual(verdict.note, outcome.note)
+
+
+class TestTheAmountOffNoteReadsAsMoney(unittest.TestCase):
+    """The "amount off" note prints money to two decimals, whatever shape the amounts arrive in.
+
+    Found in the #1252 browser walk: a Currency column comes back from PostgreSQL with nine decimals,
+    so the screen read "The bank paid 500.000000000 less than the recorded total of 20500.000000000",
+    and the Allocate path, fed a float, read "900.0". Both are the same money and must read the same way.
+    """
+
+    def _note(self, bank, recorded):
+        group = _group([_paid_expense(amount=recorded)])
+        return derive_duplicate_guard_outcome(_Row(bank), paid_duplicate=group).note
+
+    def test_database_amounts_with_nine_decimals_read_as_rupees_and_paise(self):
+        note = self._note("20000.000000000", "20500.000000000")
+        self.assertIn("paid 500.00 less than the recorded total of 20500.00 (2.44% of it)", note)
+        self.assertNotIn("000000", note)
+
+    def test_a_float_shaped_amount_reads_the_same_way(self):
+        self.assertIn("paid 900.00 less than the recorded total of 45900.00", self._note("45000.0", "45900.0"))
+
+    def test_the_more_than_branch_reads_as_money_too(self):
+        note = self._note("21000.000000000", "20500.000000000")
+        self.assertIn("paid 500.00 MORE than the recorded total of 20500.00.", note)
+        self.assertNotIn("000000", note)
+
+
+class TestGuardVerdict(unittest.TestCase):
+    """What the read-only production preview reports (#1261): the run's guard decision, and only it.
+
+    A verdict must be the SAME outcome both match-time derivers reach for that row, and `None` must mean
+    the guard said nothing -- or the preview lists rows the run would not touch, or misses ones it would.
+    """
+
+    def test_a_row_the_guard_says_nothing_about_has_no_verdict(self):
+        self.assertIsNone(derive_guard_verdict(_Row("5000"), None))
+        self.assertIsNone(derive_guard_verdict(_Row("5000"), _group([])))
+
+    def test_every_verdict_is_what_both_match_run_derivers_decide(self):
+        shapes = [
+            (_Row("5000"), _group([_payment("PAY-A", "5000", "Paid")])),
+            (_Row("5000"), _group([_payment("PAY-A", "9000", "Paid")])),
+            (_Row("5000"), _group([_inflow(amount="5000")])),
+            (_Row("5000", is_success=False, status_raw="FAILED"), None),
+            (_Row("5000"), RecordedGroup(
+                targets=(_payment("PAY-A", "5000", "Paid"),),
+                used_by=(RecordClaim("Project Payments", "PAY-A", "OIR-OTHER", "OIB-26-000007"),),
+            )),
+        ]
+        for row, group in shapes:
+            with self.subTest(group=group, success=row.is_success):
+                verdict = derive_guard_verdict(row, group)
+                self.assertIsNotNone(verdict)
+                self.assertEqual(verdict, derive_duplicate_guard_outcome(row, paid_duplicate=group))
+                self.assertEqual(verdict, derive_row_outcome(row, None, paid_duplicate=group))
+
+
 # --- Matched and the found-nothing half of Mismatched ------------------------------------------------------------------------
 
 
@@ -371,7 +753,7 @@ class TestMatched(unittest.TestCase):
             _match([_payment("PAY-A", amount="5000"), _payment("PAY-B", amount="4000")]),
         )
         self.assertEqual(outcome.status, ROW_MATCHED)
-        self.assertIn("2 approved payments", outcome.note)
+        self.assertIn("2 Reconciliation Pending payments", outcome.note)
 
     def test_several_candidates_are_matched_and_the_note_refuses_to_choose(self):
         """Owner: the screen never guesses between two real records. The status says something was
@@ -380,7 +762,7 @@ class TestMatched(unittest.TestCase):
             _Row(), _match([_payment("PAY-1")], expenses=[_expense("PE-1")])
         )
         self.assertEqual(outcome.status, ROW_MATCHED)
-        self.assertIn("2 approved records", outcome.note)
+        self.assertIn("2 Reconciliation Pending records", outcome.note)
         self.assertIn("Choose", outcome.note)
 
     def test_the_note_COUNTS_separate_payments_instead_of_claiming_there_is_one(self):
@@ -391,9 +773,9 @@ class TestMatched(unittest.TestCase):
             _Row(), _match_many([_payment(f"PAY-{i}") for i in range(6)])
         )
         self.assertEqual(outcome.status, ROW_MATCHED)
-        self.assertIn("6 approved records", outcome.note)
+        self.assertIn("6 Reconciliation Pending records", outcome.note)
         self.assertIn("Choose", outcome.note)
-        self.assertNotIn("One approved record", outcome.note)
+        self.assertNotIn("One Reconciliation Pending record", outcome.note)
 
 
 class TestSoleSuggestion(unittest.TestCase):
@@ -525,12 +907,12 @@ class TestNothingFound(unittest.TestCase):
             paid_duplicate=_group([_payment("PAY-7", amount="9000")]),
         ).note
 
-        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertIn("No Reconciliation Pending payment or expense matches", nothing_found)
         self.assertNotIn("Already recorded as Paid", nothing_found)
 
         self.assertIn("PAY-7", disagreement)
         self.assertIn("Already recorded as Paid", disagreement)
-        self.assertNotIn("No approved payment or expense matches", disagreement)
+        self.assertNotIn("No Reconciliation Pending payment or expense matches", disagreement)
 
     def test_all_THREE_mismatched_causes_stay_distinguishable(self):
         """⚠️ THE MERGE TEST, WIDENED -- `Mismatched` now carries a THIRD fact (2026-08-11).
@@ -551,11 +933,11 @@ class TestNothingFound(unittest.TestCase):
         nothing_found = derive_row_outcome(_Row(), _match()).note
         several = several_found_note(6)
 
-        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertIn("No Reconciliation Pending payment or expense matches", nothing_found)
         self.assertNotIn("6", nothing_found)
 
-        self.assertIn("6 approved records match", several)
-        self.assertNotIn("No approved payment or expense matches", several)
+        self.assertIn("6 Reconciliation Pending records match", several)
+        self.assertNotIn("No Reconciliation Pending payment or expense matches", several)
         self.assertNotIn("Already recorded as Paid", several)
 
     def test_the_several_note_says_what_to_do_not_just_what_happened(self):
@@ -734,7 +1116,7 @@ class TestDeriveDuplicateGuardOutcome(unittest.TestCase):
         self.assertEqual(
             derive_duplicate_guard_outcome(_Row()).note, STAGED_NOTE_NO_SETTLEMENT_PATH
         )
-        self.assertNotIn("No approved payment", derive_duplicate_guard_outcome(_Row()).note)
+        self.assertNotIn("No Reconciliation Pending payment", derive_duplicate_guard_outcome(_Row()).note)
 
     def test_the_already_paid_guard_still_fires_and_names_the_record(self):
         """THE 41-of-711 CASE, AND THE REASON THIS SOURCE STILL REACHES THE MATCH RUN AT ALL."""
@@ -742,8 +1124,8 @@ class TestDeriveDuplicateGuardOutcome(unittest.TestCase):
             _Row(), paid_duplicate=_group([_payment("PAY-OLD", status="Paid")])
         )
         self.assertEqual(outcome.status, ROW_SKIPPED)
-        self.assertIn("PAY-OLD", outcome.note)
-        self.assertIn("Already recorded as Paid", outcome.note)
+        # Inverted at #1253: the record is named WITH its ledger, never bare.
+        self.assertIn("Already recorded as Paid on Project Payment PAY-OLD", outcome.note)
 
     def test_a_hand_recorded_fan_out_is_ONE_already_recorded_transfer(self):
         outcome = derive_duplicate_guard_outcome(
@@ -1945,11 +2327,17 @@ class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
         )
         self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 1, "value": Decimal("10")})
 
-    def test_the_received_order_is_the_two_books_a_credit_can_reach(self):
-        """⚠️ `Non Project Expenses` IS IN BOTH TUPLES ON PURPOSE, NOT BY COPY-PASTE. A non-project
-        RECEIPT is stored as a NEGATIVE `Non Project Expense` (B7), so the ledger cannot tell you
-        the direction -- which is exactly why the split keys on the ROW's direction."""
-        self.assertEqual(RECEIVED_LEDGER_DOCTYPES, (INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE))
+    def test_the_received_order_is_the_books_a_credit_can_reach(self):
+        """A credit becomes a `Project Inflow` or a `Non Project Inflow` (#1266).
+
+        ⚠️ `Non Project Expenses` IS IN BOTH TUPLES ON PURPOSE, NOT BY COPY-PASTE. The removed B7
+        path stored a non-project receipt as a NEGATIVE `Non Project Expense`, and those rows may
+        still exist, so the ledger cannot tell you the direction -- which is exactly why the split
+        keys on the ROW's direction."""
+        self.assertEqual(
+            RECEIVED_LEDGER_DOCTYPES,
+            (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE),
+        )
         self.assertIn(NON_PROJECT_EXPENSE_DOCTYPE, LEDGER_DOCTYPES)
 
     def test_the_inflow_ledger_is_never_settleable(self):

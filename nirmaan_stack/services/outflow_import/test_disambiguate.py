@@ -239,7 +239,7 @@ class TestTheNote(unittest.TestCase):
     def test_every_note_counts_the_records_so_the_row_is_not_read_as_a_sole_match(self):
         cands = [_c("A", 9000), _c("B", 9000), _c("C", 9000)]
         note = pick_note(_pick(cands, bank="9000"), cands, D("9000"))
-        self.assertIn("3 approved records", note)
+        self.assertIn("3 Reconciliation Pending records", note)
 
 
 if __name__ == "__main__":

@@ -143,12 +143,27 @@ class TestNeverFilters(unittest.TestCase):
 
 
 class TestAmounts(unittest.TestCase):
-    def test_gross_sums_successful_rows_only(self):
+    def test_gross_sums_successful_debit_rows_only(self):
+        # INVERTED (ticket #1287): this used to re-derive `sum(amount for successful rows)` with no
+        # direction term, which was the whole defect -- on a passbook that sum is withdrawals PLUS
+        # deposits. The direction term is now part of the expectation, so the old rule cannot
+        # silently come back. Cashfree states `Debit` on every row it carries, so the figure itself
+        # is unchanged here; the assertion is what got stricter.
         result = _sample()
-        expected = sum((r.amount for r in result.rows if r.is_success), Decimal("0"))
+        expected = sum(
+            (r.amount for r in result.rows if r.is_success and r.direction == DIRECTION_DEBIT),
+            Decimal("0"),
+        )
         self.assertEqual(result.gross_amount, expected)
         # the failed Rs 22,000 must not be in there
         self.assertNotIn(Decimal("22000.0"), [result.gross_amount])
+
+    def test_a_debit_only_source_reports_no_inflow_at_all(self):
+        # Cashfree cannot state a credit (`source_can_carry_credit` is False), so this is zero by
+        # construction rather than by coincidence -- and a zero here is what keeps the money-in
+        # section off the upload screen for this source.
+        self.assertEqual(_sample().gross_inflow_amount, Decimal("0"))
+        self.assertEqual(_sample().inflow_count, 0)
 
     def test_charges_sum_every_row_including_the_failure(self):
         # Deliberate asymmetry: a charge is money the bank took whatever the outcome, so excluding
@@ -679,6 +694,137 @@ class TestSingleDebitColumnDirection(unittest.TestCase):
         self.assertEqual(_cashbook().gross_amount, Decimal("6750"))
 
 
+class TestGrossByDirection(unittest.TestCase):
+    """The two gross figures, against PLANTED rows (ticket #1287).
+
+    ⚠️ THE FIXTURES CANNOT PROVE THE RULE THAT MATTERS MOST, WHICH IS WHY THIS CLASS EXISTS. "A line
+    with no readable direction counts in neither total" is unobservable through `parse_statement` on
+    any shipped adapter: every marker form fills the amount and the direction in ONE resolution, so
+    a row that loses its direction loses its amount with it (ICICI row 17 is exactly that -- blank
+    direction, and a blank amount, so leaving it out of a sum is arithmetically free). A test that
+    passes because the failing case cannot occur proves nothing, so the case is planted here with a
+    real figure on it.
+    """
+
+    @staticmethod
+    def _row(amount, direction, status="SUCCESS", number=1):
+        from nirmaan_stack.services.outflow_import.parser import RawRow
+
+        return RawRow(
+            row_number=number,
+            transfer_id=f"T{number}",
+            reference_id="",
+            added_on=None,
+            amount=Decimal(amount),
+            status_raw=status,
+            beneficiary_name="",
+            beneficiary_id="",
+            bank_account="",
+            ifsc="",
+            remarks="",
+            bank_reference_no="",
+            service_charge=Decimal("0"),
+            service_tax=Decimal("0"),
+            added_by_raw="",
+            normalized_account="",
+            normalized_reference="",
+            direction=direction,
+        )
+
+    def test_an_undirected_row_carrying_real_money_is_in_neither_total(self):
+        from nirmaan_stack.services.outflow_import.parser import gross_by_direction
+
+        rows = [
+            self._row("100", DIRECTION_DEBIT, number=1),
+            self._row("40", DIRECTION_CREDIT, number=2),
+            # The row the statement never explained. Rs 5,000, and it must not appear anywhere.
+            self._row("5000", "", number=3),
+        ]
+        outflow, inflow = gross_by_direction(rows)
+        self.assertEqual(outflow, Decimal("100"))
+        self.assertEqual(inflow, Decimal("40"))
+
+    def test_a_failed_debit_is_out_of_the_outflow(self):
+        from nirmaan_stack.services.outflow_import.parser import gross_by_direction
+
+        rows = [
+            self._row("100", DIRECTION_DEBIT, number=1),
+            self._row("22000", DIRECTION_DEBIT, status="FAILED", number=2),
+        ]
+        self.assertEqual(gross_by_direction(rows)[0], Decimal("100"))
+
+    def test_a_credit_counts_whatever_its_status_says(self):
+        """⚠️ THE DELIBERATE ASYMMETRY. Gross inflow is checked against the bank's own deposit total,
+        which includes the lines this import will later skip by rule -- see `gross_by_direction`.
+
+        Unobservable on any shipped source (ICICI synthesises `SUCCESS` on every row), so it is
+        planted rather than left as a claim nothing tests.
+        """
+        from nirmaan_stack.services.outflow_import.parser import gross_by_direction
+
+        rows = [self._row("40", DIRECTION_CREDIT, status="FAILED", number=1)]
+        self.assertEqual(gross_by_direction(rows)[1], Decimal("40"))
+
+    def test_padding_around_a_direction_does_not_move_a_row_to_the_wrong_side(self):
+        """The mirror of `status.is_received_direction`'s `.strip()` and the SQL facet's `TRIM()` --
+        no stored row carries padding today, which is exactly why this is pinned rather than
+        assumed."""
+        from nirmaan_stack.services.outflow_import.parser import gross_by_direction
+
+        rows = [self._row("100", " Debit "), self._row("40", " Credit ", number=2)]
+        self.assertEqual(gross_by_direction(rows), (Decimal("100"), Decimal("40")))
+
+    def test_no_rows_is_two_zeros_and_never_a_None(self):
+        from nirmaan_stack.services.outflow_import.parser import gross_by_direction
+
+        self.assertEqual(gross_by_direction([]), (Decimal("0"), Decimal("0")))
+
+
+class TestSourceCanCarryCredit(unittest.TestCase):
+    """Can a row from this source EVER be a credit? (#1264, ADR-0016 Amendment A tabs)
+
+    ⚠️ READ OFF THE ADAPTER'S DIRECTION LABELS, NEVER A LIST OF SOURCE NAMES. The screen hides its
+    two Inflow tabs for a source that answers `False`; a name list would be a second copy of what
+    the column map already declares, free to drift the day a source gains a deposit column.
+    """
+
+    def test_a_passbook_with_a_deposit_column_can_carry_a_credit(self):
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertTrue(source_can_carry_credit("ICICI Bank Statement"))
+
+    def test_a_payouts_export_and_a_wallet_statement_cannot(self):
+        """Cashbook's `Credit` column is deliberately unmapped, so it never states `Credit`."""
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertFalse(source_can_carry_credit("Cashfree"))
+        self.assertFalse(source_can_carry_credit("Cashbook"))
+
+    def test_an_unknown_or_blank_source_answers_false_and_padding_is_ignored(self):
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertFalse(source_can_carry_credit("Some Future Bank"))
+        self.assertFalse(source_can_carry_credit(""))
+        self.assertFalse(source_can_carry_credit(None))
+        self.assertTrue(source_can_carry_credit(" ICICI Bank Statement "))
+
+    def test_every_supported_source_is_answered_from_its_own_labels(self):
+        """The mechanical check that no name list crept in: the answer equals "does any direction
+        marker on this adapter carry the `Credit` label"."""
+        from nirmaan_stack.services.outflow_import import parser as parser_module
+
+        for source in SUPPORTED_SOURCES:
+            column_map, _required, _derive = parser_module._ADAPTERS[source]
+            labels = set()
+            for marker in column_map.values():
+                if getattr(marker, "label_field", None) == "direction":
+                    labels.update(getattr(marker, "labels", ()) or ())
+                    labels.add(getattr(marker, "label", None))
+            self.assertEqual(
+                parser_module.source_can_carry_credit(source), DIRECTION_CREDIT in labels, source
+            )
+
+
 class TestIciciSource(unittest.TestCase):
     """The bank's own current-account statement (slice B1).
 
@@ -763,6 +909,39 @@ class TestIciciSource(unittest.TestCase):
         BOTH columns, so the statement never said which way, and neither does the parser.
         """
         self.assertEqual(_icici_row(17).direction, "")
+
+    # --- the two gross figures (ticket #1287) ---------------------------------------------------
+
+    def test_gross_outflow_is_the_withdrawal_column_alone(self):
+        """⚠️ THE FIGURE THIS TICKET EXISTS FOR. It used to be withdrawals PLUS deposits.
+
+        Rs 37,27,536 is every `Withdrawal Amt (INR)` cell in `icici_sample.csv` added up. Row 17 is
+        NOT in it -- it has a figure in both money columns, so the statement never said which way,
+        and a blank direction is in neither total.
+        """
+        self.assertEqual(_icici().gross_amount, Decimal("3727536.00"))
+
+    def test_gross_inflow_is_the_deposit_column_alone(self):
+        """Rs 53,54,387 is every `Deposit Amt (INR)` cell, so it can be checked against the
+        statement's own deposit total. Row 17 is out of this one too."""
+        self.assertEqual(_icici().gross_inflow_amount, Decimal("5354387.00"))
+
+    def test_the_two_figures_no_longer_add_up_to_the_old_single_total(self):
+        """The REGRESSION pin, stated as the bug rather than as the fix.
+
+        The pre-#1287 `gross_amount` was Rs 90,81,923 -- the two directions summed. If that number
+        ever reappears as either figure, the direction split has been undone.
+        """
+        result = _icici()
+        both = result.gross_amount + result.gross_inflow_amount
+        self.assertEqual(both, Decimal("9081923.00"))
+        self.assertNotEqual(result.gross_amount, both)
+        self.assertNotEqual(result.gross_inflow_amount, both)
+
+    def test_inflow_count_is_the_deposit_rows_and_excludes_the_undirected_row(self):
+        """Seven deposit rows. Row 17 carries a deposit FIGURE and is not one of them, which is the
+        whole reason the screen asks this question instead of asking `gross_inflow_amount > 0`."""
+        self.assertEqual(_icici().inflow_count, 7)
 
     # --- amounts and dates ----------------------------------------------------------------------
 

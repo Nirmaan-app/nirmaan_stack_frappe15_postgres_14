@@ -18,6 +18,8 @@ import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
 import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
+import { useUserData } from "@/hooks/useUserData";
+import { canEditCashflowPlan, canDeleteCashflowPlan } from "@/constants/roles";
 
 // ... imports
 
@@ -28,6 +30,9 @@ export const WOCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Dat
 };
 
 const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean }) => {
+    const { role, user_id } = useUserData();
+    const canEdit = canEditCashflowPlan(role, user_id);
+    const canDelete = canDeleteCashflowPlan(role, user_id);
     const [showAddForm, setShowAddForm] = useState(false);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null);
@@ -220,14 +225,16 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                         */}
 
                                         {/* Actions */}
-                                        {!isOverview && (
+                                        {!isOverview && canEdit && (
                                         <div className="flex items-center gap-1 pl-3 xl:border-l border-gray-100 shrink-0 ml-auto xl:ml-0">
                                              <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600" onClick={() => setEditingPlan(plan)}>
                                                  <Edit2 className="w-4 h-4" />
                                              </Button>
+                                             {canDelete && (
                                              <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => setDeleteId(plan.name)}>
                                                  <Trash2 className="w-4 h-4" />
                                              </Button>
+                                             )}
                                         </div>
                                         )}
                                     </div>

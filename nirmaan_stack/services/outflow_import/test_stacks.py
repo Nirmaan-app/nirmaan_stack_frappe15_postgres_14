@@ -404,7 +404,7 @@ class TestTheSurplusNote(unittest.TestCase):
         note = stack_surplus_note(_stack([_Row("A"), _Row("B"), _Row("C")],
                                          [_Target("PAY-1"), _Target("PAY-2")]))
         self.assertIn("3 identical transfers", note)
-        self.assertIn("2 approved records", note)
+        self.assertIn("2 Reconciliation Pending records", note)
         self.assertIn("1 more transfer than records", note)
         self.assertIn("settles nothing", note)
 
@@ -429,5 +429,5 @@ class TestTheSurplusNote(unittest.TestCase):
         self.assertNotIn("more transfers than records", note)
 
     def test_it_pluralises_rather_than_saying_1_records(self):
-        self.assertIn("1 approved record.", stack_surplus_note(
+        self.assertIn("1 Reconciliation Pending record.", stack_surplus_note(
             _stack([_Row("A"), _Row("B")], [_Target("P1")])))

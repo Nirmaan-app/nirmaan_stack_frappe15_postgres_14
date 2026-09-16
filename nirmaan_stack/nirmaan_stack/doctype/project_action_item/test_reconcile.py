@@ -43,13 +43,32 @@ from nirmaan_stack.services.action_items.reconcile import (
 # ====================================================================== #
 
 
-def _item(category="Cat A", is_dispatched=1, quantity=10, received_quantity=0):
+def _item(
+    category="Cat A",
+    is_dispatched=1,
+    quantity=10,
+    received_quantity=0,
+    item_id="ITEM-1",
+    billing_status="Billable",
+):
     return {
         "category": category,
+        "item_id": item_id,
         "is_dispatched": is_dispatched,
         "quantity": quantity,
         "received_quantity": received_quantity,
+        "billing_status": billing_status,
     }
+
+
+# `is_dc_pending` now takes a per-line challaned-quantity lookup instead of a PO-wide
+# boolean. These two stand in for "nothing on any challan" and "every line challaned".
+def _no_challan(category, item_id):
+    return 0.0
+
+
+def _all_challaned(category, item_id):
+    return 999.0
 
 
 class TestPredicatesBillable(FrappeTestCase):
@@ -166,6 +185,52 @@ class TestDnPendingPredicate(FrappeTestCase):
             )
         )
 
+    def test_partial_challan_still_pending(self):
+        """THE PO/146 bug: a challan exists, but not for every received line.
+
+        Two items received; only the first appears on a challan. The old predicate took
+        a PO-wide boolean and returned False the moment ANY challan existed, so the
+        second line's 8.20 unchallaned units were invisible. Per-line, it stays pending.
+        """
+        items = [
+            _item(item_id="COVERED", received_quantity=10),
+            _item(item_id="UNCOVERED", received_quantity=8.2),
+        ]
+        challaned = lambda category, item_id: 10.0 if item_id == "COVERED" else 0.0
+        self.assertTrue(is_dc_pending("Delivered", "Billable", items, challaned))
+
+    def test_every_line_challaned_not_pending(self):
+        items = [
+            _item(item_id="A", received_quantity=10),
+            _item(item_id="B", received_quantity=8.2),
+        ]
+        challaned = lambda category, item_id: {"A": 10.0, "B": 8.2}[item_id]
+        self.assertFalse(is_dc_pending("Delivered", "Billable", items, challaned))
+
+    def test_challan_keys_on_category_too(self):
+        """Same item_id under two categories is two distinct lines, as in the report."""
+        items = [
+            _item(category="Cat A", item_id="X", received_quantity=5),
+            _item(category="Cat B", item_id="X", received_quantity=5),
+        ]
+        challaned = lambda category, item_id: 5.0 if category == "Cat A" else 0.0
+        self.assertTrue(is_dc_pending("Delivered", "Billable", items, challaned))
+
+    def test_non_billable_ITEM_never_pending(self):
+        """Item-level Billable filter — new, and it is what drops PO/115/00067/25-26.
+
+        A Billable PO whose only received line is Non-Billable at item level owes no
+        challan: one cannot be filed against that line.
+        """
+        self.assertFalse(
+            is_dc_pending(
+                "Delivered",
+                "Billable",
+                [_item(received_quantity=10, billing_status="Non-Billable")],
+                _no_challan,
+            )
+        )
+
     def test_excluded_po_status_not_pending(self):
         for status in ("PO Approved", "Merged", "Cancelled", "Inactive", ""):
             self.assertFalse(
@@ -178,14 +243,15 @@ class TestDcPendingPredicate(FrappeTestCase):
     def test_delivered_no_dc_is_pending(self):
         self.assertTrue(
             is_dc_pending(
-                "Delivered", "Billable", [_item(received_quantity=10)], has_delivery_challan=False
+                "Delivered", "Billable", [_item(received_quantity=10)], _no_challan
             )
         )
 
     def test_delivered_with_dc_not_pending(self):
+        # Every line challaned → discharged.
         self.assertFalse(
             is_dc_pending(
-                "Delivered", "Billable", [_item(received_quantity=10)], has_delivery_challan=True
+                "Delivered", "Billable", [_item(received_quantity=10)], _all_challaned
             )
         )
 
@@ -193,7 +259,7 @@ class TestDcPendingPredicate(FrappeTestCase):
         # received_quantity == 0 → no DN exists → no DC obligation.
         self.assertFalse(
             is_dc_pending(
-                "Dispatched", "Billable", [_item(received_quantity=0)], has_delivery_challan=False
+                "Dispatched", "Billable", [_item(received_quantity=0)], _no_challan
             )
         )
 
@@ -205,16 +271,16 @@ class TestDcPendingPredicate(FrappeTestCase):
                 "Partially Dispatched",
                 "Billable",
                 [_item(received_quantity=3)],
-                has_delivery_challan=False,
+                _no_challan,
             )
         )
 
     def test_mir_only_still_pending(self):
-        # An MIR-only PO has no non-stub Delivery-Challan PDD → has_delivery_challan is
-        # False (the caller's query filters type=='Delivery Challan'), so still pending.
+        # An MIR-only PO has no non-stub Delivery-Challan PDD, so no line has any
+        # challaned quantity (the caller's query filters type=='Delivery Challan').
         self.assertTrue(
             is_dc_pending(
-                "Delivered", "Billable", [_item(received_quantity=5)], has_delivery_challan=False
+                "Delivered", "Billable", [_item(received_quantity=5)], _no_challan
             )
         )
 
@@ -224,21 +290,21 @@ class TestDcPendingPredicate(FrappeTestCase):
                 "Delivered",
                 "Billable",
                 [_item(category="Additional Charges", received_quantity=10)],
-                has_delivery_challan=False,
+                _no_challan,
             )
         )
 
     def test_non_billable_never_pending(self):
         self.assertFalse(
             is_dc_pending(
-                "Delivered", "Non-Billable", [_item(received_quantity=10)], has_delivery_challan=False
+                "Delivered", "Non-Billable", [_item(received_quantity=10)], _no_challan
             )
         )
 
     def test_excluded_po_status_not_pending(self):
         for status in ("PO Approved", "Merged", "Cancelled", ""):
             self.assertFalse(
-                is_dc_pending(status, "Billable", [_item(received_quantity=5)], False),
+                is_dc_pending(status, "Billable", [_item(received_quantity=5)], _no_challan),
                 f"status {status!r} must not be DC pending",
             )
 
@@ -348,7 +414,15 @@ class TestReconciler(FrappeTestCase):
         self.__class__._po_names.append(po.name)
         return po.name
 
-    def _make_dc(self, po_name, is_stub=0, type_="Delivery Challan"):
+    def _make_dc(self, po_name, is_stub=0, type_="Delivery Challan", cover_items=True):
+        """File a challan against a PO.
+
+        ``cover_items`` copies the PO's received lines onto the challan, which is what
+        discharging DC_PENDING now REQUIRES: the predicate is per-line, so a challan
+        carrying no DC Item rows covers nothing and discharges nothing. Pass False to
+        model exactly that (an empty challan) — see
+        ``test_empty_dc_does_not_clear_pending``.
+        """
         with _no_doc_events():
             dc = frappe.new_doc("PO Delivery Documents")
             dc.parent_doctype = "Procurement Orders"
@@ -356,6 +430,22 @@ class TestReconciler(FrappeTestCase):
             dc.project = self.project_name
             dc.type = type_
             dc.is_stub = is_stub
+            if cover_items:
+                po = frappe.get_doc("Procurement Orders", po_name)
+                for it in po.get("items") or []:
+                    received = float(it.received_quantity or 0)
+                    if received <= 0:
+                        continue
+                    dc.append(
+                        "items",
+                        {
+                            "item_id": it.item_id,
+                            "item_name": it.item_name,
+                            "unit": it.unit,
+                            "category": it.category,
+                            "quantity": received,
+                        },
+                    )
             dc.insert(ignore_permissions=True, ignore_links=True)
             frappe.db.commit()
         return dc.name
@@ -613,6 +703,68 @@ class TestReconciler(FrappeTestCase):
         self.assertIn(_dedup_key(self.project_name, po, ACTION_DN_PENDING), keys)
         self.assertIn(_dedup_key(self.project_name, po, ACTION_DC_PENDING), keys)
 
+    def test_empty_dc_does_not_clear_pending(self):
+        """A challan carrying no lines covers nothing, so the obligation stands.
+
+        The OLD predicate took a PO-wide "does a challan exist" boolean, so an empty
+        document discharged the obligation outright. Per-line, it cannot: this is the
+        same defect that let PO/146/00074/25-26 leave the Action Center with 8.20
+        unchallaned units on it.
+        """
+        po = self._make_po(
+            status="Delivered",
+            items=[
+                {"category": "Cat A", "is_dispatched": 1, "quantity": 5, "received_quantity": 5}
+            ],
+        )
+        reconcile_project_action_items(self.project_name)
+        self.assertIn(
+            _dedup_key(self.project_name, po, ACTION_DC_PENDING), self._open_keys()
+        )
+        self._make_dc(po, is_stub=0, cover_items=False)
+        reconcile_project_action_items(self.project_name)
+        self.assertIn(
+            _dedup_key(self.project_name, po, ACTION_DC_PENDING), self._open_keys()
+        )
+
+    def test_partially_covering_dc_does_not_clear_pending(self):
+        """THE PO/146 case end-to-end: challan covers one received line, not the other."""
+        po = self._make_po(
+            status="Delivered",
+            items=[
+                {"category": "Cat A", "is_dispatched": 1, "quantity": 5, "received_quantity": 5},
+                {"category": "Cat B", "is_dispatched": 1, "quantity": 9, "received_quantity": 8.2},
+            ],
+        )
+        # Hand-build a challan covering ONLY the Cat A line.
+        with _no_doc_events():
+            po_doc = frappe.get_doc("Procurement Orders", po)
+            covered = next(i for i in po_doc.items if i.category == "Cat A")
+            dc = frappe.new_doc("PO Delivery Documents")
+            dc.parent_doctype = "Procurement Orders"
+            dc.parent_docname = po
+            dc.project = self.project_name
+            dc.type = "Delivery Challan"
+            dc.is_stub = 0
+            dc.append(
+                "items",
+                {
+                    "item_id": covered.item_id,
+                    "item_name": covered.item_name,
+                    "unit": covered.unit,
+                    "category": covered.category,
+                    "quantity": 5,
+                },
+            )
+            dc.insert(ignore_permissions=True, ignore_links=True)
+            frappe.db.commit()
+        reconcile_project_action_items(self.project_name)
+        self.assertIn(
+            _dedup_key(self.project_name, po, ACTION_DC_PENDING),
+            self._open_keys(),
+            "a challan covering only one of two received lines must not discharge",
+        )
+
     def test_dc_pending_clears_when_dc_filed(self):
         po = self._make_po(
             status="Delivered",
@@ -624,7 +776,7 @@ class TestReconciler(FrappeTestCase):
         self.assertIn(
             _dedup_key(self.project_name, po, ACTION_DC_PENDING), self._open_keys()
         )
-        # File a real (non-stub) DC → DC obligation clears.
+        # File a real (non-stub) DC COVERING every received line → obligation clears.
         self._make_dc(po, is_stub=0)
         reconcile_project_action_items(self.project_name)
         self.assertNotIn(

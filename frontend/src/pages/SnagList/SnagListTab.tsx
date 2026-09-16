@@ -56,6 +56,7 @@ import { AddSnagDialog } from "./components/AddSnagDialog";
 import { BulkStatusDialog } from "./components/BulkStatusDialog";
 import { SnagBatchTabs } from "./components/SnagBatchTabs";
 import { SnagBatchesPanel } from "./components/SnagBatchesPanel";
+import { RenameBatchDialog } from "./components/RenameBatchDialog";
 import { SnagEmptyState } from "./components/SnagEmptyState";
 import { SnagEditDialog } from "./components/SnagEditDialog";
 import { SnagStatsStrip } from "./components/SnagStatsStrip";
@@ -136,6 +137,8 @@ export function SnagListTab({
   const [bulkOpen, setBulkOpen] = React.useState(false);
   // The row whose Area / Category / Description is being edited. `null` = closed.
   const [editRow, setEditRow] = React.useState<SnagListRow | null>(null);
+  // The batch whose Rename dialog is open (its document `name`). `null` = closed.
+  const [renamingBatch, setRenamingBatch] = React.useState<string | null>(null);
 
   const {
     stats,
@@ -170,10 +173,31 @@ export function SnagListTab({
     bulkUpdateStatus,
     addManualSnag,
     updateSnagDetails,
+    renameBatch,
     isBulkSaving,
     isAdding,
     isSavingDetails,
+    isRenamingBatch,
   } = mutations;
+
+  // Resolved against the loaded list, so the dialog always shows the CURRENT name.
+  const renamingBatchDoc = React.useMemo(
+    () => (renamingBatch ? batches.find((b) => b.name === renamingBatch) ?? null : null),
+    [batches, renamingBatch]
+  );
+  // The project's OTHER batch names, so the Rename dialog can flag a duplicate as you type.
+  const otherBatchNames = React.useMemo(
+    () =>
+      batches
+        .filter((b) => b.name !== renamingBatch)
+        .map((b) => b.batch_name || b.name),
+    [batches, renamingBatch]
+  );
+  // One handler for both pencils — the batch tab's and Import History's.
+  const handleRenameClick = React.useCallback(
+    (batch: string) => setRenamingBatch(batch),
+    []
+  );
 
   // --- Row-level write handler (withheld entirely when not permitted) ---
   // The remark rides the status change (ADR-0018). `undefined` means "leave the
@@ -513,7 +537,12 @@ export function SnagListTab({
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2">
       {perms.canViewBatches && (
-        <SnagBatchesPanel batches={batches} isLoading={batchesLoading} />
+        <SnagBatchesPanel
+          batches={batches}
+          isLoading={batchesLoading}
+          // Presence of the callback IS the rename gate — no pencil without it.
+          onRenameClick={perms.canRenameBatch ? handleRenameClick : undefined}
+        />
       )}
 
       {canDownloadAll && (
@@ -574,6 +603,8 @@ export function SnagListTab({
         value={activeBatch}
         onChange={handleBatchChange}
         isLoading={statsLoading || batchesLoading}
+        // Presence of the callback IS the rename gate — no pencil on any tab without it.
+        onRenameClick={perms.canRenameBatch ? handleRenameClick : undefined}
         // The action group rides the TAB ROW when it renders here, so it never
         // shares a row with the stats. `undefined` when a mount point offers its own
         // header — the portal below puts them there instead.
@@ -718,6 +749,19 @@ export function SnagListTab({
           isSaving={isSavingDetails}
           onCancel={() => setEditRow(null)}
           onSubmit={updateSnagDetails}
+        />
+      )}
+
+      {/* Rendered only while open and KEYED on the batch, so the draft re-seeds for a
+          different batch — the same shape as the Edit dialog above. */}
+      {perms.canRenameBatch && renamingBatchDoc && (
+        <RenameBatchDialog
+          key={renamingBatchDoc.name}
+          batch={renamingBatchDoc}
+          otherBatchNames={otherBatchNames}
+          isSaving={isRenamingBatch}
+          onCancel={() => setRenamingBatch(null)}
+          onSubmit={renameBatch}
         />
       )}
 

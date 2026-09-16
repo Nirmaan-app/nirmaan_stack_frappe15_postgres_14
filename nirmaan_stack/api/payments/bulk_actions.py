@@ -29,6 +29,7 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
     get_allowed_accountants,
 )
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.approval_tiers import STATUS_CEO_PENDING, status_after_l1
 
 MAX_BATCH_SIZE = 100
 LEAD_ALLOWED_ROLE_PROFILES = (
@@ -247,7 +248,7 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
     payment_rows = frappe.get_all(
         "Project Payments",
         filters={"name": ["in", deduped_ids]},
-        fields=["name", "document_type", "document_name"],
+        fields=["name", "document_type", "document_name", "amount"],
     )
     found = {r["name"]: r for r in payment_rows}
 
@@ -258,20 +259,40 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
         if pid not in found:
             failed.append({"name": pid, "reason": "Payment not found"})
 
+    # ⚠️ THE APPROVE TARGET IS PER ROW, NOT PER BATCH.
+    #
+    # It used to be one constant for the whole run (`config.approve_target_status`),
+    # which was true while EVERY non-auto payment went Requested -> CEO Pending ->
+    # Approved. Under the amount rule an L1 signature on a 15,000-50,000 payment
+    # FINISHES the approval and lands at `Approved`, while anything above 50,000
+    # still forwards to `CEO Pending` -- so two rows in the same batch, even against
+    # the same PO, can now have different destinations.
+    #
+    # The group key therefore carries the target: `_process_group` still receives ONE
+    # target per call (its PO row-lock and status-sync logic are untouched), it may
+    # simply be called twice for the same PO. The CEO mode is unaffected -- an L2
+    # approval always lands at `Approved`, so `status_after_l1` is consulted only
+    # where the config's own target is the forwarding one.
+    def _target_for(row) -> str:
+        if action == "reject":
+            return REJECTED_STATUS
+        if config.approve_target_status != STATUS_CEO_PENDING:
+            # CEO mode (or any future mode that already finishes the approval).
+            return config.approve_target_status
+        return status_after_l1(row.get("amount"))
+
     groups: dict[tuple, list[str]] = defaultdict(list)
     for pid in deduped_ids:
         if pid not in found:
             continue
         row = found[pid]
-        groups[(row["document_type"], row["document_name"])].append(pid)
-
-    target_status = REJECTED_STATUS if action == "reject" else config.approve_target_status
+        groups[(row["document_type"], row["document_name"], _target_for(row))].append(pid)
 
     # Deferred rejection-reason comments — applied AFTER the group commits,
     # so a comment failure cannot poison the approval (fix E2).
     pending_comments: list[str] = []
 
-    for (doc_type, doc_name), pids in groups.items():
+    for (doc_type, doc_name, target_status), pids in groups.items():
         _process_group(
             doc_type=doc_type,
             doc_name=doc_name,
@@ -299,9 +320,23 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
     # `tds_failed` is the repair list, and it is the reason this is worth a second phase at
     # all: the same failure inside the hook was swallowed and left no trace but an Error Log
     # line, on a payment whose amount silently stayed GROSS.
+    # ⚠️ THE GATE IS THE ROW'S OWN LANDING STATUS, NOT THE BATCH CONFIG.
+    #
+    # This read `config.approve_target_status == payment_tds.APPROVED` -- a
+    # whole-batch constant. Once L1's target became per-row that comparison is
+    # False for the lead config, so every 15,000-50,000 payment approved in bulk
+    # would land at `Approved` with NO deduction, no error, and nothing on screen
+    # looking wrong. Re-reading the committed status is what makes the gate follow
+    # the rows that actually reached `Approved`, whichever mode approved them.
     tds_recorded, tds_failed = 0, []
-    if action == "approve" and config.approve_target_status == payment_tds.APPROVED:
-        tds_recorded, tds_failed = _record_bulk_deductions(succeeded)
+    if action == "approve" and succeeded:
+        settled_now = frappe.get_all(
+            "Project Payments",
+            filters={"name": ["in", succeeded], "status": payment_tds.APPROVED},
+            pluck="name",
+        )
+        if settled_now:
+            tds_recorded, tds_failed = _record_bulk_deductions(settled_now)
 
     # Best-effort: rejection-reason comments. A failure here does not unwind the
     # approvals — the comment is purely auditing.

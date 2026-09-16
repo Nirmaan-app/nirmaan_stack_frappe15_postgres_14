@@ -20,11 +20,12 @@ tripping on the second run.
 
 ONE SOURCE IS NEVER MATCHED AT ALL (slice B4). A bank passbook has no settlement path -- see
 `services/outflow_import/sources.source_has_settlement_path` for the measurement -- so
-`match_batch` forks at the top into `_guard_duplicates_only`, which runs the already-recorded-as-
-Paid duplicate guard and NOTHING else. It never loads a settlement pool and never calls `match_row`,
+`match_batch` forks at the top into `_guard_duplicates_only`, which runs the already-recorded
+duplicate guard -- since #1257 the ICICI contains-guard -- and NOTHING else. It never loads a settlement pool and never calls `match_row`,
 so no tier 0, tier 1 or tier 2 candidate is ever produced for such a batch. That guard is KEPT
-rather than skipping the source entirely (owner ruling Q31a): it catches 41 of 711 real debits, and
-without it those arrive as ordinary work that can be booked twice.
+rather than skipping the source entirely (owner ruling Q31a): as the exact guard it caught 41 of 711
+real debits, and as the ICICI contains-guard (#1257) it catches 196 of 869 lines of the real
+statement; without it those arrive as ordinary work that can be booked twice.
 
 TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Skipped`  -- a duplicate, a failed transfer, or a person's deliberate decision. Re-matching
@@ -33,10 +34,14 @@ TWO ROW STATES ARE NEVER RE-MATCHED:
 """
 
 from decimal import Decimal
+from typing import Sequence
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.permissions import (
+    require_outflow_access,
+    require_outflow_undo_access,
+)
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -48,6 +53,15 @@ from nirmaan_stack.services.outflow_import.claims import (
     Claim,
     claim_note,
     resolve_claims,
+)
+from nirmaan_stack.services.outflow_import.contains_guard import (
+    basis_entries,
+    claims_of_skip,
+    decode_basis,
+    encode_basis,
+    find_hits,
+    pick_recorded_group,
+    skip_basis,
 )
 from nirmaan_stack.services.outflow_import.disambiguate import (
     RULE_SOLE,
@@ -61,15 +75,31 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     LEDGER_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
+    SETTLED_LEDGER_SEPARATOR,
     SETTLED_LEDGER_SQL,
     settleable_statuses,
 )
+# ⚠️ `MATCH_SETTLED` IS BOUND, NOT SPELLED (Task 6 review fix E) -- the same doctrine
+# `BANK_SUCCESS_STATUS` already carries here: two spellings of the match-kind vocabulary is how one
+# of them learns about a value the other has not. Safe to import here (unlike in `ledgers.py`,
+# which cannot: `allocation.py` imports `status.py`, which imports `ledgers.py`, so `ledgers.py`
+# importing `allocation.py` back would be a real circular import -- verified, see
+# `ledgers._SETTLED_MATCH_KIND`). `review.py` sits above all three, so no cycle here.
+from nirmaan_stack.services.outflow_import.allocation import MATCH_REVERSED, MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+from nirmaan_stack.services.outflow_import.parser import (
+    BANK_SUCCESS_STATUS,
+    DIRECTION_DEBIT,
+    source_can_carry_credit,
+)
+from nirmaan_stack.services.outflow_import.settlement_reference import (
+    settlement_reference_of_row,
+)
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
 # it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
 # reviewer feedback, and a tuning change must not be able to alter what settles unattended.
+from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 from nirmaan_stack.services.outflow_import.similarity import (
     RecordSignals,
     build_row_signals,
@@ -78,6 +108,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     source_has_settlement_path,
+    source_runs_the_matcher,
 )
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
@@ -94,10 +125,13 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
+    SKIP_ORIGIN_MANUAL,
+    SKIP_ORIGIN_SYSTEM,
     SettledLedgerEntry,
     StatusTally,
     batch_is_open,
@@ -106,17 +140,24 @@ from nirmaan_stack.services.outflow_import.status import (
     several_found_note,
     derive_import_summary,
     derive_duplicate_guard_outcome,
+    pick_duplicate_group,
     derive_row_outcome,
     derive_settled_direction_blocks,
     sole_suggestion,
+    SETTLED_BLOCK_PAID,
+    SETTLED_BLOCK_RECEIVED,
 )
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 MATCH_DOCTYPE = "Outflow Row Match"
 
-# A row in either of these states is left exactly as it is -- see the module docstring.
-_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED)
+# ⚠️ `Partially Allocated` JOINS THIS SET AND THAT IS THE WHOLE SAFETY ARGUMENT FOR ADR-0020.
+# `match_batch` skips these rows; everything else re-persists an outcome, and `_persist_row_outcome`
+# ends with `frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})`. A partially allocated row
+# reaching that line would have its settlement evidence deleted while the payments stayed Paid --
+# silently. Frozen does NOT mean finished here: the row is still ACTIVE and still needs a human.
+_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
 
 
 class _StagedRow:
@@ -130,7 +171,8 @@ class _StagedRow:
     __slots__ = (
         "name", "transfer_id", "amount", "beneficiary_name", "bank_account", "ifsc",
         "bank_reference_no", "normalized_account", "normalized_reference", "added_on",
-        "status_raw", "remarks", "row_status",
+        "status_raw", "remarks", "row_status", "settlement_reference", "reference_id",
+        "direction",
     )
 
     def __init__(self, doc: dict):
@@ -143,10 +185,30 @@ class _StagedRow:
         self.bank_reference_no = doc.get("bank_reference_no") or ""
         self.normalized_account = doc.get("normalized_account") or ""
         self.normalized_reference = doc.get("normalized_reference") or ""
+        # ⚠️ CARRIED FOR THE FIVE SETTLEMENT WRITE SITES, AND FOR NOTHING ELSE (ADR-0020 B9). The
+        # matcher reads this object too, and it must never read THIS attribute: the value may be a
+        # gateway id or a wallet txn id, and comparing one against `Project Payments.utr` -- a
+        # column already holding hundreds of non-bank strings -- would match something unrelated.
+        # The three fields above are the matcher's; this one is the writer's.
+        #
+        # ⚠️ `settlement_reference_of_row` TAKES THE STORED COLUMN, AND RECOMPUTES THE LADDER ONLY
+        # WHEN IT IS BLANK. That recompute is a DEPLOY-WINDOW FLOOR: the backfill's `patches.txt`
+        # wiring is added by the maintainer, by this repo's own convention, so the code can be live
+        # while the column is still NULL on every existing row -- and reading the column alone would
+        # then settle every one of them with a BLANK, strictly worse than the defect being fixed.
+        # It goes through the ONE resolver rather than a shorter ladder here, so the WALLET rung
+        # survives the window too. Its removal condition is on that function.
+        # Pinned by `test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`, whose fixture
+        # builds a row the pre-B9 way.
+        self.settlement_reference = settlement_reference_of_row(doc)
         self.added_on = doc.get("added_on")
         self.status_raw = doc.get("status_raw") or ""
         self.remarks = doc.get("remarks") or ""
         self.row_status = doc.get("row_status") or ""
+        # The cheque column and the money's direction: read by the ICICI contains-guard (#1257), which
+        # builds its match surface from the cheque number and scopes its ledgers by direction.
+        self.reference_id = doc.get("reference_id") or ""
+        self.direction = doc.get("direction") or ""
 
     @property
     def is_success(self) -> bool:
@@ -169,6 +231,85 @@ def match_batch(batch: str):
 
     rows = [_StagedRow(r) for r in _load_rows(batch)]
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
+    result = _match_rows(batch, matchable)
+    frappe.db.commit()
+    return result
+
+
+def match_line(row: str) -> dict:
+    """Run the matcher over ONE open import line and persist its outcome (#1272, for Unskip).
+
+    Not whitelisted: the unskip endpoint is its caller and owns the narrower access check, the write
+    that re-opens the line, and the COMMIT. This function checks only the module gate and commits
+    nothing, so the re-open and the re-check land together or not at all.
+
+    Returns the line's `row_status`, `outcome_note`, `suggested_doctype`, `suggested_name` and
+    `duplicate_basis`, with the batch-level run result under `run` (its `status` is the IMPORT's).
+
+    ⚠️ IT IS `match_batch` WITH A ONE-LINE `matchable`, NOT A SECOND MATCHER. Both call `_match_rows`,
+    so the per-row loop, the four passes and the ICICI contains-guard are the same code. What a
+    one-line scope changes is which lines count as THIS run's -- and only the passes that WRITE
+    across lines care:
+
+      * the claim pass may release only this line (`Claim.releasable`), so a sibling that holds the
+        record keeps it, even when a batch run would have handed it to this (earlier) line;
+      * the stack pass pairs only lines with no pick, so siblings already paired keep their pairs,
+        even when a batch run would have found the stack unbalanced and paired nothing.
+
+      * Option B treats every sibling's stored pick as claimed, so a returning line may take a
+        different one of several identical records than a batch run would give it;
+      * the ICICI contains-guard does not re-check an earlier open sibling, so the returning line can
+        skip on a record that sibling would have claimed first.
+
+    All four are pinned in `test_match_line.py` and written up in the domain doc's #1272 section.
+    Every other outcome -- skip, suggestion, no candidate, a claimed record, the duplicate basis -- is
+    identical to a batch run on the same database.
+
+    Refuses (and writes nothing to) a FROZEN line -- Settled, Skipped, Partially Allocated -- and any
+    line of a source the matcher never runs over (Cashbook).
+    """
+    require_outflow_access()
+    batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch") if row else None
+    if not batch:
+        frappe.throw(f"Import line '{row}' not found.", title="Not found")
+
+    doc = next(iter(_load_rows(batch, row=row)), None)
+    if doc is None:
+        frappe.throw(f"Import line '{row}' not found.", title="Not found")
+    if (doc["row_status"] or "") in _FROZEN_ROW_STATUSES:
+        frappe.throw(
+            f"This line is {doc['row_status']}, and the matcher never re-checks a line in that state.",
+            title="Line is not open",
+        )
+    # Refused LOUDLY here; `_match_rows` also fences it SILENTLY for `match_batch`. Same predicate.
+    if not source_runs_the_matcher(_batch_source(batch)):
+        frappe.throw(
+            "Cashbook lines are never run through the matcher.", title="Line is not matchable"
+        )
+
+    result = _match_rows(batch, [_StagedRow(doc)])
+    line = frappe.db.get_value(
+        ROW_DOCTYPE,
+        row,
+        ["row_status", "outcome_note", "suggested_doctype", "suggested_name", "duplicate_basis"],
+        as_dict=True,
+    )
+    return {"row": row, **line, "run": result}
+
+
+def _match_rows(batch: str, matchable) -> dict:
+    """The match run over `matchable` -- every unfrozen line of `batch`, or one of them. WRITES, NEVER
+    COMMITS: `match_batch` commits, and `match_line`'s caller does.
+
+    ⚠️ ONE BODY FOR BOTH SCOPES (#1272). A line-scoped copy of this would be a second matcher, free to
+    drift from the first the day a pass is added; see `match_line` for the two places the scope shows.
+    """
+    # ⚠️ ABOVE THE SETTLEMENT FORK, AND IT WRITES NOTHING AT ALL (#1272). A Cashbook row carries the
+    # plan its own job reads, and this run would clear it. The rollup is not refreshed either: the
+    # Cashbook job owns that batch's counters.
+    if not source_runs_the_matcher(_batch_source(batch)):
+        statuses = _row_statuses(batch)
+        return _run_result(batch, 0, statuses)
 
     # ⚠️ THE FORK IS HERE, ABOVE EVERYTHING, AND IT IS A DIFFERENT PATH RATHER THAN A FILTER (slice
     # B4). A source with no settlement path must produce NO settlement candidate -- so the run for
@@ -224,10 +365,20 @@ def match_batch(batch: str):
         swept = _sweep_unresolved_to_mismatched(results, noted_surplus)
 
     statuses = _refresh_batch_rollup(batch)
-    frappe.db.commit()
+    return _run_result(
+        batch, len(matchable), statuses, paired=paired, released=released, picked=picked, swept=swept
+    )
+
+
+def _run_result(batch, examined, statuses, *, paired=0, released=0, picked=0, swept=0) -> dict:
+    """The one return shape of every match run. `match_period` sums it across batches.
+
+    ⚠️ A PATH WHERE A PASS DID NOT RUN REPORTS ITS COUNTER AS ZERO, NEVER OMITS IT: a zero is the
+    truth, while a missing key is an absence every caller would have to special-case.
+    """
     return {
         "batch": batch,
-        "matched_rows": len(matchable),
+        "matched_rows": examined,
         "stack_paired_rows": paired,
         # How many rows gave up a record another transfer had an equal hold on. Reported so a run
         # that releases a lot is visible rather than silently producing "needs a choice" rows.
@@ -257,10 +408,19 @@ def _batch_source(batch: str) -> str:
 def _guard_duplicates_only(batch: str, matchable) -> dict:
     """The whole match run for a source with NO SETTLEMENT PATH (slice B4, owner rulings Q31/Q31a).
 
-    IT DOES EXACTLY ONE THING: asks each unfrozen row whether the transfer it names is ALREADY
-    RECORDED as Paid. A hit lands `Skipped` with the same "Already recorded as Paid on ..." sentence
-    a gateway row gets; everything else lands `Mismatched` carrying the staging sentence that says
-    this statement is resolved by CREATING a record. Measured on 711 real ICICI debits: 41 hits.
+    IT DOES EXACTLY ONE THING: asks each unfrozen row whether the money it names is ALREADY
+    RECORDED. A hit lands `Skipped` with the same "Already recorded as Paid on ..." (or "... as
+    received on ...") sentence a gateway row gets; an amount-off hit lands `Mismatched` naming the
+    record; everything else lands `Mismatched` carrying the staging sentence that says this
+    statement is resolved by CREATING a record.
+
+    ⚠️ SINCE #1257 THE QUESTION IS THE ICICI CONTAINS-GUARD, NOT THE EXACT REFERENCE GUARD. A bank
+    narration carries the reference a person typed somewhere INSIDE it, so the exact compare found 40
+    of the real statement's already-recorded lines and the contains-guard finds 196 -- every one of
+    the 40 among them (replayed read-only, 869 lines after exclusions). The rules -- ledgers by
+    direction, tokens, the 15-day window, the grouping -- live in `services/outflow_import/
+    contains_guard`; its only query is `candidates.load_recorded_by_contains`. A heuristic skip is
+    allowed HERE by a fresh owner ruling and nowhere else: the gateway path keeps `_paid_duplicate_for`.
 
     ⚠️ WHAT IS NOT HERE IS THE POINT. No `_load_pools`, so the `Approved` payment/expense/vendor/
     project pools are never even queried. No `match_row`, so no tier 0, tier 1 or tier 2 candidate
@@ -275,41 +435,52 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     that a Cashfree run's stack pass reached before `_load_open_rows_for_keys` was fenced -- has it
     cleared on the next run rather than left pointing at a record this source may never settle.
 
-    ⚠️ IT REUSES `_paid_duplicate_for`, WHICH REUSES `match_by_reference`. One definition of "this
-    transfer is already recorded", shared with the gateway path. Hand-rolling a reference compare
-    here would give a bank statement its own idea of a duplicate, and a FAN-OUT recorded by hand
-    would come back as a shortfall against whichever payment was found first.
+    ⚠️ IT READS `_recorded_group_for`, AND SO DOES `_related_records`. One definition of "this line
+    is already recorded" for both, so a skipped row always links the records its note names. The
+    VERDICT and its sentences are still `status.derive_duplicate_guard_outcome`'s, shared with every
+    other guard.
 
     ⚠️ THE RETURN SHAPE IS THE FULL ONE, WITH THE FOUR PASS COUNTERS AT ZERO. `match_period` sums
     these across batches and the screen reads them; omitting a key would be an absence the caller
     has to special-case, while a zero is the truth -- no pass ran, so no pass did anything.
-    """
-    if matchable:
-        # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
-        # `load_paid_payments_by_reference` returns PAID payments (owner ruling Q14).
-        pools = {
-            "paid_duplicates": C.load_paid_payments_by_reference(
-                [r.normalized_reference for r in matchable]
-            )
-        }
-        for row in matchable:
-            outcome = derive_duplicate_guard_outcome(
-                row, paid_duplicate=_paid_duplicate_for(row, pools)
-            )
-            _persist_row_outcome(row, outcome, None, batch)
 
-    statuses = _refresh_batch_rollup(batch)
-    frappe.db.commit()
-    return {
-        "batch": batch,
-        "matched_rows": len(matchable),
-        "stack_paired_rows": 0,
-        "released_rows": 0,
-        "rule_picked_rows": 0,
-        "swept_to_mismatched_rows": 0,
-        "counters": derive_batch_counters(statuses),
-        "status": derive_batch_status(statuses),
-    }
+    It commits nothing; `_match_rows`' callers do (#1272).
+    """
+    for row, _group, outcome, basis in _contains_guard_outcomes(batch, matchable):
+        _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
+
+    return _run_result(batch, len(matchable), _refresh_batch_rollup(batch))
+
+
+def _contains_guard_outcomes(batch: str, matchable, carried_claims=()):
+    """Yield `(row, group, outcome, basis)` for each unfrozen line of a bank statement, WRITING NOTHING.
+
+    ⚠️ THE ONE LOOP BEHIND THE ICICI RUN AND THE PRODUCTION PREVIEW (#1261). `_guard_duplicates_only`
+    persists each outcome; `duplicate_preview` only reports it. One loop is what makes the preview's
+    verdicts the run's verdicts, rather than a copy that agrees today.
+
+    `carried_claims` are claims a caller made on EARLIER batches it did not persist -- the preview's
+    stand-in for the `duplicate_basis` a real run on those batches would have written. A real run
+    passes none: the database already holds them.
+    """
+    if not matchable:
+        return
+    # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
+    # Paid payments / expenses and every inflow, by direction (#1257).
+    pool = C.load_recorded_by_contains(matchable)
+    # ⚠️ ONE RECORD JUSTIFIES ONE LINE, ACROSS ALL IMPORTS (#1258). The claims already standing --
+    # every Skipped row's `duplicate_basis`, every Settled match -- plus, as the loop goes, each
+    # skip this run makes. Rows arrive in `_load_rows` order (added_on, name), so which of two
+    # lines keeps a shared record is decided the same way on every run. A frozen row is not in
+    # `matchable`, so a re-run leaves an earlier skip alone and its claim still stands.
+    claims = [*C.load_record_claims(pool), *carried_claims]
+    for row in matchable:
+        group = _recorded_group_for(row, pool, claims)
+        outcome = derive_duplicate_guard_outcome(row, paid_duplicate=group)
+        basis = skip_basis(row, group, outcome.status == ROW_SKIPPED)
+        if basis:
+            claims.extend(claims_of_skip(row, batch, group))
+        yield row, group, outcome, basis
 
 
 def _load_pools(rows, batch: str) -> dict:
@@ -330,7 +501,7 @@ def _load_pools(rows, batch: str) -> dict:
     # before this statement was uploaded. They are a duplicate guard, never a settle candidate, and
     # merging them into `by_reference` would let the same money be recorded twice. Under Q12 that
     # is the common case, not an edge case.
-    paid_duplicates = C.load_paid_payments_by_reference(references)
+    paid_duplicates = _paid_duplicate_pools(references)
 
     # Tier 1 + tier 2 pool: APPROVED payments at these amounts, scoped by NOTHING ELSE. The matcher
     # narrows it per tier -- by vendor account at tier 1, by project at tier 2 -- so a pool scoped by
@@ -345,9 +516,82 @@ def _load_pools(rows, batch: str) -> dict:
         "vendors": vendor_index,
         "projects": project_index,
         "payments": tuple(payments.values()),
-        "paid_duplicates": paid_duplicates,
+        **paid_duplicates,
         "expenses": C.load_expense_targets([r.amount for r in rows]),
     }
+
+
+def _paid_duplicate_pools(references) -> dict:
+    """A GATEWAY row's already-recorded pools, keyed `paid_payments` / `paid_expenses`.
+
+    ⚠️ ONE DEFINITION FOR BOTH READERS. The gateway match run (`_load_pools`) and the gateway rows'
+    links (`_related_records`) read it, so a row can never be skipped on a record its link omits, or
+    linked to a record its guard never checked.
+
+    ⚠️ GATEWAY-ONLY SINCE #1257. A bank statement no longer reads this at all: its guard is the
+    ICICI contains-guard (`_recorded_group_for`), which reaches payments, both expense ledgers and
+    inflows by direction. The `has_settlement_path` flag that kept the #1256 expense half off a bank
+    statement went with it -- there is no bank-statement caller left to pass `False`.
+
+    The two pools stay SEPARATE rather than concatenated: `_paid_duplicate_for` tries the payment
+    group before the expense group, which is what keeps the pre-#1256 payment skip unchanged.
+    """
+    return {
+        "paid_payments": C.load_paid_payments_by_reference(references),
+        "paid_expenses": C.load_paid_expenses_by_reference(references),
+    }
+
+
+def _recorded_group_for(row, pool, claims=()):
+    """The ICICI contains-guard's group for one line: what it duplicates, or what its note names (#1257).
+
+    `pool` is `candidates.load_recorded_by_contains` over the lines being asked about, and `claims`
+    is `candidates.load_record_claims` over that pool (#1258). The rules are all `contains_guard`'s;
+    this is the one place the match run and the row links both call, so the two can never disagree
+    about which records a line refers to.
+    """
+    return pick_recorded_group(row, find_hits(row, pool), claims)
+
+
+def _recorded_money_group(row, batch: str, writing=()):
+    """The already-recorded group a WRITE endpoint judges this line on -- the match run's own (#1260).
+
+    ⚠️ THE SAME FORK AS `match_batch`, ON THE SAME BATCH SOURCE, so a button and the screen can never
+    disagree about a line: a bank statement asks the ICICI contains-guard (`_recorded_group_for`, with
+    the one-record-one-line claims); every other source asks the exact Paid-reference guard
+    (`_paid_duplicate_for`). The verdict on the group is `status.derive_recorded_money_verdict`'s.
+
+    ⚠️ A RECORD THIS LINE ALREADY SETTLED IS NOT A DUPLICATE OF IT. An Allocate leg writes the line's
+    reference onto a Paid payment, so without this exclusion every second Allocate on a partly
+    allocated transfer would refuse itself. The match run never meets the case -- a partly allocated
+    row is frozen there -- which is why only this path carries it. A `Reversed` leg is not excluded:
+    its record is no longer this line's.
+
+    ⚠️ NOR IS A RECORD THE CALL IS ABOUT TO WRITE (`writing`, `(doctype, name)` pairs). A Link target
+    that is already Paid is refused by the settle itself, with `AlreadyPaidError` -- the distinct "somebody
+    beat you to it" error a bulk confirm reads. Counting it here would replace that sentence with a
+    vaguer one; it opens no hole, because such a target is refused either way.
+    """
+    own = {
+        (m["target_doctype"], m["target_name"])
+        for m in frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={"import_row": row.name, "match_kind": MATCH_SETTLED},
+            fields=["target_doctype", "target_name"],
+        )
+    } | set(writing)
+
+    def _not_own(records):
+        return tuple(r for r in records if (r.doctype, r.name) not in own)
+
+    if source_has_settlement_path(_batch_source(batch)):
+        pools = _paid_duplicate_pools([row.normalized_reference])
+        return _paid_duplicate_for(row, {key: _not_own(pool) for key, pool in pools.items()})
+
+    pool = _not_own(C.load_recorded_by_contains([row]))
+    if not pool:
+        return None
+    return _recorded_group_for(row, pool, C.load_record_claims(pool))
 
 
 def _paid_duplicate_for(row, pools):
@@ -363,12 +607,23 @@ def _paid_duplicate_for(row, pools):
     produce. It used to call `match_payments` with no vendor and rely on the lower passes being
     unable to run without one -- true at the time, but true by argument rather than by construction,
     and tier 2 needs no vendor at all. Naming the reference-only function makes it structural.
+
+    ⚠️ PAYMENTS, THEN EXPENSES, THEN BOTH (#1256). `pick_duplicate_group` takes the first of these
+    whose total agrees, so a reference on an agreeing Paid payment reads exactly as it did before the
+    expense pool existed, and money split across the two ledgers is still recognised.
     """
-    groups = match_by_reference(row, pools["paid_duplicates"])
-    return groups[0] if groups else None
+    payments = pools["paid_payments"]
+    expenses = pools["paid_expenses"]
+    candidates = [
+        next(iter(match_by_reference(row, pool)), None)
+        for pool in (payments, expenses, (*payments, *expenses) if payments and expenses else ())
+    ]
+    return pick_duplicate_group(row, candidates)
 
 
-def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
+def _persist_row_outcome(
+    row: _StagedRow, outcome, result, batch: str, duplicate_basis: Sequence = ()
+) -> None:
     """Write the derived status and note. A match run records NO `Outflow Row Match` rows.
 
     ⚠️ THIS STOPPED WRITING MATCH ROWS AT V1, AND THE REASON IS THE UNIQUE CONSTRAINT. v2 minted a
@@ -407,6 +662,10 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
         {
             "row_status": outcome.status,
             "outcome_note": outcome.note or None,
+            # ⚠️ WRITTEN ON EVERY RUN, INCLUDING AS NULL (#1273). This function is the match run's one
+            # writer for BOTH the gateway loop and the ICICI contains-guard, so every skip either
+            # makes lands System here. A frozen line never reaches it, so a hand skip keeps Manual.
+            "skip_origin": outcome.skip_origin,
             "resolved_vendor": _sole_vendor(result),
             "suggested_doctype": suggestion.doctype if suggestion else None,
             "suggested_name": suggestion.name if suggestion else None,
@@ -423,6 +682,11 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
             # stack pairings under "Only candidate" in the confirm dialog's filter. Blank now means
             # exactly one thing: there is no suggestion.
             "suggestion_rule": RULE_SOLE if suggestion else None,
+            # ⚠️ THE CONTAINS-GUARD SKIP BASIS (#1258), WRITTEN ON EVERY RUN FOR THE SAME REASON: a
+            # row that was skipped under an older run can only be here if someone un-froze it, and
+            # a basis left behind would keep claiming a record the row no longer skips on. Every
+            # outcome but a contains-guard skip writes it blank.
+            "duplicate_basis": encode_basis(duplicate_basis),
         },
         update_modified=False,
     )
@@ -430,7 +694,19 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
     # Still a delete, for a narrower reason: a batch staged under v2 carries legacy suggestion rows,
     # and re-running the match is how they get cleared. It cannot touch a settlement -- `Settled` is
     # in `_FROZEN_ROW_STATUSES`, so a settled row never reaches this function at all.
-    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})
+    #
+    # ⚠️ SCOPED TO `Settled`, SO A REVERSED LEG SURVIVES A RE-MATCH (whole-branch review, F4). The
+    # `Settled`-is-frozen argument above does NOT cover a row whose legs were ALL reversed: that row
+    # is returned to `Matched`/`Mismatched` by `_refresh_row_allocation`, deliberately, so it can be
+    # reconsidered -- and the most natural next action after a reversal is exactly "now re-run the
+    # match", which arrived here and hard-deleted the `Reversed` records. "A wrong leg is
+    # soft-reversed, NEVER deleted" is the entire justification for ADR-0020 D3 and for the partial
+    # unique index; an unscoped delete on this path destroyed that fact by a route the ADR did not
+    # consider.
+    # ⚠️ IT CHANGES RE-MATCH SEMANTICS NOT AT ALL. A `Reversed` leg holds no unique key (the index is
+    # PARTIAL on `match_kind = 'Settled'`) and contributes nothing to `allocated_of`, so leaving it
+    # in place can neither block nor skew anything this function goes on to write.
+    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name, "match_kind": MATCH_SETTLED})
 
 
 # --- Option B: the database half of `services/outflow_import/disambiguate.py` ---------------------
@@ -694,8 +970,10 @@ def _enforce_single_claim(matchable) -> int:
 # --- stacks: several interchangeable transfers against several interchangeable records (E2) ------
 
 
-def _resolve_stacks(matchable, pools) -> int:
-    """Auto-pair BALANCED stacks and write their suggestions. Returns how many rows were paired.
+def _resolve_stacks(matchable, pools) -> tuple[int, set[str]]:
+    """Auto-pair BALANCED stacks and write their suggestions.
+
+    Returns `(rows paired, transfer names whose surplus note must survive the sweep)`.
 
     THE CASE. A vendor with six approved payments of Rs 9,000 and six transfers of Rs 9,000. Every
     transfer matches every payment equally well, so `sole_suggestion` correctly refuses to pick one
@@ -721,14 +999,25 @@ def _resolve_stacks(matchable, pools) -> int:
     row. Without it, a payment could be suggested to two different transfers and the second confirm
     would fail with `AlreadyPaidError` -- which is exactly the failure the whole candidate-collapse
     fix was written to stop producing.
+
+    ⚠️ BOTH ABSTAIN PATHS RETURN THE FULL PAIR, AND THEY DID NOT UNTIL THE FIX-WAVE REVIEW
+    (ADR-0020 Amendment B). This was annotated `-> int` and returned a bare `0` on each of them,
+    while its ONE caller does `paired, noted_surplus = _resolve_stacks(...)` -- so any `match_batch`
+    run reaching an abstain died with `TypeError: cannot unpack non-iterable int object`, with
+    nothing catching it. The reachable case is ordinary rather than exotic: `stack_key` yields
+    `None` for a row with a blank `normalized_account`, so a statement whose rows carry no
+    counterparty account empties `keys` and kills the whole match. Introduced 2026-08-11
+    (`a5ff7bdc`, already on `develop`) and unrelated to the fan-out work; found only because
+    `test_a_re_match_keeps_them` had to swallow the `TypeError` to assert anything at all. That
+    test no longer swallows it, so it now pins this too.
     """
     keys = {k for k in (stack_key(row) for row in matchable) if k is not None}
     if not keys:
-        return 0
+        return 0, set()
 
     rows = _load_open_rows_for_keys(keys)
     if not rows:
-        return 0
+        return 0, set()
 
     # Everything the per-row matcher already spoke for, anywhere in the table. Read BEFORE any
     # pairing so the pass cannot hand out a record a 1:1 row is holding.
@@ -1010,39 +1299,167 @@ def _sole_vendor(result):
     return resolution.best.vendor.name
 
 
+SKIP_REASON_REQUIRED = "A reason is required to skip a transfer."
+
+
 @frappe.whitelist(methods=["POST"])
 def skip_row(row: str, reason: str):
-    """Manually skip a row. A REASON IS REQUIRED (owner ruling).
+    """A person skips an open line that has nothing to link. A REASON IS REQUIRED (owner ruling).
 
     Only a MANUAL skip needs one: an automatic skip -- a duplicate transfer, a failed transfer --
     carries a system-generated reason, because making someone type "duplicate" forty times is
     theatre rather than a control.
+
+    ⚠️ REWRITTEN AT #1273 (parent #1270, ADR-0022), which reversed the 2026-08-10 ruling that hid the
+    button. What changed, and why each matters:
+
+      * ADMIN + ACCOUNTANT LEAD ONLY (`require_outflow_undo_access`). A plain Accountant matches and
+        confirms.
+      * OPEN LINES ONLY, NEVER CASHBOOK (`skip_origin.manual_skip_refusal`). The old endpoint accepted
+        an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
+        as a hand skip; now only a Manual skip can be unskipped, so that relabelling would open a
+        duplicate hole.
+      * THE LINE IS LOCKED, AND THE WRITE GOES THROUGH THE DOCUMENT LAYER. `doc.save` writes a Version
+        row (the doctype tracks changes); the old `set_value` wrote none, so a hand skip left no
+        history of who or when beyond two overwritable columns.
+      * `skip_origin = Manual`, and `outcome_note` BECOMES THE REASON. The table shows
+        `outcome_note || skip_reason`, so the old matcher note used to hide the typed reason.
+      * A COMMENT on the line records who skipped it and why, beside the Version row.
     """
-    require_outflow_access()
+    # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
+    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+
+    actor = require_outflow_undo_access()
     reason = (reason or "").strip()
     if not reason:
-        frappe.throw("A reason is required to skip a row.", title="Missing reason")
+        frappe.throw(SKIP_REASON_REQUIRED, title="Missing reason")
 
-    current = frappe.db.get_value(ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True)
-    if not current:
-        frappe.throw(f"Import row '{row}' not found.", title="Not found")
-    if current.row_status == ROW_SETTLED:
-        frappe.throw(
-            "This row has already settled an expense and cannot be skipped.",
-            title="Already settled",
+    with _concurrent_writer_refusal_as_sentence("skip_row", row):
+        current = frappe.db.get_value(
+            ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True, for_update=True
         )
+        if not current:
+            frappe.throw(f"Import row '{row}' not found.", title="Not found")
+        # The BATCH's source, as `match_line` reads it -- the run-level fact, not the denormalised copy.
+        refusal = manual_skip_refusal(
+            row_status=current.row_status, source=_batch_source(current.import_batch)
+        )
+        if refusal:
+            frappe.throw(refusal, title="Cannot skip this transfer")
 
-    frappe.db.set_value(
-        ROW_DOCTYPE,
-        row,
-        {"row_status": ROW_SKIPPED, "skip_reason": reason,
-         "decided_at": frappe.utils.now_datetime(), "decided_by": frappe.session.user},
-        update_modified=False,
-    )
-    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row})
-    statuses = _refresh_batch_rollup(current.import_batch)
-    frappe.db.commit()
+        doc = frappe.get_doc(ROW_DOCTYPE, row)
+        doc.update(
+            {
+                "row_status": ROW_SKIPPED,
+                "skip_origin": SKIP_ORIGIN_MANUAL,
+                "skip_reason": reason,
+                "outcome_note": reason,
+                "decided_at": frappe.utils.now_datetime(),
+                "decided_by": actor,
+            }
+        )
+        # ⚠️ `ignore_version=False` IS EXPLICIT, as at `rate_master.py`'s audited save: Frappe defaults
+        # it to `frappe.flags.in_test`, so without it the Version row this skip exists to leave would
+        # be silently absent under the test runner and the audit would go untested.
+        doc.save(ignore_permissions=True, ignore_version=False)
+        doc.add_comment("Comment", text=f"Skipped by hand by {actor}: {reason}")
+
+        # ⚠️ SCOPED TO `Settled`, FOR THE SAME REASON AS `_persist_row_outcome`'s delete (review F4).
+        # An open line holds no Settled leg -- a line whose legs were ALL reversed is re-derived back
+        # to `Matched`/`Mismatched` -- but it may carry the `Reversed` records ADR-0020 D3 says must
+        # never be deleted, and this keeps them.
+        frappe.db.delete(MATCH_DOCTYPE, {"import_row": row, "match_kind": MATCH_SETTLED})
+        statuses = _refresh_batch_rollup(current.import_batch)
+        frappe.db.commit()
     return {"row": row, "status": ROW_SKIPPED, "batch_status": derive_batch_status(statuses)}
+
+
+UNSKIP_REASON_REQUIRED = "A reason is required to unskip a transfer."
+
+
+@frappe.whitelist(methods=["POST"])
+def unskip_row(row: str, reason: str):
+    """Bring back a line a PERSON skipped, and re-check it straight away (#1274, parent #1270, ADR-0022).
+
+    Returns the line's new `status`, `outcome_note`, `suggested_doctype` and `suggested_name` -- the
+    three notices the Skipped popup shows ("needs a record", "matched X", "skipped again") are read
+    from these -- plus the import's `batch_status`.
+
+    ⚠️ "SKIPS ARE FINAL" IS REVERSED FOR HAND SKIPS ONLY (`skip_origin.unskip_refusal`). A system skip
+    stays skipped: a duplicate, a refused transfer, an exclusion or a repeat of an earlier statement,
+    brought back, is the same money waiting to be recorded twice. So is a Cashbook line (Q16).
+
+    ⚠️ THE RE-OPEN AND THE RE-CHECK ARE ONE TRANSACTION. The line goes back to `Pending match run`
+    through the document layer (a Version row, the doctype tracks changes), then `match_line` runs on
+    it, and only then does this commit. A failing re-check therefore leaves the line skipped, never
+    stranded half-open with no outcome.
+
+    ⚠️ WHAT IS CLEARED, AND WHY EACH ONE:
+      * `skip_origin`, `skip_reason` -- the line is no longer skipped. If the re-check skips it again,
+        `_persist_row_outcome` writes `System`, so it can never be unskipped into a duplicate.
+      * `outcome_note` -- the typed skip reason must not survive as the line's note; the re-check
+        writes the real one.
+      * `decided_at`, `decided_by`, `settlement_origin` -- nobody has decided the line any more.
+      * `duplicate_basis` -- the records the skip claimed. A claim is only read off a SKIPPED line
+        (`candidates.load_record_claims`), so re-opening releases it anyway; clearing the field too
+        keeps a stale basis from ever being read as this line's.
+
+    ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `_refresh_batch_rollup`, so a
+    Completed import with this line back open reopens without a second refresh here.
+    """
+    # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
+    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+
+    actor = require_outflow_undo_access()
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw(UNSKIP_REASON_REQUIRED, title="Missing reason")
+
+    with _concurrent_writer_refusal_as_sentence("unskip_row", row):
+        current = frappe.db.get_value(
+            ROW_DOCTYPE,
+            row,
+            ["name", "import_batch", "row_status", "skip_origin"],
+            as_dict=True,
+            for_update=True,
+        )
+        if not current:
+            frappe.throw(f"Import row '{row}' not found.", title="Not found")
+        refusal = unskip_refusal(
+            row_status=current.row_status,
+            skip_origin=current.skip_origin,
+            source=_batch_source(current.import_batch),
+        )
+        if refusal:
+            frappe.throw(refusal, title="Cannot unskip this transfer")
+
+        doc = frappe.get_doc(ROW_DOCTYPE, row)
+        doc.update(
+            {
+                "row_status": ROW_PENDING_MATCH,
+                "skip_origin": None,
+                "skip_reason": None,
+                "outcome_note": None,
+                "decided_at": None,
+                "decided_by": None,
+                "settlement_origin": None,
+                "duplicate_basis": None,
+            }
+        )
+        # ⚠️ `ignore_version=False` IS EXPLICIT, for the reason `skip_row` gives.
+        doc.save(ignore_permissions=True, ignore_version=False)
+        doc.add_comment("Comment", text=f"Unskipped by {actor}: {reason}")
+
+        line = match_line(row)
+        frappe.db.commit()
+    return {
+        "row": row,
+        "status": line["row_status"],
+        "outcome_note": line["outcome_note"] or "",
+        "suggested_doctype": line["suggested_doctype"] or "",
+        "suggested_name": line["suggested_name"] or "",
+        "batch_status": line["run"]["status"],
+    }
 
 
 @frappe.whitelist()
@@ -1052,22 +1469,10 @@ def get_batch_rows(batch: str):
     _assert_batch(batch)
 
     rows = _load_rows(batch)
-    matches = frappe.db.sql(
-        """
-        SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis
-        FROM "tabOutflow Row Match"
-        WHERE import_batch = %s
-        ORDER BY target_name ASC
-        """,
-        (batch,),
-        as_dict=True,
-    )
-    by_row: dict[str, list] = {}
-    for match in matches:
-        by_row.setdefault(match["import_row"], []).append(match)
+    by_row = _settled_matches_by_row([r["name"] for r in rows])
 
-    related = _related_paid_payments(rows)
-    # Stamps `order_name` onto matches and related payments in place, and gives us the map the
+    related = _related_records(rows)
+    # Stamps `order_name` onto matches and related records in place, and gives us the map the
     # suggestion needs below -- see `_with_order_names` for why all three share one lookup.
     suggested_orders = _payment_order_names(
         [
@@ -1087,7 +1492,7 @@ def get_batch_rows(batch: str):
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
-                "related_payments": related.get(row.get("normalized_reference") or "", []),
+                "related_records": related.get(row["name"], []),
                 # The suggestion is a pair of scalar columns on the row, not a list, so it takes
                 # its own key rather than being stamped in place like the two lists above.
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
@@ -1097,8 +1502,88 @@ def get_batch_rows(batch: str):
     }
 
 
-def _related_paid_payments(rows: list) -> dict[str, list]:
-    """Already-Paid payments each row's bank reference points at, keyed by that reference.
+def _settled_matches_by_row(row_names) -> dict[str, list]:
+    """Row name -> its LIVE settlement legs, for the record links a settled row shows.
+
+    ONE query for a page, shared by `get_batch_rows` and `get_outflow_rows` so the two reads can
+    never disagree about which records a row settled.
+
+    ⚠️ `match_kind = 'Settled'` ONLY, MATCHING EVERY OTHER READ IN THIS FEATURE (whole-branch
+    review, F3). A `Reversed` leg is history: `rowSettlementLinks` (`outflowTableModel.ts`) maps
+    each leg to a "Payments Done" link, so returning a reversed one would show a payment as paid by
+    this transfer after it went back to `Approved`. Bound, not spelled: the literal lives in
+    `services/outflow_import/allocation.MATCH_SETTLED`.
+    """
+    names = [n for n in row_names if n]
+    if not names:
+        return {}
+    matches = frappe.db.sql(
+        """
+        SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis
+        FROM "tabOutflow Row Match"
+        WHERE import_row IN %s AND match_kind = %s
+        ORDER BY target_name ASC
+        """,
+        (tuple(names), MATCH_SETTLED),
+        as_dict=True,
+    )
+    by_row: dict[str, list] = {}
+    for match in matches:
+        by_row.setdefault(match["import_row"], []).append(match)
+    return by_row
+
+
+def _last_unreconcile_by_row(row_names) -> dict[str, dict]:
+    """Row name -> `{"at", "targets"}` of its LAST unreconcile, for the Confirm-by-hand note (#1280).
+
+    ONE query for a page. `at` is the latest `reversed_at` on the row's `Reversed` legs; `targets` are
+    the records reversed within a second of it. `unreconcile_row` now stamps every leg of one call with
+    ONE timestamp; the second's tolerance covers legs reversed before that, which each took their own
+    `now_datetime()` microseconds apart.
+
+    ⚠️ `targets` IS WHAT LETS THE SCREEN SAY "Same pick as before" HONESTLY. A match re-run keeps the
+    marker but may change the suggestion, and the note must not claim a pick is the old one when it
+    is not.
+    """
+    names = [n for n in row_names if n]
+    if not names:
+        return {}
+    legs = frappe.db.sql(
+        """
+        SELECT import_row, target_name, reversed_at
+        FROM "tabOutflow Row Match"
+        WHERE import_row IN %s AND match_kind = %s AND reversed_at IS NOT NULL
+        ORDER BY reversed_at DESC, target_name ASC
+        """,
+        (tuple(names), MATCH_REVERSED),
+        as_dict=True,
+    )
+    out: dict[str, dict] = {}
+    for leg in legs:
+        entry = out.setdefault(leg["import_row"], {"at": leg["reversed_at"], "targets": []})
+        same_call = (entry["at"] - leg["reversed_at"]).total_seconds() < 1
+        if same_call and leg["target_name"] not in entry["targets"]:
+            entry["targets"].append(leg["target_name"])
+    return out
+
+
+def _related_records(rows: list) -> dict[str, list]:
+    """The already-recorded records each row's bank reference points at, keyed by that reference.
+
+    ⚠️ RECORDS, NOT PAYMENTS, SINCE #1253 -- and the payload key was RENAMED with it
+    (`related_payments` -> `related_records`), on the `settled_ledger` -> `settled_ledgers` precedent.
+    Every entry is `{target_doctype, target_name}` and may name ANY of the five ledgers a duplicate
+    can already live in: `Project Payments`, `Project Expenses`, `Non Project Expenses`,
+    `Project Inflows` or `Non Project Inflows` (#1268). The client builds a link for each
+    (`settlementLink`), including both inflows.
+    Only a `Project Payment` entry also carries `order_name` (see `_with_order_names`).
+
+    ⚠️ ITS SOURCE MUST STAY THE DUPLICATE GUARD'S SOURCE, PER ROW. A gateway row's guard reaches Paid
+    payments and Paid expenses on its exact reference (`_paid_duplicate_pools`, #1256). A
+    bank-statement row's guard is the ICICI contains-guard (#1257), so its links are the group
+    `_recorded_group_for` picks -- the records its note names, in any of the five ledgers -- and
+    nothing a whole-string reference lookup would add. A guard widened to another ledger widens THIS
+    loader in the same change, or a skipped row names a record in its note and offers no link to it.
 
     ⚠️ THIS IS WHAT MAKES A SKIPPED ROW CLICKABLE. A row skipped as an already-recorded duplicate --
     and a `Mismatched` row, which comes from the same check -- names its payment ONLY inside
@@ -1107,22 +1592,64 @@ def _related_paid_payments(rows: list) -> dict[str, list]:
     `Matched`, deliberately, so a skipped row can never render as ready to confirm). So the screen
     had the payment's NAME in prose and no way to link it.
 
-    ⚠️ DERIVED HERE RATHER THAN PARSED FROM THE NOTE, and rather than persisted. Parsing the sentence
-    back out would be guessing at a fact the database already holds exactly. Persisting it would mean
-    another field and another migrate on a branch that already owes six. This reuses the SAME loader
+    ⚠️ DERIVED HERE RATHER THAN PARSED FROM THE NOTE. Parsing the sentence back out would be guessing
+    at a fact the database already holds exactly. (One exception since #1258: an ICICI line SKIPPED by
+    the contains-guard links its persisted `duplicate_basis`, which exists anyway so "one record, one
+    line" can hold across imports -- see the bank branch below.) This reuses the SAME loader
     the matcher's duplicate guard uses, so the two can never disagree about which payment a row
     refers to -- one query for the whole batch, which is tens of rows, not thousands.
 
-    Keyed by REFERENCE, not by row: several bank rows can share one reference (that is what a
-    fan-out is), and they should all point at the same payments.
+    Keyed by ROW NAME since #1256, no longer by reference: one reference can sit on a gateway row
+    and a bank-statement row in the same master-table page, and only the first may link an expense.
+    Rows sharing a reference (a fan-out) still get the same records, each as its own entry.
 
-    Computing it for every row is safe. A `Matched` row cannot have a paid payment at its reference:
+    Computing it for every row is safe. A `Matched` row cannot have a paid record at its reference:
     the duplicate check runs FIRST and would have skipped it, so the lookup comes back empty on its
     own rather than by being excluded here.
     """
-    references = [r.get("normalized_reference") or "" for r in rows]
+    gateway = [r for r in rows if source_has_settlement_path(r.get("source") or "")]
+    bank = [_StagedRow(r) for r in rows if not source_has_settlement_path(r.get("source") or "")]
+
+    related: dict[str, list] = {}
+    if gateway:
+        pools = _paid_duplicate_pools([m.get("normalized_reference") or "" for m in gateway])
+        index = _records_by_reference((*pools["paid_payments"], *pools["paid_expenses"]))
+        for member in gateway:
+            related[member["name"]] = [
+                dict(entry) for entry in index.get(member.get("normalized_reference") or "", [])
+            ]
+    if bank:
+        # ⚠️ A SKIPPED LINE LINKS ITS PERSISTED BASIS (#1258) -- the records the skip was actually
+        # decided on, which later ledger edits cannot move. Only a line with no basis (every other
+        # outcome, and a skip made before the field existed) is derived, through the same pool and
+        # claims the match run reads, so a line blocked by "one record, one line" still links the
+        # record its note names.
+        bases = _stored_bases([m.name for m in bank if m.row_status == ROW_SKIPPED])
+        derive = [m for m in bank if not bases.get(m.name)]
+        pool = C.load_recorded_by_contains(derive) if derive else ()
+        claims = C.load_record_claims(pool) if pool else ()
+        for member in bank:
+            if bases.get(member.name):
+                related[member.name] = bases[member.name]
+                continue
+            group = _recorded_group_for(member, pool, claims)
+            related[member.name] = basis_entries(group.targets if group else ())
+    return related
+
+
+def _stored_bases(row_names) -> dict[str, list]:
+    """Row name -> its stored `duplicate_basis` as link entries, for the rows that carry one."""
+    if not row_names:
+        return {}
+    found = frappe.get_all(
+        ROW_DOCTYPE, filters={"name": ["in", list(row_names)]}, fields=["name", "duplicate_basis"],
+    )
+    return {r["name"]: entries for r in found if (entries := decode_basis(r.get("duplicate_basis")))}
+
+
+def _records_by_reference(targets) -> dict[str, list]:
     by_reference: dict[str, list] = {}
-    for target in C.load_paid_payments_by_reference(references):
+    for target in targets:
         by_reference.setdefault(target.normalized_reference, []).append(
             {"target_doctype": target.doctype, "target_name": target.name}
         )
@@ -1168,7 +1695,7 @@ def _with_order_names(rows: list, by_row: dict, related: dict) -> None:
     """Stamp `order_name` onto every payment link source, IN PLACE (slice E3).
 
     ⚠️ ONE LOOKUP FOR ALL THREE SOURCES. A row can link through a match, through an already-Paid
-    related payment, or through its stored suggestion, and all three end up in the same
+    related record, or through its stored suggestion, and all three end up in the same
     `rowSettlementLinks` on the client. Enriching them separately would be three queries and, worse,
     three chances for one of them to be forgotten -- which presents as a link that silently keeps
     the old behaviour on some rows and not others.
@@ -1313,7 +1840,7 @@ def get_row_candidates(row: str):
 
 @frappe.whitelist()
 def search_settleable_records(
-    row: str, target_doctype: str = "", search: str = "", limit: int = 0
+    row: str, target_doctype: str = "", search: str = "", limit: int = 0, compare_amount=None
 ):
     """Approved records a reviewer may link to this row BY HAND (slice V4a; all-ledger at R2).
 
@@ -1373,6 +1900,33 @@ def search_settleable_records(
 
     `suggested` marks the records within the matching tolerance, so the screen can float them to the
     top without hiding anything else.
+
+    ⚠️ `compare_amount` MEASURES AGAINST THE BALANCE REMAINING, NOT THE TRANSFER (issue #1243). On a
+    PARTLY ALLOCATED row the reviewer is looking for the record that fits what is LEFT, and this
+    endpoint used to answer a question nobody had asked. The consequence was not cosmetic: the one
+    payment that would COMPLETE the transfer scored zero on the amount axis, came back
+    `suggested: False`, and therefore sorted BELOW every record too large to fit -- because
+    settleability is a HARD SPLIT above the score (`similarity.ranked_records`). The reviewer was
+    shown the impossible candidates first and the right one last, marked with a large "off by".
+
+    ⚠️ ONE SUBSTITUTION MOVES ALL FOUR CONSUMERS, AND THAT IS WHY IT IS A PARAMETER HERE RATHER THAN
+    A SECOND ENDPOINT. `bank_amount` is derived at ONE point below and handed as an ARGUMENT to the
+    per-ledger SQL ordering, the `suggested` flag, the ranker's hard split and the amount score axis.
+    Substituting it once therefore preserves the existing invariant that there is exactly ONE
+    amount-opinion per record; a second read anywhere would let the flag and the ordering disagree
+    about the same row. A new read endpoint would also add a serialised round trip on the dialog's
+    critical path to fetch a number the dialog already has in memory.
+
+    ⚠️ IT DECIDES NOTHING, AND THAT IS WHAT MAKES A CLIENT-SUPPLIED FIGURE SAFE HERE. This only
+    ORDERS and MARKS a list a person then confirms; `settle_row` / `allocate_row` re-read every leg
+    under a row lock and re-assert the real fit before anything is written. So a blank, a zero, a
+    negative or an unparseable value FALLS BACK to the transfer's own amount rather than throwing --
+    denying the reviewer the screen would be a worse answer than today's ordering.
+
+    ⚠️ THE CALLER RANKS ONCE PER DIALOG OPEN, AGAINST THE BANKED REMAINDER -- never live per tick.
+    See `allocationView.pickerComparisonAmount`: a round trip per click, with records moving under
+    the cursor mid-selection, is worse than the static answer, and the balance bar already shows the
+    live figure.
     """
     require_outflow_access()
     doc = frappe.db.get_value(
@@ -1381,7 +1935,8 @@ def search_settleable_records(
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
 
-    bank_amount = normalize_amount(doc.get("amount"))
+    # ⚠️ THE ONE DERIVATION POINT. Everything below takes it as an argument -- see the docstring.
+    bank_amount = _comparison_amount(normalize_amount(doc.get("amount")), compare_amount)
     cap = _browse_cap(limit)
 
     wanted = (target_doctype or "").strip()
@@ -1399,7 +1954,13 @@ def search_settleable_records(
     for ledger in ledgers:
         records.extend(_search_one_ledger(ledger, bank_amount, search, cap))
 
-    return _rank_browse_records(records, doc, bank_amount)[:cap]
+    # ⚠️ THE TWO TEXT FIELDS EXPLICITLY, NOT THE WHOLE ROW (issue #1243). `doc` carries an `amount`
+    # of its own, and once `bank_amount` may differ from it, handing both to the ranker would put
+    # two disagreeing amounts one argument apart -- a trap for the next reader, and an invitation to
+    # reach for the wrong one. The ranker needs the row's TEXT; it is given exactly that.
+    return _rank_browse_records(
+        records, doc.get("beneficiary_name"), doc.get("remarks"), bank_amount
+    )[:cap]
 
 
 # The ceiling `limit=0` resolves to. Not a page size -- a guard, so that a ledger which grows by an
@@ -1425,7 +1986,34 @@ def _browse_cap(limit) -> int:
     return min(wanted, _MAX_BROWSE)
 
 
-def _rank_browse_records(records: list[dict], doc: dict, bank_amount) -> list[dict]:
+def _comparison_amount(row_amount, compare_amount):
+    """What every candidate is measured against: the caller's figure, or the row's own (issue #1243).
+
+    ⚠️ IT FAILS BACK, IT NEVER THROWS. A blank, a zero, a negative or an unparseable value yields the
+    transfer's own amount -- byte-identically to the behaviour before this parameter existed. This
+    number only ORDERS and MARKS a list a person confirms; the write paths re-assert the real fit
+    under a row lock, so refusing the whole screen over a garbled query parameter would trade a
+    slightly worse ordering for no ordering at all.
+
+    ⚠️ `normalize_amount` ALREADY RETURNS `Decimal("0")` FOR RUBBISH rather than raising (see its
+    docstring), so "unparseable" and "blank" arrive here as the same falsy zero and take the same
+    branch. Do not add a `try` around it expecting an exception that cannot come.
+
+    ⚠️ A NEGATIVE IS REFUSED HERE EVEN THOUGH THE CLIENT CAN COMPUTE ONE. An over-allocated row has a
+    negative remainder, and `pickerComparisonAmount` deliberately reports it -- but no approved
+    record can be "within Rs 5" of a negative target, so honouring it would return a list in which
+    NOTHING is settleable, with no sentence on screen explaining why. Falling back leaves the
+    reviewer the ordinary list; the balance bar is what tells them the row is over-allocated.
+    """
+    wanted = normalize_amount(compare_amount)
+    if wanted <= 0:
+        return row_amount
+    return wanted
+
+
+def _rank_browse_records(
+    records: list[dict], beneficiary_name, remarks, bank_amount
+) -> list[dict]:
     """Order the merged pool by how much each record looks like this transfer.
 
     ⚠️ THE PROJECT INDEX IS BUILT ONCE PER CALL, not per record. It is 194 names; tokenising them
@@ -1436,8 +2024,8 @@ def _rank_browse_records(records: list[dict], doc: dict, bank_amount) -> list[di
     describing the wrong row, and this list is about to be filtered and sorted by the client.
     """
     row_signals = build_row_signals(
-        doc.get("beneficiary_name"),
-        doc.get("remarks"),
+        beneficiary_name,
+        remarks,
         bank_amount,
         C.load_project_index(),
     )
@@ -1602,9 +2190,9 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
             WHERE e.status IN ({status_ph})
-              AND e.amount IS NOT NULL AND btrim(e.amount) <> ''
+              AND e.amount IS NOT NULL
               {where_search}
-            ORDER BY abs(CAST(NULLIF(btrim(e.amount), '') AS numeric) - %s) ASC, e.modified DESC
+            ORDER BY abs(e.amount - %s) ASC, e.modified DESC
             LIMIT %s
         """
     else:
@@ -1684,11 +2272,24 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 
 # --- the master table (slice X3) ----------------------------------------------------------------
 
-# The three tabs, as STATUS SETS (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+# The tabs, as STATUS SETS narrowed by DIRECTION (owner ruling 2026-08-10, replacing Pending /
+# Settled / Skipped; `partly` joined later, ADR-0020 D5; split by direction at #1264, ADR-0016
+# Amendment A).
 #
-#   all           everything EXCEPT Skipped
-#   not_matched   the work: staged, did not line up, or the write failed
-#   matched       found something, or already written -- the two "this is handled" states
+#   all                  everything EXCEPT Skipped, both directions
+#   not_matched_outflow  the work: staged, did not line up, or the write failed -- money OUT
+#   partly_outflow       money already written, some of it still unallocated -- money OUT
+#   matched_outflow      found something, or already written -- money OUT
+#   not_matched_inflow   the not-matched statuses -- money IN
+#   settled_inflow       the matched statuses -- money IN
+#
+# ⚠️ DIRECTION IS `status.is_received_direction`, AND ONLY THAT: trimmed `Credit` is inflow,
+# EVERYTHING ELSE -- blank included -- is outflow, so no row falls between the tabs. In SQL it is
+# `_DIRECTION_CLASS_SQL` (the same expression the Direction funnel filters on); never spell it again.
+#
+# ⚠️ `settled_inflow` HOLDS BOTH MATCHED STATUSES, like its outflow twin. A credit never becomes
+# `Matched` today (a bank source has no settlement path), so the screen labels it with the settled
+# count alone -- but the tab must still show a `Matched` credit if one ever appears, rather than lose it.
 #
 # ⚠️ `Skipped` HAS NO TAB, AND IS EXCLUDED FROM `all` TOO (owner ruling). It is not "everything";
 # it is everything a person might still act on. Skipped rows are bookkeeping -- a failed transfer, a
@@ -1702,9 +2303,20 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 # `Matched` is open, so this tab holds a MIX -- which is why row selection is per-row rather than
 # per-tab on the screen.
 SCOPE_ALL = "all"
-SCOPE_NOT_MATCHED = "not_matched"
-SCOPE_MATCHED = "matched"
+SCOPE_NOT_MATCHED_OUTFLOW = "not_matched_outflow"
+SCOPE_PARTLY_OUTFLOW = "partly_outflow"
+SCOPE_MATCHED_OUTFLOW = "matched_outflow"
+SCOPE_NOT_MATCHED_INFLOW = "not_matched_inflow"
+SCOPE_SETTLED_INFLOW = "settled_inflow"
 SCOPE_SKIPPED = "skipped"
+
+# The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
+# the funnel, the tabs and the summary name a side identically.
+DIRECTION_OUTFLOW_LABEL = SETTLED_BLOCK_PAID
+DIRECTION_INFLOW_LABEL = SETTLED_BLOCK_RECEIVED
+
+_NOT_MATCHED_STATUSES = (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR)
+_MATCHED_STATUSES = (ROW_MATCHED, ROW_SETTLED)
 
 _SCOPE_STATUSES = {
     # ⚠️ `all` CARRIES A REAL CLAUSE NOW, and it did not before. It used to fall through to "no
@@ -1712,8 +2324,16 @@ _SCOPE_STATUSES = {
     # actual filter, and forgetting that is exactly how skipped rows would leak back into the one
     # tab nobody would think to check.
     SCOPE_ALL: tuple(s for s in ROW_STATUSES if s != ROW_SKIPPED),
-    SCOPE_NOT_MATCHED: (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR),
-    SCOPE_MATCHED: (ROW_MATCHED, ROW_SETTLED),
+    SCOPE_NOT_MATCHED_OUTFLOW: _NOT_MATCHED_STATUSES,
+    # ⚠️ ITS OWN SCOPE, NOT FOLDED INTO `matched`. `outflowTableModel.tabCountParts` splits the
+    # Matched tab into exactly TWO chips (Matched + Settled); a third status there makes the chips
+    # stop summing to the tab total -- the precise defect that function was written to fix. It is
+    # also a different job: "money moved, finish the allocation" is not "nothing matched, go find
+    # something", and the screen's default landing tab is Not-Matched.
+    SCOPE_PARTLY_OUTFLOW: (ROW_PARTIALLY_ALLOCATED,),
+    SCOPE_MATCHED_OUTFLOW: _MATCHED_STATUSES,
+    SCOPE_NOT_MATCHED_INFLOW: _NOT_MATCHED_STATUSES,
+    SCOPE_SETTLED_INFLOW: _MATCHED_STATUSES,
     # ⚠️ A SCOPE, AND DELIBERATELY NOT A TAB (owner confirmed 2026-08-11). The ruling that "All means
     # everything a person might still act on, not every row" is UNCHANGED, and no tab reaches a
     # skipped transfer -- `test_no_tab_scope_will_show_a_skipped_row` still pins that. What this adds
@@ -1724,6 +2344,24 @@ _SCOPE_STATUSES = {
     # ⚠️ IT IS THE ONLY SCOPE THAT RETURNS THEM, and it returns nothing else. A scope that mixed
     # skipped rows into a working view would be the thing the ruling forbids, arrived at sideways.
     SCOPE_SKIPPED: (ROW_SKIPPED,),
+}
+
+# The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
+_SCOPE_DIRECTION = {
+    SCOPE_NOT_MATCHED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_PARTLY_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_MATCHED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_NOT_MATCHED_INFLOW: DIRECTION_INFLOW_LABEL,
+    SCOPE_SETTLED_INFLOW: DIRECTION_INFLOW_LABEL,
+}
+
+# ⚠️ THE PRE-#1264 SCOPE IDS, KEPT AS ALIASES. A stale client (an open tab, a bookmark) still sends
+# them; each lands on its OUTFLOW variant -- where every row of those tabs lived until inflows
+# arrived -- rather than falling all the way back to `all`.
+_LEGACY_SCOPES = {
+    "not_matched": SCOPE_NOT_MATCHED_OUTFLOW,
+    "partly": SCOPE_PARTLY_OUTFLOW,
+    "matched": SCOPE_MATCHED_OUTFLOW,
 }
 
 # ⚠️ AN ALLOW-LIST, BECAUSE THE SORT COLUMN IS INTERPOLATED INTO SQL. A sort key cannot be a bound
@@ -1761,6 +2399,13 @@ _SEARCHABLE_COLUMNS = (
 # silent capability cut in a refactor nobody asked to lose anything in. So the distinct values come
 # from the database instead, over the WHOLE filtered table, through `get_outflow_facet_values`.
 #
+# The transaction direction as a two-value label -- `status.is_received_direction` in SQL. See the
+# long note on `_FACET_COLUMNS["direction"]` for why it is a `CASE` with a `TRIM`, not the raw field.
+_DIRECTION_CLASS_SQL = (
+    f"CASE WHEN TRIM(r.direction) = 'Credit' THEN '{DIRECTION_INFLOW_LABEL}' "
+    f"ELSE '{DIRECTION_OUTFLOW_LABEL}' END"
+)
+
 # An allow-list for the same reason as `_SORTABLE_COLUMNS`: the column name is interpolated.
 _FACET_COLUMNS = {
     "beneficiary_name": "r.beneficiary_name",
@@ -1834,7 +2479,10 @@ _FACET_COLUMNS = {
     # table is ~899 rows and every other facet already runs an unindexed `DISTINCT` over the same
     # scan, so this costs nothing at this size -- and this line is what to re-measure if it ever
     # stops being true.
-    "direction": "CASE WHEN TRIM(r.direction) = 'Credit' THEN 'Received' ELSE 'Paid' END",
+    #
+    # ⚠️ SINCE #1264 THE DIRECTION TABS FILTER AND COUNT ON THIS SAME EXPRESSION (`_scope_clause`,
+    # `_tab_counts`), which is why it now lives in one named constant.
+    "direction": _DIRECTION_CLASS_SQL,
     # ⚠️ THE ONE FACET THAT IS NOT A COLUMN ON THIS TABLE. It is `ledgers.SETTLED_LEDGER_SQL` -- a
     # SCALAR CORRELATED SUBQUERY over `Outflow Row Match`, which is precisely why it can live in
     # this map at all: `_row_filters` builds single-table fragments against the alias `r`, shared by
@@ -1850,6 +2498,14 @@ _FACET_COLUMNS = {
     # ⚠️ AND IT IS ON THE ROW PAYLOAD TOO -- see the comment in `get_outflow_rows`' SELECT list. This
     # map governs FILTERING ONLY; shipping the value to the screen is a second, separate edit, and
     # slice Q1 made exactly that mistake with `settlement_origin`.
+    #
+    # ⚠️ SINCE ADR-0020 (FAN-OUT) THIS ENTRY IS PRESENT ONLY SO `_parsed_facets` KEEPS ALLOWING THE
+    # COLUMN NAME -- the aggregate expression here is no longer what filters or lists values for it.
+    # `_row_filters` gives `settled_ledger` its OWN `EXISTS` branch (below): comparing a two-ledger
+    # row's `string_agg` result against one ticked label would never equal it, so ticking a label a
+    # row settled into would HIDE that row -- the worst shape available, because it looks like it
+    # worked. `get_outflow_facet_values` likewise queries the match table directly for this column
+    # rather than running `DISTINCT` over the aggregate string.
     "settled_ledger": SETTLED_LEDGER_SQL,
     # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
     # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
@@ -1904,22 +2560,45 @@ _MAX_EXPORT = 20000
 # Same scalar-correlated-subquery shape, for the same structural reason -- a JOIN would change the
 # FROM clause, and a fan-out settlement (one transfer covering several payments, which the unique
 # key deliberately permits) would then multiply the row out and make this export disagree with
-# `get_outflow_rows` about how many transfers there are. `LIMIT 1` carries the same caveat recorded
-# on `SETTLED_LEDGER_SQL`: exact today, and the thing to re-decide if fan-out ever writes several
-# match rows per import row.
+# `get_outflow_rows` about how many transfers there are.
+#
+# ⚠️ AGGREGATES NOW, EXACTLY LIKE `SETTLED_LEDGER_SQL` (ADR-0020) -- `LIMIT 1` with no `ORDER BY`
+# used to pick one leg arbitrarily per subquery. `REVERSED` LEGS ARE EXCLUDED for the same reason
+# as `SETTLED_LEDGER_SQL`.
+#
+# ⚠️ THE `ORDER BY` IS NOT COSMETIC. These two are INDEPENDENT subqueries, so without a shared,
+# total ordering the names and the amounts on one CSV line could come from different legs -- which
+# is worse than picking one leg consistently. `matched_at, name` is total because `name` is unique.
+#
+# ⚠️ `_SETTLED_EXPORT_SEPARATOR` (Task 6 review fix F) IS ITS OWN CONSTANT, DELIBERATELY NOT
+# `ledgers.SETTLED_LEDGER_SEPARATOR`. The two separators serve genuinely different jobs and must
+# stay two named constants, not one: `SETTLED_LEDGER_SEPARATOR` ('|', bare) is PARSED back by
+# `.split(...)` into a list, so it cannot carry padding -- a spaced separator would leave whitespace
+# on every ledger name. This one is a DISPLAY string a reconciler reads directly in a spreadsheet
+# cell that NOTHING ever parses back, so it is free to be human-readable (`' | '`, with spaces).
+# Defined ONCE here and used by BOTH subqueries below, which used to spell `' | '` independently.
+_SETTLED_EXPORT_SEPARATOR = " | "
 _SETTLED_NAME_SQL = (
-    '(SELECT m.target_name FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name LIMIT 1)"
+    f"(SELECT string_agg(m.target_name, '{_SETTLED_EXPORT_SEPARATOR}' "
+    "ORDER BY m.matched_at, m.name) "
+    'FROM "tabOutflow Row Match" m '
+    f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}')"
 )
+# ⚠️ `ROUND(..., 2)` (Task 6 review fix G) -- `target_amount` is a Currency column, and a bare
+# `::text` cast on Postgres numeric prints the FULL stored precision (`27504.310000000`), not the
+# two-decimal figure the pre-Task-6 export wrote as a float. Cosmetic in a spreadsheet, but
+# user-visible in the raw CSV cell.
 _SETTLED_TARGET_AMOUNT_SQL = (
-    '(SELECT m.target_amount FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name LIMIT 1)"
+    f"(SELECT string_agg(ROUND(m.target_amount, 2)::text, '{_SETTLED_EXPORT_SEPARATOR}' "
+    "ORDER BY m.matched_at, m.name) "
+    'FROM "tabOutflow Row Match" m '
+    f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}')"
 )
 
 
 @frappe.whitelist()
 def get_outflow_rows(
-    scope: str = SCOPE_NOT_MATCHED,
+    scope: str = SCOPE_NOT_MATCHED_OUTFLOW,
     batch: str = None,
     failed=None,
     search: str = None,
@@ -1932,6 +2611,7 @@ def get_outflow_rows(
     sort_dir: str = "desc",
     limit=_DEFAULT_PAGE_SIZE,
     offset=0,
+    skip_origin: str = None,
 ):
     """One page of transactions across EVERY import (slice X3).
 
@@ -1965,6 +2645,7 @@ def get_outflow_rows(
         amount_max=amount_max,
         facets=facets,
         failed=failed,
+        skip_origin=skip_origin,
     )
     scoped_where, scoped_params = _scope_clause(scope)
 
@@ -1986,6 +2667,10 @@ def get_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               -- Who skipped it, and when (#1273): the Skipped popup's "Skipped by hand" line.
+               r.skip_origin, r.decided_by, r.decided_at,
+               -- The Outcome cell's "Confirm by hand" chip (#1280); the date beside it is read below.
+               r.confirm_by_hand,
                -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
                -- governs FILTERING; this list governs what the row CARRIES, and slice Q1 initially
                -- changed only the first -- so the "Settled via" column rendered an em dash on all
@@ -2011,11 +2696,14 @@ def get_outflow_rows(
                -- reasoning and the measurement live on the `_FACET_COLUMNS["direction"]` entry;
                -- read it before changing either side.
                r.direction,
-               -- WHICH BOOK THE MONEY LANDED IN, on the row that landed it. Registered in
-               -- `_FACET_COLUMNS` in the SAME change as this line, for the reason four lines up.
-               -- Blank on every unsettled row, which is honest: an open transfer has not landed
-               -- anywhere yet.
-               {SETTLED_LEDGER_SQL} AS settled_ledger,
+               -- EVERY BOOK THE MONEY LANDED IN, on the row that landed it (plural since
+               -- ADR-0020's fan-out: one transfer may settle several payments in different
+               -- ledgers). Registered in `_FACET_COLUMNS` in the SAME change as this line, for the
+               -- reason four lines up. Blank on every unsettled row, which is honest: an open
+               -- transfer has not landed anywhere yet. Split into a list below, in the row-shaping
+               -- loop -- never on the client, which would be a second place that has to know the
+               -- pipe is a `string_agg` transport detail.
+               {SETTLED_LEDGER_SQL} AS settled_ledgers,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -2035,12 +2723,18 @@ def get_outflow_rows(
         as_dict=True,
     )[0]["n"]
 
-    related = _related_paid_payments(rows)
+    related = _related_records(rows)
+    # #1266 (owner pick A): a settled row's own legs, so the Outcome cell links the record it
+    # settled or CREATED. Until then this read sent `matches: []`, so a created Project Inflow,
+    # Non-Project Inflow or expense was never linked from the screen.
+    by_row = _settled_matches_by_row([r["name"] for r in rows])
+    unreconciled = _last_unreconcile_by_row(
+        [r["name"] for r in rows if r.get("confirm_by_hand")]
+    )
     # ⚠️ THE SAME ENRICHMENT AS `get_batch_rows`, AND IT HAS TO BE. This is the MASTER TABLE -- the
     # surface most of the feature's payment links are actually clicked on -- so enriching only the
     # batch view would leave the app's own route working in one place and not the other, which is
-    # harder to diagnose than it not working at all. `matches` is empty here by design, so only the
-    # related payments and the suggestion carry an order.
+    # harder to diagnose than it not working at all.
     suggested_orders = _payment_order_names(
         [
             r.get("suggested_name")
@@ -2048,8 +2742,8 @@ def get_outflow_rows(
             if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
         ]
     )
-    _with_order_names(rows, {}, related)
-    tab_counts, status_counts = _tab_counts(where, params)
+    _with_order_names(rows, by_row, related)
+    tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
 
     return {
         "rows": [
@@ -2058,12 +2752,25 @@ def get_outflow_rows(
                 "amount": float(row.get("amount") or 0),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
-                # Kept for shape-compatibility with `get_batch_rows`, which the decision dialog and
-                # the settlement-link helpers already read. A master-table page never carries match
-                # records: they mean "settled", and the Settled tab reads them per row on demand.
-                "matches": [],
-                "related_payments": related.get(row.get("normalized_reference") or "", []),
+                # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
+                # `string_agg`; a client that splits it would be a second place that has to know
+                # the separator, and the two would drift the day it changes. `SETTLED_LEDGER_SEPARATOR`
+                # is IMPORTED from `ledgers.py` (Task 6 review fix F) -- the one place that writes
+                # it and the two places that read it back now share a single spelling.
+                "settled_ledgers": [
+                    part
+                    for part in (row.get("settled_ledgers") or "").split(SETTLED_LEDGER_SEPARATOR)
+                    if part
+                ],
+                # The row's live settlement legs (#1266), the same shape `get_batch_rows` sends.
+                "matches": by_row.get(row["name"], []),
+                "related_records": related.get(row["name"], []),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
+                "confirm_by_hand": bool(row.get("confirm_by_hand")),
+                # #1280: when the line was last unreconciled and which records came off then, so the
+                # Outcome cell can say "Same pick as before" only when it is.
+                "unreconciled_at": unreconciled.get(row["name"], {}).get("at"),
+                "unreconciled_targets": unreconciled.get(row["name"], {}).get("targets", []),
             }
             for row in rows
         ],
@@ -2075,11 +2782,17 @@ def get_outflow_rows(
         # The same population as `tab_counts`, broken down by status rather than by tab. See
         # `_tab_counts`: one tab holds two statuses and its single number cannot say which.
         "status_counts": status_counts,
+        # The same breakdown, split by direction (#1264). The `Matched / Settled - Outflow` tab
+        # renders its two chips from the `outflow` half, so they add up to that tab and not to a
+        # count that includes settled credits.
+        "direction_status_counts": direction_status_counts,
+        # Can the chosen source(s) ever carry a credit? The screen hides its Inflow tabs when not.
+        "can_carry_credit": _can_carry_credit(facets, batch),
     }
 
 
 def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None,
-                 failed=None):
+                 failed=None, skip_origin=None):
     """The WHERE fragments shared by the page query, its count, and the tab counts.
 
     ⚠️ ONE BUILDER FOR ALL FOUR (the facet-values query too), because a count computed under
@@ -2109,6 +2822,14 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
         )
         params.append(BANK_SUCCESS_STATUS)
 
+    # The Skipped popup's "Skipped by hand" segment (#1273). A server filter, like `failed` above, so
+    # the page, its count and the export describe the same rows. An origin outside the vocabulary
+    # filters NOTHING, the same fail-open a stale facet gets in `_parsed_facets`.
+    origin = (skip_origin or "").strip()
+    if origin in (SKIP_ORIGIN_SYSTEM, SKIP_ORIGIN_MANUAL):
+        where.append("r.skip_origin = %s")
+        params.append(origin)
+
     text = (search or "").strip()
     if text:
         # OR within the one "column" a person perceives as search: they are hunting a transfer, and
@@ -2125,7 +2846,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # The bank's date column is free text and does not always parse -- the parser stores NULL rather
     # than guessing, and the test fixture carries a literal `not-a-date` for exactly this case. Under
     # plain `>=` / `<` such a row matches NO period at all, so once the period became the SCREEN'S
-    # SCOPE (P1) it would have disappeared from the summary, from all three tabs and from the Skipped
+    # SCOPE (P1) it would have disappeared from the summary, from all four tabs and from the Skipped
     # dialog simultaneously -- with no filter on screen that could bring it back, because every
     # window excludes it equally.
     #
@@ -2158,6 +2879,20 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
         # rule the client-side filters used. Otherwise unticking the last value blanks the table
         # instead of clearing the filter, which reads as a bug every single time.
         if not chosen:
+            continue
+        if column == "settled_ledger":
+            # ⚠️ `EXISTS`, NOT A COMPARISON AGAINST THE AGGREGATE (ADR-0020 fan-out). A row settling
+            # into two ledgers would never equal either label under `CAST(SETTLED_LEDGER_SQL AS
+            # text) IN (...)`, so ticking one would HIDE it -- a filter that hides rows matching the
+            # label it was ticked from is the worst shape available, because it looks like it
+            # worked. `EXISTS` also keeps `_row_filters` single-table: it is a WHERE fragment, so
+            # none of the nine statements built from this function grows a JOIN.
+            where.append(
+                f'EXISTS (SELECT 1 FROM "tabOutflow Row Match" m '
+                f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}' "
+                f"AND m.target_doctype IN ({', '.join(['%s'] * len(chosen))}))"
+            )
+            params.extend([str(v) for v in chosen])
             continue
         expression = _FACET_COLUMNS[column]
         placeholders = ", ".join(["%s"] * len(chosen))
@@ -2229,6 +2964,31 @@ def get_outflow_facet_values(
     where, params = where + scoped_where, params + scoped_params
     clause = (" WHERE " + " AND ".join(where)) if where else ""
 
+    # ⚠️ `settled_ledger` GETS ITS OWN DISTINCT, OVER THE MATCH TABLE, NOT OVER THE AGGREGATE
+    # (ADR-0020 fan-out). `DISTINCT CAST(SETTLED_LEDGER_SQL AS text)` would return
+    # "Project Payments|Project Expenses" as ONE bogus option for a row settled into both, rather
+    # than offering the two real labels. This is its OWN standalone statement -- not one of the
+    # nine `_row_filters` statements that must stay single-table -- so a JOIN here is free: it never
+    # touches the shared builder's FROM clause.
+    if column == "settled_ledger":
+        rows = frappe.db.sql(
+            f"""
+            SELECT DISTINCT m.target_doctype AS value
+            FROM "tabOutflow Row Match" m
+            JOIN "tabOutflow Import Row" r ON r.name = m.import_row
+            {clause}
+            {"AND" if clause else "WHERE"} m.match_kind = '{MATCH_SETTLED}'
+            ORDER BY value ASC
+            LIMIT %s
+            """,
+            tuple(params) + (max(1, min(int(limit or 500), 2000)),),
+            as_dict=True,
+        )
+        return {
+            "column": column,
+            "values": [r["value"] for r in rows if (r["value"] or "").strip()],
+        }
+
     expression = _FACET_COLUMNS[column]
     rows = frappe.db.sql(
         f"""
@@ -2247,8 +3007,16 @@ def get_outflow_facet_values(
     }
 
 
+def _resolve_scope(scope: str) -> str:
+    """The scope id a request names, after aliases. An unknown id resolves to `all`."""
+    key = (scope or "").strip().lower()
+    key = _LEGACY_SCOPES.get(key, key)
+    return key if key in _SCOPE_STATUSES else SCOPE_ALL
+
+
 def _scope_clause(scope: str):
-    """The tab, as a status set. An unknown scope falls back to `all` rather than to nothing.
+    """The tab, as a status set and (for a direction tab) a direction. An unknown scope falls back to
+    `all` rather than to nothing; a pre-#1264 id falls back to its outflow variant.
 
     Failing open is right here: a client sending a scope this server has not heard of should see the
     whole table, which is visibly odd, rather than an empty one, which reads as "there is no work".
@@ -2258,63 +3026,106 @@ def _scope_clause(scope: str):
     rows that every real tab excludes, in the one view nobody would think to check. `all` is the
     widest set a client may ask for, so it is also the right thing to fall back to.
     """
-    statuses = _SCOPE_STATUSES.get((scope or "").lower()) or _SCOPE_STATUSES[SCOPE_ALL]
+    resolved = _resolve_scope(scope)
+    statuses = _SCOPE_STATUSES[resolved]
     placeholders = ", ".join(["%s"] * len(statuses))
-    return [f"r.row_status IN ({placeholders})"], list(statuses)
+    where, params = [f"r.row_status IN ({placeholders})"], list(statuses)
+    direction = _SCOPE_DIRECTION.get(resolved)
+    if direction:
+        where.append(f"{_DIRECTION_CLASS_SQL} = %s")
+        params.append(direction)
+    return where, params
 
 
-def _tab_counts(where, params) -> tuple[dict, dict]:
-    """How many rows each tab holds UNDER THE CURRENT FILTERS, in one grouped query.
+def _can_carry_credit(facets, batch: str = None) -> bool:
+    """Can the source(s) this request is scoped to ever carry a credit? No source chosen means all.
 
-    ⚠️ EVERY COUNT IS DERIVED FROM `_SCOPE_STATUSES`, never from a second list of statuses written
-    out here. The counts label the tabs, so a count that disagrees with what the tab actually shows
-    is worse than no count -- and with `Skipped` now excluded from `all`, a hand-written `all` count
-    would over-report by exactly the rows the tab refuses to show.
+    ⚠️ A PINNED IMPORT ANSWERS FROM ITS OWN SOURCE, whatever the Source filter says: one import is
+    one statement from one source, and the screen withholds the Source scope while one is pinned.
+    A legacy batch with no recorded source answers `True` -- a tab shown in error is harmless, a tab
+    hidden in error hides rows.
 
-    ⚠️ IT RETURNS THE PER-STATUS COUNTS AS WELL, AND THAT IS THE POINT OF THE SECOND RETURN VALUE.
-    One tab holds TWO statuses -- `Matched` (open) beside `Settled` (terminal) -- so its single
-    number cannot say which. Live-observed: 863 sat under a tab labelled "Matched / Settled" while
-    nothing at all had been settled, and the tab read as 863 finished. The split is already computed
-    here to derive the scopes; returning it costs nothing and no second query, and it is what lets
-    the tab show `863 matched · 0 settled` instead of one number that means two things.
+    ⚠️ ANSWERED FROM EACH SOURCE'S OWN COLUMN MAP (`parser.source_can_carry_credit`), NEVER A NAME
+    LIST. The client reads only this answer -- it never learns which sources say no.
+    """
+    if batch:
+        source = _batch_source(batch)
+        return not source or source_can_carry_credit(source)
+    chosen = [
+        str(value).strip()
+        for value in _parsed_facets(facets).get("source", [])
+        if str(value or "").strip()
+    ]
+    return not chosen or any(source_can_carry_credit(source) for source in chosen)
+
+
+def _tab_counts(where, params) -> tuple[dict, dict, dict]:
+    """How many rows each tab holds UNDER THE CURRENT FILTERS, in ONE query grouped by status AND
+    direction (#1264).
+
+    ⚠️ EVERY COUNT IS DERIVED FROM `_SCOPE_STATUSES` + `_SCOPE_DIRECTION`, never from a second list
+    written out here. The counts label the tabs, so a count that disagrees with what the tab
+    actually shows is worse than no count -- and with `Skipped` excluded from `all`, a hand-written
+    `all` count would over-report by exactly the rows the tab refuses to show.
+
+    ⚠️ IT RETURNS THE PER-STATUS COUNTS AS WELL, both whole and split by direction. One tab holds
+    TWO statuses -- `Matched` (open) beside `Settled` (terminal) -- so its single number cannot say
+    which. Live-observed: 863 sat under a tab labelled "Matched / Settled" while nothing at all had
+    been settled, and the tab read as 863 finished. The split is already computed here to derive
+    the scopes; returning it costs no second query. The screen's `Matched / Settled - Outflow` chips
+    read the `outflow` half, so they add up to that tab.
 
     ⚠️ ZERO-FILLED OVER `ROW_STATUSES`, so a status with no rows comes back as `0` rather than
     absent. A missing key would render as an em dash, which reads as "unknown" when the truth is
     "none" -- and "0 settled" is precisely the fact this split exists to make visible.
 
     ⚠️ THE STATUS COUNTS ARE RAW AND INCLUDE `Skipped`, which no tab shows. They are a breakdown OF
-    the population, not a fourth scope; never sum them expecting a tab's number. Only `tab_counts`
-    is derived from `_SCOPE_STATUSES`, and it stays the one thing a tab is labelled with.
+    the population, not another scope; never sum them expecting a tab's number. Only `tab_counts`
+    is derived from the scopes, and it stays the one thing a tab is labelled with.
     """
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     grouped = frappe.db.sql(
         f"""
-        SELECT r.row_status AS status, COUNT(*) AS n
+        SELECT r.row_status AS status, {_DIRECTION_CLASS_SQL} AS direction, COUNT(*) AS n
         FROM "tabOutflow Import Row" r
         {clause}
-        GROUP BY r.row_status
+        GROUP BY 1, 2
         """,
         tuple(params),
         as_dict=True,
     )
-    by_status = {(g["status"] or ""): int(g["n"] or 0) for g in grouped}
-    tabs = {
-        scope: sum(n for s, n in by_status.items() if s in statuses)
-        for scope, statuses in _SCOPE_STATUSES.items()
+    by_pair = {((g["status"] or ""), g["direction"]): int(g["n"] or 0) for g in grouped}
+
+    tabs = {}
+    for scope, statuses in _SCOPE_STATUSES.items():
+        wanted = _SCOPE_DIRECTION.get(scope)
+        tabs[scope] = sum(
+            n
+            for (status, direction), n in by_pair.items()
+            if status in statuses and (wanted is None or direction == wanted)
+        )
+
+    def _zero_filled(pairs):
+        counts = {status: 0 for status in ROW_STATUSES}
+        # An unrecognised status -- a row staged under an older vocabulary -- is CARRIED rather than
+        # dropped, on the same reasoning as `derive_import_summary`: a breakdown that quietly omitted
+        # it would report fewer rows than the population it claims to describe.
+        for (status, _direction), n in pairs:
+            if status:
+                counts[status] = counts.get(status, 0) + n
+        return counts
+
+    status_counts = _zero_filled(by_pair.items())
+    direction_status_counts = {
+        "outflow": _zero_filled((k, n) for k, n in by_pair.items() if k[1] == DIRECTION_OUTFLOW_LABEL),
+        "inflow": _zero_filled((k, n) for k, n in by_pair.items() if k[1] == DIRECTION_INFLOW_LABEL),
     }
-    status_counts = {status: by_status.get(status, 0) for status in ROW_STATUSES}
-    # An unrecognised status -- a row staged under an older vocabulary -- is CARRIED rather than
-    # dropped, on the same reasoning as `derive_import_summary`: a breakdown that quietly omitted it
-    # would report fewer rows than the population it claims to describe.
-    for status, n in by_status.items():
-        if status and status not in status_counts:
-            status_counts[status] = n
-    return tabs, status_counts
+    return tabs, status_counts, direction_status_counts
 
 
 @frappe.whitelist()
 def export_outflow_rows(
-    scope: str = SCOPE_NOT_MATCHED,
+    scope: str = SCOPE_NOT_MATCHED_OUTFLOW,
     batch: str = None,
     failed=None,
     search: str = None,
@@ -2325,6 +3136,7 @@ def export_outflow_rows(
     facets=None,
     sort_by: str = "added_on",
     sort_dir: str = "desc",
+    skip_origin: str = None,
 ):
     """Every transfer the current view selects, unpaged, for a spreadsheet.
 
@@ -2346,14 +3158,16 @@ def export_outflow_rows(
     twenty thousand rows on every keystroke.
 
     WHAT IT CARRIES, AND WHAT IT DELIBERATELY DOES NOT. Every column `get_outflow_rows` returns, plus
-    three settlement facts a reconciler needs: `settled_ledger` (which book), `settled_target_name`
-    (which record) and `settled_target_amount` (for how much -- which may differ from the transfer's
-    own amount on a partial settle, and that difference is exactly what somebody exports a
-    spreadsheet to look at).
+    two EXPORT-ONLY settlement facts a reconciler needs: `settled_target_names` (which record(s),
+    pipe-joined in leg order) and `settled_target_amounts` (for how much each -- which may differ
+    from the transfer's own amount on a partial settle, and that difference is exactly what somebody
+    exports a spreadsheet to look at). `settled_ledgers` rides the same `SETTLED_LEDGER_SQL`
+    aggregate `get_outflow_rows` uses, as a list, for the same reason (ADR-0020: one transfer may now
+    settle into several ledgers).
 
-    It OMITS `matches`, `related_payments` and `suggested_order_name`. Those three exist for the
-    decision dialog's LINKS -- they are how a row's settlement and its related payments become
-    clickable on screen -- and a CSV has nothing to click. `related_payments` in particular is a
+    It OMITS `matches`, `related_records` and `suggested_order_name`. Those three exist for the
+    decision dialog's LINKS -- they are how a row's settlement and its related records become
+    clickable on screen -- and a CSV has nothing to click. `related_records` in particular is a
     per-row list of dicts that cannot become a cell, and `suggested_order_name` costs a second query
     over the payments table to produce a value nothing in a spreadsheet reads.
     """
@@ -2368,6 +3182,7 @@ def export_outflow_rows(
         amount_max=amount_max,
         facets=facets,
         failed=failed,
+        skip_origin=skip_origin,
     )
     scoped_where, scoped_params = _scope_clause(scope)
 
@@ -2399,10 +3214,11 @@ def export_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               r.skip_origin, r.decided_by, r.decided_at,
                r.settlement_origin, r.source,
-               {SETTLED_LEDGER_SQL}          AS settled_ledger,
-               {_SETTLED_NAME_SQL}           AS settled_target_name,
-               {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amount,
+               {SETTLED_LEDGER_SQL}          AS settled_ledgers,
+               {_SETTLED_NAME_SQL}           AS settled_target_names,
+               {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amounts,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -2422,15 +3238,21 @@ def export_outflow_rows(
                 "amount": float(row.get("amount") or 0),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
-                # ⚠️ `None` SURVIVES AS `None`, and is NOT coerced to 0.0 the way the three above
-                # are. An unsettled transfer has no target amount, and a `0` in that cell is a
-                # CLAIM -- "settled for nothing" -- where a blank is the truth. The three above are
-                # different: every transfer has an amount and a charge, blank or not.
-                "settled_target_amount": (
-                    None
-                    if row.get("settled_target_amount") is None
-                    else float(row["settled_target_amount"])
-                ),
+                # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,
+                # never on the client. Same `SETTLED_LEDGER_SEPARATOR` import (Task 6 review fix F).
+                "settled_ledgers": [
+                    part
+                    for part in (row.get("settled_ledgers") or "").split(SETTLED_LEDGER_SEPARATOR)
+                    if part
+                ],
+                # ⚠️ `settled_target_names` / `settled_target_amounts` pass through UNCHANGED via
+                # `**row` above -- STILL a pipe-joined STRING, not a list, and STILL `None` (never
+                # `""`, never coerced to a number) on an unsettled row. These two are EXPORT-ONLY (a
+                # spreadsheet cell, not a JSON array a screen renders), so `string_agg`'s own
+                # separator is the right shape to hand a reconciler directly. A `0`-like empty value
+                # here would be a CLAIM -- "settled for nothing" -- where a blank is the truth: every
+                # transfer has an amount and a charge (coerced above); settlement facts are
+                # different.
             }
             for row in rows
         ],
@@ -2467,7 +3289,7 @@ def get_confirmable_rows(
     row is `Matched` when the matcher found one OR MORE approved records. When it found several it
     deliberately stores NO suggestion -- the screen never guesses between two real records -- so
     those rows have nothing to confirm them AGAINST. They come back in `needs_you`: listed, linked,
-    and never auto-confirmable.
+    and never auto-confirmable. So does a line marked `confirm_by_hand` (#1280), whatever it carries.
 
     ⚠️ THE RETURN IS A FUNNEL, IN THREE BUCKETS, AND THE THIRD EXISTS BECAUSE TWO SCREENS DISAGREED.
     The summary panel's button reads `confirmable_rows` from `get_import_summary`, which counts
@@ -2521,7 +3343,7 @@ def get_confirmable_rows(
         f"""
         SELECT r.name, r.transfer_id, r.added_on, r.amount, r.beneficiary_name, r.remarks,
                r.bank_reference_no, r.suggested_doctype, r.suggested_name, r.outcome_note,
-               r.suggestion_rule, r.match_basis, r.auto_matched
+               r.suggestion_rule, r.match_basis, r.auto_matched, r.confirm_by_hand
         FROM "tabOutflow Import Row" r
         {clause}
         ORDER BY r.added_on ASC, r.name ASC
@@ -2562,7 +3384,16 @@ def get_confirmable_rows(
             # How the counterpart was FOUND, as opposed to how one was chosen from what was found.
             "match_basis": row.get("match_basis"),
             "auto_matched": bool(row.get("auto_matched")),
+            "confirm_by_hand": bool(row.get("confirm_by_hand")),
         }
+
+        # ⚠️ AN UNRECONCILED LINE IS `needs_you`, NEVER `ready`, EVEN WITH A LIVE PICK (#1280). Its pick
+        # was confirmed once and undone, so the list must not arrive with it ticked. The summary's
+        # `confirmable_rows` leaves it out in the same change, so `len(ready) + len(stale)` still IS
+        # the button's number, and `settle_row(bulk=1)` refuses it if a stale screen sends it anyway.
+        if base["confirm_by_hand"]:
+            needs_you.append(base)
+            continue
 
         detail = targets.get((doctype, name)) if doctype and name else None
         if not detail:
@@ -2816,11 +3647,31 @@ def list_imports(limit=60):
     with the dropdown about which statements exist and in what order -- and the History dialog's
     rows are clickable, so a disagreement would offer a statement the picker cannot select.
 
-    ⚠️ `successful_rows` IS COUNTED, NOT READ OFF `total_rows`. The batch stores `total_rows`
-    including transfers the bank REFUSED, while `gross_amount` has excluded them since parse time
-    (invariant 13). Printing those two side by side would put a count and an amount describing
-    different populations on one line -- the Skipped-chip defect, in a smaller frame. The definition
-    of "successful" is BOUND from `parser.BANK_SUCCESS_STATUS`, never spelled a second time.
+    ⚠️ `successful_rows` IS COUNTED, NOT READ OFF `total_rows`, AND IT IS COUNTED OVER EXACTLY THE
+    POPULATION `gross_amount` SUMS. The batch stores `total_rows` including transfers the bank
+    REFUSED, while `gross_amount` has excluded them since parse time (invariant 13). Printing those
+    two side by side would put a count and an amount describing different populations on one line --
+    the Skipped-chip defect, in a smaller frame. The definition of "successful" is BOUND from
+    `parser.BANK_SUCCESS_STATUS`, never spelled a second time.
+
+    ⚠️ THE DIRECTION TERM JOINED THE FILTER AT #1287, AND IT IS THE SAME RULE, NOT A SECOND ONE.
+    `gross_amount` stopped being "every successful row" the day a source carried money IN -- it is now
+    successful DEBITS only (`parser.gross_by_direction`). A success-only count would therefore have
+    re-opened the exact split this note forbids, on a new axis: the live ICICI batch would have read
+    **170 transfers** beside an amount covering **147** of them, with Rs 2,50,17,955 of deposits
+    inside the count and outside the money. Measured 2026-09-16, narrowing moves nothing on the other
+    two sources -- every one of their 2,205 Cashfree and 274 Cashbook successful rows already states
+    `Debit`. A row the statement left undirected is out of both, which is correct rather than
+    lossy: such a row contributes 0 to the amount too (the parser blanks amount and direction
+    together), so dropping it keeps the pair on one population.
+
+    ⚠️ THE MONEY THAT CAME **IN** IS DELIBERATELY ABSENT FROM THIS READER (ticket #1287 scope). The
+    history list reports what left the account; gross inflow lives on the upload preview only and is
+    not stored. Adding it here is a decision, not a fill-in.
+
+    ⚠️ `TRIM` MIRRORS EVERY OTHER SPELLING OF THIS PREDICATE -- `status.is_received_direction`, the
+    direction facet's `CASE`, the client's `isCreditRow`, and `parser._states`. No stored row carries
+    padding today, which is precisely why each one strips.
 
     ⚠️ A BATCH WITH NO ROWS STILL APPEARS, at zero. `LEFT JOIN` rather than `JOIN`: an import that
     staged nothing is exactly the one somebody goes looking for in a history, and dropping it would
@@ -2833,6 +3684,7 @@ def list_imports(limit=60):
                b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by,
                COUNT(r.name) FILTER (
                    WHERE UPPER(COALESCE(r.status_raw, '')) = %s
+                     AND TRIM(COALESCE(r.direction, '')) = %s
                ) AS successful_rows
         FROM "tabOutflow Import Batch" b
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
@@ -2841,7 +3693,7 @@ def list_imports(limit=60):
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         LIMIT %s
         """,
-        (BANK_SUCCESS_STATUS, max(1, min(int(limit or 60), 200))),
+        (BANK_SUCCESS_STATUS, DIRECTION_DEBIT, max(1, min(int(limit or 60), 200))),
         as_dict=True,
     )
 
@@ -2854,19 +3706,29 @@ def _assert_batch(batch: str) -> None:
         frappe.throw(f"Import batch '{batch}' not found.", title="Not found")
 
 
-def _load_rows(batch: str) -> list:
+def _load_rows(batch: str, row: str = None) -> list:
+    """Every row of `batch` in match order -- or, given `row`, just that one, through the SAME
+    projection, so a line-scoped run adapts exactly the fields a batch run does (#1272)."""
     return frappe.db.sql(
         """
         SELECT name, transfer_id, reference_id, added_on, amount, status_raw, beneficiary_name,
                beneficiary_id, bank_account, ifsc, remarks, bank_reference_no, service_charge,
                service_tax, added_by_raw, normalized_account, normalized_reference,
                resolved_vendor, resolved_project, suggested_doctype, suggested_name,
-               row_status, skip_reason, outcome_note, settlement_origin
+               row_status, skip_reason, outcome_note, settlement_origin,
+               -- B9: `settlement_reference` plus the two columns its deploy-window recompute needs
+               -- that were not already here. The matcher must never READ the resolved value, but
+               -- `_StagedRow` builds it for every row it adapts, and a projection that omitted
+               -- these would silently hand the wallet rung a blank.
+               settlement_reference, source,
+               -- #1257: the ICICI contains-guard scopes its ledgers by the money's direction.
+               direction
         FROM "tabOutflow Import Row"
-        WHERE import_batch = %s
+        WHERE import_batch = %(batch)s
+          AND (%(row)s IS NULL OR name = %(row)s)
         ORDER BY added_on ASC, name ASC
         """,
-        (batch,),
+        {"batch": batch, "row": row},
         as_dict=True,
     )
 
@@ -2879,7 +3741,16 @@ def _refresh_batch_rollup(batch: str) -> list:
     ruling (see the note where its endpoints used to be). The field survives on the doctype holding
     the history of batches closed before then, and nothing writes or reads it.
     """
-    statuses = [
+    statuses = _row_statuses(batch)
+    values = dict(derive_batch_counters(statuses))
+    values["status"] = derive_batch_status(statuses)
+    frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
+    return statuses
+
+
+def _row_statuses(batch: str) -> list:
+    """Every row's status in `batch` -- the one input the rollup deriver reads. Reads only."""
+    return [
         r["row_status"] or ""
         for r in frappe.db.sql(
             """SELECT row_status FROM "tabOutflow Import Row" WHERE import_batch = %s""",
@@ -2887,10 +3758,6 @@ def _refresh_batch_rollup(batch: str) -> list:
             as_dict=True,
         )
     ]
-    values = dict(derive_batch_counters(statuses))
-    values["status"] = derive_batch_status(statuses)
-    frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
-    return statuses
 
 
 @frappe.whitelist()
@@ -2935,7 +3802,7 @@ def get_outflow_summary(
     ⚠️ THE AUTO / MANUAL SKIP SPLIT KEYS ON `decided_by`, NOT ON THE REASON TEXT. A skip written at
     upload carries a system-generated `skip_reason` and no decider; a manual one records the person.
     That is a fact the database already holds exactly, so it needs no sentence parsed -- the same
-    rule `_related_paid_payments` follows for exactly the same reason.
+    rule `_related_records` follows for exactly the same reason.
     """
     require_outflow_access()
     if batch:
@@ -2951,67 +3818,9 @@ def get_outflow_summary(
         facets=facets,
         failed=failed,
     )
-    clause = (" WHERE " + " AND ".join(where)) if where else ""
 
-    # ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
-    # `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
-    # (2026-08-10, option B) that only the first leaves every figure this summary reports, so the
-    # split has to happen here, in the aggregate, rather than by subtracting a second query later.
-    #
-    # ⚠️ `BANK_SUCCESS_STATUS` IS BOUND, NOT SPELLED OUT. The literal lives in `parser.py` beside
-    # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
-    # would be a second definition of "successful" that stays right only until one of them learns
-    # about a status word the other has not.
-    #
-    # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
-    # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
-    # all -- which is the one thing this endpoint must not fall back on.
-    #
-    # ⚠️ AND `direction` IS A THIRD GROUP KEY ON THAT SAME QUERY, NEVER A SECOND QUERY. The panel's
-    # "Total paid out" / "Total received" tiles must be computed under the SAME `_row_filters`
-    # WHERE clause as `total_value` and as the tab counts, or a filtered view shows two halves that
-    # do not add up to the whole above them -- which reads as a paging bug and is not one. It is a
-    # plain column on the row table, so the shared builder needs no change at all: ONE more
-    # `GROUP BY` term, and `derive_import_summary` does the splitting.
-    grouped = frappe.db.sql(
-        f"""
-        SELECT r.row_status                                        AS status,
-               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
-               COALESCE(r.direction, '')                           AS direction,
-               COUNT(*)                                            AS count,
-               COALESCE(SUM(r.amount), 0)                          AS value,
-               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
-                                 THEN 1 ELSE 0 END), 0)            AS with_suggestion,
-               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
-                                 THEN r.amount ELSE 0 END), 0)     AS suggested_value,
-               COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
-                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
-               -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
-               -- denormalised copy, so this stays ONE grouped query over ONE table.
-               COALESCE(SUM(CASE WHEN r.settlement_origin = %s
-                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion
-        FROM "tabOutflow Import Row" r
-        {clause}
-        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
-                 COALESCE(r.direction, '')
-        """,
-        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED) + tuple(params) + (BANK_SUCCESS_STATUS,),
-        as_dict=True,
-    )
-
-    summary = derive_import_summary(
-        StatusTally(
-            status=g["status"] or "",
-            count=int(g["count"] or 0),
-            value=normalize_amount(g["value"]),
-            with_suggestion=int(g["with_suggestion"] or 0),
-            suggested_value=normalize_amount(g["suggested_value"]),
-            failed=bool(g["failed"]),
-            from_suggestion=int(g["from_suggestion"] or 0),
-            direction=g["direction"] or "",
-        )
-        for g in grouped
-    )
+    grouped = _summary_groups(where, params)
+    summary = derive_import_summary(_summary_tallies(grouped))
 
     # ⚠️ FAILED GROUPS ARE EXCLUDED HERE TOO, AND THEY HAVE TO BE. `manually_skipped_rows` below is
     # `skipped_rows - auto_skipped`, and `skipped_rows` no longer counts failed transfers -- so
@@ -3046,11 +3855,147 @@ def get_outflow_summary(
         # differently because they mean different things: one is bookkeeping, one is a decision.
         "auto_skipped_rows": auto_skipped,
         "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
+        # ⚠️ NOT THE SAME NUMBER AS `manually_skipped_rows`, AND NOT MEANT TO BE (#1273). That one keys
+        # on a decider, which an OLD system skip re-skipped by hand also carries; this one counts
+        # `skip_origin = Manual` -- the lines that can be unskipped -- and is what the popup's
+        # "Skipped by hand" segment shows, because it is also what that segment's filter returns.
+        "skipped_by_hand_rows": sum(
+            int(g["skipped_by_hand"] or 0)
+            for g in grouped
+            if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
+        ),
+    }
+
+
+def _summary_groups(where, params):
+    """The ONE grouped query behind every summary figure this feature reports.
+
+    ⚠️ IT IS A FUNCTION SO THAT THERE CAN ONLY EVER BE ONE OF IT. `get_outflow_summary` reports a
+    filtered period to the import screen; `unmatched_outflow_totals` reports the unfiltered
+    *Still open / Paid out* figure to the Payments card. Both are the SAME population rule read
+    under different WHERE clauses, and a second hand-written query for the second reader is exactly
+    how the two screens would come to disagree about the same money. The filters stay the caller's;
+    the population rule stays here.
+
+    ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
+    `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
+    (2026-08-10, option B) that only the first leaves every figure this summary reports, so the
+    split has to happen here, in the aggregate, rather than by subtracting a second query later.
+    """
+    # ⚠️ `BANK_SUCCESS_STATUS` IS BOUND, NOT SPELLED OUT. The literal lives in `parser.py` beside
+    # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
+    # would be a second definition of "successful" that stays right only until one of them learns
+    # about a status word the other has not.
+    #
+    # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
+    # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
+    # all -- which is the one thing this endpoint must not fall back on.
+    #
+    # ⚠️ AND `direction` IS A THIRD GROUP KEY ON THAT SAME QUERY, NEVER A SECOND QUERY. The panel's
+    # "Total paid out" / "Total received" tiles must be computed under the SAME `_row_filters`
+    # WHERE clause as `total_value` and as the tab counts, or a filtered view shows two halves that
+    # do not add up to the whole above them -- which reads as a paging bug and is not one. It is a
+    # plain column on the row table, so the shared builder needs no change at all: ONE more
+    # `GROUP BY` term, and `derive_import_summary` does the splitting.
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    return frappe.db.sql(
+        f"""
+        SELECT r.row_status                                        AS status,
+               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               COALESCE(r.direction, '')                           AS direction,
+               COUNT(*)                                            AS count,
+               COALESCE(SUM(r.amount), 0)                          AS value,
+               -- ⚠️ A line marked Confirm by hand (#1280) carries a pick but is NOT confirmable in
+               -- bulk, so it is left out of both -- the same rule `get_confirmable_rows` applies.
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                  AND COALESCE(r.confirm_by_hand, 0) = 0
+                                 THEN 1 ELSE 0 END), 0)            AS with_suggestion,
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                  AND COALESCE(r.confirm_by_hand, 0) = 0
+                                 THEN r.amount ELSE 0 END), 0)     AS suggested_value,
+               COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
+                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
+               -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
+               -- denormalised copy, so this stays ONE grouped query over ONE table.
+               COALESCE(SUM(CASE WHEN r.settlement_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion,
+               -- Lines a person skipped (#1273), for the Skipped popup's "Skipped by hand" segment.
+               COALESCE(SUM(CASE WHEN r.skip_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS skipped_by_hand
+        FROM "tabOutflow Import Row" r
+        {clause}
+        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
+                 COALESCE(r.direction, '')
+        """,
+        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
+        + tuple(params)
+        + (BANK_SUCCESS_STATUS,),
+        as_dict=True,
+    )
+
+
+def _summary_tallies(grouped):
+    """The grouped rows as the deriver's own type. Reads nothing, decides nothing."""
+    return (
+        StatusTally(
+            status=g["status"] or "",
+            count=int(g["count"] or 0),
+            value=normalize_amount(g["value"]),
+            with_suggestion=int(g["with_suggestion"] or 0),
+            suggested_value=normalize_amount(g["suggested_value"]),
+            failed=bool(g["failed"]),
+            from_suggestion=int(g["from_suggestion"] or 0),
+            direction=g["direction"] or "",
+        )
+        for g in grouped
+    )
+
+
+def unmatched_outflow_totals() -> dict:
+    """Bulk Import's *Still open / Paid out*, over EVERY import, source and date (#1286).
+
+    The Payments screen's summary card reports this as **Total Unreconciled Outflow**: bank money
+    that has left the account and still owes somebody a decision.
+
+    ⚠️ IT IS THE SAME QUERY AND THE SAME DERIVER THE IMPORT SCREEN USES, WITH NO FILTERS. That is
+    the whole requirement: the card and Bulk Import must agree, and two screens agree by sharing
+    one population rule, never by two queries written to the same specification. `open_paid_value`
+    is `derive_import_summary`'s own figure -- summed over the ACTIVE statuses (pending match run,
+    matched, mismatched, error, partially allocated), never subtracted from anything, with settled
+    rows, skipped rows and transfers the bank refused already excluded by the deriver.
+
+    ⚠️ IT GOES THROUGH `_row_filters` WITH EVERY FILTER ABSENT rather than passing empty lists, so
+    "no filters" is a fact the shared builder states and not one this function asserts about it.
+
+    ⚠️ NO PERMISSION GATE, AND THAT IS DELIBERATE (#1286). `require_outflow_access` guards the Bulk
+    Import screen; this figure rides a card everyone who can see the Payments screen already sees,
+    and the ticket rules that no new gate is added. It is NOT whitelisted -- it is called in-process
+    by the dashboard stats endpoint, which carries its own `@frappe.whitelist`.
+    """
+    where, params = _row_filters(
+        batch=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        amount_min=None,
+        amount_max=None,
+    )
+    summary = derive_import_summary(_summary_tallies(_summary_groups(where, params)))
+    return {
+        "amount": float(summary["open_paid_value"]),
+        "rows": int(summary["open_paid_rows"]),
     }
 
 
 def _settled_by_direction(where, params) -> list[dict]:
     """The settled transfers as TWO blocks -- Paid and Received -- each broken down by ledger.
+
+    ⚠️ "BROKEN DOWN BY LEDGER" ASSUMES ONE LEDGER PER ROW, WHICH ADR-0020 NO LONGER GUARANTEES AT
+    THE QUERY LEVEL (Task 6 review fix D) -- see the `COALESCE({SETTLED_LEDGER_SQL}, '')` call site
+    below and `status.SettledLedgerEntry`'s docstring for what happens to a row settled into more
+    than one ledger. Today `expenses._load_settleable_row`'s FIX A makes that case unreachable
+    through any endpoint, so this comment is a guard against reintroducing it silently, not a
+    report of it happening.
 
     ⚠️ THE SPLIT KEYS ON `r.direction`, THE ROW'S OWN STATED DIRECTION, AND NOT ON THE LEDGER. The
     ledger genuinely cannot answer which way the money went: a non-project RECEIPT is stored as a
@@ -3097,6 +4042,14 @@ def _settled_by_direction(where, params) -> list[dict]:
 
     grouped = frappe.db.sql(
         f"""
+        -- ⚠️ `ledger` MAY BE A PIPE-JOINED COMPOSITE (Task 6 review fix D): `SETTLED_LEDGER_SQL`
+        -- is a `string_agg`, so a row settled into more than one ledger groups here under a key
+        -- like "Project Expenses|Project Payments" that matches nothing in `LEDGER_DOCTYPES` --
+        -- `derive_settled_direction_blocks` folds it into that block's `Other` slot, which is
+        -- deliberate (an honest anomaly, never misattributed to one ledger). The block totals
+        -- still reconcile because this SUMs `r.amount` (the row), never `m.target_amount` (the
+        -- legs) -- see the docstring above. `expenses._load_settleable_row`'s FIX A currently
+        -- makes the composite case unreachable through any endpoint.
         SELECT COALESCE({SETTLED_LEDGER_SQL}, '') AS ledger,
                COALESCE(r.direction, '')          AS direction,
                COUNT(*)                           AS count,

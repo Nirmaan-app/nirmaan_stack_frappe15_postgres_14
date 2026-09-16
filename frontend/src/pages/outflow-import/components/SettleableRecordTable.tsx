@@ -75,6 +75,13 @@ interface Props {
  * ⚠️ IT IS A REAL `<input type="radio">` IN A REAL RADIOGROUP. Arrow-key navigation between options,
  * the roving tab stop and the announced group name all come free from the platform and are
  * fiddly to rebuild on divs -- and this is the control that decides where money is written.
+ *
+ * ⚠️ ITS MULTI-SELECT TWIN IS `FanOutRecordTable`, AND THE DUPLICATION IS SANCTIONED -- DO NOT
+ * CONSOLIDATE THEM (owner ruling, ADR-0020 B3 / issue #1240). Task 7 converted THIS table to
+ * checkboxes in place, which left the settle dialog unable to offer the ordinary one-record settle
+ * at all; the conversion was moved to its own file and this one restored. This is the picker for the
+ * dialog's **Normal** mode -- one record, one settle, all three ledgers. See `FanOutRecordTable`'s
+ * own note for why merging them behind a `multiple` flag is the wrong shape.
  */
 export const SettleableRecordTable = ({
     records,
@@ -158,7 +165,7 @@ export const SettleableRecordTable = ({
                     ))}
                 </tr>
             </thead>
-            <tbody role="radiogroup" aria-label="Approved records this transfer could have paid">
+            <tbody role="radiogroup" aria-label="Records waiting for a bank line that this transfer could have paid">
                 {records.map((record) => (
                     <RecordRow
                         key={recordKey(record)}

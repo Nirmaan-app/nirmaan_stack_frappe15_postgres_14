@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import today, add_days, getdate
 
+from nirmaan_stack.api.outflow_import.review import unmatched_outflow_totals
+
 
 def _to_float(value):
     """Safely coerce a stored amount to float (None / '' / bad data → 0.0)."""
@@ -46,6 +48,12 @@ def get_payment_dashboard_stats():
         'total_ceo_pending_count': 0,
         'total_ceo_pending_amount': 0.0,
 
+        # Money that has LEFT the bank but the bank has not confirmed it. Reads 0
+        # until the fulfil path starts writing the status — an honest zero, the same
+        # one the tab shows.
+        'total_reconciliation_pending_count': 0,
+        'total_reconciliation_pending_amount': 0.0,
+
         # Approved
         'total_approval_done_today': 0,
         'total_approval_done_today_amount': 0.0,
@@ -71,25 +79,57 @@ def get_payment_dashboard_stats():
         # Inflow: money received (Project Inflows)
         'total_inflow_30_days_count': 0,
         'total_inflow_30_days_amount': 0.0,
+        # Non-project inflow: Non Project Inflows (ADR-0016 A-D4). Its own figure, NEVER netted
+        # against any outflow.
+        'total_non_project_inflow_30_days_count': 0,
+        'total_non_project_inflow_30_days_amount': 0.0,
         # Project outflow: PO + WO Paid payments + Project Expenses
         'total_project_outflow_30_days_count': 0,
         'total_project_outflow_30_days_amount': 0.0,
         # Non-project outflow: Non Project Expenses
         'total_non_project_expense_30_days_count': 0,
         'total_non_project_expense_30_days_amount': 0.0,
+
+        # --- Total Unreconciled Outflow (#1286) ---
+        # Bank money that has left the account and still owes somebody a decision in Bulk
+        # Import: EVERY import, EVERY source, ALL TIME. It is NOT a 30-day figure and must
+        # never be folded into the cash-flow block above, which is.
+        #
+        # ⚠️ IT IS NOT AGGREGATED HERE. It comes from `review.unmatched_outflow_totals`, which
+        # runs the SAME grouped query and the SAME deriver Bulk Import's own summary panel
+        # runs -- so the card's figure and the panel's "Still open / Paid out" cannot disagree.
+        # A second query written here to the same specification is exactly how they would.
+        'total_unreconciled_outflow_amount': 0.0,
+        'total_unreconciled_outflow_count': 0,
     }
 
     try:
         # 1. Fetch ALL necessary documents
-        all_payments = frappe.get_all(
-            doctype,
-            fields=['name', 'status', 'amount', 'approval_date', 'ceo_approval_date', 'payment_date', 'auto_approved'],
-            limit_page_length=None
-        )
-        
+        # ── ALL THREE MONEY-OUT LEDGERS ──────────────────────────────────────
+        #
+        # This used to read `Project Payments` alone, so every figure in the
+        # Pending and Approved & Paid blocks silently excluded expenses — the card
+        # said "Approved But not Paid ₹13,848" while the tab beside it listed 15
+        # rows worth ₹87,408. A summary that contradicts the list under it is worse
+        # than no summary.
+        #
+        # The fields are identical on all three (the expense ledgers gained
+        # `approval_date` / `ceo_approval_date` / `auto_approved` on 15 Sep), so one
+        # loop still serves all of them — only the SOURCE widened, not the rules.
+        LEDGERS = (doctype, 'Project Expenses', 'Non Project Expenses')
+        _row_fields = ['name', 'status', 'amount', 'approval_date',
+                       'ceo_approval_date', 'payment_date', 'auto_approved']
+
+        all_payments = []
+        for _ledger in LEDGERS:
+            for _row in frappe.get_all(_ledger, fields=_row_fields, limit_page_length=None):
+                _row['ledger'] = _ledger
+                all_payments.append(_row)
+
         # 2. Python Aggregation (Manual Calculation)
         for doc in all_payments:
             status = doc.status
+            is_payment = doc.get('ledger') == doctype
             
             # Safely convert amount to float
             try:
@@ -108,6 +148,9 @@ def get_payment_dashboard_stats():
             if status == 'Approved':
                 stats['total_pending_payment_count'] += 1
                 stats['total_pending_payment_amount'] += amount
+            if status == 'Reconciliation Pending':
+                stats['total_reconciliation_pending_count'] += 1
+                stats['total_reconciliation_pending_amount'] += amount
 
             # --- 2b & 2c. APPROVED Check (L1) ---
             # Exclude auto-approved payments — they skipped the L1 gate and are
@@ -166,9 +209,13 @@ def get_payment_dashboard_stats():
                     stats['payment_done_7_days'] += 1
                     stats['payment_done_7_days_amount'] += amount
 
-                # Project outflow — Paid payments (PO + WO) in the last 30 days.
+                # Project outflow — Paid PAYMENTS (PO + WO) in the last 30 days.
                 # payment_date is only stamped on fulfilment, so this is cash actually out.
-                if payment_date >= thirty_days_ago and payment_date <= today_date:
+                #
+                # ⚠️ PAYMENTS ONLY, and the guard is load-bearing: Project Expenses are
+                # added to this same accumulator at 2e2 below and Non-Project at 2g, so
+                # without it the widened loop would count every expense TWICE.
+                if is_payment and payment_date >= thirty_days_ago and payment_date <= today_date:
                     stats['total_project_outflow_30_days_count'] += 1
                     stats['total_project_outflow_30_days_amount'] += amount
 
@@ -196,6 +243,20 @@ def get_payment_dashboard_stats():
         stats['total_inflow_30_days_count'] = len(inflows)
         stats['total_inflow_30_days_amount'] = sum(_to_float(r.amount) for r in inflows)
 
+        # --- 2f2. Non-project inflow (Non Project Inflows) — last 30 days ---
+        # A separate figure (ADR-0016 A-D4): it is never subtracted from the non-project outflow
+        # below. No status field — a record counts the moment it is saved.
+        non_project_inflows = frappe.get_all(
+            "Non Project Inflows",
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            fields=["amount"],
+            limit_page_length=None,
+        )
+        stats['total_non_project_inflow_30_days_count'] = len(non_project_inflows)
+        stats['total_non_project_inflow_30_days_amount'] = sum(
+            _to_float(r.amount) for r in non_project_inflows
+        )
+
         # --- 2g. Non-project outflow (Non Project Expenses) — last 30 days ---
         non_project_expenses = frappe.get_all(
             "Non Project Expenses",
@@ -207,6 +268,36 @@ def get_payment_dashboard_stats():
         stats['total_non_project_expense_30_days_amount'] = sum(
             _to_float(r.amount) for r in non_project_expenses
         )
+
+        # --- 2h. Total Unreconciled Outflow — all imports, all sources, all time (#1286) ---
+        # A pass-through, not a calculation. `unmatched_outflow_totals` IS Bulk Import's
+        # unfiltered "Still open / Paid out": imported lines whose direction is Outflow and
+        # whose status is still active (pending match run, matched, mismatched, error,
+        # partially allocated). Settled lines, skipped lines and transfers the bank refused
+        # are already out, decided by the import's own deriver rather than restated here.
+        #
+        # ⚠️ IT CARRIES ITS OWN `try`, AND THAT IS NOT DEFENSIVE HABIT -- IT IS A FAILURE DOMAIN
+        # THIS FIGURE BROUGHT WITH IT. Everything above reads the payment, expense and inflow
+        # ledgers; this one reads `tabOutflow Import Row` through raw SQL naming eight columns.
+        # The function's outer `except` rolls back and re-throws, and the card's client turns ANY
+        # error from this endpoint into a single "Error Loading Summary" panel -- so without this
+        # guard a site where the outflow-import migration has not run, or a later rename of one of
+        # those columns, blanks pending approvals, amounts due, paid today / 7 days and both
+        # 30-day cash-flow figures, none of which have anything to do with Bulk Import.
+        #
+        # ⚠️ THE FALLBACK IS THE HONEST ZERO ALREADY INITIALISED ABOVE, and it is safe here for a
+        # reason the 30-day figures could not claim: this number's own screen (Bulk Import) is
+        # where the work actually gets done, so a 0 on the card understates a backlog rather than
+        # hiding money nothing else reports. The failure is LOGGED, never swallowed silently.
+        try:
+            unmatched_outflow = unmatched_outflow_totals()
+            stats['total_unreconciled_outflow_amount'] = unmatched_outflow['amount']
+            stats['total_unreconciled_outflow_count'] = unmatched_outflow['rows']
+        except Exception as unmatched_error:
+            frappe.log_error(
+                f"Total Unreconciled Outflow unavailable: {unmatched_error}",
+                "Payment Stats API - unmatched outflow",
+            )
 
         # 3. Return the dictionary of statistics
         # --- DEBUGGING PRINT STATEMENT ---

@@ -1,7 +1,7 @@
 // src/pages/outflow-import/outflowTableModel.ts
 //
-// PURE MODULE -- no React, no fetching, no DOM. The model behind the batch screen's three tabs
-// (slice V4).
+// PURE MODULE -- no React, no fetching, no DOM. The model behind the batch screen's four tabs
+// (slice V4; the fourth, Partly Allocated, joined at the ADR-0020 D5 status).
 //
 // ⚠️ THIS FILE EXISTS BECAUSE OF WHAT CANNOT BE TESTED. There is no DOM test environment in this
 // repository, by deliberate choice, so the table, the dialog and the selection behaviour are React
@@ -17,15 +17,27 @@
 import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
 import { resolveDateFilter } from "@/utils/dateFilterRange";
 import { formatDate } from "@/utils/FormatDate";
+// ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
+// leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
+// NOT flip this to satisfy some other convenience; check for a cycle again before you do.
+import { AMOUNT_TOLERANCE, SETTLE_MODE_LABEL, type SettleMode } from "./allocationView";
 import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
+    SKIP_ORIGIN_MANUAL,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
+import { inflowHref } from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
+import { nonProjectInflowHref } from "@/pages/non-project-inflows/config/nonProjectInflowsTable.config";
+import {
+    descriptionRequired,
+    isInflowType,
+} from "@/pages/non-project-inflows/nonProjectInflowModel";
 import type {
     OutflowImportRow,
     OutflowRowsPage,
@@ -155,21 +167,17 @@ function wrapToWidth(text: string | null | undefined, width: number): string[] {
 /**
  * Which ledger a row is being settled against, or which kind of record it is CREATING.
  *
- * ⚠️ `new`, `inflow` AND `receipt` ARE NOT LEDGERS AND NEVER APPEAR ON A `SettleableRecord`. The
- * first three members are real doctypes and are what `recordKey` / `parseRecordKey` round-trip; the
- * last three are CREATE intents, which have no record to key. Anything narrowing this union for a
- * record list must exclude them rather than assume they cannot occur.
+ * ⚠️ `new`, `inflow` AND `nonProjectInflow` ARE NOT LEDGERS AND NEVER APPEAR ON A `SettleableRecord`.
+ * The first three members are real doctypes and are what `recordKey` / `parseRecordKey` round-trip;
+ * the last three are CREATE intents, which have no record to key. Anything narrowing this union for
+ * a record list must exclude them rather than assume they cannot occur.
  *
- * ⚠️ `inflow` AND `receipt` ARE THE TWO THAT MOVE MONEY THE OTHER WAY, and both are offered only on
- * a row whose `direction` is `Credit`. They divide on whether a PROJECT is behind the money:
+ * ⚠️ `inflow` AND `nonProjectInflow` ARE THE TWO THAT MOVE MONEY THE OTHER WAY, and both are offered
+ * only on a row whose `direction` is `Credit`. They divide on whether a PROJECT is behind the money:
  *   * `inflow` (B6) — a client receipt, written as a `Project Inflow`.
- *   * `receipt` (B7) — everything else (FD interest, an FD closing, a loan drawdown, an advance
- *     coming back), written as a **negative** `Non Project Expense`.
- *
- * ⚠️ `receipt` IS NOT `"Non Project Expenses"`, AND THE COLLISION IS WHY IT IS SPELLED DIFFERENTLY.
- * That member means "SETTLE an approved non-project expense that already exists"; this one means
- * "CREATE a new one, negative, from a credit". Same doctype, opposite direction, different endpoint
- * — folding them would make `settleOne` pick a write path off a value that cannot tell them apart.
+ *   * `nonProjectInflow` (#1266) — everything else (FD interest, an FD closing, a loan drawdown, a
+ *     refund), written as a `Non Project Inflow` with an Inflow Type. It replaced the B7 `receipt`,
+ *     which wrote a NEGATIVE `Non Project Expense` (ADR-0016 Amendment A-D2).
  */
 export type DecisionTarget =
     | "Project Payments"
@@ -177,7 +185,7 @@ export type DecisionTarget =
     | "Non Project Expenses"
     | "new"
     | "inflow"
-    | "receipt";
+    | "nonProjectInflow";
 
 /** The debit-side dispositions: settle an approved record, or create the expense that is missing. */
 const PAID_TARGETS: readonly DecisionTarget[] = [
@@ -187,8 +195,18 @@ const PAID_TARGETS: readonly DecisionTarget[] = [
     "new",
 ];
 
-/** The credit-side dispositions, in the order the dialog offers them (B6 then B7). */
-const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "receipt"];
+/** The credit-side dispositions, in the order the dialog offers them. The ONLY two (#1266). */
+const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "nonProjectInflow"];
+
+/** The dispositions that CREATE a record rather than link an existing one. */
+const CREATE_TARGETS: readonly DecisionTarget[] = ["new", "inflow", "nonProjectInflow"];
+
+/**
+ * Does this disposition create a new record (an expense, a project inflow, a non-project inflow)?
+ * The ONE test -- the dialog's dimming, its link-vs-create wording and `recordAnywayWording` read it.
+ */
+export const isCreateTarget = (target: DecisionTarget | undefined): boolean =>
+    target !== undefined && CREATE_TARGETS.includes(target);
 
 /**
  * Did this transfer bring money IN? THE one definition of the axis on this side of the wire.
@@ -202,8 +220,8 @@ const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "receipt"];
  * ⚠️ A BLANK DIRECTION IS NOT CREDIT, AND THAT IS NOT THE SAME AS READING IT AS `Debit`. Blank
  * means the statement did not say -- a gateway export with one amount column, or a bank line with
  * BOTH money columns populated that the parser refused to guess about. It lands on the paid side
- * because the receipt paths refuse anything that is not `Credit` at the WRITE, so such a row is
- * structurally incapable of having become a receipt; calling it received would offer a disposition
+ * because the credit paths refuse anything that is not `Credit` at the WRITE, so such a row is
+ * structurally incapable of having become money received; calling it received would offer a disposition
  * it can never complete. Nothing here decides that a blank row IS a debit.
  *
  * ⚠️ IT IS TRIMMED, like the server's. An unrecognised value is not credit, by the same branch --
@@ -212,6 +230,21 @@ const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "receipt"];
 export function isCreditRow(row: Pick<OutflowImportRow, "direction">): boolean {
     return (row.direction ?? "").trim() === "Credit";
 }
+
+/**
+ * The Amount cell's colour: red for money out, green for money in (owner, 2026-09-14).
+ *
+ * ⚠️ IT REPLACED THE `Direction` COLUMN, so it is now the only per-row direction marker on screen.
+ * Built on `isCreditRow`, never an inline compare: a blank direction is outflow, exactly as the tabs
+ * file it, so a row's colour can never disagree with the tab it sits on.
+ */
+export const AMOUNT_TONE = {
+    outflow: "text-red-600",
+    inflow: "text-green-700",
+} as const;
+
+export const amountToneClass = (row: Pick<OutflowImportRow, "direction">): string =>
+    isCreditRow(row) ? AMOUNT_TONE.inflow : AMOUNT_TONE.outflow;
 
 /**
  * Which dispositions this row may legally take.
@@ -240,8 +273,24 @@ export interface RowDecision {
      * transfer. An entry with no target is a row someone has opened, or deliberately cleared.
      */
     target?: DecisionTarget;
-    /** The record to settle. Required, with `target`, for everything except `new`. */
+    /**
+     * The ONE record to settle, by bare name, under `target`'s ledger. The **Normal** picker's
+     * field (ADR-0020 B3, restored at issue #1240 after Task 7 had replaced it outright).
+     *
+     * ⚠️ IT NEEDS `target` ALONGSIDE IT, because a bare name is not unique across the three
+     * ledgers -- which is exactly why the fan-out shape below stores whole `recordKey`s instead.
+     * `null` means "deliberately cleared"; absent means "never picked".
+     */
     linkTo?: string | null;
+    /**
+     * The record(s) to settle, as `recordKey`s. The **Split** picker's field (ADR-0020 fan-out).
+     *
+     * ⚠️ AN EMPTY SET MEANS "NOTHING PICKED"; ABSENT MEANS "NEVER TOUCHED". `seedDecisions` relies
+     * on that distinction to avoid overwriting a deliberately-cleared decision -- the same contract
+     * `linkTo: null` carries on the Normal side. `recordKey` / `parseRecordKey` (below) are the one
+     * identity function this reuses rather than re-minting.
+     */
+    linkTargets?: ReadonlySet<string>;
     /** Only for `target: "new"`. */
     newExpense?: {
         doctype: "Project Expenses" | "Non Project Expenses";
@@ -268,44 +317,33 @@ export interface RowDecision {
         invoice?: string | null;
     };
     /**
-     * Only for `target: "receipt"` — a bank CREDIT that belongs to NO project, recorded as a
-     * **negative** `Non Project Expense` (slice B7, owner ruling Q3 / ADR-0016 decision 3).
+     * Only for `target: "nonProjectInflow"` — a bank CREDIT that belongs to NO project, recorded as
+     * a `Non Project Inflow` (#1266, ADR-0016 Amendment A-D2).
      *
-     * ⚠️ THERE IS NO AMOUNT HERE AND, ABOVE ALL, NO SIGN. The magnitude, the payment date and the
-     * reference are read server-side off the staged bank row, and the NEGATION is applied in the
-     * write path from the row's own `direction`. A client that could post a negative number could
-     * book a debit as income — the books wrong by twice the transfer, with nothing looking odd.
+     * ⚠️ THERE IS NO AMOUNT, DATE OR REFERENCE HERE, exactly as `newInflow` has none: the server
+     * reads all three off the staged bank row. The dialog shows them read-only.
      *
-     * ⚠️ THERE IS NO `doctype` EITHER, AND THERE MUST NOT BE. This disposition writes exactly one
-     * ledger; the server's own writer takes no doctype argument for the same reason, so a credit
-     * can never become a negative `Project Expense`.
+     * `description` is prefilled from the payer and the bank remarks, and is required only when the
+     * type is Others (`descriptionRequired`, the Non-Project Inflows page's one statement of it).
      */
-    newReceipt?: {
-        expenseType?: string | null;
+    newNonProjectInflow?: {
+        inflowType?: string | null;
         description?: string;
     };
 }
 
 /**
- * What the ledger will actually hold for a non-project receipt: the bank's magnitude, NEGATED.
- *
- * ⚠️ IT EXISTS SO THE SCREEN CAN SAY THE SIGN OUT LOUD. The reviewer is recording money that
- * ARRIVED into a doctype called *Expenses*; the one thing the form must not do is show them the
- * positive figure the bank printed and then store its opposite. It mirrors the server rule exactly
- * — magnitude in, negative out — and is a pure function so that rule is testable without a DOM.
- *
- * `Math.abs` rather than a bare `-`: the staged amount is a positive magnitude on every source by
- * design, and if one ever arrived signed this must still describe a receipt rather than flip it
- * back to a payment.
+ * The Description a new Non-Project Inflow card starts with: the payer, then the bank remarks
+ * (#1266). A dialog prefill only -- the server does not default the description. Blank parts are
+ * dropped; the result may be empty, and the reviewer edits it either way.
  */
-export const receiptStoredAmount = (amount: number | null | undefined): number => {
-    const magnitude = Math.abs(Number(amount ?? 0));
-    // ⚠️ ZERO IS RETURNED AS `0`, NEVER `-0`. `-0` compares equal to `0` and formats identically,
-    // so it would never be seen -- and would then surprise the next person who reaches for `Object.is`
-    // or a snapshot. A zero credit is refused server-side regardless.
-    if (!Number.isFinite(magnitude) || magnitude === 0) return 0;
-    return -magnitude;
-};
+export const nonProjectInflowDescriptionSeed = (
+    row: Pick<OutflowImportRow, "beneficiary_name" | "remarks">
+): string =>
+    [row.beneficiary_name, row.remarks]
+        .map((part) => (part ?? "").trim())
+        .filter(Boolean)
+        .join(" - ");
 
 /**
  * ⚠️ `date` IS NOT A FACET, AND IT USED TO BE (slice P1). `added_on` shipped as `filter: "facet"`,
@@ -351,37 +389,10 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // the CSV export -- see `shortReference` for why a display concern never reaches it. The CSV
     // heading follows this title, which is correct: the file carries both directions too.
     { id: "amount", title: "Amount", get: (r) => r.amount ?? 0, filter: "range", align: "right", width: "140px" },
-    // ⚠️ ITS OWN COLUMN, WITH ITS OWN FUNNEL (owner ruling 2026-09-09, reversing D8). The marker
-    // shipped INSIDE the amount cell for a day; a fact worth filtering on cannot live inside
-    // another column's cell, because in this table the funnel lives in the `<th>` -- there is no
-    // way to offer the filter without declaring the column.
-    //
-    // It stands immediately after Amount for the reason the Ledger column stands after Status: a
-    // column that QUALIFIES its neighbour belongs against it. "₹1,25,000" and "which way it went"
-    // are halves of one reading, and a scrolling column between them would separate a figure from
-    // the word that gives it its sign.
-    //
-    // ⚠️ `get` RETURNS THE DERIVED LABEL, AND THAT IS NOT THE `shortReference` RULE BEING BROKEN.
-    // That rule forbids a DISPLAY TRANSFORM -- a truncation, a wrap -- reaching `get`, because
-    // `get` feeds the sort, the funnel, `get_outflow_facet_values` and the CSV, so a shortened
-    // value there is a value nothing can search for. Here the two-word label IS this column's
-    // value; there is no longer, truer string it is a rendering of. The CSV must read `Paid` or
-    // `Received` on every row and never a blank, which is exactly what this returns.
-    //
-    // ⚠️ BLANK LANDS ON `Paid`, AND NOT BECAUSE BLANK MEANS `Debit`. `isCreditRow` is the single
-    // positive test on `"Credit"` that mirrors the server's `is_received_direction`, so the two
-    // values PARTITION every row and none can land in neither. A blank direction means the
-    // statement did not say -- a gateway export has no direction column at all -- and it reads as
-    // Paid as a CONSEQUENCE: the receipt paths refuse anything that is not `Credit` at the write,
-    // so such a row is structurally incapable of ever having become a receipt.
-    //
-    // ⚠️ DERIVED, NOT THE RAW `direction` FIELD, AND THE MEASUREMENT IS WHY. The live table holds
-    // `Debit` 894 / `Credit` 5 / blank 0, so a raw column and this one render identically today --
-    // which is precisely how the raw one would pass review and ship. The day a blank row lands, a
-    // raw column shows an empty cell and grows a third, unlabelled funnel entry while the screen
-    // still shows two badges. Deriving it means the column can only ever hold the two values the
-    // rest of this screen partitions on.
-    { id: "direction", title: "Direction", get: (r) => (isCreditRow(r) ? "Received" : "Paid"), filter: "facet", width: "110px" },
+    // ⚠️ NO `direction` COLUMN (owner ruling 2026-09-14, reversing D12). The direction tabs (#1264)
+    // split the table by direction and the Amount cell is coloured by it (`amountToneClass`), so a
+    // column saying `Paid` / `Received` repeated both. The CSV keeps the fact as an EXPORT-ONLY
+    // column (`outflowExport.EXPORT_ONLY_COLUMNS`) -- a file has no colour and no tabs.
     { id: "remarks", title: "Remarks", get: (r) => r.remarks ?? "", filter: "text", width: "230px" },
     // ⚠️ "Reference", NOT "Reference (UTR)" (owner ruling, slice CF/S1). A Cashbook row has no UTR
     // and never will -- `referenceValue` falls back to the wallet's own transaction id, which is
@@ -413,13 +424,18 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // `_SORTABLE_COLUMNS`, which refuses it -- a per-row correlated subquery over the whole
     // filtered table, blank on most rows). That absence is the whole mechanism: the header only
     // draws a sort button for a column `SERVER_SORT_COLUMNS` contains.
-    { id: "settled_ledger", title: "Ledger", get: (r) => r.settled_ledger ?? "", filter: "facet", width: "150px" },
+    // ⚠️ READS THE LIST AND JOINS IT (Task 6, ADR-0020 fan-out) -- `r.settled_ledgers` REPLACED the
+    // scalar `r.settled_ledger` this column used to read; a stale reader of the old field now gets
+    // `undefined` and an empty cell rather than one arbitrarily-picked ledger. The `id` stays
+    // `settled_ledger` (singular) on purpose: it is the FACET COLUMN NAME the server still filters
+    // on (`_FACET_COLUMNS["settled_ledger"]`), not the payload field this cell reads.
+    { id: "settled_ledger", title: "Ledger", get: (r) => (r.settled_ledgers ?? []).join(", "), filter: "facet", width: "150px" },
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
     // ⚠️ NARROWED FROM 320px (owner, 2026-08-10) once the outcome NOTE moved out of the button and
     // onto its own line. The old width existed to fit a sentence inside a control; the control now
     // holds a verb, and 320px of it was whitespace on every terminal row.
-    { id: "outcome", title: "Outcome", get: (r) => r.outcome_note ?? r.skip_reason ?? "", filter: "none", width: "220px" },
+    { id: "outcome", title: "Outcome", get: (r) => outcomeNoteOf(r), filter: "none", width: "220px" },
     // ⚠️ NEW AT X3, AND IT ONLY MAKES SENSE FROM X3 ON. The batch screen showed one import, so
     // naming it in every row would have been noise. The master table spans every import, and
     // "which statement did this come from" becomes a real question the moment it does.
@@ -456,29 +472,44 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
 ).map((c) => c.id);
 
 /**
- * The three tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+ * The six tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped; `Partly Allocated`
+ * joined later, ADR-0020 D5; split by TRANSACTION DIRECTION at #1264, ADR-0016 Amendment A).
+ *
+ * Each direction tab holds today's status set narrowed to one direction. Direction is the server's
+ * `is_received_direction` -- trimmed `Credit` is Inflow, EVERYTHING ELSE (blank included) is Outflow
+ * -- and the server applies it; this half only asks for the right scope.
  *
  * ⚠️ THERE IS NO SKIPPED TAB, AND `all` EXCLUDES SKIPPED TOO. "All" here means everything a person
- * might still act on, not every row in the table. Skipped rows are bookkeeping -- a failed
- * transfer, a duplicate, a payment already ticked Paid by hand -- and the import summary panel's
- * auto/manual split line is now the ONLY place they are reported. The server enforces this in
- * `_SCOPE_STATUSES`; this half only has to ask for the right scope.
+ * might still act on, not every row in the table. The server enforces this in `_SCOPE_STATUSES`.
  *
- * ⚠️ MATCHED AND SETTLED SHARE A TAB, which pairs an OPEN status with a TERMINAL one. That is the
- * reviewer's grouping, not the vocabulary's: both mean "this transfer has a record". The
- * consequence is that the tab holds a mix, which is why row selection is per-row on this screen
+ * ⚠️ MATCHED AND SETTLED SHARE THE OUTFLOW TAB, which pairs an OPEN status with a TERMINAL one --
+ * the reviewer's grouping, not the vocabulary's. That is why row selection is per-row on this screen
  * rather than per-tab.
  */
-export type OutflowTab = "all" | "notMatched" | "matched";
+export type OutflowTab =
+    | "all"
+    | "notMatchedOutflow"
+    | "partlyAllocatedOutflow"
+    | "matchedOutflow"
+    | "notMatchedInflow"
+    | "settledInflow";
 
-export const OUTFLOW_TABS: { id: OutflowTab; label: string }[] = [
+export type TransactionDirection = "outflow" | "inflow";
+
+export const OUTFLOW_TABS: { id: OutflowTab; label: string; direction?: TransactionDirection }[] = [
     { id: "all", label: "All" },
-    { id: "notMatched", label: "Not-Matched" },
-    { id: "matched", label: "Matched / Settled" },
+    // ⚠️ SIMILAR TABS SIT TOGETHER (owner, 2026-09-14): each Inflow tab directly after its Outflow
+    // twin. Partly Allocated has no Inflow twin (a credit is never part-allocated), so it sits
+    // between the two pairs.
+    { id: "notMatchedOutflow", label: "Not Matched – Outflow", direction: "outflow" },
+    { id: "notMatchedInflow", label: "Not Matched – Inflow", direction: "inflow" },
+    { id: "partlyAllocatedOutflow", label: "Partly Allocated – Outflow", direction: "outflow" },
+    { id: "matchedOutflow", label: "Matched / Settled – Outflow", direction: "outflow" },
+    { id: "settledInflow", label: "Settled – Inflow", direction: "inflow" },
 ];
 
-/** Where the screen opens: the work, not the archive (owner ruling 2026-08-09, carried across). */
-export const DEFAULT_TAB: OutflowTab = "notMatched";
+/** Where the screen opens: the outflow work, not the archive (owner ruling, carried across #1264). */
+export const DEFAULT_TAB: OutflowTab = "notMatchedOutflow";
 
 /**
  * The scope names the endpoint knows, which are also the keys of its `tab_counts`.
@@ -499,9 +530,83 @@ export type OutflowScope = keyof OutflowRowsPage["tab_counts"];
  */
 export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     all: "all",
-    notMatched: "not_matched",
-    matched: "matched",
+    notMatchedOutflow: "not_matched_outflow",
+    partlyAllocatedOutflow: "partly_outflow",
+    matchedOutflow: "matched_outflow",
+    notMatchedInflow: "not_matched_inflow",
+    settledInflow: "settled_inflow",
 };
+
+/**
+ * Should the two Inflow tabs show? (#1264)
+ *
+ * `canCarryCredit` is the SERVER's answer for the chosen source (`get_outflow_rows().can_carry_credit`,
+ * read off each source's own column map). The client never learns which sources say no, so there is
+ * no list of source names here to go stale.
+ *
+ * ⚠️ TWO WAYS IT STAYS VISIBLE, BOTH DELIBERATE. An unanswered page (`undefined`) shows the tabs: a
+ * tab that is briefly there is harmless, a tab wrongly hidden hides work. And a tab that HOLDS ROWS
+ * is never hidden, whatever the source says -- a hidden tab over real rows would make them reachable
+ * only through All.
+ */
+export function inflowTabsVisible(
+    canCarryCredit: boolean | undefined,
+    tabCounts?: OutflowRowsPage["tab_counts"]
+): boolean {
+    if (canCarryCredit !== false) return true;
+    return (tabCounts?.not_matched_inflow ?? 0) + (tabCounts?.settled_inflow ?? 0) > 0;
+}
+
+/** The tab strip, minus the Inflow tabs when `inflowTabsVisible` says they are hidden. */
+export const visibleTabs = (inflowVisible: boolean): typeof OUTFLOW_TABS =>
+    OUTFLOW_TABS.filter((t) => inflowVisible || t.direction !== "inflow");
+
+/** Where a hidden Inflow tab goes: its Outflow twin, so the reader keeps the same kind of work. */
+const OUTFLOW_TWIN: Partial<Record<OutflowTab, OutflowTab>> = {
+    notMatchedInflow: "notMatchedOutflow",
+    settledInflow: "matchedOutflow",
+};
+
+/** The tab actually shown, given whether the Inflow tabs are visible. */
+export const reachableTab = (tab: OutflowTab, inflowVisible: boolean): OutflowTab =>
+    inflowVisible ? tab : (OUTFLOW_TWIN[tab] ?? tab);
+
+/**
+ * The pre-#1264 tab ids, as their Outflow variants -- the same fallback the server's scope aliases
+ * use, for a history entry that still carries an old id.
+ */
+const LEGACY_TABS: Record<string, OutflowTab> = {
+    notMatched: "notMatchedOutflow",
+    partlyAllocated: "partlyAllocatedOutflow",
+    matched: "matchedOutflow",
+};
+
+/**
+ * The tab a history entry's state carries across a remount, validated. An unrecognised value falls
+ * back to the default rather than being trusted -- a bookmark or a back button can carry it.
+ */
+export const tabFromCarried = (carried: unknown): OutflowTab => {
+    if (typeof carried !== "string") return DEFAULT_TAB;
+    if (OUTFLOW_TABS.some((t) => t.id === carried)) return carried as OutflowTab;
+    return LEGACY_TABS[carried] ?? DEFAULT_TAB;
+};
+
+/**
+ * Which tab a finished import lands on, for the sources that need to move off the current one.
+ *
+ * ⚠️ A LOOKUP WITH A DEFAULT, NOT A `source === "Cashbook"` LITERAL (slice C8). Absence from this
+ * map is the ordinary case and means "stay where the reader was" -- a source is listed only because
+ * its rows would otherwise land somewhere they cannot be seen. A Cashbook import CREATES its records,
+ * so its rows arrive settled, on the outflow side (a wallet statement never states `Credit`).
+ *
+ * The per-source reasoning lives at the call site, in `OutflowMasterPage.handleImported`.
+ */
+const POST_IMPORT_TAB: Record<string, OutflowTab> = {
+    Cashbook: "matchedOutflow",
+};
+
+export const postImportTab = (source: string | undefined, current: OutflowTab): OutflowTab =>
+    (source ? POST_IMPORT_TAB[source] : undefined) ?? current;
 
 /** One number a tab is labelled with. `count` is `null` when the page has not answered yet. */
 export interface TabCountPart {
@@ -517,46 +622,53 @@ export interface TabCountPart {
 /**
  * How a tab's count renders — ONE number, or the split when one number would mean two things.
  *
- * ⚠️ THE `matched` TAB IS THE WHOLE REASON THIS EXISTS, AND IT IS NOT A STYLING CHOICE. That tab
- * holds `Matched` (OPEN — somebody still owes it a decision) beside `Settled` (TERMINAL — money
+ * ⚠️ THE `matchedOutflow` TAB IS THE WHOLE REASON THIS EXISTS, AND IT IS NOT A STYLING CHOICE. That
+ * tab holds `Matched` (OPEN — somebody still owes it a decision) beside `Settled` (TERMINAL — money
  * written), because to a reviewer both mean "this transfer has a record". A single total cannot say
  * which, and the failure is not symmetric: it reads as the terminal one. Live-observed on the first
  * real statement — the tab read `863` while `settled_rows` was `0`, and it was understood as 863
- * transfers finished. Nothing on that screen contradicted it; the "0 Settled" chip sat in a panel
- * describing one import, four inches away and much quieter.
+ * transfers finished.
  *
- * The two other tabs each hold statuses that are all open, so their single number already means one
- * thing and they stay a single number. THIS IS NOT AN OVERSIGHT TO TIDY UP LATER: splitting a tab
- * whose parts are not meaningfully different would add noise and teach people to ignore the split
- * on the one tab where it carries a fact.
+ * ⚠️ THE SPLIT READS THE **OUTFLOW** HALF OF `direction_status_counts` (#1264). The raw
+ * `status_counts` also hold settled CREDITS, which live on `settledInflow` -- chips built from them
+ * would outgrow the tab they label.
  *
- * ⚠️ IT FALLS BACK TO THE SINGLE TOTAL when `statusCounts` is absent, and the fallback is load
- * bearing rather than defensive. A client running against a server that predates `status_counts`
- * gets exactly the old rendering instead of two zeroes — a tab confidently reporting `0 matched ·
- * 0 settled` over a populated table would be a far worse lie than the one this function fixes.
+ * ⚠️ `settledInflow` SHOWS THE SETTLED COUNT ONLY. A credit never becomes `Matched` (a bank source
+ * has no settlement path), so a `matched` chip there would be a permanent `0` teaching people to
+ * ignore the chip on the tab where it carries a fact.
+ *
+ * ⚠️ BOTH FALL BACK TO THE SINGLE TOTAL when the direction split is absent, and the fallback is load
+ * bearing rather than defensive: a client against a server that predates the split gets a real
+ * number instead of two zeroes — a tab confidently reporting `0 matched · 0 settled` over a populated
+ * table would be a far worse lie than the one this function fixes.
  */
 export function tabCountParts(
     tab: OutflowTab,
     tabCounts?: OutflowRowsPage["tab_counts"],
-    statusCounts?: OutflowRowsPage["status_counts"]
+    directionStatusCounts?: OutflowRowsPage["direction_status_counts"]
 ): TabCountPart[] {
     const scope = SCOPE_FOR_TAB[tab];
     const total = tabCounts ? (tabCounts[scope] ?? null) : null;
 
-    if (tab !== "matched" || !statusCounts) {
+    if (tab === "settledInflow" && directionStatusCounts) {
+        return [{ key: scope, count: directionStatusCounts.inflow?.[ROW_SETTLED] ?? 0 }];
+    }
+
+    if (tab !== "matchedOutflow" || !directionStatusCounts) {
         return [{ key: scope, count: total }];
     }
 
+    const outflow = directionStatusCounts.outflow ?? {};
     return [
         {
             key: ROW_MATCHED,
-            count: statusCounts[ROW_MATCHED] ?? 0,
+            count: outflow[ROW_MATCHED] ?? 0,
             label: "matched",
             tone: "bg-sky-50 text-sky-700",
         },
         {
             key: ROW_SETTLED,
-            count: statusCounts[ROW_SETTLED] ?? 0,
+            count: outflow[ROW_SETTLED] ?? 0,
             label: "settled",
             tone: "bg-emerald-50 text-emerald-700",
         },
@@ -801,19 +913,9 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // is the only thing that can enumerate it -- there is nothing on the loaded page to build a
     // funnel from, and no client-side derivation to fall back to.
     "settled_ledger",
-    // ⚠️ THE THIRD LIST, ADDED IN THE SAME CHANGE AS THE COLUMN. A facet needs all three or it
-    // fails SILENTLY: `filter: "facet"` draws the funnel, `review._FACET_COLUMNS` lets the server
-    // apply it, and ONLY this list decides whether the ticked selection is ever SENT. That is the
-    // slice Q1 defect -- a tick box that registered, showed "Clear filters (1)", and left the row
-    // set unmoved.
-    //
-    // ⚠️ THE SERVER FACETS THE DERIVED LABEL, NOT THE RAW COLUMN, so what the funnel OFFERS is
-    // what this column's `get` RENDERS -- `Paid` / `Received`, the same two values. Its
-    // `_FACET_COLUMNS` entry is a `CASE` mirroring `is_received_direction`, used for both the
-    // `DISTINCT` that builds the options and the `WHERE` that applies them. Over the raw field the
-    // funnel would grow a third, unlabelled option for blank, and ticking `Debit` would silently
-    // drop rows whose badge reads `Paid`.
-    "direction",
+    // ⚠️ `direction` LEFT THIS LIST WITH ITS COLUMN (owner, 2026-09-14). With no column there is
+    // no funnel to tick, and the direction tabs scope by it instead. The server's
+    // `_FACET_COLUMNS["direction"]` stays: the tab scopes and counts read the same expression.
 ];
 
 /**
@@ -872,6 +974,11 @@ export interface OutflowRowsQuery {
      * `Skipped`. Nothing could ask for one group or the other until this.
      */
     failed?: boolean;
+    /**
+     * `"Manual"` narrows the Skipped popup to lines a person skipped (#1273) -- the "Skipped by hand"
+     * segment. A server filter, so the page, its count and the export agree.
+     */
+    skip_origin?: typeof SKIP_ORIGIN_MANUAL;
     batch?: string;
     search?: string;
     facets?: Record<string, string[]>;
@@ -949,6 +1056,9 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
     const bank = String(filters.failed ?? "").trim();
     if (bank === "failed") query.failed = true;
     if (bank === "recorded") query.failed = false;
+    // The fourth segment of the same control (#1273). Not a `failed` value: a hand skip is a
+    // successful transfer, and sending `failed` too would only restate that.
+    if (bank === SKIPPED_BY_HAND_FILTER) query.skip_origin = SKIP_ORIGIN_MANUAL;
 
     const amount = filters.amount as RangeFilter | undefined;
     if (amount?.min != null) query.amount_min = amount.min;
@@ -1001,6 +1111,61 @@ export interface SummaryTile {
  * genuinely useful thing: this import is finished finding work. Only `Error` stays conditional,
  * because it still means the software failed and that is still rare.
  */
+/**
+ * How the Skipped figure's successful lines are described, beside the ones the bank refused.
+ *
+ * ⚠️ NOT "already recorded as Paid by hand" -- that was false for most of the figure (#1252 browser
+ * walk). It also holds a received Project Inflow, a line excluded as not spending, a line imported
+ * before, and a line a person skipped. The row's Outcome says which. Shared by `summaryTiles`' hint
+ * and `SkippedRowsDialog`, so the two cannot drift apart again.
+ */
+export const SKIPPED_ON_PURPOSE_PHRASE = "skipped on purpose";
+export const SKIPPED_ON_PURPOSE_LABEL = "On purpose";
+
+/** The Skipped popup's fourth segment (#1273): the `failed` pseudo-filter value, and its label. */
+export const SKIPPED_BY_HAND_FILTER = "manual";
+export const SKIPPED_BY_HAND_LABEL = "Skipped by hand";
+
+/**
+ * The note a line's Outcome shows: for a line SKIPPED BY HAND the reason the person typed, otherwise the
+ * outcome note, falling back to the skip reason (#1273, option A).
+ *
+ * ⚠️ WHY A HAND SKIP READS `skip_reason` FIRST. A skip made from #1273 on writes the typed reason into
+ * BOTH fields, so for it either order agrees. A hand skip made BEFORE #1273 kept the matcher's old
+ * sentence ("No approved payment or expense matches…") in `outcome_note` and the typed reason only in
+ * `skip_reason`; the back-fill set `skip_origin` and deliberately rewrote nothing else. Reading
+ * `outcome_note` first would hide the reason on exactly those lines. Display only -- nothing is stored.
+ *
+ * ⚠️ KEYED ON `skip_origin`, never `decided_by`: an old SYSTEM skip re-skipped by hand also has a typed
+ * `skip_reason`, and its system sentence ("Already recorded as Paid on …") is the one that must show.
+ */
+export const outcomeNoteOf = (row: {
+    skip_origin?: string | null;
+    outcome_note?: string | null;
+    skip_reason?: string | null;
+}): string =>
+    (row.skip_origin === SKIP_ORIGIN_MANUAL && row.skip_reason) ||
+    row.outcome_note ||
+    row.skip_reason ||
+    "";
+
+/**
+ * "Skipped by hand · user · date" for a line a person skipped, or `null` for any other line (#1273).
+ *
+ * ⚠️ KEYED ON `skip_origin`, NEVER ON `decided_by` ALONE. An old system skip re-skipped by hand also
+ * carries a decider, and the back-fill deliberately keeps it System -- it must not read as a hand skip.
+ */
+export const skippedByHandLine = (
+    row: { skip_origin?: string | null; decided_by?: string | null; decided_at?: string | null },
+): string | null => {
+    if (row.skip_origin !== SKIP_ORIGIN_MANUAL) return null;
+    const parts = [SKIPPED_BY_HAND_LABEL];
+    if (row.decided_by) parts.push(row.decided_by);
+    const day = (row.decided_at ?? "").split(/[ T]/)[0];
+    if (day) parts.push(formatDate(day));
+    return parts.join(" · ");
+};
+
 export const summaryTiles = (totals: {
     matched_rows: number;
     mismatched_rows: number;
@@ -1056,7 +1221,7 @@ export const summaryTiles = (totals: {
             label: "Skipped",
             count: totals.skipped_rows + (totals.failed_rows ?? 0),
             hint: totals.failed_rows
-                ? `${totals.skipped_rows} already recorded as Paid by hand · ${totals.failed_rows} refused by the bank, which are left out of every figure above`
+                ? `${totals.skipped_rows} ${SKIPPED_ON_PURPOSE_PHRASE} · ${totals.failed_rows} refused by the bank, which are left out of every figure above`
                 : undefined,
             tone: "border-muted bg-muted/50 text-muted-foreground",
         },
@@ -1442,6 +1607,8 @@ export interface ConfirmableRow {
     match_basis?: string | null;
     /** Whether the machine chose this record. Exactly "there is a suggestion". */
     auto_matched?: boolean;
+    /** Unreconciled, so it arrives in `needs_you` and never in `ready` (#1280). */
+    confirm_by_hand?: boolean;
 }
 
 // --- how a record was pre-selected (mirrors services/outflow_import/disambiguate.RULE_LABELS) ----
@@ -1878,6 +2045,38 @@ export const describeFrappeError = (err: unknown, fallback = "The request failed
     return `${fallback}${status}`;
 };
 
+/**
+ * The server's "a record already carries this transfer's reference, but the amounts differ" refusal
+ * (#1260) -- the one refusal a reviewer may overrule by re-calling with `confirm_mismatch`.
+ *
+ * ⚠️ IT IS THE EXCEPTION CLASS NAME IN `api/outflow_import/expenses.py`, and the two must move
+ * together: renamed there, this stops matching and every "... anyway?" becomes a plain refusal. A
+ * duplicate (`MoneyAlreadyRecordedError`) is deliberately NOT overrulable.
+ */
+export const RECORDED_MONEY_NEEDS_CONFIRMATION = "RecordedMoneyNeedsConfirmationError";
+
+/** Does this failure ask "create / link anyway?" rather than refuse outright? (#1260) */
+export const needsRecordAnywayConfirmation = (err: unknown): boolean =>
+    ((err ?? {}) as Record<string, unknown>).exc_type === RECORDED_MONEY_NEEDS_CONFIRMATION;
+
+/**
+ * The "... anyway?" dialog's wording for the card that was confirmed: the three create cards write a
+ * new record, every other target links an existing one.
+ */
+export const recordAnywayWording = (
+    decision: Pick<RowDecision, "target">
+): { title: string; action: string } => {
+    const verb = isCreateTarget(decision.target) ? "Create" : "Link";
+    return { title: `${verb} anyway?`, action: `${verb} anyway` };
+};
+
+/**
+ * What a BULK confirm adds to such a refusal. It has no dialog, so it cannot ask; it points at the
+ * one place that can, rather than leaving "confirm to record it anyway" unanswerable.
+ */
+export const bulkRecordAnywayHint = (err: unknown): string =>
+    needsRecordAnywayConfirmation(err) ? " Open the transfer to record it anyway." : "";
+
 /** Frappe's placeholder for "a `frappe.throw` happened, look in `_server_messages`". */
 const GENERIC_FRAPPE_MESSAGE = "There was an error.";
 
@@ -1956,6 +2155,36 @@ export const statementDebit = (preview: {
 };
 
 /**
+ * What ARRIVED in the account, or `null` when this statement has no money-in lines (#1287).
+ *
+ * ⚠️ `null` IS THE "DO NOT RENDER THE SECTION" ANSWER, and it is deliberately not a zero. A debit-only
+ * source -- Cashfree, Cashbook -- cannot state a credit at all, so a zero-filled "Gross Inflow" tile
+ * would claim receipts were possible where none can occur. Same rule the summary panel's `Total
+ * received` band already follows, for the same reason.
+ *
+ * ⚠️ THE DECISION IS `inflow_rows`, NEVER `gross_inflow_amount > 0`. "Has this statement any
+ * receipts?" is a question about LINES. Reading it off the money would hide a zero-value receipt, and
+ * on a source that cannot carry a credit it would be answering a row question with a money answer.
+ *
+ * ⚠️ BOTH KEYS ARE CHECKED WITH `!== undefined`, NEVER FOR TRUTHINESS -- a real `0` and an unsent key
+ * are different facts. An older server sends neither, and this returns `null`, so the upload screen
+ * keeps its pre-#1287 shape rather than rendering a figure the server never computed.
+ */
+export interface StatementCredit {
+    inflow: number;
+    rows: number;
+}
+
+export const statementCredit = (preview: {
+    gross_inflow_amount?: number;
+    inflow_rows?: number;
+}): StatementCredit | null => {
+    if (preview.inflow_rows === undefined || preview.gross_inflow_amount === undefined) return null;
+    if (preview.inflow_rows <= 0) return null;
+    return { inflow: preview.gross_inflow_amount, rows: preview.inflow_rows };
+};
+
+/**
  * The transfer counts the preview states, with the two exclusions named separately.
  *
  * ⚠️ THERE IS DELIBERATELY NO COMBINED "how many will I actually work on" FIGURE. The two
@@ -1997,24 +2226,104 @@ export const previewCounts = (preview: {
 // --- what counts as decided --------------------------------------------------------------------
 
 /**
+ * WHICH records a decision picked, as `recordKey`s -- whichever of the two fields it used.
+ *
+ * ⚠️ THE ONE READER OF THE TWO-FIELD SHAPE, AND THE REASON IT EXISTS (issue #1240, ADR-0020 B3).
+ * `RowDecision` carries BOTH `linkTo` (the Normal single-select picker) and `linkTargets` (the
+ * Split fan-out picker), optional, because the readers below are used by the BULK "confirm all
+ * matched" path -- which has no dialog and therefore no mode to tell the two apart. Reverting a
+ * reader to `decision.target && decision.linkTo` would reject EVERY fan-out decision; leaving it at
+ * `linkTargets` alone rejects every Normal one. Both go through here instead, so a new reader
+ * cannot accept one shape and silently refuse the other.
+ *
+ * ⚠️ PRECEDENCE: A NON-EMPTY `linkTargets` WINS; `linkTo` speaks only when nothing is ticked. That
+ * ordering is safe ONLY because of the WRITER CONTRACT: **each picker owns one field and clears the
+ * other**. The Split picker clears `linkTo` on every tick; the Normal picker must clear
+ * `linkTargets` on every pick -- a seeded decision arrives carrying `linkTargets`, so a Normal
+ * picker that forgets would settle the machine's old record instead of the person's new one.
+ *
+ * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `nonProjectInflow` are
+ * dispositions that write something rather than link to something, so a leftover link under one of
+ * them must never fold into a key that looks like a settle target.
+ */
+export const decisionLinkKeys = (decision: RowDecision): ReadonlySet<string> => {
+    if (decision.linkTargets && decision.linkTargets.size > 0) return decision.linkTargets;
+    const name = (decision.linkTo ?? "").trim();
+    const target = decision.target ?? "";
+    if (!name || !SETTLEABLE_TARGETS.includes(target)) return EMPTY_LINK_KEYS;
+    return new Set([recordKey({ target_doctype: target, name })]);
+};
+
+/** A shared empty result, so "nothing picked" never mints a fresh identity per call. */
+const EMPTY_LINK_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * The same decision with NO record picked, whichever field held it.
+ *
+ * ⚠️ IT CLEARS BOTH FIELDS, AND THAT IS THE WRITER CONTRACT, NOT TIDINESS (issue #1241). The two
+ * settle modes store the pick in different fields -- Normal in `linkTo`, Split in `linkTargets` --
+ * and `decisionLinkKeys` lets a non-empty `linkTargets` WIN. A `linkTo` left behind is therefore
+ * INVISIBLE while ticks exist and speaks again the moment the last one comes off, which reads to
+ * every downstream reader as a row decided against a record nobody can see on screen.
+ *
+ * ⚠️ `linkTo: null` IS PRESENT AND NULL, NEVER DROPPED. Absent means "never picked" and null means
+ * "deliberately cleared"; `seedDecisions` reads that distinction to avoid re-seeding a decision the
+ * reviewer has emptied on purpose.
+ *
+ * ⚠️ IT LIVES HERE, NOT INLINE IN THE PAGE. It is a domain rule about this module's own two-field
+ * shape, and ADR-0010 F4 keeps those out of components -- an inline spread in `OutflowMasterPage`
+ * would be untestable where it sat, in a repo with no DOM environment by deliberate choice. Every
+ * caller that "empties the pick" must come through here rather than spelling the three fields again.
+ */
+export const clearedPick = (decision: RowDecision): RowDecision => ({
+    ...decision,
+    target: undefined,
+    linkTo: null,
+    linkTargets: new Set(),
+});
+
+/**
+ * Whether a pick is one a SINGLE-SELECT picker could faithfully display.
+ *
+ * ⚠️ IT GUARDS A REACHABLE DIVERGENCE BETWEEN WHAT IS SHOWN AND WHAT IS SUBMITTED (issue #1241,
+ * found in review). Decisions OUTLIVE the dialog -- they live in the page's `decisions` map, while
+ * the settle mode resets to Normal on every open. So: tick two payments in Split, close WITHOUT
+ * confirming, reopen. Normal's radio table can show only ONE of the two, while `settleOne` still
+ * reads both through `decisionLinkKeys` and posts them. The screen would show one record and settle
+ * two.
+ *
+ * ⚠️ THE CALLER CLEARS, IT NEVER TRUNCATES. Taking the first key would silently settle one of two
+ * records the reviewer deliberately chose -- a wrong write is worse than a lost selection.
+ */
+export const pickFitsSingleSelect = (decision: RowDecision): boolean =>
+    decisionLinkKeys(decision).size <= 1;
+
+/**
  * Whether a row carries a decision that could be confirmed right now.
  *
  * ⚠️ A ROW THE MATCH HAS NOT RUN ON IS NEVER CONFIRMABLE, whatever decision is attached to it.
  * `Pending match run` means nothing has been looked up, so any decision on it was made against no
  * evidence at all.
+ *
+ * ⚠️ `Partially Allocated` IS CONFIRMABLE (Task 7, ADR-0020), AND IT IS NOT IN `OPEN_ROW_STATUSES`
+ * -- see that set's own docstring for why the obvious placements are both wrong. Money is already
+ * written and a balance remains, so a person still owes this row a decision: the next tick-set
+ * calls `allocate_row` again, never `settle_row`, which `chooseSettleEndpoint` enforces.
  */
 export const isConfirmable = (
     row: OutflowImportRow,
     decision: RowDecision | undefined
 ): boolean => {
-    if (!OPEN_ROW_STATUSES.has(row.row_status)) return false;
+    if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
+        return false;
+    }
     if (row.row_status === "Pending match run") return false;
     if (!decision) return false;
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense
      * out of money that ARRIVED files a receipt as a spend, which is the same class of error as
      * recording a debit as an inflow and is wrong by twice the transfer in the same way. The credit
-     * dispositions (`inflow` / `receipt`) are the ones that exist for such a row.
+     * dispositions (`inflow` / `nonProjectInflow`) are the ones that exist for such a row.
      */
     if (decision.target === "new") {
         if (isCreditRow(row)) return false;
@@ -2040,34 +2349,37 @@ export const isConfirmable = (
         return Boolean(form?.project && form.customer);
     }
     /**
-     * ⚠️ A CREDIT ONLY, AND THE DIRECTION CHECK MATTERS MORE HERE THAN ANYWHERE ELSE (slice B7).
-     * This disposition writes a NEGATIVE amount, so on a debit row it would not merely file money
-     * in the wrong place — it would file money that LEFT the account as money that arrived, and the
-     * books would be wrong by twice the transfer. The server refuses it twice as well; this keeps
-     * the bulk bar from counting such a row as decided in the first place.
+     * ⚠️ A CREDIT ONLY (#1266): a debit recorded here would book money that LEFT the account as money
+     * received. The server refuses it twice as well; this keeps the bulk bar from counting such a
+     * row as decided.
      *
-     * ⚠️ ONLY THE EXPENSE TYPE IS REQUIRED. There is no project (this receipt has none — that is
-     * what makes it this disposition rather than an inflow), and the description is optional
-     * because the server composes one from the payer and the narration when it is blank.
+     * The type must be one of the four, and Others needs a description -- the Non-Project Inflows
+     * page's own rules (`isInflowType` / `descriptionRequired`), read rather than restated.
      */
-    if (decision.target === "receipt") {
+    if (decision.target === "nonProjectInflow") {
         if (!isCreditRow(row)) return false;
-        return Boolean(decision.newReceipt?.expenseType);
+        const form = decision.newNonProjectInflow;
+        const inflowType = form?.inflowType ?? "";
+        if (!isInflowType(inflowType)) return false;
+        return !descriptionRequired(inflowType) || Boolean(form?.description?.trim());
     }
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MISSING HALF, AND THE ONE THAT MOVED REAL MONEY. Every
      * record this branch can link to is an APPROVED PAYABLE waiting to be paid; settling one
      * against a CREDIT marks a payment we owe as discharged out of money that came IN, leaving the
-     * payable closed, the receipt unrecorded and the books wrong on both sides. The `inflow` and
-     * `receipt` branches have refused a debit since B6/B7 -- this is the mirror they were always
+     * payable closed, the receipt unrecorded and the books wrong on both sides. The two credit
+     * branches have refused a debit since B6/B7 -- this is the mirror they were always
      * half of, and it is what makes `availableDecisionTargets` a partition rather than a hint.
      *
-     * ⚠️ BOTH, not just the link. The ledger now arrives with the chosen record rather than from a
-     * card clicked beforehand, so a link with no target is a half-written decision -- and
-     * `settle_row` would be called with an undefined doctype.
+     * ⚠️ EITHER SHAPE, THROUGH `decisionLinkKeys` (issue #1240) -- the Normal picker's
+     * `target` + `linkTo`, or the Split picker's `linkTargets`. See that function for why this
+     * reader must not be narrowed to one of them: it runs on the BULK confirm path too, which has
+     * no dialog and therefore no mode. On the `linkTargets` side each entry is a `recordKey`
+     * carrying its own doctype, so `target` is not load-bearing there and is left whatever a
+     * "create something new" card may have set it to (the fan-out picker clears it on every tick).
      */
     if (isCreditRow(row)) return false;
-    return Boolean(decision.target && decision.linkTo);
+    return decisionLinkKeys(decision).size > 0;
 };
 
 /**
@@ -2145,17 +2457,21 @@ export const orderPaymentsHref = (orderName: string): string =>
  * predates `order_name` keeps today's behaviour rather than losing its link entirely. It is the
  * only remaining caller of that helper here; the Project Payments module still owns it.
  *
- * ⚠️ EXPENSES CANNOT BE DEEP-LINKED TO A ROW, and that is a property of their tables, not an
- * omission here: `PE_SEARCHABLE_FIELDS` and `NPE_SEARCHABLE_FIELDS` cover description, type, vendor
- * and amount -- never the record id. There is no `/expense/:id` route either. Adding the id to one
- * of those lists is what would make `exact` true.
+ * ⚠️ EXPENSES GET NO LINK AT ALL FROM #1289, AND THE TAB DEEP-LINK THEY USED TO GET IS GONE. They
+ * were never linkable to a ROW -- `PE_SEARCHABLE_FIELDS` and `NPE_SEARCHABLE_FIELDS` cover
+ * description, type, vendor and amount, never the record id, and there is no `/expense/:id` route --
+ * so the best this ever offered was the tab the record sat in, through the namespaced `pe_status` /
+ * `npe_status` params (owner ruling 2026-09-09).
  *
- * ⚠️ THEY ARE DEEP-LINKED TO A TAB, THOUGH (owner ruling 2026-09-09), and the two are different
- * claims. Both lists read a namespaced status param -- `pe_status` / `npe_status` -- so the link
- * now lands on the tab the record is actually IN. It previously landed on each page's DEFAULT tab,
- * which is role-based and never `Paid`, so a settled expense sent the reviewer somewhere it could
- * not be. The tab follows `settled`, exactly as the payment branch does, because a suggestion's
- * expense is still `Approved`.
+ * That tab no longer exists for a settleable expense. The import settles from
+ * `Reconciliation Pending`, neither expense list has a tab for it (theirs are
+ * Requested / Approved / Paid / All), and the one screen that does lists Project Payments only. A
+ * link landing on an empty table reads as "the record is gone", so the branch returns `null` until
+ * the owner settles where it should point.
+ *
+ * ⚠️ DO NOT RESTORE THE `pe_status` / `npe_status` LINK FROM THIS PARAGRAPH. Pointing it back at
+ * `Approved` reproduces the exact empty-table defect the 2026-09-09 ruling was written to fix,
+ * facing the other way.
  *
  * ⚠️ WHATEVER THIS RETURNS MUST BE RENDERED THROUGH REACT ROUTER, never a raw `<a href>`. The
  * router carries a `basename` (`VITE_BASE_NAME`: "" in dev, 'frontend' in production), so an
@@ -2191,6 +2507,15 @@ export const settlementLink = (
                 title: `Open ${order} — the order ${name} is against`,
             };
         }
+        // ⚠️ THE TOOLTIP'S TAB AND `paymentHref`'S MUST AGREE, AND THIS IS THE SECOND SPELLING OF
+        // ONE FACT -- naming a tab the link does not go to is the defect the "names the SAME tab"
+        // test exists to catch.
+        //
+        // ⚠️ IT STAYS "All Payments" FOR AN UNSETTLED PAYMENT, THOUGH THE SUGGESTION IS NOW AT
+        // `Reconciliation Pending` AND THAT TAB EXISTS (#1289). `paymentHref` is SHARED, and
+        // `PaymentTDSDeductions` passes `false` because it cannot know its payment's status -- so
+        // narrowing the helper's unsettled tab strands that link on an empty table. "All Payments"
+        // carries no status filter and therefore contains the suggestion either way.
         const tab = settled ? "Payments Done" : "All Payments";
         return {
             href: paymentHref(name, settled),
@@ -2199,36 +2524,52 @@ export const settlementLink = (
             title: `Open ${name} in Project Payments → ${tab}`,
         };
     }
-    if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {
-        const isProject = doctype === "Project Expenses";
-        // ⚠️ THE STATUS TAB RIDES THE URL, AND IT FOLLOWS `settled` RATHER THAN BEING HARDCODED
-        // (owner ruling 2026-09-09). Both lists read a namespaced status param on mount and
-        // subscribe to it — `pe_status` (`ProjectExpensesList`) and `npe_status`
-        // (`NonProjectExpensesPage`), each documented there as supporting an external deep link.
-        //
-        // ⚠️ WITHOUT IT THE LINK LANDED ON THE PAGE'S DEFAULT TAB, WHICH IS ROLE-BASED AND NEVER
-        // `Paid`: `Requested` for most users, `Approved` for an Accountant. So a SETTLED expense —
-        // which is `Paid` by definition, this import having just written it — sent the reviewer to a
-        // tab that provably could not contain it, with nothing on screen explaining the empty table.
-        //
-        // ⚠️ AND THAT IS EXACTLY WHY THE TAB IS NOT HARDCODED TO `Paid`. A SUGGESTION has settled
-        // nothing and its expense is still `Approved` (`SETTLEABLE_STATUSES` is Approved-only), so
-        // pinning `Paid` here would reproduce the same defect pointing the other way — the one the
-        // payment branch above already records finding live.
-        const tab = settled ? "Paid" : "Approved";
-        const base = isProject ? "/expense/project" : "/expense/non-project";
-        const param = isProject ? "pe_status" : "npe_status";
+    if (doctype === "Project Inflows") {
+        // #1253: a deposit's duplicate lives here, and until then this function returned null for
+        // it -- so a skipped row named the inflow in its note and offered no link. An inflow's id
+        // (`PAYIN-…`) is readable AND searchable on its table, so unlike an expense this lands ON the
+        // record. There is no status tab to pick: an inflow is never Approved or Paid, which is why
+        // `settled` is not read here.
         return {
-            href: `${base}?${param}=${tab}`,
+            href: inflowHref(name),
             label: name,
-            // ⚠️ STILL `false`, AND THE TAB DOES NOT CHANGE THAT. `exact` means "this lands on the
-            // record", and it does not: neither table has the record id in its searchable fields
-            // (`PE_SEARCHABLE_FIELDS` / `NPE_SEARCHABLE_FIELDS`) and there is no `/expense/:id`
-            // route, so the reviewer still arrives at a filtered LIST. Flipping this to `true`
-            // because the tab narrowed would overstate what the link does.
-            exact: false,
-            title: `Open ${isProject ? "Project" : "Non Project"} Expenses → ${tab} — ${name} is in this list; it cannot be linked to directly`,
+            exact: true,
+            title: `Open ${name} in Project Inflows`,
         };
+    }
+    if (doctype === "Non Project Inflows") {
+        // #1266: like a Project Inflow, the id (`NPI-26-00001`) is searchable on its own page, so
+        // this lands ON the record, and there is no status tab to pick.
+        return {
+            href: nonProjectInflowHref(name),
+            label: name,
+            exact: true,
+            title: `Open ${name} in Non-Project Inflows`,
+        };
+    }
+    if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {
+        // ⚠️ NO LINK, DELIBERATELY, AND THIS IS A NARROWING RATHER THAN A DELETION (#1289, owner
+        // ruling). Every destination this branch could offer is now a list that cannot hold the
+        // record it names:
+        //
+        //   * the `Approved` tab -- where a SUGGESTED expense used to be sent -- can no longer
+        //     contain it, because a record only becomes settleable once somebody has marked it done
+        //     and it sits at `Reconciliation Pending`; and
+        //   * neither expense list has a tab for that status at all (their tabs are
+        //     Requested / Approved / Paid / All), while the Payments screen, which does have one,
+        //     lists Project Payments only.
+        //
+        // A link that lands on an empty table with nothing on screen explaining why is worse than
+        // no link: the reviewer reads it as "the record is gone". The owner has parked the question
+        // of where these should point, so until then this returns `null` and the row renders the
+        // name as plain text -- exactly as it did for an expense before a link existed.
+        //
+        // ⚠️ IT COVERS SETTLED EXPENSES TOO. Their `Paid` tab does still hold them, so that half
+        // works today -- but the owner asked for one rule ("block it for anything other than a
+        // Project Payment") rather than a link that appears and disappears depending on a status
+        // the reviewer cannot see from here. Restoring this branch is one edit when the destination
+        // is settled.
+        return null;
     }
     return null;
 };
@@ -2251,18 +2592,20 @@ export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
         .filter((link): link is SettlementLink => link !== null);
     if (settled.length) return settled;
 
-    // An already-recorded duplicate: SOMEBODY ELSE ticked it Paid before this statement was
-    // uploaded. We settled nothing, but the payment is Paid all the same -> "Payments Done".
-    // This is the only route to a link on a Skipped or Mismatched row, whose note names the
-    // payment in prose and which carries neither a match record nor a suggestion.
-    const alreadyPaid = (row.related_payments ?? [])
-        .map((p) => settlementLink(p.target_doctype, p.target_name, true, p.order_name))
+    // An already-recorded duplicate: SOMEBODY ELSE recorded this money before the statement was
+    // uploaded, in any of four ledgers (#1253). We settled nothing, but the record is already Paid
+    // (or, for an inflow, already received) -> `settled = true`, so a payment falls back to
+    // "Payments Done". An EXPENSE yields no link at all from #1289 and drops out of the list here;
+    // the row's note still names it in prose. This is the only route to a link on a Skipped or
+    // Mismatched row, which carries neither a match record nor a suggestion.
+    const alreadyRecorded = (row.related_records ?? [])
+        .map((r) => settlementLink(r.target_doctype, r.target_name, true, r.order_name))
         .filter((link): link is SettlementLink => link !== null);
-    if (alreadyPaid.length) return alreadyPaid;
+    if (alreadyRecorded.length) return alreadyRecorded;
 
-    // A suggestion has settled nothing, so its payment is still Approved -> "All Payments" on the
-    // fallback path. Its order travels under its own key: the suggestion is two scalar columns on
-    // the row, not a list, so it cannot be stamped in place like the two above.
+    // A suggestion has settled nothing, so its payment is not Paid -> the unfiltered "All Payments"
+    // tab on the fallback path. Its order travels under its own key: the suggestion is two scalar
+    // columns on the row, not a list, so it cannot be stamped in place like the two above.
     const suggested = settlementLink(
         row.suggested_doctype,
         row.suggested_name,
@@ -2301,16 +2644,23 @@ export const suggestedDecision = (row: OutflowImportRow): RowDecision | null => 
     if (!SETTLEABLE_TARGETS.includes(target)) return null;
     if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
     if (row.row_status === ROW_PENDING_MATCH) return null;
-    return { target: target as DecisionTarget, linkTo };
+    // ⚠️ A ONE-ELEMENT SET (Task 7) -- the match run only ever proposes a single record, so this
+    // is `linkTargets`' singleton case. `recordKey` is the SAME identity function the picker and
+    // `parseRecordKey` share; a second way to spell `"<doctype>|<name>"` here would be exactly the
+    // drift `recordKey` exists to rule out.
+    return {
+        target: target as DecisionTarget,
+        linkTargets: new Set([recordKey({ target_doctype: target, name: linkTo })]),
+    };
 };
 
 /**
  * Fold every row's stored suggestion into the decisions the reviewer is holding.
  *
  * ⚠️ IT NEVER OVERWRITES AN EXISTING ENTRY, and that is the whole contract. A row the reviewer has
- * touched -- including one they deliberately CLEARED, which leaves an entry with a null link -- is
- * theirs. Re-seeding it on the next refetch would silently undo the clear and put the machine's
- * pick back under a person who had just rejected it.
+ * touched -- including one they deliberately CLEARED, which leaves an entry with an EMPTY
+ * `linkTargets` set -- is theirs. Re-seeding it on the next refetch would silently undo the clear
+ * and put the machine's pick back under a person who had just rejected it.
  *
  * ⚠️ IT RETURNS THE SAME MAP WHEN NOTHING WAS ADDED. The page holds this in state and re-runs it on
  * every fetch; handing back a fresh Map each time would change the reference, re-render the table
@@ -2348,14 +2698,23 @@ export const decisionOrigin = (
 ): DecisionOrigin => {
     if (!decision) return "none";
     const suggestion = suggestedDecision(row);
-    if (
-        suggestion &&
-        suggestion.target === decision.target &&
-        suggestion.linkTo === decision.linkTo
-    ) {
+    // ⚠️ COMPARED AS NORMALISED KEY SETS (issue #1240), never field-against-field. The suggestion is
+    // always banked in `linkTargets`, but a person picking that same record in Normal mode writes
+    // `linkTo` -- and a field-against-field compare would then read a word-for-word agreement as
+    // "chosen". `decisionLinkKeys` folds both shapes onto the same `recordKey`s first.
+    if (suggestion && sameLinkKeys(decisionLinkKeys(suggestion), decisionLinkKeys(decision))) {
         return "suggested";
     }
     return "chosen";
+};
+
+/** Set equality for two normalised key sets. An empty set is never equal to anything, including
+ *  another empty one -- "nobody picked" is not agreement, and the suggestion is never empty. */
+const sameLinkKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => {
+    if (a.size === 0 || b.size === 0) return false;
+    if (a.size !== b.size) return false;
+    for (const key of a) if (!b.has(key)) return false;
+    return true;
 };
 
 // --- candidate ordering ------------------------------------------------------------------------
@@ -2407,7 +2766,7 @@ export interface CandidateLike {
  * ("Service Requests" / "Procurement Orders"), which used to gate the TDS deduction offer before
  * slice TD was removed. Two lookalike keys; the wrong one passes silently.
  */
-const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
+export const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
 
 /**
  * WHICH of the amount rules this pick falls foul of (slice D1).
@@ -2441,6 +2800,18 @@ export interface SettleBlock {
     bankAmount: number;
     /** Signed: record minus bank. Negative means the bank moved MORE than the record is for. */
     difference: number;
+    /**
+     * The record's ledger, carried so the REMEDY can differ by ledger where the REASON does not.
+     *
+     * ⚠️ `bank_paid_more` fires for a payment AND an expense alike -- deliberately, and pinned. But
+     * the way OUT of it is payments-only: splitting a transfer works on approved Project Payments,
+     * so `settleBlockRemedy` must not send an expense reviewer to a mode that would never list
+     * their record. The REASON stays ledger-blind; only the REMEDY reads this.
+     *
+     * ⚠️ ABSENT IS NEVER AN EXPENSE -- the same fail-open `settleBlockReason` uses. An older
+     * payload with no `target_doctype` is offered the Split route rather than silently denied it.
+     */
+    targetDoctype?: string;
 }
 
 /**
@@ -2485,6 +2856,7 @@ export const settleBlocker = (
         recordAmount,
         bankAmount: bank,
         difference: recordAmount - bank,
+        targetDoctype: record.target_doctype,
     };
 };
 
@@ -2532,6 +2904,39 @@ export const settleBlocker = (
 export const AMOUNT_GAP_HINT =
     "too far apart to settle at this amount — pick it and confirm to see the options";
 
+/**
+ * The same gap, said to a reviewer who is in SPLIT mode (browser walk #1245, finding 1).
+ *
+ * ⚠️ THE NORMAL SENTENCE IS WRONG HERE, AND ONLY HERE. `AMOUNT_GAP_HINT` describes a pick that
+ * CANNOT be settled: it is "too far apart", and confirming opens `AmountOutsideWindowDialog` to ask
+ * what happened. In Split mode a record SMALLER than the transfer is not a fault at all -- it is
+ * the ordinary first leg, and confirming ALLOCATES it, with no dialog and no options. So the Normal
+ * wording told a reviewer their correct action was a mistake, at the moment they took it, and
+ * promised options that never appeared. Observed on a real transfer, 2026-09-11.
+ *
+ * ⚠️ THE ARITHMETIC WAS NEVER WRONG -- only the words. The figure printed beside this sentence
+ * already measures the REMAINING BALANCE on a partly-allocated row (issue #1243), which is why this
+ * is a copy change and not a maths one. Do not "fix" the number.
+ *
+ * ⚠️ TWO CONSTANTS, NOT TWO COPIES. The note above records that this hint drifted when each CALL
+ * SITE carried its own copy of ONE sentence. These are two DIFFERENT sentences with one owner each,
+ * in one module, and the MODE picks between them: `SettleableRecordTable` (Normal) takes the first,
+ * `FanOutRecordTable` (Split) takes this one. Do not merge them, and do not inline either.
+ */
+export const AMOUNT_GAP_HINT_SPLIT =
+    "smaller than the balance left on this transfer — tick it to allocate it as one part";
+
+/**
+ * Which of the two gap sentences this reviewer should read.
+ *
+ * ⚠️ ONE OWNER FOR THE CHOICE, not a ternary at each call site -- the same rule the two constants
+ * above are written under. The two PICKER tables need no selector because each is already
+ * mode-specific by construction (`SettleableRecordTable` is Normal, `FanOutRecordTable` is Split);
+ * `RecordVerdict` renders in BOTH modes from one place, so it asks here rather than deciding.
+ */
+export const amountGapHint = (mode: SettleMode): string =>
+    mode === "split" ? AMOUNT_GAP_HINT_SPLIT : AMOUNT_GAP_HINT;
+
 export const settleBlockText = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     switch (block.reason) {
@@ -2544,6 +2949,41 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
         case "record_larger":
             return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
     }
+};
+
+/**
+ * What to DO about it -- the dialog's closing line (browser walk #1245, finding 2).
+ *
+ * ⚠️ IT USED TO BE ONE HARDCODED SENTENCE IN THE JSX, AND IT WAS WRONG FOR THE COMMONEST ARRIVAL.
+ * The dialog ended "Pick the record that matches this transfer instead." for every blocked pick. On
+ * a transfer that pays SEVERAL records no single record matches, so that instruction cannot be
+ * followed -- and the real answer, Split mode, sits unnamed on a radio in the same dialog.
+ *
+ * ⚠️ THE SERVER ALREADY SAID THIS AND THE SCREEN DID NOT. `settle.py`'s amount-mismatch throw is
+ * direction-aware and names the Split control for exactly this direction (#1242). But
+ * `settleBlocker` runs inside the confirm HANDLER, so on the dialog path the client ALWAYS
+ * intercepts first and the reviewer never reaches the server's sentence -- it is reachable only
+ * through BULK confirm, which has no dialog. The two surfaces now give the same advice.
+ *
+ * ⚠️ THE LABEL IS BOUND, NEVER SPELLED. It comes from `SETTLE_MODE_LABEL.split`, the same constant
+ * the radio renders and the one `settleModeLabelParity.test.ts` pins `settle.py` against. Typing
+ * the words here would be a THIRD copy, free to drift from both.
+ *
+ * ⚠️ LEDGER-GATED, BECAUSE THE REASON IS NOT. `bank_paid_more` is returned for an expense as well
+ * as a payment (pinned above), but splitting works on approved Project Payments only -- so an
+ * expense keeps the original sentence rather than being sent to a mode that would never list it.
+ *
+ * ⚠️ IT LIVES BESIDE `settleBlockText` ON PURPOSE. That function owns the wording of WHY; this one
+ * owns the wording of WHAT NEXT. Two sentences of one paragraph, in one module, so a change to the
+ * reason cannot leave the remedy describing a different world.
+ */
+export const settleBlockRemedy = (block: SettleBlock | null | undefined): string => {
+    if (!block) return "";
+    const splittable = !block.targetDoctype || block.targetDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    if (block.reason === "bank_paid_more" && splittable) {
+        return `To settle it as one part of this transfer, choose '${SETTLE_MODE_LABEL.split}' on the row.`;
+    }
+    return "Pick the record that matches this transfer instead.";
 };
 
 /**
@@ -2681,19 +3121,60 @@ export const parseRecordKey = (
     return { target: target as DecisionTarget, name };
 };
 
+// --- fan-out tick eligibility (review fix 4) ----------------------------------------------------
+
+/**
+ * Whether ticking a record of this doctype would still let Confirm succeed, given what is already
+ * ticked and the row's own status.
+ *
+ * ⚠️ MIRRORS `allocate_row`'s "PROJECT PAYMENTS ONLY" REFUSAL, not merely its wording. The server
+ * accepts a fan-out -- 2+ targets in one call, OR even a single tick on a row that is already
+ * `Partially Allocated` (`chooseSettleEndpoint` routes both to `allocate_row`) -- ONLY when every
+ * target in the call is a `Project Payments` record; it throws on the first one that is not.
+ *
+ * ⚠️ A LONE NON-PAYMENT TICK ON AN UNTOUCHED ROW IS STILL FINE, deliberately. `chooseSettleEndpoint`
+ * sends that through `settle_row`, unchanged, which settles any of the three ledgers -- this refuses
+ * only the SECOND tick that would turn a valid single settle into an invalid fan-out, in either
+ * direction: adding a non-payment to an existing tick-set, or adding anything at all once a
+ * non-payment is already the sole tick.
+ *
+ * ⚠️ THIS IS THE "STATE THE RULE WHERE IT LIVES" HALF (review fix 4). The server already refuses the
+ * write with a clear sentence -- see `_parse_targets` -- so nothing was silently wrong before this;
+ * what was missing is a control that says so BEFORE the click, which is this dialog's own standard
+ * for every other refusal it can predict (see `settleBlocker`, `partialOffer`).
+ */
+export function tickAllowedForFanOut(
+    candidateDoctype: string,
+    alreadyTickedDoctypes: readonly string[],
+    rowStatus: string
+): boolean {
+    if (rowStatus === ROW_PARTIALLY_ALLOCATED) {
+        return candidateDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    }
+    if (alreadyTickedDoctypes.length === 0) return true;
+    return [...alreadyTickedDoctypes, candidateDoctype].every(
+        (doctype) => doctype === PROJECT_PAYMENTS_DOCTYPE
+    );
+}
+
 // --- partial settlement (slice PS) --------------------------------------------------------------
 
 /**
  * The settle window, MIRRORED for the client's own eligibility check.
  *
  * ⚠️ THE SERVER OWNS THIS NUMBER (`services/outflow_import/amounts.AMOUNT_TOLERANCE`) AND IS THE
- * AUTHORITY. This copy exists for the same reason `isRateEditableRow` mirrors the pricing gate: the
- * screen has to know whether to OFFER the choice before it posts anything. If the two ever
+ * AUTHORITY. This mirror exists for the same reason `isRateEditableRow` mirrors the pricing gate:
+ * the screen has to know whether to OFFER the choice before it posts anything. If the two ever
  * disagree, the server wins and the reviewer sees its refusal — which is the honest failure, not a
  * silent one. The nearby `AmountMark` deliberately does NOT print this value for exactly the reason
  * that makes a mirror risky.
+ *
+ * ⚠️ NOT A SECOND `= 5` LITERAL (review fix 2, Task 7). This used to declare its own `= 5`, which
+ * was the SAME server constant `allocationView.AMOUNT_TOLERANCE` also mirrors — one number, two
+ * copies, each claiming to be the only one. `allocationView.ts` is the pure leaf, so it owns the
+ * literal; this just re-exports its name for every existing caller in this module.
  */
-export const SETTLE_WINDOW = 5;
+export const SETTLE_WINDOW = AMOUNT_TOLERANCE;
 
 /**
  * What the reviewer declares about a shortfall before the endpoint will act on it.

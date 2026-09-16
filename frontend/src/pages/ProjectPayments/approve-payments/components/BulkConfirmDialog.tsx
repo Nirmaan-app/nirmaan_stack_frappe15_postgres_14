@@ -17,7 +17,19 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useVendorTdsRate } from "../../hooks/useVendorTdsRates";
 import { forecastTdsTotals } from "../../tdsForecast";
 import { parseNumber } from "@/utils/parseNumber";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+// Same superset row as BulkActionBar — every field this dialog reads is carried
+// under its payment name, so only the type widened.
+import {
+  ApprovalQueueRow,
+  descriptionFirstLine,
+  SOURCE_BADGE,
+  SOURCE_LABEL,
+} from "../../config/approvalsTable.config";
+import {
+  countLabel,
+  selectionBreakdown,
+  summarizeSelection,
+} from "../../bulkSelectionSummary";
 
 import { BulkAction } from "../hooks/useBulkPaymentActions";
 
@@ -25,19 +37,39 @@ interface BulkConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   action: BulkAction;
-  payments: ProjectPayments[];
+  payments: ApprovalQueueRow[];
   isLoading: boolean;
   onConfirm: (rejectionReason?: string) => void;
   projectLabelFor?: (projectId?: string) => string;
   vendorLabelFor?: (vendorId?: string) => string;
 }
 
+/**
+ * ⚠️ A NON-PROJECT EXPENSE HAS NO PROJECT, AND THAT IS THE TRUE VALUE.
+ *
+ * Grouping keyed on `p.project || "Unassigned"` swept every non-project expense into
+ * a bucket labelled "Unassigned" — which reads as *missing data on a project row*,
+ * not as *a company-wide expense*. The sentinel is now internal and the LABEL is
+ * derived from what the bucket actually holds.
+ */
+const NO_PROJECT = "__no_project__";
+
 interface ProjectBucket {
-  project: string;
-  projectLabel: string;
+  key: string;
+  label: string;
+  /** True for the one bucket holding rows that legitimately have no project. */
+  isNoProject: boolean;
   total: number;
-  rows: ProjectPayments[];
+  rows: ApprovalQueueRow[];
 }
+
+const SourceChip = ({ source }: { source: ApprovalQueueRow["source"] }) => (
+  <span
+    className={`inline-block shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ring-1 ring-inset ${SOURCE_BADGE[source]}`}
+  >
+    {SOURCE_LABEL[source]}
+  </span>
+);
 
 export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
   open,
@@ -61,42 +93,61 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
     }
   }, [open]);
 
-  const toggleExpanded = useCallback((projectId: string) => {
+  const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }, []);
 
+  const mix = useMemo(() => summarizeSelection(payments), [payments]);
+
   const { totalAmount, docCount, buckets } = useMemo(() => {
     const map = new Map<string, ProjectBucket>();
     let total = 0;
+    // PO/SR count, so it stays honest on an all-expense batch: an expense has no
+    // parent document, so it must not be counted as one.
     const distinctDocs = new Set<string>();
 
     for (const p of payments) {
-      const projectId = p.project || "Unassigned";
+      const key = p.project || NO_PROJECT;
       const amt = parseNumber(p.amount);
       total += amt;
       if (p.document_name) distinctDocs.add(p.document_name);
 
-      if (!map.has(projectId)) {
-        map.set(projectId, {
-          project: projectId,
-          projectLabel: projectLabelFor?.(projectId) || projectId,
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label:
+            key === NO_PROJECT
+              ? "" // resolved below, from what the bucket ends up holding
+              : projectLabelFor?.(key) || key,
+          isNoProject: key === NO_PROJECT,
           total: 0,
           rows: [],
         });
       }
-      const bucket = map.get(projectId)!;
+      const bucket = map.get(key)!;
       bucket.total += amt;
       bucket.rows.push(p);
     }
 
-    const arr = Array.from(map.values()).sort((a, b) =>
-      a.projectLabel.localeCompare(b.projectLabel)
-    );
+    const noProject = map.get(NO_PROJECT);
+    if (noProject) {
+      // Non-project expenses are the only ledger with no project BY DESIGN, so name
+      // the bucket after them when that is all it holds. Anything else in there is a
+      // record genuinely missing a project, and says so.
+      const allNonProject = noProject.rows.every((r) => r.source === "Non-Project");
+      noProject.label = allNonProject ? "Non Project Expense" : "No project";
+    }
+
+    const arr = Array.from(map.values()).sort((a, b) => {
+      // The no-project bucket sorts last — every other bucket is a named project.
+      if (a.isNoProject !== b.isNoProject) return a.isNoProject ? 1 : -1;
+      return a.label.localeCompare(b.label);
+    });
     return { totalAmount: total, docCount: distinctDocs.size, buckets: arr };
   }, [payments, projectLabelFor]);
 
@@ -106,7 +157,8 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
    * ⚠️ ONLY THE DEDUCTIBLE ROWS CONTRIBUTE — a Procurement Order payment adds nothing, not even
    * to `gross`, so the three figures always describe the same subset and read as one sentence.
    * Renders nothing at all when the selection has no SR payments, which is the common case on the
-   * Approve Payments tab.
+   * Approve Payments tab — and always the case for an expense, which has no vendor and never
+   * withholds tax.
    */
   const rateFor = useVendorTdsRate();
   const tdsTotals = useMemo(
@@ -119,9 +171,9 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
   const trimmedReason = reason.trim();
   const canSubmit = isLoading ? false : isReject ? trimmedReason.length > 0 : true;
 
-  const title = isReject
-    ? `Reject ${count} payment${count !== 1 ? "s" : ""}?`
-    : `Approve ${count} payment${count !== 1 ? "s" : ""}?`;
+  // The queue holds three ledgers, so the noun is derived, never hardcoded.
+  const title = `${isReject ? "Reject" : "Approve"} ${countLabel(mix)}?`;
+  const breakdown = selectionBreakdown(mix, docCount);
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -148,7 +200,8 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               {formatToRoundedIndianRupee(totalAmount)}
             </span>
             <span className="text-xs text-muted-foreground tabular-nums">
-              {buckets.length} project{buckets.length !== 1 ? "s" : ""} · {docCount} PO/SR
+              {buckets.length} group{buckets.length !== 1 ? "s" : ""}
+              {breakdown && ` · ${breakdown}`}
             </span>
           </div>
           {!isReject && tdsTotals.count > 0 && (
@@ -176,33 +229,35 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
           )}
         </div>
 
-        {/* Grouped list — collapsed by default; click a project to expand its POs.
+        {/* Grouped list — collapsed by default; click a group to expand its rows.
             flex-1 absorbs remaining height up to container's max-h. */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-1 min-h-0 overscroll-contain">
           <ul className="divide-y divide-border/30">
             {buckets.map((bucket) => {
-              const isOpen = expanded.has(bucket.project);
+              const isOpen = expanded.has(bucket.key);
               return (
-                <li key={bucket.project}>
+                <li key={bucket.key}>
                   <button
                     type="button"
-                    onClick={() => toggleExpanded(bucket.project)}
+                    onClick={() => toggleExpanded(bucket.key)}
                     aria-expanded={isOpen}
                     className="w-full flex items-center gap-2 py-2 text-left hover:bg-muted/40 rounded transition-colors"
                   >
                     <ChevronRight
                       className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
                     />
+                    {/* Group headings are the app's red — project buckets and the
+                        expense bucket alike, so the list reads as one family. */}
                     <span
-                      className="font-semibold text-xs sm:text-sm text-blue-700 dark:text-blue-400 truncate flex-1"
-                      title={bucket.projectLabel}
+                      className="font-semibold text-xs sm:text-sm text-red-700 dark:text-red-400 truncate flex-1"
+                      title={bucket.label}
                     >
-                      {bucket.projectLabel}
+                      {bucket.label}
                     </span>
                     <span className="flex items-center gap-1.5 whitespace-nowrap">
                       <Badge
                         variant="secondary"
-                        className="h-5 min-w-[1.25rem] px-1.5 text-[10px] font-semibold tabular-nums leading-none flex items-center justify-center rounded-full bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900"
+                        className="h-5 min-w-[1.25rem] px-1.5 text-[10px] font-semibold tabular-nums leading-none flex items-center justify-center rounded-full bg-red-100 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900"
                       >
                         {bucket.rows.length}
                       </Badge>
@@ -215,26 +270,11 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
                   {isOpen && (
                     <ul className="pl-5 pb-2 divide-y divide-border/20">
                       {bucket.rows.map((p) => (
-                        <li
+                        <BulkRowLine
                           key={p.name}
-                          className="flex items-center justify-between gap-2 py-1.5 text-xs"
-                        >
-                          <div className="min-w-0 flex-1 truncate">
-                            <span className="font-medium" title={p.document_name}>
-                              {p.document_name}
-                            </span>
-                            <span className="text-muted-foreground">{" · "}</span>
-                            <span
-                              className="text-emerald-700 dark:text-emerald-400 font-medium"
-                              title={vendorLabelFor?.(p.vendor) || p.vendor}
-                            >
-                              {vendorLabelFor?.(p.vendor) || p.vendor || "—"}
-                            </span>
-                          </div>
-                          <span className="font-medium whitespace-nowrap tabular-nums">
-                            {formatToRoundedIndianRupee(parseNumber(p.amount))}
-                          </span>
-                        </li>
+                          row={p}
+                          vendorLabelFor={vendorLabelFor}
+                        />
                       ))}
                     </ul>
                   )}
@@ -303,5 +343,69 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+};
+
+interface BulkRowLineProps {
+  row: ApprovalQueueRow;
+  vendorLabelFor?: (vendorId?: string) => string;
+}
+
+/**
+ * One record inside an expanded group.
+ *
+ * ⚠️ THIS USED TO BE PAYMENT-ONLY, AND AN EXPENSE RENDERED AS "· —".
+ *
+ * It read `document_name` for the identity and `vendor` for the sub-line — the two
+ * fields an expense does not have — so every expense in the dialog was a blank line
+ * beside a rupee figure, with nothing saying what was about to be approved. The
+ * identity now comes from the field that actually carries it on each ledger, and the
+ * source chip is what tells a project expense from a non-project one where a project
+ * group holds both.
+ */
+const BulkRowLine: React.FC<BulkRowLineProps> = ({ row, vendorLabelFor }) => {
+  const isPayment = row.source === "Vendor Payment";
+
+  // The description is the identity of an expense; the PO/SR number is the identity
+  // of a payment. Line 1 only — a raw line break here would break the row height.
+  const primary = isPayment
+    ? row.document_name || row.name
+    : descriptionFirstLine(row.against_primary);
+
+  // Vendor for a payment; the expense TYPE for an expense (populated 98% / 82%),
+  // falling back to the comment. A blank stays blank — never "N/A".
+  const secondary = isPayment
+    ? vendorLabelFor?.(row.vendor) || row.vendor
+    : row.against_secondary || row.comment_text;
+
+  return (
+    <li className="flex items-start justify-between gap-2 py-1.5 text-xs">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <SourceChip source={row.source} />
+          <span
+            className={`truncate ${isPayment ? "font-mono" : "font-medium"}`}
+            title={row.against_full || primary}
+          >
+            {primary || <span className="text-muted-foreground">(no description)</span>}
+          </span>
+        </div>
+        {secondary && (
+          <div
+            className={`truncate pl-1 text-[11px] ${
+              isPayment
+                ? "text-emerald-700 dark:text-emerald-400 font-medium"
+                : "text-muted-foreground"
+            }`}
+            title={secondary}
+          >
+            {secondary}
+          </div>
+        )}
+      </div>
+      <span className="font-medium whitespace-nowrap tabular-nums">
+        {formatToRoundedIndianRupee(parseNumber(row.amount))}
+      </span>
+    </li>
   );
 };

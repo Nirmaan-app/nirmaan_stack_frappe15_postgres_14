@@ -1,30 +1,41 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ColumnDef, Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
-import { Info, Trash2 } from "lucide-react";
+import { Row } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- UI Components ---
-import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { DataTable } from '@/components/data-table/new-data-table';
 import { Button } from "@/components/ui/button";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 
 // --- Types and Constants ---
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
 
 // --- Hooks & Utils ---
+import { useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { SETTLED_STATUSES } from '@/utils/settlement';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { FacetDeclaration, FacetOverrides } from '@/components/data-table/facetConfig';
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import {
+    APPROVAL_QUEUE_API,
+    APPROVAL_FETCH_FIELDS,
+    APPROVAL_DATE_COLUMNS,
+    APPROVAL_STATUS,
+    APPROVAL_SEARCHABLE_FIELDS,
+    ApprovalQueueRow,
+    ApprovalTab,
+    TAB_COLUMNS,
+    TAB_DEFAULT_SORT,
+} from "../config/approvalsTable.config";
+import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
+import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
+import { useApprovalFacets } from "../config/useApprovalFacets";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { FacetOverrides } from '@/components/data-table/facetConfig';
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { memoize } from "lodash";
@@ -36,10 +47,13 @@ import { unparse } from 'papaparse'; // For CSV export
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "../config/projectPaymentsTable.config";
+import { getProjectPaymentsStaticFilters } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { useDialogStore } from "@/zustand/useDialogStore";
-import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./UpdatePaymentDialog";
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 
@@ -87,9 +101,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
     const { getTotalAmount, getDeliveredAmount } = useOrderTotals()
 
-    const [dialogMode, setDialogMode] = useState<"fulfil" | "delete">("fulfil");
-    const [currentPayment, setCurrent] = useState<ProjectPaymentUpdateFields | null>(null);
-    const { togglePaymentDialog } = useDialogStore();
+    // "Mark as Done" — a plain confirmation, NOT the payment-details dialog.
+    const [confirmDoneRow, setConfirmDoneRow] = useState<ApprovalQueueRow | null>(null);
+    const [markingDone, setMarkingDone] = useState(false);
+    // The payment-details dialog no longer lives on this tab. "Mark as Done" is a
+    // plain confirmation; the UTR / date / proof are captured on the Reconciliation
+    // Pending tab, which is what actually settles the row.
+    const { updateDoc } = useFrappeUpdateDoc();
 
 
     // --- State for Export Dialog ---
@@ -121,7 +139,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         "Vendors_For_Accountant"
     );
 
-    // const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
+    // Re-enabled: without this the "Raised by" column falls back to the raw owner
+    // email, because the column registry resolves names through `ctx.userLabels`.
+    const { data: userList } = useUsersList();
 
 
     // --- Zustand Store & Memoized Lookups ---
@@ -129,29 +149,11 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
 
-    const getVendorName = useCallback(memoize((vendorId: string | undefined): string => {
-        return vendors?.find(vendor => vendor.name === vendorId)?.vendor_name || vendorId || "--";
-    }), [vendors]);
-
 
     const getVendorDetails = useCallback(memoize((vendorId: string | undefined): Vendors | undefined => {
         return vendors?.find(vendor => vendor.name === vendorId);
     }), [vendors]);
 
-    const openDialog = (p: ProjectPayments, m: "fulfil" | "delete") => {
-        setCurrent({
-            name: p.name,
-            project: p.project,  // Project ID for CEO Hold check
-            project_label: projectOptions.find(o => o.value === p.project)?.label ?? p.project,
-            vendor_label: (vendorOptions.find(o => o.value === p.vendor)?.label ?? p.vendor)!,
-            document_name: p.document_name,
-            document_type: p.document_type,
-            amount: p.amount,
-            status: p.status
-        });
-        setDialogMode(m);
-        togglePaymentDialog();
-    };
 
     // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
     //     const vendor = getVendorDetails(vendorId);
@@ -177,139 +179,69 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const staticFilters = useMemo(() => getProjectPaymentsStaticFilters(tab), [tab]);
 
-    const accountantSearchableFields: SearchFieldOption[] = useMemo(() => PP_SEARCHABLE_FIELDS, [])
 
-    const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(["modified"]), []);
+    const dateColumns = useMemo(() => APPROVAL_DATE_COLUMNS, []);
 
-    const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
+    // --- Column Definitions --- (registry + per-tab id array; see config/approvalsTable.config.ts)
+    const projectLabelMap = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const o of projectOptions) m.set(o.value, o.label);
+        return m;
+    }, [projectOptions]);
 
-    const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => [
-        {
-            accessorKey: "approval_date", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
-            cell: ({ row }) => {
-                const payment = row.original;
-                const eventId = tab === "New Payments" ? "payment:ceo_approved" : "payment:paid";
-                const isNew = notifications.find(n => n.docname === payment.name && n.seen === "false" && n.event_id === eventId);
-                return (
-                    <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
-                        {isNew && <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-5 animate-pulse" />}
-                        {formatDate(payment.approval_date)}
-                    </div>
-                );
-            }, size: 150,
-        },
-        {
-            accessorKey: "document_name", header: "#PO / #SR",
-            cell: ({ row }) => {
-                const data = row.original;
-                const docLink = data.document_name.replaceAll("/", "&=")
-                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                    <span className="max-w-[150px] truncate" title={data.document_name}>{data.document_name}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={docLink}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
-                </div>);
-            }, size: 200,
-        },
-        {
-            accessorKey: "vendor", header: "Vendor",
-            cell: ({ row }) => {
-                const vendorName = getVendorName(row.original.vendor);
-                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                    <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
-                </div>);
-            },
-            enableColumnFilter: true, size: 200,
-            meta: {
-                facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
-            },
-        },
-        {
-            accessorKey: "project", header: "Project",
-            cell: ({ row }) => {
-                const project = projectOptions.find(p => p.value === row.original.project);
-                return <div className="font-medium truncate max-w-[150px]" title={project?.label}>{project?.label || row.original.project}</div>;
-            },
-            enableColumnFilter: true, size: 180,
-            meta: {
-                facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
-            },
-        },
-        {
-            id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
-            cell: ({ row }) => {
-                const totalValue = getTotalAmount(row.original.document_name, row.original.document_type).totalWithTax;
-                return <div className="font-medium pr-2">{formatToRoundedIndianRupee(totalValue)}</div>;
-            }, size: 100, enableSorting: false,
-            meta: {
-                exportHeaderName: "WO/PO Value",
-                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmount(row.document_name, row.document_type).totalWithTax),
-            }
-        },
-        {
-            id: "total_paid_for_doc", header: ({ column }) => <DataTableColumnHeader column={column} title="Total Paid" />,
-            cell: ({ row }) => {
-                const amountPaid = getTotalAmountPaidForPO(row.original.document_name, ['Paid']);
-                return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid)}</div>;
-            }, size: 100, enableSorting: false,
-            meta: {
-                exportHeaderName: "Total Paid",
-                exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.document_name, ['Paid'])),
-            }
-        },
-        {
-            id: "payable_against_delivery",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Payable Against Delivery" />,
-            cell: ({ row }) => {
-                const delivered = parseNumber(getDeliveredAmount(row.original.document_name, row.original.document_type));
-                return <div className="font-medium pr-2">{delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}</div>;
-            },
-            size: 100, enableSorting: false,
-            meta: {
-                exportHeaderName: "Payable Against Delivery",
-                exportValue: (row: ProjectPayments) => parseNumber(getDeliveredAmount(row.document_name, row.document_type)),
-            }
-        },
-        {
-            accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />,
-            cell: ({ row }) => <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">{formatToRoundedIndianRupee(row.original.amount)}</div>,
-            enableColumnFilter: true,
-            size: 100,
-        },
-        // // Columns specific to "Fulfilled Payments" tab
-        // ...(tab === "Fulfilled Payments" ? [
-        //     {
-        //         accessorKey: "payment_date", header: ({ column }) => <DataTableColumnHeader column={column} title="Paid On" />,
-        //         cell: ({ row }) => <div className="font-medium whitespace-nowrap">{formatDate(row.original.payment_date)}</div>,
-        //         size: 150,
-        //     },
-        //     {
-        //         accessorKey: "utr", header: "UTR",
-        //         cell: ({ row }) => (
-        //             row.original.payment_attachment ? (
-        //                 <a href={row.original.payment_attachment.startsWith("http") ? row.original.payment_attachment : `${db.host}${row.original.payment_attachment}`}
-        //                    target="_blank" rel="noreferrer" className="font-medium text-blue-600 underline hover:underline-offset-2">
-        //                     {row.original.utr || "View"}
-        //                 </a>
-        //             ) : <div className="font-medium">{row.original.utr || '--'}</div>
-        //         ), size: 150,
-        //     },
-        //     {
-        //         accessorKey: "tds", header: ({ column }) => <DataTableColumnHeader column={column} title="TDS" />,
-        //         cell: ({ row }) => <div className="font-medium text-right pr-2">{row.original.tds ? formatToRoundedIndianRupee(parseNumber(row.original.tds)) : "--"}</div>,
-        //         size: 100,
-        //     }
-        // ] as ColumnDef<ProjectPayments>[] : []), // Type assertion for conditional spread
-        // Actions column for "New Payments" tab
-        ...(tab === "New Payments" ? [{
-            id: "actions", header: "Actions",
-            cell: ({ row }) => (
-                <div className="flex items-center gap-2">
-                    <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => openDialog(row.original, "fulfil")}>Pay</Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={() => openDialog(row.original, "delete")}><Trash2 className="h-4 w-4" /></Button>
-                </div>
-            ), size: 90,
-        } as ColumnDef<ProjectPayments>] : []),
-    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog, getTotalAmountPaidForPO, getTotalAmount, getDeliveredAmount]); // Add dependencies
+    const userLabelMap = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const u of userList ?? []) m.set(u.name, (u as any).full_name || u.name);
+        return m;
+    }, [userList]);
+
+    const vendorLabelMap = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const o of vendorOptions) m.set(o.value, o.label);
+        return m;
+    }, [vendorOptions]);
+
+    const columnCtx = useMemo<ApprovalColumnCtx>(() => ({
+        tab: tab as ApprovalTab,
+        projectLabels: projectLabelMap,
+        vendorLabels: vendorLabelMap,
+        userLabels: userLabelMap,
+        // Adapters: these three helpers have this screen's own shapes.
+        getDocumentTotal: (docName, docType) => getTotalAmount(docName, docType).totalWithTax,
+        getPoAmountDelivered: (docName, docType) => parseNumber(getDeliveredAmount(docName, docType)),
+        // ⚠️ A SETTLED-SPEND SITE (audit D1), done here because the call had to be
+        // written anyway. It read `['Paid']`; settled spend is now Paid AND
+        // Reconciliation Pending. Provably a no-op TODAY — zero rows carry the new
+        // status — so the audit's DIFF = 0 proof is unaffected; without it this
+        // figure would silently under-report the moment the fulfil path switches over.
+        getAmountPaid: (docName) => getTotalAmountPaidForPO(docName, [...SETTLED_STATUSES]),
+        onRecordPayment: (row) => setConfirmDoneRow(row),
+        // Delete is deliberately NOT offered here (owner, 15 Sep). The registry renders
+        // the trash icon only when `onDelete` is supplied, so withholding it is the
+        // whole change — the dialog and its "delete" mode stay intact for any caller
+        // that wants them back.
+        isUnseen: (row) => !!notifications.find(
+            (n) => n.docname === row.name && n.seen === "false"
+        ),
+        onSeen: (row) => handleNewPaymentSeen(
+            notifications.find((n) => n.docname === row.name && n.seen === "false")
+        ),
+    }), [
+        tab, projectLabelMap, vendorLabelMap, userLabelMap, getTotalAmount, getDeliveredAmount,
+        getTotalAmountPaidForPO, notifications, handleNewPaymentSeen,
+    ]);
+
+    const columns = useMemo(
+        () => buildApprovalColumns(TAB_COLUMNS[tab as ApprovalTab], columnCtx),
+        [tab, columnCtx]
+    );
+
+    // Source / Vendor / Project facets, counted over the same union the table reads.
+    const approvalFacets = useApprovalFacets({
+        filters: staticFilters as Array<[string, string, unknown]>,
+        projectLabels: projectLabelMap,
+        vendorLabels: vendorLabelMap,
+    });
 
     // Function to determine if a row can be selected (passed to hook)
     //
@@ -328,16 +260,39 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return !!account && !!ifsc;
     }, [vendors]);
 
-    const canPaymentRowBeSelected = useCallback((row: Row<ProjectPayments>): boolean => {
-        if (tab === "New Payments") {
-            return hasBankDetails(row.original.vendor);
-        }
-        return false; // By default, other tabs might not have selectable rows
+    const canPaymentRowBeSelected = useCallback((row: Row<ApprovalQueueRow>): boolean => {
+        if (tab !== "New Payments") return false;
+        // ⚠️ SELECTABLE ≠ EXPORTABLE. All three ledgers can be ticked, so "select all"
+        // means all the rows on the page — but the bank-transfer CSV is a VENDOR payout
+        // file, and an expense has no vendor and no bank row to write. The export filters
+        // them back out (see exportSelectedToCSV); this gate must not, or the checkbox
+        // silently refuses rows the accountant is looking straight at.
+        //
+        // Note this is NOT the bank-details rule: an expense is fully actionable here via
+        // its own Mark-as-Done button, so it must never pick up NO_BANK_DETAILS_ROW_CLASSES
+        // (those carry pointer-events-none and would kill that button).
+        if (row.original.source !== "Vendor Payment") return true;
+        return hasBankDetails(row.original.vendor);
     }, [hasBankDetails, tab]);
 
     // --- CEO Hold Row Highlighting ---
+
+
+    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
+    //
+    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
+    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
+    // changed EXPENSE never reaches it, even though expense rows are in this table.
+    // These two listeners close that gap for both expense ledgers.
+    //
+    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
+    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
+    // and every mutate() in the hook is commented out.)
+    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
+    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+
     const getRowClassName = useCallback(
-        (row: Row<ProjectPayments>) => {
+        (row: Row<ApprovalQueueRow>) => {
             // CEO hold stays first: it is a safety signal and must not be dimmed away. Such a
             // row is already unpayable, and its checkbox is disabled by the bank-details rule
             // anyway, so nothing is lost by letting the red win.
@@ -345,7 +300,16 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             if (projectId && ceoHoldProjectIds.has(projectId)) {
                 return CEO_HOLD_ROW_CLASSES;
             }
-            if (tab === "New Payments" && !hasBankDetails(row.original.vendor)) {
+            // ⚠️ SCOPED TO VENDOR PAYMENTS. These classes carry `pointer-events-none`,
+            // so applying them to an expense row would grey it out AND make its own
+            // Mark-as-Paid button unclickable — a row the accountant is supposed to
+            // act on, rendered dead, for a reason ("no bank details") that does not
+            // apply to a ledger with no vendor field at all.
+            if (
+                tab === "New Payments"
+                && row.original.source === "Vendor Payment"
+                && !hasBankDetails(row.original.vendor)
+            ) {
                 return NO_BANK_DETAILS_ROW_CLASSES;
             }
             return undefined;
@@ -362,16 +326,67 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         refetch,
         exportAllRows,
         isExporting,
-    } = useServerDataTable<ProjectPayments>({
+    } = useServerDataTable<ApprovalQueueRow>({
+        // Nominal: the endpoint unions all three money-out ledgers.
         doctype: DOCTYPE,
+        apiEndpoint: APPROVAL_QUEUE_API,
         columns: columns,
-        searchableFields: accountantSearchableFields,
-        fetchFields: fieldsToFetch,
+        searchableFields: APPROVAL_SEARCHABLE_FIELDS,
+        fetchFields: APPROVAL_FETCH_FIELDS,
         urlSyncKey: urlSyncKey,
-        defaultSort: tab === "New Payments" ? 'modified desc' : 'payment_date desc',
+        defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
     });
+
+    // ⚠️ TWO EXPORTS ON THIS TAB, AND THEY ARE NOT VARIANTS OF EACH OTHER.
+    // The built-in Export button emits the BANK PAYOUT FILE (ICICI PAB_VENDOR or the
+    // Cashfree template) from the ticked rows — a file you upload to a bank, whose
+    // columns are the bank's, not the table's. It is selection-driven by design.
+    // This second button emits the TABLE as a CSV: every column, every filtered row,
+    // no selection needed. Labelled "Export table" so the two are never confused —
+    // uploading the wrong one of these to a bank is not a recoverable mistake.
+    const { exportAll, isExportingAll } = useApprovalQueueExport({
+        exportAllRows,
+        columnCtx,
+        fileName: `Payments_To_Be_Paid_${formatDate(new Date())}`,
+    });
+
+    /**
+     * Approved → Reconciliation Pending.
+     *
+     * ⚠️ Writes to the ROW'S OWN doctype, never a hard-coded one: this queue holds
+     * Project Payments, Project Expenses and Non Project Expenses, and `row.doctype`
+     * is the only thing that says which. The status string is identical on all three.
+     *
+     * This is the MONEY-OUT event — the moment the system says the cash has left.
+     * The UTR, date and proof are captured afterwards on the Reconciliation Pending
+     * tab, which is what moves it to Paid.
+     */
+    const handleMarkDone = useCallback(async () => {
+        if (!confirmDoneRow) return;
+        setMarkingDone(true);
+        try {
+            await updateDoc(confirmDoneRow.doctype, confirmDoneRow.name, {
+                status: APPROVAL_STATUS.RECONCILIATION_PENDING,
+            });
+            toast({
+                title: "Marked as Done",
+                description: `${confirmDoneRow.against_primary} moved to Reconciliation Pending.`,
+                variant: "success",
+            });
+            setConfirmDoneRow(null);
+            await refetch();
+        } catch (e: any) {
+            toast({
+                title: "Could not mark as Done",
+                description: e?.message || "Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setMarkingDone(false);
+        }
+    }, [confirmDoneRow, updateDoc, toast, refetch]);
 
     // --- CSV Export Logic using papaparse ---
     const handlePrepareExport = () => {
@@ -404,7 +419,27 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
 
-        const buildIciciRows = () => rowsToExport.map(row => {
+        // ⚠️ THE BANK FILE IS A VENDOR PAYOUT FILE — the selection is not.
+        // Expense rows (Project Expenses / Non Project Expenses) are selectable so that
+        // "select all" behaves, but they carry no vendor and would export a blank
+        // beneficiary account + IFSC. ICICI and Cashfree both accept such a file at upload
+        // and only reject the individual rows afterwards, so the filter has to happen HERE,
+        // not at the bank. Skipped rows are reported in the toast rather than dropped
+        // silently — the accountant must know the file is shorter than their selection.
+        const payableRows = rowsToExport.filter(row => row.original.source === "Vendor Payment");
+        const skippedCount = rowsToExport.length - payableRows.length;
+
+        if (payableRows.length === 0) {
+            toast({
+                title: "Nothing to export",
+                description: "Expenses have no vendor bank details, so they cannot go in a bank transfer file. Select at least one vendor payment.",
+                variant: "destructive",
+            });
+            setIsExportDialogOpen(false);
+            return;
+        }
+
+        const buildIciciRows = () => payableRows.map(row => {
             const payment = row.original;
             const vendorDetails = getVendorDetails(payment.vendor); // Use the memoized helper
             return {
@@ -438,7 +473,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // landing on the same millisecond 115 days apart to collide.
         const batchStamp = String(Date.now()).slice(-10);
 
-        const buildCashfreeRows = () => rowsToExport.map((row, idx) => {
+        const buildCashfreeRows = () => payableRows.map((row, idx) => {
             const payment = row.original;
             const vendorDetails = getVendorDetails(payment.vendor);
             const projectLabel = projectOptions.find(o => o.value === payment.project)?.label ?? payment.project;
@@ -487,7 +522,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         link.click();
         document.body.removeChild(link);
 
-        toast({ title: "Export Successful", description: `${csvData.length} payments exported.`, variant: "success" });
+        toast({
+            title: "Export Successful",
+            description: skippedCount > 0
+                ? `${csvData.length} payments exported. ${skippedCount} expense${skippedCount > 1 ? "s" : ""} skipped — no vendor bank details to pay into.`
+                : `${csvData.length} payments exported.`,
+            variant: "success",
+        });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
     };
@@ -505,13 +546,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             {isLoadingOverall && !data?.length ? ( // Show skeleton on initial full load
                 <TableSkeleton />
             ) : (
-                <DataTable<ProjectPayments>
+                <DataTable<ApprovalQueueRow>
                     table={table}
                     columns={columns}
                     isLoading={listIsLoading} // Pass specific loading state for table
                     error={listError}
                     totalCount={totalCount}
-                    searchFieldOptions={accountantSearchableFields}
+                    searchFieldOptions={APPROVAL_SEARCHABLE_FIELDS}
                     selectedSearchField={selectedSearchField}
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
@@ -534,6 +575,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                         vendor: { additionalFilters: staticFilters },
                     } satisfies FacetOverrides}
                     dateFilterColumns={dateColumns}
+                    facetFilterOptions={approvalFacets}
+                    // `exportIgnoresSelection` used to sit here. `DataTable` declares
+                    // no such prop and never read it — it was a silent no-op stating an
+                    // intent the code did not implement. Removed rather than honoured:
+                    // this button's selection-scoping is correct (it builds a payout
+                    // file), and the export that genuinely ignores selection is the
+                    // "Export table" button in `toolbarActions` below.
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
                     onExportAll={exportAllRows}
@@ -541,6 +589,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
                     showRowSelection={isRowSelectionActive}
                     getRowClassName={getRowClassName}
+                    toolbarActions={
+                        <ApprovalExportButton
+                            onClick={exportAll}
+                            isExporting={isExportingAll}
+                            label="Export table"
+                        />
+                    }
                 />
             )}
 
@@ -599,13 +654,49 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 </DialogContent>
             </Dialog>
 
-            {currentPayment && (
-                <UpdatePaymentRequestDialog
-                    mode={dialogMode}
-                    payment={currentPayment}
-                    onSuccess={() => refetch()}   // your list refetch
-                />
-            )}
+            <AlertDialog
+                open={!!confirmDoneRow}
+                onOpenChange={(open) => { if (!open && !markingDone) setConfirmDoneRow(null); }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Mark this payment as Done?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm">
+                                <p>
+                                    This records that the money has gone out. It moves to{" "}
+                                    <span className="font-medium text-foreground">Reconciliation Pending</span>,
+                                    where you add the UTR and proof to finish it.
+                                </p>
+                                {confirmDoneRow && (
+                                    <div className="rounded border bg-muted/40 p-2">
+                                        <div className="font-medium text-foreground">
+                                            {confirmDoneRow.against_primary}
+                                        </div>
+                                        <div className="text-muted-foreground">
+                                            {formatToRoundedIndianRupee(confirmDoneRow.amount)}
+                                            {confirmDoneRow.vendor
+                                                ? ` · ${vendorLabelMap.get(confirmDoneRow.vendor) || confirmDoneRow.vendor}`
+                                                : ""}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={markingDone}>No</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => { e.preventDefault(); handleMarkDone(); }}
+                            disabled={markingDone}
+                            className="bg-green-600 hover:bg-green-700"
+                        >
+                            {markingDone ? "Marking…" : "Yes, mark as Done"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
         </div>
     );
 };

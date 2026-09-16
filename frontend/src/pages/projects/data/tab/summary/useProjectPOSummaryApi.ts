@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
+import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
 
 interface POAmountsDict {
   [key: string]: {
@@ -102,7 +104,7 @@ export const useProjectPOSupportingData = (projectId?: string) => {
     "Critical PO Tasks",
     {
       fields: ["name", "critical_po_category", "item_name", "sub_category",
-               "po_release_date", "status", "associated_pos"],
+               "po_release_date", "status"],
       filters: projectId ? [["project", "=", projectId]] : [],
       limit: 0,
     },
@@ -130,9 +132,20 @@ export const useProjectPOSupportingData = (projectId?: string) => {
     entity_id: projectId,
   });
 
+  // Which POs each task has comes from the Critical PO Task Child Table.
+  const links = useProjectPOTaskLinks(projectId || "", !!projectId);
+  const criticalPOTasksData = useMemo(
+    () => attachLinkedPOs(criticalPOTasksResponse.data, links.taskPOMap),
+    [criticalPOTasksResponse.data, links.taskPOMap]
+  );
+
   return {
     projectsResponse,
     projectPaymentsResponse,
-    criticalPOTasksResponse,
+    criticalPOTasksResponse: {
+      ...criticalPOTasksResponse,
+      data: criticalPOTasksData,
+      isLoading: criticalPOTasksResponse.isLoading || links.isLoading,
+    },
   };
 };

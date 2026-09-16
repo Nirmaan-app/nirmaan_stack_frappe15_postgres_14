@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { PMO_PROJECT_REPORTS, REPORTS_TABS } from '../constants'; // Adjust path
 import {
     MATERIAL_PROCUREMENT_PROFILES,
+    PAYMENT_TDS_ACCESS,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
     isProcurementProfile,
@@ -20,8 +21,11 @@ export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reco
 
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 
+// Tax Deducted at Source. The tab's only report today, so the dropdown renders it disabled.
+export type PaymentTDSReportType = 'TDS Deduction';
+
 // Combined type for any selectable report
-export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | null;
+export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | PaymentTDSReportType | null;
 
 interface ReportState {
     // Keep track of the *type* of report selected for export/filtering
@@ -86,6 +90,13 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
     } else if (tab === REPORTS_TABS.DCS_MIRS) {
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'DC Report';
+        }
+        return null;
+    } else if (tab === REPORTS_TABS.PAYMENT_TDS) {
+        // Reads the SAME constant as the tab itself and the legacy-route redirect, so the
+        // default can never name a report the user's own dropdown does not offer.
+        if (PAYMENT_TDS_ACCESS.includes(userRole || "")) {
+            return 'TDS Deduction';
         }
         return null;
     }

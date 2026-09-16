@@ -218,6 +218,10 @@ interface PaymentStats {
     total_requested_payment_amount: number;
     total_ceo_pending_count: number;
     total_ceo_pending_amount: number;
+    /** Money that has LEFT the bank, awaiting bank confirmation. 0 until the
+     *  fulfil path writes the status — an honest zero, same as the tab. */
+    total_reconciliation_pending_count: number;
+    total_reconciliation_pending_amount: number;
     total_approval_done_today: number;
     total_approval_done_today_amount: number;
     total_approval_done_7_days: number;
@@ -237,10 +241,27 @@ interface PaymentStats {
     // --- Cash flow (last 30 days) ---
     total_inflow_30_days_count: number;
     total_inflow_30_days_amount: number;
+    // Never netted against outflow (ADR-0016 A-D4).
+    total_non_project_inflow_30_days_count: number;
+    total_non_project_inflow_30_days_amount: number;
     total_project_outflow_30_days_count: number;
     total_project_outflow_30_days_amount: number;
     total_non_project_expense_30_days_count: number;
     total_non_project_expense_30_days_amount: number;
+    /**
+     * Total Unreconciled Outflow (#1286) — bank money that has left the account and still owes
+     * somebody a decision in Bulk Import.
+     *
+     * ⚠️ IT IS ALL TIME, NOT 30 DAYS, although it renders inside the "Outflow (30 Days)" column.
+     * The label says so; the figure covers every import, every source and every date, and must
+     * never be added to the two 30-day outflow figures beside it.
+     *
+     * ⚠️ IT IS THE SERVER'S PASS-THROUGH OF Bulk Import's own "Still open / Paid out" with no
+     * filters. Never re-derive it here, and never sum it with anything: the whole requirement is
+     * that this card and that screen show the same number.
+     */
+    total_unreconciled_outflow_amount: number;
+    total_unreconciled_outflow_count: number;
 }
 
 const formatToRoundedIndianRupee = (value: number) =>
@@ -284,7 +305,6 @@ const getAccent = (type: string) => {
 };
 
 const getHoverText = (label: string) => {
-    if (label.includes("Total Inflow")) return "Total money received (Project Inflows) in the last 30 days.";
     if (label.includes("Total Outflow")) return "Total money paid out in the last 30 days — project payments (PO/WO) plus non-project expenses.";
     if (label.includes("Pending Payment Request")) return "Payments Requested but not yet Approved.";
     if (label.includes("Pending Payment Approval")) return "All payments awaiting an approval gate (Requested + CEO Pending).";
@@ -443,10 +463,15 @@ const RecentActivityTile: React.FC<{
     // Cash flow (last 30 days)
     inflowAmount: number;
     inflowCount: number;
+    nonProjectInflowAmount: number;
+    nonProjectInflowCount: number;
     projectOutflowAmount: number;
     projectOutflowCount: number;
     nonProjectOutflowAmount: number;
     nonProjectOutflowCount: number;
+    // Total Unreconciled Outflow (#1286) — ALL TIME, not 30 days. See `PaymentStats`.
+    unreconciledOutflowAmount: number;
+    unreconciledOutflowCount: number;
 }> = ({
     l1TodayAmount, l1TodayCount,
     ceoTodayAmount, ceoTodayCount,
@@ -457,8 +482,10 @@ const RecentActivityTile: React.FC<{
     paidTodayAmount, paidTodayCount,
     paid7dAmount, paid7dCount,
     inflowAmount, inflowCount,
+    nonProjectInflowAmount, nonProjectInflowCount,
     projectOutflowAmount, projectOutflowCount,
     nonProjectOutflowAmount, nonProjectOutflowCount,
+    unreconciledOutflowAmount, unreconciledOutflowCount,
 }) => (
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
             <div className="w-1 shrink-0 bg-emerald-500 dark:bg-emerald-600" />
@@ -495,13 +522,16 @@ const RecentActivityTile: React.FC<{
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid (7 days)" amount={paid7dAmount} count={paid7dCount} />
                     </div>
                 </div>
-                {/* Cash flow (last 30 days) — Inflow | Outflow (project PO/WO + non-project) */}
+                {/* Cash flow (last 30 days) — Inflow (project | non-project) | Outflow (project PO/WO + non-project).
+                    The non-project inflow is its own figure: never summed with project inflow and never
+                    netted against outflow (ADR-0016 A-D4). */}
                 <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-slate-200 dark:divide-slate-700 gap-y-2">
                         {/* INFLOW */}
                         <div className="space-y-1 sm:pr-4">
                             <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Inflow (30 Days)</div>
-                            <BreakdownRow tone="emerald" label="Inflow" labelLong="Total Inflow" amount={inflowAmount} count={inflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
+                            <BreakdownRow tone="emerald" label="Project" labelLong="Project Inflow" amount={inflowAmount} count={inflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
+                            <BreakdownRow tone="blue" label="Non-Project" labelLong="Non-Project Inflow" amount={nonProjectInflowAmount} count={nonProjectInflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
                         </div>
                         {/* OUTFLOW */}
                         <div className="space-y-1 sm:pl-4">
@@ -513,6 +543,17 @@ const RecentActivityTile: React.FC<{
                             </div>
                             <BreakdownRow tone="red" label="Project" labelLong="Project (PO+WO + Exp)" amount={projectOutflowAmount} count={projectOutflowCount} amountClassName="text-primary" />
                             <BreakdownRow tone="amber" label="Non-Project" labelLong="Non-Project Expense" amount={nonProjectOutflowAmount} count={nonProjectOutflowCount} amountClassName="text-primary" />
+                            {/* ⚠️ ALL TIME, NOT 30 DAYS — it sits in this column because it is outflow,
+                                not because it shares the window. It is deliberately BELOW a rule, and
+                                is NOT part of the column's "Outflow (30 Days)" total above: adding it
+                                there would sum two different periods into one figure. Same number as
+                                Bulk Import's unfiltered "Still open / Paid out" (#1286). */}
+                            <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+                            {/* ⚠️ ONE LABEL, NO SHORT VARIANT. Every other row here swaps a short label
+                                in below `lg:`; this one must read "Total Unreconciled Outflow" at every
+                                width, because that exact wording is what the ticket asks the card to
+                                show. It truncates on a narrow card like the rows above it. */}
+                            <BreakdownRow tone="violet" label="Total Unreconciled Outflow" amount={unreconciledOutflowAmount} count={unreconciledOutflowCount} amountClassName="text-primary" />
                         </div>
                     </div>
                 </div>
@@ -549,10 +590,10 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
     // --- REFETCH ON INFLOW / EXPENSE / NON-PROJECT-EXPENSE CHANGES ---
     // Project Payments already refreshes via the totalCount effect above. The
     // summary also folds in Project Inflows, Project Expenses, and Non Project
-    // Expenses (see get_payment_dashboard_stats) — but those live on separate
-    // pages, so their add/update/delete never moved totalCount and the summary
-    // went stale. Listen to Frappe's built-in list_update realtime for those
-    // three doctypes and refetch (debounced so a burst collapses to one call).
+    // Expenses, Non Project Inflows (see get_payment_dashboard_stats) — but those
+    // live on separate pages, so their add/update/delete never moved totalCount
+    // and the summary went stale. Listen to Frappe's built-in list_update realtime
+    // for those doctypes and refetch (debounced so a burst collapses to one call).
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const scheduleRefetch = useCallback(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -564,6 +605,7 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
     useFrappeDocTypeEventListener("Project Inflows", scheduleRefetch);
     useFrappeDocTypeEventListener("Project Expenses", scheduleRefetch);
     useFrappeDocTypeEventListener("Non Project Expenses", scheduleRefetch);
+    useFrappeDocTypeEventListener("Non Project Inflows", scheduleRefetch);
 
     useEffect(() => () => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -669,17 +711,35 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                         </div>
                     </div>
                     {/* Cash flow (last 30 days) */}
-                    <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="grid grid-cols-3 gap-2 mt-2">
                         <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-2 border border-emerald-100 dark:border-emerald-900/50">
-                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Inflow (30d)</span>
+                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Proj. Inflow (30d)</span>
                             <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                                 {formatToRoundedIndianRupee(stats.total_inflow_30_days_amount)}
+                            </span>
+                        </div>
+                        <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-2 border border-emerald-100 dark:border-emerald-900/50">
+                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Non-Proj. Inflow (30d)</span>
+                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_non_project_inflow_30_days_amount)}
                             </span>
                         </div>
                         <div className="bg-red-50 dark:bg-red-950/30 rounded-md p-2 border border-red-100 dark:border-red-900/50">
                             <span className="text-[9px] font-medium text-red-600 dark:text-red-400 uppercase block">Outflow (30d)</span>
                             <span className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
                                 {formatToRoundedIndianRupee(stats.total_project_outflow_30_days_amount + stats.total_non_project_expense_30_days_amount)}
+                            </span>
+                        </div>
+                    </div>
+                    {/* Total Unreconciled Outflow (#1286) — ALL TIME, so it gets its own full-width
+                        row rather than a fourth cell in the 30-day grid above. Its count rides
+                        beside the amount: the backlog's size is half of what the figure says. */}
+                    <div className="mt-2">
+                        <div className="bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
+                            <span className="text-[9px] font-medium text-violet-600 dark:text-violet-400 uppercase block">Total Unreconciled Outflow</span>
+                            <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_unreconciled_outflow_amount)}
+                                <span className="text-[10px] font-semibold ml-1">({stats.total_unreconciled_outflow_count})</span>
                             </span>
                         </div>
                     </div>
@@ -735,10 +795,14 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 paid7dCount={stats.payment_done_7_days}
                                 inflowAmount={stats.total_inflow_30_days_amount}
                                 inflowCount={stats.total_inflow_30_days_count}
+                                nonProjectInflowAmount={stats.total_non_project_inflow_30_days_amount}
+                                nonProjectInflowCount={stats.total_non_project_inflow_30_days_count}
                                 projectOutflowAmount={stats.total_project_outflow_30_days_amount}
                                 projectOutflowCount={stats.total_project_outflow_30_days_count}
                                 nonProjectOutflowAmount={stats.total_non_project_expense_30_days_amount}
                                 nonProjectOutflowCount={stats.total_non_project_expense_30_days_count}
+                                unreconciledOutflowAmount={stats.total_unreconciled_outflow_amount}
+                                unreconciledOutflowCount={stats.total_unreconciled_outflow_count}
                             />
                         </div>
                     </div>

@@ -71,6 +71,8 @@ PURE_MODULES = [
     # The two BCS column-confirmation rules (BCS-S1a relocation). Pure by contract: its
     # ONE framework touch is frappe.throw, which this check does not count.
     "nirmaan_stack/services/boq_bcs/sources.py",
+    # The Non Project Inflows type rule (#1266): read by the doctype validate and the import service.
+    "nirmaan_stack/services/non_project_inflows.py",
 ]
 
 

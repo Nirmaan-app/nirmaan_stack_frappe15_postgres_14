@@ -20,7 +20,9 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [domain/expenses.md](domain/expenses.md) | Expenses | Expense doctypes, approval flow, project scoping |
 | [domain/invoice-autofill.md](domain/invoice-autofill.md) | Invoice autofill | Invoice field autofill behaviour |
 | [domain/invoice-qty.md](domain/invoice-qty.md) | Invoice quantities | Invoiced-quantity derivation and reconciliation |
+| [domain/non-project-inflows.md](domain/non-project-inflows.md) | Non-Project Inflows | Company money-in with no project/customer: doctype, validation, role permissions, receipt adoption, the `/non-project-inflows` page (#1265, ADR-0016 Amendment A) |
 | [domain/outflow-import.md](domain/outflow-import.md) | Bulk Import Outflow | Bank-statement import that settles Approved→Paid across the three ledgers: matcher, status deriver, tolerance, decision screen |
+| [domain/payment-tds.md](domain/payment-tds.md) | Payment TDS (tax deducted at source) | Deduction + TDS Challan Attachment doctypes, the recompute-from-source rule for `reconciled_amount`, paying under a challan, restating a deduction when a payment is edited, Gemini challan extraction, the Reports-hub ledger. **Not** the Technical Data Sheet family |
 
 ### Frontend Context (in `frontend/.claude/context/`)
 

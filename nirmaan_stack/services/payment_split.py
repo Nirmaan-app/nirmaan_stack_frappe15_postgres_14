@@ -9,6 +9,9 @@ TWO CALLERS, ONE CONCEPT (generalised at slice PS-1)
     bank statement. ``Approved`` in; BOTH halves come out Approved, because the
     money was already sanctioned and the import approves nothing.
 
+AND ONE INVERSE (#1279): ``unsplit_payment`` joins a balance back into the payment it
+was split from. The outflow import's Unreconcile of a part payment calls it.
+
 ⚠️ THE SECOND CALLER MUST NOT FORK THIS MODULE, AND THAT IS AN ADR-0010 B1 RULE
 rather than a preference. "Split a payment, preserve the sum exactly, re-write the
 PO's terms" is ONE concept, so it gets ONE owning module. Two copies would put two
@@ -101,6 +104,7 @@ def split_payment(
     keep_amount: float,
     *,
     expect_status: str = SOURCE_STATUS,
+    keep_status: str = APPROVED_STATUS,
     remainder_status: str = SOURCE_STATUS,
     stamp_ceo_approval: bool = True,
 ) -> dict:
@@ -109,6 +113,17 @@ def split_payment(
     ``expect_status``
         The status the payment must be in NOW, or the split is refused. ``CEO Pending``
         for a partial approval; ``Approved`` for a partial settlement.
+    ``keep_status``
+        What the kept half is left at. It also drives the kept PO TERM's status, for the same
+        1:1-mirror reason as ``remainder_status`` below. ``Approved`` by default, which is what
+        both callers wanted until #1283: the CEO is approving it now, and a settlement's half was
+        approved before the bank moved.
+
+        ⚠️ IT WAS HARD-CODED, AND THE DOCSTRING CALLED THAT DELIBERATE, UNTIL #1284. The payment
+        lifecycle gained ``Reconciliation Pending`` after ``Approved`` (#1282), and a split there
+        that forced the kept half back to ``Approved`` moved a payment BACKWARDS -- and on a Work
+        Order payment, any save into ``Approved`` withholds tax again. Keep the default: the CEO
+        path and every existing test depend on it.
     ``remainder_status``
         What the balance half is created at. It also drives the balance PO TERM's
         status, because the controller mirrors payment status to term status 1:1 —
@@ -118,11 +133,6 @@ def split_payment(
         approval, because that IS the approval. ⚠️ FALSE for a partial settlement:
         the CEO's date, if there is one, already sits on the record, and stamping
         today's date would rewrite an approval fact to record a payment event.
-
-    ⚠️ THE KEPT HALF IS ALWAYS ``Approved`` AND IS DELIBERATELY NOT A PARAMETER. Both
-    callers agree on it, from opposite directions — the CEO is approving it now, and
-    the settlement's half was approved before the bank moved. A parameter here would
-    be an invitation to write a status no caller wants.
 
     Returns a dict describing what moved. Raises (rolling the savepoint back) on any
     guard failure or write error — callers get all of it or none of it.
@@ -253,7 +263,7 @@ def split_payment(
 
         # ── 2. The original, trimmed ────────────────────────────────────────
         pay.amount = approved
-        pay.status = APPROVED_STATUS
+        pay.status = keep_status
         if stamp_ceo_approval:
             pay.ceo_approval_date = nowdate()
         # ⚠️ SET ON BOTH PATHS, including the one where it is currently redundant. On a
@@ -274,6 +284,7 @@ def split_payment(
                 remainder_payment=remainder_doc.name,
                 approved=approved,
                 remainder=remainder,
+                kept_term_status=keep_status,
                 remainder_term_status=remainder_status,
             )
             if term_synced:
@@ -315,6 +326,7 @@ def _split_po_term(
     remainder_payment,
     approved,
     remainder,
+    kept_term_status: str = APPROVED_STATUS,
     remainder_term_status: str = SOURCE_STATUS,
 ) -> bool:
     """Shrink the original term and append a balance term. In memory — caller saves.
@@ -324,11 +336,11 @@ def _split_po_term(
     The two amounts sum to what the single term held before, so the PO's
     "terms must add up to the PO total" check is untouched by construction.
 
-    ⚠️ ``remainder_term_status`` MIRRORS THE BALANCE PAYMENT'S STATUS, and the caller
-    passes one value for both on purpose — the controller's own contract is that a PO
-    term's status tracks its payment's 1:1, so letting these two be set independently
-    would be a way to break that invariant from inside the function that exists to
-    preserve it.
+    ⚠️ ``kept_term_status`` MIRRORS THE KEPT PAYMENT'S STATUS and ``remainder_term_status``
+    THE BALANCE PAYMENT'S. ``split_payment`` passes the SAME variable to a payment and to
+    its term on purpose — the controller's own contract is that a PO term's status tracks
+    its payment's 1:1, so letting a term's status be set apart from its payment's would
+    be a way to break that invariant from inside the function that exists to preserve it.
     """
     term = next(
         (t for t in (po_doc.get("payment_terms") or []) if t.project_payment == original_payment),
@@ -345,7 +357,7 @@ def _split_po_term(
 
     term.amount = approved
     term.percentage = _percentage(approved, po_total)
-    term.term_status = APPROVED_STATUS
+    term.term_status = kept_term_status
 
     po_doc.append("payment_terms", {
         "label": balance_label,
@@ -362,6 +374,141 @@ def _split_po_term(
         "project_payment": remainder_payment,
     })
     return True
+
+
+def unsplit_payment(
+    original_name: str,
+    leftover_name: str,
+    *,
+    expect_leftover_status: str | tuple[str, ...] = APPROVED_STATUS,
+) -> dict:
+    """The inverse of ``split_payment``: join ``leftover_name`` back into ``original_name`` (#1279).
+
+    Deletes the leftover, sets the original's amount to kept + leftover, and folds a PO's balance term
+    back into the original's. The original's STATUS is the caller's (the outflow import reverts it next).
+    One implementation of the sum invariant in each direction, side by side (ADR-0010 B1).
+
+    ``expect_leftover_status``: ``Approved`` (a partial settlement's balance) by default. It accepts a
+    TUPLE as well as one status, because a settlement's balance has been created at two different
+    statuses over this feature's life -- see the caller in ``api/outflow_import/unreconcile_split.py``.
+    Both are refused the same way; the message lists whichever were allowed.
+
+    ⚠️ WHETHER THE LEFTOVER IS SAFE TO DELETE IS THE CALLER'S QUESTION
+    (``services/outflow_import/unsplit.py``). This refuses only what breaks the inverse: a leftover not
+    this payment's, at another status, or split again, or a balance term with no term to fold into.
+
+    The split's transaction shape: both payments and the PO ``FOR UPDATE``, one savepoint, one PO save.
+    Nothing commits; the caller holds shut any trash hook that would (``_outflow_import_write``).
+    """
+    frappe.db.sql(
+        'SELECT name FROM "tabProject Payments" WHERE name IN %s ORDER BY name FOR UPDATE',
+        ((original_name, leftover_name),),
+    )
+    pay = frappe.get_doc("Project Payments", original_name)
+    leftover = frappe.get_doc("Project Payments", leftover_name)
+
+    if (leftover.split_from or "") != pay.name:
+        frappe.throw(
+            _("{0} is not the balance carried forward from {1}, so it cannot be joined back.").format(
+                leftover.name, pay.name
+            )
+        )
+    allowed = (
+        (expect_leftover_status,)
+        if isinstance(expect_leftover_status, str)
+        else tuple(expect_leftover_status)
+    )
+    if leftover.status not in allowed:
+        frappe.throw(
+            _("The balance {0} is '{1}', not '{2}', so the split cannot be undone.").format(
+                leftover.name, leftover.status, " or ".join(allowed)
+            )
+        )
+    if frappe.db.exists("Project Payments", {"split_from": leftover.name}):
+        frappe.throw(
+            _("The balance {0} was split again. Undo that split first.").format(leftover.name)
+        )
+
+    kept = flt(pay.amount)
+    carried = flt(leftover.amount)
+    # NOT re-rounded, mirroring the split's plain subtraction.
+    restored = kept + carried
+
+    po_doc = None
+    if pay.document_type == "Procurement Orders":
+        frappe.db.sql(
+            'SELECT name FROM "tabProcurement Orders" WHERE name = %s FOR UPDATE',
+            pay.document_name,
+        )
+        po_doc = frappe.get_doc("Procurement Orders", pay.document_name)
+
+    savepoint = f"pay_unsplit_{frappe.generate_hash(length=12)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        # ── 1. The PO terms first: the balance term's Link names the leftover ──
+        terms_merged = None
+        if po_doc is not None:
+            terms_merged = _merge_po_terms(po_doc, pay.name, leftover.name)
+            if terms_merged:
+                po_doc.save(ignore_permissions=True)
+
+        # ── 2. The original, restored ───────────────────────────────────────
+        pay.amount = restored
+        # ⚠️ The same PO-lock reason `split_payment` sets it for: the controller must not re-load
+        # and re-save the PO this function holds.
+        pay.flags.split_approval = True
+        pay.save(ignore_permissions=True)
+
+        # ── 3. The leftover, gone ───────────────────────────────────────────
+        _delete_leftover(leftover.name)
+    except Exception:
+        frappe.db.rollback(save_point=savepoint)
+        raise
+
+    frappe.db.release_savepoint(savepoint)
+
+    return {
+        "original_payment": pay.name,
+        "leftover_payment": leftover.name,
+        "kept_amount": kept,
+        "leftover_amount": carried,
+        "restored_amount": restored,
+        "po_name": po_doc.name if po_doc is not None else None,
+        "terms_merged": terms_merged,
+    }
+
+
+def _merge_po_terms(po_doc, original_payment, leftover_payment) -> bool:
+    """Fold the leftover's term back into the original's. In memory -- caller saves. False when there
+    is no balance term (the split's orphan case). ⚠️ AMOUNTS ARE ADDED, never re-derived from the
+    payment, so the terms still sum to the PO total; the label is the original's (no " (Balance)")."""
+    terms = po_doc.get("payment_terms") or []
+    kept = next((t for t in terms if t.project_payment == original_payment), None)
+    balance = next((t for t in terms if t.project_payment == leftover_payment), None)
+    if balance is None:
+        return False
+    if kept is None:
+        frappe.throw(
+            _("PO {0} has a term for the balance {1} but none for {2}, so the terms cannot be "
+              "joined back.").format(po_doc.name, leftover_payment, original_payment)
+        )
+
+    kept.amount = flt(kept.amount) + flt(balance.amount)
+    kept.percentage = _percentage(kept.amount, flt(po_doc.total_amount) or 1)
+    po_doc.remove(balance)
+    for idx, term in enumerate(po_doc.get("payment_terms") or [], start=1):
+        term.idx = idx
+    return True
+
+
+def _delete_leftover(name: str) -> None:
+    """Delete the balance payment. Its own function so a test can fail it mid-way.
+
+    ⚠️ `force=True` SKIPS THE LINK CHECK, AND THAT IS NEEDED: a Reversed outflow match record (a transfer
+    that paid this balance and was unreconciled) keeps a Dynamic Link to it forever. The trash hooks
+    still run -- the term was folded away first, so the controller's term sync finds nothing to touch.
+    """
+    frappe.delete_doc("Project Payments", name, force=True, ignore_permissions=True)
 
 
 def _percentage(amount: float, po_total: float) -> str:

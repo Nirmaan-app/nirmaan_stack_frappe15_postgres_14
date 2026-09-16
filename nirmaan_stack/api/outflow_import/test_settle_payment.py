@@ -17,7 +17,8 @@ The properties that matter, in the order they would hurt if they broke:
      rows written and four not. A payment save fires two hooks that each committed mid-save until
      V2, and a commit inside the savepoint makes the rollback a silent no-op -- the failure mode is
      a HALF-WRITTEN settlement that looks fine.
-  2. ONLY `Approved` SETTLES, re-asserted under a row lock rather than trusting the screen.
+  2. ONLY `Reconciliation Pending` SETTLES (#1289 -- it was `Approved` until the lifecycle gained a
+     Mark-as-Done step), re-asserted under a row lock rather than trusting the screen.
   3. `amount_paid` RECOMPUTED EXACTLY ONCE, and inside the transaction, so a rolled-back settlement
      takes the total with it.
   4. NO DOUBLE SETTLE, guarded twice over: the status re-assertion and the `Outflow Row Match`
@@ -26,10 +27,15 @@ The properties that matter, in the order they would hurt if they broke:
 
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 import frappe
+import psycopg2.errors as pg_errors
 
+from nirmaan_stack.api.outflow_import import expenses
 from nirmaan_stack.api.outflow_import.expenses import (
+    CONCURRENT_ALLOCATION_MESSAGE,
+    ConcurrentAllocationError,
     settle_expense,
     settle_row,
     settle_row_partial,
@@ -38,8 +44,11 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     INTENT_PART_PAYMENT,
 )
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, match_batch
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.ledgers import settleable_statuses
 from nirmaan_stack.services.outflow_import.settle import (
     AlreadyPaidError,
     AmountMismatchError,
@@ -48,6 +57,16 @@ from nirmaan_stack.services.outflow_import.settle import (
 )
 
 PAYMENT = "Project Payments"
+
+#: The status a record must be in for this import to settle it, read from the ONE map (#1289).
+#:
+#: ⚠️ IT WAS THE LITERAL `"Approved"`, IN 22 PLACES. The anchor moved when the payment lifecycle
+#: gained `Reconciliation Pending` -- an Accountant presses **Mark as Done** and the record only then
+#: waits for its bank line. Reading it here rather than re-spelling it is what stops this suite going
+#: green against a rule it no longer describes: a settle fixture planted at a status the write path
+#: refuses fails LOUDLY, instead of quietly testing refusals everywhere it meant to test settles.
+SETTLEABLE = settleable_statuses(PAYMENT)[0]
+
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
     + "/services/outflow_import/tests/fixtures/cashfree_sample.csv"
@@ -95,16 +114,31 @@ class PaymentSettlementFixture(unittest.TestCase):
         for suffix in ("0001", "0003", "0004", "0006", "0007", "0008"):
             row = self._row(suffix)
             self.planted[suffix] = self._insert_payment(
-                amount=float(row.amount), status="Approved",
+                amount=float(row.amount), status=SETTLEABLE,
                 utr=row.bank_reference_no, payment_date=row.added_on.date(),
             )
         frappe.db.commit()
         match_batch(self.batch.name)
 
+    def _stage_one(self, **reference_fields):
+        parsed = _fresh_parse()
+        parsed = replace(parsed, rows=(replace(parsed.rows[0], **reference_fields),))
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.batches.append(batch.name)
+        name = frappe.db.get_value(ROW_DOCTYPE, {"import_batch": batch.name}, "name")
+        frappe.db.set_value(ROW_DOCTYPE, name, "row_status", "Matched", update_modified=False)
+        frappe.db.commit()
+        return frappe._dict(frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True))
+
     def _row(self, suffix):
         return next(r for r in self.parsed.rows if r.transfer_id.endswith(suffix))
 
-    def _insert_po(self):
+    def _insert_po(self, project=None):
         """A Procurement Order to hang `amount_paid` off, inserted raw for the same reason the
         payments are: going through the document lifecycle would need a PR, a vendor and a category
         tree to obtain a column this suite only ever reads back."""
@@ -114,12 +148,14 @@ class PaymentSettlementFixture(unittest.TestCase):
                    (name, creation, modified, modified_by, owner, docstatus, idx,
                     project, amount_paid)
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, 0)""",
-            (name, "Administrator", "Administrator", self.project),
+            (name, "Administrator", "Administrator", project or self.project),
         )
         self.pos.append(name)
         return name
 
-    def _insert_payment(self, *, amount, status, utr, payment_date, link_po=True):
+    def _insert_payment(
+        self, *, amount, status, utr, payment_date, link_po=True, project=None, po=None
+    ):
         """Raw insert, bypassing the document lifecycle.
 
         Going through `new_doc(...).insert()` fires `before_insert`, which resolves a real PO to
@@ -135,18 +171,153 @@ class PaymentSettlementFixture(unittest.TestCase):
                     project, amount, status, utr, payment_date,
                     document_type, document_name)
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s)""",
-            (name, "Administrator", "Administrator", self.project, float(amount), status,
-             utr, payment_date,
-             "Procurement Orders" if link_po else None, self.po if link_po else None),
+            (name, "Administrator", "Administrator", project or self.project, float(amount),
+             status, utr, payment_date,
+             "Procurement Orders" if link_po else None,
+             (po or self.po) if link_po else None),
         )
         self.payments.append(name)
         return name
 
+    def _allocation_project(self):
+        """A dedicated `Won` project for the allocation helpers below (Ruling C, Task 4 /
+        ADR-0020), created once per test and cleaned up in `tearDown`.
+
+        ⚠️ CORRECTED AT REVIEW: NOT because of `validate_won`. This project's `tendering_status`
+        never actually gates anything here -- `controllers/project_payments.validate` only calls
+        `validate_won` when `doc.is_new()`, and every settle in this suite calls `doc.save()` on an
+        *existing* payment, so that guard is structurally unreachable from this path (and will stay
+        unreachable on Task 5's `Paid -> Approved` reversal, for the same reason).
+
+        ⚠️ THE REAL REASON: `hooks.py` wires `project_cashflow_hold_update.on_project_payment` to
+        `Project Payments.on_update`, and that handler writes CEO Hold Reason rows and calls
+        `recompute_ceo_hold(project_id)` -- a REAL, committed side effect on whatever project the
+        settled payment belongs to. `_outflow_import_write` (`settle.py`) suppresses that hook's
+        `frappe.db.commit()`, NOT its writes, and `allocate_row` commits at the end of its own
+        savepoint -- so those writes land for real. Settling against the base fixture's arbitrary
+        live project (`self.project`, whatever `frappe.db.get_value("Projects", {}, "name")` picks
+        up -- verified 2026-09-09 to be `Tendering` on 114 of 218 real projects) would mutate a real
+        project's CEO-Hold state and leave the residue there after the test ends. This throwaway
+        project, deleted in `tearDown`, is what keeps that residue inside the fixture instead.
+
+        Follows the documented Projects-row fixture pattern (root `CLAUDE.md`): `generate_pwm`'s
+        `after_insert` hook needs second-precision start/end dates and a `project_scopes` dict
+        carrying a `scopes` key. It is still never appropriate to flip an EXISTING project's
+        `tendering_status` to make one settle -- this fixture creates its own instead, for that
+        reason too.
+        """
+        if getattr(self, "_alloc_project_name", None):
+            return self._alloc_project_name
+        now = frappe.utils.now()[:19]
+        project = frappe.new_doc("Projects")
+        project.project_name = f"TEST_OFI_ALLOC_{frappe.generate_hash(length=6)}"
+        project.tendering_status = "Won"
+        project.project_start_date = now
+        project.project_end_date = frappe.utils.add_to_date(now, years=1)[:19]
+        project.project_scopes = {"scopes": []}
+        project.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self._alloc_project_name = project.name
+        return project.name
+
+    def _allocation_po(self):
+        """One PO under the dedicated allocation project, shared by every `_approved_payment` in
+        a test -- there is nothing about a fan-out that needs a distinct PO per leg."""
+        if getattr(self, "_alloc_po_name", None):
+            return self._alloc_po_name
+        self._alloc_po_name = self._insert_po(project=self._allocation_project())
+        return self._alloc_po_name
+
+    ALLOC_STATEMENT = "/private/files/test-ofi-alloc-statement.csv"
+
+    def _staged_row(self, *, amount, direction="Debit", references=None):
+        """A minimal `Outflow Import Batch` + `Outflow Import Row`, staged directly rather than
+        through the CSV parser -- `allocate_row` only reads `amount`, `direction`,
+        `bank_reference_no`, `transfer_id`, `import_batch` and `row_status`, none of which need a
+        parsed statement behind them.
+
+        `references` is an optional dict overriding the reference columns (`bank_reference_no`,
+        `reference_id`, `settlement_reference`). ⚠️ OMITTING IT LEAVES THE PRE-B9 SHAPE -- bank
+        reference set, `settlement_reference` unset -- ON PURPOSE: that is the historical row every
+        allocation test has always run against, and `test_every_leg_carries_the_RAW_bank_reference`
+        is what pins B9's deploy-window floor because of it. Do not "modernise" the default.
+
+        Starts at `Matched` -- as though a real match run had already looked and found nothing to
+        settle it outright -- which is the stable, checkable starting point the refusal tests need:
+        a failed `allocate_row` call must leave it exactly here.
+
+        `source_file` IS SET so `statement_file_url` is realistically non-empty, mirroring a real
+        staged batch -- `TestTheStatementIsAttachedToWhatItSettled`'s fixture note explains why a
+        blank one would be the wrong shape to test against.
+        """
+        batch = frappe.new_doc(BATCH_DOCTYPE)
+        batch.update(
+            {"source": "Cashfree", "status": "In Review", "source_file": self.ALLOC_STATEMENT}
+        )
+        batch.insert(ignore_permissions=True)
+        self.batches.append(batch.name)
+
+        transfer_id = f"alloc-{frappe.generate_hash(length=10)}"
+        row = frappe.new_doc(ROW_DOCTYPE)
+        row.update(
+            {
+                "import_batch": batch.name,
+                "source": "Cashfree",
+                "transfer_id": transfer_id,
+                "amount": float(amount),
+                "direction": direction,
+                "bank_reference_no": transfer_id,
+                "row_status": "Matched",
+                **(references or {}),
+            }
+        )
+        row.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return row.name
+
+    def _approved_payment(self, amount):
+        """A fresh, Approved `Project Payments` record against the dedicated allocation
+        project/PO -- never `self.project`/`self.po` (Ruling C). `utr` and `payment_date` are left
+        blank: `settle_payment` writes the reference itself, and nothing here needs a bank date."""
+        return self._insert_payment(
+            amount=float(amount),
+            status=SETTLEABLE,
+            utr=None,
+            payment_date=None,
+            project=self._allocation_project(),
+            po=self._allocation_po(),
+        )
+
     def tearDown(self):
+        # #1275: a reversal saves its match record through the document layer (a Version row, the
+        # doctype tracks changes) and comments on the line. Purged with what they describe.
+        legs = frappe.get_all(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]}, pluck="name")
+        if legs:
+            frappe.db.delete("Version", {"ref_doctype": MATCH_DOCTYPE, "docname": ["in", legs]})
+        rows = frappe.get_all(ROW_DOCTYPE, {"import_batch": ["in", self.batches]}, pluck="name")
+        if rows:
+            frappe.db.delete(
+                "Comment", {"reference_doctype": ROW_DOCTYPE, "reference_name": ["in", rows]}
+            )
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]})
         for name in self.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        # ⚠️ A SPLIT CHILD IS NOT IN `self.payments`, AND IT DOES NOT CARRY THE `TEST-` PREFIX
+        # EITHER -- `payment_split` inserts it through the naming series, so it lands with a REAL
+        # name like `PAY-05763-001`. Any suite that part-settles therefore leaves a live payment
+        # behind, and the next suite's `_guard_money_not_recorded` finds it and refuses settles that
+        # have nothing to do with it. That cost four confusing red runs before it was pinned down,
+        # each looking like a defect in the code under test. Swept HERE rather than in the partial
+        # fixture alone, because `test_unreconcile_tds` part-settles through this base class too.
+        children = frappe.get_all(
+            PAYMENT, filters={"split_from": ["in", self.payments or [""]]}, pluck="name"
+        )
+        for name in children:
+            frappe.db.delete("Version", {"ref_doctype": PAYMENT, "docname": name})
+            frappe.db.delete("PO Payment Terms", {"project_payment": name})
+            frappe.db.delete(PAYMENT, {"name": name})
+
         if self.payments:
             # X1 routes the settle through `doc.save()` on a `track_changes` doctype, so each
             # settlement now mints a Version row. This suite writes to the LIVE database, so its
@@ -154,10 +325,20 @@ class PaymentSettlementFixture(unittest.TestCase):
             frappe.db.delete(
                 "Version", {"ref_doctype": PAYMENT, "docname": ["in", self.payments]}
             )
+            # `_link_statement_file_to_target` mints a `File` row per settled leg (Task 4's own
+            # regression test exercises this on purpose -- see `test_allocate_row.py`).
+            frappe.db.delete(
+                "File", {"attached_to_doctype": PAYMENT, "attached_to_name": ["in", self.payments]}
+            )
         for name in self.payments:
             frappe.db.delete(PAYMENT, {"name": name})
         for name in self.pos:
             frappe.db.delete("Procurement Orders", {"name": name})
+        # The dedicated allocation project (Ruling C), after its PO and payments are gone.
+        if getattr(self, "_alloc_project_name", None):
+            frappe.delete_doc(
+                "Projects", self._alloc_project_name, force=True, ignore_permissions=True
+            )
         frappe.db.commit()
         super().tearDown()
 
@@ -339,21 +520,58 @@ class TestTheAmountIsCorrectedToTheBank(PaymentSettlementFixture):
 
         self.assertEqual(self._po_amount_paid(), float(row.amount))
 
-    def test_the_row_note_says_the_amount_was_corrected(self):
-        """The import's own screen is where somebody asks "why is this 31 paise off what I
-        approved". The Version log holds the fact durably; the note is what surfaces it."""
+    def test_the_row_note_states_the_balance_AND_the_amount_correction(self):
+        """INVERTED A SECOND TIME, at the whole-branch review (F2) -- and the flip-flop is the point,
+        so BOTH arguments are recorded here rather than one quietly replacing the other.
+
+        X1 put the correction in the note, because the note is the only place that fact survives on
+        the IMPORT'S OWN SCREEN: the Version log holds it durably, but nobody opens a Version log to
+        answer "why is this payment 31 paise different from what I approved". Task 3 replaced
+        `_settled_note` with `allocation_note`, dropped it, and inverted this test to assert the
+        ABSENCE -- reasoning that the deriver cannot see a rewrite it never performed, and that
+        `_summary`'s `amount_changed` carried the fact instead.
+
+        ⚠️ THAT SECOND CLAUSE WAS FALSE, WHICH IS WHY THIS IS BEING UNDONE RATHER THAN RE-ARGUED:
+        `amount_changed` has never had a single reader in `frontend/src/`, so the fact was not
+        relocated, it was LOST. The deriver is now HANDED the two values it cannot see
+        (`allocation_note(..., created=, correction=)` -- still pure), so the balance sentence and
+        the correction both appear. Retired by INVERSION, never by deletion: the old claim is still
+        stated above, and still false.
+        """
         row, shifted = self._shift_planted("0008", -0.14)
 
         settle_row(row.name, PAYMENT, self.planted["0008"])
 
         note = frappe.db.get_value(ROW_DOCTYPE, row.name, "outcome_note") or ""
+        # The BALANCE still leads -- ADR-0020's sentence is unchanged; the correction is a SUFFIX.
+        self.assertIn("fully allocated", note.lower())
         self.assertIn("corrected", note.lower())
-        self.assertIn(str(shifted), note.replace(",", ""))
+        self.assertIn(str(shifted), note)
+
+    def test_an_ordinary_settle_says_nothing_about_a_correction(self):
+        """⚠️ THE OTHER HALF OF THE SAME RULE, AND IT IS WHAT MAKES THE SUFFIX SAFE. A note reading
+        "amount unchanged" on every ordinary row would train people to stop reading it, so silence
+        when nothing changed is the design -- `_settled_note` said exactly that before it was
+        deleted, and nothing pinned it. Without this case an unconditional "always append the
+        correction sentence" would satisfy the test above."""
+        row = self._import_row("0004")
+
+        settle_row(row.name, PAYMENT, self.planted["0004"])
+
+        note = frappe.db.get_value(ROW_DOCTYPE, row.name, "outcome_note") or ""
+        self.assertIn("fully allocated", note.lower())
+        self.assertNotIn("corrected", note.lower())
 
     def test_the_result_reports_what_was_written_not_what_was_found(self):
-        """`SettleResult.amount` changed meaning at X1. The bulk-confirm surface shows the delta per
-        row, so a result still reporting the pre-settle figure would report the number it just
-        replaced -- on the one screen that most needs the truth."""
+        """`SettleResult.amount` changed meaning at X1: a result still reporting the pre-settle
+        figure would report the number it just replaced.
+
+        ⚠️ THE REASON THIS DOCSTRING USED TO GIVE WAS FALSE, AND IS CORRECTED (review F2). It read
+        "the bulk-confirm surface shows the delta per row". It does not, and never did: neither
+        `amount_changed` nor `original_amount` has a reader in `frontend/src/`. They are a response
+        CONTRACT, which is what this test pins. What a REVIEWER reads is the persisted
+        `outcome_note` -- pinned by
+        `test_the_row_note_states_the_balance_AND_the_amount_correction` above."""
         row, shifted = self._shift_planted("0001", -0.31)
 
         summary = settle_row(row.name, PAYMENT, self.planted["0001"])
@@ -364,6 +582,31 @@ class TestTheAmountIsCorrectedToTheBank(PaymentSettlementFixture):
 
 
 class TestRefusals(PaymentSettlementFixture):
+    def test_an_approved_payment_is_refused_and_told_to_be_marked_done_first(self):
+        """⚠️ THE INVERSION OF THIS SUITE'S OLDEST ASSUMPTION (#1289), AND THE MESSAGE IS HALF OF IT.
+
+        `Approved` used to be the ONE status that settled. It now means sanctioned-but-not-sent, so
+        settling from it would mark Paid money nobody has confirmed left the bank.
+
+        The wording is asserted, not just the refusal, because the two failure modes differ. Every
+        OTHER refused status is a dead end for the person holding the statement; this one is one
+        press away from working. Told only "cannot be settled", the likeliest next thing a reviewer
+        does is press Create -- recording the same money twice, which is the whole defect #1283
+        exists to close.
+        """
+        row = self._import_row("0006")
+        frappe.db.set_value(PAYMENT, self.planted["0006"], "status", "Approved")
+        with self.assertRaises(WrongStatusError) as caught:
+            settle_row(row.name, PAYMENT, self.planted["0006"])
+        message = str(caught.exception)
+        self.assertIn("still Approved", message)
+        self.assertIn("Mark it as done", message)
+        self.assertEqual(
+            frappe.db.get_value(PAYMENT, self.planted["0006"], "status"),
+            "Approved",
+            "a refusal must write nothing",
+        )
+
     def test_a_ceo_pending_payment_is_refused_by_name(self):
         """Re-asserted UNDER THE LOCK, not trusted from the screen. The screen's snapshot can be
         minutes old, and it is not the authority on what may be paid."""
@@ -395,21 +638,31 @@ class TestRefusals(PaymentSettlementFixture):
         with self.assertRaises(AmountMismatchError):
             settle_row(row.name, PAYMENT, self.planted["0008"])
         self.assertEqual(
-            frappe.db.get_value(PAYMENT, self.planted["0008"], "status"), "Approved"
+            frappe.db.get_value(PAYMENT, self.planted["0008"], "status"), SETTLEABLE
         )
 
     def test_a_reference_already_on_another_payment_is_refused(self):
-        """Owner ruling Q4: a fan-out is report-only, settled by hand, which is exactly why this
-        guard is never legitimately challenged and stays as it is."""
+        """⚠️ INVERTED AT TASK 4 (ADR-0020 D2). Owner ruling Q4 -- "a fan-out is settled by hand,
+        so this guard is never legitimately challenged" -- is REVERSED: `allocate_row` can now
+        settle a fan-out, and a SIBLING settled from the SAME `transfer_id` is allowed (proved in
+        `test_allocate_row.TestAllocatingInOneGo.test_every_leg_carries_the_RAW_bank_reference`,
+        where three payments end up sharing one UTR on purpose).
+
+        What survives, and what this test still pins, is the NON-sibling case: `settle_row` never
+        threads a `transfer_id` into `settle_payment` (it has no fan-out context to widen the guard
+        with), so it reproduces the old strict rule exactly -- a reference already recorded on a
+        payment this row did not itself settle is refused, whether or not that other payment
+        happens to belong to some other transfer.
+        """
         row = self._import_row("0001")
         other = self._insert_payment(
-            amount=float(row.amount), status="Approved",
+            amount=float(row.amount), status=SETTLEABLE,
             utr=self._row("0001").bank_reference_no, payment_date=None, link_po=False,
         )
         frappe.db.commit()
         with self.assertRaises(DuplicateReferenceError):
             settle_row(row.name, PAYMENT, self.planted["0001"])
-        self.assertEqual(frappe.db.get_value(PAYMENT, other, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(PAYMENT, other, "status"), SETTLEABLE)
 
     def test_the_deprecated_alias_cannot_settle_a_payment(self):
         """`settle_expense` predates the payment path. A caller still on that name has not opted
@@ -508,6 +761,97 @@ class TestDoubleSettleIsRefused(PaymentSettlementFixture):
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row.name}), 1)
 
 
+class TestAConcurrentSingleTickLoser(PaymentSettlementFixture):
+    """Issue #1250, the single-tick twin of #1246 (`test_allocate_row.TestAConcurrentLoser`). Two
+    reviewers on one transfer: the one who single-ticks second used to see
+    `SerializationFailure: could not serialize access due to concurrent update`.
+
+    ⚠️ THE REFUSAL IS SIMULATED HERE, AND THE REAL ONE WAS REPRODUCED SEPARATELY (two processes, one
+    Rs 100 transfer, the winner holding its transaction open -- ADR-0020 Amendment B4). It landed in
+    exactly the two places patched below: the payment's `FOR UPDATE` read when both reviewers ticked
+    the SAME payment, and the match-record insert when they ticked DIFFERENT payments on different
+    POs. What these cases pin is the TRANSLATION.
+
+    Fixtures are COMMITTED before each call because the translation rolls the whole transaction
+    back, exactly as a real loser's already-aborted transaction is.
+    """
+
+    def _refusal(self):
+        return pg_errors.SerializationFailure("could not serialize access due to concurrent update")
+
+    def _ticked(self):
+        row = self._staged_row(amount="100")
+        pay = self._approved_payment("100")
+        frappe.db.commit()
+        return row, pay
+
+    def _assert_nothing_written(self, row, pay):
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "status"), SETTLEABLE)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), "Matched")
+
+    def test_the_loser_is_told_in_a_sentence_not_database_text(self):
+        """Where the refusal lands when both reviewers tick the SAME payment: its row lock."""
+        row, pay = self._ticked()
+        with patch.object(expenses, "settle_payment", side_effect=self._refusal()):
+            with self.assertRaises(ConcurrentAllocationError) as caught:
+                settle_row(row, PAYMENT, pay)
+        message = str(caught.exception)
+        self.assertEqual(message, CONCURRENT_ALLOCATION_MESSAGE)
+        self.assertNotIn("serialize", message.lower())
+        self._assert_nothing_written(row, pay)
+
+    def test_a_refusal_after_the_payment_was_written_is_translated_and_the_payment_goes_back(self):
+        """Where it lands when they tick DIFFERENT payments: late, after this reviewer's payment has
+        already been flipped to Paid. `settle_row` holds no row lock, so this is the common shape."""
+        row, pay = self._ticked()
+        with patch.object(expenses, "_record_settlement", side_effect=self._refusal()):
+            with self.assertRaises(ConcurrentAllocationError):
+                settle_row(row, PAYMENT, pay)
+        self._assert_nothing_written(row, pay)
+
+    def test_any_other_database_error_still_surfaces_as_itself(self):
+        """⚠️ THE CRITERION THAT MATTERS MORE THAN THE WORDING. `InFailedSqlTransaction` is what the
+        loser really sees when both payments sit on ONE PO -- `update_parent_amount_paid` swallows
+        the 40001 and its error log then hits the dead transaction (measured, #1250) -- and it is
+        also what any earlier swallowed error looks like. It carries no cause, so it gets none."""
+        row, pay = self._ticked()
+        for other in (
+            pg_errors.InFailedSqlTransaction("current transaction is aborted"),
+            pg_errors.DeadlockDetected("deadlock detected"),
+            pg_errors.UniqueViolation("duplicate key value"),
+        ):
+            with self.subTest(error=type(other).__name__):
+                with patch.object(expenses, "settle_payment", side_effect=other):
+                    with self.assertRaises(type(other)) as caught:
+                        settle_row(row, PAYMENT, pay)
+                self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self._assert_nothing_written(row, pay)
+
+    def test_a_refusal_AFTER_the_commit_is_not_translated(self):
+        """⚠️ "Nothing you selected was saved" is FALSE after the commit, so the translation ends
+        there, exactly as it does on `allocate_row`."""
+        row, pay = self._ticked()
+        with patch.object(
+            expenses, "_link_statement_file_to_target", side_effect=self._refusal()
+        ):
+            with self.assertRaises(pg_errors.SerializationFailure) as caught:
+                settle_row(row, PAYMENT, pay)
+        self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), "Settled")
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "status"), "Paid")
+
+    def test_an_ordinary_refusal_keeps_its_own_words(self):
+        """The guards are unchanged: a second settle of a settled row is still refused in its own
+        sentence, never re-worded as a race."""
+        row, pay = self._ticked()
+        settle_row(row, PAYMENT, pay)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            settle_row(row, PAYMENT, pay)
+        self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self.assertIn("already settled", str(caught.exception))
+
+
 class TestTheStatementIsAttachedToWhatItSettled(PaymentSettlementFixture):
     """The settled payment carries the statement it was settled from (owner ruling 2026-08-10).
 
@@ -591,6 +935,16 @@ class PartialSettlementFixture(PaymentSettlementFixture):
     def setUp(self):
         super().setUp()
 
+        # ⚠️ THE SPLIT NEEDS A **Won** PROJECT, AND THE BASE FIXTURE'S IS AN ARBITRARY LIVE ONE.
+        # `self.project` is whatever `frappe.db.get_value("Projects", {}, "name")` returns, which was
+        # measured `Tendering` on 114 of 218 real projects -- and unlike every other write in this
+        # suite, the balance payment is inserted through the DOCUMENT LAYER, so it meets
+        # `controllers/project_payments.validate` -> `validate_won` and is refused outright. The
+        # whole class therefore errored or passed depending on the row order of a table nobody here
+        # controls. Reusing the throwaway `Won` project the allocation helpers already mint keeps
+        # that decision inside the fixture, and its `tearDown` already removes it.
+        self.project = self._allocation_project()
+
         # ⚠️ THE INHERITED FIXTURE PLANTS EACH ROW'S PAYMENT CARRYING THAT ROW'S OWN BANK REFERENCE,
         # which is exactly right for the ordinary settle it was written for -- and fatal here. The
         # UTR guard refuses a reference already sitting on another payment (it is what makes a
@@ -606,7 +960,7 @@ class PartialSettlementFixture(PaymentSettlementFixture):
 
         self.split_po = self._insert_po_with_items(self.PO_TOTAL)
         self.big_payment = self._insert_payment(
-            amount=self.RECORD, status="Approved", utr=None, payment_date=None, link_po=False
+            amount=self.RECORD, status=SETTLEABLE, utr=None, payment_date=None, link_po=False
         )
         frappe.db.set_value(
             PAYMENT, self.big_payment,
@@ -668,9 +1022,10 @@ class PartialSettlementFixture(PaymentSettlementFixture):
                     term_status, project_payment, project, vendor)
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 1, %s, 'Procurement Orders', 'payment_terms',
                        %s, %s, %s, 'Delivery against Payment', NULL,
-                       'Approved', %s, %s, NULL)""",
+                       %s, %s, %s, NULL)""",
             (name, "Administrator", "Administrator", po_name, label, float(amount),
-             str(float(amount) / float(self.PO_TOTAL) * 100), project_payment, self.project),
+             str(float(amount) / float(self.PO_TOTAL) * 100), SETTLEABLE, project_payment,
+             self.project),
         )
         return name
 
@@ -704,7 +1059,11 @@ class TestPartialSettlementHappyPath(PartialSettlementFixture):
             PAYMENT, balance_names[0], ["amount", "status", "ceo_approval_date"], as_dict=True
         )
         self.assertEqual(float(balance.amount), self.BALANCE)
-        self.assertEqual(balance.status, "Approved", "already sanctioned money stays sanctioned")
+        self.assertEqual(
+            balance.status,
+            SETTLEABLE,
+            "the balance waits for its own bank line, never back at Approved (#1289)",
+        )
 
     def test_the_two_halves_sum_to_what_was_approved(self):
         settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
@@ -742,7 +1101,7 @@ class TestPartialSettlementHappyPath(PartialSettlementFixture):
         self.assertEqual(kept.project_payment, self.big_payment)
 
         self.assertAlmostEqual(float(balance.amount), self.BALANCE, places=2)
-        self.assertEqual(balance.term_status, "Approved")
+        self.assertEqual(balance.term_status, SETTLEABLE)
         self.assertEqual(balance.label, "Advance Payment (Balance)")
         self.assertEqual(balance.project_payment, self._balance_of(self.big_payment)[0])
 
@@ -799,7 +1158,7 @@ class TestPartialSettlementRefusals(PartialSettlementFixture):
             PAYMENT, self.big_payment, ["amount", "status"], as_dict=True
         )
         self.assertEqual(float(row.amount), self.RECORD)
-        self.assertEqual(row.status, "Approved")
+        self.assertEqual(row.status, SETTLEABLE)
         self.assertEqual(self._balance_of(self.big_payment), [], "a refusal must mint nothing")
         self.assertEqual(len(self._terms()), 1, "a refusal must add no PO term")
 
@@ -850,8 +1209,14 @@ class TestPartialSettlementRefusals(PartialSettlementFixture):
             settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
         self._assert_nothing_happened()
 
-    def test_a_payment_that_is_not_approved_is_refused(self):
-        for status in ("CEO Pending", "Requested", "Paid", "Rejected"):
+    def test_a_payment_not_waiting_for_a_bank_line_is_refused(self):
+        """⚠️ `"Approved"` JOINED THIS LIST AT #1289 -- an INVERSION, kept rather than deleted.
+
+        Until the lifecycle gained `Reconciliation Pending`, `Approved` WAS the status a part settle
+        ran on. It now means sanctioned-but-not-sent: splitting there would carve up a payment
+        nobody has confirmed left the bank.
+        """
+        for status in ("Approved", "CEO Pending", "Requested", "Paid", "Rejected"):
             with self.subTest(status=status):
                 frappe.db.set_value(
                     PAYMENT, self.big_payment, "status", status, update_modified=False
@@ -862,7 +1227,7 @@ class TestPartialSettlementRefusals(PartialSettlementFixture):
                         self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT
                     )
         frappe.db.set_value(
-            PAYMENT, self.big_payment, "status", "Approved", update_modified=False
+            PAYMENT, self.big_payment, "status", SETTLEABLE, update_modified=False
         )
         self._assert_nothing_happened()
 
@@ -893,8 +1258,13 @@ class TestPartialSettlementIsAllOrNothing(PartialSettlementFixture):
         )
         frappe.db.commit()
 
+        # ⚠️ CONFIRMED (#1260). That Paid payment is also "already recorded" money whose amount is
+        # off, so the recorded-money guard would ask first and nothing would reach the split. The
+        # confirmation carries the call past it, to the settle failure this test is about.
         with self.assertRaises(DuplicateReferenceError):
-            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+            settle_row_partial(
+                self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT, confirm_mismatch=True
+            )
 
         frappe.db.commit()
         self.assertEqual(
@@ -904,7 +1274,7 @@ class TestPartialSettlementIsAllOrNothing(PartialSettlementFixture):
             float(frappe.db.get_value(PAYMENT, self.big_payment, "amount")), self.RECORD
         )
         self.assertEqual(
-            frappe.db.get_value(PAYMENT, self.big_payment, "status"), "Approved"
+            frappe.db.get_value(PAYMENT, self.big_payment, "status"), SETTLEABLE
         )
         self.assertEqual(len(self._terms()), 1)
 
@@ -946,6 +1316,333 @@ class TestTheImportWritesNoTaxAtAll(PaymentSettlementFixture):
         )
 
 
+class TestTheResolvedSettlementReference(PaymentSettlementFixture):
+    """The reference a settlement writes is resolved ONCE at ingest (ADR-0020 B9).
+
+    ⚠️ THESE GO THROUGH `_stage_batch`, NOT A HAND-BUILT ROW, ON PURPOSE. The whole slice is a JOIN:
+    `upload` resolves the value and `settle` reads it. A test that plants `settlement_reference` by
+    hand asserts one side of that seam and would stay green if the ingest never wrote it -- the
+    standing rule this repo records as "a test on each side of a boundary is not a test of the
+    boundary". Staging for real is what proves the value ARRIVES.
+
+    ⚠️ AND EACH ONE CARRIES A POSITIVE CONTROL OR AN INVERTED PIN, because the other standing rule
+    here is that a test which passes before AND after a behaviour change is evidence of neither.
+    """
+
+    def _stage_row_without_a_bank_reference(self, *, reference_id, source="Cashfree"):
+        """Stage ONE transfer whose bank reference is blank, through the real ingest path.
+
+        The 61 live rows in this shape are all `Skipped`, so this is the latent case rather than an
+        observed one -- which is exactly why it needs a test rather than a measurement.
+        """
+        parsed = _fresh_parse()
+        one = parsed.rows[0]
+        parsed = replace(
+            parsed,
+            source=source,
+            rows=(replace(one, bank_reference_no="", reference_id=reference_id),),
+        )
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.batches.append(batch.name)
+        name = frappe.db.get_value(ROW_DOCTYPE, {"import_batch": batch.name}, "name")
+        # A real match run has nothing to offer a row with no reference; `Matched` is the settleable
+        # starting point the rest of this suite uses, and `_staged_row` documents why.
+        frappe.db.set_value(ROW_DOCTYPE, name, "row_status", "Matched", update_modified=False)
+        frappe.db.commit()
+        return frappe._dict(
+            frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True)
+        )
+
+    def test_a_bank_reference_still_reaches_the_payment_unchanged(self):
+        """The regression pin. Every settled leg on the live ledger got here this way, and B9 must
+        not have moved any of them."""
+        # `_import_row` projects three columns; these two are the point of this test.
+        staged = frappe._dict(
+            frappe.db.get_value(
+                ROW_DOCTYPE,
+                self._import_row("0001").name,
+                ["name", "bank_reference_no", "settlement_reference"],
+                as_dict=True,
+            )
+        )
+        self.assertTrue(staged.bank_reference_no, "fixture precondition: this transfer has one")
+        self.assertEqual(staged.settlement_reference, staged.bank_reference_no)
+
+        settle_row(staged.name, PAYMENT, self.planted["0001"])
+
+        self.assertEqual(
+            frappe.db.get_value(PAYMENT, self.planted["0001"], "utr"), staged.bank_reference_no
+        )
+
+    def test_a_row_with_no_bank_reference_settles_with_the_gateway_reference(self):
+        """⚠️ THE DEFECT, INVERTED. Before B9 this payment settled with a BLANK `utr`, silently --
+        the write was conditional on the bank reference being non-empty. With no group id by
+        deliberate design, that reference is the only thing linking the several payments of one
+        transfer on the Payments screen, so the blank cost an accountant the only handle they had.
+        """
+        row = self._stage_row_without_a_bank_reference(reference_id="GW-REF-0001")
+        self.assertFalse((row.bank_reference_no or "").strip())
+        self.assertEqual(row.settlement_reference, "GW-REF-0001")
+
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+        settle_row(row.name, PAYMENT, payment)
+
+        after = frappe.db.get_value(PAYMENT, payment, ["status", "utr"], as_dict=True)
+        self.assertEqual(after.status, "Paid")
+        self.assertEqual(after.utr, "GW-REF-0001")
+
+    def test_a_wallet_row_settling_a_payment_carries_its_wallet_reference(self):
+        """The source that populates NEITHER reference field and never will. Its expense path had
+        been passing the wallet transaction id by hand -- a remedy at ONE write site, which is why
+        the PAYMENT site stayed blank for this source. The third rung of the ladder, at ingest, is
+        what reaches both."""
+        row = self._stage_row_without_a_bank_reference(reference_id="", source="Cashbook")
+        self.assertFalse((row.reference_id or "").strip())
+        self.assertEqual(row.settlement_reference, row.transfer_id)
+
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+        settle_row(row.name, PAYMENT, payment)
+
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "utr"), row.transfer_id)
+
+    def test_a_row_staged_before_the_column_existed_still_writes_its_bank_reference(self):
+        """⚠️ THE DEPLOY WINDOW, AND WITHOUT THIS PIN THE SLICE IS A REGRESSION. The backfill's
+        `patches.txt` wiring is added by the maintainer, by this repo's convention, so the code can
+        be live while the column is still NULL on every existing row. Five write sites reading the
+        new field alone would then settle every one of them with a BLANK -- strictly worse than the
+        defect being fixed, and silent.
+
+        `_StagedRow` carries a legacy floor for exactly this. It is ONE expression at ONE adapter,
+        it holds no per-source rung, and it must never be copied to a write site.
+        """
+        row = self._import_row("0003")
+        bank_reference = frappe.db.get_value(ROW_DOCTYPE, row.name, "bank_reference_no")
+        self.assertTrue(bank_reference, "fixture precondition: this transfer has one")
+        # Manufacture the pre-B9 shape: staged, then the column cleared as though it never existed.
+        frappe.db.set_value(
+            ROW_DOCTYPE, row.name, "settlement_reference", None, update_modified=False
+        )
+        frappe.db.commit()
+
+        settle_row(row.name, PAYMENT, self.planted["0003"])
+
+        self.assertEqual(
+            frappe.db.get_value(PAYMENT, self.planted["0003"], "utr"), bank_reference
+        )
+
+    def test_nothing_to_resolve_writes_an_explicit_blank_rather_than_skipping(self):
+        """The silent skip is gone even where the ladder finds nothing. A gateway row with neither
+        reference resolves to nothing -- and this site now behaves like the other four, which have
+        always written an explicit null."""
+        row = self._stage_row_without_a_bank_reference(reference_id="")
+        self.assertIn(row.settlement_reference, (None, ""))
+
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+        settle_row(row.name, PAYMENT, payment)
+
+        after = frappe.db.get_value(PAYMENT, payment, ["status", "utr"], as_dict=True)
+        self.assertEqual(after.status, "Paid")
+        self.assertIn(after.utr, (None, ""))
+
+
+class TestTheCollisionGuardNeverSeesTheResolvedReference(PaymentSettlementFixture):
+    """⚠️ THE MOST IMPORTANT TEST IN ADR-0020 B9, AND IT IS A NEGATIVE ONE.
+
+    The collision guard refuses a bank reference already sitting on an unrelated payment. It must
+    keep comparing the BANK's reference and never the resolved one: `reference_id` is NOT unique --
+    2,237 Cashfree rows carry 523 distinct values, and one value was measured on three separate
+    rows -- so guarding on it would refuse the second of two unrelated transfers outright, with a
+    message about a duplicate that is not one.
+
+    `settle_payment` therefore GUARDS on `bank_reference_no` and WRITES `settlement_reference`. The
+    two tests below are the same arrangement with the colliding value in each of those two fields:
+    one must settle, the other must refuse. Either alone could pass for the wrong reason.
+    """
+
+    COLLIDING = "SHARED-GATEWAY-REF-9001"
+
+    def _plant_an_unrelated_holder(self):
+        """A `Paid` payment, on no PO of ours, already holding the colliding string."""
+        self._insert_payment(
+            amount=4321.0, status="Paid", utr=self.COLLIDING, payment_date=None, link_po=False
+        )
+        frappe.db.commit()
+
+    def test_a_colliding_gateway_reference_does_not_block_the_settle(self):
+        """THE NEGATIVE TEST. Blank bank reference, gateway reference equal to a value an unrelated
+        payment already holds. It must settle, and it must write the colliding value -- accepted
+        cost: that value is then invisible to reference matching and to the duplicate guard.
+        Invisible-but-present loses nothing against the blank it replaces."""
+        self._plant_an_unrelated_holder()
+        row = self._stage_one(bank_reference_no="", reference_id=self.COLLIDING)
+        self.assertEqual(row.settlement_reference, self.COLLIDING)
+
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+
+        settle_row(row.name, PAYMENT, payment)
+
+        after = frappe.db.get_value(PAYMENT, payment, ["status", "utr"], as_dict=True)
+        self.assertEqual(after.status, "Paid")
+        self.assertEqual(after.utr, self.COLLIDING)
+
+    def test_the_positive_control_a_colliding_bank_reference_still_refuses(self):
+        """The same collision in the field the guard DOES read. Without this the test above could
+        pass because the guard had been switched off, or because the planted holder was never
+        found."""
+        self._plant_an_unrelated_holder()
+        row = self._stage_one(bank_reference_no=self.COLLIDING, reference_id="")
+        self.assertEqual(row.settlement_reference, self.COLLIDING)
+
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+
+        with self.assertRaises(DuplicateReferenceError):
+            settle_row(row.name, PAYMENT, payment)
+
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), SETTLEABLE)
+
+
+def _unused_reference() -> str:
+    """A 12-digit reference nothing in the live ledger carries."""
+    return "8" + str(int(frappe.generate_hash(length=10), 16))[-11:].rjust(11, "0")
+
+
+class TestTheUTRGuardLooksInsideAStoredNarration(PaymentSettlementFixture):
+    """#1259: an ICICI settle stores the whole bank narration as `utr`, so the one UTR guard
+    (`reference_guard.assert_reference_is_free`) must also refuse a reference that sits INSIDE
+    another payment's stored text -- by the contains-guard's token rules. An exact compare alone
+    goes blind the moment the narration write lands. Both call sites move together."""
+
+    def _plant_a_narration_holder(self, reference):
+        holder = self._insert_payment(
+            amount=4321.0, status="Paid", link_po=False, payment_date=None,
+            utr=f"MMT/IMPS/{reference}/TEST VENDOR/UTIB0000052",
+        )
+        frappe.db.commit()
+        return holder
+
+    def test_a_hand_typed_utr_inside_another_payments_narration_is_refused(self):
+        from nirmaan_stack.api.payments.project_payments import _fulfil_payment
+
+        reference = _unused_reference()
+        holder = self._plant_a_narration_holder(reference)
+        target = self._insert_payment(amount=900.0, status=SETTLEABLE, utr=None, payment_date=None)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as caught:
+            _fulfil_payment(frappe.get_doc(PAYMENT, target), {"utr": reference})
+        self.assertIn(holder, str(caught.exception))
+        self.assertEqual(frappe.db.get_value(PAYMENT, target, "status"), SETTLEABLE)
+
+    def test_the_sql_pre_filter_finds_what_the_pure_rule_finds(self):
+        """The SQL `strpos` pre-filter must not be narrower than `reference_is_inside`: a stored
+        narration in lower case with whitespace inside the token still blocks."""
+        from nirmaan_stack.services.outflow_import.contains_guard import reference_is_inside
+        from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+
+        reference = _unused_reference()
+        stored = f"mmt / imps / {reference[:5]} {reference[5:]} / test vendor"
+        self.assertTrue(reference_is_inside(reference, stored), "precondition: the pure rule finds it")
+        holder = self._insert_payment(
+            amount=4321.0, status="Paid", link_po=False, payment_date=None, utr=stored
+        )
+        target = self._insert_payment(amount=900.0, status=SETTLEABLE, utr=None, payment_date=None)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as caught:
+            assert_reference_is_free(reference, target)
+        self.assertIn(holder, str(caught.exception))
+
+    def test_an_unrelated_utr_is_accepted(self):
+        from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+
+        reference = _unused_reference()
+        self._plant_a_narration_holder(reference)
+        target = self._insert_payment(amount=900.0, status=SETTLEABLE, utr=None, payment_date=None)
+        frappe.db.commit()
+
+        assert_reference_is_free(_unused_reference(), target)  # does not raise
+
+    def test_the_import_refuses_a_bank_reference_inside_a_narration_too(self):
+        reference = _unused_reference()
+        self._plant_a_narration_holder(reference)
+        row = self._stage_one(bank_reference_no=reference, reference_id="")
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+
+        with self.assertRaises(DuplicateReferenceError):
+            settle_row(row.name, PAYMENT, payment)
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), SETTLEABLE)
+
+
+class TestAnICICISettleToAPaymentStoresTheFullNarration(PaymentSettlementFixture):
+    """#1259: settling an ICICI row onto a payment writes the line's whole match surface as `utr`;
+    a Cashfree row keeps its clean bank reference."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _settle(self, references):
+        row = self._staged_row(amount="100", references=references)
+        payment = self._approved_payment("100")
+        settle_row(row, PAYMENT, payment)
+        return frappe.db.get_value(PAYMENT, payment, "utr")
+
+    def test_an_icici_row_stores_the_narration(self):
+        reference = _unused_reference()
+        narration = f"MMT/IMPS/{reference}/TEST VENDOR/UTIB0000052"
+        utr = self._settle({"source": self.ICICI, "bank_reference_no": reference, "remarks": narration})
+        self.assertEqual(utr, narration)
+
+    def test_an_icici_cheque_clearing_row_stores_narration_and_cheque_number(self):
+        utr = self._settle({
+            "source": self.ICICI, "bank_reference_no": "", "reference_id": "004521",
+            "remarks": "CLG/SUMAN ELECTRIC UDYOGS P/HSB",
+        })
+        self.assertEqual(utr, "CLG/SUMAN ELECTRIC UDYOGS P/HSB 004521")
+
+    def test_a_cashfree_row_stores_its_bank_reference_not_its_remarks(self):
+        reference = _unused_reference()
+        utr = self._settle({"bank_reference_no": reference, "remarks": f"PAYOUT {reference} VENDOR"})
+        self.assertEqual(utr, reference)
+
+
+class TestALongReferenceIsWrittenWhole(PaymentSettlementFixture):
+    """#1254: `Project Payments.utr` is Text, so a long bank narration saves whole."""
+
+    def test_settling_a_payment_stores_the_whole_narration(self):
+        row = self._stage_one(bank_reference_no="", reference_id="")
+        narration = _give_row_a_long_reference(self, row.name)
+        payment = self._insert_payment(
+            amount=float(row.amount), status=SETTLEABLE, utr=None, payment_date=None
+        )
+        frappe.db.commit()
+
+        settle_row(row.name, PAYMENT, payment)
+
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "utr"), narration)
+
+
 class TestTheWindowsStayInTheirRelation(unittest.TestCase):
     """⚠️ PINNED HERE BECAUSE THIS IS THE ONE LAYER THAT MAY IMPORT BOTH.
 
@@ -964,6 +1661,23 @@ class TestTheWindowsStayInTheirRelation(unittest.TestCase):
         from nirmaan_stack.services.payment_split import MIN_SPLIT_AMOUNT
 
         self.assertGreaterEqual(AMOUNT_TOLERANCE, Decimal(str(MIN_SPLIT_AMOUNT)))
+
+
+class TestTheTaxedWorkOrderFixtureIsReachableHere(PaymentSettlementFixture):
+    """#1284: the shared taxed Work Order payment builds inside a Bulk Import suite, beside its own
+    staged batch, and the two teardowns do not collide.
+
+    ⚠️ THIS SUITE'S OWN PAYMENTS CAN NEVER BE TAXED -- raw SQL, no vendor, a PO parent -- which is how
+    the double-TDS bugs in #1283 went unseen. A test here that must reach the tax code uses the shared
+    fixture, never `_insert_payment`.
+    """
+
+    def test_a_taxed_work_order_payment_is_available_to_this_suite(self):
+        made = TaxedWorkOrderFixture.attach(self).payment()
+
+        self.assertEqual(frappe.db.count("Payment TDS Deduction", {"project_payment": made.name}), 1)
+        self.assertEqual(float(frappe.db.get_value(PAYMENT, made.name, "amount")), made.net)
+        self.assertLess(made.net, made.gross)
 
 
 if __name__ == "__main__":

@@ -109,7 +109,12 @@ from nirmaan_stack.services.outflow_import.amounts import amounts_match
 # and `settle.py` writes to -- and the symptom would be a settled-by-ledger panel that silently
 # omits a book the import had just settled into.
 from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPES,
     LEDGER_DOCTYPES,
+    LEDGER_NOUNS,
+    NON_PROJECT_EXPENSE_DOCTYPE,
+    PAYMENT_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
     RECEIVED_LEDGER_DOCTYPES,
 )
 
@@ -117,6 +122,7 @@ __all__ = [
     "ROW_PENDING_MATCH",
     "ROW_MATCHED",
     "ROW_MISMATCHED",
+    "ROW_PARTIALLY_ALLOCATED",
     "ROW_SETTLED",
     "ROW_SKIPPED",
     "ROW_ERROR",
@@ -124,6 +130,7 @@ __all__ = [
     "ROW_STATUSES",
     "TERMINAL_ROW_STATUSES",
     "OPEN_ROW_STATUSES",
+    "ACTIVE_ROW_STATUSES",
     "BATCH_DRAFT",
     "BATCH_IN_REVIEW",
     "BATCH_PARTIALLY_SETTLED",
@@ -140,6 +147,8 @@ __all__ = [
     "derive_staged_row_outcome",
     "derive_row_outcome",
     "derive_duplicate_guard_outcome",
+    "derive_guard_verdict",
+    "pick_duplicate_group",
     "sole_suggestion",
     "derive_batch_status",
     "derive_batch_counters",
@@ -157,16 +166,40 @@ __all__ = [
     "SKIP_REASON_ALREADY_IMPORTED",
     "SKIP_REASON_DUPLICATE_IN_FILE",
     "SKIP_REASON_ALREADY_PAID",
+    "SKIP_REASON_ALREADY_RECEIVED",
     "SKIP_REASON_EXCLUDED_AT_INGEST",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
+    "SKIP_ORIGIN_SYSTEM",
+    "SKIP_ORIGIN_MANUAL",
+    "SKIP_ORIGINS",
+    "SYSTEM_SKIP_SENTENCES",
 ]
 
 ROW_PENDING_MATCH = "Pending match run"
 ROW_MATCHED = "Matched"
 ROW_MISMATCHED = "Mismatched"
+# ⚠️ MONEY IS WRITTEN AND WORK REMAINS -- the first status for which both are true (ADR-0020 D5).
+# One bank transfer may settle several approved payments, allocated over several sittings; a row
+# holds this status while `allocated < amount`. It is derived exactly like every other status here:
+# `allocation.status_for_allocation` compares a fresh SUM over `Outflow Row Match` against the
+# row's own amount. There is no leg counter and no completion flag, because a BALANCE answers
+# "is this finished?" and a CARDINALITY cannot -- an aggregate over an open set needs no count,
+# which is what makes an unbounded number of legs safe.
+ROW_PARTIALLY_ALLOCATED = "Partially Allocated"
 ROW_SETTLED = "Settled"
 ROW_SKIPPED = "Skipped"
 ROW_ERROR = "Error"
+
+# Who set a `Skipped` line aside (#1273). The doctype's `skip_origin` Select carries exactly these, in
+# this order; blank means the line is not Skipped.
+#
+# ⚠️ ONLY A MANUAL SKIP MAY EVER BE UNSKIPPED (parent #1270 Q8). A System skip is a duplicate, money the
+# bank never moved, or an exclusion rule -- bringing one back is how the same money gets recorded twice.
+# So every skip THIS MODULE derives is System, by `RowOutcome.skip_origin`, and Manual is written in one
+# place only: `review.skip_row`.
+SKIP_ORIGIN_SYSTEM = "System"
+SKIP_ORIGIN_MANUAL = "Manual"
+SKIP_ORIGINS = ("", SKIP_ORIGIN_SYSTEM, SKIP_ORIGIN_MANUAL)
 
 # The vocabulary in the order a reviewer meets it. The doctype's `row_status` Select carries this
 # exact list in this exact order, and so does the frontend mirror.
@@ -179,6 +212,7 @@ ROW_STATUSES = (
     ROW_PENDING_MATCH,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_ERROR,
@@ -194,6 +228,23 @@ TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED})
 
 # Open = a person still owes this row a decision. Everything that is not terminal.
 OPEN_ROW_STATUSES = frozenset({ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR})
+
+# Active = this row still needs a human, whether or not money has already moved against it.
+#
+# ⚠️ THIS IS NOT `not TERMINAL`, AND `Partially Allocated` IS WHY. That status is in NEITHER
+# `OPEN_ROW_STATUSES` NOR `TERMINAL_ROW_STATUSES`, on purpose:
+#
+#   - putting it in OPEN would enrol it in the four cross-batch reads that walk that set
+#     (`review._disambiguate_matched`, `_enforce_single_claim`, `_load_open_rows_for_keys`), so a
+#     half-allocated row would start contending for records a different row already holds;
+#   - putting it in TERMINAL would tell `derive_batch_status`, `batch_is_open` and the screen that
+#     a transfer with money still to allocate is finished.
+#
+# So the "does anybody still owe this row a decision?" question moved to its OWN set, and the two
+# readers that ask it -- `derive_batch_status` and `derive_import_summary`'s open figures -- read
+# THIS one. `ACTIVE == OPEN` until the first partial allocation exists, so nothing already in the
+# database moves; that equivalence is pinned by test rather than left to be noticed.
+ACTIVE_ROW_STATUSES = OPEN_ROW_STATUSES | {ROW_PARTIALLY_ALLOCATED}
 
 # Statuses that leave `derive_import_summary`'s STATEMENT TOTALS (`total_rows` / `total_value`).
 #
@@ -233,7 +284,22 @@ BATCH_STATUSES = (BATCH_DRAFT, BATCH_IN_REVIEW, BATCH_PARTIALLY_SETTLED, BATCH_C
 SKIP_REASON_NOT_SUCCESSFUL = "Transfer did not succeed at the bank ({status})."
 SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
+# `{records}` is `_records_phrase(...)`: every record NAMED WITH ITS LEDGER (#1253), never a bare
+# name. See `_record_sentence` for which of these two a group reads.
+#
+# ⚠️ AN INFLOW IS NEVER "PAID". Neither inflow ledger has a status field at all -- the money arrived, it
+# was not paid out -- so a receipt reads its own sentence rather than borrowing the payments one.
 SKIP_REASON_ALREADY_PAID = "Already recorded as Paid on {records}."
+SKIP_REASON_ALREADY_RECEIVED = "Already recorded as received on {records}."
+# A group mixing an inflow with anything else -- unreachable under direction scoping; see
+# `_record_sentence`. It claims neither "Paid" nor "received".
+_SKIP_REASON_ALREADY_RECORDED = "Already recorded on {records}."
+# The ICICI contains-guard's "one record justifies one line" note (#1258). `{records}` names only the
+# record(s) already used; `{places}` says where, e.g. "a line skipped in batch OIB-26-000007".
+SKIP_BLOCKED_RECORD_USED = (
+    "Not skipped: {records} already {verb} for another statement line ({places}). "
+    "One record can justify skipping only one line -- check whether this is a second, genuine {money}."
+)
 
 # The bank-statement exclusion (slice B3). `{category}` is a `bank_exclusions.SKIP_CATEGORY_IDS`
 # member, verbatim.
@@ -260,8 +326,24 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
 # A reader who took the stronger claim as a rule would have no reason to let this source reach the
 # run at all, and would silently delete the guard.
 STAGED_NOTE_NO_SETTLEMENT_PATH = (
-    "This statement creates records rather than settling approved ones. "
+    "This statement creates records rather than settling Reconciliation Pending ones. "
     "Resolve it by creating a new record or linking an existing one."
+)
+
+# Every sentence the SOFTWARE writes when it skips a line -- at upload into `skip_reason`, at match time
+# into `outcome_note`. Read by `skip_origin.classify_skip_origin`, which back-fills lines skipped before
+# `skip_origin` existed and must tell a system skip from a hand one by its words.
+#
+# ⚠️ A NEW SKIP SENTENCE JOINS THIS TUPLE IN THE SAME CHANGE. Missing here, an old line skipped with it
+# and later re-skipped by hand would back-fill as Manual and become unskippable.
+SYSTEM_SKIP_SENTENCES = (
+    SKIP_REASON_NOT_SUCCESSFUL,
+    SKIP_REASON_ALREADY_IMPORTED,
+    SKIP_REASON_DUPLICATE_IN_FILE,
+    SKIP_REASON_ALREADY_PAID,
+    SKIP_REASON_ALREADY_RECEIVED,
+    _SKIP_REASON_ALREADY_RECORDED,
+    SKIP_REASON_EXCLUDED_AT_INGEST,
 )
 
 
@@ -279,6 +361,17 @@ class RowOutcome:
     @property
     def is_terminal(self) -> bool:
         return self.status in TERMINAL_ROW_STATUSES
+
+    @property
+    def skip_origin(self) -> str | None:
+        """`System` for a skip, `None` otherwise -- the value every writer lands in `skip_origin` (#1273).
+
+        ⚠️ A PROPERTY OF THE STATUS, NOT A FIELD A DERIVER SETS. Every outcome built here is the
+        software's own decision, so a derived skip is System by definition; a field would be one more
+        place a new skip branch could forget. `None` (not `""`) so a writer stores NULL, like the
+        other cleared columns.
+        """
+        return SKIP_ORIGIN_SYSTEM if self.status == ROW_SKIPPED else None
 
 
 @dataclass(frozen=True)
@@ -432,29 +525,42 @@ def _failed_or_already_paid(row, paid_duplicate) -> RowOutcome | None:
 
     # 3. Already recorded as Paid by hand (rule 2). Safe to test before the candidate pool because
     #    an already-Paid record is not IN the candidate pool (rule 1) -- the two cannot contend.
-    if paid_duplicate is not None and getattr(paid_duplicate, "targets", ()):
-        bank_amount = _amount_of(row)
-        total = _total_of(paid_duplicate)
-        if not amounts_match(total, bank_amount):
-            # The AMOUNT route to `Mismatched` -- narrow and honest: the bank amount disagrees with
-            # what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW. Since the
-            # 2026-08-10 merge it is no longer the ONLY route (found-nothing lands here too), which
-            # is exactly why `_delta_note` must keep naming the record and the shortfall -- the note
-            # is now the only thing telling the two apart.
-            #
-            # ⚠️ THIS USED TO BE `total != bank_amount`, AND THE EXACTNESS WAS A DEFECT. The bank
-            # rounds to the whole rupee and 31.4% of payments carry paise, so every hand-ticked
-            # payment with paise on it arrived here as a "discrepancy" -- announced with a note
-            # suggesting TDS, for gaps of 14 to 86 paise. The candidate passes had used the window
-            # since the tolerance landed; this branch was the one call site that never got it.
-            # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
-            return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
-        return RowOutcome(
-            ROW_SKIPPED,
-            SKIP_REASON_ALREADY_PAID.format(records=_name_list(paid_duplicate)),
-        )
+    return _already_recorded_outcome(row, paid_duplicate)
 
-    return None
+
+def _already_recorded_outcome(row, paid_duplicate) -> RowOutcome | None:
+    """Rule 3 alone: the outcome a line gets from the records it duplicates, or `None` for none.
+
+    ⚠️ SHARED BY THE MATCH RUN AND THE WRITE ENDPOINTS (#1260), so a button can never answer
+    differently from the screen. `derive_recorded_money_verdict` reads it; the run reads it through
+    `_failed_or_already_paid`, after the failed-transfer rule a staged write can never meet.
+
+    ⚠️ ONE RECORD, ONE LINE (#1258) COMES FIRST. A group that agrees but whose record already accounts
+    for another line carries `used_by`, and must never reach the amount test below, which would skip
+    it. Only the ICICI contains-guard sets it -- every other group has no such attribute.
+    """
+    if paid_duplicate is None or not getattr(paid_duplicate, "targets", ()):
+        return None
+    used_by = getattr(paid_duplicate, "used_by", ()) or ()
+    if used_by:
+        return RowOutcome(ROW_MISMATCHED, _already_used_note(paid_duplicate, used_by))
+    bank_amount = _amount_of(row)
+    total = _total_of(paid_duplicate)
+    if not amounts_match(total, bank_amount):
+        # The AMOUNT route to `Mismatched` -- narrow and honest: the bank amount disagrees with
+        # what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW. Since the
+        # 2026-08-10 merge it is no longer the ONLY route (found-nothing lands here too), which
+        # is exactly why `_delta_note` must keep naming the record and the shortfall -- the note
+        # is now the only thing telling the two apart.
+        #
+        # ⚠️ THIS USED TO BE `total != bank_amount`, AND THE EXACTNESS WAS A DEFECT. The bank
+        # rounds to the whole rupee and 31.4% of payments carry paise, so every hand-ticked
+        # payment with paise on it arrived here as a "discrepancy" -- announced with a note
+        # suggesting TDS, for gaps of 14 to 86 paise. The candidate passes had used the window
+        # since the tolerance landed; this branch was the one call site that never got it.
+        # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
+        return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
+    return RowOutcome(ROW_SKIPPED, _record_sentence(paid_duplicate))
 
 
 def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
@@ -489,10 +595,84 @@ def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
     settled at UPLOAD for every source (`derive_staged_row_outcome`), and `review.match_batch` has
     never passed it either.
     """
+    # ⚠️ ONE RECORD, ONE LINE (#1258) is decided inside `_already_recorded_outcome`, after the
+    # failed-transfer rule: a group carrying `used_by` reads `Mismatched`, never `Skipped`.
     decided = _failed_or_already_paid(row, paid_duplicate)
     if decided is not None:
         return decided
     return RowOutcome(ROW_MISMATCHED, STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+
+def derive_guard_verdict(row, paid_duplicate=None) -> RowOutcome | None:
+    """What the match run decides about a row BEFORE any candidate is considered, or `None` (#1261).
+
+    Rules 2 and 3 -- the failed transfer and the already-recorded guard -- exactly as BOTH match-time
+    derivers read them first. `None` means the guard has nothing to say and the rest of the run decides.
+    The read-only production preview (`api/outflow_import/duplicate_preview`) reports this and only this.
+    """
+    return _failed_or_already_paid(row, paid_duplicate)
+
+
+def pick_duplicate_group(row, groups):
+    """Which already-recorded group this row duplicates, from groups given IN PRECEDENCE ORDER (#1256).
+
+    Returns the FIRST group whose total agrees with the bank amount inside the settle window, else
+    the first group at all (so the `Mismatched` note names it), else `None`. Absent and empty groups
+    are skipped.
+
+    ⚠️ THE ORDER IS THE RULE. A gateway run passes `(payments, expenses, payments + expenses)`, so a
+    reference that sits on a Paid payment reads EXACTLY as it did before #1256 whenever that payment
+    agrees -- the acceptance line "existing Paid-payment skip behaviour unchanged". Summing every hit
+    into one group instead turned such a row `Mismatched` the moment an expense shared its reference.
+    The combined group comes last: it catches money genuinely split across both ledgers.
+
+    ⚠️ A SEVENTH AMOUNT-WINDOW SITE, listed in `amounts.py`. It uses `amounts_match` -- the settle
+    window -- because it is choosing the group `_failed_or_already_paid` then re-checks with the same
+    window; two different windows would let the pick disagree with the verdict.
+    """
+    present = [g for g in groups if g is not None and getattr(g, "targets", ())]
+    if not present:
+        return None
+    bank_amount = _amount_of(row)
+    for group in present:
+        if amounts_match(_total_of(group), bank_amount):
+            return group
+    return present[0]
+
+
+# The two things a write endpoint does with a line whose money is already recorded (#1260).
+RECORDED_DUPLICATE = "duplicate"
+RECORDED_NEEDS_CONFIRMATION = "needs confirmation"
+
+
+@dataclass(frozen=True)
+class RecordedMoneyVerdict:
+    """Why a write must stop: `kind` is one of the two constants above; `note` names the records."""
+
+    kind: str
+    note: str
+
+
+def derive_recorded_money_verdict(row, paid_duplicate) -> RecordedMoneyVerdict | None:
+    """What a WRITE endpoint does with the records this line duplicates, or `None` to proceed (#1260).
+
+    `paid_duplicate` is the group the MATCH RUN would judge this line on, for its source --
+    `review._recorded_money_group` builds it. The answer follows the run's own verdict on that group:
+
+      * the run would SKIP the line   -> `RECORDED_DUPLICATE`: refuse, write nothing;
+      * the run would leave it MISMATCHED naming a record (the amount is off, or #1258's record is
+        already used by another line) -> `RECORDED_NEEDS_CONFIRMATION`: refuse unless confirmed;
+      * no record -> `None`.
+
+    ⚠️ IT READS `_already_recorded_outcome`, THE SAME BRANCH THE RUN READS, and the note is that
+    outcome's note, so the refusal and the row's note are the same sentence. It never reads
+    `is_success`: a failed transfer is `Skipped` at staging, so no write can reach one.
+    """
+    outcome = _already_recorded_outcome(row, paid_duplicate)
+    if outcome is None:
+        return None
+    kind = RECORDED_DUPLICATE if outcome.status == ROW_SKIPPED else RECORDED_NEEDS_CONFIRMATION
+    return RecordedMoneyVerdict(kind=kind, note=outcome.note)
 
 
 def _settleable_candidates(match) -> tuple:
@@ -615,13 +795,14 @@ def _matched_note(candidates: Sequence, tier: str = "") -> str:
         targets = getattr(only, "targets", None)
         if targets and len(targets) > 1:
             return _joined(
-                f"One transfer settling {len(targets)} approved payments: {names}.", because
+                f"One transfer settling {len(targets)} Reconciliation Pending payments: {names}.",
+                because,
             )
-        return _joined(f"One approved record at this amount: {names}.", because)
+        return _joined(f"One Reconciliation Pending record at this amount: {names}.", because)
     listed = ", ".join(_name_list(c) for c in candidates[:3])
     more = "" if len(candidates) <= 3 else f" and {len(candidates) - 3} more"
     return _joined(
-        f"{len(candidates)} approved records match this amount: {listed}{more}.",
+        f"{len(candidates)} Reconciliation Pending records match this amount: {listed}{more}.",
         because,
         "Choose which one this transfer settled.",
     )
@@ -639,8 +820,8 @@ def _nothing_found_note() -> str:
     the reader has nothing else to go on.
     """
     return (
-        "No approved payment or expense matches this transfer. Record a new expense, or link one "
-        "by hand."
+        "No Reconciliation Pending payment or expense matches this transfer. Record a new expense, "
+        "or link one by hand."
     )
 
 
@@ -663,25 +844,171 @@ def several_found_note(count: int) -> str:
     create a duplicate expense for money that is already approved and waiting.
     """
     return (
-        f"{count} approved records match this transfer and nothing could separate them. "
+        f"{count} Reconciliation Pending records match this transfer and nothing could separate "
+        f"them. "
         f"Open the row and pick which one it settled."
     )
 
 
 def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
+    """The amount-disagreement note for an already-recorded duplicate, in its ledger's own words.
+
+    ⚠️ BOTH HALVES OF THE WORDING DEPEND ON THE LEDGER (#1253), and each was always-true only while
+    the guard could reach nothing but `Project Payments`:
+
+      * a RECEIPT arrived rather than left, so it reads "received" and "arrived", never "paid";
+      * TDS is deducted from a payment to a vendor, so the "deduction such as TDS" hint appears only
+        when a Project Payment is among the records. Offered on an expense or an inflow shortfall it
+        would send the reviewer looking for a deduction that cannot exist there.
+
+    ⚠️ BOTH AMOUNTS ARE PRINTED `:.2f`. They arrive as a nine-decimal `Decimal` from a Currency column
+    or as a float-shaped one from another path, and printed raw the screen read "500.000000000" on one
+    and "900.0" on the other (#1252 browser walk). `TestTheAmountOffNoteReadsAsMoney` pins it.
+    """
+    receipt = _is_receipt_group(group)
+    verb = "received" if receipt else "paid"
     delta = total - bank_amount
     if delta > 0:
         implied = (delta / total * 100) if total else Decimal("0")
         shortfall = (
-            f"The bank paid {delta} less than the recorded total of {total} "
-            f"({implied:.2f}% of it). A deduction such as TDS would look like this."
+            f"The bank {verb} {delta:.2f} less than the recorded total of {total:.2f} "
+            f"({implied:.2f}% of it)."
         )
+        if _has_payment(group):
+            shortfall += " A deduction such as TDS would look like this."
     else:
+        movement = "arrived in" if receipt else "left"
         shortfall = (
-            f"The bank paid {-delta} MORE than the recorded total of {total}. "
-            f"More money left the account than any matched record claims."
+            f"The bank {verb} {-delta:.2f} MORE than the recorded total of {total:.2f}. "
+            f"More money {movement} the account than any matched record claims."
         )
-    return f"{shortfall} Already recorded as Paid on {_name_list(group)}."
+    return f"{shortfall} {_record_sentence(group)}"
+
+
+@dataclass(frozen=True)
+class _UsedRecords:
+    """The subset of a blocked group's records that are already used, shaped like a group so the
+    shared `_records_phrase` / `_is_receipt_group` can name them."""
+
+    targets: tuple
+
+
+def _already_used_note(group, used_by) -> str:
+    """Why an agreeing duplicate did NOT skip: its record already accounts for another line (#1258).
+
+    Names the USED record(s) under their ledger and says where each was used -- the batch, and
+    whether a line there was skipped on it or it was recorded from that import -- because that is
+    what a reviewer must open to decide whether this line is a second, genuine payment.
+    """
+    used_keys = {(c.doctype, c.name) for c in used_by}
+    used = _UsedRecords(tuple(t for t in _targets_of(group) if (t.doctype, t.name) in used_keys))
+    places: list[str] = []
+    for c in used_by:
+        place = (
+            f"recorded from batch {c.import_batch}" if c.settled
+            else f"a line skipped in batch {c.import_batch}"
+        )
+        if place not in places:
+            places.append(place)
+    verb = "accounts" if len(used.targets) == 1 else "account"
+    money = "receipt" if _is_receipt_group(used) else "payment"
+    return SKIP_BLOCKED_RECORD_USED.format(
+        records=_records_phrase(used), verb=verb, places="; ".join(places), money=money,
+    )
+
+
+# The order ledgers are named in when one note spans several. The display order the rest of this
+# module already uses (`LEDGER_DOCTYPES`), with the received-only ledgers after it.
+_LEDGER_NAMING_ORDER = (*LEDGER_DOCTYPES, *INFLOW_DOCTYPES)
+
+# ⚠️ THE LEDGERS WHOSE RECORD NAME MEANS NOTHING TO A PERSON. Both expense doctypes autoname with a
+# random hash (`ecuu6rldvp`), and neither expense table can search by it -- so a note that printed it
+# would hand the reviewer a string they cannot use anywhere. These records are DESCRIBED instead:
+# what the description says, how much, and when it was paid.
+_DESCRIBED_LEDGERS = frozenset({PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE})
+
+_DESCRIPTION_LIMIT = 60
+
+
+def _record_sentence(group) -> str:
+    """"Already recorded as Paid on …" or "… as received on …", for the records behind a duplicate.
+
+    A group whose records are ALL inflows reads as received. A group with no inflow reads as Paid.
+    A group mixing the two is unreachable while the guard checks a withdrawal against payments and
+    expenses and a deposit against inflows only -- and if it ever were reached, it reads a sentence
+    that claims neither, rather than calling an inflow Paid.
+
+    ⚠️ RECEIPT-NESS IS READ FROM THE DOCTYPE HERE, NOT FROM `is_received_direction`, AND THAT HOLDS
+    ONLY WHILE A DEPOSIT IS CHECKED AGAINST THE TWO INFLOW LEDGERS ALONE (`Project Inflows`, and
+    `Non Project Inflows` since #1268; owner ruling on #1252: negative Non Project Expense receipts
+    are deliberately not checked). The day a deposit guard reaches a
+    negative Non Project Expense, this must key on the ROW's direction instead -- a doctype test would
+    call that receipt "Paid".
+    """
+    records = _records_phrase(group)
+    if _is_receipt_group(group):
+        return SKIP_REASON_ALREADY_RECEIVED.format(records=records)
+    if any(t.doctype in INFLOW_DOCTYPES for t in _targets_of(group)):
+        return _SKIP_REASON_ALREADY_RECORDED.format(records=records)
+    return SKIP_REASON_ALREADY_PAID.format(records=records)
+
+
+def _records_phrase(group) -> str:
+    """Every record in a duplicate group, each named under its ledger.
+
+        Project Payment PAY-1
+        Project Payments PAY-1, PAY-2
+        Project Expense "Hotel stay" of 2935.00 paid on 12-Sep-2026
+        Project Payment PAY-1; Project Expense "Hotel stay" of 2935.00 paid on 12-Sep-2026
+
+    Ledgers are separated by `;` because an expense's own description may contain commas.
+    """
+    targets = _targets_of(group)
+    by_ledger: dict[str, list] = {}
+    for target in targets:
+        by_ledger.setdefault(target.doctype, []).append(target)
+    order = [d for d in _LEDGER_NAMING_ORDER if d in by_ledger]
+    order += [d for d in by_ledger if d not in order]
+
+    parts: list[str] = []
+    for doctype in order:
+        records = by_ledger[doctype]
+        singular, plural = LEDGER_NOUNS.get(doctype, (doctype, doctype))
+        if doctype in _DESCRIBED_LEDGERS:
+            parts += [_described_record(singular, r) for r in records]
+        else:
+            noun = singular if len(records) == 1 else plural
+            parts.append(f"{noun} {', '.join(r.name for r in records)}")
+    return "; ".join(parts) or "an unnamed record"
+
+
+def _described_record(noun: str, target) -> str:
+    description = " ".join((getattr(target, "description", "") or "").split())
+    if len(description) > _DESCRIPTION_LIMIT:
+        description = description[:_DESCRIPTION_LIMIT] + "…"
+    text = f'{noun} "{description}"' if description else noun
+    text += f" of {_amount_text(target.amount)}"
+    paid_on = getattr(target, "txn_date", None)
+    if paid_on:
+        text += f" paid on {paid_on.strftime('%d-%b-%Y')}"
+    return text
+
+
+def _amount_text(amount) -> str:
+    return f"{Decimal(str(amount or 0)):.2f}"
+
+
+def _targets_of(group) -> tuple:
+    return tuple(getattr(group, "targets", ()) or ())
+
+
+def _is_receipt_group(group) -> bool:
+    targets = _targets_of(group)
+    return bool(targets) and all(t.doctype in INFLOW_DOCTYPES for t in targets)
+
+
+def _has_payment(group) -> bool:
+    return any(t.doctype == PAYMENT_DOCTYPE for t in _targets_of(group))
 
 
 def _name_list(candidate) -> str:
@@ -712,19 +1039,27 @@ def derive_batch_status(row_statuses: Iterable[str]) -> str:
     ⚠️ THE `force_closed` PARAMETER IS GONE with `Completed with exceptions` (owner ruling). Closing
     a batch no longer changes what its status SAYS -- it records `closed_at` and nothing more, so a
     batch closed with rows outstanding still reads `Partially Settled`, which is the truth. The
-    three tabs show the outstanding work directly, which is what the retired status was standing in
-    for.
+    tabs show the outstanding work directly, which is what the retired status was standing in for.
     """
     statuses = list(row_statuses)
     if not statuses:
         return BATCH_DRAFT
 
-    open_rows = [s for s in statuses if s in OPEN_ROW_STATUSES]
-    terminal_rows = [s for s in statuses if s in TERMINAL_ROW_STATUSES]
+    # ⚠️ `active`, NOT `open`. A status in neither OPEN nor TERMINAL would make the branch below
+    # fire on a batch full of unfinished work and report `Completed` -- and `batch_is_open` would
+    # then drop that statement out of `match_period` forever. See `ACTIVE_ROW_STATUSES`.
+    active_rows = [s for s in statuses if s in ACTIVE_ROW_STATUSES]
+    # `banked` = money has landed, or a decision was taken. A partially allocated row qualifies:
+    # some of its money HAS been written, which is precisely what `Partially Settled` means.
+    banked_rows = [
+        s
+        for s in statuses
+        if s in TERMINAL_ROW_STATUSES or s == ROW_PARTIALLY_ALLOCATED
+    ]
 
-    if not open_rows:
+    if not active_rows:
         return BATCH_COMPLETED
-    if terminal_rows:
+    if banked_rows:
         return BATCH_PARTIALLY_SETTLED
     return BATCH_IN_REVIEW
 
@@ -1010,8 +1345,11 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     def value(status: str) -> Decimal:
         return by_status.get(status, {}).get("value", Decimal("0"))
 
-    open_rows = sum(rows(s) for s in OPEN_ROW_STATUSES)
-    open_value = sum((value(s) for s in OPEN_ROW_STATUSES), Decimal("0"))
+    # ⚠️ ACTIVE, NOT OPEN -- a partially allocated row's money is NOT settled, so it must stay in
+    # the "still open" figure or the summary panel's `Total = Settled + Still open` band silently
+    # stops adding up. `settled_rows + open_rows == total_rows` is the invariant being preserved.
+    open_rows = sum(rows(s) for s in ACTIVE_ROW_STATUSES)
+    open_value = sum((value(s) for s in ACTIVE_ROW_STATUSES), Decimal("0"))
 
     def open_side(received: bool) -> tuple[int, Decimal]:
         """One direction's share of what is still open.
@@ -1023,7 +1361,7 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         lie, and an unrecognised status falls out of both halves exactly as it falls out of
         `open_rows`.
 
-        ⚠️ IT WALKS THE SAME `OPEN_ROW_STATUSES` SET, so the halves inherit every exclusion the
+        ⚠️ IT WALKS THE SAME `ACTIVE_ROW_STATUSES` SET, so the halves inherit every exclusion the
         whole already has: a failed transfer never reached the dict, and `Skipped` is terminal and
         so is absent from the set. `SUMMARY_EXCLUDED_STATUSES` therefore needs no second mention
         here -- stating it again would be a second rule to keep in step with the first.
@@ -1031,7 +1369,7 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         selected = [
             bucket
             for (status, is_received), bucket in by_status_direction.items()
-            if status in OPEN_ROW_STATUSES and is_received == received
+            if status in ACTIVE_ROW_STATUSES and is_received == received
         ]
         return (
             sum(bucket["count"] for bucket in selected),
@@ -1161,6 +1499,17 @@ class SettledLedgerEntry:
     `ledger` is the raw `target_doctype` off `ledgers.SETTLED_LEDGER_SQL` -- unnormalised, and
     possibly blank or unrecognised on a row whose match record is missing or points somewhere
     unexpected. Deciding what to do with that is this module's job, not the query's.
+
+    ⚠️ SINCE ADR-0020 (Task 6 review fix D) `ledger` MAY ALSO BE A PIPE-JOINED COMPOSITE (e.g.
+    `"Project Expenses|Project Payments"`) if a row's legs settled into more than one ledger --
+    `SETTLED_LEDGER_SQL` is a `string_agg`, not a single column, since a fan-out permits it. Such a
+    string matches nothing in `LEDGER_DOCTYPES`, so it lands in `Other` below, same as any other
+    unrecognised value -- deliberately: it is honestly anomalous, not silently misattributed to one
+    of its ledgers. Splitting it per-ledger would need `SUM(m.target_amount)` instead of
+    `SUM(r.amount)`, which would break this deriver's reconciliation invariant (the block totals
+    summing to `settled_value`). `expenses._load_settleable_row`'s FIX A currently makes a
+    composite unreachable through any endpoint (a row can acquire legs in only one ledger), but
+    this deriver does not assume that -- it stays correct for whatever the query hands it.
 
     `direction` is the raw `Outflow Import Row.direction` -- `Debit`, `Credit`, or BLANK. It is the
     axis the two settled blocks are cut on (slice B8b), and it comes off the ROW rather than being

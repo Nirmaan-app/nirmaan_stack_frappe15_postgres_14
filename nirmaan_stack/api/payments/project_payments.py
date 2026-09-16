@@ -6,6 +6,13 @@ from frappe.model.document import Document
 from frappe.utils import flt, nowdate, getdate, today
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.services.approval_tiers import (
+    TIER_AUTO_APPROVE_BELOW,
+    is_auto_approved,
+)
+# api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
+# docstring: this call site and `settle._assert_reference_is_free` must move together.
+from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -13,6 +20,10 @@ ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 # Payments strictly below this auto-approve straight to "Approved",
 # bypassing the Requested → CEO Pending → Approved gates.
 # Separate from PO_REVISION_AUTO_APPROVAL_THRESHOLD so the two can diverge.
+# ⚠️ SUPERSEDED — the rule now lives in `services/approval_tiers.py` (15,000 auto),
+# shared with the expense ledgers and mirrored in TypeScript by a parity test.
+# The constant is KEPT only because the auto-approve COMMENT below quotes it and
+# `services/payment_split.py` references it by name; nothing routes on it any more.
 PAYMENT_AUTO_APPROVAL_THRESHOLD = 10001.0
 
 @frappe.whitelist()
@@ -64,7 +75,7 @@ def create_payment_request_for_service(data: str) -> str:
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve = 0 < amount < PAYMENT_AUTO_APPROVAL_THRESHOLD
+    auto_approve = is_auto_approved(amount)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -83,7 +94,7 @@ def create_payment_request_for_service(data: str) -> str:
 
     if auto_approve:
         pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
-            frappe.format_value(PAYMENT_AUTO_APPROVAL_THRESHOLD, "Currency")))
+            frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
 
     frappe.db.commit()
 
@@ -155,7 +166,7 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
             ).format(frappe.format_value(available, "Currency")))
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
-        auto_approve = 0 < amount < PAYMENT_AUTO_APPROVAL_THRESHOLD
+        auto_approve = is_auto_approved(amount)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({
@@ -177,7 +188,7 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
 
         if auto_approve:
             pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
-                frappe.format_value(PAYMENT_AUTO_APPROVAL_THRESHOLD, "Currency")))
+                frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
 
         # --- Step 5: Update the PO Payment Term row, mirroring the payment status ---
         # This establishes the bidirectional relationship.
@@ -354,21 +365,32 @@ def _delete_payment(pay):
 
 def _fulfil_payment(pay, args):
     """ Helper to fulfil a payment. The on_update hook will sync the 'Paid' status. """
-    if pay.status != "Approved":
+    # Accepts BOTH gates of the two-step settlement (owner, 15 Sep 2026):
+    #   Approved                -> the legacy one-step path, still used elsewhere
+    #   Reconciliation Pending  -> the accountant already pressed "Mark as Done";
+    #                              this call is the reconciliation that records the
+    #                              UTR / date / proof and closes the row at Paid.
+    # Anything else is still refused, so a Paid row cannot be fulfilled twice and a
+    # Requested / CEO Pending one cannot skip its approval gate.
+    if pay.status not in ("Approved", "Reconciliation Pending"):
         frappe.throw(_("Payment is not yet CEO-approved or has already been processed"))
 
     utr = (args.get("utr") or "").strip()
     if not utr:
         frappe.throw(_("UTR is required"))
-    
-    dup = frappe.db.get_value(
-        "Project Payments",
-        {"utr" : utr},
-        "name"
-    )
 
-    if dup and dup != pay.name:
-        frappe.throw(f"UTR {utr} already exists in payment {dup}")
+    # ⚠️ THE SAME GUARD THE IMPORT USES -- `services/outflow_import/reference_guard.py` (ADR-0020).
+    # `transfer_id=None` because a manual fulfil has no transfer to check against, which reproduces
+    # the strict rule this block used to spell inline. It must stay in step with the import's call:
+    # if only one site learns about siblings, an accountant fulfilling by hand is refused on a UTR
+    # the import wrote seconds earlier.
+    #
+    # ⚠️ OWN TAIL SENTENCE (fixed at review, Task 4): this screen has no transfer in view, so a
+    # message naming one is not guidance, it is noise. Point at the fix that is actually available
+    # here instead.
+    assert_reference_is_free(
+        utr, pay.name, tail="Use a different UTR, or correct the existing payment first."
+    )
 
     pay.status        = "Paid"
     pay.utr           = utr

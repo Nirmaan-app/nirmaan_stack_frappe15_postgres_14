@@ -124,6 +124,39 @@ export const canDeleteDeliveryDocument = (
   userId === "Administrator" || (!!role && PDD_DELETE_PROFILES.includes(role));
 
 /**
+ * May remove a user from a project — the ✕ on the Project Overview "Assignees" card.
+ * ADMIN ONLY, and deliberately narrower than assigning, which Admin / PMO / Project Lead
+ * may do. Mirrors `role_profiles.is_nirmaan_admin`, which
+ * `api/projects/assignees.remove_project_assignee` ENFORCES; this only decides whether
+ * the ✕ renders.
+ */
+export const canRemoveProjectAssignee = (
+  role?: string | null,
+  userId?: string | null
+): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
+
+/**
+ * May EDIT a Cashflow Plan row (PO / WO / Misc / Inflow) — Admin + PMO (owner ruling).
+ * Narrower than who can SEE the Cashflow tab (Admin / PMO / Project Lead). UI-only: the
+ * `Cashflow Plan` DocPerm still grants write/delete to every Nirmaan role, so this
+ * decides whether the ✏️ renders, not what the server allows.
+ */
+export const canEditCashflowPlan = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" || role === ADMIN_PROFILE || role === PMO_EXECUTIVE_PROFILE;
+
+/**
+ * May DELETE a Cashflow Plan row — Admin only; PMO may edit but not delete (owner
+ * ruling). UI-only, same caveat as `canEditCashflowPlan`: decides whether the 🗑️ renders.
+ */
+export const canDeleteCashflowPlan = (
+  role?: string | null,
+  userId?: string | null
+): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
+
+/**
  * May act on the "Pending Invoice Approvals" queue — approve, reject, or re-run
  * the auto-approve gates on an invoice stuck behind a stale reason.
  *
@@ -268,13 +301,20 @@ export const PROJECT_INVOICES_ACCESS: readonly string[] = [
 ];
 
 /**
- * `/payment-tds-deductions` — the Tax Deducted at Source ledger.
+ * Reports > "Payment TDS Deduction" tab — the Tax Deducted at Source ledger.
+ * (It had its own sidebar item and `/payment-tds-deductions` route until it moved
+ * into the Reports hub; that path is now a redirect into the tab.)
+ *
+ * Read in THREE places, all of which must agree: the tab itself
+ * (`ReportsContainer.tabs`), the tab's report-type list + default
+ * (`currentReportOptions` / `useReportStore`), and nothing else — a second inline
+ * copy of this list drifts the day one of them is edited.
  *
  * ⚠️ NARROWER THAN `/project-payments` ON PURPOSE, AND NOT A UX CHOICE. The
  * `Payment TDS Deduction` doctype grants read to `System Manager`,
  * `Nirmaan Accountant` and `Nirmaan Accountant Lead` only. PMO, Project Lead and
  * the procurement profiles can see Project Payments but hold none of those roles,
- * so a nav item for them would land on a PermissionError. Admin Profile is in
+ * so a tab for them would land on a PermissionError. Admin Profile is in
  * because its role profile carries BOTH `System Manager` and `Nirmaan Accountant`.
  *
  * Widening this list without also widening the doctype's permissions produces a
@@ -285,3 +325,26 @@ export const PAYMENT_TDS_ACCESS: readonly string[] = [
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
+
+/**
+ * `/non-project-inflows` — company money received with no project or customer (#1265).
+ *
+ * Three sets because the three actions differ (ADR-0016 Amendment A): an Accountant creates
+ * but does not edit, and only Admin deletes. Sales profiles are in none of them.
+ *
+ * ⚠️ THE SERVER IS THE ENFORCEMENT BOUNDARY; these only shape the UI. It enforces the same
+ * three sets BY PROFILE (`services/role_profiles.NON_PROJECT_INFLOWS_*_PROFILES`, applied by
+ * the doctype's `has_permission` / list hooks), because role rows cannot: `System Manager`,
+ * the only role that deletes, also rides on PMO, Project Lead, Estimates, HR and Design Lead.
+ * Change a set here only together with its server twin.
+ */
+export const NON_PROJECT_INFLOWS_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];

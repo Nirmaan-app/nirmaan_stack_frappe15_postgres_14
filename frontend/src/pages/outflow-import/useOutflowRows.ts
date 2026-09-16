@@ -69,6 +69,10 @@ export interface OutflowRowsController {
     loading: boolean;
     tabCounts?: OutflowRowsPage["tab_counts"];
     statusCounts?: OutflowRowsPage["status_counts"];
+    /** `status_counts` split by direction (#1264) — the source of the Outflow tab's two chips. */
+    directionStatusCounts?: OutflowRowsPage["direction_status_counts"];
+    /** The server's answer: can the chosen source carry a credit? Drives the Inflow tabs (#1264). */
+    canCarryCredit?: boolean;
 
     /** Re-read the current page. The caller composes this with its own refreshes. */
     mutate: () => Promise<unknown>;
@@ -351,6 +355,8 @@ export function useOutflowRows({
         loading: Boolean(isLoading),
         tabCounts: data?.message?.tab_counts,
         statusCounts: data?.message?.status_counts,
+        directionStatusCounts: data?.message?.direction_status_counts,
+        canCarryCredit: data?.message?.can_carry_credit,
         mutate,
         loadFacetValues,
         filterQuery,

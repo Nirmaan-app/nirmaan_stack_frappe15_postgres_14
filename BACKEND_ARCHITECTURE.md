@@ -7,7 +7,7 @@
 
 1. [Overview](#overview)
 2. [Directory Structure](#directory-structure)
-3. [Doctypes (69 Total)](#doctypes-69-total)
+3. [Doctypes (70 Total)](#doctypes-70-total)
 4. [API Layer (38+ Endpoints)](#api-layer-38-endpoints)
 5. [Document Lifecycle Hooks](#document-lifecycle-hooks)
 6. [Scheduled Tasks](#scheduled-tasks)
@@ -31,7 +31,7 @@
 
 | Metric | Count |
 |--------|-------|
-| Total Doctypes | 69 |
+| Total Doctypes | 70 |
 | Master Doctypes | 53 |
 | Child Tables | 14 |
 | Single Doctypes | 2 |
@@ -47,7 +47,7 @@
 ```
 nirmaan_stack/
 ├── nirmaan_stack/
-│   ├── doctype/                    # 69 custom doctypes
+│   ├── doctype/                    # 70 custom doctypes
 │   │   ├── procurement_requests/
 │   │   ├── procurement_orders/
 │   │   ├── projects/
@@ -117,9 +117,9 @@ nirmaan_stack/
 
 ---
 
-## Doctypes (69 Total)
+## Doctypes (70 Total)
 
-### 1. Procurement Workflow (14 doctypes)
+### 1. Procurement Workflow (15 doctypes)
 
 | Doctype | Type | Key Fields | Purpose |
 |---------|------|------------|---------|
@@ -136,7 +136,8 @@ nirmaan_stack/
 | **Procurement Packages** | Master | package_name | Procurement categorization |
 | **Critical PO Category** | Master | category_name | Critical item categories |
 | **Critical PO Items** | Master | category, item_name, release_timeline_offset | Critical item definitions |
-| **Critical PO Tasks** | Master | project, category, po_release_date, status | Project-specific tracking |
+| **Critical PO Tasks** | Master | project, category, po_release_date, status, linked_po_count | Project-specific tracking |
+| **Critical PO Task Child Table** | Child (of Procurement Orders) | critical_po_task, task_name, critical_po_category, sub_category | PO ↔ Critical PO Task links (written only by `api/critical_po_tasks/po_links.py`) |
 
 ### 2. Projects & Planning (11 doctypes)
 

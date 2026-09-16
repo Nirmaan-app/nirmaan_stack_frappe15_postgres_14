@@ -3,9 +3,19 @@ import { describe, expect, it } from "vitest";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 // ⚠️ A NAMESPACE IMPORT BESIDE THE NAMED ONES, for the deduction-is-gone pin only. A named
 // import of a removed export is a COMPILE error, which cannot express "this must stay absent".
+import {
+    buildInflowUrlSyncKey,
+    inflowHref,
+} from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
 import * as model from "./outflowTableModel";
 import {
+    NON_PROJECT_INFLOW_URL_SYNC_KEY,
+    nonProjectInflowHref,
+} from "@/pages/non-project-inflows/config/nonProjectInflowsTable.config";
+import {
     DEFAULT_HIDDEN_COLUMNS,
+    clearedPick,
+    pickFitsSingleSelect,
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
     availableDecisionTargets,
@@ -38,8 +48,16 @@ import {
     settleBlockText,
     settleBlocker,
     previewCounts,
+    statementCredit,
     statementDebit,
     tabCountParts,
+    amountToneClass,
+    AMOUNT_TONE,
+    inflowTabsVisible,
+    visibleTabs,
+    reachableTab,
+    tabFromCarried,
+    postImportTab,
     matchBasisLabel,
     ARBITRARY_SUGGESTION_RULES,
     SUGGESTION_RULE_LABELS,
@@ -58,10 +76,12 @@ import {
     RECORD_DATE_LABELS,
     recordDateParts,
     recordKey,
+    tickAllowedForFanOut,
     DEFAULT_PAGE_SIZE,
     SCOPE_FOR_TAB,
     countDecided,
     decidedRows,
+    decisionLinkKeys,
     decisionOrigin,
     highlightSegments,
     importOptionLabel,
@@ -74,7 +94,6 @@ import {
     importStatusTone,
     importsForSource,
     openImports,
-    receiptStoredAmount,
     rematchReachLabel,
     matchedImports,
     duplicateCheckedImports,
@@ -88,6 +107,7 @@ import {
     settlementLink,
     suggestedDecision,
     summaryTiles,
+    SKIPPED_ON_PURPOSE_PHRASE,
     type RowDecision,
 } from "./outflowTableModel";
 
@@ -100,6 +120,14 @@ import {
  * that is NOT a React semantic. The screen itself is verified by a live browser walk -- the method
  * that found five real defects in the prototype that a green suite could never have seen.
  */
+
+/**
+ * Test-only shorthand: the `linkTargets` set the picker would build from one or more ticks
+ * (Task 7, ADR-0020 fan-out). Replaces the old bare `linkTo: "PAY-1"` string pins.
+ */
+const linkTargets = (
+    ...picks: Array<{ target_doctype: string; name: string }>
+): Set<string> => new Set(picks.map((p) => recordKey(p)));
 
 const row = (over: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     ({
@@ -149,16 +177,14 @@ describe("columns", () => {
         // on every source, so the old heading called a deposit "paid". The column cannot say which
         // way the money went; `direction` is the only field that can.
         //
-        // ⚠️ "Direction" JOINED VISIBLE, immediately after "Amount", and this pin was updated
-        // deliberately rather than worked around. The marker lived inside the amount CELL for a
-        // day; a fact worth filtering on cannot, because the funnel lives in the `<th>`. It sits
-        // where it does for the reason "Ledger" sits after "Status": it qualifies its neighbour.
+        // ⚠️ "Direction" JOINED VISIBLE after "Amount" (D12) and LEFT again (owner, 2026-09-14),
+        // and this pin was updated deliberately both times. The direction tabs split the table and
+        // the Amount cell is coloured red / green by direction, so the column repeated both.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
             "Beneficiary",
             "Amount",
-            "Direction",
             "Remarks",
             "Reference",
             "Status",
@@ -218,71 +244,29 @@ describe("columns", () => {
         expect(ids[ids.indexOf("settled_ledger") + 1]).toBe("outcome");
     });
 
-    it("puts Direction immediately after Amount, where it qualifies one", () => {
-        // The same rule that puts Ledger after Status: a column that qualifies its neighbour
-        // belongs against it. A figure and the word that gives it its sign are one reading.
-        const ids = OUTFLOW_COLUMNS.map((c) => c.id);
-        expect(ids[ids.indexOf("amount") + 1]).toBe("direction");
+    it("has NO Direction column -- the tabs and the amount colour carry direction now", () => {
+        // ⚠️ OWNER RULING 2026-09-14, REVERSING D12. The direction tabs (#1264) split the table by
+        // direction and the Amount cell is coloured by it, so the column repeated both. The CSV
+        // still carries `Direction` as an export-only column (see `outflowExport`).
+        expect(OUTFLOW_COLUMNS.map((c) => c.id)).not.toContain("direction");
+        expect(SERVER_FACET_COLUMNS).not.toContain("direction");
     });
 
-    it("ships Direction VISIBLE, with its own funnel", () => {
-        // ⚠️ THE WHOLE REASON IT IS A COLUMN (owner ruling 2026-09-09, reversing D8). The marker
-        // shipped inside the AMOUNT CELL for a day, and a fact worth filtering on cannot live
-        // there: in this table the funnel lives in the `<th>`, so there is no way to offer the
-        // filter without declaring the column.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.title).toBe("Direction");
-        expect(col.filter).toBe("facet");
-        expect(col.hiddenByDefault).toBeUndefined();
-        expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("direction");
-    });
-
-    it("reads Received on a credit and Paid on an explicit debit", () => {
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.get(row({ direction: "Credit" }))).toBe("Received");
-        expect(col.get(row({ direction: "Debit" }))).toBe("Paid");
-    });
-
-    it("⚠️ reads Paid on a BLANK direction, and never a blank cell", () => {
-        // Blank means the statement did not say -- a gateway export has no direction column at
-        // all. It lands on Paid as a CONSEQUENCE of the single positive test on "Credit", not
-        // because blank is read as Debit: the receipt paths refuse anything that is not `Credit`
-        // at the write, so such a row could never have become a receipt. `get` feeds the CSV, so
-        // an empty string here would be a blank cell in an archived file.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.get(row({ direction: "" }))).toBe("Paid");
-        expect(col.get(row({ direction: undefined }))).toBe("Paid");
-        expect(col.get(row({ direction: "Something Else" }))).toBe("Paid");
-    });
-
-    it("trims, because it derives from `isCreditRow` rather than comparing inline", () => {
-        // The D5 defect, at a new site: a `" Credit "` row had its inflow cards hidden while
-        // `isConfirmable` treated it as a credit. One predicate is what stops that recurring.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.get(row({ direction: " Credit " }))).toBe("Received");
-        expect(col.get(row({ direction: "\tCredit\n" }))).toBe("Received");
-    });
-
-    it("is a two-value PARTITION -- every row gets one label, none gets neither", () => {
-        // ⚠️ WHY IT IS DERIVED AND NOT THE RAW `direction` FIELD. The live table holds Debit 894 /
-        // Credit 5 / blank 0, so a raw column would render identically today -- which is exactly
-        // how it would have shipped. A raw column shows an empty cell on the first blank row and
-        // grows a third, unlabelled funnel entry while the screen still shows two badges.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        const inputs = ["Credit", "Debit", "", " Credit ", "credit", "CREDIT", "Cr", undefined];
-        for (const direction of inputs) {
-            const value = col.get(row({ direction } as Partial<OutflowImportRow>));
-            expect(["Paid", "Received"]).toContain(value);
-        }
+    it("colours an amount red for outflow and green for inflow", () => {
+        expect(amountToneClass(row({ direction: "Credit" }))).toBe(AMOUNT_TONE.inflow);
+        expect(amountToneClass(row({ direction: " Credit " }))).toBe(AMOUNT_TONE.inflow);
+        expect(amountToneClass(row({ direction: "Debit" }))).toBe(AMOUNT_TONE.outflow);
+        // Blank is outflow, by the same single positive test the tabs use.
+        expect(amountToneClass(row({ direction: "" }))).toBe(AMOUNT_TONE.outflow);
+        expect(amountToneClass(row({ direction: undefined }))).toBe(AMOUNT_TONE.outflow);
+        expect(AMOUNT_TONE.outflow).toMatch(/red/);
+        expect(AMOUNT_TONE.inflow).toMatch(/green/);
     });
 
     it("agrees with `isCreditRow`, the one definition of the axis", () => {
-        // A second spelling of `direction === "Credit"` is free to drift, and the drift presents as
-        // a row labelled Received on screen that the settle guard treats as a debit.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
         for (const direction of ["Credit", "Debit", "", " Credit ", "Cr", "credit"]) {
             const r = row({ direction });
-            expect(col.get(r)).toBe(isCreditRow(r) ? "Received" : "Paid");
+            expect(amountToneClass(r)).toBe(isCreditRow(r) ? AMOUNT_TONE.inflow : AMOUNT_TONE.outflow);
         }
     });
 
@@ -300,16 +284,23 @@ describe("columns", () => {
         expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("settled_ledger");
     });
 
-    it("reads the ledger off the row, and blank when nothing has settled", () => {
-        // Blank is CORRECT, not missing data: an open transfer has no settlement, so it has no
-        // ledger. `get` must never return undefined -- it feeds the sort, the funnel and the CSV.
+    it("reads the ledger LIST off the row and joins it, blank when nothing has settled", () => {
+        // ⚠️ RENAMED AT TASK 6 (ADR-0020 fan-out): `r.settled_ledgers` (a list, possibly more than
+        // one entry since a single transfer may now settle into several books) REPLACED the scalar
+        // `r.settled_ledger` this column used to read. Blank is CORRECT, not missing data: an open
+        // transfer has no settlement, so it has no ledger. `get` must never return undefined -- it
+        // feeds the sort, the funnel and the CSV.
         const col = OUTFLOW_COLUMNS.find((c) => c.id === "settled_ledger")!;
-        expect(col.get(row({ settled_ledger: "Project Payments" }))).toBe("Project Payments");
-        expect(col.get(row({ settled_ledger: "Non Project Expenses" }))).toBe(
+        expect(col.get(row({ settled_ledgers: ["Project Payments"] }))).toBe("Project Payments");
+        expect(col.get(row({ settled_ledgers: ["Non Project Expenses"] }))).toBe(
             "Non Project Expenses"
         );
+        expect(
+            col.get(row({ settled_ledgers: ["Project Payments", "Project Expenses"] }))
+        ).toBe("Project Payments, Project Expenses");
         expect(col.get(row())).toBe("");
-        expect(col.get(row({ settled_ledger: undefined }))).toBe("");
+        expect(col.get(row({ settled_ledgers: [] }))).toBe("");
+        expect(col.get(row({ settled_ledgers: undefined }))).toBe("");
     });
 
     it("faceted on the server and NEVER sorted there", () => {
@@ -720,9 +711,10 @@ describe("which way the money went — the ONE definition of the axis", () => {
     });
 
     it("offers the two credit dispositions on a credit row, and nothing else", () => {
+        // #1266: project inflow and non-project inflow are the ONLY two -- the receipt is gone.
         expect(availableDecisionTargets({ direction: "Credit" } as any)).toEqual([
             "inflow",
-            "receipt",
+            "nonProjectInflow",
         ]);
     });
 
@@ -746,7 +738,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
                 "Non Project Expenses",
                 "new",
                 "inflow",
-                "receipt",
+                "nonProjectInflow",
             ].sort()
         );
     });
@@ -956,34 +948,141 @@ describe("the Vendor / Description cell", () => {
 });
 
 describe("tabs", () => {
-    it("is All / Not-Matched / Matched-Settled, in that order", () => {
+    it("is All, then each Outflow tab beside its Inflow twin (#1264)", () => {
         // ⚠️ THERE IS NO SKIPPED TAB, and "All" excludes Skipped too (owner ruling 2026-08-10) --
-        // it means everything a person might still act on, not every row in the table. The import
-        // summary panel is the only place skipped transfers are reported.
-        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual(["all", "notMatched", "matched"]);
+        // it means everything a person might still act on, not every row in the table.
+        // ⚠️ SIMILAR TABS SIT TOGETHER (owner, 2026-09-14): each Inflow tab directly after its
+        // Outflow twin, with Partly Allocated (outflow-only) between the two pairs.
+        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual([
+            "all",
+            "notMatchedOutflow",
+            "notMatchedInflow",
+            "partlyAllocatedOutflow",
+            "matchedOutflow",
+            "settledInflow",
+        ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
-            "Not-Matched",
-            "Matched / Settled",
+            "Not Matched – Outflow",
+            "Not Matched – Inflow",
+            "Partly Allocated – Outflow",
+            "Matched / Settled – Outflow",
+            "Settled – Inflow",
         ]);
     });
 
-    it("opens on the work, not the archive", () => {
-        expect(DEFAULT_TAB).toBe("notMatched");
+    it("marks each tab's direction; All spans both", () => {
+        expect(OUTFLOW_TABS.map((t) => t.direction ?? null)).toEqual([
+            null,
+            "outflow",
+            "inflow",
+            "outflow",
+            "outflow",
+            "inflow",
+        ]);
+    });
+
+    it("opens on Not Matched – Outflow, where most of the work is", () => {
+        expect(DEFAULT_TAB).toBe("notMatchedOutflow");
     });
 
     it("maps every tab to a scope the server knows", () => {
         // ⚠️ The two vocabularies differ on purpose -- camelCase ids in TypeScript, snake_case
         // scopes in Python and in URLs. This map is the one place they meet, so an unmapped tab
         // would silently scope to the server's fallback rather than to what the label promises.
-        expect(SCOPE_FOR_TAB.all).toBe("all");
-        expect(SCOPE_FOR_TAB.notMatched).toBe("not_matched");
-        expect(SCOPE_FOR_TAB.matched).toBe("matched");
+        expect(SCOPE_FOR_TAB).toEqual({
+            all: "all",
+            notMatchedOutflow: "not_matched_outflow",
+            partlyAllocatedOutflow: "partly_outflow",
+            matchedOutflow: "matched_outflow",
+            notMatchedInflow: "not_matched_inflow",
+            settledInflow: "settled_inflow",
+        });
     });
 
     it("maps every declared tab, with no gaps", () => {
         // A tab present in the strip but missing from the map renders an empty table with no error.
         for (const tab of OUTFLOW_TABS) expect(SCOPE_FOR_TAB[tab.id]).toBeTruthy();
+    });
+});
+
+describe("inflow tab visibility (#1264)", () => {
+    const counts = (inflow: number) => ({
+        all: 10,
+        not_matched_outflow: 10 - inflow,
+        partly_outflow: 0,
+        matched_outflow: 0,
+        not_matched_inflow: inflow,
+        settled_inflow: 0,
+        skipped: 0,
+    });
+
+    it("shows the Inflow tabs when the chosen source can carry a credit", () => {
+        expect(inflowTabsVisible(true, counts(0))).toBe(true);
+    });
+
+    it("hides them when the source can never carry a credit", () => {
+        expect(inflowTabsVisible(false, counts(0))).toBe(false);
+        expect(visibleTabs(inflowTabsVisible(false, counts(0))).map((t) => t.id)).toEqual([
+            "all",
+            "notMatchedOutflow",
+            "partlyAllocatedOutflow",
+            "matchedOutflow",
+        ]);
+    });
+
+    it("shows them while the server has not answered -- a hidden tab is the costlier mistake", () => {
+        expect(inflowTabsVisible(undefined, undefined)).toBe(true);
+    });
+
+    it("never hides a tab that holds rows, whatever the source says", () => {
+        expect(inflowTabsVisible(false, counts(2))).toBe(true);
+        expect(inflowTabsVisible(false, { ...counts(0), settled_inflow: 1 })).toBe(true);
+    });
+
+    it("moves a hidden Inflow tab to its Outflow twin, and leaves every other tab alone", () => {
+        expect(reachableTab("notMatchedInflow", false)).toBe("notMatchedOutflow");
+        expect(reachableTab("settledInflow", false)).toBe("matchedOutflow");
+        expect(reachableTab("partlyAllocatedOutflow", false)).toBe("partlyAllocatedOutflow");
+        expect(reachableTab("all", false)).toBe("all");
+        expect(reachableTab("settledInflow", true)).toBe("settledInflow");
+    });
+});
+
+describe("tabFromCarried -- the tab a history entry carries across a remount", () => {
+    it("keeps a current tab id", () => {
+        for (const tab of OUTFLOW_TABS) expect(tabFromCarried(tab.id)).toBe(tab.id);
+    });
+
+    it("sends a pre-#1264 id to its Outflow variant", () => {
+        expect(tabFromCarried("notMatched")).toBe("notMatchedOutflow");
+        expect(tabFromCarried("partlyAllocated")).toBe("partlyAllocatedOutflow");
+        expect(tabFromCarried("matched")).toBe("matchedOutflow");
+    });
+
+    it("falls back to the default for anything else", () => {
+        expect(tabFromCarried(undefined)).toBe(DEFAULT_TAB);
+        expect(tabFromCarried("skipped")).toBe(DEFAULT_TAB);
+        expect(tabFromCarried(42)).toBe(DEFAULT_TAB);
+    });
+});
+
+describe("postImportTab", () => {
+    it("lands a Cashbook import on Matched / Settled – Outflow, where its created rows are", () => {
+        expect(postImportTab("Cashbook", "notMatchedOutflow")).toBe("matchedOutflow");
+    });
+
+    it("leaves every other source where the reader was", () => {
+        expect(postImportTab("Cashfree", "partlyAllocatedOutflow")).toBe("partlyAllocatedOutflow");
+        expect(postImportTab("ICICI Bank Statement", "notMatchedInflow")).toBe("notMatchedInflow");
+        expect(postImportTab(undefined, "all")).toBe("all");
+    });
+
+    it("only ever returns a tab the strip has", () => {
+        const ids = OUTFLOW_TABS.map((t) => t.id);
+        for (const source of ["Cashfree", "Cashbook", "ICICI Bank Statement", "Unknown"]) {
+            expect(ids).toContain(postImportTab(source, DEFAULT_TAB));
+        }
     });
 });
 
@@ -1000,8 +1099,9 @@ describe("tabs", () => {
  */
 describe("serverQuery", () => {
     it("translates the tab into the scope the endpoint knows", () => {
-        expect(serverQuery({ tab: "notMatched" }).scope).toBe("not_matched");
-        expect(serverQuery({ tab: "matched" }).scope).toBe("matched");
+        expect(serverQuery({ tab: "notMatchedOutflow" }).scope).toBe("not_matched_outflow");
+        expect(serverQuery({ tab: "matchedOutflow" }).scope).toBe("matched_outflow");
+        expect(serverQuery({ tab: "settledInflow" }).scope).toBe("settled_inflow");
         expect(serverQuery({ tab: "all" }).scope).toBe("all");
     });
 
@@ -1010,7 +1110,7 @@ describe("serverQuery", () => {
         // a naive handler, and the day one treats it as "match nothing" the table blanks when you
         // untick the last value. Omitting is unambiguous at both ends.
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             query: "   ",
             filters: { beneficiary_name: [], amount: { min: null, max: null } },
         });
@@ -1021,22 +1121,22 @@ describe("serverQuery", () => {
 
     it("sends only the columns the server can facet on", () => {
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             filters: { beneficiary_name: ["APEX"], outcome: ["nonsense"] },
         });
         expect(query.facets).toEqual({ beneficiary_name: ["APEX"] });
     });
 
     it("passes an amount range through as two bounds", () => {
-        const query = serverQuery({ tab: "notMatched", filters: { amount: { min: 100, max: 500 } } });
+        const query = serverQuery({ tab: "notMatchedOutflow", filters: { amount: { min: 100, max: 500 } } });
         expect(query.amount_min).toBe(100);
         expect(query.amount_max).toBe(500);
     });
 
     it("allows a one-sided range", () => {
-        expect(serverQuery({ tab: "notMatched", filters: { amount: { min: 500 } } }).amount_max)
+        expect(serverQuery({ tab: "notMatchedOutflow", filters: { amount: { min: 500 } } }).amount_max)
             .toBeUndefined();
-        expect(serverQuery({ tab: "notMatched", filters: { amount: { max: 100 } } }).amount_min)
+        expect(serverQuery({ tab: "notMatchedOutflow", filters: { amount: { max: 100 } } }).amount_min)
             .toBeUndefined();
     });
 
@@ -1045,7 +1145,7 @@ describe("serverQuery", () => {
         // key the endpoint knows, and sending one would fail the whole page load over a cosmetic
         // click.
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             sort: { columnId: "outcome", direction: "asc" },
         });
         expect(query.sort_by).toBe("added_on");
@@ -1053,35 +1153,35 @@ describe("serverQuery", () => {
     });
 
     it("passes a sortable column through with its direction", () => {
-        const query = serverQuery({ tab: "notMatched", sort: { columnId: "amount", direction: "asc" } });
+        const query = serverQuery({ tab: "notMatchedOutflow", sort: { columnId: "amount", direction: "asc" } });
         expect(query.sort_by).toBe("amount");
         expect(query.sort_dir).toBe("asc");
     });
 
     it("turns the page number into an offset", () => {
-        expect(serverQuery({ tab: "notMatched", page: 0 }).offset).toBe(0);
-        expect(serverQuery({ tab: "notMatched", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
-        expect(serverQuery({ tab: "notMatched", page: 2, pageSize: 10 }).offset).toBe(20);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: 0 }).offset).toBe(0);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: 2, pageSize: 10 }).offset).toBe(20);
     });
 
     it("never sends a negative offset", () => {
-        expect(serverQuery({ tab: "notMatched", page: -3 }).offset).toBe(0);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: -3 }).offset).toBe(0);
     });
 
     it("scopes to one import when the screen is deep-linked to it", () => {
-        expect(serverQuery({ tab: "notMatched", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
-        expect(serverQuery({ tab: "notMatched" }).batch).toBeUndefined();
+        expect(serverQuery({ tab: "notMatchedOutflow", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
+        expect(serverQuery({ tab: "notMatchedOutflow" }).batch).toBeUndefined();
     });
 
     it("folds a per-column text filter into the search the server already runs", () => {
         // `remarks` and `bank_reference_no` are both covered by the endpoint's search, so they do
         // not need two more parameters for a distinction no reader makes.
-        expect(serverQuery({ tab: "notMatched", filters: { remarks: "rent" } }).search).toBe("rent");
+        expect(serverQuery({ tab: "notMatchedOutflow", filters: { remarks: "rent" } }).search).toBe("rent");
     });
 
     it("lets an explicit search win over a column text filter", () => {
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             query: "apex",
             filters: { remarks: "rent" },
         });
@@ -1133,6 +1233,15 @@ describe("the summary panel's figures", () => {
     it("puts an un-matched-yet import's own figure first", () => {
         const tiles = summaryTiles({ ...totals, pending_rows: 26 });
         expect(tiles[0].id).toBe("pending");
+    });
+
+    it("does not call every skipped line money 'Paid by hand' (#1252 browser walk)", () => {
+        // The skipped figure also holds a received Project Inflow, a line excluded as not spending, a
+        // line imported before, and a line a person skipped -- so "already recorded as Paid by hand"
+        // was false for most of it. The hint and the Skipped dialog share one phrase for the reason.
+        const hint = summaryTiles({ ...totals, failed_rows: 2 }).find((t) => t.id === "skipped")?.hint;
+        expect(hint).toBe(`3 ${SKIPPED_ON_PURPOSE_PHRASE} · 2 refused by the bank, which are left out of every figure above`);
+        expect(SKIPPED_ON_PURPOSE_PHRASE).not.toMatch(/paid/i);
     });
 
     it("carries no status set, because a figure is not a filter", () => {
@@ -1217,8 +1326,160 @@ describe("activeFilterCount", () => {
     });
 });
 
+/**
+ * ⚠️ THE ONE READER OF "WHAT DID THIS DECISION PICK" (issue #1240 prefactor, ADR-0020 B3).
+ *
+ * A `RowDecision` can now name its record(s) in EITHER of two fields -- `linkTo` (the restored
+ * single-select picker, Normal mode) or `linkTargets` (the fan-out picker, Split mode) -- and the
+ * readers that consume them include the BULK confirm path, which has no dialog and therefore no
+ * mode. Everything downstream goes through this one normaliser rather than reading a field, so a
+ * reader cannot accidentally accept one shape and reject the other. That naive revert -- checking
+ * `decision.target && decision.linkTo` -- would reject every fan-out decision on the branch.
+ */
+/**
+ * ⚠️ THE TWO RULES THE SETTLE MODE NEEDS, BOTH ABOUT THE TWO-FIELD PICK SHAPE (issue #1241).
+ * They live beside `decisionLinkKeys` because that is the module that owns the shape, and they are
+ * pinned here because the alternative -- an inline object spread in `OutflowMasterPage` -- is a
+ * domain rule inside a page component, which ADR-0010 F4 forbids and this repo has no way to test.
+ */
+describe("clearedPick / pickFitsSingleSelect -- the mode's half of the pick contract", () => {
+    it("clears BOTH pick fields, not just the outgoing one", () => {
+        // ⚠️ `decisionLinkKeys` lets a non-empty `linkTargets` WIN, so a `linkTo` left behind is
+        // INVISIBLE while ticks exist and speaks again the moment the last one comes off. Clearing
+        // one field would leave the row counted as decided against a record nobody can see.
+        const cleared = clearedPick({
+            target: "Project Payments",
+            linkTo: "PAY-1",
+            linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-2" }),
+        });
+        expect(decisionLinkKeys(cleared).size).toBe(0);
+        expect(cleared.linkTo).toBeNull();
+        expect(cleared.linkTargets?.size).toBe(0);
+        expect(cleared.target).toBeUndefined();
+    });
+
+    it("keeps everything else on the decision untouched", () => {
+        // A half-filled "create a new expense" form must survive a mode switch: the reviewer has
+        // not abandoned it, they have changed how the SETTLE half of the dialog behaves.
+        const cleared = clearedPick({
+            target: "new",
+            newExpense: { doctype: "Project Expenses", description: "kept" },
+        });
+        expect(cleared.newExpense).toEqual({ doctype: "Project Expenses", description: "kept" });
+    });
+
+    it("`linkTo: null` is a DELIBERATE CLEAR, never an absence", () => {
+        // `seedDecisions` relies on that distinction to avoid overwriting a cleared decision, so
+        // the cleared shape must carry the null rather than dropping the key.
+        expect("linkTo" in clearedPick({})).toBe(true);
+        expect(clearedPick({}).linkTo).toBeNull();
+    });
+
+    it("says whether a pick can be shown by a SINGLE-SELECT picker", () => {
+        expect(pickFitsSingleSelect({})).toBe(true);
+        expect(pickFitsSingleSelect({ target: "Project Payments", linkTo: "PAY-1" })).toBe(true);
+        expect(
+            pickFitsSingleSelect({
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe(true);
+    });
+
+    it("REFUSES a multi-pick, which is the defect it exists for", () => {
+        // ⚠️ THE REACHABLE BUG. Decisions outlive the dialog: tick two payments in Split, close
+        // WITHOUT confirming, reopen. The mode resets to Normal, whose radio table can show only
+        // ONE of the two -- while `settleOne` still reads both through `decisionLinkKeys` and, by
+        // the capacity rule, posts them to `allocate_row`. The screen would show one record and
+        // submit two. `openDecisionRow` clears such a pick instead of truncating it: taking the
+        // first would silently settle one of two records the reviewer deliberately chose.
+        expect(
+            pickFitsSingleSelect({
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-1" },
+                    { target_doctype: "Project Payments", name: "PAY-2" }
+                ),
+            })
+        ).toBe(false);
+    });
+});
+
+describe("decisionLinkKeys", () => {
+    const keys = (d: RowDecision) => [...decisionLinkKeys(d)];
+
+    it("reads the Split shape -- the ticked `linkTargets` set, in order", () => {
+        expect(
+            keys({
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-1" },
+                    { target_doctype: "Project Payments", name: "PAY-2" }
+                ),
+            })
+        ).toEqual(["Project Payments|PAY-1", "Project Payments|PAY-2"]);
+    });
+
+    it("reads the Normal shape -- `target` + `linkTo` folded into ONE recordKey", () => {
+        // ⚠️ The ledger comes from `target`, which is why the Normal shape needs BOTH halves: a
+        // bare name is not unique across the three ledgers.
+        expect(keys({ target: "Project Payments", linkTo: "PAY-1" })).toEqual([
+            "Project Payments|PAY-1",
+        ]);
+        expect(keys({ target: "Non Project Expenses", linkTo: "NPE-4" })).toEqual([
+            "Non Project Expenses|NPE-4",
+        ]);
+    });
+
+    it("reads a half-written Normal decision as nothing picked", () => {
+        expect(keys({})).toEqual([]);
+        expect(keys({ target: "Project Payments" })).toEqual([]);
+        expect(keys({ target: "Project Payments", linkTo: null })).toEqual([]);
+        expect(keys({ target: "Project Payments", linkTo: "   " })).toEqual([]);
+        expect(keys({ linkTo: "PAY-1" })).toEqual([]);
+    });
+
+    it("refuses a `linkTo` under a ledger this screen cannot settle", () => {
+        // A leftover link under a "create something new" / inflow disposition is not a
+        // settle pick, and must never be folded into a key that looks like one.
+        expect(keys({ target: "new", linkTo: "PAY-1" })).toEqual([]);
+        expect(keys({ target: "inflow", linkTo: "PAY-1" })).toEqual([]);
+        expect(keys({ target: "nonProjectInflow", linkTo: "PAY-1" })).toEqual([]);
+    });
+
+    it("reads an emptied Split selection as nothing picked", () => {
+        expect(keys({ target: "Project Payments", linkTargets: new Set() })).toEqual([]);
+    });
+
+    /**
+     * ⚠️ PRECEDENCE, AND THE CONTRACT IT RESTS ON. A non-empty `linkTargets` wins; `linkTo` is read
+     * only when nothing is ticked. This is safe because each picker OWNS its field and clears the
+     * other one -- see `RowDecision`. The precedence exists so a stale field can never be the one
+     * that speaks, not so the two can coexist.
+     */
+    it("lets a non-empty Split selection win over a leftover `linkTo`", () => {
+        expect(
+            keys({
+                target: "Project Payments",
+                linkTo: "PAY-STALE",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toEqual(["Project Payments|PAY-1"]);
+    });
+
+    it("falls back to `linkTo` when the Split field is present but empty", () => {
+        expect(
+            keys({
+                target: "Project Payments",
+                linkTo: "PAY-1",
+                linkTargets: new Set(),
+            })
+        ).toEqual(["Project Payments|PAY-1"]);
+    });
+});
+
 describe("isConfirmable", () => {
-    const link: RowDecision = { target: "Project Payments", linkTo: "PAY-1" };
+    const link: RowDecision = {
+        target: "Project Payments",
+        linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+    };
 
     it("accepts a matched row with a linked record", () => {
         expect(isConfirmable(row({ row_status: "Matched" }), link)).toBe(true);
@@ -1240,22 +1501,76 @@ describe("isConfirmable", () => {
         expect(isConfirmable(row({ row_status: "Skipped" }), link)).toBe(false);
     });
 
+    // ⚠️ Task 7 (ADR-0020): `Partially Allocated` is NOT in `OPEN_ROW_STATUSES` -- see that set's
+    // own docstring -- so the status gate above needs its own clause to admit it. Money is already
+    // written and a balance remains; a person still owes this row a decision.
+    it("accepts a Partially Allocated row -- money is written and a balance remains", () => {
+        expect(isConfirmable(row({ row_status: "Partially Allocated" }), link)).toBe(true);
+    });
+
     it("refuses a row with no decision at all", () => {
         expect(isConfirmable(row({ row_status: "Mismatched" }), undefined)).toBe(false);
     });
 
-    it("refuses a linked record with no ledger behind it", () => {
-        // ⚠️ The ledger now arrives WITH the chosen record instead of from a card clicked first
-        // (slice R2), so a decision can hold one half and not the other. Without both,
-        // `settle_row` would be posted with an undefined doctype.
-        expect(isConfirmable(row(), { linkTo: "PAY-1" })).toBe(false);
+    it("refuses a decision with nothing linked and nothing else set", () => {
         expect(isConfirmable(row(), {})).toBe(false);
+    });
+
+    // ⚠️ INVERTED at Task 7 (ADR-0020 fan-out), not deleted. Before `linkTargets`, `target` had to
+    // arrive WITH the record because a bare `linkTo` string carried no doctype (slice R2). Each
+    // `recordKey` in `linkTargets` now carries its OWN doctype, so `target` is no longer
+    // load-bearing for this branch -- a `linkTargets`-only decision is a complete one.
+    it("no longer needs `target` alongside `linkTargets` -- each recordKey carries its own ledger", () => {
+        expect(
+            isConfirmable(row(), {
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe(true);
+    });
+
+    /**
+     * ⚠️ THE RESTORED SINGLE-SELECT SHAPE (issue #1240, ADR-0020 B3). `linkTo` is what the Normal
+     * picker writes; `linkTargets` is what Split writes. This reader accepts EITHER, through the one
+     * `decisionLinkKeys` normaliser -- the naive revert to `decision.target && decision.linkTo`
+     * would reject every fan-out decision, and the bulk confirm path has no mode to tell them apart.
+     */
+    it("accepts the Normal shape -- `target` + `linkTo`, with no `linkTargets` at all", () => {
+        expect(
+            isConfirmable(row({ row_status: "Matched" }), {
+                target: "Project Payments",
+                linkTo: "PAY-1",
+            })
+        ).toBe(true);
+        // Any of the three ledgers, exactly as the `linkTargets` shape above -- `isConfirmable` has
+        // never been the place the ledger is narrowed.
+        expect(
+            isConfirmable(row({ row_status: "Mismatched" }), {
+                target: "Project Expenses",
+                linkTo: "PE-9",
+            })
+        ).toBe(true);
+        // ⚠️ DELIBERATELY A PAYMENT ON A `Partially Allocated` ROW. A single tick on that status
+        // routes to `allocate_row` (`chooseSettleEndpoint`), which refuses every non-payment target,
+        // so pinning a non-payment ledger as confirmable HERE would bank a shape the server rejects
+        // -- the offered-and-refused failure `tickAllowedForFanOut` exists to prevent. The Normal
+        // picker owes that same withholding when it lands; this pin must not read as permission.
+        expect(
+            isConfirmable(row({ row_status: "Partially Allocated" }), {
+                target: "Project Payments",
+                linkTo: "PAY-9",
+            })
+        ).toBe(true);
+    });
+
+    it("refuses a Normal decision the reviewer CLEARED -- a null `linkTo`", () => {
+        expect(isConfirmable(row(), { target: "Project Payments", linkTo: null })).toBe(false);
     });
 
     it("refuses a link decision with nothing linked", () => {
         expect(
-            isConfirmable(row(), { target: "Project Payments", linkTo: null })
+            isConfirmable(row(), { target: "Project Payments", linkTargets: new Set() })
         ).toBe(false);
+        expect(isConfirmable(row(), { target: "Project Payments" })).toBe(false);
     });
 
     it("requires a type on a new expense, and a project on the project side", () => {
@@ -1325,14 +1640,14 @@ describe("isConfirmable", () => {
         ).toBe(false);
     });
 
-    it("ignores a leftover `linkTo` on a `new` decision", () => {
+    it("ignores a leftover `linkTargets` on a `new` decision", () => {
         // Picking a record and THEN choosing the create card leaves the old link in the object --
         // `settleOne` reads only `newExpense` when the target is `new`, so it must not tip the
         // verdict either way. Here the form is complete, so the answer is yes despite the link.
         expect(
             isConfirmable(row({ row_status: "Matched" }), {
                 target: "new",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
             })
         ).toBe(true);
@@ -1433,13 +1748,13 @@ describe("isConfirmable", () => {
         ).toBe(true);
     });
 
-    it("ignores a leftover `linkTo` on an `inflow` decision", () => {
+    it("ignores a leftover `linkTargets` on an `inflow` decision", () => {
         // Picking a record and THEN choosing the inflow card leaves the old link in the object;
         // `settleOne` reads only `newInflow` when the target is `inflow`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "inflow",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
             })
         ).toBe(true);
@@ -1465,114 +1780,104 @@ describe("isConfirmable", () => {
         }
     });
 
-    // --- the `receipt` branch (slice B7) ---------------------------------------------------------
+    // --- the `nonProjectInflow` branch (#1266) --------------------------------------------------
     //
-    // ⚠️ THE ONE SIGNED WRITE IN THIS SCREEN. A credit that belongs to no project becomes a
-    // NEGATIVE `Non Project Expense` -- there is no non-project inflow doctype in this app and none
-    // is being created (owner ruling Q3, ADR-0016 decision 3). The bulk bar counts with this same
-    // function and posts without anyone reopening the row, so a shape that slips through here is a
-    // signed write nobody looked at.
+    // A credit that belongs to no project becomes a `Non Project Inflow` (ADR-0016 Amendment A).
+    // The bulk bar counts with this same function and posts without anyone reopening the row, so a
+    // shape that slips through here is a write nobody looked at.
 
-    it("accepts a credit row with a receipt type chosen", () => {
-        expect(
-            isConfirmable(row(CREDIT), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
-        ).toBe(true);
+    const npi = (form: RowDecision["newNonProjectInflow"]): RowDecision => ({
+        target: "nonProjectInflow",
+        newNonProjectInflow: form,
+    });
+
+    it("accepts a credit row with an Inflow Type chosen", () => {
+        for (const inflowType of ["Interest Payouts", "FD Closures", "Loan Received"]) {
+            expect(isConfirmable(row(CREDIT), npi({ inflowType }))).toBe(true);
+        }
     });
 
     it("refuses a DEBIT row, whatever the form says", () => {
-        // ⚠️ THE REFUSAL THAT MATTERS MOST ON THIS BRANCH. On a debit this would not merely file
-        // money in the wrong place -- it would store money that LEFT the account as a negative
-        // expense, i.e. as income, and the books would be wrong by twice the transfer. The server
+        // Money that LEFT the account must never be recorded as money received. The server
         // refuses it twice as well.
         expect(
-            isConfirmable(row({ row_status: "Mismatched", direction: "Debit" } as any), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
+            isConfirmable(
+                row({ row_status: "Mismatched", direction: "Debit" } as any),
+                npi({ inflowType: "FD Closures" })
+            )
         ).toBe(false);
     });
 
     it("refuses a row with no direction at all", () => {
-        // Blank is NOT "Credit by default". The parser leaves it blank when it found a figure in
-        // BOTH money columns and refused to guess; nothing signed may ride a guess.
+        // Blank is NOT "Credit by default" -- it lands on the outflow side.
         expect(
-            isConfirmable(row({ row_status: "Mismatched" }), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
+            isConfirmable(row({ row_status: "Mismatched" }), npi({ inflowType: "FD Closures" }))
         ).toBe(false);
     });
 
-    it("refuses a `receipt` decision with no form, or with no type chosen", () => {
-        expect(isConfirmable(row(CREDIT), { target: "receipt" })).toBe(false);
-        expect(isConfirmable(row(CREDIT), { target: "receipt", newReceipt: {} })).toBe(false);
-        expect(
-            isConfirmable(row(CREDIT), { target: "receipt", newReceipt: { expenseType: "" } })
-        ).toBe(false);
-        expect(
-            isConfirmable(row(CREDIT), { target: "receipt", newReceipt: { expenseType: null } })
-        ).toBe(false);
+    it("refuses a decision with no form, no type, or a type that is not one of the four", () => {
+        expect(isConfirmable(row(CREDIT), { target: "nonProjectInflow" })).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({}))).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "" }))).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: null }))).toBe(false);
+        // The old receipt's expense type is not an Inflow Type.
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "Interest Received" }))).toBe(false);
     });
 
-    it("does not require a description -- the server composes one from the payer", () => {
+    it("needs a description when the type is Others, and not otherwise", () => {
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "Others" }))).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "Others", description: "" }))).toBe(
+            false
+        );
         expect(
-            isConfirmable(row(CREDIT), {
-                target: "receipt",
-                newReceipt: { expenseType: "Loan Received", description: "" },
-            })
+            isConfirmable(row(CREDIT), npi({ inflowType: "Others", description: "   " }))
+        ).toBe(false);
+        expect(
+            isConfirmable(
+                row(CREDIT),
+                npi({ inflowType: "Others", description: "Vendor refund, PO 0123" })
+            )
+        ).toBe(true);
+        expect(
+            isConfirmable(row(CREDIT), npi({ inflowType: "Loan Received", description: "" }))
         ).toBe(true);
     });
 
-    it("does NOT require a project -- having none is what makes it this disposition", () => {
-        // The distinction from `inflow`, pinned: a receipt with a project behind it is an inflow,
-        // and `Non Project Expenses` has no project column at all.
-        expect(
-            isConfirmable(row(CREDIT), {
-                target: "receipt",
-                newReceipt: { expenseType: "Advance Returned" },
-            })
-        ).toBe(true);
-    });
-
-    it("ignores a leftover `linkTo` or `newInflow` on a `receipt` decision", () => {
-        // Picking a record, then the inflow card, then this one leaves both behind in the object;
-        // `settleOne` reads only `newReceipt` when the target is `receipt`.
+    it("ignores a leftover `linkTargets` or `newInflow` on a `nonProjectInflow` decision", () => {
+        // `settleOne` reads only `newNonProjectInflow` when the target is `nonProjectInflow`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
-                target: "receipt",
-                linkTo: "PAY-1",
+                target: "nonProjectInflow",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
-                newReceipt: { expenseType: "Interest Received" },
+                newNonProjectInflow: { inflowType: "Interest Payouts" },
             })
         ).toBe(true);
     });
 
-    it("still refuses a complete receipt form on a row the match has not run on", () => {
+    it("still refuses a complete form on a row the match has not run on", () => {
         expect(
-            isConfirmable(row({ row_status: "Pending match run", direction: "Credit" } as any), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
+            isConfirmable(
+                row({ row_status: "Pending match run", direction: "Credit" } as any),
+                npi({ inflowType: "Interest Payouts" })
+            )
         ).toBe(false);
     });
 
-    it("still refuses a complete receipt form on an already terminal row", () => {
+    it("still refuses a complete form on an already terminal row", () => {
         for (const status of ["Settled", "Skipped"]) {
             expect(
-                isConfirmable(row({ row_status: status, direction: "Credit" } as any), {
-                    target: "receipt",
-                    newReceipt: { expenseType: "Interest Received" },
-                })
+                isConfirmable(
+                    row({ row_status: status, direction: "Credit" } as any),
+                    npi({ inflowType: "Interest Payouts" })
+                )
             ).toBe(false);
         }
     });
 
     // --- the MIRROR of the credit gate: the debit-side dispositions ------------------------------
     //
-    // ⚠️ THE HALF THAT WAS MISSING. `inflow` and `receipt` have refused a debit since B6/B7, but
+    // ⚠️ THE HALF THAT WAS MISSING. The credit dispositions have refused a debit since B6/B7, but
     // the settle branch and the `new` branch had NO direction check at all -- so a CREDIT row could
     // be confirmed against a debit-side approved payment, marking a payment we owe as paid out of
     // money that came IN. `isCreditRow` is the one predicate, and the two sides now PARTITION.
@@ -1588,7 +1893,7 @@ describe("isConfirmable", () => {
             expect(
                 isConfirmable(row({ row_status: "Mismatched", direction: "Credit" } as any), {
                     target,
-                    linkTo: "EXP-1",
+                    linkTargets: linkTargets({ target_doctype: target, name: "EXP-1" }),
                 })
             ).toBe(false);
         }
@@ -1596,7 +1901,7 @@ describe("isConfirmable", () => {
 
     it("refuses a `new` expense on a CREDIT row, however complete the form", () => {
         // Creating an expense out of money that ARRIVED files an inflow as a spend. The credit
-        // dispositions (`inflow` / `receipt`) are the only ones that may run on this row.
+        // dispositions (`inflow` / `nonProjectInflow`) are the only ones that may run on this row.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "new",
@@ -1635,37 +1940,34 @@ describe("isConfirmable", () => {
     });
 });
 
-describe("what a non-project receipt will actually store (slice B7)", () => {
-    // ⚠️ THE CRUX OF THE SLICE, AND THE ONE PART OF IT A UNIT TEST CAN REACH. The bank row carries a
-    // POSITIVE magnitude on every source -- ADR-0016 rejected a signed amount column outright -- and
-    // the negation is applied in the write path. This helper is what lets the FORM say the same
-    // thing the server will do, so the reviewer is never shown the positive figure and handed the
-    // negative one.
+describe("which dispositions create a record (#1266)", () => {
+    it("is exactly the three create cards", () => {
+        for (const target of ["new", "inflow", "nonProjectInflow"] as const) {
+            expect(model.isCreateTarget(target)).toBe(true);
+        }
+        for (const target of ["Project Payments", "Project Expenses", "Non Project Expenses"] as const) {
+            expect(model.isCreateTarget(target)).toBe(false);
+        }
+        expect(model.isCreateTarget(undefined)).toBe(false);
+    });
+});
 
-    it("negates the bank's magnitude", () => {
-        expect(receiptStoredAmount(44275)).toBe(-44275);
-        expect(receiptStoredAmount(2500.5)).toBe(-2500.5);
+describe("the Non-Project Inflow description prefill (#1266)", () => {
+    it("joins the payer and the bank remarks", () => {
+        expect(
+            model.nonProjectInflowDescriptionSeed({
+                beneficiary_name: "ICICI BANK",
+                remarks: "FD 0057 CLOSURE",
+            })
+        ).toBe("ICICI BANK - FD 0057 CLOSURE");
     });
 
-    it("stays negative even if a signed amount ever reached it", () => {
-        // The staged amount should never be signed. If one ever is, this must still describe a
-        // RECEIPT rather than quietly flipping it back into a payment -- which is why it is
-        // `-Math.abs(...)` and not a bare `-`.
-        expect(receiptStoredAmount(-44275)).toBe(-44275);
-    });
-
-    it("reads a missing or unusable amount as zero rather than NaN", () => {
-        // A NaN would render as "₹--" beside a card that says money arrived, which is worse than a
-        // zero: it looks like a bug in the screen rather than a fact about the row.
-        expect(receiptStoredAmount(null)).toBe(0);
-        expect(receiptStoredAmount(undefined)).toBe(0);
-        expect(receiptStoredAmount(Number.NaN)).toBe(0);
-    });
-
-    it("returns a plain 0 for zero, never -0", () => {
-        // `-0` compares equal to `0` and formats identically, so it would never be SEEN -- and
-        // would then surprise whoever next reaches for `Object.is` or a snapshot.
-        expect(Object.is(receiptStoredAmount(0), 0)).toBe(true);
+    it("drops a blank part rather than leaving a dangling separator", () => {
+        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "  ", remarks: "INT" })).toBe(
+            "INT"
+        );
+        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "ACME" })).toBe("ACME");
+        expect(model.nonProjectInflowDescriptionSeed({})).toBe("");
     });
 });
 
@@ -1688,7 +1990,10 @@ describe("the machine never proposes CREATING an expense (slice B5)", () => {
                     suggested_name: "PAY-1",
                 } as any)
             )
-        ).toEqual({ target: "Project Payments", linkTo: "PAY-1" });
+        ).toEqual({
+            target: "Project Payments",
+            linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+        });
     });
 });
 
@@ -1699,8 +2004,20 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
         row({ name: "c", row_status: "Mismatched" }),
     ];
     const decisions = new Map<string, RowDecision>([
-        ["a", { target: "Project Payments", linkTo: "PAY-1" }],
-        ["b", { target: "Project Payments", linkTo: "PAY-2" }],
+        [
+            "a",
+            {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            },
+        ],
+        [
+            "b",
+            {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-2" }),
+            },
+        ],
     ]);
 
     it("reports 2 when 3 are ticked but one is unresolved", () => {
@@ -1805,72 +2122,108 @@ describe("links to the record a row settles — the app's own route (slice E3)",
     it("never routes an EXPENSE to the payments route, whatever it is handed", () => {
         // `document_name` holds the expense TYPE on both expense ledgers, so an order id passed
         // here would be a category name, not a document.
-        // ⚠️ `toMatch(/^…/)`, NOT `toBe`. The href now carries a status-tab query param, and the
-        // claim under test is the ROUTE — that an expense never reaches the payments route — not the
-        // exact string. Pinning the whole href here would make this test fail for a reason it is not
-        // about, the next time the tab rule changes.
-        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toMatch(
-            /^\/expense\/project(\?|$)/
-        );
-        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toMatch(
-            /^\/expense\/non-project(\?|$)/
+        // ⚠️ THE CLAIM SURVIVED #1289 AND ITS EVIDENCE CHANGED. It used to assert the href started
+        // with the expense route; there is no href now (see the "no link at all" block above), and
+        // `null` reaches the payments route even less than a wrong route would. What must never
+        // happen is an ORDER NAME turning an expense into a payments link, and that is what is
+        // asserted: handed an order, an expense still yields nothing.
+        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")).toBeNull();
+        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")).toBeNull();
+    });
+});
+
+describe("⚠️ an expense gets NO link at all (#1289) — INVERTED, not deleted", () => {
+    // ⚠️ THIS BLOCK USED TO PIN THE OPPOSITE: a settled expense to `Paid`, a suggested one to
+    // `Approved`. Both destinations died with the settleable status.
+    //
+    // A SUGGESTED expense is no longer `Approved` — a record only becomes settleable once somebody
+    // has marked it done, which puts it at `Reconciliation Pending`. Neither expense list has a tab
+    // for that status (theirs are Requested / Approved / Paid / All), and the one screen that does
+    // have such a tab lists Project Payments only. Every destination this branch could offer is now
+    // a list that cannot contain the record it names, and a link landing on an empty table reads as
+    // "the record is gone" — worse than no link at all.
+    //
+    // The owner has PARKED where these should point and asked for the link to be blocked for
+    // anything other than a Project Payment meanwhile. These assertions are kept, saying the
+    // opposite of what they said, so restoring a link is a deliberate act that turns them red
+    // rather than something that quietly slips back in.
+    it("returns no link for either expense ledger, settled or merely suggested", () => {
+        for (const settled of [true, false]) {
+            expect(settlementLink("Project Expenses", "PE-1", settled)).toBeNull();
+            expect(settlementLink("Non Project Expenses", "NPE-1", settled)).toBeNull();
+        }
+    });
+
+    it("⚠️ offers no `pe_status` / `npe_status` destination any more", () => {
+        // The param keys were a CONTRACT WITH ANOTHER MODULE while the link existed. Nothing here
+        // may reach for them now: a link built on the `Approved` tab is exactly the stranded-on-an-
+        // empty-table failure this whole block was originally written to prevent, pointing the
+        // other way.
+        for (const settled of [true, false]) {
+            expect(settlementLink("Project Expenses", "PE-1", settled)).toBeNull();
+            expect(settlementLink("Non Project Expenses", "NPE-1", settled)).toBeNull();
+        }
+    });
+
+    it("leaves every OTHER ledger's link untouched", () => {
+        // The narrowing is to the two expense ledgers and nothing else — a payment, a project
+        // inflow and a non-project inflow all still link, and each of those lands somewhere that
+        // genuinely holds the record.
+        expect(settlementLink("Project Payments", "PAY-1", false)).not.toBeNull();
+        expect(settlementLink("Project Inflows", "PAYIN-1", true)).not.toBeNull();
+        expect(settlementLink("Non Project Inflows", "NPI-1", true)).not.toBeNull();
+    });
+});
+
+describe("a NON-PROJECT INFLOW link lands ON the record (#1266)", () => {
+    it("opens the Non-Project Inflows page searched by the record's own id", () => {
+        const link = settlementLink("Non Project Inflows", "NPI-26-00007", true)!;
+        const params = new URLSearchParams(link.href.split("?")[1]);
+        expect(link.href.startsWith("/non-project-inflows?")).toBe(true);
+        expect(params.get(`${NON_PROJECT_INFLOW_URL_SYNC_KEY}_searchBy`)).toBe("name");
+        expect(params.get(`${NON_PROJECT_INFLOW_URL_SYNC_KEY}_q`)).toBe("NPI-26-00007");
+        expect(link.exact).toBe(true);
+        expect(link.label).toBe("NPI-26-00007");
+        expect(link.title).toContain("Non-Project Inflows");
+    });
+
+    it("⚠️ the url key is the one the Non-Project Inflows page itself builds", () => {
+        // A CONTRACT WITH `NonProjectInflows`, which passes `NON_PROJECT_INFLOW_URL_SYNC_KEY` to
+        // `useServerDataTable`; `name` is one of its search fields.
+        expect(nonProjectInflowHref("NPI-1")).toBe(
+            "/non-project-inflows?non_project_inflows_searchBy=name&non_project_inflows_q=NPI-1"
         );
     });
 });
 
-describe("⚠️ an expense link lands on the tab the record is actually IN", () => {
-    // Both lists read a namespaced status param on mount and subscribe to it — `pe_status` in
-    // `ProjectExpensesList`, `npe_status` in `NonProjectExpensesPage` — each documented there as
-    // supporting an external deep link.
-    it("sends a SETTLED expense to Paid, on both ledgers", () => {
-        // ⚠️ THE DEFECT THIS FIXES. Without the param the link landed on each page's DEFAULT tab,
-        // which is role-based and never `Paid`: `Requested` for most users, `Approved` for an
-        // Accountant. A settled expense is `Paid` by definition — this import just wrote it — so the
-        // reviewer was sent to a tab that provably could not contain it, with nothing on screen
-        // explaining the empty table.
-        expect(settlementLink("Project Expenses", "PE-1", true)!.href).toBe(
-            "/expense/project?pe_status=Paid",
-        );
-        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toBe(
-            "/expense/non-project?npe_status=Paid",
+describe("⚠️ a PROJECT INFLOW link lands ON the record (#1253)", () => {
+    it("opens the inflow list searched by the inflow's own id", () => {
+        // An inflow's name (`PAYIN-00190-01`) is readable and IS one of the table's search fields,
+        // so unlike an expense this link can pinpoint the record.
+        const link = settlementLink("Project Inflows", "PAYIN-00190-01", true)!;
+        const key = buildInflowUrlSyncKey();
+        const params = new URLSearchParams(link.href.split("?")[1]);
+        expect(link.href.startsWith("/in-flow-payments?")).toBe(true);
+        expect(params.get(`${key}_searchBy`)).toBe("name");
+        expect(params.get(`${key}_q`)).toBe("PAYIN-00190-01");
+        expect(link.exact).toBe(true);
+        expect(link.label).toBe("PAYIN-00190-01");
+        expect(link.title).toContain("Project Inflows");
+    });
+
+    it("⚠️ the url key is the one the inflow page itself builds", () => {
+        // A CONTRACT WITH `InFlowPayments`, which reads `inflow_<context>_<scope>_q`. The route
+        // renders it with the default context and no customer/project scope.
+        expect(buildInflowUrlSyncKey()).toBe("inflow_default_all");
+        expect(inflowHref("PAYIN-1")).toBe(
+            "/in-flow-payments?inflow_default_all_searchBy=name&inflow_default_all_q=PAYIN-1"
         );
     });
 
-    it("⚠️ sends a SUGGESTED expense to Approved, NOT to Paid", () => {
-        // A suggestion has settled nothing and its expense is still `Approved` —
-        // `SETTLEABLE_STATUSES` is Approved-only. Hardcoding `Paid` would reproduce the very defect
-        // above pointing the other way, which is the shape the payment branch already records
-        // finding live.
-        expect(settlementLink("Project Expenses", "PE-1", false)!.href).toBe(
-            "/expense/project?pe_status=Approved",
+    it("an inflow has no Paid tab, so the settled flag changes nothing", () => {
+        expect(settlementLink("Project Inflows", "PAYIN-1", true)!.href).toBe(
+            settlementLink("Project Inflows", "PAYIN-1", false)!.href
         );
-        expect(settlementLink("Non Project Expenses", "NPE-1", false)!.href).toBe(
-            "/expense/non-project?npe_status=Approved",
-        );
-    });
-
-    it("⚠️ stays `exact: false` — a tab is not a record", () => {
-        // `exact` means "this lands on the record", and it still does not: neither table has the id
-        // in its searchable fields and there is no `/expense/:id` route, so the reviewer arrives at
-        // a filtered LIST. Narrowing the tab must not be mistaken for pinpointing the row.
-        expect(settlementLink("Project Expenses", "PE-1", true)!.exact).toBe(false);
-        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.exact).toBe(false);
-    });
-
-    it("names the tab in the title, so the destination is stated before the click", () => {
-        expect(settlementLink("Project Expenses", "PE-1", true)!.title).toContain("→ Paid");
-        expect(settlementLink("Non Project Expenses", "NPE-1", false)!.title).toContain(
-            "→ Approved",
-        );
-    });
-
-    it("⚠️ the param keys are the ones those pages actually read", () => {
-        // Spelled out as literals because they are a CONTRACT WITH ANOTHER MODULE, not a local
-        // choice: `pe_status` / `npe_status` are namespaced in those files precisely so they cannot
-        // collide with a project page's own `?tab=`. A rename there silently strands this link on
-        // the default tab — the failure this whole block exists to prevent — so it must break here.
-        expect(settlementLink("Project Expenses", "PE-1", true)!.href).toContain("pe_status=");
-        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toContain("npe_status=");
     });
 });
 
@@ -1889,8 +2242,12 @@ describe("links to the record a row settles — the FALLBACK path, with no order
 
     it("sends an UNSETTLED payment to All Payments, because it is not Paid yet", () => {
         // ⚠️ Verified live before this branch existed: "Payments Done" filters status = Paid, so a
-        // merely SUGGESTED payment -- still Approved -- landed on an empty table with nothing on
-        // screen explaining why. "All Payments" carries no status filter.
+        // merely SUGGESTED payment landed on an empty table with nothing on screen explaining why.
+        // "All Payments" carries no status filter.
+        // ⚠️ IT STAYED HERE THROUGH #1289. A suggestion is now at `Reconciliation Pending` and that
+        // tab exists -- but `paymentHref` is SHARED with `PaymentTDSDeductions`, which passes
+        // `false` because it cannot know its payment's status, so any status filter on the
+        // unsettled tab strands that link. An unfiltered tab is right for both callers.
         const link = settlementLink("Project Payments", "PAY-00107-044", false)!;
         expect(link.href).toContain("tab=All+Payments");
         expect(link.href).not.toContain("Payments+Done");
@@ -1907,10 +2264,11 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         expect(open.title).not.toContain("Payments Done");
     });
 
-    it("says out loud that an expense link is not the record itself", () => {
-        expect(settlementLink("Project Expenses", "i87sop52n3")!.title).toContain(
-            "cannot be linked to directly"
-        );
+    it("⚠️ offers an expense no link to be wrong about (#1289)", () => {
+        // It used to say "cannot be linked to directly" on a link to the `Approved` tab. There is
+        // no link now: every tab this could reach is one the record cannot appear in, and the
+        // destination is parked with the owner. INVERTED, not deleted.
+        expect(settlementLink("Project Expenses", "i87sop52n3")).toBeNull();
     });
 
     it("defaults to the unsettled destination, which is the safe one", () => {
@@ -1918,21 +2276,13 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         expect(settlementLink("Project Payments", "PAY-1")!.href).toContain("tab=All+Payments");
     });
 
-    it("marks an expense link INEXACT, because its table cannot be searched by record id", () => {
-        // Not a shortcoming of this helper: PE_SEARCHABLE_FIELDS / NPE_SEARCHABLE_FIELDS cover
-        // description, type, vendor and amount -- never `name`. Rendering it like a payment link
-        // would promise a precision it does not have.
-        // ⚠️ THE HREF NOW CARRIES A STATUS TAB, AND `exact` IS STILL FALSE — the two are different
-        // claims and this test is about the second. Landing on the right TAB narrows the list; it
-        // does not find the ROW, because the id is still not searchable. Both calls omit `settled`,
-        // so they default to the suggestion case: `Approved`.
-        const pe = settlementLink("Project Expenses", "i87sop52n3")!;
-        expect(pe.exact).toBe(false);
-        expect(pe.href).toBe("/expense/project?pe_status=Approved");
-
-        const npe = settlementLink("Non Project Expenses", "abc123")!;
-        expect(npe.exact).toBe(false);
-        expect(npe.href).toBe("/expense/non-project?npe_status=Approved");
+    it("⚠️ no longer has an expense link to mark INEXACT (#1289)", () => {
+        // It used to assert `exact: false` on a link to a status TAB, because landing on the right
+        // tab narrows a list without finding the row: PE_SEARCHABLE_FIELDS / NPE_SEARCHABLE_FIELDS
+        // cover description, type, vendor and amount -- never `name`. That is still true, and moot:
+        // there is no link. INVERTED, not deleted, so re-adding one has to face this test.
+        expect(settlementLink("Project Expenses", "i87sop52n3")).toBeNull();
+        expect(settlementLink("Non Project Expenses", "abc123")).toBeNull();
     });
 
     it("refuses a half-written or unknown target", () => {
@@ -1987,7 +2337,7 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         });
         const [link] = rowSettlementLinks(matched);
         expect(link.label).toBe("PAY-00105-038");
-        // Nothing has been written, so the payment is still Approved -> All Payments.
+        // Nothing has been written, so the payment is not Paid -> the unfiltered All Payments tab.
         expect(link.href).toContain("tab=All+Payments");
     });
 
@@ -1995,11 +2345,13 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         // The gap this closed: a skip settles nothing and DELETES its match records, and it carries
         // no suggestion either (`sole_suggestion` is gated on Matched, so a skipped row can never
         // render as ready to confirm). The payment existed only inside the note's prose.
+        // ⚠️ INVERTED AT #1253: `related_payments` became `related_records`, and the note names the
+        // ledger beside the record.
         const skipped = row({
             row_status: "Skipped",
-            outcome_note: "Already recorded as Paid on PAY-00102-211.",
+            outcome_note: "Already recorded as Paid on Project Payment PAY-00102-211.",
             matches: [],
-            related_payments: [
+            related_records: [
                 { target_doctype: "Project Payments", target_name: "PAY-00102-211" },
             ],
         });
@@ -2013,7 +2365,7 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         const mismatched = row({
             row_status: "Mismatched",
             matches: [],
-            related_payments: [
+            related_records: [
                 { target_doctype: "Project Payments", target_name: "PAY-00187-018" },
             ],
         });
@@ -2026,11 +2378,55 @@ describe("links to the record a row settles — the FALLBACK path, with no order
             matches: [
                 { target_doctype: "Project Payments", target_name: "PAY-SETTLED" },
             ] as OutflowImportRow["matches"],
-            related_payments: [
+            related_records: [
                 { target_doctype: "Project Payments", target_name: "PAY-DUPLICATE" },
             ],
         });
         expect(rowSettlementLinks(both).map((l) => l.label)).toEqual(["PAY-SETTLED"]);
+    });
+
+    it("⚠️ links a SKIPPED duplicate to a PROJECT INFLOW — a ledger the screen had no branch for", () => {
+        // #1253: a deposit's duplicate lives in `Project Inflows`. Before this, `settlementLink`
+        // returned null for that doctype, so the row named the inflow in prose and offered nothing.
+        const skipped = row({
+            row_status: "Skipped",
+            outcome_note: "Already recorded as received on Project Inflow PAYIN-00190-01.",
+            matches: [],
+            related_records: [
+                { target_doctype: "Project Inflows", target_name: "PAYIN-00190-01" },
+            ],
+        });
+        const [link] = rowSettlementLinks(skipped);
+        expect(link.label).toBe("PAYIN-00190-01");
+        expect(link.href).toMatch(/^\/in-flow-payments\?/);
+    });
+
+    it("links a skipped row to EVERY related record, whichever ledgers they are in", () => {
+        const skipped = row({
+            row_status: "Skipped",
+            matches: [],
+            related_records: [
+                { target_doctype: "Project Payments", target_name: "PAY-1", order_name: "PO/1/25-26" },
+                { target_doctype: "Project Expenses", target_name: "ecuu6rldvp" },
+                { target_doctype: "Non Project Expenses", target_name: "1t69cnkk6v" },
+            ],
+        });
+        // ⚠️ THE TWO EXPENSE ROWS DROP OUT ENTIRELY AT #1289 — they used to land on the Paid tab.
+        // `rowSettlementLinks` filters out a null link, so a skipped row naming three records now
+        // renders one. The note still NAMES all three; only the links narrowed.
+        expect(rowSettlementLinks(skipped).map((l) => l.href)).toEqual([
+            "/project-payments/PO&=1&=25-26",
+        ]);
+    });
+
+    it("⚠️ ignores a stale `related_payments` key — the rename is loud, not half-applied", () => {
+        // The backend stopped sending `related_payments` at #1253. A payload still carrying it (a
+        // cached response, an old server) must render no link rather than keep the payments half.
+        const stale = row({ row_status: "Skipped", matches: [] }) as OutflowImportRow & {
+            related_payments?: unknown;
+        };
+        stale.related_payments = [{ target_doctype: "Project Payments", target_name: "PAY-OLD" }];
+        expect(rowSettlementLinks(stale)).toEqual([]);
     });
 
     it("gives a mismatched row nothing to link to", () => {
@@ -2040,8 +2436,49 @@ describe("links to the record a row settles — the FALLBACK path, with no order
     it("gives a skip with no payment behind it nothing to link to", () => {
         // "Transfer did not succeed at the bank", or a manual skip -- no record is involved.
         expect(
-            rowSettlementLinks(row({ row_status: "Skipped", matches: [], related_payments: [] }))
+            rowSettlementLinks(row({ row_status: "Skipped", matches: [], related_records: [] }))
         ).toEqual([]);
+    });
+});
+
+// Review fix 4: mirrors `allocate_row`'s "PROJECT PAYMENTS ONLY" refusal, so the picker can
+// disable a checkbox BEFORE the click rather than let the server's sentence be the first the
+// reviewer hears of it.
+describe("tickAllowedForFanOut", () => {
+    it("allows a lone non-payment tick on an untouched row -- settle_row handles any ledger", () => {
+        expect(tickAllowedForFanOut("Project Expenses", [], "Matched")).toBe(true);
+        expect(tickAllowedForFanOut("Non Project Expenses", [], "Mismatched")).toBe(true);
+    });
+
+    it("refuses a second tick that would add a non-payment to an existing tick-set", () => {
+        expect(
+            tickAllowedForFanOut("Project Expenses", ["Project Payments"], "Matched")
+        ).toBe(false);
+    });
+
+    it("refuses a second tick of any kind once a non-payment is already the sole tick", () => {
+        // Adding ANYTHING here makes a 2-element `targets` array containing a non-payment --
+        // `allocate_row` refuses the whole call, not just the offending element.
+        expect(
+            tickAllowedForFanOut("Project Payments", ["Project Expenses"], "Matched")
+        ).toBe(false);
+    });
+
+    it("allows growing an all-payments tick-set", () => {
+        expect(
+            tickAllowedForFanOut("Project Payments", ["Project Payments", "Project Payments"], "Matched")
+        ).toBe(true);
+    });
+
+    it("refuses ANY non-payment tick on an already Partially Allocated row", () => {
+        // Even a single tick there routes to `allocate_row` (`chooseSettleEndpoint`), so a lone
+        // non-payment tick is unsafe here even though the same tick is fine on an untouched row.
+        expect(tickAllowedForFanOut("Project Expenses", [], "Partially Allocated")).toBe(false);
+        expect(tickAllowedForFanOut("Non Project Expenses", [], "Partially Allocated")).toBe(false);
+    });
+
+    it("still allows a payment tick on a Partially Allocated row", () => {
+        expect(tickAllowedForFanOut("Project Payments", [], "Partially Allocated")).toBe(true);
     });
 });
 
@@ -2063,7 +2500,10 @@ describe("the match run's suggestion becomes a decision", () => {
     it("reads the stored pair as a ready decision", () => {
         expect(suggestedDecision(suggested())).toEqual({
             target: "Project Payments",
-            linkTo: "PAY-00105-038",
+            linkTargets: linkTargets({
+                target_doctype: "Project Payments",
+                name: "PAY-00105-038",
+            }),
         });
     });
 
@@ -2073,7 +2513,10 @@ describe("the match run's suggestion becomes a decision", () => {
             suggestedDecision(
                 suggested({ suggested_doctype: "Non Project Expenses", suggested_name: "NPE-4" })
             )
-        ).toEqual({ target: "Non Project Expenses", linkTo: "NPE-4" });
+        ).toEqual({
+            target: "Non Project Expenses",
+            linkTargets: linkTargets({ target_doctype: "Non Project Expenses", name: "NPE-4" }),
+        });
     });
 
     it("reads a blank or half-written pair as nothing", () => {
@@ -2102,28 +2545,54 @@ describe("the match run's suggestion becomes a decision", () => {
         ];
         const seeded = seedDecisions(rows, new Map());
         expect(seeded.size).toBe(2);
-        expect(seeded.get("A")?.linkTo).toBe("PAY-00105-038");
-        expect(seeded.get("B")?.linkTo).toBe("PAY-2");
+        expect([...(seeded.get("A")?.linkTargets ?? [])]).toEqual([
+            recordKey({ target_doctype: "Project Payments", name: "PAY-00105-038" }),
+        ]);
+        expect([...(seeded.get("B")?.linkTargets ?? [])]).toEqual([
+            recordKey({ target_doctype: "Project Payments", name: "PAY-2" }),
+        ]);
         expect(seeded.has("C")).toBe(false);
     });
 
     it("never overwrites a decision the reviewer already made", () => {
         const existing = new Map<string, RowDecision>([
-            ["A", { target: "Project Expenses", linkTo: "PE-9" }],
+            [
+                "A",
+                {
+                    target: "Project Expenses",
+                    linkTargets: linkTargets({ target_doctype: "Project Expenses", name: "PE-9" }),
+                },
+            ],
         ]);
         const seeded = seedDecisions([suggested({ name: "A" })], existing);
-        expect(seeded.get("A")).toEqual({ target: "Project Expenses", linkTo: "PE-9" });
+        expect(seeded.get("A")).toEqual({
+            target: "Project Expenses",
+            linkTargets: linkTargets({ target_doctype: "Project Expenses", name: "PE-9" }),
+        });
     });
 
     it("never re-seeds a selection the reviewer deliberately CLEARED", () => {
-        // Clearing leaves an entry with a null link, not an absent entry -- which is what makes it
-        // distinguishable from "never touched". Re-seeding here would put the machine's pick back
-        // under someone who had just rejected it, on the next refetch, silently.
+        // ⚠️ Clearing leaves an entry with an EMPTY `linkTargets` set (Task 7; it used to be a null
+        // `linkTo`), not an absent entry -- which is what makes it distinguishable from "never
+        // touched". Re-seeding here would put the machine's pick back under someone who had just
+        // rejected it, on the next refetch, silently.
+        const cleared = new Map<string, RowDecision>([
+            ["A", { target: "Project Payments", linkTargets: new Set() }],
+        ]);
+        const seeded = seedDecisions([suggested({ name: "A" })], cleared);
+        expect(seeded.get("A")?.linkTargets?.size).toBe(0);
+    });
+
+    it("never re-seeds a Normal selection the reviewer CLEARED -- a null `linkTo`", () => {
+        // ⚠️ The mirror of the case above for the restored single-select shape (issue #1240). The
+        // contract is "an ENTRY exists", not "a particular field is empty", so both clears are
+        // honoured by the same line -- but only one of them was ever pinned.
         const cleared = new Map<string, RowDecision>([
             ["A", { target: "Project Payments", linkTo: null }],
         ]);
         const seeded = seedDecisions([suggested({ name: "A" })], cleared);
-        expect(seeded.get("A")?.linkTo).toBeNull();
+        expect(seeded.get("A")).toEqual({ target: "Project Payments", linkTo: null });
+        expect(isConfirmable(suggested({ name: "A" }), seeded.get("A"))).toBe(false);
     });
 
     it("returns the SAME map when there is nothing to add", () => {
@@ -2141,19 +2610,66 @@ describe("the match run's suggestion becomes a decision", () => {
     it("tells the table whether the machine or a person put the decision there", () => {
         const r = suggested();
         expect(decisionOrigin(r, undefined)).toBe("none");
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets({
+                    target_doctype: "Project Payments",
+                    name: "PAY-00105-038",
+                }),
+            })
+        ).toBe("suggested");
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-OTHER" }),
+            })
+        ).toBe("chosen");
+        // ⚠️ Same bare NAME as the suggestion, different LEDGER -- `recordKey` folds doctype into
+        // the identity, so this is a different `linkTargets` set even though `linkTo` used to read
+        // identically. Still "chosen", which is the behaviour this pins.
+        expect(
+            decisionOrigin(r, {
+                target: "Project Expenses",
+                linkTargets: linkTargets({
+                    target_doctype: "Project Expenses",
+                    name: "PAY-00105-038",
+                }),
+            })
+        ).toBe("chosen");
+        // A picker with TWO targets can never equal a suggestion, which is always a singleton.
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-00105-038" },
+                    { target_doctype: "Project Payments", name: "PAY-OTHER" }
+                ),
+            })
+        ).toBe("chosen");
+        // ⚠️ THE RESTORED NORMAL SHAPE (issue #1240). The suggestion is banked as a `linkTargets`
+        // singleton, but a person picking that same record in Normal mode writes `linkTo`. Both
+        // normalise to the SAME recordKey, so the badge cannot start reading "chosen" for a pick
+        // that is word-for-word the machine's.
         expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-00105-038" })).toBe(
             "suggested"
         );
         expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-OTHER" })).toBe(
             "chosen"
         );
+        // Same bare name, different ledger -- `target` is what supplies the ledger half of the key.
         expect(decisionOrigin(r, { target: "Project Expenses", linkTo: "PAY-00105-038" })).toBe(
             "chosen"
         );
+        // A cleared Normal decision is not the suggestion either.
+        expect(decisionOrigin(r, { target: "Project Payments", linkTo: null })).toBe("chosen");
         // A row with no suggestion at all: anything on it was chosen by a person.
-        expect(decisionOrigin(row(), { target: "Project Payments", linkTo: "PAY-1" })).toBe(
-            "chosen"
-        );
+        expect(
+            decisionOrigin(row(), {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe("chosen");
     });
 });
 
@@ -2630,6 +3146,38 @@ describe("statementDebit", () => {
     });
 });
 
+describe("statementCredit", () => {
+    it("reports the money that arrived when the statement has money-in lines", () => {
+        expect(
+            statementCredit({ gross_inflow_amount: 53_54_387, inflow_rows: 7 }),
+        ).toEqual({ inflow: 53_54_387, rows: 7 });
+    });
+
+    it("is null when the statement has no money-in lines, so the section never renders", () => {
+        // ⚠️ NULL, NOT A ZERO. Cashfree and Cashbook cannot state a credit at all, so a zero-filled
+        // "Gross Inflow" tile would claim receipts were possible where none can occur.
+        expect(statementCredit({ gross_inflow_amount: 0, inflow_rows: 0 })).toBeNull();
+    });
+
+    it("is null against an older server that sends neither key", () => {
+        // ⚠️ CHECKED WITH `!== undefined`, NEVER FOR TRUTHINESS -- a real 0 and an unsent key are
+        // different facts. An absent key means "this server does not compute it", and the screen must
+        // then look exactly as it did before #1287 rather than showing ₹0.
+        expect(statementCredit({})).toBeNull();
+        expect(statementCredit({ inflow_rows: 7 })).toBeNull();
+        expect(statementCredit({ gross_inflow_amount: 53_54_387 })).toBeNull();
+    });
+
+    it("renders a zero-value receipt, because the decision is the LINE COUNT not the money", () => {
+        // The whole reason `inflow_rows` is sent at all. A statement with a receipt of nothing in it
+        // still has a receipt, and `gross_inflow_amount > 0` would hide it.
+        expect(statementCredit({ gross_inflow_amount: 0, inflow_rows: 1 })).toEqual({
+            inflow: 0,
+            rows: 1,
+        });
+    });
+});
+
 describe("previewCounts", () => {
     it("keeps the two exclusions on separate axes", () => {
         const counts = previewCounts({
@@ -2665,51 +3213,84 @@ describe("previewCounts", () => {
 describe("tabCountParts", () => {
     // ⚠️ `skipped` IS A SCOPE WITH NO TAB. It rides `tab_counts` because every count derives from
     // `_SCOPE_STATUSES`, and it must never appear in the tab strip -- pinned below.
-    const tabCounts = { all: 996, not_matched: 133, matched: 863, skipped: 47 };
-    const statusCounts = {
+    const tabCounts = {
+        all: 1001,
+        not_matched_outflow: 130,
+        partly_outflow: 0,
+        matched_outflow: 863,
+        not_matched_inflow: 3,
+        settled_inflow: 5,
+        skipped: 47,
+    };
+    const zero = {
         "Pending match run": 0,
-        Matched: 863,
-        Mismatched: 133,
+        Matched: 0,
+        Mismatched: 0,
+        "Partially Allocated": 0,
         Settled: 0,
-        Skipped: 47,
+        Skipped: 0,
         Error: 0,
     };
+    const directionStatusCounts = {
+        outflow: { ...zero, Matched: 863, Mismatched: 130, Skipped: 47 },
+        inflow: { ...zero, Mismatched: 3, Settled: 5 },
+    };
 
-    it("gives the two single-status tabs one number, unchanged", () => {
-        expect(tabCountParts("all", tabCounts, statusCounts)).toEqual([{ key: "all", count: 996 }]);
-        expect(tabCountParts("notMatched", tabCounts, statusCounts)).toEqual([
-            { key: "not_matched", count: 133 },
+    it("gives the single-status tabs one number, unchanged", () => {
+        expect(tabCountParts("all", tabCounts, directionStatusCounts)).toEqual([
+            { key: "all", count: 1001 },
+        ]);
+        expect(tabCountParts("notMatchedOutflow", tabCounts, directionStatusCounts)).toEqual([
+            { key: "not_matched_outflow", count: 130 },
+        ]);
+        expect(tabCountParts("notMatchedInflow", tabCounts, directionStatusCounts)).toEqual([
+            { key: "not_matched_inflow", count: 3 },
         ]);
     });
 
-    it("splits the matched tab, because one number there reads as the terminal half", () => {
-        const parts = tabCountParts("matched", tabCounts, statusCounts);
+    it("splits Matched / Settled – Outflow, because one number there reads as the terminal half", () => {
+        const parts = tabCountParts("matchedOutflow", tabCounts, directionStatusCounts);
         expect(parts.map((p) => [p.label, p.count])).toEqual([
             ["matched", 863],
             ["settled", 0],
         ]);
     });
 
-    it("the split still adds up to the tab it labels", () => {
-        const parts = tabCountParts("matched", tabCounts, statusCounts);
-        expect(parts.reduce((n, p) => n + (p.count ?? 0), 0)).toBe(tabCounts.matched);
+    it("the split still adds up to the tab it labels -- OUTFLOW counts only", () => {
+        // The 5 settled CREDITS must not leak into the outflow tab's settled chip.
+        const parts = tabCountParts("matchedOutflow", tabCounts, directionStatusCounts);
+        expect(parts.reduce((n, p) => n + (p.count ?? 0), 0)).toBe(tabCounts.matched_outflow);
     });
 
     // The live shape that started this: 863 under a tab whose second word means finished, while
     // nothing at all had been settled.
     it("says zero settled rather than leaving it to be inferred", () => {
-        const parts = tabCountParts("matched", tabCounts, statusCounts);
+        const parts = tabCountParts("matchedOutflow", tabCounts, directionStatusCounts);
         expect(parts[1]).toMatchObject({ label: "settled", count: 0 });
     });
 
-    it("falls back to the single total when the server sends no status counts", () => {
-        expect(tabCountParts("matched", tabCounts, undefined)).toEqual([
-            { key: "matched", count: 863 },
+    it("gives Settled – Inflow the settled count only -- a credit never becomes Matched", () => {
+        const withAStrayMatchedCredit = {
+            ...directionStatusCounts,
+            inflow: { ...directionStatusCounts.inflow, Matched: 2 },
+        };
+        expect(
+            tabCountParts("settledInflow", { ...tabCounts, settled_inflow: 7 }, withAStrayMatchedCredit)
+        ).toEqual([{ key: "settled_inflow", count: 5 }]);
+    });
+
+    it("falls back to the single total when the server sends no direction split", () => {
+        expect(tabCountParts("matchedOutflow", tabCounts, undefined)).toEqual([
+            { key: "matched_outflow", count: 863 },
+        ]);
+        expect(tabCountParts("settledInflow", tabCounts, undefined)).toEqual([
+            { key: "settled_inflow", count: 5 },
         ]);
     });
 
     it("reports an unanswered page as null, never as zero", () => {
         expect(tabCountParts("all", undefined, undefined)[0].count).toBeNull();
+        expect(tabCountParts("settledInflow", undefined, undefined)[0].count).toBeNull();
     });
 
     // ⚠️ THE OWNER RULING, PINNED IN THE ONE PLACE THE TWO VOCABULARIES MEET. Skipped rows have a
@@ -2720,7 +3301,7 @@ describe("tabCountParts", () => {
 
     it("the tab strip never renders a skipped count", () => {
         for (const tab of OUTFLOW_TABS) {
-            const parts = tabCountParts(tab.id, tabCounts, statusCounts);
+            const parts = tabCountParts(tab.id, tabCounts, directionStatusCounts);
             expect(parts.map((p) => p.count)).not.toContain(tabCounts.skipped);
         }
     });
@@ -3037,6 +3618,94 @@ describe("serverQuery — the skipped split", () => {
     it("counts as an active filter so the clear control appears", () => {
         expect(activeFilterCount({ failed: "failed" })).toBe(1);
         expect(activeFilterCount({ failed: "" })).toBe(0);
+    });
+
+    // #1273: the fourth segment asks the server for hand skips, and says nothing about `failed`.
+    it("asks for the lines skipped by hand", () => {
+        const query = serverQuery({
+            scope: "skipped",
+            filters: { failed: model.SKIPPED_BY_HAND_FILTER },
+        });
+        expect(query.skip_origin).toBe("Manual");
+        expect(query.failed).toBeUndefined();
+    });
+
+    it("sends no origin for any other segment", () => {
+        for (const failed of ["", "failed", "recorded"]) {
+            expect(serverQuery({ scope: "skipped", filters: { failed } }).skip_origin).toBeUndefined();
+        }
+    });
+});
+
+describe("skippedByHandLine — who skipped a line by hand, and when (#1273)", () => {
+    it("names the person and the day on a Manual skip", () => {
+        expect(
+            model.skippedByHandLine({
+                skip_origin: "Manual",
+                decided_by: "priya@nirmaan.app",
+                decided_at: "2026-09-12 10:31:04.123456",
+            }),
+        ).toBe("Skipped by hand · priya@nirmaan.app · 12-Sep-2026");
+    });
+
+    it("is null on a system skip, even one that carries a decider", () => {
+        expect(
+            model.skippedByHandLine({
+                skip_origin: "System",
+                decided_by: "priya@nirmaan.app",
+                decided_at: "2026-09-12 10:31:04",
+            }),
+        ).toBeNull();
+        expect(model.skippedByHandLine({ skip_origin: "" })).toBeNull();
+        expect(model.skippedByHandLine({})).toBeNull();
+    });
+
+    it("leaves out what it does not know rather than printing a blank", () => {
+        expect(model.skippedByHandLine({ skip_origin: "Manual" })).toBe("Skipped by hand");
+    });
+});
+
+describe("outcomeNoteOf — which note a line's Outcome shows (#1273, option A)", () => {
+    const MATCHER_NOTE = "No approved payment or expense matches this transfer.";
+
+    it("★ an OLD hand skip shows the typed reason, not the matcher's leftover note", () => {
+        // The back-fill set `skip_origin` only; `outcome_note` still holds the old sentence.
+        expect(
+            model.outcomeNoteOf({
+                skip_origin: "Manual",
+                outcome_note: MATCHER_NOTE,
+                skip_reason: "walk C14 - clearing the batch",
+            }),
+        ).toBe("walk C14 - clearing the batch");
+    });
+
+    it("a system skip re-skipped by hand still shows its system sentence", () => {
+        expect(
+            model.outcomeNoteOf({
+                skip_origin: "System",
+                outcome_note: "Already recorded as Paid on Project Payment PAY-1.",
+                skip_reason: "checked, duplicate",
+            }),
+        ).toBe("Already recorded as Paid on Project Payment PAY-1.");
+    });
+
+    it("every other line reads the outcome note, then the skip reason, then blank", () => {
+        expect(model.outcomeNoteOf({ outcome_note: MATCHER_NOTE, skip_reason: "x" })).toBe(MATCHER_NOTE);
+        expect(model.outcomeNoteOf({ outcome_note: "", skip_reason: "Transfer did not succeed" })).toBe(
+            "Transfer did not succeed",
+        );
+        expect(model.outcomeNoteOf({ skip_origin: "Manual", outcome_note: MATCHER_NOTE })).toBe(MATCHER_NOTE);
+        expect(model.outcomeNoteOf({})).toBe("");
+    });
+
+    it("the Outcome column (and so the CSV) reads the same helper", () => {
+        const outcome = model.OUTFLOW_COLUMNS.find((c) => c.id === "outcome")!;
+        const row = {
+            skip_origin: "Manual",
+            outcome_note: MATCHER_NOTE,
+            skip_reason: "typed reason",
+        } as unknown as OutflowImportRow;
+        expect(outcome.get(row)).toBe("typed reason");
     });
 });
 
@@ -3576,5 +4245,58 @@ describe("importUploaderLabel", () => {
         const option = { uploaded_by: "priyanka@nirmaan.app" };
         importUploaderLabel(option);
         expect(option.uploaded_by).toBe("priyanka@nirmaan.app");
+    });
+});
+
+describe("the record-anyway confirmation (#1260)", () => {
+    const refusal = (excType: string) => ({
+        httpStatus: 417,
+        exc_type: excType,
+        message: "There was an error.",
+        _server_messages: JSON.stringify([
+            JSON.stringify({
+                title: "Check before recording",
+                message:
+                    "The bank paid 2000 less than the recorded total of 7000. Already recorded as Paid on Project Payment PAY-1.",
+            }),
+        ]),
+    });
+
+    it("asks only for the server's needs-confirmation refusal", () => {
+        expect(model.needsRecordAnywayConfirmation(refusal("RecordedMoneyNeedsConfirmationError"))).toBe(
+            true
+        );
+    });
+
+    it("never asks on a duplicate, which is refused outright", () => {
+        expect(model.needsRecordAnywayConfirmation(refusal("MoneyAlreadyRecordedError"))).toBe(false);
+    });
+
+    it("never asks on any other failure, or on nothing", () => {
+        expect(model.needsRecordAnywayConfirmation(refusal("ValidationError"))).toBe(false);
+        expect(model.needsRecordAnywayConfirmation({ message: "boom" })).toBe(false);
+        expect(model.needsRecordAnywayConfirmation(undefined)).toBe(false);
+    });
+
+    it("says Create for the three create cards and Link for a record", () => {
+        for (const target of ["new", "inflow", "nonProjectInflow"] as const) {
+            expect(model.recordAnywayWording({ target })).toEqual({
+                title: "Create anyway?",
+                action: "Create anyway",
+            });
+        }
+        for (const target of ["Project Payments", "Project Expenses", "Non Project Expenses"] as const) {
+            expect(model.recordAnywayWording({ target })).toEqual({
+                title: "Link anyway?",
+                action: "Link anyway",
+            });
+        }
+    });
+
+    it("tells a bulk confirm, which cannot ask, where to go instead", () => {
+        expect(model.bulkRecordAnywayHint(refusal("RecordedMoneyNeedsConfirmationError"))).toBe(
+            " Open the transfer to record it anyway."
+        );
+        expect(model.bulkRecordAnywayHint(refusal("MoneyAlreadyRecordedError"))).toBe("");
     });
 });

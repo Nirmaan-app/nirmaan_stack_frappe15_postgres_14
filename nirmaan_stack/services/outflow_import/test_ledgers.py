@@ -1,12 +1,19 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""Tests for `ledgers.py` -- the one owner of the Approved-only rule (slice V1).
+"""Tests for `ledgers.py` -- the one owner of the settleable-status rule (slice V1, #1289).
 
 The rule is one line of data, which is exactly why it needs tests: it is small enough to look
 harmless and central enough that widening it by one word lets this import pay something nobody
 approved. `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) both read the
 same map, and these tests pin the properties that make sharing it worth doing.
+
+⚠️ THE ANCHOR MOVED FROM `Approved` TO `Reconciliation Pending` AT #1289, and these tests were
+INVERTED rather than deleted. The payment and expense lifecycle gained a step after `Approved`
+(#1282): an Accountant presses **Mark as Done** when the money has gone out, and only THEN is the
+record waiting for its bank line. The old pins are kept here, saying the opposite of what they said,
+so a revert to the `Approved` anchor fails loudly instead of silently re-opening the double-recording
+hole this change closed.
 """
 
 import unittest
@@ -21,18 +28,29 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    RECONCILIATION_PENDING,
     SETTLEABLE_STATUSES,
     is_expense_doctype,
     settleable_statuses,
 )
 
 
-class TestTheApprovedOnlyRule(unittest.TestCase):
-    def test_every_ledger_settles_from_approved_and_only_approved(self):
-        """Owner ruling Q3: Approved only, all three ledgers, no exception."""
+class TestTheReconciliationPendingOnlyRule(unittest.TestCase):
+    def test_every_ledger_settles_from_reconciliation_pending_and_only_that(self):
+        """#1289: Reconciliation Pending only, all three ledgers, no exception."""
         self.assertEqual(set(SETTLEABLE_STATUSES), set(LEDGER_DOCTYPES))
         for doctype in LEDGER_DOCTYPES:
-            self.assertEqual(settleable_statuses(doctype), (APPROVED,))
+            self.assertEqual(settleable_statuses(doctype), (RECONCILIATION_PENDING,))
+
+    def test_approved_is_settleable_from_nowhere_any_more(self):
+        """⚠️ THE INVERSION OF THE ORIGINAL RULE, KEPT AS A TEST RATHER THAN DELETED.
+
+        `Approved` means sanctioned, not sent. A line that settled an `Approved` record would mark
+        money Paid that nobody has confirmed left the bank -- and, worse, a record an Accountant HAD
+        marked done would find no line, sit unmatched, and be recorded a second time by Create.
+        """
+        for doctype in LEDGER_DOCTYPES:
+            self.assertNotIn(APPROVED, settleable_statuses(doctype))
 
     def test_the_non_project_requested_exception_is_gone(self):
         """v2 accepted `Requested` on Non Project Expenses, reasoning that the doctype has no
@@ -96,6 +114,37 @@ class TestThereIsExactlyOneCopy(unittest.TestCase):
             )
             self.assertNotIn('"Approved", "Requested"', body, module.__name__)
             self.assertNotIn("'Approved', 'Requested'", body, module.__name__)
+
+    def test_no_write_path_spells_the_settleable_status_for_itself(self):
+        """⚠️ THE GUARD ABOVE WENT BLUNT WHEN THE ANCHOR MOVED (#1289), AND THIS IS THE REPLACEMENT.
+
+        It hunted for the ONE v2 pair of literals, so it saw nothing when three modules each kept a
+        private `_APPROVED = "Approved"` -- and when `SETTLEABLE_STATUSES` moved to
+        `Reconciliation Pending`, those three copies were what made the part settle refuse itself:
+        `split_payment` was told to expect `Approved` on a payment the map had just made settleable
+        at another status. A value comparison could never have caught it, because the copies did not
+        disagree until the day the map changed.
+
+        So this asks the honest question of the four modules on the write path: does the source
+        SPELL a settleable status at all? Every one of them reads `settleable_statuses` now.
+        Comments are stripped -- they must stay free to name the statuses, and this note does.
+        """
+        import inspect
+
+        from nirmaan_stack.api.outflow_import import expenses as E
+        from nirmaan_stack.api.outflow_import import unreconcile_split as US
+        from nirmaan_stack.services.outflow_import import unsplit as U
+
+        settleable = set(SETTLEABLE_STATUSES[PAYMENT_DOCTYPE])
+        for module in (C, S, E, U, US):
+            body = "\n".join(
+                line
+                for line in inspect.getsource(module).splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            for status in settleable:
+                self.assertNotIn(f'"{status}"', body, module.__name__)
+                self.assertNotIn(f"'{status}'", body, module.__name__)
 
 
 class TestTheModuleStaysPure(unittest.TestCase):

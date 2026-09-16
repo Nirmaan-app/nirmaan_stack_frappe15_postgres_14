@@ -136,27 +136,48 @@ export interface OutflowImportRow {
     suggested_name?: string;
     row_status: string;
     skip_reason?: string;
+    /**
+     * Who set a Skipped line aside (#1273): `System` (the software) or `Manual` (a person, with a
+     * typed `skip_reason`). Blank on a line that is not Skipped. Only a Manual skip can be unskipped.
+     */
+    skip_origin?: "" | "System" | "Manual" | null;
+    /** Who decided this line, and when -- the "Skipped by hand · user · date" line reads both. */
+    decided_by?: string | null;
+    decided_at?: string | null;
     outcome_note?: string;
+    /**
+     * Unreconciled, so it must be confirmed by hand (#1280): left out of "Confirm all matched", and
+     * `settle_row(bulk=1)` refuses it. `get_outflow_rows` only; cleared by any settle of the line.
+     */
+    confirm_by_hand?: boolean;
+    /** When the line was last unreconciled; `null` unless `confirm_by_hand`. */
+    unreconciled_at?: string | null;
+    /** The records that came off in that last unreconcile -- what "Same pick as before" checks. */
+    unreconciled_targets?: string[];
     matches: OutflowRowMatch[];
     /**
-     * Already-Paid payments this row's bank reference points at — the records behind a
-     * "Already recorded as Paid on …" skip, and behind a `Mismatched` row.
+     * Records already carrying the money this row describes — the records behind an
+     * "Already recorded as Paid / received on …" skip, and behind a `Mismatched` row.
+     *
+     * ⚠️ RECORDS, IN ANY OF FOUR LEDGERS (#1253): `Project Payments`, `Project Expenses`,
+     * `Non Project Expenses` or `Project Inflows`. RENAMED from `related_payments` rather than
+     * widened in place, so a stale reader renders nothing instead of silently only the payments.
      *
      * ⚠️ NOT a settlement and NOT a suggestion. The row settled nothing, so it has no
-     * `Outflow Row Match` record, and it carries no stored suggestion either. Derived server-side in
-     * `get_batch_rows` from the same loader the duplicate guard uses, so the screen can link the
-     * payment its note only names in prose.
+     * `Outflow Row Match` record, and it carries no stored suggestion either. Derived server-side
+     * from the same source the duplicate guard uses, so the screen can link the record its note only
+     * names in prose.
      */
-    related_payments?: {
+    related_records?: {
         target_doctype: string;
         target_name: string;
-        /** The order this payment is against, for the app's own route (slice E3). */
+        /** The order a PAYMENT is against, for the app's own route (slice E3). Payments only. */
         order_name?: string;
     }[];
     /**
      * The order behind `suggested_name`, for the app's own route (slice E3).
      *
-     * ⚠️ ITS OWN KEY BECAUSE THE SUGGESTION IS NOT A LIST. `matches` and `related_payments` carry
+     * ⚠️ ITS OWN KEY BECAUSE THE SUGGESTION IS NOT A LIST. `matches` and `related_records` carry
      * their order stamped onto each entry; the suggestion is two scalar columns on the row, so
      * there is no entry to stamp.
      */
@@ -171,22 +192,30 @@ export interface OutflowImportRow {
      */
     settlement_origin?: string;
     /**
-     * Which ledger this row settled against: "Project Payments" / "Project Expenses" /
-     * "Non Project Expenses". Blank until the row is settled.
+     * Every ledger this row settled into: "Project Payments" / "Project Expenses" /
+     * "Non Project Expenses" -- possibly more than one, since one transfer may now settle several
+     * payments across different books (ADR-0020's fan-out). Empty on an unsettled row.
      *
-     * ⚠️ DERIVED AT READ TIME from the row's `Outflow Row Match`, not stored on the row -- unlike
-     * `settlement_origin` beside it, which is denormalised onto the row. Same shape all the same:
-     * blank on an unsettled row is CORRECT, because an open transfer has no settlement yet and so
-     * has no ledger. The facet's own "(blank)" entry is what selects them.
+     * ⚠️ RENAMED FROM A SCALAR `settled_ledger` AT TASK 6, RATHER THAN WIDENED IN PLACE -- following
+     * the `settled_by_ledger` precedent (`review.py`): three independent `LIMIT 1` subqueries with
+     * no `ORDER BY` could each pick a different leg on a fan-out, so the old scalar key is GONE. A
+     * stale reader now gets `undefined` and renders nothing, which is the intended loud failure
+     * rather than one arbitrarily-picked ledger.
      *
-     * ⚠️ FILTERABLE BUT NOT SORTABLE. `review._FACET_COLUMNS` carries it; `_SORTABLE_COLUMNS`
-     * deliberately does not -- ordering the whole filtered table by a per-row correlated subquery
-     * that is blank on most rows buys nothing. It is absent from `SERVER_SORT_COLUMNS` for the
-     * same reason, which is also what withholds the header's sort affordance.
+     * ⚠️ DERIVED AT READ TIME from the row's `Outflow Row Match` rows, not stored on the row --
+     * unlike `settlement_origin` beside it, which is denormalised onto the row. Same shape all the
+     * same: empty on an unsettled row is CORRECT, because an open transfer has no settlement yet and
+     * so has no ledger. The facet's own "(blank)" entry is what selects them.
+     *
+     * ⚠️ FILTERABLE BUT NOT SORTABLE. `review._FACET_COLUMNS` carries the (still singular)
+     * `settled_ledger` FILTER column; `_SORTABLE_COLUMNS` deliberately does not -- ordering the
+     * whole filtered table by a per-row correlated subquery that is blank on most rows buys nothing.
+     * It is absent from `SERVER_SORT_COLUMNS` for the same reason, which is also what withholds the
+     * header's sort affordance.
      */
-    settled_ledger?: string;
+    settled_ledgers?: string[];
     /**
-     * The settled record's own name and amount.
+     * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
      * `export_outflow_rows` does -- so they are declared here for the CSV path and must NEVER be
@@ -194,13 +223,20 @@ export interface OutflowImportRow {
      * select renders an em dash on every row forever, which is the `settlement_origin` defect
      * (a facet registered without its SELECT) wearing the other face.
      *
-     * They exist because a reconciler opening the file asks "which record, and for how much" --
-     * and on a partial settle `settled_target_amount` differs from the transfer's own `amount`,
-     * which is the whole reason to look. `settled_target_amount` stays null on an unsettled row
-     * rather than 0: an open transfer did not settle nothing, it settled nothing YET.
+     * They exist because a reconciler opening the file asks "which record(s), and for how much
+     * each" -- and on a partial settle a `settled_target_amounts` entry differs from the transfer's
+     * own `amount`, which is the whole reason to look. `settled_target_amounts` stays null on an
+     * unsettled row rather than 0: an open transfer did not settle nothing, it settled nothing YET.
+     *
+     * ⚠️ RENAMED FROM SCALARS (`settled_target_name` / `settled_target_amount`) AT TASK 6, for the
+     * same fan-out reason `settled_ledgers` was. Each stays a PIPE-JOINED STRING in leg order
+     * (`matched_at, name` -- a total order, since `name` is unique), NOT a list: these two are
+     * export-only, a spreadsheet cell rather than a JSON array a screen renders, and the two
+     * subqueries share that one ordering so a CSV line's name and amount always come from the same
+     * leg.
      */
-    settled_target_name?: string;
-    settled_target_amount?: number | null;
+    settled_target_names?: string;
+    settled_target_amounts?: string;
     /** Denormalised from the batch, so the table can filter by source without a join. */
     source?: string;
     /**
@@ -233,24 +269,46 @@ export interface OutflowRowsPage {
      * summary panel reports them instead.
      */
     /**
-     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The three working scopes label the tab
-     * strip; `skipped` exists so the Skipped chip's dialog can ask for those rows by name, and it
-     * is deliberately absent from `SCOPE_FOR_TAB` — there is no tab to map to it.
+     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The six working scopes (`all` plus the
+     * five direction scopes, #1264) label the tab strip; `skipped` exists so the Skipped chip's
+     * dialog can ask for those rows by name, and it is deliberately absent from `SCOPE_FOR_TAB` —
+     * there is no tab to map to it.
      */
-    tab_counts: { all: number; not_matched: number; matched: number; skipped: number };
+    tab_counts: {
+        all: number;
+        not_matched_outflow: number;
+        partly_outflow: number;
+        matched_outflow: number;
+        not_matched_inflow: number;
+        settled_inflow: number;
+        skipped: number;
+    };
     /**
-     * The SAME population as `tab_counts`, broken down by status instead of by tab.
-     *
-     * ⚠️ IT EXISTS BECAUSE ONE TAB HOLDS TWO STATUSES. "Matched / Settled" pairs an OPEN status
-     * with a TERMINAL one, so its single number cannot say which — live-observed as 863 under a tab
-     * whose second word means finished, when nothing had been settled at all. The tab renders
-     * `863 matched · 0 settled` from this.
+     * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH
+     * directions.
      *
      * ⚠️ RAW, AND IT INCLUDES `Skipped`, which no tab shows. This is a breakdown OF the population,
-     * not a fourth scope — never sum it expecting a tab's number. `tab_counts` stays the only thing
-     * derived from the scope statuses, and the only thing a tab may be labelled with wholesale.
+     * not another scope — never sum it expecting a tab's number.
      */
     status_counts: Record<string, number>;
+    /**
+     * `status_counts`, split by transaction direction (#1264). Optional so an older server degrades
+     * to single totals.
+     *
+     * ⚠️ IT EXISTS BECAUSE ONE TAB HOLDS TWO STATUSES. "Matched / Settled – Outflow" pairs an OPEN
+     * status with a TERMINAL one, so its single number cannot say which — live-observed as 863
+     * under a tab whose second word means finished, when nothing had been settled at all. The tab
+     * renders `863 matched · 0 settled` from the `outflow` half, so the chips add up to that tab.
+     */
+    direction_status_counts?: {
+        outflow: Record<string, number>;
+        inflow: Record<string, number>;
+    };
+    /**
+     * Can the chosen source(s) ever carry a credit (#1264)? The server answers from each source's own
+     * column map; the screen hides its Inflow tabs when this is `false`. Optional: absent shows them.
+     */
+    can_carry_credit?: boolean;
 }
 
 /** One import, as the summary picker lists it. */
@@ -270,14 +328,23 @@ export interface OutflowImportOption {
     source?: string;
     total_rows?: number;
     /**
-     * How many of this statement's transfers the bank actually moved (slice CF/S4).
+     * How many of this statement's transfers the bank actually moved OUT (slice CF/S4, #1287).
      *
      * ⚠️ NOT `total_rows`, WHICH INCLUDES REFUSED TRANSFERS. It pairs with `gross_amount`, which has
      * excluded them since parse time — printing `total_rows` beside that amount would put a count
      * and a figure describing different populations on one line.
+     *
+     * ⚠️ AND SINCE #1287 IT EXCLUDES MONEY-IN LINES TOO, FOR THE SAME REASON. `gross_amount` became
+     * debit-only when a source started carrying receipts, so a success-only count would have
+     * re-opened that split on a new axis — the live ICICI batch would read 170 transfers beside an
+     * amount covering 147. The server narrows the count in step; nothing is derived here.
      */
     successful_rows?: number;
-    /** Money that actually left the account. Bank-refused transfers were never in it. */
+    /**
+     * Money that actually left the account. Bank-refused transfers were never in it, and since
+     * #1287 neither are money-IN lines — this is the statement's withdrawals, not its net movement.
+     * Money that came in is not stored anywhere; it exists on the upload preview only.
+     */
     gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
@@ -465,6 +532,11 @@ export interface OutflowImportSummary {
     }[];
     auto_skipped_rows: number;
     manually_skipped_rows: number;
+    /**
+     * Lines with `skip_origin = Manual` (#1273) -- what the Skipped popup's "Skipped by hand" filter
+     * returns. NOT `manually_skipped_rows`, which keys on a decider. Optional for an older server.
+     */
+    skipped_by_hand_rows?: number;
 }
 
 /** Ranked candidates for one row, fetched on demand when a reviewer opens it. */
@@ -575,7 +647,34 @@ export interface OutflowPreviewResult {
     total_rows: number;
     successful_rows: number;
     failed_rows: number;
+    /**
+     * Gross Outflow -- the money that LEFT the account, successful DEBIT lines only.
+     *
+     * ⚠️ IT STOPPED BEING "every successful line" at ticket #1287. On a passbook, which has no status
+     * column and no sign, that older sum was withdrawals PLUS deposits.
+     */
     gross_amount: number;
+    /**
+     * Gross Inflow -- the money that ARRIVED, every CREDIT line, including the ones this import will
+     * later skip by rule, so it can be checked against the statement's own deposit total.
+     *
+     * ⚠️ OPTIONAL, AND CHECKED WITH `!== undefined` RATHER THAN FOR TRUTHINESS -- a real `0` and an
+     * unsent key are different facts, the rule the direction tallies already follow. An older server
+     * sends neither this nor `inflow_rows`, and the screen then looks exactly as it did before.
+     *
+     * ⚠️ NEVER STORED. There is no `gross_inflow_amount` column on the batch, so this figure exists
+     * on the preview screen and nowhere else.
+     */
+    gross_inflow_amount?: number;
+    /**
+     * How many lines the statement itself called money IN.
+     *
+     * ⚠️ THIS, NOT `gross_inflow_amount > 0`, IS WHAT DECIDES WHETHER THE MONEY-IN SECTION RENDERS.
+     * "Has this statement any receipts?" is a question about LINES; deriving it from the money would
+     * hide a zero-value receipt and, on a debit-only source, would be answering a row question with
+     * a money answer.
+     */
+    inflow_rows?: number;
     charges_amount: number;
     duplicate_rows: number;
     new_rows: number;

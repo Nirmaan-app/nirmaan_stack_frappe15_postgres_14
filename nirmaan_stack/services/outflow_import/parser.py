@@ -16,11 +16,13 @@ TWO CONTRACTS THAT LOOK LIKE DETAILS AND ARE NOT:
    succeeded at 19:23 with reference 620919871893, and BOTH would otherwise match the same payment.
    A parser that dropped the failure silently would leave nobody able to see why the numbers moved.
 
-2. **`charges_amount` sums EVERY row; `gross_amount` sums only successful ones.** The asymmetry is
-   deliberate. A charge is money the bank took whatever the transfer's outcome, so excluding failed
-   rows from it would understate the debit. The beneficiary amount of a failed transfer, by
-   contrast, never left the account. This is the same reason the batch total can never equal the sum
-   of its rows: gateway charge plus tax belongs to no settlement target at all.
+2. **`charges_amount` sums EVERY row; `gross_amount` sums only successful DEBITS; and
+   `gross_inflow_amount` sums every CREDIT.** Each asymmetry is deliberate, and `gross_by_direction`
+   holds the reasoning for the last two. A charge is money the bank took whatever the transfer's
+   outcome, so excluding failed rows from it would understate the debit. The beneficiary amount of a
+   failed transfer, by contrast, never left the account. This is the same reason the batch total can
+   never equal the sum of its rows: gateway charge plus tax belongs to no settlement target at all.
+   A row whose direction the statement did not state is in NEITHER gross figure.
 
 MONEY IS `Decimal` THROUGHOUT. These figures are compared for exact equality against stored amounts
 and then differenced; binary floating point makes both unreliable at the paisa level. The conversion
@@ -143,7 +145,7 @@ from __future__ import annotations
 import csv
 import io
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -170,8 +172,10 @@ __all__ = [
     "BANK_TERMINAL_STATUSES",
     "DIRECTION_DEBIT",
     "DIRECTION_CREDIT",
+    "source_can_carry_credit",
     "is_success_status",
     "is_terminal_status",
+    "gross_by_direction",
 ]
 
 # The two things a passbook row can be. They are LABELS, not a sign: `RawRow.amount` stays the
@@ -232,6 +236,23 @@ def is_terminal_status(status_raw: str | None) -> bool:
     cell, and the SQL that binds this set uses `UPPER(BTRIM(...))` to match.
     """
     return (status_raw or "").strip().upper() in BANK_TERMINAL_STATUSES
+
+
+def _states(direction: str | None, label: str) -> bool:
+    """Did the statement state THIS direction on this row? A blank states neither.
+
+    ⚠️ ONE SPELLING, BECAUSE THREE CALLERS IN THIS FILE ALREADY WANTED IT (`gross_by_direction`
+    twice, `ParseResult.inflow_count` once) and a direction predicate is the exact thing this module
+    has watched drift before: `status.is_received_direction`, the review screen's SQL facet and the
+    client's `isCreditRow` are three deliberate re-spellings across three languages, and each one
+    trims for the same reason -- a `" Credit "` row must never land on the opposite side from its own
+    badge. No stored row carries padding today, which is precisely why every spelling strips.
+
+    Private on purpose. `status.is_received_direction` stays the named public predicate for code
+    reading rows back OUT of the database; this is the parser's own internal use over rows it just
+    built, and promoting it would make a fourth public name for one idea.
+    """
+    return (direction or "").strip() == label
 
 
 class StatementFormatError(ValueError):
@@ -328,9 +349,30 @@ class ParseResult:
     period_from: date | None
     period_to: date | None
     gross_amount: Decimal
+    """The money that LEFT the account -- successful DEBIT rows only.
+
+    ⚠️ IT IS NO LONGER "every successful row". The name is unchanged because this is the figure the
+    screen calls *Gross Outflow* and the batch stores in `gross_amount`; what changed is that a
+    credit row is no longer in it. See `gross_by_direction`, and the patch
+    `v3_0.recompute_icici_gross_outflow` which corrects the stored figure on imports staged before
+    this rule existed.
+    """
     charges_amount: Decimal
     duplicate_transfer_ids: tuple[str, ...]
     warnings: tuple[str, ...]
+
+    gross_inflow_amount: Decimal = Decimal("0")
+    """The money that ARRIVED -- every CREDIT row, whatever the import will later do with it.
+
+    ⚠️ DEFAULTED, ON THE `row_kind` / `direction` PRECEDENT, so the many hand-built `ParseResult`s in
+    the suites still construct. Zero is also the truth for a debit-only source, which is every
+    source but ICICI.
+
+    ⚠️ NOT STORED ANYWHERE. It rides the preview payload so the upload screen can show it beside
+    Gross Outflow, and nothing reads it after that -- there is no schema change and no history to
+    correct. Adding a column would mean a second figure for the same money, which is exactly what
+    `status.py` warns about for the settled-vs-total tallies.
+    """
 
     bounds: "TableBounds | None" = None
     """WHERE in the sheet the table was found, or `None` for a source with no preamble.
@@ -359,6 +401,54 @@ class ParseResult:
     @property
     def success_count(self) -> int:
         return sum(1 for row in self.rows if row.is_success)
+
+    @property
+    def inflow_count(self) -> int:
+        """How many rows the statement itself called money IN.
+
+        ⚠️ THIS IS WHY THE PREVIEW CAN ANSWER "HAS THIS STATEMENT ANY RECEIPTS?" WITHOUT GUESSING
+        FROM `gross_inflow_amount > 0`. Those are different questions: a credit of zero is a row,
+        and "the money-in section appears only when there are money-in lines" is a rule about ROWS.
+        Deriving the row question from the money answer is the shape that shows a Received tile on a
+        statement with no receipts, or hides one that has a zero-value receipt in it.
+        """
+        return sum(1 for row in self.rows if _states(row.direction, DIRECTION_CREDIT))
+
+
+def gross_by_direction(rows: Sequence[RawRow]) -> tuple[Decimal, Decimal]:
+    """`(gross_outflow, gross_inflow)` -- the money that left and the money that arrived.
+
+    ⚠️ A BLANK DIRECTION IS IN NEITHER TOTAL. `RawRow.direction` is `""` where the statement did not
+    say which way the money went (see its docstring), and the one thing that must never happen to
+    such a row is being counted as a debit "by default". It is left out of both figures, so neither
+    is inflated, and the row itself is still staged and still visible.
+
+    ⚠️ GROSS OUTFLOW USED TO SUM EVERY SUCCESSFUL ROW WHATEVER ITS DIRECTION, AND THAT WAS WRONG THE
+    MOMENT A SOURCE CARRIED MONEY IN. A passbook has no status column and no sign, so ICICI's old
+    "Gross Outflow" was withdrawals PLUS deposits -- Rs 4.52 Cr on the one local import, which is
+    Rs 2.02 Cr out plus Rs 2.50 Cr in. Cashfree and Cashbook cannot state a credit at all
+    (`source_can_carry_credit` is False for both), so their totals are byte-identical to before.
+
+    ⚠️ THE TWO FILTERS ARE DELIBERATELY ASYMMETRIC ON SUCCESS, AND THE ASYMMETRY IS THE CONTRACT,
+    not an oversight. Gross outflow counts SUCCESSFUL debits, because a failed transfer's money
+    never left the account -- the rule `gross_amount` has always kept. Gross inflow counts EVERY
+    credit, because it exists to be checked against the bank's own deposit total, which includes the
+    lines this import will later skip by rule. On every shipped source the two readings coincide and
+    cannot be told apart: the only source that carries credits is ICICI, whose rows all state a
+    synthetic `SUCCESS` (`_ICICI_SYNTHETIC_STATUS`) because a passbook lists settled postings only.
+
+    `rows` is walked twice, so it is a `Sequence` rather than an `Iterable` -- a generator would
+    silently yield the second total as zero.
+    """
+    outflow = sum(
+        (row.amount for row in rows if row.is_success and _states(row.direction, DIRECTION_DEBIT)),
+        Decimal("0"),
+    )
+    inflow = sum(
+        (row.amount for row in rows if _states(row.direction, DIRECTION_CREDIT)),
+        Decimal("0"),
+    )
+    return outflow, inflow
 
 
 # --- source adapters ---------------------------------------------------------------------------
@@ -813,6 +903,32 @@ _MULTI_COLUMN_JOIN = " - "
 
 SUPPORTED_SOURCES = tuple(sorted(_ADAPTERS))
 
+
+def source_can_carry_credit(source: str | None) -> bool:
+    """Can a row from this source EVER be a credit? (#1264)
+
+    Read off the source's OWN column map: `True` iff some marker filling `direction` can write
+    `DIRECTION_CREDIT`. ICICI's Withdrawal / Deposit pair can; Cashfree's `Amount` and Cashbook's
+    `Debit` can only ever write `Debit` (Cashbook's `Credit` column is deliberately unmapped).
+
+    ⚠️ DERIVED, NEVER A LIST OF NAMES. The screen hides its two Inflow tabs when this answers
+    `False` for the chosen source; a name list would be a second copy of what the adapter already
+    declares, and would go stale the day a source gains a deposit column.
+
+    An unknown or blank source answers `False` -- there is no adapter to say it could.
+    """
+    adapter = _ADAPTERS.get((source or "").strip())
+    if adapter is None:
+        return False
+    column_map, _required, _derive = adapter
+    for marker in column_map.values():
+        if getattr(marker, "label_field", None) != "direction":
+            continue
+        labels = getattr(marker, "labels", None) or (getattr(marker, "label", None),)
+        if DIRECTION_CREDIT in labels:
+            return True
+    return False
+
 _DATETIME_FORMATS = (
     "%Y-%m-%dT%H:%M:%S",
     "%Y-%m-%dT%H:%M",
@@ -884,8 +1000,9 @@ def parse_statement(
         )
 
     dates = [row.added_on_date for row in rows if row.added_on_date]
-    # Charges across EVERY row, gross across successful ones only -- see the module docstring.
-    gross = sum((row.amount for row in rows if row.is_success), Decimal("0"))
+    # Charges across EVERY row; the two gross figures split by DIRECTION -- see the module docstring
+    # and `gross_by_direction`, which owns both rules so no caller re-spells either.
+    gross, gross_inflow = gross_by_direction(rows)
     charges = sum((row.service_charge + row.service_tax for row in rows), Decimal("0"))
 
     return ParseResult(
@@ -894,6 +1011,7 @@ def parse_statement(
         period_from=min(dates) if dates else None,
         period_to=max(dates) if dates else None,
         gross_amount=gross,
+        gross_inflow_amount=gross_inflow,
         charges_amount=charges,
         duplicate_transfer_ids=duplicates,
         warnings=tuple(warnings),

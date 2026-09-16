@@ -24,6 +24,14 @@ They look almost identical and they mean opposite things:
     load_paid_payments_by_reference   -> PAID payments. These are a DUPLICATE GUARD. A row that
                                          matches one is SKIPPED, never offered.
 
+`load_paid_expenses_by_reference` (#1256) is the expense half of the second one: a DUPLICATE GUARD
+over Paid Project / Non Project Expenses, whole-string exact on `payment_ref`, read by the GATEWAY
+path only (`review._paid_duplicate_pools`).
+
+`load_recorded_by_contains` (#1257) is the THIRD duplicate guard and the only one that is not
+whole-string exact: the ICICI contains-guard's pool, across all four ledgers by direction. Its rules
+live in the pure `contains_guard`; this module only fetches what could hit.
+
 Merging them into one status-agnostic query -- which is exactly what v2 did, deliberately, to
 report money that left before approval completed -- would make an already-Paid payment look like a
 settle candidate and let the same money be recorded twice. v3 removed the finding that justified
@@ -42,6 +50,7 @@ screen can never offer a record the write path would refuse, or the reverse.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Sequence
@@ -49,7 +58,16 @@ from typing import Sequence
 import frappe
 from frappe.utils import getdate
 
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
+from nirmaan_stack.services.outflow_import.contains_guard import (
+    BASIS_DOCTYPE_KEY,
+    BASIS_NAME_KEY,
+    MIN_TOKEN_LENGTH,
+    RecordClaim,
+    ledgers_for_direction,
+    line_surface,
+)
 from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
     find_prior_sighting,
@@ -57,7 +75,9 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     row_identity_of,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPE,
     NON_PROJECT_EXPENSE_DOCTYPE,
+    NON_PROJECT_INFLOW_DOCTYPE,
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -71,12 +91,18 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 # `duplicates` and `normalize`, so this direction adds no cycle.
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
+from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
 __all__ = [
     "load_vendor_index",
     "load_project_index",
     "load_payments_by_reference",
     "load_paid_payments_by_reference",
+    "load_paid_expenses_by_reference",
+    "load_recorded_by_contains",
+    "load_record_claims",
+    "ContainsLedger",
+    "CONTAINS_LEDGERS",
     "load_payments_by_amount",
     "load_expense_targets",
     # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
@@ -282,6 +308,282 @@ def _payments_by_reference(
     return tuple(_payment_target(r) for r in rows)
 
 
+def load_paid_expenses_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
+    """DUPLICATE GUARD, not a candidate pool: PAID Project / Non Project Expenses already carrying
+    one of these references (#1256).
+
+    The expense half of `load_paid_payments_by_reference`, for the same question: somebody booked
+    this transfer as a Paid expense before the statement was uploaded. The row is Skipped with the
+    expense named, or Mismatched when the amounts disagree -- decided by `status`, never here.
+
+    ⚠️ WHOLE-STRING EXACT, owner ruling on #1252: the stored `payment_ref`, trimmed and upper-cased,
+    must EQUAL a normalised bank reference -- the same `upper(btrim(...)) IN` shape as the payment
+    guard. A reference with words around the UTR (`610415565123 ICICI`) does NOT match. Tokenising,
+    containment and a date window belong to the ICICI contains-guard only; widening THIS query to
+    any of them would hand the gateway path a heuristic skip, which a duplicate guard may never make.
+
+    ⚠️ `Paid` ONLY. An `Approved` expense is waiting to be paid -- it is a settle CANDIDATE
+    (`load_expense_targets`), and treating it as a duplicate would skip the very row that pays it.
+
+    ⚠️ NO AMOUNT PREDICATE, ON PURPOSE. A reference hit whose amount is off must still come back, so
+    `status._failed_or_already_paid` can land the row `Mismatched` naming the expense rather than
+    reporting found-nothing. The amount window is applied there, in pure code.
+
+    `txn_date` carries `payment_date` and `description` the expense text: `status._described_record`
+    names an expense by both, because its random-hash name means nothing to a person.
+    """
+    wanted = sorted({normalize_reference(r) for r in references if normalize_reference(r)})
+    if not wanted:
+        return ()
+
+    reference_ph = ", ".join(["%s"] * len(wanted))
+    out: list[TargetRef] = []
+    for doctype in (PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE):
+        rows = frappe.db.sql(
+            f"""
+            SELECT name, amount, status, description, payment_ref, payment_date
+            FROM "tab{doctype}"
+            WHERE payment_ref IS NOT NULL AND payment_ref <> ''
+              AND upper(btrim(payment_ref)) IN ({reference_ph})
+              AND status = %s
+            """,
+            (*wanted, PAID),
+            as_dict=True,
+        )
+        out.extend(
+            TargetRef(
+                doctype=doctype,
+                name=r["name"],
+                amount=normalize_amount(r.get("amount")),
+                status=r.get("status") or "",
+                reference=r.get("payment_ref") or "",
+                txn_date=r.get("payment_date"),
+                description=r.get("description") or "",
+            )
+            for r in rows
+        )
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class ContainsLedger:
+    """Where one ledger's already-recorded references live, for `load_recorded_by_contains`.
+
+    A value rather than four hand-written SELECTs, so the union is built one way for every ledger
+    and a test can point one ledger at a scratch table (`table`) -- which is how the text-amount
+    shape of `Project Inflows.amount` stays tested after the real column became numeric (#1255).
+    """
+
+    doctype: str
+    table: str
+    reference: str
+    paid_only: bool
+    description: str | None = None
+
+
+CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
+    ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", paid_only=True),
+    ContainsLedger(
+        PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", paid_only=True,
+        description="description",
+    ),
+    ContainsLedger(
+        NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", paid_only=True,
+        description="description",
+    ),
+    # Inflows have no status: every one counts (owner ruling on #1252).
+    ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", paid_only=False),
+    # #1268 (ADR-0016 A-D2): a credit's other book. Without it a receipt recorded as a Non Project
+    # Inflow -- by hand, or by an earlier import -- is invisible, and the same money is recorded twice.
+    ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", paid_only=False),
+)
+
+
+def load_recorded_by_contains(
+    rows, ledgers: Sequence[ContainsLedger] = CONTAINS_LEDGERS
+) -> tuple[TargetRef, ...]:
+    """DUPLICATE GUARD, not a candidate pool: records whose stored reference an ICICI line HITS (#1257).
+
+    The pool for `contains_guard.find_hits`, which re-applies the token, direction and date rules
+    in pure code (the `Paid` filter lives here only). This query narrows the ledger to what could
+    possibly hit, and it may never be NARROWER than the guard:
+
+      * HIT -- an eligible token of the stored reference equals a line's transfer id or is contained
+        in its match surface. The tokenising in SQL mirrors `contains_guard.reference_tokens`
+        (whole string without whitespace + pieces split on non-alphanumerics; 6+ characters, a digit,
+        not a `BULD` batch id, no `DUMMY-` reference). `test_review.TestTheContainsQueryMirrorsThe
+        PureTokens` pins the two together. ⚠️ KNOWN LIMIT: for a reference holding NON-ASCII
+        whitespace or digits (a non-breaking space, a Devanagari numeral) PostgreSQL's `\s` / `[0-9]`
+        see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
+      * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
+        home. A line with no direction contributes nothing;
+      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow and Non Project Inflow.
+
+    ⚠️ NO AMOUNT AND NO DATE PREDICATE, ON PURPOSE. An amount-off hit must still come back so the row
+    lands `Mismatched` naming the record, and the date window is the guard's to apply, in one place.
+
+    ⚠️ `amount::text`, ON EVERY LEDGER. `Project Expenses.amount` is a varchar and `Project
+    Inflows.amount` was one until #1255; casting to text reads a numeric and a text column the same
+    way, and `normalize_amount` parses it -- so the query neither fails on a junk value nor depends
+    on which side of that migration a site is on.
+
+    ⚠️ THE `gram` PRE-FILTER IS AN INDEX, NOT A RULE. A token can only be inside a surface (or equal a
+    transfer id) if its first `MIN_TOKEN_LENGTH` characters appear there, so tokens whose opening
+    characters appear in no line are dropped before the containment test. It removes nothing the
+    guard could hit, and it is what makes the query fast: comparing every token of every Paid
+    record against every line took 37 s on the real 869-line statement.
+
+    ⚠️ `tok` AND `near` ARE `MATERIALIZED`, AND THE KEYWORD IS LOAD-BEARING. Left to inline them,
+    PostgreSQL crossed every record with every line FIRST and re-tokenised each reference inside
+    that loop -- 1.2 million regex splits for a 170-line batch, 8.4 s. Materialised, the ledger is
+    tokenised once per call.
+
+    The lines travel as a `VALUES` list with explicit placeholders (see the module docstring on
+    `= ANY(%s)`), already normalised by `normalize_reference`, so the SQL compares like with like.
+    """
+    lines = []
+    for row in rows:
+        direction = (getattr(row, "direction", "") or "").strip()
+        if not ledgers_for_direction(direction):
+            continue
+        lines.append(
+            (
+                normalize_reference(getattr(row, "transfer_id", "")),
+                line_surface(row),
+                direction,
+            )
+        )
+    by_doctype = {ledger.doctype: ledger for ledger in ledgers}
+    selects, select_params = [], []
+    for direction in sorted({line[2] for line in lines}):
+        for doctype in ledgers_for_direction(direction):
+            ledger = by_doctype.get(doctype)
+            if ledger is None:
+                continue
+            ref = f'"{ledger.reference}"'
+            description = f'"{ledger.description}"' if ledger.description else "NULL"
+            status = ' AND status = %s' if ledger.paid_only else ""
+            selects.append(
+                f"""
+                SELECT %s AS doctype, %s AS direction, name, amount::text AS amount,
+                       {ref} AS reference, payment_date, {description} AS description
+                FROM "{ledger.table}"
+                WHERE {ref} IS NOT NULL AND btrim({ref}) <> ''{status}
+                """
+            )
+            select_params += [doctype, direction] + ([PAID] if ledger.paid_only else [])
+    if not lines or not selects:
+        return ()
+
+    line_values = ", ".join(["(%s, %s, %s)"] * len(lines))
+    found = frappe.db.sql(
+        f"""
+        WITH line (transfer_id, surface, direction) AS (VALUES {line_values}),
+        rec AS ({" UNION ALL ".join(selects)}),
+        tok AS MATERIALIZED (
+            SELECT rec.doctype, rec.name, rec.direction, piece.token
+            FROM rec
+            CROSS JOIN LATERAL (
+                SELECT upper(regexp_replace(rec.reference, '\\s', '', 'g')) AS token
+                UNION
+                SELECT upper(p) FROM regexp_split_to_table(rec.reference, '[^A-Za-z0-9]+') AS p
+            ) AS piece
+            WHERE left(upper(regexp_replace(rec.reference, '\\s', '', 'g')), 6) <> 'DUMMY-'
+              AND length(piece.token) >= {MIN_TOKEN_LENGTH}
+              AND piece.token ~ '[0-9]'
+              AND piece.token !~ '^BULD[0-9]+$'
+        ),
+        gram AS (
+            SELECT line.direction, substr(line.surface, i, {MIN_TOKEN_LENGTH}) AS g
+            FROM line, generate_series(1, length(line.surface) - {MIN_TOKEN_LENGTH} + 1) AS i
+            UNION
+            SELECT line.direction, left(line.transfer_id, {MIN_TOKEN_LENGTH}) FROM line
+        ),
+        near AS MATERIALIZED (
+            SELECT tok.* FROM tok
+            JOIN gram ON gram.direction = tok.direction AND gram.g = left(tok.token, {MIN_TOKEN_LENGTH})
+        ),
+        hit AS (
+            SELECT DISTINCT near.doctype, near.name, near.direction
+            FROM near
+            JOIN line ON line.direction = near.direction
+             AND (line.transfer_id = near.token OR strpos(line.surface, near.token) > 0)
+        )
+        SELECT rec.doctype, rec.name, rec.amount, rec.reference, rec.payment_date, rec.description
+        FROM rec
+        JOIN hit ON hit.doctype = rec.doctype AND hit.name = rec.name AND hit.direction = rec.direction
+        """,
+        (*[value for line in lines for value in line], *select_params),
+        as_dict=True,
+    )
+    return tuple(
+        TargetRef(
+            doctype=r["doctype"],
+            name=r["name"],
+            amount=normalize_amount(r.get("amount")),
+            status=PAID if by_doctype[r["doctype"]].paid_only else "",
+            reference=r.get("reference") or "",
+            txn_date=r.get("payment_date"),
+            description=r.get("description") or "",
+        )
+        for r in found
+    )
+
+
+def load_record_claims(records) -> tuple[RecordClaim, ...]:
+    """Which of these records ALREADY ACCOUNT FOR a statement line, in ANY import (#1258).
+
+    The claims `contains_guard.pick_recorded_group` reads, from two places:
+
+      * the BASIS OF A DUPLICATE SKIP -- `Outflow Import Row.duplicate_basis` on a row that is still
+        `Skipped` (so an unskip, `review.unskip_row` #1274, releases its records by re-opening the line);
+      * a SETTLEMENT -- a `Settled` `Outflow Row Match`, which every settle and every create-from-
+        import writes. A `Reversed` leg claims nothing: that settlement was undone.
+
+    It filters on the RECORD only, never on the asking row or batch: a line's own claim is dropped
+    by the pure pick, by `import_row`, so this one query serves a first run and a re-run alike.
+
+    `records` is anything with `doctype` and `name` -- in practice the contains-guard pool. The pairs
+    travel as a `VALUES` list with explicit placeholders (see the module docstring on `= ANY(%s)`).
+    """
+    pairs = sorted({(r.doctype, r.name) for r in records})
+    if not pairs:
+        return ()
+    values = ", ".join(["(%s, %s)"] * len(pairs))
+    found = frappe.db.sql(
+        f"""
+        WITH rec(doctype, name) AS (VALUES {values})
+        SELECT rec.doctype, rec.name, r.name AS import_row, r.import_batch, 0 AS settled
+        FROM "tabOutflow Import Row" r
+        -- The CASE, not a WHERE on json_typeof: a WHERE may be applied after the set-returning call,
+        -- and one non-array value would then fail the whole match run.
+        CROSS JOIN LATERAL json_array_elements(
+            CASE WHEN json_typeof(r.duplicate_basis) = 'array' THEN r.duplicate_basis ELSE '[]'::json END
+        ) AS basis
+        JOIN rec ON rec.doctype = basis->>'{BASIS_DOCTYPE_KEY}' AND rec.name = basis->>'{BASIS_NAME_KEY}'
+        WHERE r.duplicate_basis IS NOT NULL
+          AND r.row_status = %s
+        UNION
+        SELECT rec.doctype, rec.name, m.import_row, m.import_batch, 1 AS settled
+        FROM "tabOutflow Row Match" m
+        JOIN rec ON rec.doctype = m.target_doctype AND rec.name = m.target_name
+        WHERE m.match_kind = %s
+        """,
+        (*[v for pair in pairs for v in pair], ROW_SKIPPED, MATCH_SETTLED),
+        as_dict=True,
+    )
+    return tuple(
+        RecordClaim(
+            doctype=r["doctype"],
+            name=r["name"],
+            import_row=r.get("import_row") or "",
+            import_batch=r.get("import_batch") or "",
+            settled=bool(r.get("settled")),
+        )
+        for r in found
+    )
+
+
 def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     """TIERS 1 AND 2, SETTLE CANDIDATES: APPROVED payments inside these amount windows.
 
@@ -339,12 +641,10 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     if not values:
         return ()
 
-    # ⚠️ The project side is a Data column holding numeric STRINGS, so it is CAST before the
-    # window is applied; the non-project side is a real Currency column. Same tolerance, two
-    # expressions, because the two doctypes disagree about storage.
-    project_amount_clause, project_amount_params = amount_window_sql(
-        "CAST(NULLIF(btrim(amount), '') AS numeric)", values
-    )
+    # ONE tolerance, ONE expression: both columns are Currency since 16 Sep 2026. The two
+    # queries below stay separate for the reasons that did not change -- different status
+    # vocabularies and different column sets -- not because the amounts are stored differently.
+    project_amount_clause, project_amount_params = amount_window_sql("amount", values)
     non_project_amount_clause, non_project_amount_params = amount_window_sql("amount", values)
 
     out: list[TargetRef] = []
@@ -356,7 +656,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
                vendor, {_PROJECT_EXPENSE_DECIDED_ON}
         FROM "tabProject Expenses"
         WHERE status IN ({project_ph})
-          AND amount IS NOT NULL AND btrim(amount) <> ''
+          AND amount IS NOT NULL
           AND {project_amount_clause}
         """,
         (*_PROJECT_EXPENSE_STATUSES, *project_amount_params),

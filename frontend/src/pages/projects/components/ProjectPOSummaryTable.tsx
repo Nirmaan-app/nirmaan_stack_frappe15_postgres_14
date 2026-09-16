@@ -50,10 +50,6 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { CriticalPOCell, criticalPOLabel } from "@/components/helpers/CriticalPOCell";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { CheckIcon } from "@radix-ui/react-icons";
-import { X, ChevronDown, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
@@ -301,16 +297,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     const map = new Map<string, CriticalPOTask[]>();
     if (!criticalPOTasks) return map;
     for (const task of criticalPOTasks) {
-      try {
-        const associated = typeof task.associated_pos === "string"
-          ? JSON.parse(task.associated_pos) : task.associated_pos;
-        const pos: string[] = associated?.pos || [];
-        for (const po of pos) {
-          const existing = map.get(po) || [];
-          existing.push(task);
-          map.set(po, existing);
-        }
-      } catch { /* skip malformed */ }
+      for (const po of task.linked_pos ?? []) {
+        const existing = map.get(po) || [];
+        existing.push(task);
+        map.set(po, existing);
+      }
     }
     return map;
   }, [criticalPOTasks]);
@@ -326,67 +317,19 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     return filters;
   }, [projectId]);
 
-  // --- Critical PO filter state and dynamic filters ---
-  const NO_CRITICAL_PO = "__no_critical_po__";
-
-  const [selectedCriticalPO, setSelectedCriticalPO] = useState<Set<string>>(new Set());
-
   // ₹5K threshold (DISABLED — uncomment to re-enable): PO value bucket filter (All / < ₹5,000 / ≥ ₹5,000).
   // type POValueBucket = "all" | "lt5000" | "gte5000";
   // const [poValueBucket, setPoValueBucket] = useState<POValueBucket>("all");
 
+  // Critical PO filtering is a column facet now (Critical PO Task Child Table.task_name), so the list
+  // carries only its static scope.
   const dynamicFilters = useMemo(() => {
-    const base: Array<[string, string, any]> = (() => {
-      if (selectedCriticalPO.size === 0) return [...staticFilters];
-
-      const wantsNone = selectedCriticalPO.has(NO_CRITICAL_PO);
-      const selectedLabels = new Set(
-        [...selectedCriticalPO].filter(v => v !== NO_CRITICAL_PO)
-      );
-
-      const matchingPOs = new Set<string>();
-      for (const [poName, tasks] of criticalTasksByPO) {
-        if (selectedLabels.size > 0 && tasks.some(t => selectedLabels.has(criticalPOLabel(t)))) {
-          matchingPOs.add(poName);
-        }
-      }
-
-      if (wantsNone && selectedLabels.size === 0) {
-        const allLinkedPOs = Array.from(criticalTasksByPO.keys());
-        return [...staticFilters, ["name", "not in", allLinkedPOs]];
-      }
-
-      if (!wantsNone && matchingPOs.size > 0) {
-        return [...staticFilters, ["name", "in", Array.from(matchingPOs)]];
-      }
-
-      const nonMatchingLinkedPOs = Array.from(criticalTasksByPO.keys())
-        .filter(po => !matchingPOs.has(po));
-      return [...staticFilters, ["name", "not in", nonMatchingLinkedPOs]];
-    })();
-
-    // ₹5K threshold (DISABLED — uncomment to re-enable): compose value bucket onto critical-PO base filters.
+    const base: Array<[string, string, any]> = [...staticFilters];
+    // ₹5K threshold (DISABLED — uncomment to re-enable): compose value bucket onto the base filters.
     // if (poValueBucket === "lt5000") return [...base, ["total_amount", "<", 5000]];
     // if (poValueBucket === "gte5000") return [...base, ["total_amount", ">=", 5000]];
     return base;
-  }, [selectedCriticalPO, staticFilters, criticalTasksByPO /*, poValueBucket — ₹5K threshold (DISABLED) */]);
-
-  // --- Critical PO facet options ---
-  const criticalPOFacetOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const [, tasks] of criticalTasksByPO) {
-      const seen = new Set<string>();
-      for (const task of tasks) {
-        const label = criticalPOLabel(task);
-        if (!seen.has(label)) { seen.add(label); counts.set(label, (counts.get(label) || 0) + 1); }
-      }
-    }
-    const options = Array.from(counts.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([label, count]) => ({ label: `${label} (${count})`, value: label }));
-    options.unshift({ label: "No Critical PO", value: NO_CRITICAL_PO });
-    return options;
-  }, [criticalTasksByPO]);
+  }, [staticFilters /*, poValueBucket — ₹5K threshold (DISABLED) */]);
 
   // ₹5K threshold (DISABLED — uncomment to re-enable): absolute project counts for the bucket chips (independent of other column filters).
   // const poValueCounts = useMemo(() => {
@@ -451,7 +394,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       {
         accessorKey: "creation",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Creation Date" className="whitespace-nowrap" />
+          <DataTableColumnHeader column={column} title="Creation Date" className="whitespace-nowrap" />
         ),
         cell: ({ row }) => (
           <div className="font-medium whitespace-nowrap">
@@ -464,9 +407,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         },
       },
       {
-        id: "critical_po",
+        // Facets on the PO's own critical-task rows; the value is the task's display name.
+        id: "Critical PO Task Child Table.task_name",
+        accessorFn: (row: ProcurementOrder) => (criticalTasksByPO.get(row.name) || []).map(criticalPOLabel).join(", "),
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Critical PO" className="whitespace-nowrap pl-5" />
+          <DataTableColumnHeader column={column} title="Critical PO" className="whitespace-nowrap" />
         ),
         cell: ({ row }) => {
           const tasks = criticalTasksByPO.get(row.original.name) || [];
@@ -474,7 +419,9 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         },
         size: 180,
         enableSorting: false,
+        enableColumnFilter: true,
         meta: {
+          facet: { field: "task_name", title: "Critical PO" } satisfies FacetDeclaration,
           exportHeaderName: "Critical PO Categories",
           exportValue: (row: ProcurementOrder) => {
             const tasks = criticalTasksByPO.get(row.name) || [];
@@ -906,120 +853,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       </div>
       */}
 
-      {/* Critical PO Filter Bar */}
-      {criticalPOFacetOptions.length > 1 && (
-        <div
-          className={cn(
-            "flex items-center gap-3 px-3 py-2 rounded-lg border transition-all duration-300",
-            selectedCriticalPO.size > 0
-              ? "bg-gradient-to-r from-red-50/80 via-white to-amber-50/60 border-red-200/50 shadow-sm shadow-red-100/30"
-              : "bg-slate-50/80 border-slate-200/60"
-          )}
-        >
-          {/* Filter trigger */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className={cn(
-                  "inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all shrink-0",
-                  "border cursor-pointer select-none",
-                  selectedCriticalPO.size > 0
-                    ? "bg-gradient-to-r from-red-50 to-amber-50 border-red-200/60 text-slate-700 hover:from-red-100 hover:to-amber-100 shadow-sm shadow-red-100/40"
-                    : "bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700"
-                )}
-              >
-                {selectedCriticalPO.size > 0 && (
-                  <span className="relative flex h-2 w-2 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-                  </span>
-                )}
-                {selectedCriticalPO.size === 0 && (
-                  <AlertTriangle className="h-3.5 w-3.5 text-slate-400" />
-                )}
-                Critical PO
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[220px] p-0" align="start">
-              <Command>
-                <CommandInput placeholder="Search tasks..." />
-                <CommandList className="max-h-[200px]">
-                  <CommandEmpty>No tasks found.</CommandEmpty>
-                  <CommandGroup>
-                    {criticalPOFacetOptions.map((option) => {
-                      const isSelected = selectedCriticalPO.has(option.value);
-                      return (
-                        <CommandItem
-                          key={option.value}
-                          onSelect={() => {
-                            const next = new Set(selectedCriticalPO);
-                            if (isSelected) next.delete(option.value);
-                            else next.add(option.value);
-                            setSelectedCriticalPO(next);
-                          }}
-                        >
-                          <div
-                            className={cn(
-                              "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
-                              isSelected
-                                ? "bg-primary text-primary-foreground"
-                                : "opacity-50 [&_svg]:invisible"
-                            )}
-                          >
-                            <CheckIcon className="h-4 w-4" />
-                          </div>
-                          <span className="text-xs">{option.label}</span>
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-
-          {/* Selected chips or placeholder */}
-          {selectedCriticalPO.size > 0 ? (
-            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-              {[...selectedCriticalPO].map((val) => {
-                const displayLabel = val === NO_CRITICAL_PO ? "No Critical PO" : val;
-                return (
-                  <span
-                    key={val}
-                    className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md text-xs font-medium
-                      bg-gradient-to-r from-red-50 to-amber-50 border border-red-200/40
-                      text-slate-600 shadow-sm shadow-red-50/50 animate-in fade-in-0 slide-in-from-left-1 duration-200"
-                  >
-                    <span className="truncate max-w-[120px]">{displayLabel}</span>
-                    <button
-                      onClick={() => {
-                        const next = new Set(selectedCriticalPO);
-                        next.delete(val);
-                        setSelectedCriticalPO(next);
-                      }}
-                      className="ml-0.5 rounded-full p-0.5 hover:bg-red-100 transition-colors cursor-pointer"
-                    >
-                      <X className="h-3 w-3 text-slate-400 hover:text-red-500" />
-                    </button>
-                  </span>
-                );
-              })}
-              <button
-                onClick={() => setSelectedCriticalPO(new Set())}
-                className="text-[10px] font-medium text-slate-400 hover:text-red-500 transition-colors px-1.5 py-0.5 rounded hover:bg-red-50 cursor-pointer"
-              >
-                Clear all
-              </button>
-            </div>
-          ) : (
-            <span className="text-xs text-slate-400 italic">
-              Filter by critical PO tasks...
-            </span>
-          )}
-        </div>
-      )}
-
       {isLoadingOverall && !poDataForPage?.length ? (
         <TableSkeleton />
       ) : (
@@ -1041,6 +874,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
             owner: { additionalFilters: dynamicFilters },
             payment_type: { additionalFilters: dynamicFilters },
             billing_status: { additionalFilters: dynamicFilters },
+            "Critical PO Task Child Table.task_name": { additionalFilters: dynamicFilters },
           }}
           dateFilterColumns={PO_SUMMARY_DATE_COLUMNS}
           showExportButton={true}

@@ -114,6 +114,16 @@ class TestStaging(CashbookImportCase):
         self.assertIn("balances", top_up.skip_reason)
         self.assertIsNone(top_up.suggested_doctype)
 
+    def test_a_skipped_row_is_marked_system_and_a_planned_row_is_not(self):
+        """#1273: the Cashbook writer is a system skip path, like upload staging and the match run."""
+        origin = {
+            r.row_status: frappe.db.get_value("Outflow Import Row", r.name, "skip_origin")
+            for r in self._rows()
+        }
+        self.assertEqual(origin[ROW_SKIPPED], "System")
+        self.assertIn(ROW_PENDING_MATCH, origin)
+        self.assertFalse(origin[ROW_PENDING_MATCH])  # blank: '' on insert
+
     def test_a_row_to_be_created_carries_its_whole_plan(self):
         """⚠️ THE PLAN IS STORED, NOT RECOMPUTED BY THE JOB.
 
@@ -129,6 +139,31 @@ class TestStaging(CashbookImportCase):
     def test_a_non_project_row_carries_no_project(self):
         for row in self._rows(suggested_doctype="Non Project Expenses"):
             self.assertIsNone(row.resolved_project)
+
+    def test_every_row_is_staged_with_the_wallet_txn_id_as_its_settlement_reference(self):
+        """⚠️ THE WALLET'S OWN INGEST PATH, WHICH IS NOT `upload._stage_batch` (ADR-0020 B9).
+
+        This source populates NEITHER reference field and never will -- its export maps neither
+        column, deliberately -- so the third rung of the ladder is the only one it can land on and
+        `transfer_id` IS its settlement reference. Every write site reads that one field now,
+        which is what finally reaches the PAYMENT path: the wallet's remedy used to be
+        `cashbook.py` passing `payment_ref` into the EXPENSE path by hand, so a wallet row settling
+        a payment wrote a blank.
+
+        Pinned here rather than assumed from the gateway path's test, because these are two
+        separate row-insert sites and the whole point of the slice is that they cannot diverge.
+        """
+        # `_rows` projects the planning columns; these three are what this test is about.
+        rows = frappe.get_all(
+            "Outflow Import Row",
+            filters={"import_batch": self.batch},
+            fields=["transfer_id", "bank_reference_no", "reference_id", "settlement_reference"],
+        )
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertFalse((row.bank_reference_no or "").strip(), row.transfer_id)
+            self.assertFalse((row.reference_id or "").strip(), row.transfer_id)
+            self.assertEqual(row.settlement_reference, row.transfer_id)
 
 
 class TestTheWorker(CashbookImportCase):
@@ -146,10 +181,12 @@ class TestTheWorker(CashbookImportCase):
         target = frappe.db.get_value(
             "Outflow Row Match",
             {"import_batch": self.batch, "import_row": row.name},
-            ["target_doctype", "target_name", "match_basis"],
+            ["target_doctype", "target_name", "match_basis", "created_by_import"],
             as_dict=True,
         )
         self.assertEqual(target.match_basis, "cashbook remark")
+        # #1278: the Cashbook writer only creates, so its leg says so.
+        self.assertEqual(target.created_by_import, 1)
         expense = frappe.db.get_value(
             target.target_doctype, target.target_name,
             ["status", "payment_ref", "payment_attachment"], as_dict=True,

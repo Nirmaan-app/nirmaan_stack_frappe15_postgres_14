@@ -47,7 +47,7 @@
   },
   {
    "fieldname": "utr",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "UTR"
   },
   {
@@ -57,7 +57,7 @@
   },
   {
    "fieldname": "amount",
-   "fieldtype": "Data",
+   "fieldtype": "Currency",
    "label": "Amount"
   },
   {

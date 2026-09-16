@@ -17,6 +17,7 @@ import { Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { PaymentScreenshotDialog } from "./PaymentScreenshotDialog";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 interface VendorPaymentsTableProps {
   vendorId: string;
@@ -75,10 +76,10 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
                   rel="noreferrer"
                   className="text-blue-600 hover:underline"
                 >
-                  {payment.utr || "View Attachment"}
+                  <TruncatedText text={payment.utr} fallback="View Attachment" />
                 </a>
               ) : (
-                payment.utr || "N/A"
+                <TruncatedText text={payment.utr} fallback="N/A" />
               )}
               {/* Allow attaching only if UTR exists but no attachment yet */}
               {payment.utr && !payment.payment_attachment && (

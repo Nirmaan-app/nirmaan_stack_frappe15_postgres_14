@@ -16,6 +16,7 @@
   "payment_attachment",
   "amount",
   "tds",
+  "payment_tds",
   "payment_date",
   "approval_date",
   "ceo_approval_date",
@@ -61,7 +62,7 @@
   },
   {
    "fieldname": "utr",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "UTR"
   },
   {
@@ -118,12 +119,20 @@
    "label": "Split From",
    "options": "Project Payments",
    "read_only": 1
+  },
+  {
+   "description": "The tax deduction withheld from this payment. A MIRROR, not the authority: Payment TDS Deduction.project_payment is the real link and is UNIQUE, which is what makes the deduction flow idempotent. Written by services/payment_tds.write_deduction when the deduction is recorded, repaired on the next save if found blank, and READ-ONLY here so a hand edit cannot make the two sides disagree.",
+   "fieldname": "payment_tds",
+   "fieldtype": "Link",
+   "label": "Payment TDS",
+   "options": "Payment TDS Deduction",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-12 09:19:40.755101",
+ "modified": "2026-09-15 10:36:54.124015",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",

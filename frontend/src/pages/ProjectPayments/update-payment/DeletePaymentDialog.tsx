@@ -14,6 +14,7 @@ import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { toast } from '@/components/ui/use-toast';
 import { DeletePayload, useUpdatePaymentRequest } from '../hooks/useUpdatePaymentRequests';
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 interface DeletePaymentDialogProps {
     isOpen: boolean;
@@ -84,7 +85,7 @@ export const DeletePaymentDialog: React.FC<DeletePaymentDialogProps> = ({
                     <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
                     <AlertDialogDescription>
                         Are you sure you want to delete Payment ID: <strong>{paymentToDelete.name}</strong>
-                        {paymentToDelete.utr && ` (UTR: ${paymentToDelete.utr})`}
+                        {paymentToDelete.utr && <> (UTR: <TruncatedText text={paymentToDelete.utr} className="max-w-[16rem]" />)</>}
                         {" "}for an amount of <strong>{formatToIndianRupee(paymentToDelete.amount)}</strong>?
                         <br />
                         This action cannot be undone.

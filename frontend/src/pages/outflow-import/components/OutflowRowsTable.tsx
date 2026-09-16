@@ -1,8 +1,8 @@
 // src/pages/outflow-import/components/OutflowRowsTable.tsx
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Filter, List, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,16 +15,18 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { DateFilterPopover } from "@/components/data-table/date-filter-popover";
 
-import { rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
+import { TERMINAL_ROW_STATUSES, rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
 import {
     OUTFLOW_COLUMNS,
     SERVER_SORT_COLUMNS,
     highlightSegments,
-    isCreditRow,
+    amountToneClass,
     isDateFilterValue,
+    outcomeNoteOf,
     referenceValue,
     rowSettlementLinks,
     shortReference,
+    skippedByHandLine,
     wrapRemarks,
     type ColumnFilters,
     type DecisionOrigin,
@@ -33,6 +35,12 @@ import {
     type SettlementLink,
     type SortState,
 } from "../outflowTableModel";
+import {
+    CONFIRM_BY_HAND_CHIP,
+    UNRECONCILE_CASHBOOK_SENTENCE,
+    confirmByHandNote,
+    unreconcileAffordance,
+} from "../unreconcileView";
 
 interface Props {
     rows: OutflowImportRow[];
@@ -72,6 +80,26 @@ interface Props {
     onToggleRow: (name: string) => void;
     onToggleAll: (names: string[]) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
+    /**
+     * One extra column after the others, for a surface with its own per-row action -- the Skipped
+     * popup's Unskip (#1274). Absent everywhere else, so the page's table is unchanged.
+     *
+     * ⚠️ PASS A STABLE OBJECT (`useMemo`). Every memoized row receives it, so a new object per render
+     * re-renders every row.
+     */
+    actionColumn?: TableActionColumn;
+    /**
+     * Open the Unreconcile dialog for a Settled line (#1275). PRESENCE IS THE GATE: the page passes it
+     * only for the undo roles, so a plain Accountant sees neither the button nor the Cashbook sentence.
+     *
+     * ⚠️ PASS A STABLE CALLBACK (`useCallback`). Every memoized row receives it.
+     */
+    onUnreconcile?: (row: OutflowImportRow) => void;
+}
+
+export interface TableActionColumn {
+    title: string;
+    render: (row: OutflowImportRow) => ReactNode;
 }
 
 /**
@@ -101,6 +129,8 @@ export const OutflowRowsTable = ({
     onToggleRow,
     onToggleAll,
     onOpenDecision,
+    actionColumn,
+    onUnreconcile,
 }: Props) => {
     const columns = useMemo(
         () => OUTFLOW_COLUMNS.filter((c) => !hiddenColumns.has(c.id)),
@@ -151,6 +181,11 @@ export const OutflowRowsTable = ({
                                 onFilter={onFilter}
                             />
                         ))}
+                        {actionColumn && (
+                            <th className="px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                                {actionColumn.title}
+                            </th>
+                        )}
                     </tr>
                 </thead>
                 <tbody>
@@ -169,6 +204,8 @@ export const OutflowRowsTable = ({
                             origin={originByRow.get(row.name) ?? "none"}
                             onToggleRow={onToggleRow}
                             onOpenDecision={onOpenDecision}
+                            actionColumn={actionColumn}
+                            onUnreconcile={onUnreconcile}
                         />
                     ))}
                 </tbody>
@@ -446,6 +483,8 @@ interface RowProps {
     origin: DecisionOrigin;
     onToggleRow: (name: string) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
+    actionColumn?: TableActionColumn;
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }
 
 const Row = memo(function Row({
@@ -459,6 +498,8 @@ const Row = memo(function Row({
     origin,
     onToggleRow,
     onOpenDecision,
+    actionColumn,
+    onUnreconcile,
 }: RowProps) {
     return (
         <tr className={`border-t ${selected ? "bg-primary/5" : "hover:bg-muted/40"}`}>
@@ -490,9 +531,11 @@ const Row = memo(function Row({
                         decided={decided}
                         origin={origin}
                         onOpenDecision={onOpenDecision}
+                        onUnreconcile={onUnreconcile}
                     />
                 </td>
             ))}
+            {actionColumn && <td className="px-2 py-1.5 align-top">{actionColumn.render(row)}</td>}
         </tr>
     );
 });
@@ -504,6 +547,7 @@ const Cell = ({
     decided,
     origin,
     onOpenDecision,
+    onUnreconcile,
 }: {
     row: OutflowImportRow;
     column: OutflowColumn;
@@ -511,6 +555,7 @@ const Cell = ({
     decided: boolean;
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }) => {
     switch (column.id) {
         case "added_on":
@@ -531,14 +576,10 @@ const Cell = ({
             );
 
         case "amount":
-            // The figure alone. ⚠️ The `Received` / `Paid` marker that briefly led this cell (slice
-            // D8) now has its own `direction` column beside it (owner reversal, 2026-09-09). The
-            // reason it had to LEAD was to protect this right-aligned `tabular-nums` column from a
-            // variable-width prefix; with the marker gone, so is that constraint.
-            return <>{formatToRoundedIndianRupee(row.amount)}</>;
-
-        case "direction":
-            return <DirectionCell row={row} />;
+            // ⚠️ COLOURED BY DIRECTION -- red out, green in (owner, 2026-09-14) -- and that colour
+            // is now the only per-row direction marker: the `Direction` column it replaced was
+            // removed in the same change. The figure itself is unchanged.
+            return <span className={amountToneClass(row)}>{formatToRoundedIndianRupee(row.amount)}</span>;
 
         case "remarks": {
             // ⚠️ WRAPPED, NOT CLIPPED (see `wrapRemarks`). `truncate` cut the narration to one line
@@ -604,6 +645,7 @@ const Cell = ({
                     decided={decided}
                     origin={origin}
                     onOpenDecision={onOpenDecision}
+                    onUnreconcile={onUnreconcile}
                 />
             );
 
@@ -632,49 +674,6 @@ const Cell = ({
 const REMARKS_CELL_WIDTH = "w-[214px]";
 
 /**
- * Which way the money went.
- *
- * ⚠️ THE FIGURE CANNOT SAY IT ON ITS OWN, WHICH IS WHY THIS COLUMN EXISTS. `Outflow Import Row.amount`
- * is a POSITIVE MAGNITUDE on every source by design -- a signed amount would pass every guard and
- * settle the wrong way round in silence -- so a deposit and a payment print identically. The heading
- * beside this one used to read "Amount Paid", which called an arriving deposit "paid"; it is now the
- * neutral "Amount", and this column carries the direction that heading gave up.
- *
- * ⚠️ IT IS ITS OWN COLUMN AS OF 2026-09-09 (owner reversal). Slice D8 put this marker INSIDE the
- * amount cell, ahead of the figure, because a variable-width marker AFTER a number breaks a
- * right-aligned `tabular-nums` column. Out here that constraint does not apply at all: this is a
- * normal left-aligned text cell, so the badge simply sits in it.
- *
- * ⚠️ SKY FOR RECEIVED, MUTED FOR PAID -- the screen's existing language, not a new token. Sky is the
- * summary panel's received-block tone (`ImportSummaryPanel`'s `Figure`), chosen there precisely
- * because emerald already means "settled, money out". Emerald is spoken for HERE too: it is the
- * decided Outcome button's fill. A quiet marker on the ~99% of rows that are debits also keeps this
- * out of the row's other annotation channels -- the selected row's `bg-primary/5`, the status badge
- * and the emerald Outcome button all stay legible over it.
- *
- * ⚠️ BLANK IS RENDERED AS "Paid", AND THAT IS NOT A CLAIM THAT BLANK MEANS DEBIT. A gateway export
- * (Cashfree, Cashbook) has one amount column and states no direction at all. Such a row lands on the
- * paid side as a CONSEQUENCE -- the receipt write paths refuse anything that is not `Credit`, so it
- * is structurally incapable of ever having become a receipt.
- *
- * ⚠️ `isCreditRow`, NEVER AN INLINE `row.direction === "Credit"`. It is the single positive test both
- * sides of the wire share (it mirrors the server's `is_received_direction`), and it TRIMS, which the
- * four hand-written copies slice D5 replaced did not.
- */
-const DirectionCell = ({ row }: { row: OutflowImportRow }) => {
-    const received = isCreditRow(row);
-    return (
-        <span
-            className={`inline-block rounded px-1 text-[10px] font-medium leading-4 ${
-                received ? "bg-sky-50 text-sky-700" : "text-muted-foreground"
-            }`}
-        >
-            {received ? "Received" : "Paid"}
-        </span>
-    );
-};
-
-/**
  * ⚠️ A REAL BUTTON -- border, hover lift, chevron.
  *
  * The owner's complaint was that a clickable row does not read as clickable, and a hover tint does
@@ -692,25 +691,58 @@ const OutcomeButton = ({
     decided,
     origin,
     onOpenDecision,
+    onUnreconcile,
 }: {
     row: OutflowImportRow;
     decided: boolean;
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
+    onUnreconcile?: (row: OutflowImportRow) => void;
 }) => {
-    const terminal = row.row_status === "Settled" || row.row_status === "Skipped";
-    const note = row.outcome_note || row.skip_reason || "";
+    // ⚠️ READ THE SET, never re-spell it. This was two string literals, the one place in the
+    // client that duplicated the terminal vocabulary -- so a change to the module could not reach
+    // it. A `Partially Allocated` row must keep its Outcome button: it is frozen against
+    // re-matching, but a person still owes it a decision.
+    const terminal = TERMINAL_ROW_STATUSES.has(row.row_status);
+    // The one reading of "which note does this line show" -- a hand skip shows its typed reason (#1273).
+    const note = outcomeNoteOf(row);
     const links = rowSettlementLinks(row);
 
     if (terminal) {
+        // #1273: a hand skip says who and when, under the reason they typed.
+        const byHand = skippedByHandLine(row);
+        // #1275: a Settled line gets Unreconcile below its record links; a Cashbook one says why not.
+        const undo = unreconcileAffordance(row, Boolean(onUnreconcile));
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
                 <span className="block truncate text-xs text-muted-foreground" title={note}>
                     {note || "—"}
                 </span>
+                {byHand && (
+                    <span className="block truncate text-[11px] text-muted-foreground/80" title={byHand}>
+                        {byHand}
+                    </span>
+                )}
                 {links.map((link) => (
                     <RecordLink key={`${link.href}-${link.label}`} link={link} />
                 ))}
+                {undo === "button" && onUnreconcile && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-xs"
+                        onClick={() => onUnreconcile(row)}
+                    >
+                        <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+                        Unreconcile
+                    </Button>
+                )}
+                {undo === "cashbook" && (
+                    <span className="block text-[11px] text-muted-foreground">
+                        {UNRECONCILE_CASHBOOK_SENTENCE}
+                    </span>
+                )}
             </div>
         );
     }
@@ -732,20 +764,40 @@ const OutcomeButton = ({
     // software; naming PAY-00105-038 lets them tick the box without opening anything, which is the
     // entire point of pre-selecting. It moved lines; it did not go.
     const label = decided ? "Review" : origin === "suggested" ? "Confirm" : "Choose";
+    // #1280: an unreconciled line says when, and whether the pick is the old one, under an amber chip.
+    const byHand = confirmByHandNote(row);
 
     return (
         <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
-            <p className="truncate text-xs text-muted-foreground" title={note || undefined}>
-                {origin === "suggested" ? (
-                    <>
-                        Matched <span className="font-mono">{row.suggested_name}</span>
-                    </>
-                ) : decided ? (
-                    "Decided"
-                ) : (
-                    note || "Nothing matched yet"
-                )}
-            </p>
+            {byHand && (
+                <>
+                    <p className="line-clamp-2 text-xs text-muted-foreground" title={byHand.text}>
+                        {byHand.lead}
+                        {byHand.pick && (
+                            <>
+                                {" "}
+                                {byHand.pickLabel} <span className="font-mono">{byHand.pick}</span>
+                            </>
+                        )}
+                    </p>
+                    <span className="inline-block rounded border border-amber-300 bg-amber-50 px-1.5 py-px text-[11px] font-medium text-amber-900">
+                        {CONFIRM_BY_HAND_CHIP}
+                    </span>
+                </>
+            )}
+            {!byHand && (
+                <p className="truncate text-xs text-muted-foreground" title={note || undefined}>
+                    {origin === "suggested" ? (
+                        <>
+                            Matched <span className="font-mono">{row.suggested_name}</span>
+                        </>
+                    ) : decided ? (
+                        "Decided"
+                    ) : (
+                        note || "Nothing matched yet"
+                    )}
+                </p>
+            )}
 
             <div className="flex items-center gap-1.5">
                 {/* A filled, bordered control with a verb and a chevron. The previous version was

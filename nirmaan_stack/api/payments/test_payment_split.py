@@ -32,7 +32,7 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.payments.project_payments import ceo_approve_payment
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.services.payment_split import split_and_approve, split_payment
+from nirmaan_stack.services.payment_split import split_and_approve, split_payment, unsplit_payment
 
 PAYMENT = "Project Payments"
 PO = "Procurement Orders"
@@ -600,6 +600,42 @@ class TestTheDefaultsAreTheCeoBehaviour(PaymentSplitFixture):
             flt(original.amount) + flt(balance.amount), self.PO_TOTAL, places=2
         )
 
+    def test_a_named_kept_status_lands_on_the_kept_half_and_its_term(self):
+        """#1284: the kept half's status is a parameter, and it drives the kept PO TERM as well.
+
+        One parameter for payment and term, for the same reason `remainder_status` drives both: the
+        controller mirrors a payment's status onto its term 1:1, and `split_approval` stops it doing
+        so here, so this function is the only thing that can keep the two in step.
+
+        ⚠️ THE THREE STATUSES ARE DELIBERATELY DIFFERENT. With all three equal, a split that wrote
+        `expect_status` or `remainder_status` onto the kept half would pass this test too.
+        """
+        # RAW `set_value`, NO HOOKS, deliberately: this plants the arrangement, and a save would fire
+        # the controller under test (see `UnsplitFixture._settle_shape`).
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Approved", update_modified=False)
+        frappe.db.set_value(TERM, self.term, "term_status", "Approved", update_modified=False)
+        frappe.db.commit()
+
+        split_payment(
+            self.payment, 60000,
+            expect_status="Approved",
+            keep_status="Reconciliation Pending",
+            remainder_status="CEO Pending",
+            stamp_ceo_approval=False,
+        )
+        frappe.db.commit()
+
+        kept = self._pay(self.payment)
+        rem = self._pay(self._remainder_of(self.payment)[0])
+        self.assertEqual(kept.status, "Reconciliation Pending", "the kept half takes keep_status")
+        self.assertEqual(flt(kept.amount), 60000.0)
+        self.assertEqual(rem.status, "CEO Pending")
+
+        original, balance = self._terms()
+        self.assertEqual(original.project_payment, self.payment)
+        self.assertEqual(original.term_status, "Reconciliation Pending")
+        self.assertEqual(balance.term_status, "CEO Pending")
+
     def test_the_wrong_status_is_refused_against_whichever_status_was_expected(self):
         """A CEO Pending payment is not partially SETTLEABLE, and an Approved one is not partially
         APPROVABLE. One function, two expectations, and neither may leak into the other."""
@@ -707,3 +743,170 @@ class TestEndpoint(PaymentSplitFixture):
         self.assertEqual(flt(data["remainder_amount"]), 40000.0)
         self.assertEqual(data["remainder_payment"], self._remainder_of(self.payment)[0])
         self.assertTrue(data["term_synced"])
+
+
+class UnsplitFixture(PaymentSplitFixture):
+    """#1279: `unsplit_payment` is the inverse of `split_payment`. A deleted leftover leaves a
+    `Nirmaan Versions` copy and a `Deleted Document` row; both are purged with it."""
+
+    def tearDown(self):
+        names = list(self.payments)
+        if names:
+            frappe.db.delete("Nirmaan Versions", {"ref_doctype": PAYMENT, "docname": ["in", names]})
+            frappe.db.delete("Deleted Document", {"deleted_doctype": PAYMENT,
+                                                  "deleted_name": ["in", names]})
+        super().tearDown()
+
+    def _settle_shape(self):
+        """The outflow import's split: `Approved` in, both halves `Approved`, term `Approved`.
+
+        RAW `set_value`, NO HOOKS, deliberately -- the fixture rule this suite states: planting through
+        the payment's save would fire the very hooks under test, and would notify on the live site."""
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Approved", update_modified=False)
+        frappe.db.set_value(TERM, self.term, "term_status", "Approved", update_modified=False)
+        frappe.db.commit()
+
+    def _split_as_a_settlement(self, keep):
+        result = split_payment(
+            self.payment, keep,
+            expect_status="Approved", remainder_status="Approved", stamp_ceo_approval=False,
+        )
+        frappe.db.commit()
+        self._remainder_of(self.payment)
+        return result["remainder_payment"]
+
+
+class TestUnsplit(UnsplitFixture):
+
+    def test_split_then_unsplit_restores_the_payment_and_the_po_terms_exactly(self):
+        self._settle_shape()
+        terms_before = self._terms()
+        pay_before = self._pay(self.payment)
+
+        leftover = self._split_as_a_settlement(60000)
+        self.assertEqual(len(self._terms()), 2)
+
+        result = unsplit_payment(self.payment, leftover)
+        frappe.db.commit()
+
+        self.assertEqual(self._pay(self.payment), pay_before)
+        self.assertFalse(frappe.db.exists(PAYMENT, leftover), "the leftover is deleted")
+        self.assertEqual(self._terms(), terms_before)
+        self.assertEqual(result["original_payment"], self.payment)
+        self.assertEqual(result["leftover_payment"], leftover)
+        self.assertEqual(flt(result["restored_amount"]), self.PAY_AMOUNT)
+        self.assertEqual(flt(result["leftover_amount"]), 40000.0)
+        self.assertEqual(result["po_name"], self.po)
+        self.assertTrue(result["terms_merged"])
+
+    def test_an_awkward_split_joins_back_to_the_exact_figures(self):
+        self._settle_shape()
+        terms_before = self._terms()
+        leftover = self._split_as_a_settlement(33333.33)
+
+        unsplit_payment(self.payment, leftover)
+        frappe.db.commit()
+
+        self.assertEqual(flt(self._pay(self.payment).amount), self.PAY_AMOUNT)
+        (term,) = self._terms()
+        self.assertEqual(flt(term.amount), flt(terms_before[0].amount))
+        self.assertEqual(flt(term.percentage), flt(terms_before[0].percentage))
+
+    def test_a_ceo_split_unsplits_when_its_balance_status_is_named(self):
+        """Not a caller today -- proof the inverse is not settlement-specific, as the split is not."""
+        terms_before = self._terms()
+        split_and_approve(self.payment, 60000)
+        frappe.db.commit()
+        leftover = self._remainder_of(self.payment)[0]
+
+        unsplit_payment(self.payment, leftover, expect_leftover_status="CEO Pending")
+        frappe.db.commit()
+
+        self.assertEqual(flt(self._pay(self.payment).amount), self.PAY_AMOUNT)
+        self.assertEqual(len(self._terms()), 1)
+        self.assertEqual(flt(self._terms()[0].amount), flt(terms_before[0].amount))
+
+    def test_a_service_request_payment_unsplits_with_no_terms(self):
+        sr = self._insert_service_request(total=80000)
+        sr_pay = self._insert_payment(
+            80000, status="Approved", document_type="Service Requests", document_name=sr,
+        )
+        frappe.db.commit()
+        split_payment(sr_pay, 30000, expect_status="Approved", remainder_status="Approved",
+                      stamp_ceo_approval=False)
+        frappe.db.commit()
+        leftover = self._remainder_of(sr_pay)[0]
+
+        result = unsplit_payment(sr_pay, leftover)
+        frappe.db.commit()
+
+        self.assertEqual(flt(self._pay(sr_pay).amount), 80000.0)
+        self.assertFalse(frappe.db.exists(PAYMENT, leftover))
+        self.assertIsNone(result["po_name"])
+        self.assertIsNone(result["terms_merged"])
+        self.assertEqual(len(self._terms()), 1, "the fixture's PO is a bystander")
+
+
+class TestUnsplitGuards(UnsplitFixture):
+
+    def _assert_nothing_moved(self, leftover):
+        self.assertEqual(flt(self._pay(self.payment).amount), 60000.0)
+        self.assertTrue(frappe.db.exists(PAYMENT, leftover))
+        self.assertEqual(len(self._terms()), 2)
+
+    def test_a_payment_that_is_not_the_leftover_of_this_one_is_refused(self):
+        self._settle_shape()
+        leftover = self._split_as_a_settlement(60000)
+        stranger = self._insert_payment(40000, status="Approved")
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            unsplit_payment(self.payment, stranger)
+        frappe.db.commit()
+        self._assert_nothing_moved(leftover)
+        self.assertTrue(frappe.db.exists(PAYMENT, stranger))
+
+    def test_a_leftover_at_another_status_is_refused(self):
+        self._settle_shape()
+        leftover = self._split_as_a_settlement(60000)
+        frappe.db.set_value(PAYMENT, leftover, "status", "Paid", update_modified=False)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            unsplit_payment(self.payment, leftover)
+        frappe.db.commit()
+        self._assert_nothing_moved(leftover)
+
+    def test_a_leftover_split_again_is_refused(self):
+        """Deleting it would leave its own balance pointing at a payment that is gone."""
+        self._settle_shape()
+        leftover = self._split_as_a_settlement(60000)
+        split_payment(leftover, 10000, expect_status="Approved", remainder_status="Approved",
+                      stamp_ceo_approval=False)
+        frappe.db.commit()
+        self._remainder_of(leftover)
+        with self.assertRaises(frappe.ValidationError):
+            unsplit_payment(self.payment, leftover)
+        frappe.db.commit()
+        self.assertTrue(frappe.db.exists(PAYMENT, leftover))
+        self.assertEqual(flt(self._pay(self.payment).amount), 60000.0)
+
+    def test_a_balance_term_with_no_term_for_the_original_is_refused(self):
+        self._settle_shape()
+        leftover = self._split_as_a_settlement(60000)
+        frappe.db.set_value(TERM, self.term, "project_payment", None, update_modified=False)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            unsplit_payment(self.payment, leftover)
+        frappe.db.commit()
+        self._assert_nothing_moved(leftover)
+
+    def test_a_failure_deleting_the_leftover_leaves_the_split_standing(self):
+        self._settle_shape()
+        leftover = self._split_as_a_settlement(60000)
+        with patch(
+            "nirmaan_stack.services.payment_split._delete_leftover",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                unsplit_payment(self.payment, leftover)
+        frappe.db.commit()
+        self._assert_nothing_moved(leftover)

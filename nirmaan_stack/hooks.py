@@ -112,6 +112,17 @@ app_license = "mit"
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
 
+# Non Project Inflows (#1265): the access table is per PROFILE and role rows cannot express it --
+# System Manager, the only deleting role, also rides on PMO / Project Lead / Estimates / HR / Design
+# Lead. These two narrow it (a has_permission hook can only deny, never grant).
+has_permission = {
+    "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.has_permission",
+}
+
+permission_query_conditions = {
+    "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.get_permission_query_conditions",
+}
+
 # DocType Class
 # ---------------
 # Override standard doctype classes
@@ -170,6 +181,11 @@ doc_events = {
         # don't list it as a separate doc_event here.
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
     },
+    "Non Project Inflows": {
+        # Claim the loose receipt File the add dialog uploaded before the record existed. Frappe's
+        # own `attach_files_to_document` skips the GCP attachment app's `/api/method/...` URLs.
+        "on_update": "nirmaan_stack.integrations.controllers.non_project_inflows.adopt_receipt_file"
+    },
     "Project Progress Reports": {
         # Adopt capture-time DPR photo Files (uploaded before the report existed,
         # so orphaned) into this report — sets File.attached_to_doctype/name.
@@ -196,10 +212,21 @@ doc_events = {
     "Project TDS Item List": {
         "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"
     },
+    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
+    # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
+    # to stop being counted as spent. Covers a DOC-LAYER delete only; the payment cascade deletes
+    # with raw SQL and recomputes explicitly in `project_payments.on_trash`.
+    "Payment TDS Deduction": {
+        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash"
+    },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.on_update",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.on_trash"
+    },
+    "Critical PO Tasks": {
+        "on_update": "nirmaan_stack.integrations.controllers.critical_po_tasks.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.critical_po_tasks.on_trash"
     },
     "Procurement Requests": {
         # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
@@ -219,7 +246,9 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_procurement_order",
             "nirmaan_stack.services.action_items.doc_hooks.on_po_update",
+            "nirmaan_stack.integrations.controllers.critical_po_tasks.refresh_counts_on_po_update",
         ],
+        "after_delete": "nirmaan_stack.integrations.controllers.critical_po_tasks.refresh_counts_on_po_delete",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",

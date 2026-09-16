@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""Recording a bank CREDIT -- as a `Project Inflow` (B6), or as a non-project receipt (B7).
+"""Recording a bank CREDIT -- as a `Project Inflow` (B6), or as a `Non Project Inflow` (#1266).
 
     bench --site localhost run-tests --app nirmaan_stack \
         --module nirmaan_stack.api.outflow_import.test_inflows
@@ -12,15 +12,15 @@ somebody's project, moving its cashflow gap, and possibly releasing a CEO Hold. 
 is tracked and purged in `tearDownClass`: the inflows, their `Version` rows (the doctype carries
 `track_changes`), then the match records, the import rows and the batch.
 
-⚠️ SLICE B7 MAKES IT CREATE REAL `Non Project Expenses` TOO, WITH **NEGATIVE** AMOUNTS. Those are
-purged the same way and by the same list discipline. A negative expense left behind on the live site
-is worse than a stray positive one: it reads as income to anyone summing that table, and nothing
-about the row says a test made it.
+⚠️ #1266 MAKES IT CREATE REAL `Non Project Inflows` TOO. Those are purged the same way and by the
+same list discipline: a stray one reads as company money received to anyone reading that list.
 
 What is pinned hardest is the set of REFUSALS. A wrongly created inflow is invisible -- there is no
 status to look wrong and no approval queue it fails to leave -- so the guards carry more weight than
-the happy path. The B7 path adds a second reason: it is the ONE signed write in this feature, and a
-sign applied to the wrong row is a figure that looks entirely ordinary.
+the happy path.
+
+The non-project receipt path (B7: a NEGATIVE `Non Project Expense`) was REMOVED at #1266 with its
+tests (ADR-0016 Amendment A-D2); `TestTheReceiptPathIsGone` pins that it stays gone.
 """
 
 import unittest
@@ -29,28 +29,40 @@ from decimal import Decimal
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.expenses import get_expense_types
+from nirmaan_stack.api.outflow_import import inflows as inflows_module
+from nirmaan_stack.api.outflow_import.expenses import (
+    MoneyAlreadyRecordedError,
+    RecordedMoneyNeedsConfirmationError,
+)
 from nirmaan_stack.api.outflow_import.inflows import (
-    _already_booked,
     _already_created_by_import,
     create_inflow,
-    create_non_project_receipt,
+    create_non_project_inflow,
     get_inflow_context,
 )
-from nirmaan_stack.api.outflow_import.review import BATCH_DOCTYPE, MATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.api.outflow_import.review import (
+    BATCH_DOCTYPE,
+    MATCH_DOCTYPE,
+    ROW_DOCTYPE,
+    get_outflow_rows,
+)
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_narration
 from nirmaan_stack.api.outflow_import.upload import _stage_batch
 from nirmaan_stack.services.outflow_import import parser as parser_module
+from nirmaan_stack.services.outflow_import import settle as settle_module
+from nirmaan_stack.services.outflow_import.contains_guard import match_surface
+from nirmaan_stack.services.outflow_import.ledgers import LEDGER_NOUNS, RECEIVED_LEDGER_DOCTYPES
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.settle import (
     DIRECTION_CREDIT,
     INFLOW_DOCTYPE,
     NON_PROJECT_EXPENSE,
+    NON_PROJECT_INFLOW,
     PROJECT_EXPENSE,
     AmountMismatchError,
-    ExpenseTypeScopeError,
     InflowNotRecordableError,
     apply_statement_attachment,
-    create_non_project_receipt_from_row,
+    create_non_project_inflow_from_row,
     format_amount_for,
     statement_attachment_field,
 )
@@ -79,7 +91,7 @@ class InflowFixture(unittest.TestCase):
 
     batches: list = []
     inflows: list = []
-    receipts: list = []
+    non_project_inflows: list = []
 
     @classmethod
     def setUpClass(cls):
@@ -88,9 +100,8 @@ class InflowFixture(unittest.TestCase):
         # would delete rows a later class still needs. Same reason `test_expenses` does this.
         cls.batches = []
         cls.inflows = []
-        # B7: the NEGATIVE `Non Project Expenses` this suite creates. Same discipline, and it
-        # matters more -- a stray negative row reads as income to anyone summing that table.
-        cls.receipts = []
+        # #1266: the `Non Project Inflows` this suite creates. Same discipline.
+        cls.non_project_inflows = []
 
         cls.parsed = _fresh_parse()
         cls.batch = _stage_batch(
@@ -106,15 +117,6 @@ class InflowFixture(unittest.TestCase):
             "Projects", {"tendering_status": "Won", "customer": ["is", "set"]}, "name"
         )
         cls.customer = frappe.db.get_value("Projects", cls.project, "customer")
-        # ⚠️ EXCLUSIVE on purpose, exactly as `test_expenses` picks its two. Several live Expense
-        # Types carry BOTH flags, and one of those would pass the non-project scope check while
-        # proving nothing about scoping.
-        cls.non_project_type = frappe.db.get_value(
-            "Expense Type", {"non_project": 1, "project": 0}, "name"
-        )
-        cls.project_type = frappe.db.get_value(
-            "Expense Type", {"project": 1, "non_project": 0}, "name"
-        )
         frappe.db.commit()
 
     @classmethod
@@ -125,12 +127,21 @@ class InflowFixture(unittest.TestCase):
             )
             for name in cls.inflows:
                 frappe.db.delete(INFLOW_DOCTYPE, {"name": name})
-        if cls.receipts:
+        if cls.non_project_inflows:
             frappe.db.delete(
-                "Version", {"ref_doctype": NON_PROJECT_EXPENSE, "docname": ["in", cls.receipts]}
+                "Version",
+                {"ref_doctype": NON_PROJECT_INFLOW, "docname": ["in", cls.non_project_inflows]},
             )
-            for name in cls.receipts:
-                frappe.db.delete(NON_PROJECT_EXPENSE, {"name": name})
+            # The statement's second `File` row, attached to the record after the commit.
+            frappe.db.delete(
+                "File",
+                {
+                    "attached_to_doctype": NON_PROJECT_INFLOW,
+                    "attached_to_name": ["in", cls.non_project_inflows],
+                },
+            )
+            for name in cls.non_project_inflows:
+                frappe.db.delete(NON_PROJECT_INFLOW, {"name": name})
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
@@ -158,9 +169,9 @@ class InflowFixture(unittest.TestCase):
                 "amount",
                 "row_status",
                 "bank_reference_no",
+                # #1259: the cheque column, which the stored match surface can carry.
+                "reference_id",
                 "added_on",
-                # B7 reads these two: the payer has nowhere else to go on a ledger with no vendor
-                # column, so `_default_description` folds them in.
                 "beneficiary_name",
                 "remarks",
             ],
@@ -178,7 +189,7 @@ class InflowFixture(unittest.TestCase):
                 "direction": "Debit",
                 "row_status": ["not in", ["Settled", "Skipped"]],
             },
-            fields=["name", "amount"],
+            fields=["name", "amount", "row_status"],
             order_by="creation asc",
             limit=1,
         )
@@ -191,14 +202,39 @@ class InflowFixture(unittest.TestCase):
         self.inflows.append(summary["settled"]["name"])
         return row, summary
 
-    def _receive(self, row=None, expense_type=None, **kwargs):
-        """Record a credit row as a non-project receipt (B7), tracking it for the purge."""
+    def _receive(self, row=None, inflow_type="FD Closures", **kwargs):
+        """Record a credit row as a `Non Project Inflow` (#1266), tracking it for the purge."""
         row = row or self._next_credit_row()
-        summary = create_non_project_receipt(
-            row=row["name"], expense_type=expense_type or self.non_project_type, **kwargs
-        )
-        self.receipts.append(summary["settled"]["name"])
+        summary = create_non_project_inflow(row=row["name"], inflow_type=inflow_type, **kwargs)
+        self.non_project_inflows.append(summary["settled"]["name"])
         return row, summary
+
+    def _assert_nothing_written(self, row, count_before):
+        """A refusal leaves no record, no match leg, and the row where it was."""
+        self.assertEqual(frappe.db.count(NON_PROJECT_INFLOW), count_before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), row["row_status"]
+        )
+
+    def _refusal(self, row, error=MoneyAlreadyRecordedError, create=None):
+        """The refusal message; a create that was NOT refused is tracked for the purge, then fails.
+
+        A bare `assertRaises` leaks the record when the guard is reverted to show a test RED.
+        `create` defaults to `create_inflow`; `_non_project_call` passes the non-project path."""
+        try:
+            if create is None:
+                summary = create_inflow(row=row["name"], project=self.project)
+                bucket = self.inflows
+            else:
+                summary, bucket = create(row), self.non_project_inflows
+        except error as refused:
+            return str(refused)
+        bucket.append(summary["settled"]["name"])
+        self.fail(f"the create was not refused with {error.__name__}")
+
+    def _non_project_call(self, row):
+        return create_non_project_inflow(row=row["name"], inflow_type="Loan Received")
 
 
 class TestTheHappyPath(InflowFixture):
@@ -214,19 +250,23 @@ class TestTheHappyPath(InflowFixture):
         )
         self.assertEqual(inflow.project, self.project)
         self.assertEqual(inflow.customer, self.customer)
-        self.assertEqual(Decimal(inflow.amount), Decimal(str(row["amount"])))
+        self.assertEqual(Decimal(str(inflow.amount)), Decimal(str(row["amount"])))
         self.assertEqual(inflow.payment_date, row["added_on"].date())
-        self.assertEqual(inflow.utr, row["bank_reference_no"])
+        # #1259 (inverted): an ICICI credit stores its whole match surface, not the short reference.
+        self.assertEqual(inflow.utr, match_surface(row["remarks"], row["reference_id"]))
+        self.assertNotEqual(inflow.utr, row["bank_reference_no"])
         self.assertIsNone(inflow.invoice)
 
-    def test_the_amount_is_stored_as_a_bare_numeric_string(self):
-        """`Project Inflows.amount` is a **Data** column. A float would store `44275.0` beside 463
-        rows that read `44275`, on a column every financial screen sums unfiltered."""
-        _, summary = self._record()
+    def test_the_amount_is_a_real_number_because_the_column_is_Currency(self):
+        """INVERTED at #1255: `Project Inflows.amount` was a **Data** column holding bare numeric
+        strings, and this test used to pin the string. It is Currency now, so the settle writer
+        hands it a number -- a string here would mean `format_amount_for` still treats the inflow
+        ledger as text."""
+        row, summary = self._record()
         stored = frappe.db.get_value(INFLOW_DOCTYPE, summary["settled"]["name"], "amount")
-        self.assertIsInstance(stored, str)
-        self.assertNotIn(".", stored.rstrip("0").rstrip(".") if "." in stored else stored)
-        self.assertEqual(stored, format_amount_for(INFLOW_DOCTYPE, Decimal(stored)))
+        self.assertIsInstance(stored, float)
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
+        self.assertEqual(format_amount_for(INFLOW_DOCTYPE, Decimal(str(stored))), stored)
 
     def test_the_row_flips_to_settled_and_gets_a_match_record(self):
         """The four facts of a settlement are one transaction -- a match record without its inflow
@@ -272,6 +312,22 @@ class TestTheHappyPath(InflowFixture):
         )
         self.assertEqual(
             frappe.db.get_value(ROW_DOCTYPE, row["name"], "decided_by"), frappe.session.user
+        )
+
+
+class TestALongReferenceIsWrittenWhole(InflowFixture):
+    """#1254: `Project Inflows.utr` is Text, so a long bank narration saves whole.
+
+    Since #1259 an ICICI credit stores its own narration, so the long text goes on `remarks`."""
+
+    def test_creating_an_inflow_stores_the_whole_narration(self):
+        row = self._next_credit_row()
+        narration = _give_row_a_long_narration(self, row["name"])
+
+        _, summary = self._record(row=row)
+
+        self.assertEqual(
+            frappe.db.get_value(INFLOW_DOCTYPE, summary["settled"]["name"], "utr"), narration
         )
 
 
@@ -340,7 +396,8 @@ class TestRefusals(InflowFixture):
 class TestTheDuplicateGuards(InflowFixture):
     """⚠️ THE `Outflow Row Match` UNIQUE KEY CANNOT REACH THIS PATH. Its key is
     `(transfer_id, target_doctype, target_name)` and a created record's name is new every time, so
-    two imports of one credit contend on nothing. These two lookups are the guard instead."""
+    two imports of one credit contend on nothing. These lookups are the guard instead: the import's
+    own earlier inflow, then the recorded-money guard every write endpoint shares (#1260)."""
 
     def test_the_unique_key_really_does_not_contend(self):
         """Stated as a test because the whole design rests on it. Two match records for the SAME
@@ -374,44 +431,218 @@ class TestTheDuplicateGuards(InflowFixture):
             create_inflow(row=twin.name, project=self.project)
         self.assertIn(summary["settled"]["name"], str(caught.exception))
 
-    def test_an_inflow_keyed_in_by_hand_blocks_the_import(self):
-        """The measured hole: 330 of 463 live inflows carry a `utr` and NONE came from this import."""
-        row = self._next_credit_row()
+    def _plant_inflow(self, row, utr, *, amount_delta=0):
         planted = frappe.new_doc(INFLOW_DOCTYPE)
         planted.update(
             {
                 "project": self.project,
                 "customer": self.customer,
-                "utr": row["bank_reference_no"],
-                "amount": format_amount_for(INFLOW_DOCTYPE, Decimal(str(row["amount"]))),
+                "utr": utr,
+                "amount": format_amount_for(
+                    INFLOW_DOCTYPE, Decimal(str(row["amount"])) + Decimal(amount_delta)
+                ),
                 "payment_date": row["added_on"].date(),
             }
         )
         planted.insert(ignore_permissions=True)
         frappe.db.commit()
-        self.inflows.append(planted.name)
+        # Removed after THIS test, not the class: a refused row stays open, so the next test picks the
+        # same row, and a planted record left behind would refuse it too.
+        self.addCleanup(self._purge_planted, planted.name)
+        return planted.name
 
-        with self.assertRaises(InflowNotRecordableError) as caught:
-            create_inflow(row=row["name"], project=self.project)
-        self.assertIn(planted.name, str(caught.exception))
+    @staticmethod
+    def _purge_planted(name):
+        frappe.db.delete("Version", {"ref_doctype": INFLOW_DOCTYPE, "docname": name})
+        frappe.db.delete(INFLOW_DOCTYPE, {"name": name})
+        frappe.db.commit()
 
-    def test_a_different_amount_on_the_same_reference_is_not_a_duplicate(self):
-        """⚠️ IDENTITY IS `(reference, amount, date)`, NOT THE REFERENCE ALONE -- the one rule in
-        `duplicates.row_identity`. A corrected figure is a different fact and must import."""
+    def test_an_inflow_keyed_in_by_hand_blocks_the_import(self):
+        """The measured hole: 330 of 463 live inflows carry a `utr` and NONE came from this import."""
         row = self._next_credit_row()
-        index = _already_booked(row["bank_reference_no"])
-        self.assertEqual(index, {}, "the fixture reference should not already be booked")
+        planted = self._plant_inflow(row, row["bank_reference_no"])
 
-    def test_the_booked_lookup_ignores_a_blank_reference(self):
-        """A blank key fails OPEN: never recognised as a repeat, which is the recoverable
-        direction. A duplicate somebody can see beats a real receipt silently refused."""
-        self.assertEqual(_already_booked(""), {})
+        self.assertIn(planted, self._refusal(row))
+
+    def test_an_inflow_carrying_the_whole_narration_blocks_the_import(self):
+        """#1259: an ICICI settle stores the narration, so the check must be the contains-match. The
+        old exact compare against `bank_reference_no` could never see this record."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"])
+
+        self.assertIn(planted, self._refusal(row))
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED
+        )
+
+    def test_a_reference_with_words_around_it_inside_the_narration_blocks_the_import(self):
+        row = self._next_credit_row()
+        self.assertTrue(row["bank_reference_no"], "fixture precondition: the credit has a reference")
+        planted = self._plant_inflow(row, f"{row['bank_reference_no']} ICICI receipt")
+
+        self.assertIn(planted, self._refusal(row))
+
+    def test_a_different_amount_on_the_same_reference_asks_before_recording(self):
+        """Inverted at #1260 (it asserted the create went through). A hit whose amount is off by more
+        than the settle window leaves the line Mismatched in the match run, so the button refuses
+        until the call confirms -- and then records."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"], amount_delta=500)
+
+        self.assertIn(planted, self._refusal(row, error=RecordedMoneyNeedsConfirmationError))
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED
+        )
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+        row, summary = self._record(row=row, confirm_mismatch=1)
+        self.assertTrue(summary["settled"]["name"])
+
+    def test_a_non_project_inflow_already_recorded_as_a_project_inflow_is_refused(self):
+        """Ported from the receipt path (#1260): the recorded-money guard runs on this endpoint too,
+        so whether a duplicate is caught never depends on which card the reviewer clicked."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"])
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        self.assertIn(planted, self._refusal(row, create=self._non_project_call))
+        self._assert_nothing_written(row, before)
+
+    def test_a_non_project_inflow_with_the_amount_off_asks_before_recording(self):
+        row = self._next_credit_row()
+        self._plant_inflow(row, row["remarks"], amount_delta=500)
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        self._refusal(
+            row, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
+        )
+        self._assert_nothing_written(row, before)
+
+        row, summary = self._receive(row=row, confirm_mismatch=True)
+        self.assertTrue(summary["settled"]["name"])
+
+    def test_a_junk_reference_inside_the_narration_does_not_refuse(self):
+        """Inverted at #1259 (it asserted a blank key). A reference with no eligible token --
+        `ICICI`, a short code -- never refuses a receipt, even when the narration contains it."""
+        row = self._next_credit_row()
+        self._plant_inflow(row, "ICICI")
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
 
     def test_the_import_lookup_ignores_a_blank_transfer_id(self):
         class _Bare:
             transfer_id = ""
 
         self.assertEqual(_already_created_by_import(_Bare()), {})
+
+
+class TestTheNonProjectInflowDuplicateGuards(InflowFixture):
+    """#1268 (ADR-0016 A-D2): the duplicate check knows about `Non Project Inflows`.
+
+    Its own class, so its own staged batch: recording CONSUMES a credit row, and the fixture holds
+    few of them."""
+
+    def _plant_non_project_inflow(self, row, utr, *, amount_delta=0):
+        planted = frappe.new_doc(NON_PROJECT_INFLOW)
+        planted.update(
+            {
+                "inflow_type": "FD Closures",
+                "utr": utr,
+                "amount": format_amount_for(
+                    NON_PROJECT_INFLOW, Decimal(str(row["amount"])) + Decimal(amount_delta)
+                ),
+                "payment_date": row["added_on"].date(),
+            }
+        )
+        planted.insert(ignore_permissions=True)
+        frappe.db.commit()
+        # Per test, for the reason `_plant_inflow` gives.
+        self.addCleanup(self._purge_planted_non_project, planted.name)
+        return planted.name
+
+    @staticmethod
+    def _purge_planted_non_project(name):
+        frappe.db.delete("Version", {"ref_doctype": NON_PROJECT_INFLOW, "docname": name})
+        frappe.db.delete(NON_PROJECT_INFLOW, {"name": name})
+        frappe.db.commit()
+
+    def _twin_of(self, row_name, **changes):
+        """A second staged row for the same credit, as an overlapping statement would produce."""
+        twin = frappe.copy_doc(frappe.get_doc(ROW_DOCTYPE, row_name))
+        twin.row_status = "Mismatched"
+        twin.outcome_note = None
+        twin.decided_at = None
+        twin.decided_by = None
+        twin.settlement_origin = None
+        twin.update(changes)
+        twin.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: frappe.db.delete(ROW_DOCTYPE, {"name": twin.name}))
+        return {"name": twin.name, "row_status": twin.row_status}
+
+    def test_a_non_project_inflow_keyed_in_by_hand_refuses_a_second_one(self):
+        row = self._next_credit_row()
+        planted = self._plant_non_project_inflow(row, row["remarks"])
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        refusal = self._refusal(row, create=self._non_project_call)
+        self.assertIn(f"received on Non Project Inflow {planted}", refusal)
+        self._assert_nothing_written(row, before)
+
+    def test_a_non_project_inflow_keyed_in_by_hand_refuses_a_project_inflow(self):
+        """Whichever card the reviewer clicks, the same money is not recorded in the other book."""
+        row = self._next_credit_row()
+        planted = self._plant_non_project_inflow(row, row["remarks"])
+        before = frappe.db.count(INFLOW_DOCTYPE)
+
+        self.assertIn(planted, self._refusal(row))
+        self.assertEqual(frappe.db.count(INFLOW_DOCTYPE), before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    def test_a_non_project_inflow_with_the_amount_off_asks_before_recording_another(self):
+        row = self._next_credit_row()
+        planted = self._plant_non_project_inflow(row, row["remarks"], amount_delta=500)
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        refusal = self._refusal(
+            row, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
+        )
+        self.assertIn(planted, refusal)
+        self._assert_nothing_written(row, before)
+
+    def test_a_second_import_of_a_credit_recorded_as_a_non_project_inflow_is_refused(self):
+        """An EARLIER IMPORT made the record: the twin line is refused and nothing is written."""
+        row, summary = self._receive()
+        twin = self._twin_of(row["name"])
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        # Through `_refusal`, so a reverted guard fails the test WITHOUT leaking a live record.
+        refusal = self._refusal(
+            twin,
+            error=InflowNotRecordableError,
+            create=lambda r: create_non_project_inflow(row=r["name"], inflow_type="FD Closures"),
+        )
+        self.assertIn(summary["settled"]["name"], refusal)
+        self._assert_nothing_written(twin, before)
+
+        # And the project-inflow card is refused on the same fact.
+        self.assertIn(summary["settled"]["name"], self._refusal(twin, error=InflowNotRecordableError))
+
+    def test_one_non_project_inflow_justifies_only_one_line_across_imports(self):
+        """A DIFFERENT line carrying the same narration (next month's, say) may not skip on a record
+        an import already created: it asks, naming the record and the batch it came from."""
+        row, summary = self._receive()
+        batch = frappe.db.get_value(ROW_DOCTYPE, row["name"], "import_batch")
+        other = self._twin_of(row["name"], transfer_id=f"{frappe.generate_hash(length=10)}-OTHER")
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        refusal = self._refusal(
+            other, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
+        )
+        self.assertIn(f"Non Project Inflow {summary['settled']['name']} already accounts", refusal)
+        self.assertIn(f"recorded from batch {batch}", refusal)
+        self._assert_nothing_written(other, before)
 
 
 class TestTheContextRead(InflowFixture):
@@ -433,6 +664,44 @@ class TestTheContextRead(InflowFixture):
         self.assertIsNone(get_inflow_context("no-such-project")["customer"])
 
 
+class TestTheCustomerReceivableReport(InflowFixture):
+    """#1255: the report summed the inflow amount through a text-parsing CASE, which PostgreSQL
+    refuses outright once the column is numeric. It must run, and count a fractional inflow exactly.
+
+    ⚠️ A DELTA, NOT A TOTAL -- the live site's inflows drift, so this measures the customer's total
+    before and after planting one inflow.
+    """
+
+    def _customer_inflow_total(self):
+        from nirmaan_stack.api.reports.customer_receivable_report import (
+            get_customer_receivables_report,
+        )
+
+        for entry in get_customer_receivables_report():
+            if entry["customer"] == self.customer:
+                return Decimal(str(entry["total_inflow"]))
+        return Decimal(0)
+
+    def test_a_planted_inflow_moves_the_customer_s_total_by_its_exact_amount(self):
+        before = self._customer_inflow_total()
+        planted = frappe.new_doc(INFLOW_DOCTYPE)
+        planted.update(
+            {
+                "project": self.project,
+                "customer": self.customer,
+                "utr": f"TEST-RECV-{frappe.generate_hash(length=10)}",
+                "amount": 1234.56,
+                "payment_date": frappe.utils.today(),
+            }
+        )
+        planted.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.inflows.append(planted.name)
+
+        # The report's payload is floats, so the paise are compared to 2 places.
+        self.assertAlmostEqual(float(self._customer_inflow_total() - before), 1234.56, places=2)
+
+
 class TestTheSharedHelpers(unittest.TestCase):
     """The three pieces of `settle.py` this slice reused rather than re-typed."""
 
@@ -445,8 +714,21 @@ class TestTheSharedHelpers(unittest.TestCase):
         """⚠️ THE FOURTH LEDGER SPELLS IT DIFFERENTLY, which is the case the constant's own note
         anticipated. The three settle ledgers are byte-unchanged."""
         self.assertEqual(statement_attachment_field(INFLOW_DOCTYPE), "inflow_attachment")
+        # #1266: the fifth ledger copies `Project Inflows`' Inflow Details, field name included.
+        self.assertEqual(statement_attachment_field(NON_PROJECT_INFLOW), "inflow_attachment")
         for doctype in ("Project Payments", PROJECT_EXPENSE, "Non Project Expenses"):
             self.assertEqual(statement_attachment_field(doctype), "payment_attachment")
+
+    def test_a_non_project_inflow_is_a_received_ledger_with_a_display_noun(self):
+        """#1266: the received block of the settled panel and every duplicate note name it. The old
+        `Non Project Expenses` stays in the received list -- rows the removed receipt path wrote may
+        still exist (Amendment A-D2)."""
+        self.assertIn(NON_PROJECT_INFLOW, RECEIVED_LEDGER_DOCTYPES)
+        self.assertIn(NON_PROJECT_EXPENSE, RECEIVED_LEDGER_DOCTYPES)
+        self.assertEqual(
+            LEDGER_NOUNS[NON_PROJECT_INFLOW], ("Non Project Inflow", "Non Project Inflows")
+        )
+        self.assertTrue(frappe.db.exists("DocType", NON_PROJECT_INFLOW))
 
     def test_an_inflow_takes_the_statement_into_its_own_attachment_field(self):
         doc = frappe.new_doc(INFLOW_DOCTYPE)
@@ -461,14 +743,13 @@ class TestTheSharedHelpers(unittest.TestCase):
         self.assertFalse(apply_statement_attachment(doc, "/private/files/s.csv"))
         self.assertEqual(doc.inflow_attachment, "/private/files/receipt.png")
 
-    def test_the_data_amount_shape_is_shared_with_project_expenses(self):
-        # ⚠️ `2500.50` NORMALISES TO `2500.5`. `format_amount_for` calls `Decimal.normalize()`
-        # first, so a trailing zero is dropped -- which is the shape `Project Expenses` has always
-        # stored and is why this asserts both ledgers give the same answer rather than a literal.
-        for amount, expected in ((Decimal("44275"), "44275"), (Decimal("2500.50"), "2500.5")):
-            self.assertEqual(format_amount_for(INFLOW_DOCTYPE, amount), expected)
-            self.assertEqual(format_amount_for(PROJECT_EXPENSE, amount), expected)
-        # Unchanged for the Currency ledgers.
+    def test_no_ledger_keeps_the_data_amount_shape_any_more(self):
+        # INVERTED TWICE, and both inversions are the record. At #1255 this ledger left the
+        # bare-string shape it shared with `Project Expenses`; on 16 Sep 2026 `Project Expenses`
+        # left too, so NOTHING stores an amount as text and `format_amount_for` lost its branch.
+        for amount in (Decimal("44275"), Decimal("2500.50")):
+            self.assertEqual(format_amount_for(INFLOW_DOCTYPE, amount), float(amount))
+            self.assertEqual(format_amount_for(PROJECT_EXPENSE, amount), float(amount))
         self.assertEqual(format_amount_for("Non Project Expenses", Decimal("44275")), 44275.0)
 
 
@@ -482,101 +763,55 @@ class TestTheZeroGuard(InflowFixture):
             create_inflow(row=row["name"], project=self.project)
 
 
+
+
 # =================================================================================================
-# Slice B7 -- a credit that belongs to NO project, recorded as a NEGATIVE `Non Project Expense`.
-#
-# ⚠️ THIS IS THE ONE SIGNED WRITE IN THE WHOLE FEATURE, so the sign is what these pin hardest. A
-# wrong sign is not a visible failure: it is an ordinary-looking figure in the wrong direction, on a
-# ledger every reader assumes is money going out.
-#
-# ⚠️ AND THE COST THE OWNER ACCEPTED, RECORDED HERE BECAUSE `fixtures/expense_type.json` IS JSON AND
-# CANNOT HOLD A COMMENT: money coming IN now lives in a doctype called *Expenses*. There is no
-# non-project inflow doctype in this app and none is being created (owner ruling Q3, ADR-0016
-# decision 3, accepted risk R3). The four new `non_project = 1` Expense Types (Q19) exist so such a
-# row at least says what it is -- they are pinned in `TestTheIncomeExpenseTypes` below, and adding
-# or renaming one means editing that fixture and running `bench migrate` (or `sync_fixtures`).
+# #1266 -- a credit that belongs to NO project, recorded as a `Non Project Inflow` (ADR-0016
+# Amendment A-D2). It replaced the B7 non-project receipt, which wrote a NEGATIVE `Non Project
+# Expense`. The amount stored here is POSITIVE: the record is money received by its own doctype, so
+# no sign has to carry that meaning.
 # =================================================================================================
 
 
-class TestTheNonProjectReceipt(InflowFixture):
-    def test_it_stores_the_bank_s_magnitude_NEGATED(self):
-        """⚠️ THE WHOLE SLICE IN ONE ASSERTION. The staged row carries a POSITIVE magnitude -- that
-        is true on every source by design, and ADR-0016 rejected a signed amount column outright --
-        and the negation is applied in the write path, from the row's `direction`. Nothing trusts a
-        sign arriving from a row or from a client."""
-        row, summary = self._receive()
+class TestTheNonProjectInflow(InflowFixture):
+    """The happy path. ⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the ICICI fixture holds six open
+    credits, and recording consumes one."""
 
-        stored = frappe.db.get_value(
-            NON_PROJECT_EXPENSE, summary["settled"]["name"], "amount"
-        )
-        self.assertGreater(Decimal(str(row["amount"])), 0, "the staged row must be a magnitude")
-        self.assertEqual(Decimal(str(stored)), -Decimal(str(row["amount"])))
-        self.assertLess(float(stored), 0)
+    def test_it_carries_the_bank_row_s_own_figures_at_a_positive_amount(self):
+        """⚠️ THE CLIENT NEVER SENDS A FIGURE. Amount, date and reference are read server-side."""
+        row, summary = self._receive(inflow_type="Interest Payouts", description="FD 0057 interest")
 
-    def test_the_amount_is_a_real_number_because_the_column_is_Currency(self):
-        """⚠️ THE ASYMMETRY THAT MAKES THIS LEDGER THE RIGHT ONE FOR A SIGNED FIGURE.
-        `Non Project Expenses.amount` is a real **Currency** column, unlike `Project Expenses` and
-        `Project Inflows`, whose `amount` is a **Data** column holding bare numeric strings."""
-        _, summary = self._receive()
-        stored = frappe.db.get_value(NON_PROJECT_EXPENSE, summary["settled"]["name"], "amount")
-        self.assertIsInstance(stored, float)
-        self.assertEqual(
-            format_amount_for(NON_PROJECT_EXPENSE, Decimal(str(stored))), stored
-        )
-
-    def test_it_is_created_at_Paid_which_bypasses_the_approval_ladder(self):
-        """⚠️ DELIBERATE, AND THE REASON IS NOT "IT WAS EASIER". Both expense controllers return
-        early from `validate()` for any status other than `Requested`, so the negative-amount
-        exclusion from auto-approval never evaluates -- which is the right outcome: the money has
-        already arrived, and asking somebody to *approve* a receipt the bank already credited is
-        theatre. The review gate is the bank row (owner ruling Q8)."""
-        _, summary = self._receive()
-        self.assertEqual(
-            frappe.db.get_value(NON_PROJECT_EXPENSE, summary["settled"]["name"], "status"), "Paid"
-        )
-
-    def test_it_carries_the_bank_row_s_reference_date_and_provenance(self):
-        row, summary = self._receive()
         doc = frappe.db.get_value(
-            NON_PROJECT_EXPENSE,
+            NON_PROJECT_INFLOW,
             summary["settled"]["name"],
-            ["payment_ref", "payment_date", "comment", "type", "payment_attachment"],
+            ["inflow_type", "description", "amount", "payment_date", "utr", "inflow_attachment"],
             as_dict=True,
         )
-        self.assertEqual(doc.payment_ref, row["bank_reference_no"])
+        self.assertEqual(doc.inflow_type, "Interest Payouts")
+        self.assertEqual(doc.description, "FD 0057 interest")
+        # A real number, because the column is Currency, and the bank's own magnitude -- positive.
+        self.assertIsInstance(doc.amount, float)
+        self.assertGreater(doc.amount, 0)
+        self.assertEqual(Decimal(str(doc.amount)), Decimal(str(row["amount"])))
         self.assertEqual(doc.payment_date, row["added_on"].date())
-        self.assertEqual(doc.type, self.non_project_type)
-        # Visible provenance: the match record is durable but invisible on the expense form, and on
-        # a NEGATIVE row the explanation matters more than usual.
-        self.assertIn(self.batch.name, doc.comment)
-        self.assertEqual(doc.payment_attachment, "/private/files/test-statement.csv")
+        # The full settlement reference -- on an ICICI credit, its whole match surface.
+        self.assertEqual(doc.utr, match_surface(row["remarks"], row["reference_id"]))
+        self.assertEqual(doc.inflow_attachment, "/private/files/test-statement.csv")
 
-class TestTheReceiptBookkeeping(InflowFixture):
-    """The import-side half, split off from `TestTheNonProjectReceipt` for a MEASURED reason:
-    recording CONSUMES a staged row, and the ICICI fixture holds only 7 credits (6 open after the
-    in-file duplicate auto-skip). A class with more consuming tests than that fails on row supply
-    rather than on anything it asserts. Each class stages its OWN batch, so splitting buys 6 more.
-    """
+    def test_a_long_narration_is_stored_whole_as_the_utr(self):
+        """`utr` is Text, copied from `Project Inflows` (#1254), so a long narration saves whole."""
+        row = self._next_credit_row()
+        narration = _give_row_a_long_narration(self, row["name"])
 
-    def test_the_payer_lands_in_the_description_by_default(self):
-        """There is nowhere else for them to go: `Non Project Expenses` has NO vendor column."""
-        row, summary = self._receive()
-        description = frappe.db.get_value(
-            NON_PROJECT_EXPENSE, summary["settled"]["name"], "description"
-        )
-        self.assertIn(row["beneficiary_name"] or row["remarks"], description)
+        _, summary = self._receive(row=row)
 
-    def test_a_typed_description_wins_over_the_default(self):
-        _, summary = self._receive(description="FD 0057 closed, principal returned")
         self.assertEqual(
-            frappe.db.get_value(
-                NON_PROJECT_EXPENSE, summary["settled"]["name"], "description"
-            ),
-            "FD 0057 closed, principal returned",
+            frappe.db.get_value(NON_PROJECT_INFLOW, summary["settled"]["name"], "utr"), narration
         )
 
-    def test_the_row_flips_to_settled_and_gets_a_match_record(self):
+    def test_the_row_flips_to_settled_with_a_match_leg_recording_who_settled_it(self):
         row, summary = self._receive()
+
         after = frappe.db.get_value(
             ROW_DOCTYPE, row["name"], ["row_status", "outcome_note", "decided_by"], as_dict=True
         )
@@ -587,79 +822,81 @@ class TestTheReceiptBookkeeping(InflowFixture):
         match = frappe.db.get_value(
             MATCH_DOCTYPE,
             {"import_row": row["name"]},
-            ["target_doctype", "target_name", "target_amount", "match_kind"],
+            ["target_doctype", "target_name", "target_amount", "match_kind", "matched_by"],
             as_dict=True,
         )
-        self.assertEqual(match.target_doctype, NON_PROJECT_EXPENSE)
+        self.assertEqual(match.target_doctype, NON_PROJECT_INFLOW)
         self.assertEqual(match.target_name, summary["settled"]["name"])
         self.assertEqual(match.match_kind, "Settled")
-        # ⚠️ THE MATCH RECORD CARRIES THE NEGATIVE TOO, because `SettleResult.amount` means "the
-        # amount WRITTEN". It reaches the export's `settled_target_amount`, where a negative is the
-        # truth about what this settlement recorded. It is NOT summed anywhere -- the batch totals
-        # read the ROW's own amount, which `review.py` states in its own note -- so it cannot net
-        # anything off.
-        self.assertLess(float(match.target_amount), 0)
+        self.assertEqual(Decimal(str(match.target_amount)), Decimal(str(row["amount"])))
+        self.assertEqual(match.matched_by, frappe.session.user)
 
-    def test_the_summary_reports_a_created_record_at_the_negative_figure(self):
+    def test_the_summary_reports_a_created_record(self):
         row, summary = self._receive()
-        self.assertEqual(summary["settled"]["doctype"], NON_PROJECT_EXPENSE)
+        self.assertEqual(summary["settled"]["doctype"], NON_PROJECT_INFLOW)
         self.assertTrue(summary["settled"]["created"])
-        self.assertEqual(summary["settled"]["amount"], -float(row["amount"]))
+        self.assertEqual(summary["settled"]["amount"], float(row["amount"]))
         self.assertIsNone(summary["settled"]["original_amount"])
         self.assertFalse(summary["settled"]["amount_changed"])
 
+    def test_the_screen_s_row_read_carries_the_record_so_the_line_can_link_it(self):
+        """#1266 owner pick A: `get_outflow_rows` -- the ONLY read the screen uses -- sends a settled
+        line's match records, so `rowSettlementLinks` can render the link to the record. It used to
+        send `matches: []` on every row, so a created record was never linked."""
+        row, summary = self._receive()
+        page = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
+        by_name = {r["name"]: r for r in page}
 
-class TestTheReceiptRefusals(InflowFixture):
-    def test_a_DEBIT_is_refused(self):
-        """The refusal that matters most on this path: a debit recorded here would book money that
-        LEFT the account as income, and the books would be wrong by twice the transfer."""
-        row = self._next_debit_row()
-        with self.assertRaises(InflowNotRecordableError):
-            create_non_project_receipt(row=row["name"], expense_type=self.non_project_type)
-        self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row["name"]}))
+        settled = [(m["target_doctype"], m["target_name"]) for m in by_name[row["name"]]["matches"]]
+        self.assertEqual(settled, [(NON_PROJECT_INFLOW, summary["settled"]["name"])])
+        # An open line carries none.
+        open_rows = [r for r in page if r["row_status"] != ROW_SETTLED]
+        self.assertTrue(open_rows)
+        self.assertTrue(all(r["matches"] == [] for r in open_rows))
 
-    def test_the_SERVICE_refuses_a_missing_direction_where_the_inflow_sibling_tolerates_it(self):
-        """⚠️ THE DELIBERATE DIVERGENCE FROM `create_inflow_from_row`, pinned so nobody "restores
-        consistency". There the direction picks a LEDGER and a wrong choice is refused downstream by
-        the project and customer rules; here it picks a SIGN, and silence must not be consent."""
+    def test_others_is_recorded_when_it_carries_a_description(self):
+        _, summary = self._receive(inflow_type="Others", description="Vendor refund, PO 0123")
+        doc = frappe.db.get_value(
+            NON_PROJECT_INFLOW, summary["settled"]["name"], ["inflow_type", "description"], as_dict=True
+        )
+        self.assertEqual((doc.inflow_type, doc.description), ("Others", "Vendor refund, PO 0123"))
 
-        class _Row:
-            amount = 1000
-            added_on_date = None
-            bank_reference_no = "REF-1"
-            beneficiary_name = "Someone"
-            remarks = ""
 
-        for direction in (None, "", "Debit"):
-            with self.assertRaises(InflowNotRecordableError):
-                create_non_project_receipt_from_row(
-                    _Row(),
-                    actor="Administrator",
-                    expense_type=self.non_project_type,
-                    direction=direction,
-                )
+class TestTheNonProjectInflowRefusals(InflowFixture):
+    """Each refusal writes NOTHING: no record, no match leg, and the row where it was."""
 
-    def test_a_PROJECT_scoped_expense_type_is_refused(self):
-        """`_assert_type_scope` is shared with the debit path; this pins that the receipt path
-        actually calls it, on the `non_project` flag."""
-        row = self._next_credit_row()
-        if not self.project_type:
-            self.skipTest("no project-only Expense Type on this site")
-        with self.assertRaises(ExpenseTypeScopeError):
-            create_non_project_receipt(row=row["name"], expense_type=self.project_type)
+    def _refused(self, row, error, **kwargs):
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+        with self.assertRaises(error):
+            create_non_project_inflow(row=row["name"], **kwargs)
+        self._assert_nothing_written(row, before)
 
-    def test_a_blank_expense_type_is_refused(self):
-        row = self._next_credit_row()
-        with self.assertRaises(ExpenseTypeScopeError):
-            create_non_project_receipt(row=row["name"], expense_type="")
+    def test_a_debit_is_refused(self):
+        """A debit recorded here would book money that LEFT the account as money received."""
+        self._refused(self._next_debit_row(), InflowNotRecordableError, inflow_type="FD Closures")
+
+    def test_a_missing_type_is_refused(self):
+        for missing in ("", None, "   "):
+            self._refused(self._next_credit_row(), InflowNotRecordableError, inflow_type=missing)
+
+    def test_an_unknown_type_is_refused(self):
+        self._refused(
+            self._next_credit_row(), InflowNotRecordableError, inflow_type="Interest Received"
+        )
+
+    def test_others_without_a_description_is_refused(self):
+        for blank in (None, "", "   "):
+            self._refused(
+                self._next_credit_row(),
+                InflowNotRecordableError,
+                inflow_type="Others",
+                description=blank,
+            )
 
     def test_a_credit_of_zero_or_less_is_refused(self):
         row = self._next_credit_row()
-
-        # ⚠️ RESTORED AFTERWARDS, AND THAT IS NOT TIDINESS. Every test in this class REFUSES, so the
-        # row it picked stays open and the next test picks the SAME one -- which would then meet a
-        # zeroed amount and fail on the wrong guard, at the wrong test's name. A mutation that
-        # outlives its test is a false failure somewhere else.
+        # ⚠️ RESTORED AFTERWARDS: every test in this class refuses, so the next test picks the SAME
+        # row and would otherwise meet a zeroed amount and fail on the wrong guard.
         self.addCleanup(
             lambda: (
                 frappe.db.set_value(
@@ -670,47 +907,54 @@ class TestTheReceiptRefusals(InflowFixture):
         )
         frappe.db.set_value(ROW_DOCTYPE, row["name"], "amount", 0, update_modified=False)
         frappe.db.commit()
-        with self.assertRaises(AmountMismatchError):
-            create_non_project_receipt(row=row["name"], expense_type=self.non_project_type)
+        self._refused(row, AmountMismatchError, inflow_type="FD Closures")
 
-    def test_a_refused_row_writes_nothing_at_all(self):
-        """The savepoint is the point: a refusal leaves the database exactly as it was -- and on
-        this path "nothing" includes not leaving a negative expense standing."""
-        row = self._next_credit_row()
-        before = frappe.db.count(NON_PROJECT_EXPENSE)
-        with self.assertRaises(ExpenseTypeScopeError):
-            create_non_project_receipt(row=row["name"], expense_type="no-such-expense-type")
-        self.assertEqual(frappe.db.count(NON_PROJECT_EXPENSE), before)
-        self.assertEqual(
-            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), row["row_status"]
-        )
+    def test_the_service_refuses_a_missing_or_debit_direction(self):
+        """The service is callable by anything, so it re-checks the direction the endpoint read."""
 
-    def test_a_settled_row_cannot_be_recorded_twice(self):
-        """The per-row guard, which is what stands in for the duplicate lookups this endpoint
-        deliberately does not have -- see the module header for why."""
+        class _Row:
+            amount = 1000
+            added_on_date = None
+            settlement_reference = "REF-1"
+
+        for direction in (None, "", "Debit"):
+            with self.assertRaises(InflowNotRecordableError):
+                create_non_project_inflow_from_row(
+                    _Row(), actor="Administrator", inflow_type="FD Closures", direction=direction
+                )
+
+    def test_an_already_settled_row_is_refused(self):
         row, _ = self._receive()
-        with self.assertRaises(Exception):
-            create_non_project_receipt(row=row["name"], expense_type=self.non_project_type)
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            create_non_project_inflow(row=row["name"], inflow_type="FD Closures")
+        self.assertIn("already settled", str(caught.exception))
+        self.assertEqual(frappe.db.count(NON_PROJECT_INFLOW), before)
+        # The one leg from the first recording, and no second one; the row stays Settled.
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 1)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+
+class TestTheReceiptPathIsGone(unittest.TestCase):
+    """ADR-0016 Amendment A-D2: the endpoint and service are REMOVED, not just the card -- a live
+    endpoint nobody calls can still write negative expenses."""
+
+    def test_the_receipt_endpoint_no_longer_exists(self):
+        self.assertFalse(hasattr(inflows_module, "create_non_project_receipt"))
+
+    def test_the_receipt_service_no_longer_exists(self):
+        self.assertFalse(hasattr(settle_module, "create_non_project_receipt_from_row"))
 
 
 class TestTheIncomeExpenseTypes(unittest.TestCase):
-    """The `non_project = 1` fixtures that name what a credit actually was (owner ruling Q19).
+    """The four `non_project = 1` income Expense Type fixtures (owner ruling Q19).
 
-    ⚠️ THEY ARE THE ONLY THING ON THE ROW THAT SAYS IT IS INCOME. The record is a
-    `Non Project Expense` with a negative amount; without a type reading "Received" / "Returned" /
-    "Proceeds", a reader meets an unexplained negative number in a list of spending.
-
-    ⚠️ THEY MUST CARRY `non_project = 1` OR THE WHOLE PATH IS UNREACHABLE -- `_assert_type_scope`
-    refuses a type lacking the flag for its side, so a fixture minted with the wrong flag makes
-    every receipt refuse with a message about expense types.
+    Kept at #1266 although the import no longer writes them: they stay in `fixtures/expense_type.json`
+    and are still offered by the manual Non-Project Expense dialog, which Amendment A-D3 leaves
+    untouched. ⚠️ They must carry `non_project = 1` and not `project`, or that dialog cannot offer them.
     """
 
-    INCOME_TYPES = (
-        "Interest Received",       # FD / RD interest credited
-        "Fixed Deposit Proceeds",  # an FD closing and returning its principal
-        "Loan Received",           # a loan drawdown landing
-        "Advance Returned",        # a labour or site advance coming back
-    )
+    INCOME_TYPES = ("Interest Received", "Fixed Deposit Proceeds", "Loan Received", "Advance Returned")
 
     def test_each_one_exists_and_is_scoped_non_project(self):
         for name in self.INCOME_TYPES:
@@ -719,15 +963,4 @@ class TestTheIncomeExpenseTypes(unittest.TestCase):
             )
             self.assertIsNotNone(scoped, f"{name!r} is missing -- run `bench migrate`")
             self.assertTrue(scoped.non_project, f"{name!r} must carry non_project = 1")
-            self.assertFalse(
-                scoped.project,
-                f"{name!r} must NOT be offered on the project side -- a receipt has no project",
-            )
-
-    def test_the_receipt_form_can_actually_offer_them(self):
-        """⚠️ THE LIST IS THE EXISTING `get_expense_types`, NOT A SECOND ENDPOINT. One query answers
-        both the form and the server's own scope check, so they cannot disagree about which types
-        exist."""
-        offered = {t["name"] for t in get_expense_types(NON_PROJECT_EXPENSE)}
-        for name in self.INCOME_TYPES:
-            self.assertIn(name, offered)
+            self.assertFalse(scoped.project, f"{name!r} must NOT be offered on the project side")

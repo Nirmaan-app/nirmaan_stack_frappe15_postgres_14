@@ -69,7 +69,7 @@ export const PERIOD_PRESETS: PeriodPreset[] = [
  * decided the other way.
  *
  * The old default was `last 30 days`, on the grounds that this screen is a WORKLIST (the same
- * reason `DEFAULT_TAB` is `not_matched` rather than `all`): opening on every transfer ever staged
+ * reason `DEFAULT_TAB` is `notMatchedOutflow` rather than `all`): opening on every transfer ever staged
  * makes the first paint slower every month the feature is used, and buries the statement somebody
  * just imported under months of settled history. BOTH OF THOSE COSTS ARE REAL AND ARE NOW ACCEPTED
  * -- a reviewer looking for an older transfer was silently shown nothing and had no reason to

@@ -94,6 +94,18 @@ INVOICE_APPROVAL_PROFILES = (
     ACCOUNTANT_LEAD_PROFILE,
 )
 
+# `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
+# Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
+#
+# ⚠️ WHY PROFILES AND NOT THE DOCTYPE'S ROLE ROWS ALONE: the only role that can delete is
+# `System Manager`, and that role also rides on the PMO, Project Lead, Estimates, HR and Design
+# Lead profiles. Role rows cannot say "Admin only", so `integrations/controllers/
+# non_project_inflows.py` narrows them per profile. Mirrored client-side by
+# `NON_PROJECT_INFLOWS_ACCESS` / `_EDIT` / `_DELETE` in `frontend/src/constants/roles.ts`.
+NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".

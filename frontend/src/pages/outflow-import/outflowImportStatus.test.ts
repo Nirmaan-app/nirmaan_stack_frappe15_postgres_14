@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    ACTIVE_ROW_STATUSES,
     BATCH_COMPLETED,
     BATCH_DRAFT,
     BATCH_IN_REVIEW,
@@ -10,6 +11,7 @@ import {
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -18,6 +20,7 @@ import {
     TERMINAL_ROW_STATUSES,
     deriveBatchCounters,
     deriveBatchStatus,
+    isActive,
     isOpen,
     isTerminal,
     rowStatusTone,
@@ -36,11 +39,13 @@ import {
  * ⚠️ REWRITTEN AT THE v3 REVERSAL (slice V0), alongside the Python half.
  */
 describe("row status vocabulary (parity with services/outflow_import/status.py)", () => {
-    it("is exactly these six statuses, in reviewer order", () => {
+    // REPLACES "is exactly these six statuses, in reviewer order"
+    it("is exactly these seven statuses, in reviewer order", () => {
         expect(ROW_STATUSES).toEqual([
             "Pending match run",
             "Matched",
             "Mismatched",
+            "Partially Allocated",
             "Settled",
             "Skipped",
             "Error",
@@ -79,12 +84,35 @@ describe("row status vocabulary (parity with services/outflow_import/status.py)"
         expect(BATCH_STATUSES).not.toContain("Completed with exceptions");
     });
 
-    it("partitions cleanly into terminal and open", () => {
+    // REPLACES "partitions cleanly into terminal and open" -- INVERTED, not deleted.
+    it("no longer partitions into terminal and open, because Partially Allocated is in neither", () => {
+        // ⚠️ DELIBERATE (ADR-0020 D5). Money is written and work remains. Kept as an inverted pin:
+        // restoring the partition means putting the status into one of the two sets, and both
+        // choices are silent defects -- see the Python half in test_status.TestVocabulary.
+        expect(isOpen(ROW_PARTIALLY_ALLOCATED)).toBe(false);
+        expect(isTerminal(ROW_PARTIALLY_ALLOCATED)).toBe(false);
+        expect(TERMINAL_ROW_STATUSES.size + OPEN_ROW_STATUSES.size).not.toBe(
+            ROW_STATUSES.length,
+        );
+    });
+
+    it("partitions cleanly into active and terminal", () => {
         for (const status of ROW_STATUSES) {
-            expect(isTerminal(status) || isOpen(status)).toBe(true);
-            expect(isTerminal(status) && isOpen(status)).toBe(false);
+            expect(isActive(status) || isTerminal(status)).toBe(true);
+            expect(isActive(status) && isTerminal(status)).toBe(false);
         }
-        expect(TERMINAL_ROW_STATUSES.size + OPEN_ROW_STATUSES.size).toBe(ROW_STATUSES.length);
+        expect(ACTIVE_ROW_STATUSES.size + TERMINAL_ROW_STATUSES.size).toBe(
+            ROW_STATUSES.length,
+        );
+    });
+
+    it("gives Partially Allocated its own tone, distinct from every other status", () => {
+        // ⚠️ NOT amber -- amber is Mismatched's. Two statuses sharing a tone is the same defect
+        // as no tone at all: the chip stops telling them apart.
+        const tone = ROW_STATUS_TONE[ROW_PARTIALLY_ALLOCATED];
+        expect(tone).toBeTruthy();
+        const others = ROW_STATUSES.filter((s) => s !== ROW_PARTIALLY_ALLOCATED);
+        expect(others.map((s) => ROW_STATUS_TONE[s])).not.toContain(tone);
     });
 
     it("treats ONLY Settled and Skipped as terminal", () => {

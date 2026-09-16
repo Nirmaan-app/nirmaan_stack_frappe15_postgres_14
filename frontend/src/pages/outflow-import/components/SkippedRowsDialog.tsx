@@ -1,7 +1,7 @@
 // src/pages/outflow-import/components/SkippedRowsDialog.tsx
 
 import { useCallback, useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { Loader2, RotateCcw, Search, X } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -21,15 +21,33 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useUserData } from "@/hooks/useUserData";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { exportToCsv } from "@/utils/exportToCsv";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { ExportButton } from "./ExportButton";
-import { ClearFiltersButton, OutflowRowsTable, TablePagination } from "./OutflowRowsTable";
+import {
+    ClearFiltersButton,
+    OutflowRowsTable,
+    TablePagination,
+    type TableActionColumn,
+} from "./OutflowRowsTable";
 import { useOutflowRows } from "../useOutflowRows";
+import { canUndoOutflow } from "../outflowImportStatus";
+import { unskipBlockReason, unskipNotice, type UnskipNotice, type UnskipResult } from "../unskipView";
 import { exportFileBase, toExportColumns } from "../outflowExport";
-import { OUTFLOW_COLUMNS, describeFrappeError } from "../outflowTableModel";
+import {
+    OUTFLOW_COLUMNS,
+    SKIPPED_BY_HAND_FILTER,
+    SKIPPED_BY_HAND_LABEL,
+    SKIPPED_ON_PURPOSE_LABEL,
+    SKIPPED_ON_PURPOSE_PHRASE,
+    describeFrappeError,
+} from "../outflowTableModel";
 
 interface Props {
     /**
@@ -49,12 +67,22 @@ interface Props {
      */
     skippedRows?: number;
     failedRows?: number;
+    /** `get_outflow_summary.skipped_by_hand_rows` -- the count the "Skipped by hand" filter returns. */
+    skippedByHandRows?: number;
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    /**
+     * Called after an Unskip succeeds (#1274), so the page behind refreshes its worklist and its
+     * counts -- the line is back in the worklist, and the Skipped chip is one lower.
+     */
+    onChanged?: () => Promise<void> | void;
 }
 
-/** Which half of `Skipped` is on screen. `""` is both. */
-type BankFilter = "" | "recorded" | "failed";
+/**
+ * Which slice of `Skipped` is on screen. `""` is all of it. `manual` (#1273) is a subset of `recorded`
+ * -- the lines a person skipped -- offered as its own segment so they can be found fast.
+ */
+type BankFilter = "" | "recorded" | "failed" | typeof SKIPPED_BY_HAND_FILTER;
 
 /** Nothing here is selectable, so the shared empty set is passed rather than a new one per render. */
 const NOTHING: ReadonlySet<string> = new Set();
@@ -76,17 +104,29 @@ const NO_ORIGINS = new Map();
  * needs no prop for it: the period lives in `useOutflowPeriodStore` and `useOutflowRows` reads it
  * directly, so this dialog's table and the page's table cannot be looking at different windows.
  *
- * ⚠️ READ-ONLY BY CONSTRUCTION RATHER THAN BY A FLAG. `Skipped` is terminal, so `OutflowRowsTable`
- * already renders no action for it, and passing an empty `selectableRowNames` removes the checkbox
- * column entirely (`selectable = names.length > 0`). No new mode, no new branch to keep honest.
+ * ⚠️ NOTHING HERE IS SELECTABLE. `Skipped` is terminal, so `OutflowRowsTable` renders no Outcome
+ * action for it, and passing an empty `selectableRowNames` removes the checkbox column entirely
+ * (`selectable = names.length > 0`).
+ *
+ * ⚠️ THE ONE ACTION IS UNSKIP, ONE LINE AT A TIME, FOR ADMIN AND ACCOUNTANT LEAD (#1274, ADR-0022). It
+ * rides the table's `actionColumn`, live only for a hand skip (`unskipBlockReason`); every other line
+ * shows the button disabled with its reason in words. "Skips are final" still holds for system skips.
  *
  * ⚠️ THE REASON IS IN THE OUTCOME COLUMN, NOT IN `skip_reason`. 20 of the 47 skipped rows on the
  * first real statement carry no `skip_reason` at all -- the already-Paid duplicates record it as
- * "Already recorded as Paid on PAY-…" in the note, exactly as the Mismatched causes do. The table's
+ * "Already recorded as Paid on Project Payment PAY-…" in the note, exactly as the Mismatched causes do. The table's
  * terminal cell already falls back `outcome_note || skip_reason`, which is why this dialog needs no
  * column of its own.
  */
-export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpenChange }: Props) => {
+export const SkippedRowsDialog = ({
+    batch,
+    skippedRows,
+    failedRows,
+    skippedByHandRows,
+    open,
+    onOpenChange,
+    onChanged,
+}: Props) => {
     // ⚠️ `enabled` MATTERS HERE. A dialog that is mounted but closed must not query -- this one sits
     // in the page's tree for the whole session and would otherwise fetch on every filter change
     // behind it.
@@ -139,8 +179,68 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
         }
     }, [callExport, table.exportQuery]);
 
+    // --- Unskip (#1274, mockup scenes 5 and 6) -------------------------------------------------------
+    // ⚠️ THE COLUMN IS FOR THE UNDO ROLES ONLY. A plain Accountant sees the popup as before; hiding it is
+    // convenience, and `review.unskip_row` refuses them anyway.
+    const { role, user_id } = useUserData();
+    const canUnskip = canUndoOutflow(role, user_id);
+    const [unskipping, setUnskipping] = useState<OutflowImportRow | null>(null);
+    const [notice, setNotice] = useState<UnskipNotice | null>(null);
+
+    // ⚠️ MEMOIZED: every memoized table row receives this object (see `TableActionColumn`).
+    const actionColumn = useMemo<TableActionColumn | undefined>(
+        () =>
+            canUnskip
+                ? {
+                      title: "Unskip",
+                      render: (row) => (
+                          <UnskipCell
+                              row={row}
+                              onUnskip={(target) => {
+                                  setNotice(null);
+                                  setUnskipping(target);
+                              }}
+                          />
+                      ),
+                  }
+                : undefined,
+        [canUnskip]
+    );
+
+    const mutateRows = table.mutate;
+    const { call: callUnskip } = useFrappePostCall<{ message: UnskipResult }>(
+        "nirmaan_stack.api.outflow_import.review.unskip_row"
+    );
+    const handleUnskip = useCallback(
+        async (row: OutflowImportRow, reason: string) => {
+            const response = await callUnskip({ row: row.name, reason });
+            setUnskipping(null);
+            // Built from the server's re-check, never from what was clicked (`unskipNotice`).
+            setNotice(unskipNotice(response.message));
+            // ⚠️ NOT AWAITED. The unskip has committed; a failed refresh must not reach the confirm's
+            // catch and read as "The transfer was not unskipped."
+            void Promise.resolve(mutateRows()).catch(() => undefined);
+            void Promise.resolve(onChanged?.()).catch(() => undefined);
+        },
+        [callUnskip, mutateRows, onChanged]
+    );
+
+    // ⚠️ THE NOTICE BELONGS TO ONE VISIT. This dialog stays mounted for the whole session, so without
+    // this a closed-and-reopened popup still said "Unskipped…" about a line from minutes ago -- on a
+    // different source, even (found on the #1274 browser walk).
+    const handleOpenChange = useCallback(
+        (next: boolean) => {
+            if (!next) {
+                setNotice(null);
+                setUnskipping(null);
+            }
+            onOpenChange(next);
+        },
+        [onOpenChange]
+    );
+
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             {/* ⚠️ WIDER THAN THE OTHER DIALOGS ON PURPOSE. This one renders the SAME table as the
                 page, and that table's columns are sized for a full-width screen — at `max-w-6xl` the
                 Outcome column fell off the right edge, which on this screen is the only column that
@@ -161,13 +261,20 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                                 <strong className="font-medium text-foreground">
                                     {skippedRows}
                                 </strong>{" "}
-                                were already recorded as Paid by hand and{" "}
+                                were {SKIPPED_ON_PURPOSE_PHRASE} (the Outcome column says why) and{" "}
                                 <strong className="font-medium text-foreground">
                                     {failedRows}
                                 </strong>{" "}
                                 were refused by the bank. The summary&rsquo;s Skipped figure counts
                                 only the first {skippedRows} — money the bank never moved is left out
                                 of every figure up there.
+                            </>
+                        )}
+                        {canUnskip && (
+                            <>
+                                {" "}
+                                Transfers skipped by hand can be unskipped. Transfers skipped by the
+                                system stay skipped, and each one says why.
                             </>
                         )}
                     </DialogDescription>
@@ -199,8 +306,9 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                         {(
                             [
                                 ["", "All", (skippedRows ?? 0) + (failedRows ?? 0)],
-                                ["recorded", "Already paid", skippedRows],
+                                ["recorded", SKIPPED_ON_PURPOSE_LABEL, skippedRows],
                                 ["failed", "Bank refused", failedRows],
+                                [SKIPPED_BY_HAND_FILTER, SKIPPED_BY_HAND_LABEL, skippedByHandRows],
                             ] as [BankFilter, string, number | undefined][]
                         ).map(([value, label, count]) => (
                             <button
@@ -232,6 +340,37 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                         </span>
                     </div>
                 </div>
+
+                {notice && (
+                    <div
+                        role="status"
+                        className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                            notice.tone === "warn"
+                                ? "border-amber-200 bg-amber-50 text-amber-900"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        }`}
+                    >
+                        <span className="flex-1">
+                            <strong className="font-semibold">{notice.title}</strong> {notice.body}
+                        </span>
+                        <button
+                            type="button"
+                            aria-label="Dismiss"
+                            className="opacity-70 hover:opacity-100"
+                            onClick={() => setNotice(null)}
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                )}
+
+                {unskipping && (
+                    <UnskipConfirm
+                        row={unskipping}
+                        onCancel={() => setUnskipping(null)}
+                        onConfirm={handleUnskip}
+                    />
+                )}
 
                 {/* The server's own sentence, unrewritten — see the master page's copy of this. */}
                 <AlertDialog
@@ -282,6 +421,7 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                             onToggleRow={() => undefined}
                             onToggleAll={() => undefined}
                             onOpenDecision={() => undefined}
+                            actionColumn={actionColumn}
                         />
                     )}
                 </div>
@@ -295,6 +435,111 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                         onPage={table.setPage}
                     />
                 )}
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+/**
+ * A live Unskip for a hand skip; for every other line a disabled button with the reason IN WORDS beside
+ * it, never only in a tooltip, so it reads on any device (story 63).
+ */
+const UnskipCell = ({
+    row,
+    onUnskip,
+}: {
+    row: OutflowImportRow;
+    onUnskip: (row: OutflowImportRow) => void;
+}) => {
+    const blocked = unskipBlockReason(row);
+    return (
+        <div className="flex w-[180px] flex-col items-start gap-1">
+            <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={blocked !== null}
+                onClick={() => onUnskip(row)}
+            >
+                <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                Unskip
+            </Button>
+            {blocked && <span className="text-[11px] leading-snug text-muted-foreground">{blocked}</span>}
+        </div>
+    );
+};
+
+/**
+ * The small confirm an Unskip opens: a required reason, then the re-check.
+ *
+ * ⚠️ THE SERVER'S REFUSAL IS SHOWN HERE, not left to an unhandled rejection -- someone may have unskipped
+ * the line a moment ago, or a role was changed. The confirm closes only on success.
+ */
+const UnskipConfirm = ({
+    row,
+    onCancel,
+    onConfirm,
+}: {
+    row: OutflowImportRow;
+    onCancel: () => void;
+    onConfirm: (row: OutflowImportRow, reason: string) => Promise<void>;
+}) => {
+    const [reason, setReason] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const trimmed = reason.trim();
+
+    const submit = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            await onConfirm(row, trimmed);
+        } catch (err) {
+            setError(describeFrappeError(err, "The transfer was not unskipped."));
+            setBusy(false);
+        }
+    };
+
+    return (
+        <Dialog open onOpenChange={(next) => !next && !busy && onCancel()}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Unskip this transfer?</DialogTitle>
+                    <DialogDescription>
+                        {formatToRoundedIndianRupee(row.amount)}
+                        {row.beneficiary_name ? ` to ${row.beneficiary_name}` : ""} goes back to matching
+                        and is checked again straight away. If its money has been recorded since, it is
+                        skipped again with that reason.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-1.5">
+                    <Label htmlFor="unskip-transfer-reason" className="text-xs">
+                        Reason (required)
+                    </Label>
+                    <Input
+                        id="unskip-transfer-reason"
+                        value={reason}
+                        autoFocus
+                        placeholder="Why should this transfer come back?"
+                        onChange={(e) => {
+                            setReason(e.target.value);
+                            setError(null);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && trimmed && !busy) submit();
+                        }}
+                    />
+                    {error && <p className="text-xs text-destructive">{error}</p>}
+                </div>
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </Button>
+                    <Button disabled={!trimmed || busy} onClick={submit}>
+                        {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                        Unskip
+                    </Button>
+                </div>
             </DialogContent>
         </Dialog>
     );

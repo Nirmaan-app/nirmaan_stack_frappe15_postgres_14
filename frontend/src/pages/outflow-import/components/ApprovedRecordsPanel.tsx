@@ -53,7 +53,10 @@ const PAGE_SIZE = 50;
  *
  * ⚠️ NO TIMESTAMP — `exportToCsv` appends its own, and two stamps would be taken at two moments.
  */
-const APPROVED_EXPORT_FILE_BASE = "outflow-approved-not-yet-paid";
+// ⚠️ THE STEM MOVED WITH THE STATUS (#1289). The inbox lists what has been marked as done and is
+// waiting for a bank line, not what has merely been approved -- and a spreadsheet outlives the
+// screen that produced it, so a stale name is a claim about the contents nobody can contradict later.
+const APPROVED_EXPORT_FILE_BASE = "outflow-awaiting-bank-line";
 
 /**
  * This panel's columns, as `exportToCsv` reads them.
@@ -110,7 +113,7 @@ const APPROVED_EXPORT_COLUMNS: ApprovedExportColumn[] = [
     approvedColumn("vendor_name", "Vendor", (r) => r.vendor_name ?? ""),
     approvedColumn("project_name", "Project", (r) => r.project_name ?? ""),
     approvedColumn("status", "Status", (r) => r.status ?? ""),
-    approvedColumn("approved_on", "Approved on", (r) => approvedDateCell(r.approved_on)),
+    approvedColumn("approved_on", "Approved on", (r) => approvedDateCell(r.approved_on)),  // the APPROVAL date, unchanged by #1289
     approvedColumn("updated_on", "Updated on", (r) => approvedDateCell(r.updated_on)),
     approvedColumn("amount", "Amount", (r) => (r.amount == null ? "" : r.amount)),
 ];
@@ -236,7 +239,7 @@ export const ApprovedRecordsPanel = () => {
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border bg-muted/20 p-3 text-sm">
                 <span>
                     <span className="text-lg font-semibold tabular-nums">{total}</span>{" "}
-                    <span className="text-muted-foreground">approved and not yet paid</span>
+                    <span className="text-muted-foreground">marked as done, waiting for a bank line</span>
                 </span>
                 <span className="font-medium tabular-nums">
                     {formatToRoundedIndianRupee(value)}
@@ -353,7 +356,7 @@ export const ApprovedRecordsPanel = () => {
                 </div>
             ) : rows.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">
-                    Nothing is approved and waiting under these filters.
+                    Nothing is waiting for a bank line under these filters.
                 </p>
             ) : (
                 <div className="overflow-x-auto rounded-md border">

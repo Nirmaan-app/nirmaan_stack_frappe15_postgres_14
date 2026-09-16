@@ -36,6 +36,11 @@ export type DialogStore = {
   setNewInflowDialog: (open: boolean) => void;
   toggleNewInflowDialog: () => void;
 
+  // New Non-Project Inflow Dialog (opened by the /non-project-inflows "Add" button; edit is page-local)
+  newNonProjectInflowDialog: boolean;
+  setNewNonProjectInflowDialog: (open: boolean) => void;
+  toggleNewNonProjectInflowDialog: () => void;
+
   // --- (Indicator) NEW: Edit Inflow Payment Dialog ---
   editInflowDialog: boolean;
   setEditInflowDialog: (open: boolean) => void;
@@ -134,6 +139,10 @@ export const useDialogStore = create<DialogStore>((set) => ({
   newInflowDialog: false,
   setNewInflowDialog: (open: boolean) => set({ newInflowDialog: open }),
   toggleNewInflowDialog: () => set((state) => ({ newInflowDialog: !state.newInflowDialog })),
+
+  newNonProjectInflowDialog: false,
+  setNewNonProjectInflowDialog: (open: boolean) => set({ newNonProjectInflowDialog: open }),
+  toggleNewNonProjectInflowDialog: () => set((state) => ({ newNonProjectInflowDialog: !state.newNonProjectInflowDialog })),
 
   // --- (Indicator) NEW: Edit Inflow Payment Dialog Implementation ---
   editInflowDialog: false,
