@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { UseFormReturn } from "react-hook-form";
-import { Store, AlertCircle, Calculator, CirclePlus, Layers } from "lucide-react";
+import { Store, AlertCircle, AlertTriangle, Calculator, CirclePlus, Layers, Loader2 } from "lucide-react";
 import ReactSelect from "react-select";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { SRFormValues, calculateTotal, VendorRefType } from "../schema";
 import { PLACEHOLDERS, VALIDATION_MESSAGES } from "../constants";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getSelectStyles } from "@/config/selectTheme";
+import { VendorFYLimitState, fyLabel, rupees } from "../hooks/useVendorFYLimit";
 
 interface VendorOptionInput {
     value: string;
@@ -35,6 +36,8 @@ interface StepProps {
     form: UseFormReturn<SRFormValues>;
     vendors: VendorOptionInput[];
     isLoading?: boolean;
+    /** New-WO wizard only; the amend flow omits it (the limit applies at creation). */
+    vendorLimit?: VendorFYLimitState;
 }
 
 interface VendorOption {
@@ -57,6 +60,7 @@ export const VendorRatesStep: React.FC<StepProps> = ({
     form,
     vendors,
     isLoading,
+    vendorLimit,
 }) => {
     const [isVendorSheetOpen, setIsVendorSheetOpen] = useState(false);
     const items = form.watch("items") || [];
@@ -236,6 +240,43 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                         </div>
                     </CardContent>
                 </Card>
+            )}
+
+            {/* Vendor Financial-Year WO Limit */}
+            {selectedVendor && vendorLimit?.isChecking && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5 -mt-3">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Checking this vendor's Work Order total for the financial year...
+                </p>
+            )}
+            {selectedVendor && vendorLimit?.isOverLimit && vendorLimit.summary && (
+                <div
+                    role="alert"
+                    className="flex items-start gap-3 rounded-lg p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800"
+                >
+                    <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <div className="space-y-2 min-w-0">
+                        <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                            Vendor Work Order limit reached
+                        </p>
+                        <div className="text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
+                            <p>
+                                Work Orders (GST off) in {fyLabel(vendorLimit.summary)}:{" "}
+                                <span className="font-semibold">{rupees(vendorLimit.summary.total)}</span>
+                                {" "}({vendorLimit.summary.wo_count} {vendorLimit.summary.wo_count === 1 ? "Work Order" : "Work Orders"})
+                            </p>
+                            {vendorLimit.projectedTotal !== vendorLimit.summary.total && (
+                                <p>
+                                    With this Work Order:{" "}
+                                    <span className="font-semibold">{rupees(vendorLimit.projectedTotal)}</span>
+                                </p>
+                            )}
+                            <p>
+                                Limit: <span className="font-semibold">{rupees(vendorLimit.summary.limit)}</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Rate Entry Table */}
