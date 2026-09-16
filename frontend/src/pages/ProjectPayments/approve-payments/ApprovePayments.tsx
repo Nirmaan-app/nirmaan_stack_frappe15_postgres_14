@@ -638,8 +638,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // and failed outright. Three things vary per row:
           //
           //   1. the DOCTYPE            -> `row.doctype`, the only field that says which
-          //   2. the CEO line           -> 50,000 for payments, 30,000 for expenses, so
-          //                                where an L1 approval LANDS differs per ledger
+          //   2. the CEO line           -> 50,000 on all three ledgers since 16 Sep 2026
+          //                                (expenses were briefly 30,000). Still resolved
+          //                                per row: the seam is what makes a future split
+          //                                a one-line change here
           //   3. `payment_details`      -> exists only on Project Payments; sending it to
           //                                an expense doctype is an unknown-field write
           const row = selectedPayment as unknown as ApprovalQueueRow;

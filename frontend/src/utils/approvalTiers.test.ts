@@ -157,18 +157,35 @@ describe("copy", () => {
   });
 });
 
-describe("the CEO line is PER-LEDGER", () => {
+// ⚠️ INVERTED 16 Sep 2026. This block used to assert the CEO lines DIFFERED —
+// payments 50,000, both expense ledgers 30,000 — and 40,000 was its witness.
+// The owner moved the expense line to 50,000, so 40,000 now finishes at L1
+// everywhere. The assertions are inverted rather than deleted: a silent revert
+// to 30,000 must fail here, not pass unnoticed.
+describe("the CEO line is SHARED by all three ledgers", () => {
   it("TIER_L2_ABOVE_EXPENSES matches the Python constant", () => {
     const m = PY_SOURCE.match(/^TIER_L2_ABOVE_EXPENSES\s*=\s*([\d_.]+)/m);
     expect(m).toBeTruthy();
     expect(Number(m![1].replace(/_/g, ""))).toBe(TIER_L2_ABOVE_EXPENSES);
   });
 
-  it("40,000 is L1 for payments but L1+L2 for expenses", () => {
+  it("both lines are 50,000, and are still two separate names", () => {
+    expect(TIER_L2_ABOVE).toBe(50_000);
+    expect(TIER_L2_ABOVE_EXPENSES).toBe(50_000);
+  });
+
+  it("40,000 — the amount that moved — finishes at L1 on every ledger", () => {
     expect(requiredTier(40_000)).toBe(APPROVAL_TIERS.l1);
-    expect(requiredTier(40_000, TIER_L2_ABOVE_EXPENSES)).toBe(APPROVAL_TIERS.l1l2);
+    expect(requiredTier(40_000, TIER_L2_ABOVE_EXPENSES)).toBe(APPROVAL_TIERS.l1);
     expect(statusAfterL1(40_000)).toBe("Approved");
-    expect(statusAfterL1(40_000, TIER_L2_ABOVE_EXPENSES)).toBe("CEO Pending");
+    expect(statusAfterL1(40_000, TIER_L2_ABOVE_EXPENSES)).toBe("Approved");
+  });
+
+  it("60,000 still needs the CEO on every ledger", () => {
+    for (const l2Above of [TIER_L2_ABOVE, TIER_L2_ABOVE_EXPENSES]) {
+      expect(requiredTier(60_000, l2Above)).toBe(APPROVAL_TIERS.l1l2);
+      expect(statusAfterL1(60_000, l2Above)).toBe("CEO Pending");
+    }
   });
 
   it("the AUTO band is identical on both ledgers", () => {

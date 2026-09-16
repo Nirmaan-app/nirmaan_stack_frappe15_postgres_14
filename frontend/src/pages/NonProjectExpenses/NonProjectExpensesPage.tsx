@@ -319,7 +319,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
       // finishing the approval — so the status written depends on the AMOUNT, and
       // `statusAfterL1` is the one place that decides it (shared with Python by a
       // parity test). Writing "Approved" unconditionally, as this did, let a
-      // >Rs 30,000 expense skip the CEO gate entirely.
+      // >Rs 50,000 expense skip the CEO gate entirely. (That line read 30,000
+      // until the owner moved the expense CEO threshold on 16 Sep 2026; the code
+      // never carried the number, only `TIER_L2_ABOVE_EXPENSES`.)
       const nextStatus =
         statusAction.next === "Approved"
           ? statusAfterL1(statusAction.expense.amount, TIER_L2_ABOVE_EXPENSES)

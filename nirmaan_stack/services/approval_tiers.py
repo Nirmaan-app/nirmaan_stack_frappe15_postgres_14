@@ -62,18 +62,23 @@ from __future__ import annotations
 TIER_AUTO_APPROVE_BELOW = 15000.0
 # Strictly ABOVE this needs the CEO on top of L1.
 #
-# ⚠️ THE CEO LINE IS PER-LEDGER (owner, 15 Sep 2026). The auto line is shared at
-# 15,000, but the owner set two different CEO thresholds in the same session:
+# ⚠️ ALL THREE LEDGERS NOW SHARE BOTH LINES (owner, 16 Sep 2026): auto below
+# 15,000, L1 only from 15,000 to 50,000, CEO above 50,000.
 #
 #     Project Payments       < 15,000 auto | 15,000-50,000 L1 only | > 50,000 CEO
-#     Project / Non-Project  < 15,000 auto | 15,000-30,000 L1 only | > 30,000 CEO
+#     Project / Non-Project  < 15,000 auto | 15,000-50,000 L1 only | > 50,000 CEO
 #       Expenses
 #
-# So callers pass `l2_above`; the module default is the PAYMENTS line, because
-# that is the larger population and the historical behaviour.
+# ⚠️ THIS REVERSES THE PER-LEDGER SPLIT OF 15 Sep 2026, which put the expense CEO
+# line at 30,000 while payments sat at 50,000. An expense between 30,000 and
+# 50,000 used to need the CEO and now FINISHES AT L1 -- so anything written
+# against "expenses go to the CEO above 30,000" is stale, wherever it stands.
 TIER_L2_ABOVE = 50000.0
-# The expense ledgers' own CEO line.
-TIER_L2_ABOVE_EXPENSES = 30000.0
+# The expense ledgers' CEO line. Deliberately KEPT as its own name even though it
+# now equals the payments line: the owner has already moved this number once, and
+# a named seam makes the next divergence a one-line change instead of a hunt
+# through every expense call site. Every expense caller still passes it EXPLICITLY.
+TIER_L2_ABOVE_EXPENSES = 50000.0
 
 # ── The three answers ───────────────────────────────────────────────────────────────────
 TIER_AUTO = "auto"
