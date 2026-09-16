@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, MapPin, Building2, ArrowRight } from "lucide-react";
+import { ClipboardList, MapPin, Building2, ArrowRight, AlertTriangle } from "lucide-react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 
 // UI Components
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { cn } from "@/lib/utils";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 
 export function NewWODialog() {
     const navigate = useNavigate();
@@ -24,7 +25,7 @@ export function NewWODialog() {
     } | null>(null);
 
     // Fetch projects for additional details (location, status)
-    const { data: projects } = useFrappeGetDocList<Projects>(
+    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
         "Projects",
         {
             fields: ["name", "project_name", "project_city", "project_state", "status"],
@@ -35,6 +36,10 @@ export function NewWODialog() {
     );
 
     const projectDetails = projects?.find(p => p.name === selectedProject?.value);
+    // CEO Hold projects are never Completed/Halted, so they are always in `projects`.
+    const isCEOHold = projectDetails?.status === "CEO Hold";
+    // Hold Continue until the status is known, so a fast click can't skip the hold check.
+    const cannotContinue = !selectedProject || projectsLoading || isCEOHold;
 
     const handleClose = useCallback(() => {
         setNewWODialog(false);
@@ -46,11 +51,11 @@ export function NewWODialog() {
     }, []);
 
     const handleContinue = useCallback(() => {
-        if (selectedProject) {
+        if (selectedProject && !cannotContinue) {
             handleClose();
             navigate(`/service-requests/new/${selectedProject.value}`);
         }
-    }, [selectedProject, navigate, handleClose]);
+    }, [selectedProject, cannotContinue, navigate, handleClose]);
 
     return (
         <AlertDialog open={newWODialog} onOpenChange={(open) => { if (!open) handleClose(); }}>
@@ -113,6 +118,26 @@ export function NewWODialog() {
                             </div>
                         </div>
                     )}
+
+                    {/* CEO Hold Warning */}
+                    {selectedProject && isCEOHold && (
+                        <div
+                            role="alert"
+                            className="flex items-start gap-3 rounded-lg p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800"
+                        >
+                            <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                                    This project is on CEO Hold
+                                </p>
+                                <p className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
+                                    Currently you can't create work orders for this project. For any emergency, contact{" "}
+                                    <span className="font-semibold">{CEO_AUTHORIZED_USER}</span>{" "}
+                                    to unhold this project.
+                                </p>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
@@ -126,7 +151,7 @@ export function NewWODialog() {
                         </AlertDialogCancel>
                         <Button
                             onClick={handleContinue}
-                            disabled={!selectedProject}
+                            disabled={cannotContinue}
                             className={cn(
                                 "h-10 px-5 text-sm font-medium",
                                 "bg-blue-600 hover:bg-blue-700 text-white",
