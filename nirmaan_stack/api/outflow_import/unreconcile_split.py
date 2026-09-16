@@ -19,25 +19,28 @@ from nirmaan_stack.api.outflow_import.unreconcile_created import (
     series_counters_for,
 )
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
-from nirmaan_stack.services.outflow_import.ledgers import (
-    PAYMENT_DOCTYPE,
-    settleable_statuses,
-)
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import _outflow_import_write
 from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_UNSPLIT_PAYMENT,
     LegFacts,
     LegVerdict,
 )
-from nirmaan_stack.services.outflow_import.unsplit import SplitChild
+from nirmaan_stack.services.outflow_import.unsplit import (
+    LEFTOVER_UNTOUCHED_STATUSES,
+    SplitChild,
+)
 from nirmaan_stack.services.payment_split import unsplit_payment
 
 PO_DOCTYPE = "Procurement Orders"
 TDS_DEDUCTION_DOCTYPE = "Payment TDS Deduction"
 
-#: The status `expenses.settle_row_partial` leaves a part-settle's balance at, read from the ONE map
-#: rather than spelled here (#1289) -- see the call to `unsplit_payment` below.
-_SETTLEABLE_STATUS = settleable_statuses(PAYMENT_DOCTYPE)[0]
+#: The statuses a part-settle's balance may still be sitting at. ONE tuple, shared with the screen's
+#: own pre-check (`unsplit.LEFTOVER_UNTOUCHED_STATUSES`) so the plan and the write can never
+#: disagree about the same leftover -- today's settleable status, plus the `Approved` every
+#: pre-#1289 leftover was created at. The reasoning, and why the time window makes it safe, is on
+#: that constant.
+_LEFTOVER_STATUSES = LEFTOVER_UNTOUCHED_STATUSES
 
 
 def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
@@ -140,13 +143,14 @@ def join_leftover_back(original: str, leftover: str, actor: str, reason: str) ->
     series = series_counters_for(leftover)
     with _outflow_import_write():
         # ⚠️ THE EXPECTED LEFTOVER STATUS IS PASSED, NOT DEFAULTED (#1289). `unsplit_payment` defaults
-        # to `Approved`, which is the status a part settle left a balance at until the settleable
-        # anchor moved. `settle_row_partial` now creates the balance at `Reconciliation Pending`, so
-        # the default would refuse to undo every split this import had just made -- and the
-        # `unsplit.leftover_refusal` screen ahead of it, which reads the same map, would have said
-        # the leftover was fine. One map, read at both ends.
+        # to `Approved` alone, which is the status a part settle left a balance at until the
+        # settleable anchor moved. `settle_row_partial` now creates the balance at
+        # `Reconciliation Pending`, so the default would refuse to undo every split this import has
+        # made since -- and the `unsplit.leftover_refusal` screen ahead of it would have said the
+        # leftover was fine, which is the plan and the write disagreeing about one record at the
+        # moment it matters. Passing the SAME tuple that screen reads is what stops that.
         result = unsplit_payment(
-            original, leftover, expect_leftover_status=_SETTLEABLE_STATUS
+            original, leftover, expect_leftover_status=_LEFTOVER_STATUSES
         )
     restore_series_counters(series)
 

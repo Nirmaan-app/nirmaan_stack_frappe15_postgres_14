@@ -303,6 +303,21 @@ class PaymentSettlementFixture(unittest.TestCase):
         for name in self.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        # ⚠️ A SPLIT CHILD IS NOT IN `self.payments`, AND IT DOES NOT CARRY THE `TEST-` PREFIX
+        # EITHER -- `payment_split` inserts it through the naming series, so it lands with a REAL
+        # name like `PAY-05763-001`. Any suite that part-settles therefore leaves a live payment
+        # behind, and the next suite's `_guard_money_not_recorded` finds it and refuses settles that
+        # have nothing to do with it. That cost four confusing red runs before it was pinned down,
+        # each looking like a defect in the code under test. Swept HERE rather than in the partial
+        # fixture alone, because `test_unreconcile_tds` part-settles through this base class too.
+        children = frappe.get_all(
+            PAYMENT, filters={"split_from": ["in", self.payments or [""]]}, pluck="name"
+        )
+        for name in children:
+            frappe.db.delete("Version", {"ref_doctype": PAYMENT, "docname": name})
+            frappe.db.delete("PO Payment Terms", {"project_payment": name})
+            frappe.db.delete(PAYMENT, {"name": name})
+
         if self.payments:
             # X1 routes the settle through `doc.save()` on a `track_changes` doctype, so each
             # settlement now mints a Version row. This suite writes to the LIVE database, so its

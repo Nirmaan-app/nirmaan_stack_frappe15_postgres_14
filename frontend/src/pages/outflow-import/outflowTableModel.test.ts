@@ -2115,7 +2115,7 @@ describe("links to the record a row settles — the app's own route (slice E3)",
         // are the same answer: there is no order to open.
         for (const missing of [undefined, null, "", "   "]) {
             const link = settlementLink("Project Payments", "PAY-1", false, missing)!;
-            expect(link.href).toContain("tab=Reconciliation+Pending");
+            expect(link.href).toContain("tab=All+Payments");
         }
     });
 
@@ -2240,15 +2240,16 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         expect(link.href).toContain("PAY-00105-038");
     });
 
-    it("sends an UNSETTLED payment to Reconciliation Pending, because it is not Paid yet", () => {
+    it("sends an UNSETTLED payment to All Payments, because it is not Paid yet", () => {
         // ⚠️ Verified live before this branch existed: "Payments Done" filters status = Paid, so a
         // merely SUGGESTED payment landed on an empty table with nothing on screen explaining why.
-        // ⚠️ THE DESTINATION MOVED FROM "All Payments" AT #1289, and this assertion is the
-        // inversion. "All Payments" carried no status filter and was the only honest answer while
-        // the settleable status had no tab of its own; the lifecycle now has one, and a suggestion
-        // belongs among exactly the records a bank line could pay.
+        // "All Payments" carries no status filter.
+        // ⚠️ IT STAYED HERE THROUGH #1289. A suggestion is now at `Reconciliation Pending` and that
+        // tab exists -- but `paymentHref` is SHARED with `PaymentTDSDeductions`, which passes
+        // `false` because it cannot know its payment's status, so any status filter on the
+        // unsettled tab strands that link. An unfiltered tab is right for both callers.
         const link = settlementLink("Project Payments", "PAY-00107-044", false)!;
-        expect(link.href).toContain("tab=Reconciliation+Pending");
+        expect(link.href).toContain("tab=All+Payments");
         expect(link.href).not.toContain("Payments+Done");
         expect(link.href).toContain("PAY-00107-044");
     });
@@ -2259,7 +2260,7 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         const settled = settlementLink("Project Payments", "PAY-1", true)!;
         expect(settled.title).toContain("Payments Done");
         const open = settlementLink("Project Payments", "PAY-1", false)!;
-        expect(open.title).toContain("Reconciliation Pending");
+        expect(open.title).toContain("All Payments");
         expect(open.title).not.toContain("Payments Done");
     });
 
@@ -2272,9 +2273,7 @@ describe("links to the record a row settles — the FALLBACK path, with no order
 
     it("defaults to the unsettled destination, which is the safe one", () => {
         // If a caller forgets, the link still finds the record; the reverse default would hide it.
-        expect(settlementLink("Project Payments", "PAY-1")!.href).toContain(
-            "tab=Reconciliation+Pending",
-        );
+        expect(settlementLink("Project Payments", "PAY-1")!.href).toContain("tab=All+Payments");
     });
 
     it("⚠️ no longer has an expense link to mark INEXACT (#1289)", () => {
@@ -2338,8 +2337,8 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         });
         const [link] = rowSettlementLinks(matched);
         expect(link.label).toBe("PAY-00105-038");
-        // Nothing has been written, so the payment is still waiting -> Reconciliation Pending.
-        expect(link.href).toContain("tab=Reconciliation+Pending");
+        // Nothing has been written, so the payment is not Paid -> the unfiltered All Payments tab.
+        expect(link.href).toContain("tab=All+Payments");
     });
 
     it("links a SKIPPED duplicate to the payment somebody already ticked Paid", () => {

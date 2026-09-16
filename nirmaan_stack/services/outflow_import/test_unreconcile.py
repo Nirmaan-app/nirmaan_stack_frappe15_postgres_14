@@ -625,6 +625,13 @@ class TestAPartPayment(unittest.TestCase):
     def test_every_shape_of_an_untouched_leftover_is_un_split(self):
         for label, change in [
             ("status with whitespace", {"status": " Reconciliation Pending "}),
+            # ⚠️ EVERY LEFTOVER MINTED BEFORE #1289 SITS HERE, and nothing migrates them. Refusing
+            # it would tell a reviewer to "fix it on the Payments screen", about a record nobody has
+            # touched and with no control on that screen that would set the new status on a balance
+            # -- a dead end. The 60-second creation window above is what keeps this safe: a CEO
+            # part-approval's balance, which reaches `Approved` at its own later approval, is days
+            # older and can never arrive here.
+            ("the status a pre-#1289 part settle left it at", {"status": "Approved"}),
             ("tds None", {"tds": None}),
             ("tds blank", {"tds": ""}),
             ("minted in the same instant as the leg", {"created": MATCHED}),

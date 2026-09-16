@@ -5579,3 +5579,53 @@ as Done; it plants a payment of its own.
 `TaxedWorkOrderFixture.mark_as_done` is the new step the tax suites needed — through `doc.save()`, not
 `set_value`, so the transition itself is part of what those tests prove: the money is taxed once, at
 the CEO's approval, and nothing downstream withholds again.
+
+### Review follow-ups (same day)
+
+A `/code-review high` raised five findings. One was **refuted** and four were fixed.
+
+**REFUTED — "expenses can never reach *Reconciliation Pending*, so their settle pool is now
+permanently empty."** The expense pages themselves do go `Approved → Paid` and have no Mark as Done,
+which is what the finding saw. But **Mark as Done is not on the expense pages** — it is on the
+UNIFIED approval queue: `api/approvals/get_approval_queue.py` unions both expense tables into the
+same result set with their own `doctype` column, and `ProjectPayments/update-payment/
+AccountantTabs.tsx` writes `status` back to `row.doctype`, never a hard-coded one. Confirmed on live
+data: one Project Expense and one Non-Project Expense were moved there by a real user, by hand, on
+the day this shipped.
+
+**FIXED — `paymentHref`'s unsettled tab.** The slice had pointed it at *Reconciliation Pending*,
+which reads well for the import and breaks a SHARED helper: `PaymentTDSDeductions` passes `false`
+precisely BECAUSE a deduction row carries no status, relying on the destination having no status
+filter. Reverted to "All Payments" and the reason written at both ends. Nothing in #1289 asked for
+that change.
+
+**FIXED — a pre-#1289 leftover could not be un-split.** Every balance minted before this slice was
+created at `Approved` (the old `remainder_status`) and nothing migrates them, so `leftover_refusal`
+told the reviewer to "fix it on the Payments screen" about an untouched record, with no control there
+that would do it. `unsplit.LEFTOVER_UNTOUCHED_STATUSES` now carries `Approved` as a HISTORICAL
+TOLERANCE and `payment_split.unsplit_payment`'s `expect_leftover_status` accepts a tuple, so the
+screen's pre-check and the write read the SAME set. ⚠️ Safe only because `is_balance_of_a_part_settle`
+gates this path on a 60-second creation window first — a CEO part-approval's balance reaches
+`Approved` at its own later approval, days later, and can never arrive here. The refusal SENTENCE
+names only the current status: the tolerance is compatibility, not somewhere to put a record.
+
+**FIXED — the PO balance term was invisible to the revision gate.** A term mirrors its payment 1:1,
+so the part settle now creates one at `Reconciliation Pending`, which was in neither
+`REDUCIBLE_TERM_STATUSES` nor `MID_APPROVAL_TERM_STATUSES`: `assess_decrease` counted no capacity AND
+built an empty `blocking`, reporting a real overpayment instead of naming the live balance payment.
+Added to `MID_APPROVAL_TERM_STATUSES`, which is exactly what it means — unpaid, carrying a live
+request. ⚠️ **`repair_po_adjustments.py` keeps its OWN copy of that tuple** and will still flag such
+terms as `STRAY`; left alone as out of scope, but it is a second copy of one vocabulary.
+
+**FIXED — comments describing deleted code** in `outflowTableModel.ts`, including the paragraph a
+reader would have restored the expense tab link from.
+
+### A test-isolation leak, fixed on the way
+
+`PaymentSettlementFixture.tearDown` purged `self.payments` and the `TEST-` prefix — but **a split
+child is in neither.** `payment_split` inserts it through the naming series, so it lands as a real
+`PAY-…` and survived every purge. A live `Paid` leftover then made the NEXT suite's
+`_guard_money_not_recorded` refuse settles that had nothing to do with it. It cost four red runs that
+each looked like a defect in the code under test. The base fixture now sweeps by `split_from`, so
+every suite inheriting it is covered (`test_unreconcile_tds` part-settles through it too), and the
+suites pass back-to-back with no purge between them.

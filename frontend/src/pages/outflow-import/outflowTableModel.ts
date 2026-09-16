@@ -2457,17 +2457,21 @@ export const orderPaymentsHref = (orderName: string): string =>
  * predates `order_name` keeps today's behaviour rather than losing its link entirely. It is the
  * only remaining caller of that helper here; the Project Payments module still owns it.
  *
- * ⚠️ EXPENSES CANNOT BE DEEP-LINKED TO A ROW, and that is a property of their tables, not an
- * omission here: `PE_SEARCHABLE_FIELDS` and `NPE_SEARCHABLE_FIELDS` cover description, type, vendor
- * and amount -- never the record id. There is no `/expense/:id` route either. Adding the id to one
- * of those lists is what would make `exact` true.
+ * ⚠️ EXPENSES GET NO LINK AT ALL FROM #1289, AND THE TAB DEEP-LINK THEY USED TO GET IS GONE. They
+ * were never linkable to a ROW -- `PE_SEARCHABLE_FIELDS` and `NPE_SEARCHABLE_FIELDS` cover
+ * description, type, vendor and amount, never the record id, and there is no `/expense/:id` route --
+ * so the best this ever offered was the tab the record sat in, through the namespaced `pe_status` /
+ * `npe_status` params (owner ruling 2026-09-09).
  *
- * ⚠️ THEY ARE DEEP-LINKED TO A TAB, THOUGH (owner ruling 2026-09-09), and the two are different
- * claims. Both lists read a namespaced status param -- `pe_status` / `npe_status` -- so the link
- * now lands on the tab the record is actually IN. It previously landed on each page's DEFAULT tab,
- * which is role-based and never `Paid`, so a settled expense sent the reviewer somewhere it could
- * not be. The tab follows `settled`, exactly as the payment branch does, because a suggestion's
- * expense is still `Approved`.
+ * That tab no longer exists for a settleable expense. The import settles from
+ * `Reconciliation Pending`, neither expense list has a tab for it (theirs are
+ * Requested / Approved / Paid / All), and the one screen that does lists Project Payments only. A
+ * link landing on an empty table reads as "the record is gone", so the branch returns `null` until
+ * the owner settles where it should point.
+ *
+ * ⚠️ DO NOT RESTORE THE `pe_status` / `npe_status` LINK FROM THIS PARAGRAPH. Pointing it back at
+ * `Approved` reproduces the exact empty-table defect the 2026-09-09 ruling was written to fix,
+ * facing the other way.
  *
  * ⚠️ WHATEVER THIS RETURNS MUST BE RENDERED THROUGH REACT ROUTER, never a raw `<a href>`. The
  * router carries a `basename` (`VITE_BASE_NAME`: "" in dev, 'frontend' in production), so an
@@ -2504,10 +2508,15 @@ export const settlementLink = (
             };
         }
         // ⚠️ THE TOOLTIP'S TAB AND `paymentHref`'S MUST AGREE, AND THIS IS THE SECOND SPELLING OF
-        // ONE FACT. A suggestion goes to the Reconciliation Pending tab from #1289 -- the status the
-        // import settles FROM -- so naming "All Payments" here would state a destination the link
-        // does not go to, which is the exact defect the "names the SAME tab" test exists to catch.
-        const tab = settled ? "Payments Done" : "Reconciliation Pending";
+        // ONE FACT -- naming a tab the link does not go to is the defect the "names the SAME tab"
+        // test exists to catch.
+        //
+        // ⚠️ IT STAYS "All Payments" FOR AN UNSETTLED PAYMENT, THOUGH THE SUGGESTION IS NOW AT
+        // `Reconciliation Pending` AND THAT TAB EXISTS (#1289). `paymentHref` is SHARED, and
+        // `PaymentTDSDeductions` passes `false` because it cannot know its payment's status -- so
+        // narrowing the helper's unsettled tab strands that link on an empty table. "All Payments"
+        // carries no status filter and therefore contains the suggestion either way.
+        const tab = settled ? "Payments Done" : "All Payments";
         return {
             href: paymentHref(name, settled),
             label: name,
@@ -2586,17 +2595,17 @@ export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
     // An already-recorded duplicate: SOMEBODY ELSE recorded this money before the statement was
     // uploaded, in any of four ledgers (#1253). We settled nothing, but the record is already Paid
     // (or, for an inflow, already received) -> `settled = true`, so a payment falls back to
-    // "Payments Done" and an expense lands on its Paid tab. This is the only route to a link on a
-    // Skipped or Mismatched row, whose note names the record in prose and which carries neither a
-    // match record nor a suggestion.
+    // "Payments Done". An EXPENSE yields no link at all from #1289 and drops out of the list here;
+    // the row's note still names it in prose. This is the only route to a link on a Skipped or
+    // Mismatched row, which carries neither a match record nor a suggestion.
     const alreadyRecorded = (row.related_records ?? [])
         .map((r) => settlementLink(r.target_doctype, r.target_name, true, r.order_name))
         .filter((link): link is SettlementLink => link !== null);
     if (alreadyRecorded.length) return alreadyRecorded;
 
-    // A suggestion has settled nothing, so its payment is still Approved -> "All Payments" on the
-    // fallback path. Its order travels under its own key: the suggestion is two scalar columns on
-    // the row, not a list, so it cannot be stamped in place like the two above.
+    // A suggestion has settled nothing, so its payment is not Paid -> the unfiltered "All Payments"
+    // tab on the fallback path. Its order travels under its own key: the suggestion is two scalar
+    // columns on the row, not a list, so it cannot be stamped in place like the two above.
     const suggested = settlementLink(
         row.suggested_doctype,
         row.suggested_name,

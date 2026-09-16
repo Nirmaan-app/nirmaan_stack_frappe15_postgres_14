@@ -380,7 +380,7 @@ def unsplit_payment(
     original_name: str,
     leftover_name: str,
     *,
-    expect_leftover_status: str = APPROVED_STATUS,
+    expect_leftover_status: str | tuple[str, ...] = APPROVED_STATUS,
 ) -> dict:
     """The inverse of ``split_payment``: join ``leftover_name`` back into ``original_name`` (#1279).
 
@@ -388,7 +388,10 @@ def unsplit_payment(
     back into the original's. The original's STATUS is the caller's (the outflow import reverts it next).
     One implementation of the sum invariant in each direction, side by side (ADR-0010 B1).
 
-    ``expect_leftover_status``: ``Approved`` (a partial settlement's balance) by default.
+    ``expect_leftover_status``: ``Approved`` (a partial settlement's balance) by default. It accepts a
+    TUPLE as well as one status, because a settlement's balance has been created at two different
+    statuses over this feature's life -- see the caller in ``api/outflow_import/unreconcile_split.py``.
+    Both are refused the same way; the message lists whichever were allowed.
 
     ⚠️ WHETHER THE LEFTOVER IS SAFE TO DELETE IS THE CALLER'S QUESTION
     (``services/outflow_import/unsplit.py``). This refuses only what breaks the inverse: a leftover not
@@ -410,10 +413,15 @@ def unsplit_payment(
                 leftover.name, pay.name
             )
         )
-    if leftover.status != expect_leftover_status:
+    allowed = (
+        (expect_leftover_status,)
+        if isinstance(expect_leftover_status, str)
+        else tuple(expect_leftover_status)
+    )
+    if leftover.status not in allowed:
         frappe.throw(
             _("The balance {0} is '{1}', not '{2}', so the split cannot be undone.").format(
-                leftover.name, leftover.status, expect_leftover_status
+                leftover.name, leftover.status, " or ".join(allowed)
             )
         )
     if frappe.db.exists("Project Payments", {"split_from": leftover.name}):

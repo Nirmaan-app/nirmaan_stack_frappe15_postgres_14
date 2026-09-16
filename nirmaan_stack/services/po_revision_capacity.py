@@ -46,7 +46,16 @@ REDUCIBLE_TERM_STATUSES = frozenset({"Created"})
 
 # Unpaid, but carrying a live payment request. Ordered, not a set, so a refusal message lists
 # them the same way every time.
-MID_APPROVAL_TERM_STATUSES = ("Requested", "CEO Pending", "Approved")
+#
+# ⚠️ `Reconciliation Pending` JOINED THEM AT #1289, AND IT IS THE SAME KIND OF TERM. A term mirrors
+# its payment's status 1:1 (`payment_split._split_po_term`), and a payment there has been marked as
+# done -- the money has left the bank and is waiting for its bank line -- so the term is unpaid and
+# carrying a live request, which is exactly what this tuple means. Bulk Import's part settle now
+# creates a balance term at that status, and while it was absent from BOTH this tuple and
+# `REDUCIBLE_TERM_STATUSES` such a term was invisible to the gate: a downward revision counted no
+# capacity AND built an empty `blocking`, so it reported a real overpayment instead of naming the
+# live balance payment holding the value.
+MID_APPROVAL_TERM_STATUSES = ("Requested", "CEO Pending", "Approved", "Reconciliation Pending")
 
 # Matches the tolerance used throughout the revision/adjustment code.
 TOLERANCE = 0.01

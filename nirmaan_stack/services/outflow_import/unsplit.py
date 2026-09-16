@@ -55,12 +55,29 @@ LEFTOVER_PAID_TITLE = "Leftover paid"
 #: created -- "Leftover changed", on a leftover nobody had touched. The coupling is real, not
 #: incidental: `expenses.settle_row_partial` creates the leftover at exactly this status, because a
 #: leftover is a record waiting for its own bank line.
-_LEFTOVER_UNTOUCHED_STATUSES = settleable_statuses(PAYMENT_DOCTYPE)
+#:
+#: ⚠️ `Approved` IS KEPT BESIDE IT AS A HISTORICAL TOLERANCE, NOT AS A SECOND ANCHOR. Every leftover
+#: minted BEFORE #1289 was created at `Approved` (the old `remainder_status`), and nothing migrates
+#: them. Without this a reviewer unreconciling a part settle made last week is told the leftover "is
+#: 'Approved', not Reconciliation Pending -- fix it on the Payments screen first", about a record
+#: nobody has touched and with no control on that screen that would set the new status on a balance.
+#: A dead end.
+#:
+#: ⚠️ IT IS SAFE ONLY BECAUSE THE TIME WINDOW GATES THIS PATH FIRST. `is_balance_of_a_part_settle`
+#: has already required the leftover to be minted within `CREATED_WINDOW_SECONDS` of its leg, so a
+#: CEO part-approval's balance -- which is created at `CEO Pending` and reaches `Approved` at its own
+#: later approval -- can never arrive here. This tuple is the weaker, second guard, and widening it
+#: does not widen what may be deleted. It may be dropped once no pre-#1289 leftover is left unsettled.
+#: What a part settle left its balance at before #1289. See `LEFTOVER_UNTOUCHED_STATUSES` above.
+_HISTORICAL_LEFTOVER_STATUS = "Approved"
+
+LEFTOVER_UNTOUCHED_STATUSES = (*settleable_statuses(PAYMENT_DOCTYPE), _HISTORICAL_LEFTOVER_STATUS)
 _FIX_ON_PAYMENTS_SCREEN = "the Payments screen"
 
 __all__ = [
     "CREATED_WINDOW_SECONDS",
     "LEFTOVER_PAID_TITLE",
+    "LEFTOVER_UNTOUCHED_STATUSES",
     "LEFTOVER_WRITTEN_FIELDS",
     "SplitChild",
     "is_balance_of_a_part_settle",
@@ -132,8 +149,12 @@ def leftover_refusal(leftover: SplitChild) -> tuple | None:
             f"Its leftover {name} has TDS on it. Fix the tax on the Payments screen first.",
             _FIX_ON_PAYMENTS_SCREEN,
         )
-    if (leftover.status or "").strip() not in _LEFTOVER_UNTOUCHED_STATUSES:
-        expected = " or ".join(_LEFTOVER_UNTOUCHED_STATUSES)
+    if (leftover.status or "").strip() not in LEFTOVER_UNTOUCHED_STATUSES:
+        # ⚠️ THE SENTENCE NAMES ONE STATUS WHILE THE CHECK ACCEPTS TWO, DELIBERATELY. The second is
+        # a compatibility tolerance for leftovers minted before #1289, not a status anything should
+        # be put INTO -- offering it to a reviewer as somewhere to move a record would be advice to
+        # walk backwards through the lifecycle.
+        expected = settleable_statuses(PAYMENT_DOCTYPE)[0]
         return (
             "Leftover changed",
             f"Its leftover {name} is '{leftover.status}', not {expected}. Fix it on the Payments "

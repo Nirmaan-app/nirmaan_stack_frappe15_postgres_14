@@ -46,17 +46,21 @@ export const buildPaymentsUrlSyncKey = (contextKey: string, tab: string): string
  * Done" filters `status = Paid`. A payment that has been SETTLED is Paid and belongs there -- but a
  * payment merely SUGGESTED by a matcher has not been paid, and that same link lands on an empty
  * table with no hint as to why. Verified live before this parameter existed. So callers say which
- * they have, and an unsettled record goes to "Reconciliation Pending" -- the tab that filters the
- * one status the Bulk Import can settle FROM (#1289), so a suggestion now lands among exactly the
- * records a bank line could pay. It used to go to "All Payments", which carries no status filter at
- * all and was the only honest answer while the settleable status had no tab of its own.
+ * they have, and an unsettled record goes to "All Payments", which carries no status filter at all.
+ *
+ * ⚠️ THE UNSETTLED TAB MUST STAY UNFILTERED, AND #1289 BRIEFLY BROKE THAT. Pointing it at
+ * "Reconciliation Pending" reads well for the Bulk Import, whose suggestions really are at that
+ * status -- but this helper is SHARED, and `PaymentTDSDeductions` passes `false` precisely BECAUSE
+ * it cannot know the status: a deduction row carries none, and its payment may be `Approved` or
+ * `Paid`. Any status filter here lands that link on an empty table. A caller that does know its
+ * record's status and wants a narrower tab must build its own href rather than narrow this one.
  *
  * ⚠️ COLD LOADS BOUNCE. Opening one of these in a FRESH tab redirects to `/` -- the app does that
  * before auth resolves, which is pre-existing behaviour and not specific to this link. An in-app
  * client-side navigation is fine; middle-click / "open in new tab" is not.
  */
 export const paymentHref = (paymentName: string, isPaid: boolean): string => {
-    const tab = isPaid ? PP_TABS.PAYMENTS_DONE : PP_TABS.RECONCILIATION_PENDING;
+    const tab = isPaid ? PP_TABS.PAYMENTS_DONE : PP_TABS.ALL_PAYMENTS;
     const key = buildPaymentsUrlSyncKey("all", tab);
     const params = new URLSearchParams({
         tab,
