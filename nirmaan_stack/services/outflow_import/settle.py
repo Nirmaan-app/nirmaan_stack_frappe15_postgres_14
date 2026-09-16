@@ -387,28 +387,25 @@ def clear_statement_attachment(doc, statement_file_url: str | None) -> bool:
     return True
 
 
-#: The doctypes whose `amount` is a **Data** column holding a bare numeric STRING.
-#:
-#: ⚠️ STILL A SET, THOUGH IT HOLDS ONE MEMBER AGAIN. B6 added `Project Inflows`; #1255 made that
-#: column Currency (a zero-loss migration) and removed it, so an inflow now gets a number like
-#: `Non Project Expenses` and `Project Payments`. Only `Project Expenses.amount` is still Data.
-_DATA_AMOUNT_DOCTYPES = frozenset({PROJECT_EXPENSE})
-
-
 def format_amount_for(doctype: str, amount: Decimal):
     """Format money the way the target doctype actually stores it.
 
-    `Project Expenses.amount` is a Data column: 2,574 live rows hold bare numeric strings, no
-    commas, no symbol. Handing it a float would store `5000.0` where every neighbour holds `5000`,
-    and the numeric CAST the candidate query relies on would still work but the column would stop
-    being self-consistent. `Non Project Expenses.amount` is a real Currency column and wants a
-    number. `Project Inflows.amount` is Currency too since #1255 (it shared the Data shape from B6).
+    ⚠️ EVERY LEDGER NOW STORES `amount` AS `Currency`, so this returns a float for all of them and
+    `doctype` no longer changes the answer. The `_DATA_AMOUNT_DOCTYPES` set and the bare-string
+    branch it gated were DELETED on 16 Sep 2026 rather than left holding an empty frozenset: a
+    branch that can never run reads as live to the next author, which is how a wrong value hides.
+
+    THE HISTORY, because it is the reason this function still exists at all. `Project Expenses` and
+    `Project Inflows` were Data columns -- varchar(140) holding bare numeric strings like '2935' /
+    '351.72'. Writing a float into one stored `5000.0` beside neighbours reading `5000`, and the
+    numeric CAST every consumer used would STILL have worked, which is exactly why that drift went
+    unnoticed. `Project Inflows` moved to Currency at #1255; `Project Expenses` was the last one and
+    moved on 16 Sep 2026.
+
+    KEPT AS A FUNCTION, NOT INLINED. The shape question belongs in one place. If a ledger ever
+    stores an amount as text again, this is where the branch goes back -- at the five call sites it
+    would be five chances to disagree.
     """
-    if doctype in _DATA_AMOUNT_DOCTYPES:
-        normalized = amount.normalize()
-        if normalized == normalized.to_integral_value():
-            return str(int(normalized))
-        return format(normalized, "f")
     return float(amount)
 
 

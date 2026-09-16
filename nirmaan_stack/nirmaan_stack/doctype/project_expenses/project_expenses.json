@@ -72,7 +72,7 @@
   },
   {
    "fieldname": "amount",
-   "fieldtype": "Data",
+   "fieldtype": "Currency",
    "label": "Amount"
   },
   {
@@ -147,7 +147,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-15 15:46:37.343487",
+ "modified": "2026-09-16 10:15:08.039195",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Expenses",

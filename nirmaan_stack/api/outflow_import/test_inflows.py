@@ -743,15 +743,13 @@ class TestTheSharedHelpers(unittest.TestCase):
         self.assertFalse(apply_statement_attachment(doc, "/private/files/s.csv"))
         self.assertEqual(doc.inflow_attachment, "/private/files/receipt.png")
 
-    def test_only_project_expenses_keeps_the_data_amount_shape(self):
-        # INVERTED at #1255: the inflow ledger used to share `Project Expenses`' bare-string shape.
-        # Its column is Currency now, so it gets a number like the other Currency ledgers, while
-        # `Project Expenses.amount` (still Data) keeps the string.
-        # ⚠️ `2500.50` NORMALISES TO `2500.5` on the Data side -- `Decimal.normalize()` drops the
-        # trailing zero, the shape `Project Expenses` has always stored.
-        for amount, expected in ((Decimal("44275"), "44275"), (Decimal("2500.50"), "2500.5")):
-            self.assertEqual(format_amount_for(PROJECT_EXPENSE, amount), expected)
+    def test_no_ledger_keeps_the_data_amount_shape_any_more(self):
+        # INVERTED TWICE, and both inversions are the record. At #1255 this ledger left the
+        # bare-string shape it shared with `Project Expenses`; on 16 Sep 2026 `Project Expenses`
+        # left too, so NOTHING stores an amount as text and `format_amount_for` lost its branch.
+        for amount in (Decimal("44275"), Decimal("2500.50")):
             self.assertEqual(format_amount_for(INFLOW_DOCTYPE, amount), float(amount))
+            self.assertEqual(format_amount_for(PROJECT_EXPENSE, amount), float(amount))
         self.assertEqual(format_amount_for("Non Project Expenses", Decimal("44275")), 44275.0)
 
 

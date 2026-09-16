@@ -59,12 +59,15 @@ SOURCE_TO_DOCTYPE = {
     SOURCE_NON_PROJECT: "Non Project Expenses",
 }
 
-# A varchar amount that is not a number must not abort the whole query -- one bad
-# row would blank the entire queue. Non-numeric reads as 0 and sorts to the bottom.
-_EXPENSE_AMOUNT = (
-    "CASE WHEN BTRIM(COALESCE(e.\"amount\", '')) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
-    "THEN BTRIM(e.\"amount\")::numeric ELSE 0 END"
-)
+# `Project Expenses.amount` became `Currency` / `numeric(21,9)` on 16 Sep 2026, so all
+# three ledgers read the same way and this is a plain column read.
+#
+# ⚠️ THE REGEX-GUARDED CAST THAT STOOD HERE COULD NOT BE LEFT IN AS BELT AND BRACES:
+# `BTRIM()` / `~` against a numeric column is a hard Postgres error, not a no-op, and it
+# 500'd this whole endpoint the moment the column changed. The reason it existed still
+# applies to any future varchar-amount column: ONE non-numeric row inside a CAST aborts
+# the entire statement and blanks the queue, rather than spoiling one line.
+_EXPENSE_AMOUNT = 'COALESCE(e."amount", 0)::numeric'
 
 # Columns the union exposes. Filtering and sorting are ALLOWLISTED to these -- the
 # values are parameterized, but the identifiers are interpolated, so an allowlist
@@ -147,7 +150,7 @@ def _expense_select(table, source, project_col):
             '{source}'                      AS source,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
-            {_EXPENSE_AMOUNT if source == SOURCE_PROJECT_EXPENSE else 'COALESCE(e."amount", 0)::numeric'} AS amount,
+            {_EXPENSE_AMOUNT}               AS amount,
             COALESCE(SPLIT_PART(e."description", E'\\n', 1), '')::text AS against_primary,
             -- Line 2 is the expense TYPE, not the comment (owner, 15 Sep). A type is a
             -- stable category a reader recognises ("Labour Charges"); a comment is free

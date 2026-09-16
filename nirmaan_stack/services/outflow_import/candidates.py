@@ -641,12 +641,10 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     if not values:
         return ()
 
-    # ⚠️ The project side is a Data column holding numeric STRINGS, so it is CAST before the
-    # window is applied; the non-project side is a real Currency column. Same tolerance, two
-    # expressions, because the two doctypes disagree about storage.
-    project_amount_clause, project_amount_params = amount_window_sql(
-        "CAST(NULLIF(btrim(amount), '') AS numeric)", values
-    )
+    # ONE tolerance, ONE expression: both columns are Currency since 16 Sep 2026. The two
+    # queries below stay separate for the reasons that did not change -- different status
+    # vocabularies and different column sets -- not because the amounts are stored differently.
+    project_amount_clause, project_amount_params = amount_window_sql("amount", values)
     non_project_amount_clause, non_project_amount_params = amount_window_sql("amount", values)
 
     out: list[TargetRef] = []
@@ -658,7 +656,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
                vendor, {_PROJECT_EXPENSE_DECIDED_ON}
         FROM "tabProject Expenses"
         WHERE status IN ({project_ph})
-          AND amount IS NOT NULL AND btrim(amount) <> ''
+          AND amount IS NOT NULL
           AND {project_amount_clause}
         """,
         (*_PROJECT_EXPENSE_STATUSES, *project_amount_params),

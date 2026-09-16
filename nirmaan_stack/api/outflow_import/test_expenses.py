@@ -614,21 +614,22 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         self.assertEqual(after.status, "Paid")
         self.assertEqual(Decimal(str(after.amount)), Decimal(str(row["amount"])))
 
-    def test_the_corrected_project_amount_is_still_a_bare_numeric_string(self):
-        """⚠️ `Project Expenses.amount` IS A DATA COLUMN and 2,574 live rows hold bare numeric
-        strings. Writing a float through the rewrite would store '5000.0' beside every neighbour's
-        '5000' -- the numeric CAST the candidate query relies on would still work, which is exactly
-        why this drift would go unnoticed. `format_amount_for` is what prevents it, on the rewrite
-        as much as on a create."""
+    def test_the_corrected_project_amount_is_stored_as_a_number(self):
+        """⚠️ THIS ASSERTION FLIPPED ON 16 Sep 2026 and the flip IS the record of the change.
+
+        `Project Expenses.amount` WAS a Data column, so the rewrite had to write a bare numeric
+        string: a float would have stored '5000.0' beside every neighbour's '5000', and the numeric
+        CAST the candidate query relied on would STILL have worked -- which is exactly why that
+        drift would have gone unnoticed. The column is Currency now, so the rewrite writes a number
+        and the column itself is what keeps it self-consistent."""
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 1)
 
         settle_expense(row["name"], PROJECT_EXPENSE, expense)
 
         stored = frappe.db.get_value(PROJECT_EXPENSE, expense, "amount")
-        self.assertIsInstance(stored, str)
-        self.assertNotIn(",", stored)
-        self.assertEqual(Decimal(stored), Decimal(str(row["amount"])))
+        self.assertNotIsInstance(stored, str)
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
 
     def test_a_non_project_expense_takes_it_too_as_a_number(self):
         """The other ledger, and the other storage shape -- `Non Project Expenses.amount` is real
@@ -743,16 +744,17 @@ class TestCreateExpense(SettlementFixture):
         # Visible provenance: the match record is durable but invisible on the expense form.
         self.assertIn(self.batch.name, doc.comment)
 
-    def test_the_project_amount_is_stored_as_a_bare_numeric_string(self):
-        # Project Expenses.amount is a Data column; 2,574 live rows hold '2935', not '2935.0'.
+    def test_the_project_amount_is_stored_as_a_number(self):
+        # INVERTED 16 Sep 2026: Project Expenses.amount was a Data column holding '2935', not
+        # '2935.0'. It is Currency now, so a create stores a real number.
         row = self._next_settleable_row()
         result = create_expense(
             row["name"], PROJECT_EXPENSE, self.project_type, project=self.project
         )
         self.project_expenses.append(result["settled"]["name"])
         stored = frappe.db.get_value(PROJECT_EXPENSE, result["settled"]["name"], "amount")
-        self.assertNotIn(",", stored)
-        self.assertEqual(Decimal(stored), Decimal(str(row["amount"])))
+        self.assertNotIsInstance(stored, str)
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
 
     def test_creates_a_non_project_expense_without_payment_by(self):
         # Non Project Expenses has no payment_by and no vendor column at all.
@@ -971,13 +973,14 @@ class TestTheStatementIsAttachedToWhatItSettled(SettlementFixture):
 
 
 class TestFormatAmountFor(unittest.TestCase):
-    def test_project_expenses_get_a_bare_string(self):
-        self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("5000")), "5000")
-        self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("5000.00")), "5000")
-        self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("351.72")), "351.72")
-
-    def test_non_project_expenses_get_a_number(self):
-        self.assertIsInstance(format_amount_for(NON_PROJECT_EXPENSE, Decimal("5000")), float)
+    def test_every_ledger_gets_a_number(self):
+        """⚠️ `Project Expenses` MOVED FROM THE STRING BRANCH TO THIS ONE on 16 Sep 2026, when its
+        column became Currency. It was the LAST Data-amount ledger (`Project Inflows` left at
+        #1255), so the string branch is gone entirely -- `doctype` no longer changes the answer."""
+        for doctype in (PROJECT_EXPENSE, NON_PROJECT_EXPENSE):
+            self.assertIsInstance(format_amount_for(doctype, Decimal("5000")), float)
+            self.assertEqual(format_amount_for(doctype, Decimal("5000.00")), 5000.0)
+            self.assertEqual(format_amount_for(doctype, Decimal("351.72")), 351.72)
 
 
 if __name__ == "__main__":
