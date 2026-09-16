@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/use-toast";
 // --- Dialog Component ---
 import { PaymentActionDialog } from "./components/PaymentActionDialog";
 import { BulkActionBar } from "./components/BulkActionBar";
+import { SelectionBlockedNotice } from "./components/SelectionBlockedNotice";
 
 // --- Types and Constants ---
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -558,6 +559,16 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRowCount]);
 
+  // Rows on this page whose checkbox the CEO-Hold clause above disables — surfaced by
+  // SelectionBlockedNotice so a dead checkbox never goes unexplained. Same predicate as
+  // `enableRowSelection`, so the count and the checkboxes cannot disagree.
+  const heldRowsOnPage = useMemo(
+    () => (data ?? []).filter((r) => r.project && ceoHoldProjectIds.has(r.project)).length,
+    [data, ceoHoldProjectIds]
+  );
+  const showSummaryCard = canViewPaymentSummary(role, user_id);
+  const showSelectionNotice = !readOnly && (heldRowsOnPage > 0 || selectedRowCount >= BULK_MAX_SELECTION);
+
   // Full-table CSV, all columns, whole filtered queue. Rendered through
   // `toolbarActions` rather than the built-in export button — see the note on the
   // `showExportButton={false}` prop below for why that swap was necessary here.
@@ -770,7 +781,22 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           //     toggle: toggleItemSearch,
           //     label: "Item Search"
           // }}
-          summaryCard={canViewPaymentSummary(role, user_id) ? <PaymentSummaryCards totalCount={totalCount} /> : null}
+          // The notice rides the summary slot so it sits directly above the toolbar and
+          // table. Read-only viewers get no checkboxes, so there is nothing to explain.
+          summaryCard={
+            showSummaryCard || showSelectionNotice ? (
+              <div className="space-y-2">
+                {showSummaryCard && <PaymentSummaryCards totalCount={totalCount} />}
+                {showSelectionNotice && (
+                  <SelectionBlockedNotice
+                    heldRowsOnPage={heldRowsOnPage}
+                    capReached={selectedRowCount >= BULK_MAX_SELECTION}
+                    cap={BULK_MAX_SELECTION}
+                  />
+                )}
+              </div>
+            ) : null
+          }
           facetFilterOptions={approvalFacets}
           dateFilterColumns={dateColumns}
           // ⚠️ THE BUILT-IN EXPORT BUTTON IS OFF ON THIS SCREEN, DELIBERATELY.

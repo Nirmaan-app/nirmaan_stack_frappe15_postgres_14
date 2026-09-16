@@ -87,16 +87,6 @@ const CASHFREE_CONTACT_PHONE = "8904007419";
 
 const ICICI_DEBIT_ACCOUNT = "093705003327";
 
-// A vendor with no bank account / IFSC cannot be paid out at all, so its row is made inert
-// rather than merely unselectable: dimmed, and pointer-events stripped so nothing inside it
-// responds to a click. canPaymentRowBeSelected already kills the checkbox; this is the
-// visual half, so it is obvious WHY the checkbox is dead instead of looking like a bug.
-// NOTE: pointer-events-none covers the whole row, so the Pay button, the delete button and
-// the PO/SR link on that row are unclickable too. That is the intent -- the row is not
-// actionable until someone fills in the vendor's bank details.
-const NO_BANK_DETAILS_ROW_CLASSES =
-    "opacity-50 bg-muted/40 pointer-events-none select-none";
-
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
@@ -256,11 +246,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         vendorLabels: vendorLabelMap,
     });
 
-    // Function to determine if a row can be selected (passed to hook)
-    //
-    // This is the gate that keeps an unpayable vendor out of the export file: the checkbox
-    // renders disabled off row.getCanSelect(), so the row cannot be selected and therefore
-    // cannot reach either CSV builder.
+    // Whether a vendor can go in the BANK FILE. It no longer gates selection or greys the
+    // row (owner, 16 Sep): a payment made outside the file still has to be marked as paid.
+    // So this is now enforced where it matters — `exportSelectedToCSV` leaves such rows out.
     //
     // BOTH halves of the bank details are required, not just the account number. An account
     // number on its own still exports a blank `ifsc` -- Cashfree and ICICI both reject a
@@ -273,20 +261,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return !!account && !!ifsc;
     }, [vendors]);
 
-    const canPaymentRowBeSelected = useCallback((row: Row<ApprovalQueueRow>): boolean => {
-        if (tab !== "New Payments") return false;
-        // ⚠️ SELECTABLE ≠ EXPORTABLE. All three ledgers can be ticked, so "select all"
-        // means all the rows on the page — but the bank-transfer CSV is a VENDOR payout
-        // file, and an expense has no vendor and no bank row to write. The export filters
-        // them back out (see exportSelectedToCSV); this gate must not, or the checkbox
-        // silently refuses rows the accountant is looking straight at.
-        //
-        // Note this is NOT the bank-details rule: an expense is fully actionable here via
-        // its own Mark-as-Paid button, so it must never pick up NO_BANK_DETAILS_ROW_CLASSES
-        // (those carry pointer-events-none and would kill that button).
-        if (row.original.source !== "Vendor Payment") return true;
-        return hasBankDetails(row.original.vendor);
-    }, [hasBankDetails, tab]);
+    // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — expenses, and
+    // vendors with no bank details — because the ticks also drive bulk Mark as Paid. The
+    // bank-transfer CSV filters the unpayable ones back out (see exportSelectedToCSV).
+    const canPaymentRowBeSelected = useCallback(
+        (_row: Row<ApprovalQueueRow>): boolean => tab === "New Payments",
+        [tab]
+    );
 
     // --- CEO Hold Row Highlighting ---
 
@@ -306,28 +287,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {
-            // CEO hold stays first: it is a safety signal and must not be dimmed away. Such a
-            // row is already unpayable, and its checkbox is disabled by the bank-details rule
-            // anyway, so nothing is lost by letting the red win.
             const projectId = row.original.project;
             if (projectId && ceoHoldProjectIds.has(projectId)) {
                 return CEO_HOLD_ROW_CLASSES;
             }
-            // ⚠️ SCOPED TO VENDOR PAYMENTS. These classes carry `pointer-events-none`,
-            // so applying them to an expense row would grey it out AND make its own
-            // Mark-as-Paid button unclickable — a row the accountant is supposed to
-            // act on, rendered dead, for a reason ("no bank details") that does not
-            // apply to a ledger with no vendor field at all.
-            if (
-                tab === "New Payments"
-                && row.original.source === "Vendor Payment"
-                && !hasBankDetails(row.original.vendor)
-            ) {
-                return NO_BANK_DETAILS_ROW_CLASSES;
-            }
             return undefined;
         },
-        [ceoHoldProjectIds, hasBankDetails, tab]
+        [ceoHoldProjectIds]
     );
 
     // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
@@ -474,19 +440,30 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // ⚠️ THE BANK FILE IS A VENDOR PAYOUT FILE — the selection is not.
-        // Expense rows (Project Expenses / Non Project Expenses) are selectable so that
-        // "select all" behaves, but they carry no vendor and would export a blank
-        // beneficiary account + IFSC. ICICI and Cashfree both accept such a file at upload
-        // and only reject the individual rows afterwards, so the filter has to happen HERE,
-        // not at the bank. Skipped rows are reported in the toast rather than dropped
-        // silently — the accountant must know the file is shorter than their selection.
-        const payableRows = rowsToExport.filter(row => row.original.source === "Vendor Payment");
-        const skippedCount = rowsToExport.length - payableRows.length;
+        // Two kinds of ticked row would export a blank beneficiary account / IFSC: an
+        // expense (no vendor at all) and a vendor payment whose vendor lacks bank details.
+        // ICICI and Cashfree both accept such a file at upload and only reject the
+        // individual rows afterwards, so the filter has to happen HERE, not at the bank.
+        // This is now the ONLY bank-details gate — selection no longer blocks those rows.
+        // Skipped rows are reported in the toast rather than dropped silently — the
+        // accountant must know the file is shorter than their selection.
+        const vendorRows = rowsToExport.filter(row => row.original.source === "Vendor Payment");
+        const payableRows = vendorRows.filter(row => hasBankDetails(row.original.vendor));
+        const skippedExpenses = rowsToExport.length - vendorRows.length;
+        const skippedNoBank = vendorRows.filter(row => !hasBankDetails(row.original.vendor));
+        const skippedParts = [
+            skippedExpenses > 0
+                ? `${skippedExpenses} expense${skippedExpenses > 1 ? "s" : ""} (no vendor)`
+                : "",
+            skippedNoBank.length > 0
+                ? `${skippedNoBank.length} payment${skippedNoBank.length > 1 ? "s" : ""} with no vendor bank account / IFSC (${skippedNoBank.slice(0, 3).map(r => r.original.document_name).join(", ")}${skippedNoBank.length > 3 ? ", …" : ""})`
+                : "",
+        ].filter(Boolean);
 
         if (payableRows.length === 0) {
             toast({
                 title: "Nothing to export",
-                description: "Expenses have no vendor bank details, so they cannot go in a bank transfer file. Select at least one vendor payment.",
+                description: `No selected row can go in a bank transfer file: ${skippedParts.join("; ")}. Select a vendor payment whose vendor has a bank account and IFSC.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);
@@ -578,10 +555,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
         toast({
             title: "Export Successful",
-            description: skippedCount > 0
-                ? `${csvData.length} payments exported. ${skippedCount} expense${skippedCount > 1 ? "s" : ""} skipped — no vendor bank details to pay into.`
+            description: skippedParts.length > 0
+                ? `${csvData.length} payments exported. Skipped: ${skippedParts.join("; ")}.`
                 : `${csvData.length} payments exported.`,
-            variant: "success",
+            variant: skippedNoBank.length > 0 ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
