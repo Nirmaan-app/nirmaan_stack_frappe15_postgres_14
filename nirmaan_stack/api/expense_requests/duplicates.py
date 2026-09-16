@@ -46,7 +46,8 @@ RULES: dict[str, dict] = {
 	"Staff Accommodation Rent": {
 		"match_on": ["person_name"],
 		"period": {"from": "rent_period_from", "to": "rent_period_to"},
-		"show": ["building_name", "accommodation_type"],
+		# `building_name` was removed from this form 2026-09-16; `city` took its place.
+		"show": ["accommodation_type", "city"],
 	},
 	# NO person field on this one -- it is a BUILDING-level cost, so the building IS the
 	# subject. Free text and therefore driftable; a miss means a duplicate slips through,
