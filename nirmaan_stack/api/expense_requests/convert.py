@@ -29,6 +29,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	render_description_template,
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
+from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status
 
 
 def target_doctype(req) -> str:
@@ -88,18 +89,20 @@ def target_status(req) -> str:
 	The reviewer is told the outcome before they commit to it, and since 2026-08-20 that
 	outcome depends on the amount -- so the dialog can no longer say "Approved" and be right.
 
-	⚠️ IT READS THE LEDGER'S OWN CONSTANT rather than repeating the number. Both doctypes
-	declare an identical `AUTO_APPROVE_LIMIT`, so importing one keeps the THRESHOLD single-
-	sourced; only the comparison shape is restated here, and it is three lines long. A
-	hardcoded 5000 in this module -- or worse, in TypeScript -- is how the screen would come
-	to promise one thing while `validate` did another.
-	"""
-	from nirmaan_stack.nirmaan_stack.doctype.project_expenses.project_expenses import (
-		AUTO_APPROVE_LIMIT,
-	)
+	⚠️ IT MAKES THE LEDGER'S OWN CALL, byte for byte: `initial_status(amount,
+	TIER_L2_ABOVE_EXPENSES)` is exactly the line `ProjectExpenses.validate` and
+	`NonProjectExpenses.validate` run on the row this request becomes. Restating the
+	comparison here -- or hardcoding a number in this module, or worse in TypeScript -- is how
+	the screen would come to promise one thing while `validate` did another.
 
-	amount = flt(req.amount)
-	return "Approved" if 0 < amount < AUTO_APPROVE_LIMIT else "Requested"
+	⚠️ THIS USED TO IMPORT `AUTO_APPROVE_LIMIT` FROM `project_expenses`, AND THAT NAME IS
+	GONE (16 Sep 2026): the rule moved into `services/approval_tiers.py` and the per-doctype
+	constants went with it. The dead import did not fail quietly -- it raised `ImportError`
+	inside `get_my_expense_requests`, which is the ONLY source of `can_review`, so the whole
+	scoped read 500'd and every row's Approve/Reject collapsed to "--" for everyone, Admin
+	included. Keep this pointed at the shared module.
+	"""
+	return initial_status(flt(req.amount), TIER_L2_ABOVE_EXPENSES)
 
 
 def create_ledger_row(req):
@@ -107,20 +110,24 @@ def create_ledger_row(req):
 
 	⚠️ `status` IS DELIBERATELY NOT SET (owner ruling, 2026-08-20, REVERSING the earlier
 	explicit `Approved`). The row is born at the ledger's own default, `Requested`, and each
-	doctype's `validate` then applies ITS OWN rule — identical on both:
+	doctype's `validate` then applies ITS OWN rule — identical on both, and owned by
+	`services/approval_tiers.py` (bands as of 16 Sep 2026):
 
-	    0 < amount < ₹5,000   ->  auto-approved
-	    ₹5,000 or more        ->  stays Requested, awaiting a second approval on the ledger
-	    zero or negative      ->  stays Requested (a refund is never auto-approved)
+	    0 < amount < ₹15,000    ->  auto-approved outright
+	    ₹15,000 – ₹50,000       ->  stays Requested; ONE L1 signature on the ledger finishes it
+	    above ₹50,000           ->  stays Requested; L1 forwards to CEO Pending, then the CEO
+	    zero or negative        ->  never auto-approved; banded by SIZE like any other amount
 
 	Setting the status here is precisely what USED to bypass that rule: `validate` returns
 	early once the status is anything other than `Requested`. So the fix is a DELETION, not a
 	new branch -- a request-born row is now governed by the same threshold as one keyed in
-	directly, which is the point.
+	directly, which is the point. `target_status` above previews the same call, so the review
+	dialog and `validate` cannot disagree.
 
-	⚠️ CONSEQUENCE, ACCEPTED: an expense of ₹5,000 or more is NOT payable on approval alone.
-	It needs the ledger's own Approve, which is admin-only -- and that queue held 7 stranded
-	rows when this shipped. If nobody works it, a large approved request never gets paid.
+	⚠️ CONSEQUENCE, ACCEPTED: an expense of ₹15,000 or more is NOT payable on approval alone.
+	It needs the ledger's own Approve -- and that queue held 7 stranded rows when this shipped.
+	If nobody works it, a large approved request never gets paid. The old text said ₹5,000 and
+	"admin-only"; the threshold moved (10,000 -> 15,000) and L1 is now Admin OR Accountant Lead.
 	"""
 	doctype = target_doctype(req)
 	source_format = _source_format_for(req)

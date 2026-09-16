@@ -1026,7 +1026,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    // "Expense",  // hidden from the nav — see the commented block above
+                    "Expense",
                     "Users",
                     "Assets",
                     "Vendors",

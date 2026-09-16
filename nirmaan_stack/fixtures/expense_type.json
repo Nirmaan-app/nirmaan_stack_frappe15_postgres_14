@@ -430,6 +430,7 @@
  },
  {
   "docstatus": 0,
+  "doctype": "Expense Type",
   "expense_category": "Travel",
   "expense_name": "Travel Expenses (Bus)",
   "modified": "2026-08-18 18:51:19.441955",
@@ -467,8 +468,10 @@
   "non_project": 1,
   "project": 0,
   "source_format": null
-},
-{
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
   "expense_category": "Travel",
   "expense_name": "Travel Expenses (Train)",
   "modified": "2026-08-18 18:51:19.731430",
