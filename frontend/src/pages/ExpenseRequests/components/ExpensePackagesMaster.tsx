@@ -33,11 +33,11 @@ import { cn } from "@/lib/utils";
 
 import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
-interface ExpenseCategoryRow { name: string; reviewer_role?: string | null }
+interface ExpenseCategoryRow { name: string }
 
 // Every type belongs to a category; where none of the named ones fit, that category is
 // "Uncategorized". There is deliberately no blank option -- an uncategorised type appears
-// in no category list and routes to a reviewer nobody chose.
+// in no category list.
 const FALLBACK_CATEGORY = "Uncategorized";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
 
@@ -85,7 +85,7 @@ export const ExpensePackagesMaster: React.FC = () => {
 
     // Categories are CREATED in Frappe Desk (owner ruling); this screen only assigns one.
     const { data: categories } = useFrappeGetDocList<ExpenseCategoryRow>("Expense Category", {
-        fields: ["name", "reviewer_role"],
+        fields: ["name"],
         limit: 0,
         orderBy: { field: "name", order: "asc" },
     });
@@ -295,14 +295,13 @@ export const ExpensePackagesMaster: React.FC = () => {
                                     {(categories ?? []).map((c) => (
                                         <SelectItem key={c.name} value={c.name}>
                                             {c.name}
-                                            {c.reviewer_role ? ` — ${c.reviewer_role}` : ""}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <p className="text-xs text-muted-foreground">
-                                Decides who reviews requests of this type. Categories are added in
-                                Frappe Desk; use “Uncategorized” if none of the named ones fit.
+                                Categories are added in Frappe Desk; use “Uncategorized” if none of
+                                the named ones fit.
                             </p>
                         </div>
 

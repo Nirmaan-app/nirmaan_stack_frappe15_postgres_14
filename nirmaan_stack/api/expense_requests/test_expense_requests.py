@@ -149,20 +149,6 @@ class TestExpenseRequests(FrappeTestCase):
 			frappe.db.set_value, "Expense Type", expense_type, "source_format", original
 		)
 
-	def _route_hotel_to(self, role_profile):
-		"""Point the Hotel & Accommodation category at a reviewer, restoring the ORIGINAL.
-
-		Routing is master DATA now, so a test that changes it mutates a live row -- capture
-		and restore, never a hardcoded reset.
-		"""
-		original = frappe.db.get_value("Expense Category", HOTEL_CATEGORY, "reviewer_role")
-		frappe.db.set_value("Expense Category", HOTEL_CATEGORY, "reviewer_role", role_profile)
-		routing.clear_cache()
-		def _restore():
-			frappe.db.set_value("Expense Category", HOTEL_CATEGORY, "reviewer_role", original)
-			routing.clear_cache()
-		self.addCleanup(_restore)
-
 	# --- create --------------------------------------------------------------
 
 	def test_create_lands_at_pending_approval(self):
@@ -232,34 +218,27 @@ class TestExpenseRequests(FrappeTestCase):
 		                 "Pending Approval")
 
 	def test_unrouted_role_cannot_approve(self):
-		# HR reviews nothing by default -- every category ships unrouted, so all of it is Admin's.
+		# HR reviews nothing -- every request routes to Admin.
 		res = self._raise_as(PM_USER)
 		frappe.set_user(HR_USER)
 		with self.assertRaises(frappe.PermissionError):
 			approve_expense_request(res["name"])
 		frappe.set_user("Administrator")
 
-	def test_routed_reviewer_can_approve(self):
-		self._route_hotel_to("Nirmaan HR Executive Profile")
+	def test_a_category_no_longer_routes_to_another_reviewer(self):
+		"""`Expense Category.reviewer_role` was REMOVED 2026-09-16, so a categorised request
+		routes to Admin like every other, and a non-Admin can neither approve nor be offered it.
+		The category itself is still derived for display."""
 		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
 		frappe.set_user(HR_USER)
-		out = approve_expense_request(res["name"])
-		frappe.set_user("Administrator")
-		self.assertEqual(out["status"], "Approved")
-
-	def test_reviewer_cannot_approve_their_own_request(self):
-		"""Self-review is blocked even when the caller IS the routed reviewer.
-
-		Routed to the PM profile deliberately: HR has no `create` DocPerm (reviewers do not
-		raise requests), so HR could never reach this state. A category misconfigured onto
-		the requesting role is the reachable version of it.
-		"""
-		self._route_hotel_to("Nirmaan Project Manager Profile")
-		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
-		frappe.set_user(PM_USER)
 		with self.assertRaises(frappe.PermissionError):
 			approve_expense_request(res["name"])
+		rows = get_my_expense_requests()["requests"]
 		frappe.set_user("Administrator")
+		row = next(r for r in rows if r["name"] == res["name"])
+		self.assertEqual(row["reviewer_role"], routing.DEFAULT_REVIEWER_ROLE)
+		self.assertFalse(row["can_review"])
+		self.assertEqual(row["request_category"], HOTEL_CATEGORY)
 
 	def test_a_refused_approval_mutates_nothing(self):
 		res = self._raise_as(PM_USER)
@@ -659,19 +638,6 @@ class TestExpenseRequests(FrappeTestCase):
 		self._edit(PM_USER, res, expense_type=NON_PROJECT_TYPE, projects=None)
 		self.assertFalse(frappe.db.get_value("Expense Request", res["name"], "vendor"))
 
-	def test_can_edit_is_server_owned_and_disjoint_from_can_review(self):
-		self._route_hotel_to("Nirmaan HR Executive Profile")
-		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
-
-		frappe.set_user(PM_USER)
-		mine = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
-		frappe.set_user(HR_USER)
-		theirs = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
-		frappe.set_user("Administrator")
-
-		self.assertTrue(mine["can_edit"]);      self.assertFalse(mine["can_review"])
-		self.assertFalse(theirs["can_edit"]);   self.assertTrue(theirs["can_review"])
-
 	def test_a_pm_may_edit_only_what_they_raised_not_a_peers_request(self):
 		"""SEEING a peer's request and being able to EDIT it are different questions.
 
@@ -987,16 +953,6 @@ class TestExpenseRequests(FrappeTestCase):
 		frappe.set_user("Administrator")
 		self.assertIn(mine["name"], names)
 		self.assertIn(theirs["name"], names)
-
-	def test_routed_reviewer_sees_it_and_can_review(self):
-		self._route_hotel_to("Nirmaan HR Executive Profile")
-		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
-		frappe.set_user(HR_USER)
-		rows = get_my_expense_requests()["requests"]
-		frappe.set_user("Administrator")
-		row = next(r for r in rows if r["name"] == res["name"])
-		self.assertTrue(row["can_review"])
-		self.assertEqual(row["request_category"], HOTEL_CATEGORY)
 
 	def test_requester_sees_own_but_cannot_review(self):
 		res = self._raise_as(PM_USER)

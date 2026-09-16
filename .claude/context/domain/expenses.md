@@ -337,7 +337,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 |---|---|
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
-| `Expense Category` | NEW — `category_name` · `reviewer_role` (Link → Role Profile) · `description` |
+| `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
 | `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
@@ -378,8 +378,9 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   and would otherwise dangle. Guarded by
   `api/expense_requests/test_fixture_completeness.py`, which fails naming the missing field —
   and which was verified by reproducing the bug, not merely by passing.
-- **Routing is master DATA, not code.** `Expense Category.reviewer_role` decides who reviews
-  every type in that category; blank routes to `Nirmaan Admin Profile`. Read through
+- **Every expense request is reviewed by `Nirmaan Admin Profile`.** `Expense Category.reviewer_role`
+  ("Reviewed By") was REMOVED on request 2026-09-16 — every category had it blank, so no live
+  routing changed; categories now only group types. Read through
   `services/expense_request_routing.py` (which REPLACED the temporary
   `services/expense_request_catalog.py`, deleted 2026-08-18) — it caches per request, because
   `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe

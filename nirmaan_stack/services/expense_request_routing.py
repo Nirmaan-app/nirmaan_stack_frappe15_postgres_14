@@ -4,9 +4,13 @@
 """Which Expense Types a requester may raise, and WHO REVIEWS each one.
 
 Reads the `Expense Category` master. This REPLACED a temporary Python constant
-(`services/expense_request_catalog.py`, deleted 2026-08-18): categorising expenses and
-choosing their reviewer is master data, so changing either is an edit in the app, not a
-deploy.
+(`services/expense_request_catalog.py`, deleted 2026-08-18): categorising expenses is master
+data, so changing it is an edit in the app, not a deploy.
+
+⚠️ EVERY request is reviewed by `DEFAULT_REVIEWER_ROLE`. `Expense Category.reviewer_role`
+("Reviewed By") was REMOVED on request 2026-09-16 -- every category had it blank, so this
+changed no live routing. The reviewer helpers below keep their signatures so callers did not
+move; re-adding per-category reviewers means restoring that field and the read in `_routing`.
 
 Routing ONLY. The form a type asks for lives on the type itself
 (`Expense Type.source_format`) -- do not add form concerns here.
@@ -15,8 +19,7 @@ Routing ONLY. The form a type asks for lives on the type itself
 import frappe
 
 # ⚠️ A reviewer is a `Nirmaan Users.role_profile` VALUE, not a Frappe Role -- the axis
-# `useUserData` and `pricing._is_nirmaan_admin` gate on. `Expense Category.reviewer_role`
-# links to `Role Profile`, whose docname IS that value, so the two agree by construction.
+# `useUserData` and `pricing._is_nirmaan_admin` gate on.
 #
 # Getting this wrong fails SILENTLY: the Role Profile "Nirmaan Admin Profile" grants
 # `Nirmaan Project Manager` among seven others, and a *Role* of that exact name is assigned
@@ -38,17 +41,11 @@ def _routing() -> dict:
 	if cached is not None:
 		return cached
 
-	reviewers = {
-		r["name"]: (r["reviewer_role"] or DEFAULT_REVIEWER_ROLE)
-		for r in frappe.get_all("Expense Category", fields=["name", "reviewer_role"])
-	}
 	out = {}
 	for r in frappe.get_all("Expense Type", fields=["name", "expense_category"]):
-		category = r["expense_category"]
-		# A type with NO category is still requestable -- it simply routes to Admin. Refusing
-		# it instead would make a newly created type silently un-requestable until someone
-		# remembered to categorise it.
-		out[r["name"]] = (category, reviewers.get(category, DEFAULT_REVIEWER_ROLE))
+		# A type with NO category is still requestable. Refusing it instead would make a newly
+		# created type silently un-requestable until someone remembered to categorise it.
+		out[r["name"]] = (r["expense_category"], DEFAULT_REVIEWER_ROLE)
 	setattr(frappe.local, _CACHE_KEY, out)
 	return out
 

@@ -59,7 +59,8 @@ in no financial rollup and can never reach `Paid`. Approval creates the real led
 
 - **Categories became master data.** The provisional Python map graduated to an
   `Expense Category` doctype with a `reviewer_role`, so changing who reviews what is an edit,
-  not a deploy. Created in Desk; assigned from the app.
+  not a deploy. Created in Desk; assigned from the app. *(`reviewer_role` REMOVED 2026-09-16 —
+  never set on any category; every request now routes to `Nirmaan Admin Profile`.)*
 - **⚠️ A fixture destroyed live data, once.** `Expense Type` is a fixture, so the file — not
   the database — is authoritative, and a migrate reset every field the file did not carry.
   Adding a field to a fixture-backed doctype now REQUIRES regenerating the fixture, guarded by
