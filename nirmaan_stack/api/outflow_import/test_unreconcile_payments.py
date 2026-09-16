@@ -282,11 +282,18 @@ class TestCashbook(PaymentUnreconcileFixture):
             self.assertEqual(self._payment(pay).status, "Paid")
 
 
-class TestTheTdsOnApprovedPin(PaymentUnreconcileFixture):
-    """⚠️ PINS TODAY'S BEHAVIOUR, BY OWNER RULING (#1270 "TDS"). Putting a Service Request payment back
-    to Approved is an approval to `controllers/project_payments.on_update`, so a payment to a TDS-rate
-    vendor with no deduction row gets one and is NETTED. Left unchanged on purpose; the response reports
-    the new amount so the notice can say so. A later change to that ruling must turn this red first."""
+class TestUnreconcileNeverWithholdsTds(PaymentUnreconcileFixture):
+    """⚠️ THE INVERTED "TDS ON APPROVED" PIN (#1288 retires the #1270 owner ruling; ADR-0022 Amendment).
+
+    It used to pin the OPPOSITE: putting a Service Request payment back to Approved read as an approval
+    to `controllers/project_payments.on_update`, so a payment to a TDS-rate vendor with no deduction row
+    got one and was NETTED -- 1,000 -> 980 here.
+
+    The rule is now `payment_tds.is_approval_from_an_earlier_step` (which holds the measured cases and
+    the reasoning): Unreconcile writes `Paid -> Approved`, which withholds nothing.
+
+    ⚠️ INVERTED, NOT DELETED. It asserts the NEW truth on the SAME fixture, so a regression to the old
+    behaviour turns it red at exactly the point that behaviour returns."""
 
     def setUp(self):
         super().setUp()
@@ -335,7 +342,10 @@ class TestTheTdsOnApprovedPin(PaymentUnreconcileFixture):
         frappe.db.commit()
         return name
 
-    def test_unreconciling_still_creates_the_deduction_and_nets_the_amount(self):
+    def test_unreconciling_creates_no_deduction_and_leaves_the_amount_alone(self):
+        """Bug A of #1283, at the endpoint: a payment with no tax row of its own comes back from a
+        settled status unchanged. The reported `amount_after` now equals the amount before, which is
+        what lets the notice stay silent about it."""
         pay = self._sr_payment("1000")
         row = self._staged_row(amount="1000")
         settle_row(row=row, target_doctype=PAYMENT, target_name=pay)
@@ -345,6 +355,11 @@ class TestTheTdsOnApprovedPin(PaymentUnreconcileFixture):
 
         [reversed_leg] = result["reversed"]
         self.assertEqual(reversed_leg["reversed_amount"], 1000.0)
-        self.assertEqual(reversed_leg["amount_after"], 980.0)
-        self.assertEqual(self._payment(pay).amount, 980.0)
-        self.assertTrue(frappe.db.exists(PTD, {"project_payment": pay}))
+        self.assertEqual(reversed_leg["amount_after"], 1000.0)
+        self.assertEqual(self._payment(pay).amount, 1000.0)
+        self.assertFalse(frappe.db.exists(PTD, {"project_payment": pay}))
+
+    # The other half of the rule -- a payment that ALREADY carries a deduction is unchanged on
+    # every path -- is covered in `test_unreconcile_tds.TestATaxedWorkOrderPayment`, which builds
+    # its payment through the shared `TaxedWorkOrderFixture` and a real approval rather than this
+    # class's raw fixture. Repeating it here would be the same assertion over a weaker arrangement.

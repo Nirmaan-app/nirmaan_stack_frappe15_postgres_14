@@ -320,6 +320,91 @@ class TestPaymentTDS(FrappeTestCase):
 		"""A PO has no `total_tds` column; writing one would raise."""
 		self.assertEqual(payment_tds.sync_total_tds(PO, self.po), 0.0)
 
+	# -- which transition is an approval (#1288) --------------------------------------------
+	def test_the_three_earlier_steps_are_approvals(self):
+		"""`Requested` and `CEO Pending` are the gates ahead of Approved; `Rejected` is the way
+		back to them, so re-approving a rejected payment still withholds."""
+		for previous in ("Requested", "CEO Pending", "Rejected"):
+			with self.subTest(previous=previous):
+				self.assertTrue(
+					payment_tds.is_approval_from_an_earlier_step(previous, "Approved")
+				)
+
+	def test_coming_back_from_a_settled_status_is_not_an_approval(self):
+		"""⚠️ THE #1288 RULE. Unreconcile writes `Paid -> Approved` and the earlier lifecycle
+		change put `Reconciliation Pending` between them. Both are UNDOs, and taxing an undo
+		withheld the same tax twice."""
+		for previous in ("Paid", "Reconciliation Pending"):
+			with self.subTest(previous=previous):
+				self.assertFalse(
+					payment_tds.is_approval_from_an_earlier_step(previous, "Approved")
+				)
+
+	def test_a_transition_that_does_not_end_at_approved_is_not_an_approval(self):
+		self.assertFalse(payment_tds.is_approval_from_an_earlier_step("Requested", "CEO Pending"))
+		self.assertFalse(payment_tds.is_approval_from_an_earlier_step("Approved", "Paid"))
+
+	def test_a_missing_previous_status_is_not_an_approval(self):
+		"""An INSERT has no previous status. It is taxed by `after_insert`, never routed here —
+		answering True would tax every insert whatever it was created as."""
+		self.assertFalse(payment_tds.is_approval_from_an_earlier_step(None, "Approved"))
+
+	def test_a_payment_born_approved_is_taxed_by_after_insert(self):
+		"""⚠️ A PAYMENT BORN `Approved` MUST STILL BE TAXED (auto-approve below the threshold).
+		It undergoes no transition, so `on_update` can never see it and the transition rule would
+		answer False for it — `after_insert` is the only hook that can, and it calls
+		`record_deduction_if_eligible` DIRECTLY.
+
+		⚠️ IT DRIVES THE REAL `after_insert`, BECAUSE THE RISK IS AN EARLY `return`, NOT A MISSING
+		CALL. That function returns on `from_adjustment` and again on `split_child` before it
+		reaches the tax line, and returns again just below it — a call that drifted below the wrong
+		one would still read correctly. Only running the function proves the line is reachable.
+
+		⚠️ THE TWO NOTIFICATION FAN-OUTS ARE PATCHED OUT, AND ONLY THEY. `_notify_admins_auto_approved`
+		is NOT project-scoped: it notifies every admin on the LIVE site this suite runs against and
+		commits per recipient. That hazard is why every payment fixture in this repo is planted with
+		raw SQL (`test_payment_split.PaymentSplitFixture` says so). Patching them leaves the branch
+		structure — and the whole tax path — untouched; spamming real people to observe it would not
+		be a better test.
+		"""
+		from unittest.mock import patch
+
+		from nirmaan_stack.integrations.controllers import project_payments as controller
+
+		doc = self._pay(4000, status="Approved")
+		with patch.object(controller, "_notify_accountants_payment_ready"), patch.object(
+			controller, "_notify_admins_auto_approved"
+		):
+			controller.after_insert(doc, "after_insert")
+		frappe.db.commit()
+
+		self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 1)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 3920)
+
+	def test_after_insert_never_asks_the_transition_rule(self):
+		"""An insert has no previous status, so the rule answers False for every one of them —
+		routing this path through it would silently stop taxing auto-approved payments. The test
+		above proves the line RUNS; this one proves it is not guarded by the wrong question."""
+		import inspect
+
+		from nirmaan_stack.integrations.controllers import project_payments as controller
+
+		self.assertNotIn(
+			"is_approval_from_an_earlier_step", inspect.getsource(controller.after_insert)
+		)
+
+	def test_statuses_are_trimmed(self):
+		"""`Project Payments.status` is a Data field — free text, so it can carry whitespace."""
+		self.assertTrue(payment_tds.is_approval_from_an_earlier_step(" CEO Pending ", " Approved "))
+
+	def test_the_source_set_is_named_not_derived_by_exclusion(self):
+		"""⚠️ A SET, NOT "anything except the settled statuses". A status inserted into the
+		lifecycle later must be considered on its merits, not silently inherit the tax."""
+		self.assertEqual(
+			payment_tds.APPROVAL_SOURCE_STATUSES,
+			frozenset({"Requested", "CEO Pending", "Rejected"}),
+		)
+
 	# -- the boundary ----------------------------------------------------------------------
 	def test_hook_records_on_approval_transition(self):
 		"""The controller wiring itself: a real `doc.save()` into Approved must mint the row.
@@ -332,6 +417,51 @@ class TestPaymentTDS(FrappeTestCase):
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 		self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 1)
+
+	def test_hook_records_on_every_earlier_step(self):
+		"""Each gate ahead of Approved, driven through a real save (#1288)."""
+		for previous in ("Requested", "CEO Pending", "Rejected"):
+			with self.subTest(previous=previous):
+				doc = self._pay(4000, status=previous)
+				doc.status = "Approved"
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 1)
+				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 3920)
+
+	def test_hook_records_nothing_coming_back_to_approved(self):
+		"""⚠️ THE #1288 REGRESSION, at the seam. A save back into `Approved` from a settled status
+		must write NO deduction and must leave the amount alone — this is the shape Unreconcile
+		writes, and taxing it netted a payment that had already been paid at its gross."""
+		for previous in ("Paid", "Reconciliation Pending"):
+			with self.subTest(previous=previous):
+				doc = self._pay(4000, status=previous)
+				doc.status = "Approved"
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
+				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
+
+	def test_a_payment_that_already_carries_a_deduction_is_untouched_coming_back(self):
+		"""The ordinary shape: the tax was withheld at the real approval and the undo leaves both
+		the row and the netted amount exactly as they were."""
+		doc = self._pay(4000, status="CEO Pending")
+		doc.status = "Approved"
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		row = frappe.db.get_value(TDS_DOCTYPE, {"project_payment": doc.name}, "name")
+
+		frappe.db.set_value(PAYMENT, doc.name, "status", "Paid", update_modified=False)
+		frappe.db.commit()
+		back = frappe.get_doc(PAYMENT, doc.name)
+		back.status = "Approved"
+		back.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		self.assertEqual(
+			frappe.get_all(TDS_DOCTYPE, {"project_payment": doc.name}, pluck="name"), [row]
+		)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 3920)
 
 	def test_hook_does_not_fire_for_a_po_payment(self):
 		doc = self._pay(4000, status="CEO Pending", parent_dt=PO)

@@ -2236,20 +2236,25 @@ wrong conclusion from the same reasoning.
 - **There is no reverse view.** `get_reconciliation_report` was deleted at V5, and with it the answer
   to "is every payment we recorded backed by a real transfer?". The tabs answer only "is this
   transfer recorded?". Deliberate scope decision, not an oversight.
-- **Unreconciling a Service Request payment can WITHHOLD TDS and net its amount — left unchanged by owner
-  ruling (#1270, recorded at #1275; replaces the 2026-09-13 PENDING note).** `unreconcile._revert_payment`
-  saves the payment `Paid -> Approved` through the document layer, and
-  `integrations/controllers/project_payments.on_update` treats ANY transition into `Approved` as an
-  approval, so `payment_tds.record_deduction_if_eligible` fires. For an SR payment with no `Payment TDS
-  Deduction` row (paid before SR-TDS, or inserted with `from_adjustment`) it banks a deduction and NETS
-  `amount` inside the reversal's own save. `Vendors.tds_deduction_percentage` defaults to 2, so most vendors
-  qualify. Observed on the 2026-09-13 walk: PAY-01393-018 ₹25,000 -> ₹24,500. **Harm:** the bank moved the
-  gross figure, so re-linking to the right transfer no longer matches (outside ±₹5). **What the screen does
-  about it:** `unreconcile_row` returns `amount_after` beside `reversed_amount` for every leg, and
-  `unreconcileNotice` says "PAY-x is now ₹24,500, not ₹25,000." **Pinned by**
-  `test_unreconcile_payments.TestTheTdsOnApprovedPin`, so a later change is deliberate. Belongs to the
-  Payments / Expenses work, not this import. Not affected: a payment approved after SR-TDS (its PTD row
-  makes the hook a no-op); the `tds`-field refusal in `leg_verdict` is unrelated (PTD does not write `tds`).
+- ~~**Unreconciling a Service Request payment can WITHHOLD TDS and net its amount — left unchanged by owner
+  ruling (#1270, recorded at #1275).**~~ **FIXED at #1288 (ADR-0022 Amendment A); the ruling is RETIRED.**
+  `unreconcile._revert_payment` still saves the payment `Paid -> Approved` through the document layer, but
+  `integrations/controllers/project_payments.on_update` no longer treats ANY transition into `Approved` as
+  an approval: it asks `payment_tds.is_approval_from_an_earlier_step`, which is true only for
+  `Requested` / `CEO Pending` / `Rejected` -> `Approved`. **So an unreconcile writes no deduction and
+  changes no amount.** What it used to do, kept because it is what the pins now assert the absence of:
+  an SR payment with no `Payment TDS Deduction` row (paid before SR-TDS, or inserted with
+  `from_adjustment`) had a deduction banked and its `amount` NETTED inside the reversal's own save —
+  observed PAY-01393-018 ₹25,000 -> ₹24,500, and 50,000 -> 49,000 in the #1283 reproduction — after which
+  the bank's gross figure no longer matched (outside ±₹5) and re-linking the right transfer was
+  impossible. A part payment's leftover was taxed the same way (38,000 -> 37,240) and then jammed the
+  split's undo behind the "Leftover taxed" refusal. **Now pinned the other way** by
+  `test_unreconcile_payments.TestUnreconcileNeverWithholdsTds` and the four end-to-end regressions in
+  `test_unreconcile_tds.py` (real endpoints, `TaxedWorkOrderFixture`, so the tax code is actually
+  reachable). `unreconcile_row` still returns `amount_after` beside `reversed_amount`, and
+  `unreconcileNotice` still states a difference — as a BACKSTOP; on the ordinary path the two are equal
+  and it stays quiet. Unrelated and unchanged: the legacy `tds`-field refusal in `leg_verdict` (PTD does
+  not write `tds`).
 - **Fixtures stay synthetic — the repo is public.** Real statements carry live beneficiary names,
   accounts and IFSC codes.
 

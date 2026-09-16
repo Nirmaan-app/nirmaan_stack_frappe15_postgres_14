@@ -428,7 +428,22 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
         );
     });
 
-    it("states a payment's new amount when the save changed it (the TDS-on-Approved rule)", () => {
+    it("says nothing about the amount when the undo left it alone (#1288)", () => {
+        // ⚠️ THE INVERTED "TDS-on-Approved" PIN. This case used to assert the OPPOSITE: an undo
+        // withheld TDS on a Work Order payment and netted it 1,000 -> 980, and this sentence was
+        // the only place the screen said so. Tax is now withheld only on an approval from an
+        // earlier step, so the ordinary undo reports the amount unchanged and stays quiet.
+        const untouched = result({
+            reversed: [{ ...result().reversed[0], reversed_amount: 1000, amount_after: 1000 }],
+        });
+        expect(unreconcileNotice(untouched).body).toBe(
+            "1 record came off this transfer and went back to Approved. It now needs a record.",
+        );
+    });
+
+    it("still states a new amount if the server ever writes one -- the backstop", () => {
+        // Kept, not deleted: the sentence reports what the server actually wrote, whatever wrote
+        // it. A silent amount change is the one thing a reviewer must not have to discover alone.
         const netted = result({
             reversed: [{ ...result().reversed[0], reversed_amount: 1000, amount_after: 980 }],
         });

@@ -10,17 +10,62 @@ and **paying** it to the department under a challan (this doc's additions, 2026-
 
 ---
 
+## WHEN tax is withheld — an approval FROM AN EARLIER STEP, not any save into `Approved`
+
+**The rule (#1288, retiring ADR-0022's "TDS on Approved" ruling; ADR-0022 Amendment A).** A deduction
+is recorded when a Work Order payment is **approved from an earlier step**:
+
+| Path | Records? |
+|---|---|
+| `Requested` → `Approved` | **yes** |
+| `CEO Pending` → `Approved` | **yes** |
+| `Rejected` → `Approved` | **yes** — a payment rejected before its first approval is still taxed |
+| created already `Approved` (auto-approve below the threshold) | **yes**, via `after_insert` |
+| `Reconciliation Pending` → `Approved` | no |
+| `Paid` → `Approved` | no |
+| anything else into `Approved` | no |
+
+⚠️ **THE RULE IS A NAMED SET, NOT "anything except the settled statuses"** —
+`payment_tds.APPROVAL_SOURCE_STATUSES`. A status inserted into the lifecycle later must be considered on
+its merits rather than silently inheriting the tax.
+
+**Why it changed.** "Any save into `Approved` withholds" was correct only while `Approved` could be
+reached in one direction. The lifecycle gained `Reconciliation Pending` after it (#1282), and Bulk
+Import's Unreconcile writes `Paid → Approved` — so an ordinary undo read as a fresh approval and
+withheld the tax a SECOND time. Both bugs were reproduced on the local site through the real endpoints:
+a payment with no tax row was netted 50,000 → 49,000 by an unreconcile, and a part payment's leftover
+38,000 → 37,240 on top of the original's tax — after which the first line could not be unreconciled at
+all ("Leftover taxed"), and **nothing in the app can remove a tax row**.
+
+**Where it lives.** `payment_tds.is_approval_from_an_earlier_step(previous, new)` — pure, no database —
+with exactly ONE call site, `controllers/project_payments.on_update`. ⚠️ **The insert path is
+deliberately NOT routed through it**: an insert has no previous status, so the predicate answers False,
+which is right for a transition and would be wrong for an insert. `after_insert` calls
+`record_deduction_if_eligible` directly.
+
+**Unchanged by this:** the bulk-approval exemption (`bulk_actions._record_bulk_deductions` deducts
+post-commit, and bulk approve is itself an earlier-step approval), the `from_adjustment` exemption, and
+tax already withheld — nothing here removes or restates an existing deduction.
+
+**A CEO part-approval is the deliberate exception.** Its leftover waits at `CEO Pending` and is taxed at
+its own approval, so a payment the CEO splits can carry one tax row per part. That is correct: each part
+is paid only after its own approval. A leftover split off in **Bulk Import** is different — it never
+passes through `Approved` again and never carries its own deduction; the tax stays withheld once, on the
+original.
+
+---
+
 ## The two doctypes
 
 **`Payment TDS Deduction`** — one deduction, one payment.
 
 | Field | Note |
 |---|---|
-| `project_payment` | Link → Project Payments. **UNIQUE, and that constraint IS the idempotency guarantee** — only the first Approved transition can write a row, which is also what stops the amount being netted twice. |
+| `project_payment` | Link → Project Payments. **UNIQUE, and that constraint IS the idempotency guarantee** — only the first qualifying approval can write a row, which is also what stops the amount being netted twice. |
 | `gross_amount` | The amount BEFORE tax. ⚠️ The only surviving record of it: `Project Payments.amount` is rewritten to the net. |
 | `tds_percentage` | The rate AS APPLIED, snapshotted. Never re-read from the vendor — 561 of 629 rows differ from their vendor's rate today. |
 | `tds_amount` | `gross × rate / 100`. What `Service Requests.total_tds` sums (Paid payments only). |
-| `payment_approved_on` | The day the payment reached Approved. Renamed from `deducted_on` (2026-09-12). |
+| `payment_approved_on` | The day the payment was **approved** — the day this row was written, which is the approval that withheld the tax. Not "the day it last entered Approved": a later `Paid → Approved` save writes nothing (see the rule above) and moves nothing here. Renamed from `deducted_on` (2026-09-12). |
 | `deducted_on` | ⚠️ **RETIRED, READ-ONLY, FROZEN.** The pre-rename copy, kept until the owner drops the column by hand. Nothing writes it, so rows created after the rename leave it empty — never read it as the live date. |
 | `status` | `Pending` → `Paid`. Written by the Pay TDS action, never by hand. |
 | `tds_challan` | Link → TDS Challan Attachment. |

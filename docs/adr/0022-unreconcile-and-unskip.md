@@ -101,9 +101,9 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
   table shows that sentence instead of the button.
 - **Audit:** `Outflow Row Match` now tracks changes, so the reversed leg has a Version row beside the
   payment's; the line gets a comment naming who, why and which records came off.
-- **TDS on Approved (owner ruling):** putting a Service Request payment back to Approved may withhold TDS and
+- ~~**TDS on Approved (owner ruling):** putting a Service Request payment back to Approved may withhold TDS and
   net its amount. That is left as it is; the response reports `amount_after` and the notice states the new
-  figure. Recorded under Known limits in the domain doc.
+  figure. Recorded under Known limits in the domain doc.~~ **RETIRED — see Amendment A below (#1288).**
 
 ### Unreconcile an existing expense (Q4, Q6) — built at #1277
 
@@ -213,6 +213,44 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
   of one unreconcile now shares one `reversed_at`, which is how "the last unreconcile" is read.
 - The confirm dialog lists marked lines in their own amber box (*"N was unreconciled"*), not under "matched more
   than one record".
+
+## Amendment A — "TDS on Approved" is RETIRED (2026-09-16, #1288, parent #1283)
+
+**The ruling recorded under *Unreconcile a Project Payments line* above is withdrawn.** Tax on a Work
+Order payment is now withheld **only when the payment is approved from an earlier step**: it enters
+*Approved* from *Requested*, *CEO Pending* or *Rejected*, or it is created already *Approved* (the
+existing insert path). Entering *Approved* from **any other status records nothing**; *Reconciliation
+Pending* and *Paid* are the cases that matter.
+
+**Why the original ruling stopped being safe.** It was accepted while *Approved* could be reached in one
+direction only. The payment lifecycle then gained *Reconciliation Pending* after *Approved* (#1282), and
+Unreconcile writes *Paid → Approved* — so an ordinary undo read as a fresh approval. Two bugs were
+reproduced on the local site, through the real endpoints:
+
+- a payment with **no tax row of its own** was taxed when its bank line was unreconciled (50,000 → 49,000);
+- a part payment's **leftover** was taxed when its own bank line was unreconciled (38,000 → 37,240),
+  although the original already carried the tax for the whole amount. The first line could then no longer
+  be unreconciled at all — the split's undo refuses a taxed leftover (*"Leftover taxed"*), and nothing in
+  the app can remove a tax row. The reviewer was told to do something that could not be done.
+
+**What it costs and what it does not.** A part payment's leftover made in Bulk Import never carries its
+own deduction; the tax stays withheld once, on the original. A leftover from a **CEO part-approval** is
+different and is unchanged: it waits at *CEO Pending* and is taxed at its own approval, so a payment the
+CEO splits can carry one tax row per part — correct, because each part is paid only after its own
+approval. The existing bulk-approval and adjustment exemptions are unchanged, and tax already withheld is
+never removed or restated by this change.
+
+**Where it lives.** `services/payment_tds.is_approval_from_an_earlier_step` — the module that owns what
+an approval means — with exactly one call site, `controllers/project_payments.on_update`. The insert path
+is deliberately not routed through it: an insert has no previous status.
+
+**Consequences for this ADR's own text.** `unreconcile`'s response still reports `amount_after`, and the
+screen still states a changed amount — but on the ordinary path that figure now equals the amount before,
+so the sentence does not appear. It is kept as a **backstop**, not deleted: it reports whatever the server
+actually wrote, and a silent amount change is the one thing a reviewer must not have to discover alone.
+The Known-limits entry in `.claude/context/domain/outflow-import.md` is retired with the ruling, and the
+pins that held the old behaviour — `test_unreconcile_payments.TestTheTdsOnApprovedPin` and the
+`unreconcileView` vitest — are **inverted to assert the new rule, never deleted**.
 
 ## Consequences
 

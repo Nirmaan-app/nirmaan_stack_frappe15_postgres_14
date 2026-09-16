@@ -192,8 +192,15 @@ export interface UnreconcileNotice {
  * changed (#1270 stories 38, 39).
  *
  * ⚠️ BUILT FROM THE RESPONSE, NEVER FROM WHAT WAS CLICKED. `amount_after` is read back by the server
- * after the commit; a Service Request payment put back to Approved may have been netted for TDS
- * (owner ruling: left as it is), and this is the only place the screen says so.
+ * after the commit, so the screen states what was actually written rather than what was asked for.
+ *
+ * ⚠️ AN UNRECONCILE NO LONGER CHANGES A WORK ORDER PAYMENT'S AMOUNT (#1288, retiring ADR-0022's
+ * "TDS on Approved" ruling). It used to: putting a Service Request payment back to Approved read as
+ * an approval and withheld TDS, netting the amount, and this sentence was the only place the screen
+ * said so. Tax is now withheld only on an approval from an earlier step, so the ordinary undo leaves
+ * `amount_after` equal to the amount before and the sentence does not appear. IT IS KEPT AS A
+ * BACKSTOP, not deleted -- it reports whatever the server actually wrote, whatever wrote it, and a
+ * silent amount change is exactly the thing a reviewer must not have to discover for themselves.
  *
  * ⚠️ A STILL-PARTLY-ALLOCATED LINE STATES THE BALANCE, NEVER A LEG COUNT -- ADR-0020's rule, the same
  * one `allocation_note` states server-side.

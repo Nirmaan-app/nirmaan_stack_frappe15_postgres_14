@@ -272,14 +272,20 @@ def on_update(doc, method):
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)
 
-    # SR tax withheld, on the transition INTO "Approved" — from the single CEO approve and from
+    # SR tax withheld, on an APPROVAL FROM AN EARLIER STEP — from the single CEO approve and from
     # the approved half of a partial approval. NOT from the bulk endpoint; see below.
     #
     # ⚠️ IT SITS ABOVE THE NOTIFICATION BRANCHES BECAUSE SEVERAL OF THEM RETURN. `split_approval`
     # bails out of the CEO Pending → Approved branch below, so a deduction written after it would
     # be recorded for a single approval and silently skipped for a split one — the failure would be
     # invisible until someone reconciled a month of TDS.
-    if old_doc.status != "Approved" and doc.status == "Approved":
+    #
+    # ⚠️ "APPROVED FROM AN EARLIER STEP", NOT "entered Approved" (#1288, retiring ADR-0022's
+    # "TDS on Approved" ruling). Bulk Import's Unreconcile writes `Paid -> Approved`, so an
+    # ordinary undo used to read as a fresh approval and withhold the tax a SECOND time. The rule
+    # and the measured cases live in `services/payment_tds.APPROVAL_SOURCE_STATUSES`, which owns
+    # what an approval means; this is its one call site.
+    if payment_tds.is_approval_from_an_earlier_step(old_doc.status, doc.status):
         # ⚠️ THE BULK ENDPOINT DEDUCTS AFTER ITS OWN COMMIT, NOT HERE, AND THAT IS THE WHOLE
         # POINT OF THE FLAG. Bulk approve saves every payment in ONE transaction and commits once
         # at the end, so a deduction written from inside this hook shared that transaction with
