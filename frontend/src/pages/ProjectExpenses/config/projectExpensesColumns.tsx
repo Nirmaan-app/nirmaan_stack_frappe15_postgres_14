@@ -20,7 +20,6 @@
 //   - Paid      -> Delete
 
 import { ColumnDef } from "@tanstack/react-table";
-import { Link } from "react-router-dom";
 import { Pencil, CheckCircle2, IndianRupee, Trash2, FileText, Download } from "lucide-react";
 
 import SITEURL from "@/constants/siteURL";
@@ -32,6 +31,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import {
+  ProjectDetailPopover,
+  VendorDetailPopover,
+} from "@/pages/ProjectPayments/components/DetailPopovers";
 import { facetMeta } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
@@ -126,13 +129,17 @@ export const getProjectExpenseColumns = ({
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Project" />
     ),
+    // The whole cell opens the project card; the card carries "Open project", so
+    // the navigation this used to be is kept, one click further in.
     cell: ({ row }) => (
-      <Link
-        to={`/projects/${row.original.projects}`}
-        className="text-blue-600 hover:underline"
+      <ProjectDetailPopover
+        projectId={row.original.projects}
+        projectLabel={getProjectName(row.original.projects)}
       >
-        {getProjectName(row.original.projects)}
-      </Link>
+        <span className="block truncate" title={getProjectName(row.original.projects)}>
+          {getProjectName(row.original.projects)}
+        </span>
+      </ProjectDetailPopover>
     ),
     enableColumnFilter: true,
     meta: {
@@ -187,11 +194,17 @@ export const getProjectExpenseColumns = ({
     accessorKey: "vendor",
     header: "Vendor",
     size: 170,
-    cell: ({ row }) => (
-      <div className="truncate" title={getVendorName(row.original.vendor)}>
-        {getVendorName(row.original.vendor)}
-      </div>
-    ),
+    cell: ({ row }) => {
+      const label = getVendorName(row.original.vendor);
+      // 99.4% of project expenses carry no vendor — an empty cell must stay plain,
+      // because the dotted underline is the promise that something opens.
+      if (!row.original.vendor) return <div className="truncate">{label}</div>;
+      return (
+        <VendorDetailPopover vendorId={row.original.vendor} vendorLabel={label}>
+          <span className="block truncate" title={label}>{label}</span>
+        </VendorDetailPopover>
+      );
+    },
     enableColumnFilter: true,
     meta: {
       ...facetMeta({ field: "vendor", title: "Vendor" }),
@@ -205,7 +218,7 @@ export const getProjectExpenseColumns = ({
     header: ({ column }) => (
       <DataTableColumnHeader
         column={column}
-        title="Amount"
+        title="Req. Amount"
         className="justify-center"
       />
     ),

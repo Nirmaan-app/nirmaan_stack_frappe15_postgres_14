@@ -20,6 +20,11 @@ import { CircleCheck, CircleX, IndianRupee, Paperclip, Pencil, Trash2 } from "lu
 import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import {
+  DocumentDetailPopover,
+  ProjectDetailPopover,
+  VendorDetailPopover,
+} from "../components/DetailPopovers";
 
 import {
   ApprovalColumnId,
@@ -236,7 +241,7 @@ const REGISTRY: Record<
     meta: { exportHeaderName: "Source", exportValue: (r: ApprovalQueueRow) => SOURCE_LABEL[r.source] },
   }),
 
-  against: () => ({
+  against: (ctx) => ({
     // ⚠️ THE ColumnDef `id` MUST BE THE SERVER FIELD NAME, not the registry key.
     // The table builds `order_by` from the column id, keys faceted filters by it,
     // and `dateFilterColumns` matches on it. An id of "against" made the Against
@@ -253,20 +258,39 @@ const REGISTRY: Record<
     cell: ({ row }) => {
       const r = row.original;
       const isPayment = r.source === "Vendor Payment";
+      // ⚠️ SPANS, NOT DIVS. On a payment row this whole block becomes the child of
+      // the popover's <button> trigger, and a <div> inside a <button> is invalid
+      // markup — React warns on every one of the 50 rows a page renders.
       const body = (
-        <div className="min-w-0">
-          <div className={isPayment ? "max-w-[215px] truncate font-mono text-xs" : "max-w-[215px] truncate font-medium"} title={isPayment ? r.against_primary : undefined}>
+        <span className="block min-w-0">
+          <span className={isPayment ? "block max-w-[215px] truncate font-mono text-xs" : "block max-w-[215px] truncate font-medium"} title={isPayment ? r.against_primary : undefined}>
             {isPayment ? r.against_primary : firstLine(r.against_primary)}
-          </div>
+          </span>
           {!isPayment && r.against_secondary && (
-            <div className="max-w-[215px] truncate text-[10px] font-medium text-muted-foreground">
+            <span className="block max-w-[215px] truncate text-[10px] font-medium text-muted-foreground">
               {r.against_secondary}
-            </div>
+            </span>
           )}
-        </div>
+        </span>
       );
+      // A payment row IS a PO/WO number, so the whole cell opens that document's
+      // card. An expense row has no parent document — it keeps the hover that
+      // shows the untrimmed description, which is the only "more" it has.
+      if (isPayment) {
+        if (!r.document_name) return body;
+        return (
+          <DocumentDetailPopover
+            docName={r.document_name}
+            docType={r.document_type}
+            vendorLabel={r.vendor ? ctx.vendorLabels.get(r.vendor) : undefined}
+            projectLabel={r.project ? ctx.projectLabels.get(r.project) : undefined}
+          >
+            {body}
+          </DocumentDetailPopover>
+        );
+      }
       // Everything trimmed off is one hover away — nothing is lost.
-      if (isPayment || !r.against_full) return body;
+      if (!r.against_full) return body;
       return (
         <HoverCard>
           <HoverCardTrigger asChild><div className="cursor-help">{body}</div></HoverCardTrigger>
@@ -336,7 +360,12 @@ const REGISTRY: Record<
       const v = row.original.vendor;
       // Blank on every non-project expense, and on 99.4% of project expenses.
       if (!v) return <Blank />;
-      return <span className="block max-w-[190px] truncate" title={ctx.vendorLabels.get(v) || v}>{ctx.vendorLabels.get(v) || v}</span>;
+      const label = ctx.vendorLabels.get(v) || v;
+      return (
+        <VendorDetailPopover vendorId={v} vendorLabel={label}>
+          <span className="block max-w-[190px] truncate" title={label}>{label}</span>
+        </VendorDetailPopover>
+      );
     },
     meta: {
       exportHeaderName: "Vendor",
@@ -353,7 +382,12 @@ const REGISTRY: Record<
       const p = row.original.project;
       // Non-project expenses are company-wide by definition — the blank IS the value.
       if (!p) return <Blank />;
-      return <span className="block max-w-[160px] truncate" title={ctx.projectLabels.get(p) || p}>{ctx.projectLabels.get(p) || p}</span>;
+      const label = ctx.projectLabels.get(p) || p;
+      return (
+        <ProjectDetailPopover projectId={p} projectLabel={label}>
+          <span className="block max-w-[160px] truncate" title={label}>{label}</span>
+        </ProjectDetailPopover>
+      );
     },
     meta: {
       exportHeaderName: "Project",
@@ -364,8 +398,10 @@ const REGISTRY: Record<
   amount: (ctx) => ({
     id: "amount",
     accessorKey: "amount",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
-    size: 112,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amount" className="justify-end" />,
+    // 128, not 112: "Req. Amount" plus the sort control needs the extra 16px, and
+    // a clipped header on a money column reads as a different column.
+    size: 128,
     cell: ({ row }) => {
       const r = row.original;
       const figure = (
@@ -399,7 +435,7 @@ const REGISTRY: Record<
         </HoverCard>
       );
     },
-    meta: { exportHeaderName: "Amount", exportValue: (r: ApprovalQueueRow) => r.amount },
+    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.amount },
   }),
 
   // What your click DOES: finish the approval, or forward it to the CEO. Without

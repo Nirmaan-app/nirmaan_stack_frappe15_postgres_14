@@ -87,7 +87,7 @@ export const buildApprovalExportColumns = (
   // A RAW number, deliberately unformatted: `formatToRoundedIndianRupee` returns
   // "₹1,23,456", which a spreadsheet imports as TEXT and will not sum. The screen
   // formats; the file stays arithmetic.
-  col("amount", "Amount", (r) => r.amount),
+  col("amount", "Req. Amount", (r) => r.amount),
   col("tier", "Tier", (r) => TIER_LABEL[r.tier] ?? r.tier ?? ""),
   col("raised_by", "Raised By", (r) =>
     ctx.userLabels?.get(r.raised_by) || r.raised_by || "",
