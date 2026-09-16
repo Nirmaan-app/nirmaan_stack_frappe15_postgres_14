@@ -338,7 +338,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
 | `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) |
+| `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
 ### Load-bearing invariants
@@ -398,6 +399,21 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   against the form (`templateId` in its answers) keeps it after the switch goes off. **Only the
   OFF side is server-enforced** (`create.guard_request_form`: description, invoice coherence,
   refuses form answers); a form's own required answers are still dialog-only, as before.
+- **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
+  the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
+  only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
+  (create; update only when the type CHANGES, so narrowing roles never strands a pending request —
+  the edit dialog passes `include_type`). Scope is the REQUEST dialog only: ledger dialogs, outflow
+  import and the request list are untouched.
+  **Owner's role mapping (2026-09-16, in the fixture)** — Project Manager + Project Lead:
+  Accommodation Deposit, Staff / Labour Accommodation Rent. Accountant + Accountant Lead: Audit
+  Fee, GST Payment, TDS Payment, Other Project Related Charges, Professional Charges, Salaries &
+  Employee Wages, EPFO Payment, Professional Tax. HR Executive + HR Lead: Electricity Expenses,
+  Fixed Assets, Internet & Mobile Charges, Software Chagres, Rent Expenses. **Every other type is
+  Admin only.** "Salary – TDS" and "Misc. Expenses" had no matching type and are unassigned.
+  To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
+  Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
+  the PM profile on the real types it uses for its run and removes exactly those rows after.
 - **⚠️ THERE IS NO ROW SCOPING ON READS (owner ruling, 2026-08-18).** The
   `permission_query_conditions` hook was REMOVED, so a list read returns everything the
   caller's ROLE may read — and **eight roles hold read DocPerm** (System Manager, PM, HR

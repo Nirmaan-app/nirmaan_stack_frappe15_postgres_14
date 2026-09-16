@@ -31,7 +31,11 @@ _CACHE_KEY = "_expense_request_routing"
 
 
 def _routing() -> dict:
-	"""`{expense_type: (category, reviewer_role)}`, cached for the life of the request.
+	"""`{expense_type: (category, reviewer_role, allowed_roles)}`, cached for the request.
+
+	`allowed_roles` is the frozenset of role profiles listed in `Expense Type.allowed_roles`
+	-- who may SEE the type when raising a request. The Admin bypass is not applied here; it
+	lives beside the other gates in `api/expense_requests/access.can_request_type`.
 
 	One query. `get_permission_query_conditions` runs on every list read and Frappe may call
 	it several times while building one query, so re-reading a 40-row table each time is
@@ -41,11 +45,23 @@ def _routing() -> dict:
 	if cached is not None:
 		return cached
 
+	roles: dict[str, set] = {}
+	for r in frappe.get_all(
+		"Expense Type Role",
+		filters={"parenttype": "Expense Type", "parentfield": "allowed_roles"},
+		fields=["parent", "role_profile"],
+	):
+		roles.setdefault(r["parent"], set()).add(r["role_profile"])
+
 	out = {}
 	for r in frappe.get_all("Expense Type", fields=["name", "expense_category"]):
 		# A type with NO category is still requestable. Refusing it instead would make a newly
 		# created type silently un-requestable until someone remembered to categorise it.
-		out[r["name"]] = (r["expense_category"], DEFAULT_REVIEWER_ROLE)
+		out[r["name"]] = (
+			r["expense_category"],
+			DEFAULT_REVIEWER_ROLE,
+			frozenset(roles.get(r["name"], ())),
+		)
 	setattr(frappe.local, _CACHE_KEY, out)
 	return out
 
@@ -75,16 +91,22 @@ def reviewer_role_for_type(expense_type: str) -> str:
 	return entry[1] if entry else DEFAULT_REVIEWER_ROLE
 
 
+def allowed_roles_for_type(expense_type: str) -> frozenset:
+	"""The role profiles listed on the type. Empty means Admin only -- see `access`."""
+	entry = _routing().get(expense_type)
+	return entry[2] if entry else frozenset()
+
+
 def types_reviewed_by(role_profile: str) -> tuple[str, ...]:
 	"""Every type whose reviewer is `role_profile` -- how a reviewer's queue is scoped."""
-	return tuple(t for t, (_c, rev) in _routing().items() if rev == role_profile)
+	return tuple(t for t, entry in _routing().items() if entry[1] == role_profile)
 
 
 def resolved_categories() -> list[tuple[str, str, tuple[str, ...]]]:
 	"""`(category, reviewer_role, types)` per category, plus an uncategorised bucket."""
 	grouped: dict[str | None, list[str]] = {}
 	revs: dict[str | None, str] = {}
-	for t, (category, reviewer) in _routing().items():
+	for t, (category, reviewer, _roles) in _routing().items():
 		grouped.setdefault(category, []).append(t)
 		revs[category] = reviewer
 	out = [

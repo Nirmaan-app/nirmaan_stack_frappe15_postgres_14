@@ -10,7 +10,11 @@ URLs:
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, caller_role_profile
+from nirmaan_stack.api.expense_requests.access import (
+	ADMIN_PROFILE,
+	caller_role_profile,
+	can_request_type,
+)
 from nirmaan_stack.api.expense_requests.convert import (
 	applicable_format,
 	target_doctype,
@@ -109,8 +113,13 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 
 
 @frappe.whitelist()
-def get_request_catalog():
+def get_request_catalog(include_type: str | None = None):
 	"""The requestable types with their flags and format, for the create dialog.
+
+	Only the types the caller's role may SEE (`Expense Type.allowed_roles`; an Admin sees
+	all). `include_type` adds ONE more regardless -- the EDIT dialog passes the request's own
+	type, which `update` lets its owner keep even after the type's roles were narrowed.
+	Flags are not sensitive, and the create/update guards remain the boundary.
 
 	`has_format` is true only when the type's form is switched ON and actually written.
 
@@ -125,10 +134,13 @@ def get_request_catalog():
 	`non_project` drive the conditional Project field (mirroring the doctype's
 	`type_allows_project` fetch).
 	"""
-	types = requestable_types()
+	types = [
+		t for t in requestable_types()
+		if can_request_type(t) or t == include_type
+	]
 	rows = frappe.get_all(
 		"Expense Type",
-		filters={"name": ["in", list(types)]},
+		filters={"name": ["in", types]},
 		fields=["name", "project", "non_project", "source_format", "source_format_enabled"],
 	) if types else []
 	by_name = {r["name"]: r for r in rows}

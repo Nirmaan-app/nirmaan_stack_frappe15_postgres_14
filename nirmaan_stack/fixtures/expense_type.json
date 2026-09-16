@@ -1,5 +1,6 @@
 [
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -12,6 +13,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -24,6 +26,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -36,6 +39,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -48,6 +52,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Electricity Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Electricity Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -60,6 +78,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -72,6 +91,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "GST Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "GST Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -84,6 +117,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "TDS Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "TDS Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -96,6 +143,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -108,6 +156,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -120,6 +169,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -132,6 +182,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Rent Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Rent Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -144,6 +208,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Salaries & Employee Wages",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Salaries & Employee Wages",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -156,6 +234,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -168,6 +247,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -180,6 +260,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -192,6 +273,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -204,6 +286,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Professional Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Professional Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -216,6 +312,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -228,6 +325,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -240,6 +338,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -252,6 +351,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -264,6 +364,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -276,6 +377,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Other Project Related Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Other Project Related Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -288,6 +403,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -300,6 +416,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Internet & Mobile Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Internet & Mobile Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -312,6 +442,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Audit Fee",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Audit Fee",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -324,6 +468,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -336,6 +481,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -348,6 +494,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Software Chagres",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Software Chagres",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -360,6 +520,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -372,6 +533,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -384,6 +546,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Fixed Assets",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Fixed Assets",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -396,6 +572,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -408,6 +585,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Accommodation Deposit",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Project Lead Profile"
+   },
+   {
+    "parent": "Accommodation Deposit",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Project Manager Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -420,6 +611,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Labour Accommodation Rent",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Project Lead Profile"
+   },
+   {
+    "parent": "Labour Accommodation Rent",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Project Manager Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -432,6 +637,20 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [
+   {
+    "parent": "Staff Accommodation Rent",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Project Lead Profile"
+   },
+   {
+    "parent": "Staff Accommodation Rent",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Project Manager Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -444,6 +663,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -465,9 +685,11 @@
   "non_project": 1,
   "project": 0,
   "source_format": null,
+  "allowed_roles": [],
   "source_format_enabled": 0
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -480,6 +702,7 @@
   "source_format_enabled": 1
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_name": "Fixed Deposit Proceeds",
@@ -491,6 +714,7 @@
   "source_format_enabled": 0
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_name": "Loan Received",
@@ -502,6 +726,7 @@
   "source_format_enabled": 0
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_name": "Advance Returned",
@@ -513,6 +738,7 @@
   "source_format_enabled": 0
  },
  {
+  "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -523,5 +749,57 @@
   "project": 0,
   "source_format": "{\n  \"templateId\": \"travel\",\n  \"templateVersion\": 4,\n  \"title\": \"Travel\",\n  \"description_template\": \"{traveller_name} \u2013 train travel from {from_location} to {to_location} on {depart_date}[[ for {purpose}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Trip\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"traveller_name\",\n          \"label\": \"Traveller Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"purpose\",\n          \"label\": \"Purpose\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"from_location\",\n          \"label\": \"From\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"to_location\",\n          \"label\": \"To\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"depart_date\",\n          \"label\": \"Departure Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Ticket / Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
   "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "EPFO Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "EPFO Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": null,
+  "expense_name": "EPFO Payment",
+  "modified": "2026-09-08 17:52:40.536931",
+  "name": "EPFO Payment",
+  "non_project": 1,
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Professional Tax",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Professional Tax",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": null,
+  "expense_name": "Professional Tax",
+  "modified": "2026-09-08 17:52:27.169861",
+  "name": "Professional Tax",
+  "non_project": 1,
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
  }
 ]

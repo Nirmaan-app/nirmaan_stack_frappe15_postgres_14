@@ -88,7 +88,9 @@ def update_expense_request(
 
 	# Every guard `create` applies, re-applied. A second submission is not more trustworthy
 	# than the first, and the type may have changed since.
-	guard_requestable(expense_type)
+	# Visibility is checked only when the TYPE CHANGES: narrowing a type's roles must not
+	# strand a request its owner already raised under it.
+	guard_requestable(expense_type, check_visibility=expense_type != req.type)
 	vendor = guard_vendor_scope(vendor, projects)
 
 	if source_data is not None and not isinstance(source_data, str):

@@ -32,11 +32,14 @@ from nirmaan_stack.services import expense_request_routing as routing
 PM_USER = "exr_test_pm@example.com"
 PM2_USER = "exr_test_pm2@example.com"
 HR_USER = "exr_test_hr@example.com"
+ACC_USER = "exr_test_acc@example.com"
+HRL_USER = "exr_test_hrl@example.com"
 
 PROJECT_TYPE = "Staff Accommodation Rent"      # project=1, non_project=0
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
 BOTH_TYPE = "Petty Cash"                       # project=1, non_project=1
 HOTEL_CATEGORY = "Hotel & Accommodation"
+PM_PROFILE = "Nirmaan Project Manager Profile"
 
 
 def _make_user(email: str, profile: str, roles: tuple[str, ...]):
@@ -72,8 +75,29 @@ class TestExpenseRequests(FrappeTestCase):
 			# ledgers only works via that accident. Testing the strict case proves this
 			# feature's own DocPerms stand alone.
 			(HR_USER, "Nirmaan HR Executive Profile", ("Nirmaan HR Executive",)),
+			# The real profiles' roles, WITHOUT System Manager -- so raising a request proves
+			# the Expense Request `create` DocPerm on the role itself.
+			(ACC_USER, "Nirmaan Accountant Profile", ("Nirmaan Accountant",)),
+			(HRL_USER, "Nirmaan HR Lead Profile", ("Nirmaan HR Executive", "Nirmaan HR Lead")),
 		):
 			_make_user(email, profile, roles)
+
+		# The suite raises requests as a PM on these REAL types, but who may see a type is
+		# master data (`allowed_roles`) and the owner's mapping leaves most of them Admin only.
+		# So the PM profile is granted for the run and exactly the rows added are removed after
+		# -- never a reset of the type's own list.
+		cls.granted_roles = []
+		for t in (PROJECT_TYPE, NON_PROJECT_TYPE, BOTH_TYPE, "Hotel Expenses"):
+			if frappe.db.exists("Expense Type Role", {"parent": t, "parenttype": "Expense Type",
+			                                          "role_profile": PM_PROFILE}):
+				continue
+			row = frappe.get_doc({
+				"doctype": "Expense Type Role", "name": frappe.generate_hash(length=10),
+				"parent": t, "parenttype": "Expense Type", "parentfield": "allowed_roles",
+				"role_profile": PM_PROFILE, "idx": 99,
+			})
+			row.db_insert()
+			cls.granted_roles.append(row.name)
 
 		p = frappe.new_doc("Projects")
 		p.project_name = f"exr_test_{frappe.generate_hash(length=6)}"
@@ -87,8 +111,11 @@ class TestExpenseRequests(FrappeTestCase):
 	@classmethod
 	def tearDownClass(cls):
 		frappe.set_user("Administrator")
+		for n in cls.granted_roles:
+			frappe.db.delete("Expense Type Role", {"name": n})
 		for r in frappe.get_all("Expense Request",
-		                        filters={"owner": ["in", [PM_USER, PM2_USER, HR_USER]]}):
+		                        filters={"owner": ["in", [PM_USER, PM2_USER, HR_USER,
+		                                                  ACC_USER, HRL_USER]]}):
 			for n in frappe.get_all("Nirmaan Notifications",
 			                        filters={"document": "Expense Request", "docname": r.name}):
 				frappe.delete_doc("Nirmaan Notifications", n.name, force=True,
@@ -100,7 +127,7 @@ class TestExpenseRequests(FrappeTestCase):
 			for r in frappe.get_all(dt, filters={"description": ["like", "%[EXR-%"]}):
 				frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
 		frappe.delete_doc("Projects", cls.project, force=True, ignore_permissions=True)
-		for email in (PM_USER, PM2_USER, HR_USER):
+		for email in (PM_USER, PM2_USER, HR_USER, ACC_USER, HRL_USER):
 			for dt in ("Nirmaan Users", "User"):
 				if frappe.db.exists(dt, email):
 					frappe.delete_doc(dt, email, force=True, ignore_permissions=True)
@@ -996,17 +1023,18 @@ class TestExpenseRequests(FrappeTestCase):
 				bool(stored.source_format_enabled and (stored.source_format or "").strip()),
 				msg=f"has_format disagrees with the stored format/switch for {name}")
 
-	# --- the request-form switch (2026-09-16) --------------------------------
+	# --- per-type visibility and the request-form switch (2026-09-16) --------
 	#
-	# These build their OWN types, so they hold whatever the site's seeded switches say about
-	# the real ones.
+	# These build their OWN types, so they hold whatever the site's seeded roles and switches
+	# say about the real ones.
 
-	def _own_type(self, *, project=0, non_project=1, fmt=None, enabled=0):
+	def _own_type(self, *, project=0, non_project=1, roles=(PM_PROFILE,), fmt=None, enabled=0):
 		name = f"exr_test_et_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
 		d.update({"expense_name": name, "project": project, "non_project": non_project,
 		          "expense_category": "Uncategorized", "source_format": fmt,
 		          "source_format_enabled": enabled})
+		d.set("allowed_roles", [{"role_profile": r} for r in roles])
 		d.insert(ignore_permissions=True)
 		frappe.db.commit()
 		routing.clear_cache()
@@ -1022,6 +1050,54 @@ class TestExpenseRequests(FrappeTestCase):
 		routing.clear_cache()
 		return {t["expense_type"]: t
 		        for c in get_request_catalog(**kw)["categories"] for t in c["types"]}
+
+	def test_the_catalog_lists_only_types_the_role_may_see(self):
+		seen = self._own_type()
+		hidden = self._own_type(roles=())
+		frappe.set_user(PM_USER)
+		types = self._catalog_types()
+		self.assertIn(seen, types)
+		self.assertNotIn(hidden, types)
+		# The edit dialog asks for the request's own type explicitly.
+		self.assertIn(hidden, self._catalog_types(include_type=hidden))
+		frappe.set_user("Administrator")
+		# An admin sees every type, listed or not.
+		self.assertIn(hidden, self._catalog_types())
+
+	def test_accountant_and_hr_lead_can_raise_on_a_type_listing_them(self):
+		"""The owner's role mapping (2026-09-16) gives Accountant / Accountant Lead and HR their
+		own types. Raising one needs `create` on Expense Request, which those roles lacked."""
+		acc = self._own_type(roles=("Nirmaan Accountant Profile",))
+		hr = self._own_type(roles=("Nirmaan HR Lead Profile",))
+		self.assertTrue(self._raise_as(ACC_USER, expense_type=acc)["name"])
+		self.assertTrue(self._raise_as(HRL_USER, expense_type=hr)["name"])
+		with self.assertRaises(frappe.PermissionError):
+			self._raise_as(ACC_USER, expense_type=hr)
+
+	def test_create_refuses_a_type_the_role_may_not_see(self):
+		hidden = self._own_type(roles=("Nirmaan HR Executive Profile",))
+		with self.assertRaises(frappe.PermissionError):
+			self._raise_as(PM_USER, expense_type=hidden)
+		self.assertTrue(self._raise_as(PM_USER, expense_type=self._own_type())["name"])
+
+	def test_an_edit_keeps_a_narrowed_type_but_cannot_switch_to_a_hidden_one(self):
+		narrowed = self._own_type()
+		res = self._raise_as(PM_USER, expense_type=narrowed)
+
+		doc = frappe.get_doc("Expense Type", narrowed)
+		doc.set("allowed_roles", [])
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		routing.clear_cache()
+
+		payload = {"projects": None, "amount": 4400,
+		           "source_data": {"responses": {"detail": {"description": "kept"}}}}
+		self._edit(PM_USER, res, expense_type=narrowed, **payload)
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "amount"), 4400)
+
+		hidden = self._own_type(roles=())
+		with self.assertRaises(frappe.PermissionError):
+			self._edit(PM_USER, res, expense_type=hidden, **payload)
 
 	def test_a_switched_off_form_is_not_served_and_its_answers_are_refused(self):
 		fmt = json.dumps({"templateId": "exr-test-off", "templateVersion": 1, "sections": []})
@@ -1221,7 +1297,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		save_expense_format(name=name, source_format="")
 		self.assertIsNone(frappe.db.get_value("Expense Type", name, "source_format"))
 
-	# --- the request-form switch (2026-09-16) --------------------------------
+	# --- the request-form switch and per-type roles (2026-09-16) -------------
 
 	def _made_type(self, **kw):
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
@@ -1245,10 +1321,52 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		save_expense_format(name=name, source_format="")
 		self.assertEqual(frappe.db.get_value("Expense Type", name, "source_format_enabled"), 0)
 
-	def test_pm_cannot_switch_a_form(self):
-		from nirmaan_stack.api.expense_requests.masters import set_expense_form_enabled
+	def test_allowed_roles_are_saved_replaced_and_validated(self):
+		from nirmaan_stack.api.expense_requests.masters import update_expense_type
+
+		def stored(n):
+			return frappe.get_all("Expense Type Role", filters={"parent": n, "parenttype": "Expense Type"},
+			                      pluck="role_profile", order_by="idx asc")
+
+		name = self._made_type(allowed_roles=[
+			"Nirmaan Project Manager Profile", "Nirmaan Project Manager Profile",
+			"Nirmaan HR Executive Profile"])
+		self.assertEqual(stored(name), ["Nirmaan Project Manager Profile", "Nirmaan HR Executive Profile"])
+
+		# Omitted leaves the list alone; sent replaces it (a JSON string is what a form posts).
+		update_expense_type(name=name, non_project=1, expense_category="Uncategorized")
+		self.assertEqual(len(stored(name)), 2)
+		update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+		                    allowed_roles='["Nirmaan PMO Executive Profile"]')
+		self.assertEqual(stored(name), ["Nirmaan PMO Executive Profile"])
+
+		with self.assertRaises(frappe.ValidationError):
+			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			                    allowed_roles=["Nirmaan Admin Profile"])
+		with self.assertRaises(frappe.ValidationError):
+			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			                    allowed_roles=["Not A Profile"])
+		self.assertEqual(stored(name), ["Nirmaan PMO Executive Profile"])
+
+	def test_pm_cannot_switch_a_form_set_roles_or_read_access(self):
+		from nirmaan_stack.api.expense_requests.masters import (
+			get_expense_type_access, set_expense_form_enabled, update_expense_type,
+		)
 		name = self._made_type()
 		frappe.set_user(PM_USER)
 		with self.assertRaises(frappe.PermissionError):
 			set_expense_form_enabled(name=name, enabled=0)
+		with self.assertRaises(frappe.PermissionError):
+			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			                    allowed_roles=["Nirmaan Project Manager Profile"])
+		with self.assertRaises(frappe.PermissionError):
+			get_expense_type_access()
 		frappe.set_user("Administrator")
+
+	def test_the_access_read_never_offers_the_admin_profile(self):
+		from nirmaan_stack.api.expense_requests.masters import get_expense_type_access
+		name = self._made_type(allowed_roles=["Nirmaan HR Executive Profile"])
+		out = get_expense_type_access()
+		self.assertNotIn("Nirmaan Admin Profile", out["role_profiles"])
+		self.assertIn("Nirmaan Project Manager Profile", out["role_profiles"])
+		self.assertEqual(out["allowed_roles"][name], ["Nirmaan HR Executive Profile"])

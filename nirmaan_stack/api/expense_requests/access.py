@@ -12,6 +12,7 @@ own ask into money. Every gate lives here rather than being restated at each end
 import frappe
 
 from nirmaan_stack.services.expense_request_routing import (
+	allowed_roles_for_type,
 	is_requestable,
 	reviewer_role_for_type,
 	types_reviewed_by,
@@ -47,19 +48,40 @@ def is_admin(user: str | None = None) -> bool:
 	return caller_role_profile(user) == ADMIN_PROFILE
 
 
-def guard_requestable(expense_type: str) -> None:
-	"""Refuse a type that does not exist.
+def can_request_type(expense_type: str, user: str | None = None) -> bool:
+	"""May the caller SEE this type when raising a request?
+
+	`Expense Type.allowed_roles` lists the role profiles that may; an Admin sees every type
+	and is never listed, so an EMPTY list means Admin only (owner ruling 2026-09-16).
+	"""
+	profile = caller_role_profile(user)
+	if profile == ADMIN_PROFILE:
+		return True
+	return bool(profile) and profile in allowed_roles_for_type(expense_type)
+
+
+def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
+	"""Refuse a type that does not exist, or one the caller's role may not see.
 
 	Without this, a requester could post any string straight at the endpoint, bypassing the
-	picker. Every real Expense Type is requestable -- a type with no category simply routes
-	to the default reviewer rather than being blocked, so a newly created type is never
-	silently un-requestable.
+	picker. A type with no category simply routes to the default reviewer rather than being
+	blocked, so a newly created type is never silently un-requestable by ROUTING -- only its
+	`allowed_roles` decide who sees it.
+
+	`check_visibility=False` is for an edit that KEEPS the request's type: narrowing a type's
+	roles must not strand a request its owner already raised under it.
 	"""
 	if not is_requestable(expense_type):
 		frappe.throw(
 			f"'{expense_type}' cannot be requested.",
 			frappe.PermissionError,
 			title="Not a requestable expense type",
+		)
+	if check_visibility and not can_request_type(expense_type):
+		frappe.throw(
+			f"'{expense_type}' is not available to your role.",
+			frappe.PermissionError,
+			title="Expense type not available",
 		)
 
 

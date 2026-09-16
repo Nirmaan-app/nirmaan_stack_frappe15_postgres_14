@@ -18,7 +18,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import is_admin
+from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, is_admin
 
 
 def _require_admin() -> None:
@@ -54,6 +54,71 @@ def _validate_category(expense_category: str | None) -> str:
 	return category
 
 
+def _normalise_roles(allowed_roles) -> list[str] | None:
+	"""The role profiles that may SEE a type, cleaned; None means "not sent, leave as is".
+
+	Accepts a list or its JSON string (a form post sends the latter). Order is kept and
+	repeats are dropped. The Admin profile is REFUSED rather than dropped: an admin sees
+	every type, so a client sending it has misunderstood the field.
+	"""
+	if allowed_roles is None:
+		return None
+	if isinstance(allowed_roles, str):
+		try:
+			allowed_roles = json.loads(allowed_roles or "[]")
+		except ValueError:
+			frappe.throw("Allowed roles must be a list.", title="Invalid roles")
+	if not isinstance(allowed_roles, (list, tuple)):
+		frappe.throw("Allowed roles must be a list.", title="Invalid roles")
+
+	out: list[str] = []
+	for value in allowed_roles:
+		profile = (value or "").strip() if isinstance(value, str) else ""
+		if not profile or profile in out:
+			continue
+		if profile == ADMIN_PROFILE:
+			frappe.throw(
+				f"{ADMIN_PROFILE} already sees every expense type -- leave it out.",
+				title="Admin is implicit",
+			)
+		if not frappe.db.exists("Role Profile", profile):
+			frappe.throw(f"'{profile}' is not a role profile.", title="Unknown role profile")
+		out.append(profile)
+	return out
+
+
+def _set_roles(doc, profiles: list[str] | None) -> None:
+	if profiles is not None:
+		doc.set("allowed_roles", [{"role_profile": p} for p in profiles])
+
+
+@frappe.whitelist()
+def get_expense_type_access():
+	"""What the Expense Packages screen needs to show and edit `allowed_roles`.
+
+	`role_profiles`: every profile the picker may offer -- all of them EXCEPT Admin, who sees
+	every type anyway. `allowed_roles`: `{expense_type: [profile, ...]}` for every type that
+	lists any; a type absent here is Admin only.
+
+	Served from here rather than read client-side: Role Profile is a System Manager doctype,
+	and the child table is not returned by a list read.
+	"""
+	_require_admin()
+	profiles = [
+		p for p in frappe.get_all("Role Profile", pluck="name", order_by="name asc")
+		if p != ADMIN_PROFILE
+	]
+	by_type: dict[str, list[str]] = {}
+	for r in frappe.get_all(
+		"Expense Type Role",
+		filters={"parenttype": "Expense Type", "parentfield": "allowed_roles"},
+		fields=["parent", "role_profile"],
+		order_by="idx asc",
+	):
+		by_type.setdefault(r["parent"], []).append(r["role_profile"])
+	return {"role_profiles": profiles, "allowed_roles": by_type}
+
+
 def _validate_scope(project: int, non_project: int) -> None:
 	if not project and not non_project:
 		frappe.throw(
@@ -64,10 +129,15 @@ def _validate_scope(project: int, non_project: int) -> None:
 
 
 @frappe.whitelist(methods=["POST"])
-def create_expense_type(expense_name: str, project=0, non_project=0, expense_category=None):
-	"""Add an Expense Type, optionally assigning it to an existing category."""
+def create_expense_type(expense_name: str, project=0, non_project=0, expense_category=None,
+                        allowed_roles=None):
+	"""Add an Expense Type, assigning it to an existing category and the roles that see it.
+
+	No roles means Admin only -- see `access.can_request_type`.
+	"""
 	_require_admin()
 	category = _validate_category(expense_category)
+	profiles = _normalise_roles(allowed_roles)
 	name = (expense_name or "").strip()
 	if not name:
 		frappe.throw("A name is required.", title="Name required")
@@ -81,14 +151,18 @@ def create_expense_type(expense_name: str, project=0, non_project=0, expense_cat
 	doc = frappe.new_doc("Expense Type")
 	doc.update({"expense_name": name, "project": project, "non_project": non_project,
 	            "expense_category": category})
+	_set_roles(doc, profiles)
 	doc.insert(ignore_permissions=True)
 	frappe.db.commit()
 	return {"name": doc.name}
 
 
 @frappe.whitelist(methods=["POST"])
-def update_expense_type(name: str, project=0, non_project=0, expense_category=None):
-	"""Change a type's scope and its category.
+def update_expense_type(name: str, project=0, non_project=0, expense_category=None,
+                        allowed_roles=None):
+	"""Change a type's scope, its category and the roles that see it.
+
+	`allowed_roles` REPLACES the list when sent; omitted, the list is left as it is.
 
 	The NAME is deliberately not editable HERE. It is the docname, so changing it is a
 	`rename_doc` operation rather than a field write -- a different thing with different
@@ -106,15 +180,18 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	project, non_project = int(project or 0), int(non_project or 0)
 	_validate_scope(project, non_project)
 	category = _validate_category(expense_category)
+	profiles = _normalise_roles(allowed_roles)
 
 	doc = frappe.get_doc("Expense Type", name)
 	doc.project = project
 	doc.non_project = non_project
 	doc.expense_category = category
+	_set_roles(doc, profiles)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	return {"name": name, "project": project, "non_project": non_project,
-	        "expense_category": category}
+	        "expense_category": category,
+	        "allowed_roles": [r.role_profile for r in doc.allowed_roles]}
 
 
 @frappe.whitelist(methods=["POST"])

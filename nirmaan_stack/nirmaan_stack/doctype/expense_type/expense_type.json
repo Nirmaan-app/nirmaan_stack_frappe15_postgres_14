@@ -11,6 +11,8 @@
   "project",
   "non_project",
   "expense_category",
+  "access_section",
+  "allowed_roles",
   "request_form_section",
   "source_format_enabled",
   "source_format"
@@ -47,6 +49,18 @@
    "in_standard_filter": 1,
    "label": "Expense Category",
    "options": "Expense Category"
+  },
+  {
+   "fieldname": "access_section",
+   "fieldtype": "Section Break",
+   "label": "Visible To"
+  },
+  {
+   "description": "Role profiles that may pick this type when raising an expense request. Nirmaan Admin Profile always sees every type and is never listed here, so an empty table means Admin only.",
+   "fieldname": "allowed_roles",
+   "fieldtype": "Table",
+   "label": "Allowed Roles",
+   "options": "Expense Type Role"
   },
   {
    "fieldname": "request_form_section",

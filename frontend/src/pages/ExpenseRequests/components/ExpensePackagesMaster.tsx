@@ -1,8 +1,8 @@
 // src/pages/ExpenseRequests/components/ExpensePackagesMaster.tsx
 //
 // Packages Settings → "Expense Packages". Manages the `Expense Type` master: add a type,
-// edit its project / non-project scope, author the Expense Request form format, and switch
-// that form on or off.
+// edit its project / non-project scope and who may see it, author the Expense Request form
+// format, and switch that form on or off.
 //
 // The scope checkboxes are not cosmetic — they drive real behaviour downstream:
 //   project only      -> the request form REQUIRES a project; approval writes Project Expenses
@@ -14,7 +14,8 @@
 // a new type is saved as "Uncategorized" and an edit keeps the type's current category.
 
 import React, { useMemo, useState } from "react";
-import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import ReactSelect from "react-select";
 import { TailSpin } from "react-loader-spinner";
 import { Braces, Pencil, PlusCircle, Search } from "lucide-react";
 
@@ -56,6 +57,18 @@ const SCOPE_STYLE: Record<ScopeLabel, string> = {
     Unusable: "bg-red-100 text-red-800",
 };
 
+/** "Nirmaan Project Manager Profile" -> "Project Manager", for a table cell. */
+const shortProfile = (p: string) => p.replace(/^Nirmaan /, "").replace(/ Profile$/, "");
+
+interface ExpenseTypeAccess {
+    /** Every profile the picker may offer -- all but Admin, who sees every type. */
+    role_profiles: string[];
+    /** Types listing no role are absent, and are Admin only. */
+    allowed_roles: Record<string, string[]>;
+}
+
+interface RoleOption { value: string; label: string }
+
 interface EditState {
     open: boolean;
     /** null = adding a new type */
@@ -65,11 +78,12 @@ interface EditState {
     non_project: boolean;
     /** Not editable here -- carried so an edit keeps the type's current category. */
     expense_category: string;
+    allowed_roles: string[];
 }
 
 const BLANK: EditState = {
     open: false, target: null, expense_name: "", project: false, non_project: false,
-    expense_category: FALLBACK_CATEGORY,
+    expense_category: FALLBACK_CATEGORY, allowed_roles: [],
 };
 
 export const ExpensePackagesMaster: React.FC = () => {
@@ -87,6 +101,19 @@ export const ExpensePackagesMaster: React.FC = () => {
         limit: 0,
         orderBy: { field: "expense_name", order: "asc" },
     });
+
+    // Role Profile is a System Manager doctype and a list read does not return the child
+    // table, so both come from one admin-gated endpoint.
+    const { data: accessRes, mutate: mutateAccess } = useFrappeGetCall<{ message: ExpenseTypeAccess }>(
+        "nirmaan_stack.api.expense_requests.masters.get_expense_type_access",
+        undefined,
+        "expense_type_access"
+    );
+    const allowedByType = accessRes?.message?.allowed_roles ?? {};
+    const roleOptions: RoleOption[] = useMemo(
+        () => (accessRes?.message?.role_profiles ?? []).map((p) => ({ value: p, label: shortProfile(p) })),
+        [accessRes]
+    );
 
     // ADMIN-GATED endpoints, not raw doc writes: `Expense Type` carries write for ~15 roles
     // (Project Manager included), and the scope flags decide which ledger a request becomes.
@@ -163,6 +190,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                     project: edit.project ? 1 : 0,
                     non_project: edit.non_project ? 1 : 0,
                     expense_category: edit.expense_category,
+                    allowed_roles: edit.allowed_roles,
                 });
                 toast({ title: "Updated", description: edit.target.name, variant: "success" });
             } else {
@@ -171,11 +199,13 @@ export const ExpensePackagesMaster: React.FC = () => {
                     project: edit.project ? 1 : 0,
                     non_project: edit.non_project ? 1 : 0,
                     expense_category: FALLBACK_CATEGORY,
+                    allowed_roles: edit.allowed_roles,
                 });
                 toast({ title: "Expense type added", description: name, variant: "success" });
             }
             setEdit(BLANK);
             mutate();
+            mutateAccess();
         } catch (e) {
             toast({ title: "Could not save", description: getFrappeError(e), variant: "destructive" });
         }
@@ -222,6 +252,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         <TableRow>
                             <TableHead>Expense Type</TableHead>
                             <TableHead>Scope</TableHead>
+                            <TableHead>Role Access</TableHead>
                             <TableHead>JSON Format</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -231,6 +262,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                             const scope = scopeOf(t);
                             const hasFormat = !!(t.source_format || "").trim();
                             const formOn = hasFormat && !!t.source_format_enabled;
+                            const roles = allowedByType[t.name] ?? [];
                             return (
                                 <TableRow key={t.name}>
                                     <TableCell className="font-medium">{t.name}</TableCell>
@@ -238,6 +270,28 @@ export const ExpensePackagesMaster: React.FC = () => {
                                         <Badge className={cn(SCOPE_STYLE[scope], "hover:bg-inherit")}>
                                             {scope}
                                         </Badge>
+                                    </TableCell>
+                                    <TableCell className="max-w-[20rem]">
+                                        <div className="flex flex-wrap gap-1">
+                                            {roles.length ? roles.map((r) => (
+                                                <Badge
+                                                    key={r}
+                                                    variant="outline"
+                                                    title={r}
+                                                    className="whitespace-nowrap bg-slate-50 text-[11px] font-normal text-slate-700 hover:bg-slate-50"
+                                                >
+                                                    {shortProfile(r)}
+                                                </Badge>
+                                            )) : (
+                                                <Badge
+                                                    variant="outline"
+                                                    title="No role listed -- only Admin can pick this type"
+                                                    className="whitespace-nowrap border-amber-300 bg-amber-50 text-[11px] font-normal text-amber-800 hover:bg-amber-50"
+                                                >
+                                                    Admin only
+                                                </Badge>
+                                            )}
+                                        </div>
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
@@ -268,6 +322,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                                                 open: true, target: t, expense_name: t.name,
                                                 project: !!t.project, non_project: !!t.non_project,
                                                 expense_category: t.expense_category || FALLBACK_CATEGORY,
+                                                allowed_roles: roles,
                                             })}
                                         >
                                             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
@@ -281,7 +336,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         })}
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
                                     No expense types match “{search}”.
                                 </TableCell>
                             </TableRow>
@@ -343,6 +398,31 @@ export const ExpensePackagesMaster: React.FC = () => {
                                         : edit.non_project
                                             ? "Non-Project only: the Project field is hidden."
                                             : "Pick at least one — a type with neither cannot be requested."}
+                            </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label>Role Access</Label>
+                            <ReactSelect<RoleOption, true>
+                                isMulti
+                                options={roleOptions}
+                                value={roleOptions.filter((o) => edit.allowed_roles.includes(o.value))}
+                                onChange={(selected) =>
+                                    setEdit((s) => ({ ...s, allowed_roles: selected.map((o) => o.value) }))
+                                }
+                                placeholder="Select roles…"
+                                // Portalled so the menu is not clipped by the dialog; a modal
+                                // Radix dialog sets pointer-events:none outside itself, so the
+                                // portal must turn them back on or options are keyboard-only.
+                                menuPortalTarget={document.body}
+                                menuPosition="fixed"
+                                styles={{
+                                    menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: "auto" as const }),
+                                }}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Who can pick this type when raising an expense request. Admin always
+                                sees every type; leave empty for Admin only.
                             </p>
                         </div>
                     </div>

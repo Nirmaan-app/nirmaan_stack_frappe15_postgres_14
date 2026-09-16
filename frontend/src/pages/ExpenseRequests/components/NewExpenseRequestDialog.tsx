@@ -125,14 +125,16 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
 
+    const isEdit = !!editing;
+    // The catalog lists only the types the caller's role may see. An EDIT also asks for the
+    // request's own type, which its owner may keep even after that type's roles were narrowed.
     const { data: catalogRes, isLoading: catalogLoading } =
         useFrappeGetCall<{ message: GetRequestCatalogResponse }>(
             "nirmaan_stack.api.expense_requests.read.get_request_catalog",
-            undefined,
-            "expense_request_catalog"
+            editing?.type ? { include_type: editing.type } : undefined,
+            editing?.type ? `expense_request_catalog_${editing.type}` : "expense_request_catalog"
         );
 
-    const isEdit = !!editing;
     const { call: updateRequest } = useFrappePostCall(
         "nirmaan_stack.api.expense_requests.update.update_expense_request"
     );
