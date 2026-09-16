@@ -414,6 +414,21 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
   Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
   the PM profile on the real types it uses for its run and removes exactly those rows after.
+- **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
+  `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
+  docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to
+  the type: `Project Expenses.type`, `Non Project Expenses.type`, `Expense Request.type`,
+  `Outflow Import Expense Rule.expense_type`.
+  **⚠️ Two places KEEP THE OLD TYPE NAME, by owner ruling — they store it as plain text and are
+  deliberately not rewritten:** `PO Adjustment Items.expense_type` and
+  `Outflow Import Row.suggested_expense_type`. A type-name search across those will not find the
+  renamed type's history.
+  **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: every
+  `duplicates.RULES` key + `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a
+  rename would silently switch off that duplicate warning / the bank-import fallback.
+  **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
+  migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
+  name.
 - **⚠️ THERE IS NO ROW SCOPING ON READS (owner ruling, 2026-08-18).** The
   `permission_query_conditions` hook was REMOVED, so a list read returns everything the
   caller's ROLE may read — and **eight roles hold read DocPerm** (System Manager, PM, HR

@@ -165,13 +165,8 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	`allowed_roles` REPLACES the list when sent; omitted, the list is left as it is.
 
 	The NAME is deliberately not editable HERE. It is the docname, so changing it is a
-	`rename_doc` operation rather than a field write -- a different thing with different
-	consequences, and not something a scope-editing dialog should do implicitly.
-
-	(The stronger reason has since gone: the reviewer-routing map used to hardcode these
-	names, so a rename broke routing silently. Routing is now a Link on the type, which
-	`rename_doc` updates like any other. Renaming could be offered deliberately as its own
-	action -- it is simply not this one.)
+	`rename_doc` operation rather than a field write -- that is `rename_expense_type`, its own
+	admin action with its own guards.
 	"""
 	_require_admin()
 	if not frappe.db.exists("Expense Type", name):
@@ -192,6 +187,64 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	return {"name": name, "project": project, "non_project": non_project,
 	        "expense_category": category,
 	        "allowed_roles": [r.role_profile for r in doc.allowed_roles]}
+
+
+def names_referenced_in_code() -> set[str]:
+	"""Expense Type names the code looks up BY NAME, which a rename would silently orphan.
+
+	Read from their owners rather than listed here, so adding a duplicate rule or changing
+	the bank-import fallback updates this guard with no second edit.
+	"""
+	from nirmaan_stack.api.expense_requests.duplicates import RULES
+	from nirmaan_stack.services.outflow_import.cashbook import FALLBACK_EXPENSE_TYPE
+
+	return set(RULES) | {FALLBACK_EXPENSE_TYPE}
+
+
+@frappe.whitelist(methods=["POST"])
+def rename_expense_type(name: str, new_name: str):
+	"""Rename an Expense Type -- admin only.
+
+	`frappe.rename_doc` does the work: the docname, `expense_name` (the autoname field), the
+	`allowed_roles` child rows, and every LINK to the type (Project Expenses, Non Project
+	Expenses, Expense Request, Outflow Import Expense Rule) move to the new name.
+
+	⚠️ WHAT DOES NOT MOVE (owner ruling 2026-09-16, deliberately left alone): two DATA columns
+	store the type as plain text and keep the OLD name -- `PO Adjustment Items.expense_type`
+	and `Outflow Import Row.suggested_expense_type`.
+
+	⚠️ REFUSED for a name the code looks up by name (`names_referenced_in_code`): renaming one
+	would silently switch off its duplicate warning or the bank-import fallback.
+
+	⚠️ The `Expense Type` FIXTURE is keyed by name and re-imported on every migrate, so the
+	fixture must be updated too or the next migrate re-creates the old name as a second type.
+	"""
+	_require_admin()
+	old = (name or "").strip()
+	new = (new_name or "").strip()
+	if not frappe.db.exists("Expense Type", old):
+		frappe.throw(f"'{old}' is not an expense type.", title="Unknown expense type")
+	if not new:
+		frappe.throw("A new name is required.", title="Name required")
+	if new == old:
+		frappe.throw("The new name is the same as the current one.", title="Nothing to rename")
+	if frappe.db.exists("Expense Type", new):
+		frappe.throw(f"'{new}' already exists.", title="Duplicate")
+	if old in names_referenced_in_code():
+		frappe.throw(
+			f"'{old}' is used by name in the code (duplicate warnings or the bank-import "
+			"fallback), so it cannot be renamed from the app.",
+			title="Cannot rename this type",
+		)
+
+	# The model-level `rename_doc`: the `frappe.rename_doc` wrapper takes no
+	# `ignore_permissions`, and the admin gate above is this action's permission check.
+	from frappe.model.rename_doc import rename_doc
+
+	renamed = rename_doc(doctype="Expense Type", old=old, new=new,
+	                     ignore_permissions=True, show_alert=False)
+	frappe.db.commit()
+	return {"name": renamed}
 
 
 @frappe.whitelist(methods=["POST"])

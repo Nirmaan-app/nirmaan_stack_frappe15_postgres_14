@@ -1370,3 +1370,54 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		self.assertNotIn("Nirmaan Admin Profile", out["role_profiles"])
 		self.assertIn("Nirmaan Project Manager Profile", out["role_profiles"])
 		self.assertEqual(out["allowed_roles"][name], ["Nirmaan HR Executive Profile"])
+
+	# --- rename (admin only, 2026-09-16) --------------------------------------
+
+	def test_admin_rename_moves_links_roles_and_the_name_field(self):
+		from nirmaan_stack.api.expense_requests.masters import rename_expense_type
+		old = self._made_type(allowed_roles=["Nirmaan HR Executive Profile"])
+		row = frappe.new_doc("Non Project Expenses")
+		row.update({"type": old, "status": "Approved", "amount": 700,
+		            "description": "exr_test_ rename link"})
+		row.insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(lambda: (frappe.delete_doc("Non Project Expenses", row.name, force=True,
+		                                           ignore_permissions=True), frappe.db.commit()))
+
+		new = f"{old}_renamed"
+		self.assertEqual(rename_expense_type(name=old, new_name=new)["name"], new)
+		self.made.append(new)
+
+		self.assertFalse(frappe.db.exists("Expense Type", old))
+		self.assertEqual(frappe.db.get_value("Expense Type", new, "expense_name"), new)
+		self.assertEqual(frappe.db.get_value("Non Project Expenses", row.name, "type"), new)
+		self.assertEqual(
+			frappe.get_all("Expense Type Role", filters={"parent": new}, pluck="role_profile"),
+			["Nirmaan HR Executive Profile"])
+
+	def test_rename_refuses_a_name_the_code_uses_a_taken_name_and_a_blank(self):
+		from nirmaan_stack.api.expense_requests.masters import (
+			names_referenced_in_code, rename_expense_type,
+		)
+		for used in sorted(names_referenced_in_code()):
+			if frappe.db.exists("Expense Type", used):
+				with self.assertRaises(frappe.ValidationError):
+					rename_expense_type(name=used, new_name=f"{used} exr_test")
+				self.assertTrue(frappe.db.exists("Expense Type", used))
+				self.assertFalse(frappe.db.exists("Expense Type", f"{used} exr_test"))
+
+		a, b = self._made_type(), self._made_type()
+		with self.assertRaises(frappe.ValidationError):
+			rename_expense_type(name=a, new_name=b)
+		with self.assertRaises(frappe.ValidationError):
+			rename_expense_type(name=a, new_name="  ")
+		self.assertTrue(frappe.db.exists("Expense Type", a))
+
+	def test_pm_cannot_rename(self):
+		from nirmaan_stack.api.expense_requests.masters import rename_expense_type
+		name = self._made_type()
+		frappe.set_user(PM_USER)
+		with self.assertRaises(frappe.PermissionError):
+			rename_expense_type(name=name, new_name=f"{name}_x")
+		frappe.set_user("Administrator")
+		self.assertTrue(frappe.db.exists("Expense Type", name))

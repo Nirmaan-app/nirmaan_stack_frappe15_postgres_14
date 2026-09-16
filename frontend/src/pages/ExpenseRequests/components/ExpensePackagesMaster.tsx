@@ -17,7 +17,7 @@ import React, { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { TailSpin } from "react-loader-spinner";
-import { Braces, Pencil, PlusCircle, Search } from "lucide-react";
+import { Braces, Pencil, PlusCircle, Search, TextCursorInput } from "lucide-react";
 
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { useUserData } from "@/hooks/useUserData";
 
 import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
@@ -94,6 +95,12 @@ export const ExpensePackagesMaster: React.FC = () => {
     // A type switched ON with no format yet: its format dialog is open, and a non-empty save
     // there finishes the switch-on.
     const [enableAfterSave, setEnableAfterSave] = useState<string | null>(null);
+    const [renameFor, setRenameFor] = useState<ExpenseType | null>(null);
+    const [newName, setNewName] = useState("");
+
+    // Rename is ADMIN ONLY. This hides the button; `rename_expense_type` is the real gate.
+    const { role, user_id } = useUserData();
+    const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
 
     const { data, isLoading, error, mutate } = useFrappeGetDocList<ExpenseType>("Expense Type", {
         fields: ["name", "expense_name", "project", "non_project", "source_format",
@@ -123,6 +130,8 @@ export const ExpensePackagesMaster: React.FC = () => {
         "nirmaan_stack.api.expense_requests.masters.update_expense_type");
     const { call: setFormEnabled } = useFrappePostCall(
         "nirmaan_stack.api.expense_requests.masters.set_expense_form_enabled");
+    const { call: renameType, loading: renaming } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.masters.rename_expense_type");
     const busy = creating || updating;
 
     const rows = useMemo(() => {
@@ -167,6 +176,21 @@ export const ExpensePackagesMaster: React.FC = () => {
             }
         }
         mutate();
+    };
+
+    const handleRename = async () => {
+        if (!renameFor) return;
+        const target = newName.trim();
+        if (!target || target === renameFor.name) return;
+        try {
+            await renameType({ name: renameFor.name, new_name: target });
+            toast({ title: "Expense type renamed", description: `${renameFor.name} → ${target}`, variant: "success" });
+            setRenameFor(null);
+            mutate();
+            mutateAccess();   // role access is keyed by the type's name
+        } catch (e) {
+            toast({ title: "Could not rename", description: getFrappeError(e), variant: "destructive" });
+        }
     };
 
     const handleSave = async () => {
@@ -327,6 +351,14 @@ export const ExpensePackagesMaster: React.FC = () => {
                                         >
                                             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                                         </Button>
+                                        {isAdmin && (
+                                            <Button
+                                                variant="ghost" size="sm"
+                                                onClick={() => { setRenameFor(t); setNewName(t.name); }}
+                                            >
+                                                <TextCursorInput className="mr-1 h-3.5 w-3.5" /> Rename
+                                            </Button>
+                                        )}
                                         <Button variant="ghost" size="sm" onClick={() => setFormatFor(t)}>
                                             <Braces className="mr-1 h-3.5 w-3.5" /> Format
                                         </Button>
@@ -431,6 +463,49 @@ export const ExpensePackagesMaster: React.FC = () => {
                         <Button variant="ghost" onClick={() => setEdit(BLANK)}>Cancel</Button>
                         <Button onClick={handleSave} disabled={busy}>
                             {busy ? "Saving…" : edit.target ? "Save changes" : "Add"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- rename (admin only) --- */}
+            <Dialog open={!!renameFor} onOpenChange={(o) => !o && setRenameFor(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Rename — {renameFor?.name}</DialogTitle>
+                        <DialogDescription>
+                            Every expense, expense request and bank-import rule linked to this type
+                            moves to the new name.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 py-1">
+                        <div className="space-y-1.5">
+                            <Label>New name</Label>
+                            <Input
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleRename(); }}
+                                autoFocus
+                            />
+                        </div>
+                        <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                            <li>
+                                PO Adjustment Items and Outflow Import Rows store the type as plain
+                                text and keep the old name.
+                            </li>
+                            <li>
+                                Update the expense type fixture in code too, or the next deployment
+                                brings the old name back as a separate type.
+                            </li>
+                        </ul>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setRenameFor(null)}>Cancel</Button>
+                        <Button
+                            onClick={handleRename}
+                            disabled={renaming || !newName.trim() || newName.trim() === renameFor?.name}
+                        >
+                            {renaming ? "Renaming…" : "Rename"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
