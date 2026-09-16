@@ -248,6 +248,20 @@ interface PaymentStats {
     total_project_outflow_30_days_amount: number;
     total_non_project_expense_30_days_count: number;
     total_non_project_expense_30_days_amount: number;
+    /**
+     * Total Unreconciled Outflow (#1286) — bank money that has left the account and still owes
+     * somebody a decision in Bulk Import.
+     *
+     * ⚠️ IT IS ALL TIME, NOT 30 DAYS, although it renders inside the "Outflow (30 Days)" column.
+     * The label says so; the figure covers every import, every source and every date, and must
+     * never be added to the two 30-day outflow figures beside it.
+     *
+     * ⚠️ IT IS THE SERVER'S PASS-THROUGH OF Bulk Import's own "Still open / Paid out" with no
+     * filters. Never re-derive it here, and never sum it with anything: the whole requirement is
+     * that this card and that screen show the same number.
+     */
+    total_unreconciled_outflow_amount: number;
+    total_unreconciled_outflow_count: number;
 }
 
 const formatToRoundedIndianRupee = (value: number) =>
@@ -455,6 +469,9 @@ const RecentActivityTile: React.FC<{
     projectOutflowCount: number;
     nonProjectOutflowAmount: number;
     nonProjectOutflowCount: number;
+    // Total Unreconciled Outflow (#1286) — ALL TIME, not 30 days. See `PaymentStats`.
+    unreconciledOutflowAmount: number;
+    unreconciledOutflowCount: number;
 }> = ({
     l1TodayAmount, l1TodayCount,
     ceoTodayAmount, ceoTodayCount,
@@ -468,6 +485,7 @@ const RecentActivityTile: React.FC<{
     nonProjectInflowAmount, nonProjectInflowCount,
     projectOutflowAmount, projectOutflowCount,
     nonProjectOutflowAmount, nonProjectOutflowCount,
+    unreconciledOutflowAmount, unreconciledOutflowCount,
 }) => (
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
             <div className="w-1 shrink-0 bg-emerald-500 dark:bg-emerald-600" />
@@ -525,6 +543,17 @@ const RecentActivityTile: React.FC<{
                             </div>
                             <BreakdownRow tone="red" label="Project" labelLong="Project (PO+WO + Exp)" amount={projectOutflowAmount} count={projectOutflowCount} amountClassName="text-primary" />
                             <BreakdownRow tone="amber" label="Non-Project" labelLong="Non-Project Expense" amount={nonProjectOutflowAmount} count={nonProjectOutflowCount} amountClassName="text-primary" />
+                            {/* ⚠️ ALL TIME, NOT 30 DAYS — it sits in this column because it is outflow,
+                                not because it shares the window. It is deliberately BELOW a rule, and
+                                is NOT part of the column's "Outflow (30 Days)" total above: adding it
+                                there would sum two different periods into one figure. Same number as
+                                Bulk Import's unfiltered "Still open / Paid out" (#1286). */}
+                            <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+                            {/* ⚠️ ONE LABEL, NO SHORT VARIANT. Every other row here swaps a short label
+                                in below `lg:`; this one must read "Total Unreconciled Outflow" at every
+                                width, because that exact wording is what the ticket asks the card to
+                                show. It truncates on a narrow card like the rows above it. */}
+                            <BreakdownRow tone="violet" label="Total Unreconciled Outflow" amount={unreconciledOutflowAmount} count={unreconciledOutflowCount} amountClassName="text-primary" />
                         </div>
                     </div>
                 </div>
@@ -702,6 +731,18 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                             </span>
                         </div>
                     </div>
+                    {/* Total Unreconciled Outflow (#1286) — ALL TIME, so it gets its own full-width
+                        row rather than a fourth cell in the 30-day grid above. Its count rides
+                        beside the amount: the backlog's size is half of what the figure says. */}
+                    <div className="mt-2">
+                        <div className="bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
+                            <span className="text-[9px] font-medium text-violet-600 dark:text-violet-400 uppercase block">Total Unreconciled Outflow</span>
+                            <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_unreconciled_outflow_amount)}
+                                <span className="text-[10px] font-semibold ml-1">({stats.total_unreconciled_outflow_count})</span>
+                            </span>
+                        </div>
+                    </div>
                 </CardContent>
             </div>
 
@@ -760,6 +801,8 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 projectOutflowCount={stats.total_project_outflow_30_days_count}
                                 nonProjectOutflowAmount={stats.total_non_project_expense_30_days_amount}
                                 nonProjectOutflowCount={stats.total_non_project_expense_30_days_count}
+                                unreconciledOutflowAmount={stats.total_unreconciled_outflow_amount}
+                                unreconciledOutflowCount={stats.total_unreconciled_outflow_count}
                             />
                         </div>
                     </div>

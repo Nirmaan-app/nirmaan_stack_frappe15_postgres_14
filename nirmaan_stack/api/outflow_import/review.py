@@ -3796,76 +3796,9 @@ def get_outflow_summary(
         facets=facets,
         failed=failed,
     )
-    clause = (" WHERE " + " AND ".join(where)) if where else ""
 
-    # ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
-    # `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
-    # (2026-08-10, option B) that only the first leaves every figure this summary reports, so the
-    # split has to happen here, in the aggregate, rather than by subtracting a second query later.
-    #
-    # ⚠️ `BANK_SUCCESS_STATUS` IS BOUND, NOT SPELLED OUT. The literal lives in `parser.py` beside
-    # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
-    # would be a second definition of "successful" that stays right only until one of them learns
-    # about a status word the other has not.
-    #
-    # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
-    # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
-    # all -- which is the one thing this endpoint must not fall back on.
-    #
-    # ⚠️ AND `direction` IS A THIRD GROUP KEY ON THAT SAME QUERY, NEVER A SECOND QUERY. The panel's
-    # "Total paid out" / "Total received" tiles must be computed under the SAME `_row_filters`
-    # WHERE clause as `total_value` and as the tab counts, or a filtered view shows two halves that
-    # do not add up to the whole above them -- which reads as a paging bug and is not one. It is a
-    # plain column on the row table, so the shared builder needs no change at all: ONE more
-    # `GROUP BY` term, and `derive_import_summary` does the splitting.
-    grouped = frappe.db.sql(
-        f"""
-        SELECT r.row_status                                        AS status,
-               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
-               COALESCE(r.direction, '')                           AS direction,
-               COUNT(*)                                            AS count,
-               COALESCE(SUM(r.amount), 0)                          AS value,
-               -- ⚠️ A line marked Confirm by hand (#1280) carries a pick but is NOT confirmable in
-               -- bulk, so it is left out of both -- the same rule `get_confirmable_rows` applies.
-               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
-                                  AND COALESCE(r.confirm_by_hand, 0) = 0
-                                 THEN 1 ELSE 0 END), 0)            AS with_suggestion,
-               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
-                                  AND COALESCE(r.confirm_by_hand, 0) = 0
-                                 THEN r.amount ELSE 0 END), 0)     AS suggested_value,
-               COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
-                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
-               -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
-               -- denormalised copy, so this stays ONE grouped query over ONE table.
-               COALESCE(SUM(CASE WHEN r.settlement_origin = %s
-                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion,
-               -- Lines a person skipped (#1273), for the Skipped popup's "Skipped by hand" segment.
-               COALESCE(SUM(CASE WHEN r.skip_origin = %s
-                                 THEN 1 ELSE 0 END), 0)            AS skipped_by_hand
-        FROM "tabOutflow Import Row" r
-        {clause}
-        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
-                 COALESCE(r.direction, '')
-        """,
-        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
-        + tuple(params)
-        + (BANK_SUCCESS_STATUS,),
-        as_dict=True,
-    )
-
-    summary = derive_import_summary(
-        StatusTally(
-            status=g["status"] or "",
-            count=int(g["count"] or 0),
-            value=normalize_amount(g["value"]),
-            with_suggestion=int(g["with_suggestion"] or 0),
-            suggested_value=normalize_amount(g["suggested_value"]),
-            failed=bool(g["failed"]),
-            from_suggestion=int(g["from_suggestion"] or 0),
-            direction=g["direction"] or "",
-        )
-        for g in grouped
-    )
+    grouped = _summary_groups(where, params)
+    summary = derive_import_summary(_summary_tallies(grouped))
 
     # ⚠️ FAILED GROUPS ARE EXCLUDED HERE TOO, AND THEY HAVE TO BE. `manually_skipped_rows` below is
     # `skipped_rows - auto_skipped`, and `skipped_rows` no longer counts failed transfers -- so
@@ -3909,6 +3842,126 @@ def get_outflow_summary(
             for g in grouped
             if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
         ),
+    }
+
+
+def _summary_groups(where, params):
+    """The ONE grouped query behind every summary figure this feature reports.
+
+    ⚠️ IT IS A FUNCTION SO THAT THERE CAN ONLY EVER BE ONE OF IT. `get_outflow_summary` reports a
+    filtered period to the import screen; `unmatched_outflow_totals` reports the unfiltered
+    *Still open / Paid out* figure to the Payments card. Both are the SAME population rule read
+    under different WHERE clauses, and a second hand-written query for the second reader is exactly
+    how the two screens would come to disagree about the same money. The filters stay the caller's;
+    the population rule stays here.
+
+    ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
+    `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
+    (2026-08-10, option B) that only the first leaves every figure this summary reports, so the
+    split has to happen here, in the aggregate, rather than by subtracting a second query later.
+    """
+    # ⚠️ `BANK_SUCCESS_STATUS` IS BOUND, NOT SPELLED OUT. The literal lives in `parser.py` beside
+    # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
+    # would be a second definition of "successful" that stays right only until one of them learns
+    # about a status word the other has not.
+    #
+    # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
+    # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
+    # all -- which is the one thing this endpoint must not fall back on.
+    #
+    # ⚠️ AND `direction` IS A THIRD GROUP KEY ON THAT SAME QUERY, NEVER A SECOND QUERY. The panel's
+    # "Total paid out" / "Total received" tiles must be computed under the SAME `_row_filters`
+    # WHERE clause as `total_value` and as the tab counts, or a filtered view shows two halves that
+    # do not add up to the whole above them -- which reads as a paging bug and is not one. It is a
+    # plain column on the row table, so the shared builder needs no change at all: ONE more
+    # `GROUP BY` term, and `derive_import_summary` does the splitting.
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    return frappe.db.sql(
+        f"""
+        SELECT r.row_status                                        AS status,
+               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               COALESCE(r.direction, '')                           AS direction,
+               COUNT(*)                                            AS count,
+               COALESCE(SUM(r.amount), 0)                          AS value,
+               -- ⚠️ A line marked Confirm by hand (#1280) carries a pick but is NOT confirmable in
+               -- bulk, so it is left out of both -- the same rule `get_confirmable_rows` applies.
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                  AND COALESCE(r.confirm_by_hand, 0) = 0
+                                 THEN 1 ELSE 0 END), 0)            AS with_suggestion,
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                  AND COALESCE(r.confirm_by_hand, 0) = 0
+                                 THEN r.amount ELSE 0 END), 0)     AS suggested_value,
+               COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
+                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
+               -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
+               -- denormalised copy, so this stays ONE grouped query over ONE table.
+               COALESCE(SUM(CASE WHEN r.settlement_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion,
+               -- Lines a person skipped (#1273), for the Skipped popup's "Skipped by hand" segment.
+               COALESCE(SUM(CASE WHEN r.skip_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS skipped_by_hand
+        FROM "tabOutflow Import Row" r
+        {clause}
+        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
+                 COALESCE(r.direction, '')
+        """,
+        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
+        + tuple(params)
+        + (BANK_SUCCESS_STATUS,),
+        as_dict=True,
+    )
+
+
+def _summary_tallies(grouped):
+    """The grouped rows as the deriver's own type. Reads nothing, decides nothing."""
+    return (
+        StatusTally(
+            status=g["status"] or "",
+            count=int(g["count"] or 0),
+            value=normalize_amount(g["value"]),
+            with_suggestion=int(g["with_suggestion"] or 0),
+            suggested_value=normalize_amount(g["suggested_value"]),
+            failed=bool(g["failed"]),
+            from_suggestion=int(g["from_suggestion"] or 0),
+            direction=g["direction"] or "",
+        )
+        for g in grouped
+    )
+
+
+def unmatched_outflow_totals() -> dict:
+    """Bulk Import's *Still open / Paid out*, over EVERY import, source and date (#1286).
+
+    The Payments screen's summary card reports this as **Total Unreconciled Outflow**: bank money
+    that has left the account and still owes somebody a decision.
+
+    ⚠️ IT IS THE SAME QUERY AND THE SAME DERIVER THE IMPORT SCREEN USES, WITH NO FILTERS. That is
+    the whole requirement: the card and Bulk Import must agree, and two screens agree by sharing
+    one population rule, never by two queries written to the same specification. `open_paid_value`
+    is `derive_import_summary`'s own figure -- summed over the ACTIVE statuses (pending match run,
+    matched, mismatched, error, partially allocated), never subtracted from anything, with settled
+    rows, skipped rows and transfers the bank refused already excluded by the deriver.
+
+    ⚠️ IT GOES THROUGH `_row_filters` WITH EVERY FILTER ABSENT rather than passing empty lists, so
+    "no filters" is a fact the shared builder states and not one this function asserts about it.
+
+    ⚠️ NO PERMISSION GATE, AND THAT IS DELIBERATE (#1286). `require_outflow_access` guards the Bulk
+    Import screen; this figure rides a card everyone who can see the Payments screen already sees,
+    and the ticket rules that no new gate is added. It is NOT whitelisted -- it is called in-process
+    by the dashboard stats endpoint, which carries its own `@frappe.whitelist`.
+    """
+    where, params = _row_filters(
+        batch=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        amount_min=None,
+        amount_max=None,
+    )
+    summary = derive_import_summary(_summary_tallies(_summary_groups(where, params)))
+    return {
+        "amount": float(summary["open_paid_value"]),
+        "rows": int(summary["open_paid_rows"]),
     }
 
 

@@ -1,6 +1,8 @@
 import frappe
 from frappe.utils import today, add_days, getdate
 
+from nirmaan_stack.api.outflow_import.review import unmatched_outflow_totals
+
 
 def _to_float(value):
     """Safely coerce a stored amount to float (None / '' / bad data → 0.0)."""
@@ -87,6 +89,18 @@ def get_payment_dashboard_stats():
         # Non-project outflow: Non Project Expenses
         'total_non_project_expense_30_days_count': 0,
         'total_non_project_expense_30_days_amount': 0.0,
+
+        # --- Total Unreconciled Outflow (#1286) ---
+        # Bank money that has left the account and still owes somebody a decision in Bulk
+        # Import: EVERY import, EVERY source, ALL TIME. It is NOT a 30-day figure and must
+        # never be folded into the cash-flow block above, which is.
+        #
+        # ⚠️ IT IS NOT AGGREGATED HERE. It comes from `review.unmatched_outflow_totals`, which
+        # runs the SAME grouped query and the SAME deriver Bulk Import's own summary panel
+        # runs -- so the card's figure and the panel's "Still open / Paid out" cannot disagree.
+        # A second query written here to the same specification is exactly how they would.
+        'total_unreconciled_outflow_amount': 0.0,
+        'total_unreconciled_outflow_count': 0,
     }
 
     try:
@@ -254,6 +268,36 @@ def get_payment_dashboard_stats():
         stats['total_non_project_expense_30_days_amount'] = sum(
             _to_float(r.amount) for r in non_project_expenses
         )
+
+        # --- 2h. Total Unreconciled Outflow — all imports, all sources, all time (#1286) ---
+        # A pass-through, not a calculation. `unmatched_outflow_totals` IS Bulk Import's
+        # unfiltered "Still open / Paid out": imported lines whose direction is Outflow and
+        # whose status is still active (pending match run, matched, mismatched, error,
+        # partially allocated). Settled lines, skipped lines and transfers the bank refused
+        # are already out, decided by the import's own deriver rather than restated here.
+        #
+        # ⚠️ IT CARRIES ITS OWN `try`, AND THAT IS NOT DEFENSIVE HABIT -- IT IS A FAILURE DOMAIN
+        # THIS FIGURE BROUGHT WITH IT. Everything above reads the payment, expense and inflow
+        # ledgers; this one reads `tabOutflow Import Row` through raw SQL naming eight columns.
+        # The function's outer `except` rolls back and re-throws, and the card's client turns ANY
+        # error from this endpoint into a single "Error Loading Summary" panel -- so without this
+        # guard a site where the outflow-import migration has not run, or a later rename of one of
+        # those columns, blanks pending approvals, amounts due, paid today / 7 days and both
+        # 30-day cash-flow figures, none of which have anything to do with Bulk Import.
+        #
+        # ⚠️ THE FALLBACK IS THE HONEST ZERO ALREADY INITIALISED ABOVE, and it is safe here for a
+        # reason the 30-day figures could not claim: this number's own screen (Bulk Import) is
+        # where the work actually gets done, so a 0 on the card understates a backlog rather than
+        # hiding money nothing else reports. The failure is LOGGED, never swallowed silently.
+        try:
+            unmatched_outflow = unmatched_outflow_totals()
+            stats['total_unreconciled_outflow_amount'] = unmatched_outflow['amount']
+            stats['total_unreconciled_outflow_count'] = unmatched_outflow['rows']
+        except Exception as unmatched_error:
+            frappe.log_error(
+                f"Total Unreconciled Outflow unavailable: {unmatched_error}",
+                "Payment Stats API - unmatched outflow",
+            )
 
         # 3. Return the dictionary of statistics
         # --- DEBUGGING PRINT STATEMENT ---

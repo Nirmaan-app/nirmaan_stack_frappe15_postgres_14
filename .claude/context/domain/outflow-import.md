@@ -107,6 +107,7 @@ pick one ad-hoc; ask.
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
 | The screen's aggregate (X2, widened P1) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum the selected transfers anywhere else. The DB does the `GROUP BY`; this assembles. It is batch-agnostic and always was, which is why scoping it to a PERIOD needed no change here at all — only the WHERE clause moved |
+| **The unreconciled outflow figure the Payments card shows** (#1286, 2026-09-16) | `api/outflow_import/review.py` (`unmatched_outflow_totals`, over the shared `_summary_groups` + `_summary_tallies` + `_row_filters` with every filter absent) | count or sum unreconciled bank outflow anywhere else, and in particular never in `api/payments/`. It must EQUAL Bulk Import's unfiltered *Still open / Paid out*, and a second query written to the same specification is exactly how the two screens would come to disagree while neither looked wrong. ⚠️ Every exclusion is INHERITED from `derive_import_summary` (settled and skipped are absent from `ACTIVE_ROW_STATUSES`; a failed transfer never reaches its buckets) — restating any of them at the payments call site would be a second rule to keep in step. ⚠️ It is **deliberately not whitelisted and carries NO `require_outflow_access`** (ticket ruling: no new gate): it is called in-process by `get_payment_dashboard_stats`, and gating it would blank the figure for the roles that can see the card but not Bulk Import |
 | **The settled money, split by ledger** (2026-08-21; cut in two at B8b 2026-09-07) | `services/outflow_import/status.py` (`derive_settled_ledger_split`, `SettledLedgerEntry`, `SETTLED_LEDGER_OTHER`) | order, total or zero-fill that split anywhere else — in SQL, in an endpoint, or in the client. The order is **fixed** and bound from `ledgers.LEDGER_DOCTYPES`, never sorted by value: a value-sorted list reshuffles between periods and has to be re-read every time. ⚠️ Reordering `LEDGER_DOCTYPES` now reorders a rendered panel. ⚠️ The three figures must reconcile **EXACTLY** to `settled_value`, which is why the endpoint sums the **ROW** amount and not `m.target_amount` (they differ on a partial settle; live partials are currently 0, so the wrong column would have shipped as a latent defect) and why it applies the same failed-transfer exclusion the main query does. ⚠️ **`ledgers` IS A PARAMETER SINCE B8b** (default `LEDGER_DOCTYPES`, so every pre-B8b caller is byte-identical) — the received block walks a DIFFERENT tuple, and a second copy of this function differing only in which tuple it reads is how one of them would come to be missing a book |
 | **Which way the settled money went** (B8b, 2026-09-07) | `services/outflow_import/status.py` (`derive_settled_direction_blocks`, `is_received_direction`, `ROW_DIRECTION_CREDIT`, `SETTLED_BLOCK_RECEIVED`/`_PAID`) + `ledgers.RECEIVED_LEDGER_DOCTYPES` | decide a block's membership, its order, its zero-fill or its total anywhere else — in SQL, in an endpoint, or in the client. **Owner ruling Q14 (a): TWO blocks, each reconciling to its OWN total, NEVER netted.** A single net figure hides both halves; folding receipts into the paid total adds money in to money out; excluding them makes the money this screen ingested invisible on the screen that ingested it. ⚠️ **EACH BLOCK'S TOTAL IS SUMMED FROM THE LINES IT RENDERS**, so the reconciliation is exact BY CONSTRUCTION, not by two numbers agreeing; the two block totals in turn add back to `settled_value` (pinned at the endpoint against a real batch). ⚠️ **MEMBERSHIP FOLLOWS THE ROW'S `direction`, NEVER THE TARGET DOCTYPE** — the removed B7 path stored a non-project receipt as a NEGATIVE `Non Project Expense`, and those rows may still exist, so `Non Project Expenses` legitimately appears in BOTH blocks and the doctype genuinely cannot answer it. The received order is `Project Inflows`, `Non Project Inflows` (#1266), `Non Project Expenses`. ⚠️ **A BLANK OR UNRECOGNISED DIRECTION IS `Paid`**, and it is a consequence rather than a guess: `settle.create_inflow_from_row` refuses anything that is not `Credit` at the write, so such a row is structurally incapable of having become a receipt. The predicate is a single POSITIVE test precisely so the two blocks PARTITION — the failure mode being a settled row that appears in NEITHER total. ⚠️ **PAID ALWAYS RENDERS, ZERO-FILLED; RECEIVED ONLY WHEN IT HOLDS ROWS, AND IT IS APPENDED SO PAID NEVER MOVES.** Cashfree and Cashbook are single-direction sources, so a zero-filled received block would sit on every gateway import forever claiming receipts were possible where none can occur. ⚠️ `settled_by_ledger` IS GONE from the payload, replaced by `settled_by_direction` — two keys totalling the same money are two chances to disagree about it |
 | **The ledger a bank CREDIT can become** (B8b, #1268) | `services/outflow_import/ledgers.py` (`INFLOW_DOCTYPE`, `NON_PROJECT_INFLOW_DOCTYPE`, `INFLOW_DOCTYPES` — the two receipt-only books every credit-side duplicate check reads, `RECEIVED_LEDGER_DOCTYPES`) | add it to `LEDGER_DOCTYPES`, `EXPENSE_DOCTYPES` or `SETTLEABLE_STATUSES`. It is a **DISPLAY ORDER ONLY**: an inflow is CREATED, never SETTLED — there is no approved inflow waiting to be paid. ⚠️ The string is spelled in BOTH `ledgers.py` and `settle.py` because `ledgers` is a pure leaf `status.py` imports under a transitive purity test and `settle.py` imports `frappe`; the two are pinned against each other by `api/outflow_import/test_review.TestInflowDoctypeSpelling`, on the precedent `settle.DIRECTION_CREDIT` already set |
@@ -5241,3 +5242,94 @@ covered by the server test.
 
 ⚠️ `scripts/residence_check.py` fails F5 (116 -> 120) and F2 (207 -> 224) — **identically at HEAD before this
 slice**; nothing here adds an `updateDoc` or a `JSON.parse`.
+
+---
+
+## #1286 (2026-09-16) — Total Unreconciled Outflow on the Payments summary card
+
+The Payments screen's summary card now reports, in its **Outflow** column and on the mobile summary,
+how much bank money has left the account and still owes somebody a decision — **Total Unreconciled
+Outflow**, with a line count. Before this, that number was reachable only by opening Bulk Import.
+
+**It is the same number as Bulk Import's `PAID OUT / STILL OPEN`, and that is the requirement, not a
+coincidence.** Walked live 2026-09-16: card **₹1,06,41,945 (272)**; Bulk Import, unfiltered,
+**₹1,06,41,945 · 272 undecided**.
+
+### Where it comes from — ONE query, ONE deriver, ONE population rule
+
+`review.get_outflow_summary`'s grouped query was extracted into **`review._summary_groups(where,
+params)`** + **`review._summary_tallies(grouped)`**, and a new **`review.unmatched_outflow_totals()`**
+calls both with `_row_filters(...)` and **every filter absent**, returning
+`{"amount": open_paid_value, "rows": open_paid_rows}` off `status.derive_import_summary`.
+
+⚠️ **THE EXTRACTION IS THE POINT.** A second query in `api/payments/` written to the same
+specification is exactly how the card and the import screen would come to disagree about the same
+money, and neither screen would look wrong. The population rule now has one home; only the WHERE
+clause differs between the two readers. `get_outflow_summary`'s own behaviour is byte-unchanged
+(`test_review`: 321 OK, unchanged).
+
+⚠️ **EVERY EXCLUSION IS INHERITED, NOT RESTATED.** `open_paid_value` is summed over
+`ACTIVE_ROW_STATUSES` (pending match run, matched, mismatched, error, partially allocated) on the
+paid side of `is_received_direction`. Settled and skipped rows are out because they are not in that
+set; a transfer the bank refused never reaches the deriver's buckets at all. Nothing in
+`get_project_payment_summary.py` re-states any of that — it is a pass-through of two numbers.
+
+⚠️ **NO NEW PERMISSION GATE (ticket ruling).** `unmatched_outflow_totals` is deliberately **not**
+whitelisted and does **not** call `require_outflow_access`: it is called in-process by
+`get_payment_dashboard_stats`, which carries its own `@frappe.whitelist`. Everyone who sees the card
+sees the figure. Adding the import gate here would blank the figure for PMO / Project Lead /
+Procurement, who can see the card but not Bulk Import.
+
+### The payload and the screen
+
+`get_payment_dashboard_stats` gains `total_unreconciled_outflow_amount` /
+`total_unreconciled_outflow_count`, declared in `PaymentStats` in `PaymentSummaryCards.tsx`.
+
+⚠️ **IT IS ALL TIME, SITTING INSIDE A COLUMN HEADED "Outflow (30 Days)".** It renders **below a
+rule**, in violet, and is **NOT** added to that column's 30-day total above it — summing the two
+would add two different periods into one figure. Its label carries no `labelLong` short variant:
+it must read *Total Unreconciled Outflow* at every width, which is the wording the ticket asks the
+card to show. On mobile it takes its own full-width row under the 30-day grid, for the same reason.
+
+### Tests
+
+`api/payments/test_payment_dashboard_stats.py` gains `TestTotalUnreconciledOutflow` (7):
+
+- **the equality** — plants five statuses, both directions and two sources (Cashfree + ICICI) across
+  two batches, then asserts the payload equals `get_outflow_summary()["totals"]["open_paid_value"]` /
+  `["open_paid_rows"]`. ⚠️ It asserts against the **real endpoint**, never a re-implementation of the
+  rule in the test: a test that re-spells the rule passes whenever the two spellings agree, which is
+  not the question.
+- every status in `ACTIVE_ROW_STATUSES` counted (iterated over the set itself, so a status added
+  later cannot silently fall out); a blank direction counts as paid out;
+- an inflow line, a settled line, a skipped line and a transfer that failed at the bank each counted
+  **0**, as deltas.
+
+Suite: 11 OK. `test_review` 321 OK (unchanged). Frontend `tsc --noEmit` — the same three pre-existing
+errors in `PaymentSummaryCards.tsx` before and after, none new. Vitest 3,878 OK (one unrelated
+`writeOffControl.test.ts` 5 s timeout under full-suite load; passes alone).
+
+### Two review fixes, applied before the commit
+
+⚠️ **THE CALL CARRIES ITS OWN `try` IN `get_payment_dashboard_stats`, AND IT IS NOT DEFENSIVE
+HABIT — IT IS A FAILURE DOMAIN THIS FIGURE BROUGHT WITH IT.** Everything else that endpoint reads
+is a payment, expense or inflow ledger; this one reads `tabOutflow Import Row` through raw SQL
+naming eight columns. The endpoint's outer `except` rolls back and re-throws, and
+`PaymentSummaryCards` turns ANY error from it into one *"Error Loading Summary"* panel — so a site
+where the outflow-import migration has not run, or a later rename of `confirm_by_hand` /
+`skip_origin` / `settlement_origin` / `status_raw` / `direction`, would blank pending approvals,
+amounts due, paid today / 7 days and both 30-day cash-flow figures, none of which have anything to
+do with Bulk Import. The fallback is the honest zero already initialised in `stats`, and the failure
+is `frappe.log_error`'d, never swallowed silently. **It is safe here for a reason the 30-day figures
+could not claim:** this number's own screen is where the work gets done, so a 0 on the card
+understates a backlog rather than hiding money nothing else reports. ⚠️ **It does not weaken the
+suite** — the equality test would compare 0 against a real `open_paid_value` and fail loudly.
+
+⚠️ **THE TEST FIXTURE SWEEPS BY `transfer_id` PREFIX AT `setUpClass` AS WELL AS `tearDownClass`.**
+Unlike the inflow fixtures beside it, these rows are staged with an OPEN status on the paid side, so
+they land in an ALL-TIME, UNFILTERED figure a real person reads on two screens — a run interrupted
+between a commit and the teardown would inflate both permanently, with nothing to tell the leftovers
+from real bank lines except the `TEST-1286-` prefix. Sweeping first makes a previous crashed run
+self-heal. The batch is swept by its own `original_filename` marker, **never by "has no rows left"**:
+a real import whose rows all settled has no open rows either. Verified after a run — 0 leftover rows,
+0 leftover batches, live figure back to ₹1,06,41,945 / 272.

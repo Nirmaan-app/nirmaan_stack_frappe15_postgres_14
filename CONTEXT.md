@@ -89,6 +89,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Transaction direction (of an imported bank row)** — *Inflow* is money received (a bank credit); *Outflow* is money paid (a debit). A row whose source states no direction counts as Outflow. The import screen's own facet labels the same two values *Received* / *Paid*.
 
+- **Total Unreconciled Outflow** — how much bank money has been paid out and still needs reconciling: every imported bank line whose direction is *Outflow* and which still owes somebody a decision, across every import, every source and all time. Shown on the Payments summary card with the number of lines. It excludes lines already settled, lines skipped, and transfers the bank refused, because none of those is outstanding work. It is the same figure Bulk Import shows as *Still open* under *Paid out* with no filters, and the two are never allowed to disagree. It is **not** a 30-day figure and is never added to the 30-day outflow beside it. (2026-09-16.)
+  *Avoid*: unmatched outflow, open outflow, unreconciled payments.
+
 - **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Only a line skipped by hand can later be brought back. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement — and stays skipped, so the same money is never recorded twice. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
   *Avoid*: manual skip for a system skip a person merely confirmed.
 
