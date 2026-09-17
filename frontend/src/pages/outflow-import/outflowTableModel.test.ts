@@ -3734,10 +3734,18 @@ describe("serverQuery — the Skipped popup (Skip Type, 2026-09-17)", () => {
 });
 
 describe("the Skipped popup's columns", () => {
-    it("replaces Outcome with Skip Type, in the same place", () => {
+    it("replaces Outcome with Skip Type, in the same place, and drops Status and Ledger", () => {
         const ids = model.SKIPPED_COLUMNS.map((c) => c.id);
         expect(ids).not.toContain("outcome");
-        expect(ids.indexOf("skip_kind")).toBe(model.OUTFLOW_COLUMNS.findIndex((c) => c.id === "outcome"));
+        // Owner, 2026-09-17: every row is Skipped and settles nothing, so these said nothing.
+        expect(ids).not.toContain("row_status");
+        expect(ids).not.toContain("settled_ledger");
+        const page = model.OUTFLOW_COLUMNS.map((c) => c.id);
+        expect(ids).toEqual(
+            page
+                .filter((id) => id !== "row_status" && id !== "settled_ledger")
+                .map((id) => (id === "outcome" ? "skip_kind" : id))
+        );
         expect(model.SKIPPED_COLUMNS.find((c) => c.id === "skip_kind")).toMatchObject({
             title: "Skip Type",
             filter: "facet",

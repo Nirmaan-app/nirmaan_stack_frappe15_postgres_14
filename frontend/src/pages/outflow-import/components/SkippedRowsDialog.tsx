@@ -38,7 +38,13 @@ import {
 } from "./OutflowRowsTable";
 import { useOutflowRows } from "../useOutflowRows";
 import { canUndoOutflow } from "../outflowImportStatus";
-import { unskipBlockReason, unskipNotice, type UnskipNotice, type UnskipResult } from "../unskipView";
+import {
+    unskipBlockReason,
+    unskipNotice,
+    unskipWarning,
+    type UnskipNotice,
+    type UnskipResult,
+} from "../unskipView";
 import { exportFileBase, toExportColumns } from "../outflowExport";
 import {
     SKIPPED_COLUMNS,
@@ -101,8 +107,9 @@ const NO_ORIGINS = new Map();
  * (`selectable = names.length > 0`).
  *
  * ⚠️ THE ONE ACTION IS UNSKIP, ONE LINE AT A TIME, FOR ADMIN AND ACCOUNTANT LEAD (#1274, ADR-0022). It
- * rides the table's `actionColumn`, live only for a hand skip (`unskipBlockReason`); every other line
- * shows the button disabled with its reason in words. "Skips are final" still holds for system skips.
+ * rides the table's `actionColumn`, live for every Skip Type except the four locked ones and never on a
+ * Cashbook line (`unskipBlockReason`, ADR-0022 Amendment C); a locked line shows the button disabled
+ * with its reason in words.
  *
  * ⚠️ SKIP TYPE REPLACES OUTCOME HERE, AND THE TABS ARE DIRECTION (owner, 2026-09-17). The Outcome cell
  * on a skipped line was a reason sentence cut off at 204px; the stored `skip_kind` is what a reader
@@ -265,8 +272,9 @@ export const SkippedRowsDialog = ({
                         {canUnskip && (
                             <>
                                 {" "}
-                                Transfers skipped by hand can be unskipped. Transfers skipped by the
-                                system stay skipped, and each one says why.
+                                Any transfer can be unskipped except one already imported, repeated in
+                                the same file, refused by the bank or with no amount, and any Cashbook
+                                line. An unskipped transfer is checked again straight away.
                             </>
                         )}
                     </DialogDescription>
@@ -481,6 +489,8 @@ const UnskipConfirm = ({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const trimmed = reason.trim();
+    // A bank-rule line comes back as open work with no rule to catch it again (owner decision B1).
+    const warning = unskipWarning(row);
 
     const submit = async () => {
         setBusy(true);
@@ -501,10 +511,18 @@ const UnskipConfirm = ({
                     <DialogDescription>
                         {formatToRoundedIndianRupee(row.amount)}
                         {row.beneficiary_name ? ` to ${row.beneficiary_name}` : ""} goes back to matching
-                        and is checked again straight away. If its money has been recorded since, it is
+                        and is checked again straight away. If its money is already recorded, it is
                         skipped again with that reason.
                     </DialogDescription>
                 </DialogHeader>
+                {warning && (
+                    <p
+                        role="alert"
+                        className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                    >
+                        {warning}
+                    </p>
+                )}
                 <div className="space-y-1.5">
                     <Label htmlFor="unskip-transfer-reason" className="text-xs">
                         Reason (required)

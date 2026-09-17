@@ -826,13 +826,19 @@ export const SKIP_TYPE_COLUMN: OutflowColumn = {
  * The popup's columns: the page's, with Outcome REPLACED by Skip Type (owner ruling). Outcome on a
  * skipped line is a sentence cut off at 204px; the type is the fact a reader filters by.
  *
+ * ⚠️ STATUS AND LEDGER ARE DROPPED TOO (owner, 2026-09-17). Every row here is `Skipped` and a skip
+ * settles nothing, so both columns said the same thing -- or nothing -- on every line. The CSV keeps
+ * them (`SKIPPED_EXPORT_COLUMNS`): a file is the full record.
+ *
  * ⚠️ A SEPARATE LIST, NOT A HIDDEN COLUMN ON THE PAGE. The page's Columns menu walks
  * `OUTFLOW_COLUMNS`, and no tab on the page ever shows a skipped line, so Skip Type there would be a
  * column that is blank on every row it could reach.
  */
-export const SKIPPED_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.map((column) =>
-    column.id === "outcome" ? SKIP_TYPE_COLUMN : column
-);
+const NOT_IN_SKIPPED_POPUP: readonly string[] = ["row_status", "settled_ledger"];
+
+export const SKIPPED_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.filter(
+    (column) => !NOT_IN_SKIPPED_POPUP.includes(column.id)
+).map((column) => (column.id === "outcome" ? SKIP_TYPE_COLUMN : column));
 
 /**
  * What the popup's CSV carries: every page column (Outcome included -- a file keeps the full reason,

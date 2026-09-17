@@ -146,6 +146,12 @@ export interface OutflowImportRow {
      * server's `skip_kinds.SKIP_KINDS` labels, shown verbatim; blank on a line that is not Skipped.
      */
     skip_kind?: string | null;
+    /**
+     * The document behind a Skipped row's skip, for the popup's Skip Type hover. `null` on any other
+     * row. Derived server-side (`api/outflow_import/skip_sources.py`) through the same lookups the skip
+     * was decided with; display only.
+     */
+    skip_source?: SkipSource | null;
     /** Who decided this line, and when -- the "Skipped by hand · user · date" line reads both. */
     decided_by?: string | null;
     decided_at?: string | null;
@@ -765,3 +771,45 @@ export interface ApprovedRecordsPage {
     ledger: string;
     sortable: string[];
 }
+
+/** The earlier statement that already holds an "Already imported" transfer. */
+export interface SkipSourceImport {
+    name: string;
+    filename: string;
+    source: string;
+    uploaded_by: string;
+    uploaded_at: string | null;
+    period_from: string | null;
+    period_to: string | null;
+}
+
+/** The earlier line of the same statement that holds a "Repeated in same file" transfer. */
+export interface SkipSourceLine {
+    name: string;
+    added_on: string | null;
+    amount: number;
+    reference: string;
+    row_status: string;
+}
+
+/** A record already on the books, behind an "Already Recorded" skip. */
+export interface SkipSourceRecord {
+    doctype: string;
+    name: string;
+    amount: number;
+    date: string | null;
+    status: string | null;
+    party: string | null;
+    project: string | null;
+    reference: string;
+    description: string;
+}
+
+export interface SkipSource {
+    earlier_import: SkipSourceImport | null;
+    earlier_line: SkipSourceLine | null;
+    records: SkipSourceRecord[];
+    /** What a bank rule catches, in plain words -- set only on a bank-rule kind. */
+    rule: string | null;
+}
+

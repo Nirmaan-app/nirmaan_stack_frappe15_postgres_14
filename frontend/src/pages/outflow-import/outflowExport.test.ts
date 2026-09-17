@@ -183,6 +183,9 @@ describe("toExportColumns", () => {
         });
         expect(byId.get("skip_kind")!.meta.exportHeaderName).toBe("Skip Type");
         expect(byId.get("skip_kind")!.meta.exportValue(skipped)).toBe("Bank refused");
+        // Status and Ledger leave the popup's TABLE only; the file keeps them.
+        expect(byId.has("row_status")).toBe(true);
+        expect(byId.has("settled_ledger")).toBe(true);
         expect(byId.get("outcome")!.meta.exportValue(skipped)).toBe(
             "Transfer did not succeed at the bank (FAILED)."
         );

@@ -1,12 +1,14 @@
 // src/pages/outflow-import/components/OutflowRowsTable.tsx
 
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
@@ -35,6 +37,7 @@ import {
     type SettlementLink,
     type SortState,
 } from "../outflowTableModel";
+import { skipSourceSummary } from "../skipSourceView";
 import {
     CONFIRM_BY_HAND_CHIP,
     UNRECONCILE_CASHBOOK_SENTENCE,
@@ -849,32 +852,60 @@ const OutcomeButton = ({
  * discover the difference by clicking and hunting.
  */
 /**
- * The Skipped popup's Skip Type cell: the kind, then everything Outcome used to show for a skipped line.
+ * The Skipped popup's Skip Type cell: the kind, the document behind the skip, and a hover card with that
+ * document's facts and the full reason (owner, 2026-09-17). Record links stay below, as under Outcome.
  *
- * ⚠️ THE FULL REASON RIDES THE `title` OF THE KIND. The type says which bucket; the sentence names the
- * batch, the record or the bank rule, and a reviewer arguing with a skip needs that too. The record
- * links and the "Skipped by hand · who · when" line stay visible, as they were under Outcome.
+ * ⚠️ THE CARD IS PORTALLED. The popup's table sits in an `overflow-auto` box, and an in-place card would
+ * be clipped by it at the table's right and bottom edges -- exactly where this column lives.
  */
 const SkipTypeCell = ({ row }: { row: OutflowImportRow }) => {
-    const reason = outcomeNoteOf(row);
-    const byHand = skippedByHandLine(row);
+    const summary = skipSourceSummary(row);
     const links = rowSettlementLinks(row);
     return (
         <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
-            <span className="block truncate text-xs font-medium" title={reason || undefined}>
-                {row.skip_kind || "—"}
-            </span>
-            {byHand && (
-                <span className="block truncate text-[11px] text-muted-foreground/80" title={byHand}>
-                    {byHand}
-                </span>
-            )}
+            <HoverCard openDelay={150}>
+                <HoverCardTrigger asChild>
+                    <button type="button" className="block w-full cursor-help text-left">
+                        <span className="block truncate text-xs font-medium underline decoration-dotted underline-offset-2">
+                            {row.skip_kind || "—"}
+                        </span>
+                        {summary.reference && (
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                                {summary.reference}
+                            </span>
+                        )}
+                    </button>
+                </HoverCardTrigger>
+                {summary.groups.length > 0 && (
+                    <HoverCardPrimitive.Portal>
+                        <HoverCardContent side="left" className="z-[60] w-80 space-y-3 p-3 text-xs">
+                            {summary.groups.map((group, index) => (
+                                <div key={index} className="space-y-1">
+                                    {group.title && <p className="font-medium text-foreground">{group.title}</p>}
+                                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+                                        {group.facts.map((fact) => (
+                                            <FactRow key={fact.label} label={fact.label} value={fact.value} />
+                                        ))}
+                                    </dl>
+                                </div>
+                            ))}
+                        </HoverCardContent>
+                    </HoverCardPrimitive.Portal>
+                )}
+            </HoverCard>
             {links.map((link) => (
                 <RecordLink key={`${link.href}-${link.label}`} link={link} />
             ))}
         </div>
     );
 };
+
+const FactRow = ({ label, value }: { label: string; value: string }) => (
+    <>
+        <dt className="text-muted-foreground">{label}</dt>
+        <dd className="break-words">{value}</dd>
+    </>
+);
 
 const RecordLink = ({ link, iconOnly = false }: { link: SettlementLink; iconOnly?: boolean }) => (
     <Link
