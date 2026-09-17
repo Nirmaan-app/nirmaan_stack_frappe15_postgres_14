@@ -66,6 +66,7 @@ def create_vendor_and_address(
         vendorDoc.vendor_alt_mobile = values.get("vendor_alt_mobile")
         vendorDoc.vendor_email = values.get("vendor_email")
         vendorDoc.vendor_gst = values.get("vendor_gst")
+        vendorDoc.vendor_pan = values.get("vendor_pan")
         # The default is applied HERE, not by the doctype: this builds the doc
         # field-by-field, so whatever this line assigns wins over the field default,
         # and an omitted key would write 0.

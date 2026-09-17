@@ -4,6 +4,7 @@ import {
     accountNumberDuplicateMessage,
     findVendorByGst,
     findVendorsByAccountNumber,
+    findVendorsByPan,
     normalizeAccountNumber,
     vendorNamesLabel,
 } from "./vendorDuplicates";
@@ -79,6 +80,34 @@ describe("findVendorByGst", () => {
     });
 });
 
+describe("findVendorsByPan", () => {
+    // Real production shape: one GST vendor per state sharing a PAN, plus the same
+    // business registered again as a PAN-only service vendor.
+    const panVendors = [
+        vendor({ name: "G1", vendor_gst: "29APNPR5521H1ZG", vendor_pan: "APNPR5521H" }),
+        vendor({ name: "G2", vendor_gst: "36APNPR5521H1ZX", vendor_pan: "APNPR5521H" }),
+        vendor({ name: "P1", vendor_gst: "", vendor_pan: "APNPR5521H" }),
+        vendor({ name: "P2", vendor_pan: "CZSPK2048F" }),
+    ];
+
+    it("returns every vendor holding the PAN, with or without GST", () => {
+        expect(findVendorsByPan(panVendors, "APNPR5521H").map((v) => v.name)).toEqual(["G1", "G2", "P1"]);
+    });
+
+    it("returns nothing for an unused PAN or a blank value", () => {
+        expect(findVendorsByPan(panVendors, "ZZZZZ9999Z")).toEqual([]);
+        expect(findVendorsByPan(panVendors, "")).toEqual([]);
+    });
+
+    it("never matches a PAN prefix typed so far", () => {
+        expect(findVendorsByPan(panVendors, "APNPR5521")).toEqual([]);
+    });
+
+    it("tolerates an unloaded vendor list", () => {
+        expect(findVendorsByPan(undefined, "APNPR5521H")).toEqual([]);
+    });
+});
+
 describe("vendorNamesLabel", () => {
     it("renders one, two and three names readably", () => {
         expect(vendorNamesLabel([ductofab[0]])).toBe("D.S. Ductofab (Bengaluru)");
@@ -88,6 +117,27 @@ describe("vendorNamesLabel", () => {
         expect(vendorNamesLabel(ductofab)).toBe(
             "D.S. Ductofab (Bengaluru), D.S. Ductofab (Rohtak) and Unrelated Traders"
         );
+    });
+
+    it("names a company once when several vendor records share its name", () => {
+        const vaswani = "C P Vaswani Distribution and Allied Services LLP";
+        expect(
+            vendorNamesLabel([
+                vendor({ name: "VEN-Material-0101", vendor_name: vaswani }),
+                vendor({ name: "VEN-Material-0102", vendor_name: `${vaswani} ` }),
+                vendor({ name: "VEN-Material-0103", vendor_name: vaswani.toUpperCase() }),
+            ])
+        ).toBe(vaswani);
+    });
+
+    it("sorts names A to Z", () => {
+        expect(
+            vendorNamesLabel([
+                vendor({ name: "V3", vendor_name: "zeta Traders" }),
+                vendor({ name: "V1", vendor_name: "Alpha Steel" }),
+                vendor({ name: "V2", vendor_name: "Beta Cables" }),
+            ])
+        ).toBe("Alpha Steel, Beta Cables and zeta Traders");
     });
 
     it("falls back to the vendor id when the name is blank", () => {

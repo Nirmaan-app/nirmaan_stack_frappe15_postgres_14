@@ -9,12 +9,12 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
-import { ACCOUNT_NUMBER_REGEX, GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
-import { accountNumberDuplicateMessage, findVendorByGst } from "./utils/vendorDuplicates";
+import { ACCOUNT_NUMBER_REGEX, IFSC_REGEX, NAME_REGEX } from "@/constants/vendorFormRegex";
+import { accountNumberDuplicateMessage, findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates";
+import { vendorTaxIdSchemas } from "./utils/vendorTaxIds";
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,39 +27,7 @@ import { useParams } from "react-router-dom";
 import ReactSelect from "react-select";
 import * as z from "zod";
 
-const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any, originalAccountNumber?: string | number | null) => {
-    const vendorGstSchema = isTaxGSTType
-        ? z
-            .string({
-              required_error: "Vendor GST is required",
-            })
-            .regex(GST_REGEX, {
-              message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-            }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
-              const owner = findVendorByGst(existingVendors, value);
-              return {
-                message: owner
-                  ? `This GST is already registered to ${owner.vendor_name || owner.name}.`
-                  : "This GST is already registered to another vendor.",
-              };
-            })
-        : z
-            .string({
-              required_error: "Vendor PAN is required",
-            })
-            .regex(PAN_REGEX, {
-              message: "Invalid PAN format. Example: ABCDE1234F",
-            }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
-              const owner = findVendorByGst(existingVendors, value);
-              return {
-                message: owner
-                  ? `This PAN is already registered to ${owner.vendor_name || owner.name}.`
-                  : "This PAN is already registered to another vendor.",
-              };
-            });
-  
-    const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
-
+const getVendorFormSchema = (service: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any, originalAccountNumber?: string | number | null) => {
     // Stays OPTIONAL here (legacy vendors hold no bank details), but a number
   // belonging to ANOTHER vendor is refused. The record's own current number is
   // always allowed — see accountNumberDuplicateMessage.
@@ -117,12 +85,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
             }).min(1, {
                 message: "Address Line 1 Required"
             }),
-        address_line_2: z
-            .string({
-                required_error: "Address Line 2 Required"
-            }).min(1, {
-                message: "Address Line 2 Required"
-            }),
+        address_line_2: z.string().optional(),
         // vendor_city: z
         //     .string({
         //         required_error: "Must Provide City"
@@ -183,7 +146,8 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
         //     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
         //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         //     }),
-        vendor_gst: finalVendorGstSchema,
+        // GST required unless Service; PAN required for every vendor.
+        ...vendorTaxIdSchemas(existingVendors, service),
         // `coerce` because an <Input type="number"> hands back a string. Without it
         // every submit fails a zod number check on a field the user never touched.
         // ⚠️ Blank must not reach `z.coerce.number()` -- `Number("")` is 0, so an
@@ -237,7 +201,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
   const { updateDoc, loading } = useUpdateVendorDoc();
   const { toast } = useToast();
   const [vendorChange, setVendorChange] = useState(false)
-  const [taxationType, setTaxationType] = useState<string | null>("GST")
   const [bankAndBranch, setBankAndBranch] = useState({
     bank: "",
     branch: "",
@@ -258,7 +221,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
 
   const { data: existingVendors } = useExistingVendors(id);
 
-  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data, data?.account_number);
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data, data?.account_number);
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(VendorFormSchema),
@@ -288,12 +251,13 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_name: data?.vendor_name,
         vendor_nickname: data?.vendor_nickname,
         address_line_1: vendorAddress?.address_line1,
-        address_line_2: vendorAddress?.address_line2,
+        address_line_2: vendorAddress?.address_line2 || undefined,
         pin: vendorAddress?.pincode,
         vendor_email: data?.vendor_email,
         vendor_mobile: data?.vendor_mobile,
         vendor_alt_mobile: data?.vendor_alt_mobile,
         vendor_gst: data?.vendor_gst,
+        vendor_pan: data?.vendor_pan,
         // `??` (not `||`) so a vendor deliberately on 0% keeps 0 instead of being
         // silently bumped back to 2 the next time anyone opens this form. The
         // fallback only covers a vendor the backfill patch has not reached.
@@ -313,9 +277,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
       setConfirmAccountNumber(data?.account_number);
 
       setPincode(vendorAddress?.pincode);
-      if(data?.vendor_gst) {
-        setTaxationType(data?.vendor_gst?.length === 10 ? "PAN" : "GST")
-      }
     }
   }, [data, vendorAddress]);
 
@@ -393,7 +354,8 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         email_id: values.vendor_email,
         phone: values.vendor_mobile,
         address_line1: values.address_line_1,
-        address_line2: values.address_line_2,
+        // Optional: a cleared box is `undefined`, which the request would drop.
+        address_line2: values.address_line_2 || null,
         city: city,
         state: state,
         pincode: values.pin,
@@ -405,7 +367,10 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_city: city,
         vendor_contact_person_name: values.vendor_contact_person_name,
         vendor_email: values.vendor_email,
-        vendor_gst: values.vendor_gst,
+        // `|| null`, not the raw value: a cleared box is `undefined`, which the request
+        // would drop — leaving the old number in place instead of clearing it.
+        vendor_gst: values.vendor_gst || null,
+        vendor_pan: values.vendor_pan || null,
         tds_deduction_percentage: values.tds_deduction_percentage,
         vendor_mobile: values.vendor_mobile,
         // Vendors doc only — deliberately NOT mirrored into the linked Address
@@ -442,6 +407,10 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
     }
   };
 
+  // A PAN another vendor already holds is allowed — warn, never block.
+  const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
+  const gstRequired = vendorChange || ["Material", "Material & Service"].includes(data?.vendor_type);
+
   return (
     <div className="flex-1 space-y-4">
             {data?.vendor_type !== "Material & Service" && (
@@ -452,7 +421,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                 <Label htmlFor="vendorType">Change to <span className="text-primary italic text-lg">Material & Service</span> type?</Label>
                 <Switch value={vendorChange} onCheckedChange={(e) => {
                   setVendorChange(e)
-                  form.trigger("vendor_gst")
+                  form.clearErrors(["vendor_gst", "vendor_pan"])
                 }} id="vendorType" />
               </div>
             </div>
@@ -517,31 +486,14 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
             )}
           />
 
-            <div className="flex flex-col items-start space-y-2">
-                <Label htmlFor="taxationType">Taxation Type</Label>
-                <Select value={taxationType} onValueChange={(value) => {
-                    setTaxationType(value)
-                    form.trigger("vendor_gst", {
-                        shouldFocus: true
-                    })
-                }} defaultValue={"GST"}>
-                    <SelectTrigger className="">
-                        <SelectValue className="text-gray-200" placeholder="Select Taxation Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                            <SelectItem value="GST">GST</SelectItem>
-                            <SelectItem value="PAN">PAN</SelectItem>
-                    </SelectContent>
-                </Select>
-            </div>
           <FormField
             control={form.control}
             name="vendor_gst"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Vendor {taxationType === "GST" ? "GST" : "PAN"} {vendorChange ? <sup className="text-sm text-red-600">*</sup> : ["Material", "Material & Service"].includes(data?.vendor_type) && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                <FormLabel>Vendor GST {gstRequired && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                 <FormControl>
-                  <Input placeholder={taxationType === "GST" ? "enter gst..." : "enter pan..."}
+                  <Input placeholder="enter gst..."
                    {...field}
                     onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
                    />
@@ -550,6 +502,26 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
               </FormItem>
             )}
           />
+          <FormField
+            control={form.control}
+            name="vendor_pan"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Vendor PAN <sup className="text-sm text-red-600">*</sup></FormLabel>
+                <FormControl>
+                  <Input placeholder="enter pan..."
+                   {...field}
+                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                   />
+                </FormControl>                <FormMessage />
+              </FormItem>
+            )}
+          />
+          {samePanVendors.length > 0 && (
+            <p className="text-xs text-amber-700">
+              PAN already used by {vendorNamesLabel(samePanVendors)}. You can still save.
+            </p>
+          )}
           <FormField
             control={form.control}
             name="tds_deduction_percentage"
@@ -603,7 +575,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
-                  Address Line 2<sup className="text-sm text-red-600">*</sup>
+                  Address Line 2
                 </FormLabel>
                 <FormControl>
                   <Input placeholder="Street name, area, landmark" {...field}

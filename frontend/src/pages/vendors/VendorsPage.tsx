@@ -346,6 +346,20 @@ export default function VendorsPage() {
         meta: { exportHeaderName: "GST Number" },
       },
       {
+        accessorKey: "vendor_pan",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="PAN Number" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-nowrap">
+            {row.original.vendor_pan || "--"}
+          </div>
+        ),
+        size: 140,
+        enableSorting: false,
+        meta: { exportHeaderName: "PAN Number" },
+      },
+      {
         accessorKey: "tds_deduction_percentage",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="TDS %" />
