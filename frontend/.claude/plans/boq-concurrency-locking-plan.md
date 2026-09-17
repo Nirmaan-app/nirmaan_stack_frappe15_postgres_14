@@ -2,7 +2,7 @@
 
 **Status:** Design locked (20 decisions, grill-driven). Migration-critical facts adversarially verified.
 **No code written.** Pending owner (Nitesh) sign-off + the D11 call.
-**Companion docs:** explainer `docs/boq/concurrency-locking.html` · decision record `docs/adr/0011-boq-concurrency-locking.md`
+**Companion docs:** explainer `git show e6547258:docs/boq/concurrency-locking.html` (removed from the tree) · decision record `docs/adr/0011-boq-concurrency-locking.md`
 **Last updated:** 2026-07-03.
 
 ---

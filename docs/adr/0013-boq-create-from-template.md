@@ -18,7 +18,7 @@ workbook).
 
 Grill-locked design (18 decisions, Q1–Q18), resolved via `/grill-with-docs` 2026-07-08; **re-grilled on the
 templating system 2026-07-08 → Amendment A1**.
-Design of record (decision table + flows + reuse matrix): `docs/boq/create-from-template-locked-design.html`.
+Design of record (decision table + flows + reuse matrix): `git show e6547258:docs/boq/create-from-template-locked-design.html` (removed from the tree).
 Full build plan: `frontend/.claude/plans/boq-create-from-template-plan.md`. Numbered `0013`
 (highest existing is `0012`; historical `0002`/`0007`/`0008`/`0009` collisions are **not** renumbered — out
 of scope).

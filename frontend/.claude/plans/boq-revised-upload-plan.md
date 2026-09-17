@@ -705,8 +705,8 @@ BoQ runbook). `tsc` delta-0; backend suites green.
 ## ⚠️ Amendment B — the carry rework (waves W0–W6, 2026-07-20)
 
 **Owner-directed after reviewing the as-built.** Design of record:
-`docs/boq/revised-boq-carry-amendment.html` (ten worked scenarios; scenarios 4, 5, 6, 8 and 10 are
-load-bearing). Full defect trace + code map: `docs/boq/HANDOFF-revised-boq-carry-amendment.md`.
+`git show e6547258:docs/boq/revised-boq-carry-amendment.html` (removed from the tree) (ten worked scenarios; scenarios 4, 5, 6, 8 and 10 are
+load-bearing). Full defect trace + code map: `git show e6547258:docs/boq/HANDOFF-revised-boq-carry-amendment.md` (removed from the tree).
 ADR blocks: D1 / D5 / D6 / D7 / D9, each dated `AMENDED 2026-07-20 (Amendment B)`.
 
 **The rule, in one sentence:**
