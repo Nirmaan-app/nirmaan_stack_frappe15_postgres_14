@@ -16,7 +16,7 @@
 // MultiAddMembersDialog components.
 //
 // Design source of truth:
-//   nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md (T8) + CONTEXT.md
+//   .claude/context/domain/tds/phase-1-plan.md (T8) + CONTEXT.md
 //
 // Non-admins see a read-only view (no add/remove/edit/delete actions).
 
@@ -246,7 +246,7 @@ export const TDSItemDetail: React.FC = () => {
         id ? undefined : null
     );
 
-    // ADR-0004: members are DERIVED — `Items WHERE linked_tds_item = <group>` —
+    // ADR-0026: members are DERIVED — `Items WHERE linked_tds_item = <group>` —
     // not read off `doc.members` (that child table is retired as a writer and
     // left dormant; reading it here would show a frozen snapshot of the old
     // model). `get_tds_item_members` returns the same {item, item_name, category}
@@ -287,7 +287,7 @@ export const TDSItemDetail: React.FC = () => {
     const [entriesSorting, setEntriesSorting] = useState<SortingState>([]);
     const [entriesColumnFilters, setEntriesColumnFilters] = useState<ColumnFiltersState>([]);
 
-    // ---- Member persistence (ADR-0004: writes land on `Items.linked_tds_item`) ----
+    // ---- Member persistence (ADR-0026: writes land on `Items.linked_tds_item`) ----
     // This page and the Items-side edit form are TWO WRITERS over ONE store, so
     // "add member" is really "point these items at this group" and can MOVE an
     // item out of another group. `set_items_tds_link` reports each such move in

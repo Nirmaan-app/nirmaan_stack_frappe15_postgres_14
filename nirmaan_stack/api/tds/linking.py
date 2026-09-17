@@ -4,7 +4,7 @@ from nirmaan_stack.api.tds.members import rebuild_group_members_bulk
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Why this module exists (membership is N:1, owned by the Item — ADR-0004):
+# Why this module exists (membership is N:1, owned by the Item — ADR-0026):
 #
 # Each `Items` row carries a single `linked_tds_item` Link → `TDS Items` (the
 # group). A group's members are derived live as `Items WHERE linked_tds_item =
@@ -15,12 +15,12 @@ from nirmaan_stack.api.tds.members import rebuild_group_members_bulk
 #             in ONE pass, so a list/edit UI can render the amber "linked to
 #             <group>" tag on each item option without an N+1 fan-out.
 #   * WRITE — `set_items_tds_link` / `clear_items_tds_link`: bulk link writers
-#             used by BOTH the Items-side UI (Admin + PMO Executive — ADR-0004
-#             relaxes ADR-0003's Admin-only authoring for the *membership*
+#             used by BOTH the Items-side UI (Admin + PMO Executive — ADR-0026
+#             relaxes ADR-0025's Admin-only authoring for the *membership*
 #             dimension only) AND the TDS Item detail "Add Member Items" dialog
 #             (Admin-only, enforced in the frontend since that page is Admin-only).
 #
-# WP invariant (hard-enforced, ADR-0004): an item's WP (`Items.category →
+# WP invariant (hard-enforced, ADR-0026): an item's WP (`Items.category →
 # Category.work_package`) must equal the target group's `work_package`. The
 # write path validates this ITSELF: `frappe.db.set_value` bypasses
 # `Items.validate`, and the validate hook only covers the single-doc save path,
@@ -35,7 +35,7 @@ from nirmaan_stack.api.tds.members import rebuild_group_members_bulk
 # custom-API read pattern (NOT the permission-aware `frappe.client.get_list`
 # behind `useFrappeGetDocList`), identical to `api/tds/members.py` and
 # `api/tds/picker.py`. The write permission gate uses `Nirmaan Users.
-# role_profile` (NOT `get_roles`), as mandated by ADR-0003.
+# role_profile` (NOT `get_roles`), as mandated by ADR-0025.
 #
 # PostgreSQL backend: no raw SQL is used here (frappe.get_all / frappe.db.set_value
 # cover everything). If any is added later, double-quote table names
@@ -47,7 +47,7 @@ GROUP_DOCTYPE = "TDS Items"
 CATEGORY_DOCTYPE = "Category"
 LINK_FIELD = "linked_tds_item"  # Items.linked_tds_item → TDS Items (the group)
 
-# Roles allowed to author membership from the bulk write surfaces (ADR-0004).
+# Roles allowed to author membership from the bulk write surfaces (ADR-0026).
 # DB-verified `Nirmaan Users.role_profile` strings (2026-08-03).
 MEMBERSHIP_WRITE_ROLES = (
 	"Nirmaan Admin Profile",
@@ -68,9 +68,9 @@ def _coerce_id_list(item_ids):
 
 
 def _assert_membership_write_permission():
-	"""Gate the bulk write surfaces to Admin + PMO Executive (ADR-0004).
+	"""Gate the bulk write surfaces to Admin + PMO Executive (ADR-0026).
 
-	Uses `Nirmaan Users.role_profile` (NOT `get_roles`) per ADR-0003. The
+	Uses `Nirmaan Users.role_profile` (NOT `get_roles`) per ADR-0025. The
 	Administrator superuser is always allowed.
 	"""
 	user = frappe.session.user
@@ -123,7 +123,7 @@ def _wp_by_item(item_names):
 
 @frappe.whitelist()
 def get_items_linkage(item_ids=None, work_package=None):
-	"""Batched current-linkage lookup for many items in ONE pass (ADR-0004).
+	"""Batched current-linkage lookup for many items in ONE pass (ADR-0026).
 
 	The list/edit UI uses this to render the amber "linked to <group>" tag on
 	each item option without an N+1 fan-out.
@@ -204,7 +204,7 @@ def get_items_linkage(item_ids=None, work_package=None):
 def set_items_tds_link(item_ids, tds_item):
 	"""Bulk-assign `linked_tds_item = tds_item` to many items in one transaction.
 
-	Permission: Admin + PMO Executive (ADR-0004). The WP invariant is enforced
+	Permission: Admin + PMO Executive (ADR-0026). The WP invariant is enforced
 	HERE because `frappe.db.set_value` bypasses `Items.validate` (the validate
 	hook only covers the single-doc save path).
 
@@ -329,7 +329,7 @@ def set_items_tds_link(item_ids, tds_item):
 def clear_items_tds_link(item_ids):
 	"""Bulk-clear `linked_tds_item` (set to empty) for many items in one txn.
 
-	Permission: Admin + PMO Executive (ADR-0004). Used when a member is removed
+	Permission: Admin + PMO Executive (ADR-0026). Used when a member is removed
 	from a group — clearing the link IS the N:1 "remove member" operation.
 
 	Args:

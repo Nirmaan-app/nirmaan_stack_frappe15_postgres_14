@@ -16,7 +16,7 @@
 //   TDS Item already has member items — hence the propagation.
 //
 // Design source of truth:
-//   nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md
+//   .claude/context/domain/tds/phase-1-plan.md
 
 import React, { useMemo, useState } from "react";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";

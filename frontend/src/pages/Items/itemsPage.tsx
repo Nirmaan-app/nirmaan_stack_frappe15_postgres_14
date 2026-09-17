@@ -361,7 +361,7 @@ export default function ItemsPage() {
             isOpen={isEditDialogOpen}
             onOpenChange={setIsEditDialogOpen}
             onItemUpdated={refetchTable}
-            // ADR-0004: the Items-side link field is Admin + PMO Executive, which
+            // ADR-0026: the Items-side link field is Admin + PMO Executive, which
             // `canManageItems` already is. Client gating is UX; `Items.validate`
             // and `api/tds/linking.py` are the enforcement boundary.
             canLinkTds={canManageItems}

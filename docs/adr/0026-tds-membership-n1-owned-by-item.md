@@ -1,8 +1,10 @@
-# Membership is N:1, owned by the Item (supersedes ADR-0001's M:N)
+# Membership is N:1, owned by the Item (supersedes ADR-0023's M:N)
 
-Status: accepted (supersedes ADR-0001)
+Status: accepted (supersedes ADR-0023)
 
-ADR-0001 chose **many-to-many** membership owned by the TDS Item (a `members`
+> Moved 2026-09-17 from `nirmaan_stack/.claude/context/domain/tds/docs/adr/` — formerly **TDS ADR-0004**. Older code comments and patches may still cite that number.
+
+ADR-0023 chose **many-to-many** membership owned by the TDS Item (a `members`
 child table on `TDS Items`), on the rationale that "a generic catalog item can
 legitimately belong to several spec groups." A live-data audit (2026-06-17)
 contradicts that premise: of **414** TDS Items and **404** distinct member items,
@@ -47,7 +49,7 @@ Item per item**. That is N:1 membership owned by the *item*, expressed as a sing
 - **Permissions are asymmetric by surface.** The **Items-side** link field is
   **Admin + PMO Executive** (matching who can already edit Items). The **TDS-side**
   member dialog stays **Admin-only** (it lives on the Admin-only TDS master page).
-  This deliberately **relaxes ADR-0003's "all TDS master authoring is Admin-only"**
+  This deliberately **relaxes ADR-0025's "all TDS master authoring is Admin-only"**
   for the membership dimension only — justified because PMO already "mirrors Admin
   except *approvals*," and membership authoring is not approval. PMO still cannot
   approve TDS or author groups/entries.
@@ -57,7 +59,7 @@ Item per item**. That is N:1 membership owned by the *item*, expressed as a sing
 
 ## Consequences
 
-- The picker's M:N member fan-out (ADR-0003: "one item surfaces each parent group
+- The picker's M:N member fan-out (ADR-0025: "one item surfaces each parent group
   as its own result row") **collapses to one group per item** — a simplification.
 - `api/tds/members.py` (`get_tds_item_members`, `get_group_category`,
   `get_tds_member_index`) and `api/tds/picker.py` (`search_tds_items`) re-point
@@ -79,7 +81,7 @@ Item per item**. That is N:1 membership owned by the *item*, expressed as a sing
 
 ## Amendment A — as built on `develop` (2026-08-03)
 
-ADR-0004 was authored on the abandoned `tds-changes` branch and never merged;
+ADR-0026 was authored on the abandoned `tds-changes` branch and never merged;
 `develop` moved ~2,900 commits in the meantime. It was re-implemented (not
 cherry-picked) on `feature/tds-phase-3`. The DECISIONS above are unchanged. What
 follows is what the re-implementation had to do differently, and two owner
@@ -223,7 +225,17 @@ The hooks only fire on changes made after they ship, so every pre-existing link
 would stay invisible. `patches/v3_0/backfill_tds_member_mirror` materialises the
 mirror once. It carries a `dry_run()` that writes nothing, prints its plan before
 and after, and **names every legacy child row it is about to discard** — those
-rows are the only surviving record of pre-ADR-0004 membership that never reached
+rows are the only surviving record of pre-ADR-0026 membership that never reached
 the store (the four groups the old Add-TDS-Item wizard stranded were exactly
 this). It warns rather than aborts on a mismatch: the mirror is cosmetic, and
 failing a migration over a display table is the wrong trade.
+
+---
+
+## Status check — 2026-09-17
+
+Amendment B is live on `develop`: `Items` `after_insert` / `on_update` / `after_delete` are registered in `hooks.py`, and `api/tds/members.rebuild_group_members` writes the mirror. Two module comments still describe the child table as dormant and should be read with that in mind: the header of `api/tds/picker.py` and of `api/tds/members.py`.
+
+**PMO delete rule changed.** A PMO Executive may now delete a Project TDS row **at any status**, like an Admin (commit `a7f410df`, owner ruling). It is gated only in `TdsHistoryTable.tsx`; the doctype grants delete to every Nirmaan role and no server hook re-checks.
+
+The backfill tie-break does not hard-code item ids: it drops a catch-all group by name, falls back to the lowest group id, aborts above `_MAX_EXPECTED_MULTI_GROUP = 5`, and skips work-package violations. Whether production has migrated is **unverified**.

@@ -1,10 +1,20 @@
 # Phase 3 — Item-side TDS linking (N:1, item-owned membership)
 
-> Implements **ADR-0004**. Membership flips from M:N owned by the TDS Item (a
+> 🗄️ **HISTORICAL BUILD PLAN — shipped; its later AS-BUILT sections reverse some early decisions.**
+> Today's model: `docs/adr/0023`–`0026` + root `CONTEXT.md`. Drift found 2026-09-17: Decision 7 / Task 1
+> ("child table dormant, `Items.on_update` retired") was **reversed on 2026-08-04** — the child table is a
+> live display mirror and the `Items` hooks are registered; the Task 4 tie-break does not hard-code
+> `ITEM-000134`/`ITEM-001177` (it drops the catch-all group by name, falls back to lowest group id, aborts
+> above 5 multi-group items, skips WP violations), and the 404/2 numbers are superseded (354 rows, 0
+> multi-group, 1 WP violation on dev); **PMO may now delete Project TDS rows at ANY status** (`a7f410df`),
+> not only un-finalised ones; the print format sha1 is now `ad64b7a1c89f` and the fixture holds 26
+> formats. Production migration state is unverified.
+
+> Implements **ADR-0026**. Membership flips from M:N owned by the TDS Item (a
 > `members` child table) to **N:1 owned by the Item** (a single `linked_tds_item`
 > Link on `Items`). Stakeholders tag an item with its one TDS group from the
 > **Items side**; the TDS-side dialog stays as a second writer into the same store.
-> Grilled 2026-06-17. Glossary updated in `CONTEXT.md`; ADR-0001 membership clause
+> Grilled 2026-06-17. Glossary updated in `CONTEXT.md`; ADR-0023 membership clause
 > superseded.
 
 ---
@@ -23,7 +33,7 @@ Execute via the Plan-to-Parallel workflow (see CLAUDE.md):
 Create all tasks with `TaskCreate`, set dependencies with `TaskUpdate`
 (`addBlockedBy`/`addBlocks`), then launch each wave's tasks as parallel subagents
 (`Task`, `subagent_type=general-purpose`). Every subagent prompt must include the
-**why** (this file + ADR-0004), the exact files, and the locked constraints below.
+**why** (this file + ADR-0026), the exact files, and the locked constraints below.
 
 ```
 Wave 1:  Task 1 (Items field + controller + dead-code cleanup)
@@ -39,7 +49,7 @@ Wave 3:  ┌────┴───┬────┴────┬───�
 
 ---
 
-## Locked decisions (do not re-litigate — see ADR-0004)
+## Locked decisions (do not re-litigate — see ADR-0026)
 
 1. **Source of truth = `Items.linked_tds_item`** (single `Link → TDS Items`,
    optional). Members of a group = `Items WHERE linked_tds_item = <group>`,
@@ -54,7 +64,7 @@ Wave 3:  ┌────┴───┬────┴────┬───�
    matching-WP groups; link field **disabled** when the item has no resolvable WP.
    Backend `validate` re-checks (defense behind the UI filter).
 5. **Permissions:** Items-side field = **Admin + PMO Executive**; TDS-side dialog
-   stays **Admin-only**. (Relaxes ADR-0003 for membership only; PMO still cannot
+   stays **Admin-only**. (Relaxes ADR-0025 for membership only; PMO still cannot
    approve TDS.)
 6. **Project picker searches group name only.** Member-SKU search archived behind
    a default-off `include_member_matches` flag, ported to N:1.
@@ -88,7 +98,7 @@ Wave 3:  ┌────┴───┬────┴────┬───�
 - `api/tds/picker.py`: `search_tds_items` active path = `tds_item_name` (+ WP)
   only; keep the member-matching branch behind `include_member_matches=False`,
   **ported to N:1** (search Items by code/name where `linked_tds_item` set, group
-  by `linked_tds_item`), with a header comment citing ADR-0004.
+  by `linked_tds_item`), with a header comment citing ADR-0026.
 
 ### Task 3 — Endpoints for the item-side UI  *(Wave 2, dep: T1)*
 - WP-filtered TDS-Item search for the link dropdown: reuse
@@ -133,7 +143,7 @@ Wave 3:  ┌────┴───┬────┴────┬───�
 ## Verification
 - `bench --site localhost migrate` clean (fresh DB + this DB); backfill counts
   match the audit (404 distinct member items → 404 linked items; 2 tie-broken).
-- **Test as a real non-superuser Admin AND a PMO** (ADR-0003 caveat: admin check
+- **Test as a real non-superuser Admin AND a PMO** (ADR-0025 caveat: admin check
   is by `role_profile`, not `get_roles`). Confirm PMO can link from Items, cannot
   from the TDS master page; cannot approve TDS.
 - `tsc` clean (esbuild skips type-check); browser E2E: link from Items list + edit
@@ -153,7 +163,7 @@ Wave 3:  ┌────┴───┬────┴────┬───�
 
 ## AS BUILT — `feature/tds-phase-3`, 2026-08-03
 
-Re-implemented on `develop` (NOT cherry-picked — see ADR-0004 Amendment A for
+Re-implemented on `develop` (NOT cherry-picked — see ADR-0026 Amendment A for
 why, and for the two owner rulings and the architectural re-expression).
 
 ### What shipped, by file
@@ -213,7 +223,7 @@ why, and for the two owner rulings and the architectural re-expression).
 ## AS BUILT — `tds/phase3-fixs`, 2026-08-04
 
 Six commits on top of the Phase-3 as-built above. Decision-level changes are in
-**ADR-0004 Amendment B**; this is the file-level record.
+**ADR-0026 Amendment B**; this is the file-level record.
 
 | Commit | What |
 |---|---|
@@ -227,7 +237,7 @@ Six commits on top of the Phase-3 as-built above. Decision-level changes are in
 ### The bug that started it
 
 `AddTDSItemWizard` posted `payload.members` into `TDS Items Child Table` — retired
-as a writer at ADR-0004 and read by NOTHING. The save succeeded, the toast said
+as a writer at ADR-0026 and read by NOTHING. The save succeeded, the toast said
 success, and the members were invisible forever. **Four groups created that way on
 2026-08-03** (`TDS-ITEM-00004 / 00297 / 00301 / 00333`) had child rows and zero
 real members. Members now go through `linking.set_items_tds_link`.
@@ -296,7 +306,7 @@ the retired child table keep being written.
 - **`patches.txt` is wired, but production has not migrated.** Run `dry_run()`
   there first: read `mirror rows MISSING` and `legacy rows to DISCARD`.
 - The four stranded groups' orphan child rows were **consumed by the dev
-  backfill** — that evidence now exists only in ADR-0004 Amendment B and here.
+  backfill** — that evidence now exists only in ADR-0026 Amendment B and here.
 - ~8 other TDS dialogs still surface `e?.message` rather than `getFrappeError`.
 - `Items.item_name`'s declared index still does not exist (name collision).
 

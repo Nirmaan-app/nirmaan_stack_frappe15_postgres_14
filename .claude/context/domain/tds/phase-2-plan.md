@@ -1,8 +1,19 @@
 # TDS Repository Restructure — Phase 2 Implementation Plan
 
+> 🗄️ **HISTORICAL BUILD PLAN — shipped, except FE-OPTIONS.** Today's model: `docs/adr/0023`–`0026`
+> + root `CONTEXT.md`. Drift found 2026-09-17: **FE-OPTIONS never shipped** (`useTDSItemOptions.ts` still
+> has the dead `CUS-` scan and per-category make filter; old `AddTDSItemDialog.tsx` is orphaned);
+> **`api/tds/allocate_pcus.py` still exists** with no caller; the picker searches **group name only**
+> (member matching behind `include_member_matches=False`, no 50 cap, new `get_tds_work_packages`);
+> BE-SYNC now rebuilds the members mirror from `Items` on insert/update/delete; a second hook,
+> `Project TDS Item List.before_save`, snapshots `tds_category` (widened to Small Text); admin detection
+> uses `services/role_profiles.is_nirmaan_admin`; the live picker no longer shows a "contains [member]"
+> subtitle. ⚠️ The work-package dropdowns read `Work Packages` while `TDS Items.work_package` links
+> `Procurement Packages` — unconfirmed possible bug.
+
 > Scope: re-enable **project consumption + approval** against the Phase 1 group
-> model. All design decisions are locked in `docs/adr/0003-phase2-group-driven-
-> consumption.md` (grilled 2026-06-10). Read ADR-0003, ADR-0001, ADR-0002, and
+> model. All design decisions are locked in `docs/adr/0025-tds-phase2-group-driven-
+> consumption.md` (grilled 2026-06-10). Read ADR-0025, ADR-0023, ADR-0024, and
 > `CONTEXT.md` first.
 
 **Key property: Phase 2 adds NO new doctypes and NO new columns.** It repurposes
@@ -142,5 +153,5 @@ general-purpose subagents. Every subagent prompt must include the **why**.
 
 ## Operational pre-req
 - Confirm in-flight `Pending`/`New` rows were drained before the Phase 1 master
-  migration (ADR-0003 leaves historical rows untouched and assumes this). If
+  migration (ADR-0025 leaves historical rows untouched and assumes this). If
   stragglers exist, handle them manually before flipping the freeze flag.

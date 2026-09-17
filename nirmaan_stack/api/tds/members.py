@@ -2,7 +2,7 @@ import frappe
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Why this module exists (membership is N:1, owned by the Item — ADR-0004):
+# Why this module exists (membership is N:1, owned by the Item — ADR-0026):
 #
 # A TDS group's members are DERIVED live as `Items WHERE linked_tds_item =
 # <group>`. There is no membership store to read besides `Items` itself — the
@@ -49,7 +49,7 @@ LINK_FIELD = "linked_tds_item"
 # and re-derives — it never merges. Anything hand-entered into that grid is
 # discarded on the next rebuild, which is why the field is set `read_only` in
 # the doctype. Do not "improve" this into a two-way sync: a second writable copy
-# of membership is exactly what ADR-0004 collapsed, and the mirror is safe only
+# of membership is exactly what ADR-0026 collapsed, and the mirror is safe only
 # because it can never disagree with the store it is rebuilt from.
 #
 # Correctness is maintained by CALLING this from every path that changes

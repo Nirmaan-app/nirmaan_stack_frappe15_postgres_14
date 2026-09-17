@@ -1,9 +1,11 @@
 # TDS Item grouping model
 
-Status: accepted — **membership clause superseded by ADR-0004** (M:N → N:1,
+Status: accepted — **membership clause superseded by ADR-0026** (M:N → N:1,
 owned by the Item). The three-level grouping (Items SKU → TDS Item → Repository
 Entry) and WP scoping stand; only the *cardinality and ownership* of membership
 changed.
+
+> Moved 2026-09-17 from `nirmaan_stack/.claude/context/domain/tds/docs/adr/` — formerly **TDS ADR-0001**. Older code comments and patches may still cite that number.
 
 A TDS datasheet typically covers a whole manufacturer product family (several
 catalog item codes at once), so the old "one TDS Repository row = one Items SKU ×
@@ -38,3 +40,14 @@ has many entries (one per Make).
   master is **never** written to for customs — legacy `CUS-` rows migrate to
   member-less TDS Items. Custom is inferred from 0 members (no `is_custom` flag),
   and custom TDS Items carry no category.
+
+---
+
+## Status check — 2026-09-17
+
+The model stands, with the membership change of ADR-0026. Checked against `develop`:
+
+- The doctypes shipped as **`TDS Items`** and **`TDS Items Child Table`** (renamed in ADR-0024's addendum), not `TDS Item` / `TDS Item Member`.
+- The `members` child table is no longer a store. It is a read-only display mirror rebuilt from `Items.linked_tds_item` (ADR-0026 Amendment B).
+- Group-name uniqueness is `(work_package, tds_item_name)` compared case- and whitespace-insensitively (`doctype/tds_items/tds_items.py`).
+- `(TDS Item, Make)` uniqueness holds (`doctype/tds_repository/tds_repository.py`).

@@ -485,7 +485,7 @@ export const TDSApprovalDetail: React.FC = () => {
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
 
-    // Phase 2 (ADR-0003 P2-5): ALL TDS approval is Admin-only. Project Lead lost
+    // Phase 2 (ADR-0025 P2-5): ALL TDS approval is Admin-only. Project Lead lost
     // the pre-freeze approve right — both pick-only and promoting approvals now go
     // through the Admin-only backend (`api/tds/approve.py`), which re-checks
     // server-side. This UI gate is the cosmetic mirror of that authority.
@@ -1206,7 +1206,7 @@ export const TDSApprovalDetail: React.FC = () => {
     ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames]);
 
     const handleApprove = async () => {
-        // Phase 2 (ADR-0003): all promotion/verification happens server-side in
+        // Phase 2 (ADR-0025): all promotion/verification happens server-side in
         // api/tds/approve.py (Admin-only, re-checked there). We send the selected
         // Project TDS Item List row names; the backend handles BOTH kinds:
         //   - Pending (picked entry) → verifies the (tds_item, make) master entry,

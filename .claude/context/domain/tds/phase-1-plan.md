@@ -1,7 +1,18 @@
 # TDS Repository Restructure — Phase 1 Implementation Plan
 
+> 🗄️ **HISTORICAL BUILD PLAN — shipped, and largely overtaken by Phases 2 and 3.** Read the ADRs
+> (`docs/adr/0023`–`0026`) and the *Technical Data Sheets* section of root `CONTEXT.md` for today's
+> model. Drift found 2026-09-17: the doctypes are **`TDS Items`** / **`TDS Items Child Table`** (not
+> `TDS Item` / `TDS Item Member`); `members` is a read-only display mirror, not a writable M:N store, and
+> its duplicate-member validator is gone; group-name uniqueness is case/space-insensitive; the patch lives
+> at `patches/v3_0/restructure_tds_repository_to_tds_items.py` and did NOT drop the legacy columns
+> (`backfill_item_linked_tds_item.py` did); the master page has **three** tabs and its Entries tab has no
+> Category facet; the freeze is gone and `TDS_ASSEMBLY_FROZEN` is imported nowhere; the "CUS- promoted
+> with marker" check (T10) contradicts T1/T4 and no marker exists; deleting a TDS Item now unlinks its
+> members first.
+
 > Scope: master-side restructure only. Project consumption + approval are frozen
-> (new assembly only) until Phase 2. See `docs/adr/0001`, `docs/adr/0002`, and
+> (new assembly only) until Phase 2. See `docs/adr/0023`, `docs/adr/0024`, and
 > `CONTEXT.md` for the model and decisions.
 
 ## Execution Strategy

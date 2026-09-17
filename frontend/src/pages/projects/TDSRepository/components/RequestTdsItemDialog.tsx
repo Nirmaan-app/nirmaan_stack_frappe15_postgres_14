@@ -25,7 +25,7 @@ import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 2 (ADR-0003) — group-aware "Request new" dialog.
+// Phase 2 (ADR-0025) — group-aware "Request new" dialog.
 //
 // A project files a "New" request proposing a (TDS Item group, Make) it can't pick
 // because the group is missing that make's datasheet, or because the group itself
@@ -211,7 +211,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
 
     const memberCounts = memberIndexData?.message?.counts ?? {};
 
-    // ADR-0004: group-name-only search, so no member hit to attribute — the old
+    // ADR-0026: group-name-only search, so no member hit to attribute — the old
     // "contains <member>" subtitle is gone.
     const groupOptions = useMemo(() => {
         const groups = searchData?.message ?? [];

@@ -49,7 +49,7 @@ import { DerivedFacetFilter, useDerivedFacetParam } from "./components/DerivedFa
 //                         is no longer a field on TDS Repository).
 // Admin-only authoring (Add New TDS Item / Add New Repository Entry / edit /
 // delete). Design source of truth:
-//   nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md (T7).
+//   .claude/context/domain/tds/phase-1-plan.md (T7).
 // Shared building blocks (StatusBadge / AttachmentCell / CountPill, the two edit
 // dialogs, and the two peek dialogs) live in ./components — NO local duplicates.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -792,7 +792,7 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
 const TAB_OPTIONS: { key: TabKey; label: string }[] = [
     { key: "items", label: "TDS Items" },
     { key: "entries", label: "Repository Entries" },
-    // ADR-0004: membership is authored from the Item side, so the curation hub
+    // ADR-0026: membership is authored from the Item side, so the curation hub
     // needs the catalog itself — including SKUs no group has claimed yet.
     { key: "skus", label: "Items SKUs" },
 ];

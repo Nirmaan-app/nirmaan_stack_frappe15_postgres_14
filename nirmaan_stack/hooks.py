@@ -202,7 +202,7 @@ doc_events = {
     # `TDS Items` (owner decision 2026-08-04). `Items.linked_tds_item` stays the
     # source of truth and is what every read derives from; the child table is
     # rebuilt from it only so the Desk `Members` grid is not empty. The rationale,
-    # and why the ADR-0004 retirement of this same hook is being reversed, is in
+    # and why the ADR-0026 retirement of this same hook is being reversed, is in
     # `integrations/controllers/items.py`.
     "Items": {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",

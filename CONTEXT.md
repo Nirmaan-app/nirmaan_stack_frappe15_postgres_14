@@ -199,3 +199,89 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   source remarks.
 
 - **Manual Snag** — a Snag entered by hand rather than imported, belonging to no Batch. It behaves identically to an imported Snag in every other respect.
+
+## Technical Data Sheets (TDS)
+
+⚠️ **"TDS" names two unrelated things in this system.** This section is the **Technical Data Sheet**:
+a manufacturer's datasheet PDF for a product, kept in a shared catalogue and bundled per project into a
+signed submittal report. It is **not** *TDS withheld* (tax deducted at source) above. When the context
+does not make it obvious, say "Technical Data Sheet" or "tax TDS" in full.
+
+The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (the group), and each
+**TDS Repository Entry** is one Make's datasheet for that group. Decisions:
+[ADR-0023](docs/adr/0023-tds-item-grouping-model.md) (the grouping model),
+[ADR-0024](docs/adr/0024-tds-phase1-restructure-in-place-freeze-consumption.md) (Phase 1),
+[ADR-0025](docs/adr/0025-tds-phase2-group-driven-consumption.md) (Phase 2),
+[ADR-0026](docs/adr/0026-tds-membership-n1-owned-by-item.md) (membership).
+
+- **TDS Item** *("TDS SKU")* — the **group**: a named set of catalogue items that one datasheet family
+  covers. It belongs to **one Work Package**; its members may come from **several Categories** inside
+  that package, so a TDS Item has no category of its own. It has **no Make and no datasheet** — those
+  live on its Repository Entries, one per Make. **Members are optional**: a TDS Item with none is a
+  *Custom Item*. "TDS SKU" is an informal synonym; the canonical noun is **TDS Item**.
+  *Avoid*: TDS group record, spec group.
+
+- **TDS Repository Entry** — one datasheet: a **(TDS Item, Make)** pair plus its PDF and a
+  *Verified / Not Verified* status. A group has at most one entry per Make.
+  *Avoid*: TDS row, repository item.
+
+- **TDS Repository** — the company-wide catalogue of TDS Items and their Repository Entries. Not tied to
+  any project. Maintained by Admins.
+
+- **Items SKU** — a row of the **Items** master (item code, name, category). It belongs to **at most one**
+  TDS Item, and the **item owns that link** — a group's members are simply the items that name it
+  (ADR-0026, which replaced the original many-to-many).
+
+- **Members mirror** — a read-only copy of a group's members kept on the TDS Item, only so the Frappe
+  Desk form can list them. It is **not** a second source of truth: nothing in the product reads it, and
+  membership changes only by changing an item's link, never by editing the mirror (ADR-0026 Amendment B).
+
+- **Project TDS** — the per-project workflow: picking TDS Items for a project, sending them for
+  approval, and exporting the merged project TDS report PDF.
+
+- **Project TDS row** *(`Project TDS Item List`)* — one picked **TDS Item + Make** on a project, with its
+  own approval status (*New*, *Pending*, *Approved*, *Rejected*). It is a **snapshot**: the group id and
+  name, make, work package and datasheet are copied onto the row when it is picked, so a signed report
+  does not change when someone later edits the catalogue. Picking an existing entry makes a *Pending*
+  row; asking for something the catalogue lacks makes a *New* row (a *request*).
+
+- **Project TDS Setting** — a project's report branding: client, architect, consultant and contractor
+  names and logos, used on the report cover.
+
+- **Custom Item** — something with **no Items-master SKU**, recorded as a TDS Item with **no members** —
+  "custom" is inferred from having zero members, not from a flag. No Items-master row is ever created
+  for it. Legacy `CUS-` catalogue rows became member-less TDS Items. The old project-only custom
+  (`PCUS-`) is **retired**: every approved custom joins the shared catalogue (ADR-0025).
+
+- **Approval-time promotion** — approving a *New* request writes the catalogue: a missing Make becomes a
+  new Repository Entry, a brand-new group becomes a new member-less TDS Item plus its entry, and both are
+  born *Verified*. Admin-only.
+
+- **Verified / Not Verified** — a Repository Entry's status: has this datasheet been vetted. Approving any
+  project row that uses the entry marks it *Verified*. It is separate from a project row's approval
+  status — every project pick still needs its own approval, whatever the entry's status.
+
+- **Coverage** — the member items of a picked group, shown for information on the project row and the
+  report (the report's *Model No.* is the members' categories, and its sample description lists the
+  member names). Coverage is **read live from the catalogue** when the report is built, so it can move
+  after signing; only the **datasheet** is the frozen, signed artefact. The row also keeps a frozen copy of
+  the categories, used only when the group no longer exists or has no members.
+  ⚠️ *Open question, 2026-09-17:* the code that freezes that category copy says it exists "so the signed
+  PDF stays historically accurate", but the report prefers the live categories whenever the group still
+  has members. The two intents disagree; which one is right is an owner call.
+
+### Who can do what (TDS)
+
+- **Admin** (`Nirmaan Admin Profile`) — full control of the TDS Repository (groups and entries). The
+  **only** approver of Project TDS rows. Deletes any Project TDS row, at any status.
+- **PMO Executive** — project-level manager. Uses **Request New** to propose new groups or makes, manages
+  Project TDS setup, and may set an item's TDS group from the Items side. Deletes Project TDS rows **at
+  any status**, like an Admin (owner ruling, changed from Pending/Rejected-only). Cannot approve, and
+  cannot author groups or entries.
+- **Project user** (leads, managers, others) — can only pick existing catalogue entries for their
+  projects. No edit, no delete, no Request New.
+
+⚠️ **The delete rules and the approver rule are screen-level only, not enforced.** Project TDS rows are
+deleted straight through the standard document API with no server check, and every Nirmaan role holds
+write and delete on them — so any role can delete any row, *Approved* included, through the REST API.
+Approval is checked only inside the approve endpoint. Closing either gap needs a server-side check.

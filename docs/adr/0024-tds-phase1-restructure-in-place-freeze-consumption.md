@@ -2,7 +2,9 @@
 
 Status: accepted
 
-The grouping model (ADR-0001) changes the TDS Repository entry shape from a flat
+> Moved 2026-09-17 from `nirmaan_stack/.claude/context/domain/tds/docs/adr/` — formerly **TDS ADR-0002**. Older code comments and patches may still cite that number.
+
+The grouping model (ADR-0023) changes the TDS Repository entry shape from a flat
 `(item, make)` to a nested `(TDS Item → members) × make`, which the existing
 project-side consumer (item-driven picker, approval-time promotion, report) cannot
 read as-is. We split the work into **Phase 1 = master restructure only** (new TDS
@@ -93,3 +95,14 @@ the renames below are pure code renames (no `rename_doc` patch).
   portaled to `document.body` inherited it (keyboard worked, mouse did not). Fix:
   add `pointerEvents: "auto"` to the `menuPortal` style on every portaled select
   in these dialogs.
+
+---
+
+## Status check — 2026-09-17
+
+**The freeze is over.** Phase 2 (ADR-0025) re-enabled consumption and approval. Checked against `develop`:
+
+- `TDS_ASSEMBLY_FROZEN` is `false` (`frontend/src/constants/tds.ts`) and **is imported nowhere** — flipping it back would change nothing. It is a dead constant, kept only as a note.
+- The master page has **three** tabs now: TDS Items, Repository Entries, and Items SKU (`TDSRepositoryMaster.tsx`).
+- The legacy flat columns on `TDS Repository` were dropped by `patches/v3_0/backfill_item_linked_tds_item.py`, not by the Phase 1 restructure patch.
+- Deleting a TDS Item now unlinks its member items first; existing Repository Entries still block the delete.

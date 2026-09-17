@@ -21,7 +21,7 @@ import {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Items SKU tab — an embedded, focused mirror of the Items master table for the
-// TDS Repository curation hub (ADR-0004). An admin sees all catalog SKUs
+// TDS Repository curation hub (ADR-0026). An admin sees all catalog SKUs
 // (including untagged ones via the "Not Linked" facet bucket) and links /
 // changes / unlinks the `linked_tds_item` group inline via the shared
 // EditItemDialog — without leaving the page.

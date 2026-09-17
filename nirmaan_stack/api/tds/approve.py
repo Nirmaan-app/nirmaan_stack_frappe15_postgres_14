@@ -5,7 +5,7 @@ from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_nirmaan_admin
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Why this module exists (Phase 2 — group-driven approval/promotion, ADR-0003):
+# Why this module exists (Phase 2 — group-driven approval/promotion, ADR-0025):
 #
 # A project consumes TDS by picking a **TDS Item (group) + Make**, or by filing a
 # "New" request that PROPOSES a (group, make, datasheet). Every project selection
@@ -33,7 +33,7 @@ from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_nirmaan_admin
 # Admin-only is enforced SERVER-SIDE first (don't trust the client gate) — same
 # check as `api/design_tracker/bulk_update_task_status.py`:
 # `"Nirmaan Admin Profile" in frappe.get_roles(user)` OR the Administrator
-# superuser. All TDS approval is Admin-only (ADR-0003 P2-5; Project Lead lost the
+# superuser. All TDS approval is Admin-only (ADR-0025 P2-5; Project Lead lost the
 # pre-freeze approve right).
 #
 # `TDS Items Child Table` is an `istable` child with NO DocPerm — if any member

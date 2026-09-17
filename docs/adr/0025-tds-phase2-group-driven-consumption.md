@@ -2,8 +2,10 @@
 
 Status: accepted
 
-Phase 1 (ADR-0002) restructured the TDS Repository master into the grouping model
-(ADR-0001) and **froze** project consumption + approval behind
+> Moved 2026-09-17 from `nirmaan_stack/.claude/context/domain/tds/docs/adr/` — formerly **TDS ADR-0003**. Older code comments and patches may still cite that number.
+
+Phase 1 (ADR-0024) restructured the TDS Repository master into the grouping model
+(ADR-0023) and **froze** project consumption + approval behind
 `TDS_ASSEMBLY_FROZEN=true`, because the project side still spoke the old flat shape
 and the approval path wrote now-removed fields. Phase 2 re-enables consumption
 against the new `(TDS Item → members) × make` shape. The decisions below were
@@ -31,7 +33,7 @@ grilled on 2026-06-10 and supersede the open questions listed in `phase-1-plan.m
 
 - Rows are a **pure, immutable snapshot** — **no live Link** into the master.
   This matches the doctype's existing design (its `tds_item_id`/`tds_item_name`
-  are plain `Data`, not Links) and ADR-0002's self-contained-snapshot guarantee
+  are plain `Data`, not Links) and ADR-0024's self-contained-snapshot guarantee
   (an already-approved project TDS report must not mutate when an admin later
   edits/deletes master rows).
 - The existing `tds_item_id` Data column is **repurposed to hold the frozen TDS
@@ -130,3 +132,17 @@ grilled on 2026-06-10 and supersede the open questions listed in `phase-1-plan.m
   (`api/sidebar_counts.py`, `delivery_notes/_permission_utils.py`). Caught only by
   testing as a real non-superuser admin. (Note: `api/design_tracker/
   bulk_update_task_status.py` carries the same latent get_roles bug.)
+
+---
+
+## Status check — 2026-09-17
+
+Shipped. Checked against `develop`; these parts have moved on:
+
+- **Picker search** is group-name only since ADR-0026. Member matching sits behind `include_member_matches=False`, so the M:N fan-out described above no longer happens.
+- **`allocate_pcus` was NOT removed.** `api/tds/allocate_pcus.py` is still a whitelisted endpoint, with no caller. Dead code.
+- **Admin detection** now goes through the shared `services/role_profiles.is_nirmaan_admin`. The comment near the top of `api/tds/approve.py` still describes a `get_roles` check — the comment is stale, the code is right. The latent `get_roles` bug named above in `api/design_tracker/bulk_update_task_status.py` is **fixed** (it reads `role_profile_name`).
+- **Category is ALSO frozen onto the row.** A `before_save` hook (`integrations/controllers/project_tds_item_list.py`) copies the group's member categories into `tds_category`. The report still prefers the LIVE categories and falls back to that copy only when the group is gone or has no members. The hook's docstring says the copy exists "so the signed PDF stays historically accurate", which the report does not do. **Open: an owner call on which intent is right.**
+- **The report's sample description** now lists the group's member item names, also read live.
+- `FE-OPTIONS` never shipped: `pages/tds/hooks/useTDSItemOptions.ts` still carries the dead `CUS-` scan and the per-category make filter, and the old `AddTDSItemDialog.tsx` survives, imported nowhere.
+- ⚠️ **Possible bug, unconfirmed:** `TDS Items.work_package` links to **Procurement Packages**, but the work-package dropdowns in `useTDSItemOptions.ts` and `RequestTdsItemDialog.tsx` read the **Work Packages** doctype. This only works if the two lists hold the same names.
