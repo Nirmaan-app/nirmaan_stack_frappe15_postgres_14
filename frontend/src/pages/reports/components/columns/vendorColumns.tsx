@@ -1,43 +1,32 @@
 // frontend/src/pages/reports/components/columns/vendorColumns.tsx
-import { ColumnDef, Row, Table } from "@tanstack/react-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { Link } from "react-router-dom";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Skeleton } from "@/components/ui/skeleton";
-import { VendorCalculatedFields, useVendorLedgerCalculations } from "../../hooks/useVendorLedgerCalculations";
-import { dateFilterFn } from "@/utils/tableFilters";
+import { VendorCalculatedFields } from "../../hooks/useVendorLedgerCalculations";
 
-// Define the expected structure of table.options.meta
-interface VendorTableMeta {
-  getVendorCalculatedFields: (vendorId: string) => VendorCalculatedFields | null;
-  isLoadingGlobalDeps: boolean;
-}
+// One report row: the vendor plus its ledger totals, so every column sorts on a real value.
+export type VendorReportRow = Vendors & VendorCalculatedFields;
 
-// Generic cell renderer for our calculated fields
-const CalculatedCell: React.FC<{
-  row: Row<Vendors>;
-  table: Table<Vendors>;
-  accessor: keyof VendorCalculatedFields;
-}> = ({ row, table, accessor }) => {
-  const meta = table.options.meta as VendorTableMeta | undefined;
+// Ignoring case, spaces and punctuation matches the order Postgres (en_US.utf8) gave the
+// old server-side "vendor_name asc" sort, e.g. "A B PAL" sits between "ABDUL" and "ABRAR".
+const vendorNameCollator = new Intl.Collator(undefined, { sensitivity: "base", ignorePunctuation: true });
 
-  if (!meta || typeof meta.getVendorCalculatedFields !== 'function') {
-    return <span className="text-destructive text-xs">Meta Error</span>;
-  }
-
-  if (meta.isLoadingGlobalDeps) {
-    return <Skeleton className="h-4 w-24 my-1" />;
-  }
-
-  const calculatedData = meta.getVendorCalculatedFields(row.original.name);
-  const value = calculatedData ? calculatedData[accessor] : 0;
-
-  return <div className="tabular-nums text-center">{formatToRoundedIndianRupee(value)}</div>;
-};
+// Numeric total column. `enableGlobalFilter: false` is set on EVERY column: VendorReports
+// searches the selected field itself, so the table's fuzzy global filter must never run.
+const totalColumn = (accessor: keyof VendorCalculatedFields, title: React.ReactNode): ColumnDef<VendorReportRow> => ({
+  accessorKey: accessor,
+  header: ({ column }) => <DataTableColumnHeader column={column} title={title} />,
+  cell: ({ row }) => (
+    <div className="tabular-nums text-center">{formatToRoundedIndianRupee(row.original[accessor])}</div>
+  ),
+  sortingFn: "basic",
+  enableGlobalFilter: false,
+});
 
 // Main function to get all columns
-export const getVendorColumns = (): ColumnDef<Vendors>[] => [
+export const getVendorColumns = (): ColumnDef<VendorReportRow>[] => [
   {
     accessorKey: "vendor_name",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor Name" />,
@@ -46,35 +35,18 @@ export const getVendorColumns = (): ColumnDef<Vendors>[] => [
         {row.original.vendor_name || row.original.name}
       </Link>
     ),
+    sortingFn: (a, b) => vendorNameCollator.compare(a.original.vendor_name ?? "", b.original.vendor_name ?? ""),
+    enableGlobalFilter: false,
     size: 250,
   },
   {
     accessorKey: "vendor_type",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    enableGlobalFilter: false,
   },
-  {
-    id: "totalPO",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO Value (incl. GST)" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalPO" />,
-  },
-  {
-    id: "totalSR",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total SR Value" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalSR" />,
-  },
-  {
-    id: "totalInvoiced",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Invoiced (incl. GST)" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalInvoiced" />,
-  },
-  {
-    id: "totalPaid",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Paid" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalPaid" />,
-  },
-  {
-    id: "balance",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Balance Payable" />,
-    cell: (props) => <CalculatedCell {...props} accessor="balance" />,
-  },
+  totalColumn("totalPO", <>Total PO Value<br />(incl. GST)</>),
+  totalColumn("totalSR", "Total SR Value"),
+  totalColumn("totalInvoiced", <>Total Invoiced<br />(incl. GST)</>),
+  totalColumn("totalPaid", "Total Paid"),
+  totalColumn("balance", "Balance Payable"),
 ];
