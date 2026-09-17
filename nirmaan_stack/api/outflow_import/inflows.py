@@ -10,7 +10,7 @@ rather than restating it -- the match record, the row flip, the batch rollup and
 link are the same four facts whatever was written, and a second copy is how two paths come to
 disagree about what a settled row looks like.
 
-THE TWO DISPOSITIONS A CREDIT CAN TAKE, AND THEY DIVIDE ON WHETHER A PROJECT IS BEHIND THE MONEY:
+THE THREE DISPOSITIONS A CREDIT CAN TAKE, DIVIDED BY WHO IS BEHIND THE MONEY:
   * `create_inflow` (B6) -- a client receipt, against a project and its customer, written as a
     `Project Inflow`.
   * `create_non_project_inflow` (#1266) -- everything else: FD/RD interest, an FD closing, a loan
@@ -18,9 +18,12 @@ THE TWO DISPOSITIONS A CREDIT CAN TAKE, AND THEY DIVIDE ON WHETHER A PROJECT IS 
     (ADR-0016 Amendment A). It replaced the B7 `create_non_project_receipt`, which wrote a NEGATIVE
     `Non Project Expense` -- that endpoint, its service and its tests are REMOVED, not just hidden:
     a live endpoint nobody calls can still write negative expenses (A-D2).
+  * `create_vendor_refund` -- money a VENDOR paid back, written as one `Vendor Refund` per PO / Work
+    Order it is against, plus one for a Misc. Expense part. It creates no Project Payment and moves no
+    paid amount.
 
 The axis this module splits on is DIRECTION: `expenses.py` holds every endpoint that writes an
-OUTFLOW, and this one holds the two a reviewer may take with a credit row, sharing
+OUTFLOW, and this one holds the ones a reviewer may take with a credit row, sharing
 `_guard_is_a_credit` rather than a second copy of it.
 
 ⚠️ THE THING TO UNDERSTAND BEFORE EDITING ANYTHING HERE: A CREATED INFLOW IS LIVE IMMEDIATELY AND
@@ -86,14 +89,21 @@ from nirmaan_stack.services.outflow_import.duplicates import (
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.settle import (
     DIRECTION_CREDIT,
-    INFLOW_DOCTYPE,
-    NON_PROJECT_INFLOW,
     InflowNotRecordableError,
     create_inflow_from_row,
     create_non_project_inflow_from_row,
+    create_vendor_refund_from_row,
 )
+from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPES
+from nirmaan_stack.services.vendor_refunds import refund_documents
 
-__all__ = ["create_inflow", "create_non_project_inflow", "get_inflow_context"]
+__all__ = [
+    "create_inflow",
+    "create_non_project_inflow",
+    "create_vendor_refund",
+    "get_inflow_context",
+    "get_vendor_refund_documents",
+]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -232,6 +242,95 @@ def create_non_project_inflow(
     return _summary(row, result, doc["import_batch"], statuses)
 
 
+@frappe.whitelist(methods=["POST"])
+def create_vendor_refund(
+    row: str,
+    vendor: str = None,
+    project: str = None,
+    allocations=None,
+    confirm_mismatch=False,
+):
+    """Record a bank CREDIT that a vendor paid back, as one `Vendor Refund` per PO / WO part, plus one
+    for a Misc. Expense part.
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.inflows.create_vendor_refund
+
+    ⚠️ THE CLIENT SENDS WHO AND WHAT IT IS AGAINST, AND NEVER A FIGURE. Amount, payment date and
+    reference are read SERVER-SIDE off the staged bank row, exactly as the other credit endpoints do.
+
+    ⚠️ `allocations` IS A LIST (or its JSON) OF `{document_type, document_name, amount}`; a Misc.
+    Expense part is `{"Misc. Expense", "", amount, description}`. `project` is OPTIONAL: a PO / WO
+    refund records its document's project either way. The service re-checks every one -- a PO / WO this
+    vendor's, on this project, paid, within what is still refundable on it; at most one Misc. Expense --
+    and that they add up to the BANK ROW'S amount, which the client never sends.
+
+    ⚠️ THE PICKS DEFAULT TO None ONLY SO A MISSING ONE REACHES THE SERVICE'S OWN REFUSAL.
+
+    ⚠️ THE SAME PRELUDE AS `create_inflow`: whatever this import already recorded for the credit in
+    any inflow book (`_already_created_by_import`), then the recorded-money guard (#1260). So the same
+    credit cannot be recorded once as a refund and again as an inflow.
+
+    ⚠️ ONE LEG PER CREATED RECORD, all inside one savepoint and one commit: a refusal on the third
+    allocation leaves the first two unwritten.
+    """
+    actor = require_outflow_access()
+    if isinstance(allocations, str):
+        allocations = frappe.parse_json(allocations)
+    staged, doc = _load_settleable_row(row)
+    _guard_is_a_credit(doc)
+    _guard_not_already_recorded(staged, doc)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    statement_file_url = _statement_file_url(doc["import_batch"])
+
+    savepoint = f"ofi_vendor_refund_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        results = create_vendor_refund_from_row(
+            staged,
+            actor=actor,
+            vendor=vendor,
+            project=project,
+            allocations=allocations,
+            # ⚠️ FROM THE STORED ROW, NEVER FROM THE PAYLOAD -- see `create_non_project_inflow`.
+            direction=doc.get("direction"),
+            statement_file_url=statement_file_url,
+        )
+        for result in results:
+            _record_settlement(staged, doc, result, actor)
+        # INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE -- see `create_inflow`. Every result
+        # was created, so the first one gives the note its "Recorded".
+        _refresh_row_allocation(staged.name, actor, results[0])
+    except Exception:
+        frappe.db.rollback(save_point=savepoint)
+        raise
+    frappe.db.release_savepoint(savepoint)
+
+    statuses = _refresh_batch_rollup(doc["import_batch"])
+    frappe.db.commit()
+    # AFTER THE COMMIT, for the reason `create_non_project_inflow` gives -- once per record, so every
+    # refund can open the statement.
+    for result in results:
+        _link_statement_file_to_target(statement_file_url, result)
+    summary = _summary(row, results[0], doc["import_batch"], statuses)
+    summary["records"] = [
+        {"doctype": r.doctype, "name": r.name, "amount": float(r.amount)} for r in results
+    ]
+    return summary
+
+
+@frappe.whitelist()
+def get_vendor_refund_documents(vendor: str, project: str | None = None):
+    """The PAID POs and Work Orders of this vendor, per type -- on `project` when given, on every project
+    otherwise. (A Misc. Expense part names no document, so it has no list.)
+
+    ⚠️ THE SAME FIELD MAP, STATUS EXCLUSIONS AND PAID RULE THE WRITE CHECKS (`services/vendor_refunds`),
+    so the dialog cannot offer a document `create_vendor_refund` then refuses. Each row carries `paid`,
+    the most an allocation against it may be. Gated by the import's own access rule.
+    """
+    require_outflow_access()
+    return refund_documents(vendor, project)
+
+
 @frappe.whitelist()
 def get_inflow_context(project: str):
     """The customer a project's receipts belong to, and the invoices they may be set against.
@@ -327,10 +426,14 @@ def _guard_not_already_recorded(staged, doc) -> None:
 
 
 def _already_created_by_import(staged) -> dict:
-    """Every inflow THIS FEATURE has already created for this transfer, in either book.
+    """Every record THIS FEATURE has already created for this credit, in any inflow book.
 
-    ⚠️ BOTH `Project Inflows` AND `Non Project Inflows` (#1268). A credit becomes one or the other, and
-    the same money recorded once in each is still recorded twice.
+    ⚠️ EVERY BOOK IN `ledgers.INFLOW_DOCTYPES` (#1268; `Vendor Refunds` since). A credit becomes one of
+    them, and the same money recorded once in each is still recorded twice.
+
+    ⚠️ THE IDENTITY USES THE ROW'S AMOUNT, NOT THE LEG'S. A refund split across three documents writes
+    three legs of three parts; only the row's figure is the transfer's. On an inflow leg the two are
+    the same number.
 
     ⚠️ THIS IS THE GUARD THE UNIQUE CONSTRAINT CANNOT BE. `Outflow Row Match`'s key is
     `(transfer_id, target_doctype, target_name)`, and a created record's name is new every time, so
@@ -361,14 +464,14 @@ def _already_created_by_import(staged) -> dict:
         return {}
     rows = frappe.db.sql(
         f"""
-        SELECT m.transfer_id, m.target_amount, m.target_doctype, m.target_name, m.import_batch,
-               r.added_on
+        SELECT m.transfer_id, COALESCE(r.amount, m.target_amount) AS target_amount,
+               m.target_doctype, m.target_name, m.import_batch, r.added_on
         FROM "tab{MATCH_DOCTYPE}" m
         LEFT JOIN "tab{ROW_DOCTYPE}" r ON r.name = m.import_row
-        WHERE m.transfer_id = %s AND m.target_doctype IN (%s, %s) AND m.match_kind = %s
+        WHERE m.transfer_id = %s AND m.target_doctype IN %s AND m.match_kind = %s
         ORDER BY m.creation ASC
         """,
-        (staged.transfer_id, INFLOW_DOCTYPE, NON_PROJECT_INFLOW, MATCH_SETTLED),
+        (staged.transfer_id, INFLOW_DOCTYPES, MATCH_SETTLED),
         as_dict=True,
     )
     return index_prior_sightings(

@@ -511,7 +511,11 @@ class TestACreatedRecord(unittest.TestCase):
         )
 
     def test_the_attachment_fields_are_the_ones_the_import_writes(self):
-        self.assertEqual(IMPORT_WRITTEN_FIELDS, frozenset({"payment_attachment", "inflow_attachment"}))
+        # `refund_attachment`: where a `Vendor Refunds` record keeps the statement the import attached.
+        self.assertEqual(
+            IMPORT_WRITTEN_FIELDS,
+            frozenset({"payment_attachment", "inflow_attachment", "refund_attachment"}),
+        )
 
 
 class TestTheBackfillRule(unittest.TestCase):
@@ -819,3 +823,18 @@ class TestItIsPure(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAVendorRefundLineIsUndoneWhole(unittest.TestCase):
+    """A part-reversed vendor refund line could never be completed again, so it is undone whole."""
+
+    def test_a_line_carrying_a_vendor_refund_is_reverse_all_only(self):
+        self.assertTrue(
+            unreconcile.reverse_all_only(
+                [{"target_doctype": "Project Inflows"}, {"target_doctype": "Vendor Refunds"}]
+            )
+        )
+
+    def test_any_other_line_may_be_part_reversed(self):
+        for doctypes in ([], ["Project Payments", "Project Expenses"], ["Project Inflows"]):
+            self.assertFalse(unreconcile.reverse_all_only([{"target_doctype": d} for d in doctypes]))

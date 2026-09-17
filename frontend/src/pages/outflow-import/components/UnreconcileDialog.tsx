@@ -165,23 +165,26 @@ export const UnreconcilePanel = ({
                                 </span>
                             </div>
                             <div className="row-span-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    disabled={refused || !trimmed || locked}
-                                    title={
-                                        refused
-                                            ? "This record can't be undone here."
-                                            : !trimmed
-                                              ? "Type a reason first."
-                                              : undefined
-                                    }
-                                    onClick={() => reverse([leg.match])}
-                                >
-                                    Reverse
-                                </Button>
+                                {/* A vendor refund line is undone whole -- no per-record Reverse. */}
+                                {!plan.reverse_all_only && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        disabled={refused || !trimmed || locked}
+                                        title={
+                                            refused
+                                                ? "This record can't be undone here."
+                                                : !trimmed
+                                                  ? "Type a reason first."
+                                                  : undefined
+                                        }
+                                        onClick={() => reverse([leg.match])}
+                                    >
+                                        Reverse
+                                    </Button>
+                                )}
                             </div>
                             <div className={`flex items-start gap-1.5 text-xs ${TONE_CLASS[line.tone]}`}>
                                 {refused ? (
@@ -209,6 +212,13 @@ export const UnreconcilePanel = ({
                     );
                 })}
             </div>
+
+            {plan.reverse_all_only && (
+                <p className="text-xs text-muted-foreground">
+                    Vendor refunds on a transfer are undone together: Reverse all deletes every vendor
+                    refund on it, and the transfer goes back to needing a record.
+                </p>
+            )}
 
             <div className="space-y-1.5">
                 <Label htmlFor={`unreconcile-reason-${row}`} className="text-xs">

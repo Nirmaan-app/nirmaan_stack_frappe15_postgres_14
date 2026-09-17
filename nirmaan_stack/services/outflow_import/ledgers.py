@@ -47,6 +47,7 @@ __all__ = [
     "NON_PROJECT_EXPENSE_DOCTYPE",
     "INFLOW_DOCTYPE",
     "NON_PROJECT_INFLOW_DOCTYPE",
+    "VENDOR_REFUND_DOCTYPE",
     "INFLOW_DOCTYPES",
     "EXPENSE_DOCTYPES",
     "LEDGER_DOCTYPES",
@@ -114,14 +115,18 @@ INFLOW_DOCTYPE = "Project Inflows"
 # Created, never settled -- the same rule as `INFLOW_DOCTYPE`, so it is kept out of the same tuples.
 NON_PROJECT_INFLOW_DOCTYPE = "Non Project Inflows"
 
-# The ledgers that hold ONLY money received -- the two books a bank CREDIT can become, in display
-# order (#1268). The credit side of every duplicate check reads THIS, so a third inflow book is one
-# edit here rather than one per guard.
+# The ledger a bank CREDIT from a VENDOR becomes: money a vendor paid back, one record per PO / WO /
+# Project Expense it is against (2026-09-17). Created, never settled, and it moves no paid amount.
+VENDOR_REFUND_DOCTYPE = "Vendor Refunds"
+
+# The ledgers that hold ONLY money received -- the books a bank CREDIT can become, in display order
+# (#1268). The credit side of every duplicate check reads THIS, so an inflow book is one edit here
+# rather than one per guard -- `Vendor Refunds` joined exactly that way.
 #
 # ⚠️ NOT `RECEIVED_LEDGER_DOCTYPES`: that display order also holds `Non Project Expenses`, for the
 # removed B7 negative receipts, and a "received" test over it would call every Paid Non Project
 # Expense a receipt. Kept out of `LEDGER_DOCTYPES` / `SETTLEABLE_STATUSES` for the reason above.
-INFLOW_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE)
+INFLOW_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, VENDOR_REFUND_DOCTYPE)
 
 # The DISPLAY ORDER of the RECEIVED half of the settled-money panel (slice B8b).
 #
@@ -154,6 +159,7 @@ LEDGER_NOUNS: dict[str, tuple[str, str]] = {
     NON_PROJECT_EXPENSE_DOCTYPE: ("Non Project Expense", "Non Project Expenses"),
     INFLOW_DOCTYPE: ("Project Inflow", "Project Inflows"),
     NON_PROJECT_INFLOW_DOCTYPE: ("Non Project Inflow", "Non Project Inflows"),
+    VENDOR_REFUND_DOCTYPE: ("Vendor Refund", "Vendor Refunds"),
 }
 
 # THE single source of the settleable-status rule. Read by `candidates.py` (what may be offered) and

@@ -74,6 +74,11 @@ export interface UnreconcilePlan {
     added_on?: string | null;
     allocated: number;
     refused_count: number;
+    /**
+     * The line may only be undone WHOLE -- it carries a vendor refund. The server refuses a request
+     * naming only some of its records, so the screen offers Reverse all only.
+     */
+    reverse_all_only?: boolean;
     legs: UnreconcilePlanLeg[];
 }
 

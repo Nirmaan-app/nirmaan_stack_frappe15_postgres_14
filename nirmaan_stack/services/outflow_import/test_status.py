@@ -29,6 +29,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_INFLOW_DOCTYPE,
     RECEIVED_LEDGER_DOCTYPES,
     SETTLEABLE_STATUSES,
+    VENDOR_REFUND_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.matcher import (
     BASIS_BANK_REFERENCE,
@@ -2328,7 +2329,7 @@ class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
         self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 1, "value": Decimal("10")})
 
     def test_the_received_order_is_the_books_a_credit_can_reach(self):
-        """A credit becomes a `Project Inflow` or a `Non Project Inflow` (#1266).
+        """A credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds`.
 
         ⚠️ `Non Project Expenses` IS IN BOTH TUPLES ON PURPOSE, NOT BY COPY-PASTE. The removed B7
         path stored a non-project receipt as a NEGATIVE `Non Project Expense`, and those rows may
@@ -2336,7 +2337,12 @@ class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
         keys on the ROW's direction."""
         self.assertEqual(
             RECEIVED_LEDGER_DOCTYPES,
-            (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE),
+            (
+                INFLOW_DOCTYPE,
+                NON_PROJECT_INFLOW_DOCTYPE,
+                VENDOR_REFUND_DOCTYPE,
+                NON_PROJECT_EXPENSE_DOCTYPE,
+            ),
         )
         self.assertIn(NON_PROJECT_EXPENSE_DOCTYPE, LEDGER_DOCTYPES)
 

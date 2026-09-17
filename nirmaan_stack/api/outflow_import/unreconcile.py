@@ -86,10 +86,13 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     VERDICT_UNSPLIT_PAYMENT,
+    WHOLE_LINE_ONLY_REFUSAL,
+    WHOLE_LINE_ONLY_TITLE,
     LegFacts,
     LegVerdict,
     first_refusal,
     leg_verdict,
+    reverse_all_only,
 )
 
 ALL_LEGS = "all"
@@ -166,6 +169,8 @@ def get_unreconcile_plan(row: str) -> dict:
         "added_on": line.added_on,
         "allocated": float(allocated_of(legs)),
         "refused_count": sum(1 for v in verdicts.values() if v.verdict == VERDICT_REFUSED),
+        # A vendor refund line is undone whole -- the screen then offers Reverse all only.
+        "reverse_all_only": reverse_all_only(legs),
         "legs": [
             {
                 "match": leg.name,
@@ -210,6 +215,11 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
     with _concurrent_writer_refusal_as_sentence("unreconcile_row", row):
         line = _lock_row(row)
         requested = _lock_legs(line, legs)
+        # A vendor refund line is undone whole (`reverse_all_only`): a request naming only some of its
+        # live legs is refused before anything is read for writing.
+        live = _live_legs(line.name)
+        if reverse_all_only(live) and {leg.name for leg in requested} != {leg.name for leg in live}:
+            frappe.throw(WHOLE_LINE_ONLY_REFUSAL, title=WHOLE_LINE_ONLY_TITLE)
         references = settlement_references_of_row(line)
         facts = _read_facts(
             requested, references, _batch_source(line.import_batch), for_update=True
