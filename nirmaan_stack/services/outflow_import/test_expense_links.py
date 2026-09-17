@@ -17,6 +17,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
     bulk_id_of,
     derive_expense_status,
     lines_fit,
+    one_line_fits,
     remaining_balance,
 )
 from nirmaan_stack.services.outflow_import.ledgers import PAID, RECONCILIATION_PENDING
@@ -26,6 +27,27 @@ _LINE_DATE = date(2026, 8, 18)
 
 def _links(total, latest=_LINE_DATE):
     return ExpenseLinks(linked_total=Decimal(str(total)), latest_line_date=latest)
+
+
+class TestOneLineFits(unittest.TestCase):
+    """Decide's one-line rule (#1299): whole amount on a fresh expense, what is left once it has lines."""
+
+    def _linked(self, total, count):
+        return ExpenseLinks(linked_total=Decimal(str(total)), latest_line_date=None, line_count=count)
+
+    def test_a_fresh_expense_takes_a_line_only_within_five_rupees_of_its_whole_amount(self):
+        fresh = self._linked(0, 0)
+        self.assertTrue(one_line_fits("1000", fresh, "1005"))
+        self.assertTrue(one_line_fits("1000", fresh, "995"))
+        self.assertFalse(one_line_fits("1000", fresh, "900"))
+        self.assertFalse(one_line_fits("1000", fresh, "1005.01"))
+
+    def test_a_part_linked_expense_takes_a_line_that_fits_or_fills_what_is_left(self):
+        part = self._linked(6000, 3)  # 4,000 left
+        self.assertTrue(one_line_fits("10000", part, "1500"))
+        self.assertTrue(one_line_fits("10000", part, "4000"))
+        self.assertTrue(one_line_fits("10000", part, "4005"))
+        self.assertFalse(one_line_fits("10000", part, "4005.01"))
 
 
 class TestDeriveExpenseStatus(unittest.TestCase):

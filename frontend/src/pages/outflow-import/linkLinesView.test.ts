@@ -5,6 +5,9 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     afterLinking,
     bulkIdOf,
+    decideAfterLinking,
+    decideAmountCell,
+    decideConfirmLabel,
     filterLinkableExpenses,
     fitMark,
     linkActionLabel,
@@ -16,6 +19,7 @@ import {
     tickedSubline,
     type LinkableExpense,
 } from "./linkLinesView";
+import type { SettleableRecord } from "./outflowTableModel";
 
 const row = (name: string, amount: number, extra: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     ({
@@ -302,5 +306,81 @@ describe("tickedLines and tickedSubline", () => {
     it("shows a date range and an import count when the lines span them, and no bank when they differ", () => {
         const mixed = [...run, row("c", 10, { added_on: "2026-08-19 09:00:00", source: "Cashfree", import_batch: "OFI-26-04617" })];
         expect(tickedSubline(mixed)).toBe("18-Aug-2026 – 19-Aug-2026 · 2 imports");
+    });
+});
+
+// --- Decide: one late line (#1299) -------------------------------------------------------------------
+
+describe("Decide: one late line on a part-linked expense", () => {
+    const record = (over: Partial<SettleableRecord> = {}): SettleableRecord => ({
+        target_doctype: "Non Project Expenses",
+        name: "toj650dsqd",
+        amount: 160113,
+        detail: "",
+        suggested: true,
+        vendor_name: "",
+        project_name: "",
+        document_name: "Staff Welfare",
+        vendor_nickname: "",
+        contact_person: "",
+        document_type: "",
+        project: "",
+        approved_on: "",
+        updated_on: "",
+        similarity: 0,
+        similarity_reasons: [],
+        linked_total: 150113,
+        line_count: 25,
+        remaining: 10000,
+        payment_ref: "BULD77026436",
+        ...over,
+    });
+    const line = row("L26", 4475, { added_on: "2026-08-20 10:00:00", remarks: "MMT/IMPS/1/BULD77026436/Karthik N/X" });
+
+    it("shows what is left and 'fits · ₹N left after' when the line part-fills", () => {
+        expect(decideAmountCell(record(), 4475)).toEqual({
+            left: "₹10,000 left",
+            mark: { kind: "fits", pickable: true, label: "fits · ₹5,525 left after" },
+        });
+    });
+
+    it("says 'fills it' when the line completes what is left, within ₹5", () => {
+        expect(decideAmountCell(record(), 9996)?.mark.kind).toBe("fills");
+        expect(decideAmountCell(record(), 10005)?.mark.label).toBe("fills it · becomes Paid");
+    });
+
+    it("says 'too big' when the line is over what is left by more than ₹5", () => {
+        expect(decideAmountCell(record(), 10005.01)?.mark).toMatchObject({ kind: "too_big", pickable: false });
+    });
+
+    it("is null for a fresh expense and for a payment -- their amount cell is unchanged", () => {
+        expect(decideAmountCell(record({ line_count: 0, linked_total: 0, remaining: 160113 }), 4475)).toBeNull();
+        expect(decideAmountCell(record({ target_doctype: "Project Payments", line_count: 0 }), 4475)).toBeNull();
+        // An older payload with none of the new keys reads as unlinked.
+        expect(
+            decideAmountCell(record({ line_count: undefined, linked_total: undefined, remaining: undefined }), 4475)
+        ).toBeNull();
+    });
+
+    it("builds the After linking bar from the one line", () => {
+        expect(decideAfterLinking(record(), line)).toEqual({
+            tone: "ok",
+            summary: "After linking: ₹1,54,588 of ₹1,60,113 linked · left ₹5,525",
+            detail: "toj650dsqd stays Reconciliation Pending until the rest is linked. No payment date yet. Its reference stays as it is.",
+        });
+        expect(decideAfterLinking(record({ line_count: 0 }), line)).toBeNull();
+    });
+
+    it("a filling line names the Paid date", () => {
+        expect(decideAfterLinking(record(), row("L26", 10000, { added_on: "2026-08-20 10:00:00" }))?.detail).toBe(
+            "toj650dsqd becomes Paid, dated 20-Aug-2026 (the latest line). Its reference stays as it is."
+        );
+    });
+
+    it("the Confirm button says Paid only when the pick makes the record Paid", () => {
+        expect(decideConfirmLabel(record(), 4475)).toBe("Confirm → Link to expense");
+        expect(decideConfirmLabel(record(), 10000)).toBe("Confirm → Paid");
+        expect(decideConfirmLabel(record({ line_count: 0 }), 4475)).toBe("Confirm → Paid");
+        expect(decideConfirmLabel(null, 4475)).toBe("Confirm → Paid");
     });
 });

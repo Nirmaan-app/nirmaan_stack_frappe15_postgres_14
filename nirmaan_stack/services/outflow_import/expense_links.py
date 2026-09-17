@@ -34,7 +34,11 @@ import re
 import frappe
 
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
-from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE, to_decimal
+from nirmaan_stack.services.outflow_import.amounts import (
+    AMOUNT_TOLERANCE,
+    amounts_match,
+    to_decimal,
+)
 from nirmaan_stack.services.outflow_import.ledgers import PAID, RECONCILIATION_PENDING
 
 __all__ = [
@@ -43,6 +47,8 @@ __all__ = [
     "bulk_id_of",
     "derive_expense_status",
     "lines_fit",
+    "linked_totals_join",
+    "one_line_fits",
     "load_expense_links",
     "load_linked_totals",
     "remaining_balance",
@@ -86,6 +92,23 @@ def lines_fit(remaining, lines_total) -> bool:
     lines that squeeze in are exactly the lines that make the expense Paid.
     """
     return to_decimal(lines_total) - to_decimal(remaining) <= AMOUNT_TOLERANCE
+
+
+def one_line_fits(amount, links: ExpenseLinks, line_amount) -> bool:
+    """Whether ONE bank line may be settled against this expense from Decide (ADR-0027 Q17, #1299).
+
+    ⚠️ TWO RULES, CHOSEN BY WHETHER THE EXPENSE HAS LINES YET. With none, the line must equal the
+    whole amount within ₹5 -- the 1:1 settle exactly as it always was, refusal included. With some, the
+    line is measured against what is LEFT and may part-fill it (`lines_fit`), which is the late line of
+    a run this exists for. Decide does not START a run: a first line that only part-fills a fresh
+    expense goes through "Link N to one expense", where the person sees the run's total first.
+
+    ONE predicate for the picker's `suggested` flag and for `settle_row`'s refusal, so the screen can
+    never offer a pick the write refuses, or hide one it would take.
+    """
+    if not links.line_count:
+        return amounts_match(amount, line_amount)
+    return lines_fit(remaining_balance(amount, links.linked_total), line_amount)
 
 
 # An ICICI bulk-transfer id as it sits in a line's narration: `MMT/IMPS/<ref>/BULD75978325/<name>/..`.
@@ -189,3 +212,22 @@ def load_linked_totals(doctype: str) -> dict[str, ExpenseLinks]:
         )
         for r in rows
     }
+
+
+def linked_totals_join(doctype: str, alias: str) -> str:
+    """A `LEFT JOIN` giving each expense aliased `alias` its `l.linked_total` and `l.line_count`.
+
+    ⚠️ THE SAME AGGREGATE AS `load_linked_totals` -- live `Settled` slips only, SUMmed by target --
+    written as SQL for a query that FILTERS or SORTS on it (the matcher pool and the Approved tab,
+    #1299). An expense with no slips gets NULLs, so a reader wraps both in `COALESCE(.., 0)`.
+
+    `doctype` and `alias` are fixed names from the calling module, never a request's string, so
+    interpolating them is safe.
+    """
+    return f"""
+        LEFT JOIN (
+            SELECT target_name, SUM(target_amount) AS linked_total, COUNT(name) AS line_count
+            FROM "tab{_MATCH_DOCTYPE}"
+            WHERE target_doctype = '{doctype}' AND match_kind = '{MATCH_SETTLED}'
+            GROUP BY target_name
+        ) l ON l.target_name = {alias}.name"""

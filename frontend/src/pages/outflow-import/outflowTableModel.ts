@@ -3175,12 +3175,14 @@ export const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
  * `suggested === false`. Adding a reason must not change WHICH records are blocked, only what the
  * reviewer is told about them; the cross-pin against `partialOffer` below is what holds that.
  *
- * Four cases, and they are TOTAL over a blocked pick:
+ * Five cases, and they are TOTAL over a blocked pick:
  *
  *   `not_positive`       the record's amount, or the transfer's, is zero or negative
  *   `bank_paid_more`     the bank moved MORE than the record is for -- an overpayment
  *   `expense_exact_only` the record is larger, but it is an expense, which cannot be part-settled
  *   `record_larger`      the record is larger and IS a payment -- ordinarily the partial dialog
+ *   `more_than_left`     a part-linked expense has less left than the line (#1299); measured
+ *                        against the remainder, never the whole amount
  *
  * The last one reaches the dead-end branch only when `SHOW_PARTIAL_SETTLE` is off, and it has to
  * exist anyway: this function is total, and a silent fall-through would print nothing at all.
@@ -3189,7 +3191,8 @@ export type SettleBlockReason =
     | "not_positive"
     | "bank_paid_more"
     | "expense_exact_only"
-    | "record_larger";
+    | "record_larger"
+    | "more_than_left";
 
 export interface SettleBlock {
     kind: "amount_outside_window";
@@ -3237,17 +3240,54 @@ const settleBlockReason = (
     return "record_larger";
 };
 
+/**
+ * Whether a run of bank lines has already linked part of this record (#1299, ADR-0027).
+ *
+ * ⚠️ FAILS CLOSED TO "NOT PART-LINKED". An older payload with no `line_count` is a record exactly as
+ * before, so every existing amount cell, verdict and block keeps its old shape. Only an expense can
+ * be part-linked; a payment is never linked by many lines.
+ */
+export const isPartLinkedRecord = (
+    record: { target_doctype?: string; line_count?: number } | null | undefined
+): boolean =>
+    Boolean(record) &&
+    Boolean(record!.target_doctype) &&
+    record!.target_doctype !== PROJECT_PAYMENTS_DOCTYPE &&
+    Number(record!.line_count ?? 0) > 0;
+
 export const settleBlocker = (
     record:
-        | { name: string; amount: number; suggested?: boolean; target_doctype?: string }
+        | {
+              name: string;
+              amount: number;
+              suggested?: boolean;
+              target_doctype?: string;
+              line_count?: number;
+              remaining?: number;
+          }
         | null
         | undefined,
     bankAmount: number
 ): SettleBlock | null => {
     if (!record) return null;
     if (record.suggested !== false) return null;
-    const recordAmount = Number(record.amount);
     const bank = Number(bankAmount);
+    // ⚠️ A PART-LINKED EXPENSE IS MEASURED AGAINST WHAT IS LEFT (#1299). The server marks it
+    // unsettleable only when the line is over that by more than ₹5, so the gap the dialog prints is
+    // against the remainder -- the whole amount would state a difference nobody can act on.
+    if (isPartLinkedRecord(record) && record.remaining !== undefined) {
+        const remaining = Number(record.remaining);
+        return {
+            kind: "amount_outside_window",
+            reason: "more_than_left",
+            recordName: record.name,
+            recordAmount: remaining,
+            bankAmount: bank,
+            difference: remaining - bank,
+            targetDoctype: record.target_doctype,
+        };
+    }
+    const recordAmount = Number(record.amount);
     return {
         kind: "amount_outside_window",
         reason: settleBlockReason(record.target_doctype, recordAmount, bank),
@@ -3344,9 +3384,14 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
         case "bank_paid_more":
             return "The bank moved more than this record is for. An import only ever settles a record for the amount that actually left the bank, so it cannot record this transfer against a smaller record — the overpayment has to be sorted out on the record itself first.";
         case "expense_exact_only":
-            return "An expense can only be settled at its exact amount. It cannot be settled in parts or carried forward, because neither expense ledger has anywhere for a balance to go.";
+            // ⚠️ REWORDED AT #1299. "It cannot be settled in parts" stopped being true when many bank
+            // lines could link to one expense. From HERE the first line must still equal the whole
+            // expense; a run that pays it in parts is started from the grid.
+            return "From here, an expense with no bank lines linked yet can only be settled at its exact amount. If this line is one part of a run that pays it, tick the run's lines on the grid and use Link to one expense.";
         case "record_larger":
             return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
+        case "more_than_left":
+            return "This line is for more than this expense still has left to link, so linking it would pay the expense more than its amount.";
     }
 };
 
@@ -3379,6 +3424,7 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
 export const settleBlockRemedy = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     const splittable = !block.targetDoctype || block.targetDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    if (block.reason === "more_than_left") return "Pick another expense, or raise its amount first.";
     if (block.reason === "bank_paid_more" && splittable) {
         return `To settle it as one part of this transfer, choose '${SETTLE_MODE_LABEL.split}' on the row.`;
     }
@@ -3480,6 +3526,17 @@ export interface SettleableRecord {
      */
     similarity: number;
     similarity_reasons: string[];
+    /**
+     * What a run of bank lines has already linked to this record, and what is left (#1299, ADR-0027).
+     *
+     * ⚠️ OPTIONAL, AND ABSENT READS AS NOTHING LINKED -- see `isPartLinkedRecord`. Only an expense can
+     * be part-linked; the server sends 0 / 0 / the whole amount for a payment. `payment_ref` is the
+     * expense's stored reference, which the After linking bar reads to say whether it is kept.
+     */
+    linked_total?: number;
+    line_count?: number;
+    remaining?: number;
+    payment_ref?: string;
     /**
      * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
      * expense doctype has the field at all. The expense's last-changed timestamp is real and useful

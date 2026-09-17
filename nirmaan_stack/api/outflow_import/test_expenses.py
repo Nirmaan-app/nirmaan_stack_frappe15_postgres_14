@@ -42,7 +42,6 @@ from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, 
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.expense_links import load_expense_links
 from nirmaan_stack.services.outflow_import.settle import (
-    _lock_and_assert_settleable,
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
     AlreadyPaidError,
@@ -1085,46 +1084,54 @@ class TestOneSettlePathForExpenses(SettlementFixture):
         self.assertIsNone(links.latest_line_date)
 
     def test_the_guard_compares_the_line_with_the_REMAINING_balance(self):
-        """With a live slip already covering 1,000, a line for the rest fits and the whole does not."""
+        """⚠️ INVERTED AT #1299. This pinned `_lock_and_assert_settleable`, a two-sided window against
+        what is left. Decide's one line now goes through `link_lines_to_expense` (ADR-0027 Q13), and on
+        an expense that already has a slip the line is measured ONE-SIDED against what is left: the
+        rest fits, and the whole amount is refused."""
+        from nirmaan_stack.services.outflow_import.settle import link_lines_to_expense
+
         expense = self._make_expense(PROJECT_EXPENSE, 4000)
         self._plant_live_slip(PROJECT_EXPENSE, expense, 1000)
+        refused_line = frappe._dict(name="not-a-row", amount=Decimal("4000"))
+        fitting_line = frappe._dict(name="not-a-row", amount=Decimal("3000"))
 
-        self.assertEqual(
-            _lock_and_assert_settleable(PROJECT_EXPENSE, expense, Decimal("3000")),
-            Decimal("4000"),
-        )
-        with self.assertRaises(AmountMismatchError):
-            _lock_and_assert_settleable(PROJECT_EXPENSE, expense, Decimal("4000"))
-        frappe.db.rollback()
-
-    def test_a_leg_checks_the_expected_amount_and_keeps_the_record_amount(self):
-        """The payment settle's leg shape, on the expense path: `expected_amount` replaces the bank
-        figure in the window check and `rewrite_amount_to_bank=False` leaves the amount alone."""
-        from nirmaan_stack.api.outflow_import.expenses import _record_settlement
-        from nirmaan_stack.services.outflow_import.settle import settle_existing_expense
-
-        row = self._next_settleable_row()
-        record_amount = float(row["amount"]) + 100  # outside the window against the bank figure
-        expense = self._make_expense(PROJECT_EXPENSE, record_amount)
-        staged, doc = _load_settleable_row(row["name"])
-
-        result = settle_existing_expense(
-            staged,
+        # The rest fits: no refusal. (No slip is written for it here, so the expense stays short.)
+        link_lines_to_expense(
+            [fitting_line],
             PROJECT_EXPENSE,
             expense,
             "Administrator",
-            rewrite_amount_to_bank=False,
-            expected_amount=Decimal(str(record_amount)),
-            record_link=lambda r: _record_settlement(staged, doc, r, "Administrator"),
+            record_link=lambda line, result: None,
+            one_line_from_decide=True,
         )
-        # This test calls the service directly, so nothing flips the row; take it out of the pool.
-        frappe.db.set_value(ROW_DOCTYPE, row["name"], "row_status", "Settled")
-        frappe.db.commit()
 
+        with self.assertRaises(AmountMismatchError):
+            link_lines_to_expense(
+                [refused_line],
+                PROJECT_EXPENSE,
+                expense,
+                "Administrator",
+                record_link=lambda line, result: None,
+                one_line_from_decide=True,
+            )
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), SETTLEABLE)
+        frappe.db.rollback()
+
+    def test_a_fresh_expense_still_needs_the_whole_amount_from_decide(self):
+        """⚠️ INVERTED AT #1299. This pinned `settle_existing_expense`'s leg shape (`expected_amount`,
+        `rewrite_amount_to_bank=False`), which #1296 built so a late line could settle part of an
+        expense. That job went to `link_lines_to_expense` instead (Q13, one code path) and the leg
+        shape was removed with its function. What survives is the 1:1 rule for an expense with no
+        lines: a line outside ₹5 of the whole amount is refused, and nothing is written."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 100)
+
+        with self.assertRaises(AmountMismatchError):
+            settle_expense(row["name"], PROJECT_EXPENSE, expense)
         after = frappe.db.get_value(PROJECT_EXPENSE, expense, ["status", "amount"], as_dict=True)
-        self.assertFalse(result.amount_changed)
-        self.assertEqual(Decimal(str(after.amount)), Decimal(str(record_amount)))
-        self.assertEqual(after.status, "Paid")
+        self.assertEqual(after.status, SETTLEABLE)
+        self.assertEqual(Decimal(str(after.amount)), Decimal(str(float(row["amount"]) + 100)))
+        self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row["name"]}))
 
 
 class TestFormatAmountFor(unittest.TestCase):

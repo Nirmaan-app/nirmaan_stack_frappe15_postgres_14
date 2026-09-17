@@ -12,7 +12,7 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { isCreditRow } from "./outflowTableModel";
+import { isCreditRow, isPartLinkedRecord, type SettleableRecord } from "./outflowTableModel";
 
 /** Mirrors `amounts.AMOUNT_TOLERANCE` (pinned by `linkLinesParity.test.ts`): the ₹5 a link may overshoot
  *  what is left, and still read Paid. */
@@ -279,6 +279,65 @@ export const linkedNotice = (count: number, expense: LinkedExpense): { title: st
             ? "is now Paid."
             : `stays ${expense.status} with ${rupees(expense.remaining)} left.`),
 });
+
+// --- Decide: one late line (#1299) -------------------------------------------------------------------
+//
+// ⚠️ THE SAME MARKS AND THE SAME BAR AS THE LINK DIALOG, READ FOR ONE LINE. A late line of a run is
+// linked from Decide through the same server settle (ADR-0027 Q13, Q17), so it is described by the
+// same `fitMark` and `afterLinking` -- two wordings for one outcome would be free to disagree.
+//
+// ⚠️ ONLY FOR A PART-LINKED EXPENSE. Every function here returns `null` (or today's label) for a
+// payment and for an expense no line has reached yet, whose amount cell is unchanged: a fresh
+// expense still settles 1:1 against its whole amount.
+
+/** A Decide record as the link dialog's `LinkableExpense`, for the shared marks. */
+const asLinkable = (record: SettleableRecord): LinkableExpense => ({
+    target_doctype: record.target_doctype,
+    name: record.name,
+    expense_type: record.expense_type ?? "",
+    description: record.description ?? "",
+    project: record.project,
+    project_name: record.project_name,
+    amount: Number(record.amount),
+    linked_total: Number(record.linked_total ?? 0),
+    line_count: Number(record.line_count ?? 0),
+    remaining: Number(record.remaining ?? record.amount),
+    payment_ref: record.payment_ref ?? "",
+});
+
+export interface DecideAmountCell {
+    /** "₹10,000 left", under the record's amount. */
+    left: string;
+    mark: FitMark;
+}
+
+/** The Decide picker's Amount cell extras for a part-linked expense, or `null` to render it as today. */
+export const decideAmountCell = (record: SettleableRecord, lineAmount: number): DecideAmountCell | null => {
+    if (!isPartLinkedRecord(record)) return null;
+    const linkable = asLinkable(record);
+    return { left: `${rupees(linkable.remaining)} left`, mark: fitMark(Number(lineAmount), linkable) };
+};
+
+/** The After linking bar for one line on a part-linked expense, or `null` when there is none to show. */
+export const decideAfterLinking = (
+    record: SettleableRecord | null | undefined,
+    line: OutflowImportRow
+): AfterLinking | null => {
+    if (!record || !isPartLinkedRecord(record)) return null;
+    return afterLinking(tickedLines([line]), asLinkable(record));
+};
+
+/**
+ * Decide's Normal-mode Confirm label.
+ *
+ * ⚠️ IT SAYS PAID ONLY WHEN THE PICK MAKES THE RECORD PAID. A late line that part-fills leaves the
+ * expense Reconciliation Pending, so "Confirm → Paid" would promise an outcome the server will not
+ * write. Everything that is not a part-linked expense keeps today's label.
+ */
+export const decideConfirmLabel = (record: SettleableRecord | null | undefined, lineAmount: number): string => {
+    const cell = record ? decideAmountCell(record, lineAmount) : null;
+    return cell && cell.mark.kind === "fits" ? "Confirm → Link to expense" : "Confirm → Paid";
+};
 
 // --- the bulk id ------------------------------------------------------------------------------------
 

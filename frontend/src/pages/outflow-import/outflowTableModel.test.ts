@@ -56,6 +56,7 @@ import {
     matcherCandidateLine,
     confirmFunnel,
     describeFrappeError,
+    settleBlockRemedy,
     settleBlockText,
     settleBlocker,
     previewCounts,
@@ -3058,6 +3059,28 @@ describe("settleBlocker", () => {
         expect(settleBlocker({ name: "P", amount: 90, suggested: false }, 100)!.difference).toBe(-10);
     });
 
+    it("a line too big for what a part-linked expense has left is measured against what is left (#1299)", () => {
+        const block = settleBlocker(
+            {
+                name: "toj650dsqd",
+                amount: 160113,
+                suggested: false,
+                target_doctype: "Non Project Expenses",
+                line_count: 25,
+                remaining: 10000,
+            },
+            12000
+        );
+        expect(block).toMatchObject({
+            reason: "more_than_left",
+            recordAmount: 10000,
+            bankAmount: 12000,
+            difference: -2000,
+        });
+        expect(settleBlockText(block)).toContain("more than this expense still has left to link");
+        expect(settleBlockRemedy(block)).toBe("Pick another expense, or raise its amount first.");
+    });
+
     it("does not block a record the server accepts", () => {
         expect(settleBlocker({ name: "PAY-1", amount: 86553, suggested: true }, 86553)).toBeNull();
     });
@@ -3172,6 +3195,12 @@ describe("settleBlockReason / settleBlockText — WHY this pick cannot be settle
                 "expense_exact_only"
             );
         }
+        // ⚠️ INVERTED AT #1299: the sentence used to say an expense "cannot be settled in parts",
+        // which "Link N to one expense" made untrue. It now names that route instead.
+        const text = settleBlockText(settleBlocker({ ...larger, target_doctype: "Non Project Expenses" }, 200000));
+        expect(text).not.toContain("cannot be settled in parts");
+        expect(text).toContain("Link");
+        expect(text).toContain("to one expense");
         // And the payment ledger is the other way round on both.
         const payment = { ...larger, target_doctype: "Project Payments" };
         expect(partialOffer(payment, 200000)).not.toBeNull();

@@ -17,6 +17,7 @@ import {
     vendorDescriptionLabel,
     type SettleableRecord,
 } from "../outflowTableModel";
+import { decideAmountCell, type DecideAmountCell } from "../linkLinesView";
 import {
     reasonCaption,
     type FacetOption,
@@ -250,6 +251,7 @@ const RecordRow = ({
 }) => {
     const key = recordKey(record);
     const verdict = amountVerdict(record.amount, bankAmount);
+    const partLinked = decideAmountCell(record, bankAmount);
     const dateParts = recordDateParts(record, formatDate);
 
     // ⚠️ WHAT THIS RECORD IS FOR, NOT WHAT IT IS CALLED (owner decision). `PAY-00105-034` is a
@@ -422,7 +424,14 @@ const RecordRow = ({
                 <span className="block tabular-nums">
                     {formatToRoundedIndianRupee(record.amount)}
                 </span>
-                <AmountMark suggested={record.suggested} difference={verdict.difference} />
+                {/* ⚠️ A PART-LINKED EXPENSE IS JUDGED AGAINST WHAT IS LEFT (#1299). Its "off by"
+                    against the whole amount would name a gap nobody can act on; everything else
+                    keeps today's mark. */}
+                {partLinked ? (
+                    <PartLinkedMark cell={partLinked} />
+                ) : (
+                    <AmountMark suggested={record.suggested} difference={verdict.difference} />
+                )}
             </td>
         </tr>
     );
@@ -476,3 +485,21 @@ const AmountMark = ({
         </span>
     );
 };
+
+/**
+ * A part-linked expense's amount mark: what is left, then whether this line fits, fills or is too big
+ * (#1299). The words are `linkLinesView.fitMark`'s, the same the link dialog prints.
+ */
+const PartLinkedMark = ({ cell }: { cell: DecideAmountCell }) => (
+    <>
+        <span className="block text-[11px] tabular-nums text-muted-foreground">{cell.left}</span>
+        <span
+            className={`flex items-center justify-end gap-1 text-[11px] ${
+                cell.mark.pickable ? "text-emerald-700" : "text-amber-700"
+            }`}
+        >
+            {cell.mark.pickable ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+            {cell.mark.label}
+        </span>
+    </>
+);

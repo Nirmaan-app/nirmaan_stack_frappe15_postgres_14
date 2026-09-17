@@ -68,6 +68,7 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
     ledgers_for_direction,
     line_surface,
 )
+from nirmaan_stack.services.outflow_import.expense_links import linked_totals_join
 from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
     find_prior_sighting,
@@ -644,22 +645,30 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     if not values:
         return ()
 
+    # ⚠️ WHAT IS LEFT, NOT THE WHOLE AMOUNT (#1299, ADR-0027). The window is applied to
+    # `amount - linked total`, the linked total being the SUM of the expense's live Settled slips,
+    # so a part-linked expense is proposed for the line that completes it and never for its whole
+    # figure. An expense with no slips has a linked total of 0: the window is the old one exactly.
+    # `TargetRef.amount` carries that remainder, because it is what the in-memory pass compares.
+    #
     # ONE tolerance, ONE expression: both columns are Currency since 16 Sep 2026. The two
     # queries below stay separate for the reasons that did not change -- different status
     # vocabularies and different column sets -- not because the amounts are stored differently.
-    project_amount_clause, project_amount_params = amount_window_sql("amount", values)
-    non_project_amount_clause, non_project_amount_params = amount_window_sql("amount", values)
+    remaining = "(e.amount - COALESCE(l.linked_total, 0))"
+    project_amount_clause, project_amount_params = amount_window_sql(remaining, values)
+    non_project_amount_clause, non_project_amount_params = amount_window_sql(remaining, values)
 
     out: list[TargetRef] = []
 
     project_ph = ", ".join(["%s"] * len(_PROJECT_EXPENSE_STATUSES))
     project_rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, projects, description, payment_ref, payment_date, type,
-               vendor, {_PROJECT_EXPENSE_DECIDED_ON}
-        FROM "tabProject Expenses"
-        WHERE status IN ({project_ph})
-          AND amount IS NOT NULL
+        SELECT e.name, {remaining} AS amount, e.status, e.projects, e.description, e.payment_ref,
+               e.payment_date, e.type, e.vendor, {_PROJECT_EXPENSE_DECIDED_ON}
+        FROM "tabProject Expenses" e
+        {linked_totals_join(PROJECT_EXPENSE_DOCTYPE, "e")}
+        WHERE e.status IN ({project_ph})
+          AND e.amount IS NOT NULL
           AND {project_amount_clause}
         """,
         (*_PROJECT_EXPENSE_STATUSES, *project_amount_params),
@@ -684,10 +693,11 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     non_project_ph = ", ".join(["%s"] * len(_NON_PROJECT_EXPENSE_STATUSES))
     non_project_rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, description, payment_ref, payment_date, type,
-               {_NON_PROJECT_EXPENSE_DECIDED_ON}
-        FROM "tabNon Project Expenses"
-        WHERE status IN ({non_project_ph})
+        SELECT e.name, {remaining} AS amount, e.status, e.description, e.payment_ref,
+               e.payment_date, e.type, {_NON_PROJECT_EXPENSE_DECIDED_ON}
+        FROM "tabNon Project Expenses" e
+        {linked_totals_join(NON_PROJECT_EXPENSE_DOCTYPE, "e")}
+        WHERE e.status IN ({non_project_ph})
           AND {non_project_amount_clause}
         """,
         (*_NON_PROJECT_EXPENSE_STATUSES, *non_project_amount_params),

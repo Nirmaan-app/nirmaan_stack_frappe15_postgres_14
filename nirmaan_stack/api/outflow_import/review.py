@@ -50,6 +50,12 @@ from nirmaan_stack.services.outflow_import.matcher import (
     resolve_vendors,
 )
 from nirmaan_stack.services.outflow_import.amounts import amounts_match, rewrite_amount
+from nirmaan_stack.services.outflow_import.expense_links import (
+    ExpenseLinks,
+    linked_totals_join,
+    one_line_fits,
+    remaining_balance,
+)
 from nirmaan_stack.services.outflow_import.claims import (
     Claim,
     claim_note,
@@ -2061,7 +2067,9 @@ def _record_signals(record: dict) -> RecordSignals:
     return RecordSignals(
         doctype=record["target_doctype"],
         name=record["name"],
-        amount=normalize_amount(record.get("amount")),
+        # What is LEFT (#1299): the amount axis scores the figure the line is compared with. Equal to
+        # the whole amount on every record with nothing linked.
+        amount=normalize_amount(record.get("remaining", record.get("amount"))),
         settleable=bool(record.get("suggested")),
         vendor_name=record.get("vendor_name") or "",
         vendor_nickname=record.get("vendor_nickname") or "",
@@ -2160,6 +2168,12 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
                                  r.get("project_name") or r.get("project")) if p]
                 ),
                 "suggested": amounts_match(normalize_amount(r.get("amount")), bank_amount),
+                # ⚠️ PRESENT ON EVERY LEDGER, like `description` (#1299). A payment is never linked
+                # by many lines, so nothing is linked and all of it is left.
+                "linked_total": 0.0,
+                "line_count": 0,
+                "remaining": float(normalize_amount(r.get("amount"))),
+                "payment_ref": "",
             }
             for r in frappe.db.sql(sql, tuple(params), as_dict=True)
         ]
@@ -2190,21 +2204,24 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             else ""
         )
         sql = f"""
-            SELECT e.name, e.amount, e.status, e.description, e.type,
+            SELECT e.name, e.amount, e.status, e.description, e.type, e.payment_ref,
                    e.projects AS project, v.vendor_name,
                    v.vendor_nickname, v.vendor_contact_person_name,
-                   pr.project_name, e.modified
+                   pr.project_name, e.modified,
+                   COALESCE(l.linked_total, 0) AS linked_total, COALESCE(l.line_count, 0) AS line_count
             FROM "tabProject Expenses" e
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
+            {linked_totals_join(C.PROJECT_EXPENSE_DOCTYPE, "e")}
             WHERE e.status IN ({status_ph})
               AND e.amount IS NOT NULL
+              AND e.amount - COALESCE(l.linked_total, 0) > 0
               {where_search}
-            ORDER BY abs(e.amount - %s) ASC, e.modified DESC
+            ORDER BY abs(e.amount - COALESCE(l.linked_total, 0) - %s) ASC, e.modified DESC
             LIMIT %s
         """
     else:
-        search_cols = ["name", "description", "type"]
+        search_cols = ["e.name", "e.description", "e.type"]
         where_search = (
             " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols)
             + ")"
@@ -2216,15 +2233,18 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         # ranking's four axes, and that is a fact about the data rather than evidence about the
         # transfer: `similarity` treats a missing field as no signal, never as a penalty.
         sql = f"""
-            SELECT name, amount, status, description, type,
+            SELECT e.name, e.amount, e.status, e.description, e.type, e.payment_ref,
                    NULL AS project, NULL AS vendor_name,
                    NULL AS vendor_nickname, NULL AS vendor_contact_person_name,
-                   NULL AS project_name, modified
-            FROM "tabNon Project Expenses"
-            WHERE status IN ({status_ph})
-              AND amount IS NOT NULL
+                   NULL AS project_name, e.modified,
+                   COALESCE(l.linked_total, 0) AS linked_total, COALESCE(l.line_count, 0) AS line_count
+            FROM "tabNon Project Expenses" e
+            {linked_totals_join(C.NON_PROJECT_EXPENSE_DOCTYPE, "e")}
+            WHERE e.status IN ({status_ph})
+              AND e.amount IS NOT NULL
+              AND e.amount - COALESCE(l.linked_total, 0) > 0
               {where_search}
-            ORDER BY abs(amount - %s) ASC, modified DESC
+            ORDER BY abs(e.amount - COALESCE(l.linked_total, 0) - %s) ASC, e.modified DESC
             LIMIT %s
         """
 
@@ -2232,50 +2252,72 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
     if has_search:
         params.extend([needle] * len(search_cols))
     params.extend([float(bank_amount), limit])
-    return [
-        {
-            "target_doctype": target_doctype,
-            "name": r["name"],
-            "amount": float(normalize_amount(r.get("amount"))),
-            "vendor_name": r.get("vendor_name") or "",
-            "vendor_nickname": r.get("vendor_nickname") or "",
-            "contact_person": r.get("vendor_contact_person_name") or "",
-            "project": r.get("project") or "",
-            "project_name": r.get("project_name") or r.get("project") or "",
-            # Blank on both expense ledgers -- an expense has no parent order at all, which is also
-            # why neither can carry a deduction (slice TD, ruling R6).
-            "document_type": "",
-            # ⚠️ THIS IS THE EXPENSE **TYPE**, OVERLOADED ONTO A KEY THAT MEANS "the PO/SR this
-            # payment is against". It is KEPT rather than corrected in place because
-            # `recordPickerView.matchesText` puts `document_name` in its search haystack, so
-            # dropping it here would silently stop a reviewer finding an expense by typing its
-            # type -- a search that quietly narrows is worse than one that visibly breaks. The
-            # honest key sits beside it below; retiring this one is its own change, with the
-            # client's haystack moved in the same edit.
-            "document_name": r.get("type") or "",
-            # The two facts a reviewer picks an EXPENSE by, each under its own name and each its
-            # own field so the dropdown can lay them out rather than parse `detail` back apart.
-            # `detail` still joins them, capped at 120 chars -- which is precisely why they have to
-            # be emitted separately: a truncated join is a display string, not data.
-            "description": r.get("description") or "",
-            "expense_type": r.get("type") or "",
-            "approved_on": "",
-            "updated_on": str(r["modified"]) if r.get("modified") else "",
-            "detail": " · ".join(
-                [
-                    p
-                    for p in (
-                        r.get("type"),
-                        r.get("project_name") or r.get("project"),
-                        r.get("description"),
-                    )
-                    if p
-                ]
-            )[:120],
-            "suggested": amounts_match(normalize_amount(r.get("amount")), bank_amount),
-        }
-        for r in frappe.db.sql(sql, tuple(params), as_dict=True)
-    ]
+    # ⚠️ WHAT IS LEFT, NOT THE WHOLE AMOUNT (#1299, ADR-0027). The linked total is joined in SQL
+    # (`expense_links.linked_totals_join`), so an expense with nothing left is dropped and the rest are
+    # ordered by their REMAINING balance BEFORE the cap -- never trimmed afterwards. A fresh expense
+    # has nothing linked, so it is compared with its whole amount exactly as before.
+    records = []
+    for r in frappe.db.sql(sql, tuple(params), as_dict=True):
+        amount = normalize_amount(r.get("amount"))
+        links = ExpenseLinks(
+            linked_total=normalize_amount(r.get("linked_total")),
+            latest_line_date=None,
+            line_count=int(r.get("line_count") or 0),
+        )
+        records.append(_expense_record(target_doctype, r, amount, links, bank_amount))
+    return records
+
+
+def _expense_record(target_doctype: str, r: dict, amount, links: ExpenseLinks, bank_amount) -> dict:
+    """One expense row of the browse payload, in the shared record shape."""
+    return {
+        "target_doctype": target_doctype,
+        "name": r["name"],
+        "amount": float(amount),
+        "vendor_name": r.get("vendor_name") or "",
+        "vendor_nickname": r.get("vendor_nickname") or "",
+        "contact_person": r.get("vendor_contact_person_name") or "",
+        "project": r.get("project") or "",
+        "project_name": r.get("project_name") or r.get("project") or "",
+        # Blank on both expense ledgers -- an expense has no parent order at all, which is also
+        # why neither can carry a deduction (slice TD, ruling R6).
+        "document_type": "",
+        # ⚠️ THIS IS THE EXPENSE **TYPE**, OVERLOADED ONTO A KEY THAT MEANS "the PO/SR this
+        # payment is against". It is KEPT rather than corrected in place because
+        # `recordPickerView.matchesText` puts `document_name` in its search haystack, so
+        # dropping it here would silently stop a reviewer finding an expense by typing its
+        # type -- a search that quietly narrows is worse than one that visibly breaks. The
+        # honest key sits beside it below; retiring this one is its own change, with the
+        # client's haystack moved in the same edit.
+        "document_name": r.get("type") or "",
+        # The two facts a reviewer picks an EXPENSE by, each under its own name and each its
+        # own field so the dropdown can lay them out rather than parse `detail` back apart.
+        # `detail` still joins them, capped at 120 chars -- which is precisely why they have to
+        # be emitted separately: a truncated join is a display string, not data.
+        "description": r.get("description") or "",
+        "expense_type": r.get("type") or "",
+        "approved_on": "",
+        "updated_on": str(r["modified"]) if r.get("modified") else "",
+        "detail": " · ".join(
+            [
+                p
+                for p in (
+                    r.get("type"),
+                    r.get("project_name") or r.get("project"),
+                    r.get("description"),
+                )
+                if p
+            ]
+        )[:120],
+        # ⚠️ `expense_links.one_line_fits`, THE SAME RULE `settle_row` REFUSES BY: the whole amount
+        # while the expense has no lines, what is left once it has.
+        "suggested": one_line_fits(amount, links, bank_amount),
+        "linked_total": float(links.linked_total),
+        "line_count": links.line_count,
+        "remaining": float(remaining_balance(amount, links.linked_total)),
+        # The After linking bar says whether the reference is kept or gets the bulk id.
+        "payment_ref": r.get("payment_ref") or "",
+    }
 
 
 # --- the master table (slice X3) ----------------------------------------------------------------
