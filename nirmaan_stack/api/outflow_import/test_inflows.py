@@ -15,8 +15,11 @@ is tracked and purged in `tearDownClass`: the inflows, their `Version` rows (the
 ⚠️ #1266 MAKES IT CREATE REAL `Non Project Inflows` TOO. Those are purged the same way and by the
 same list discipline: a stray one reads as company money received to anyone reading that list.
 
-⚠️ THE VENDOR-REFUND TESTS CREATE REAL `Vendor Refunds` against real paid POs. They move no paid
-amount, and are purged by the same list discipline as the other inflow books.
+⚠️ THE VENDOR-REFUND TESTS CREATE REAL `Vendor Refunds` against real paid POs, and each one LOWERS its
+PO's `amount_paid`. They are purged by the same list discipline as the other inflow books -- by raw
+delete, which runs no hook -- so `setUpClass` captures each refund PO's stored paid figures and
+`tearDownClass` writes THOSE back, never a recompute (a recompute moves a PO whose stored figure
+already disagreed with its payments).
 
 What is pinned hardest is the set of REFUSALS. A wrongly created inflow is invisible -- there is no
 status to look wrong and no approval queue it fails to leave -- so the guards carry more weight than
@@ -82,6 +85,9 @@ FIXTURE = (
     + "/services/outflow_import/tests/fixtures/icici_sample.csv"
 )
 
+#: What a Vendor Refund's hook writes on its PO, captured before the suite and restored after it.
+_REFUND_PO_FIGURES = ["amount_paid", "amount_due", "modified", "modified_by"]
+
 
 def _fresh_parse():
     """The fixture with every transfer id salted, so reruns never collide with their own residue."""
@@ -143,6 +149,13 @@ class InflowFixture(unittest.TestCase):
         )[0]
         cls.vendor, cls.refund_project = pair.vendor, pair.project
         cls.refund_pos = list(pair.names[:2])
+        # A refund lowers its PO's stored paid figures; the raw purge below cannot put them back.
+        cls.refund_po_figures = {
+            po: frappe.db.get_value(
+                "Procurement Orders", po, _REFUND_PO_FIGURES, as_dict=True
+            )
+            for po in cls.refund_pos
+        }
         frappe.db.commit()
 
     @classmethod
@@ -181,6 +194,9 @@ class InflowFixture(unittest.TestCase):
             )
             for name in cls.vendor_refunds:
                 frappe.db.delete(VENDOR_REFUND, {"name": name})
+        # The raw purge ran no refund hook: put back each PO's figures exactly as found.
+        for po, figures in cls.refund_po_figures.items():
+            frappe.db.set_value("Procurement Orders", po, figures, update_modified=False)
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
@@ -1011,8 +1027,8 @@ class TestTheNonProjectInflowRefusals(InflowFixture):
 
 
 # =================================================================================================
-# A credit a VENDOR paid back, recorded as a `Vendor Refund` naming the vendor. It moves no PO or
-# vendor paid amount -- only the fact that the money arrived and whose it was.
+# A credit a VENDOR paid back, recorded as a `Vendor Refund` naming the vendor. It creates no payment,
+# and each PO part lowers that PO's paid amount by the part.
 # =================================================================================================
 
 
@@ -1024,7 +1040,8 @@ class TestTheVendorRefund(InflowFixture):
 
     def test_a_split_refund_writes_one_vendor_refund_per_document_and_no_payment(self):
         """⚠️ THE CLIENT SENDS WHO AND HOW MUCH. Date and reference are read off the row, and the parts
-        must add up to the row's amount. Nothing lands in `Project Payments`; no paid amount moves."""
+        must add up to the row's amount. Nothing lands in `Project Payments`; each PO's paid amount
+        drops by its part."""
         first, second = self.refund_pos
         paid_before = {po: self._paid(po) for po in self.refund_pos}
         payments_before = frappe.db.count("Project Payments", {"vendor": self.vendor})
@@ -1051,7 +1068,9 @@ class TestTheVendorRefund(InflowFixture):
             self.assertEqual(refund.utr, match_surface(row["remarks"], row["reference_id"]))
             self.assertEqual(refund.payment_date, row["added_on"].date())
             self.assertEqual(refund.refund_attachment, "/private/files/test-statement.csv")
-            self.assertEqual(self._paid(po), paid_before[po])
+            self.assertEqual(
+                Decimal(str(paid_before[po])) - Decimal(str(self._paid(po))), Decimal(str(part))
+            )
         self.assertEqual(frappe.db.count("Project Payments", {"vendor": self.vendor}), payments_before)
 
         legs = frappe.get_all(

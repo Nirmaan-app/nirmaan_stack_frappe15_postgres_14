@@ -4,7 +4,8 @@
 """`get_vendor_refunds` -- the per-document read, and that it is permission-aware.
 
 ⚠️ RUNS AGAINST THE LIVE SITE DB. The two refunds it inserts are deleted, with their Version rows, in
-`tearDownClass`; they record against a real PAID PO but move no paid amount (Vendor Refunds never do).
+`tearDownClass`. The PO one lowers a real PAID PO's `amount_paid`, and the raw delete runs no hook, so
+that PO's stored paid figures are captured first and written back exactly as found.
 """
 
 import unittest
@@ -33,6 +34,9 @@ class TestGetVendorRefunds(unittest.TestCase):
             as_dict=True,
         )[0]
         cls.po = po
+        cls.po_figures = frappe.db.get_value(
+            "Procurement Orders", po.name, ["amount_paid", "amount_due", "modified", "modified_by"], as_dict=True
+        )
         for document_type, document_name, amount, description in (
             ("Procurement Orders", po.name, 10, None),
             ("Misc. Expense", None, 5, "test: list_refunds misc"),
@@ -58,6 +62,7 @@ class TestGetVendorRefunds(unittest.TestCase):
         if cls.refunds:
             frappe.db.delete(VENDOR_REFUNDS, {"name": ["in", cls.refunds]})
             frappe.db.delete("Version", {"ref_doctype": VENDOR_REFUNDS, "docname": ["in", cls.refunds]})
+            frappe.db.set_value("Procurement Orders", cls.po.name, cls.po_figures, update_modified=False)
             frappe.db.commit()
 
     def test_a_po_lists_only_the_refunds_against_it(self):

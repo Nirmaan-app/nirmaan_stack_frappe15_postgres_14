@@ -1274,9 +1274,9 @@ def create_vendor_refund_from_row(
     description). Returns one `SettleResult` per record, in allocation order;
     each becomes one match leg.
 
-    ⚠️ IT CREATES NO `Project Payment` AND NO `Project Expense`, AND MOVES NO PAID AMOUNT (owner,
-    2026-09-17). The document is a reference; the PO Adjustment "Vendor has refund" flow still owns
-    lowering a PO's paid amount.
+    ⚠️ IT CREATES NO `Project Payment` AND NO `Project Expense`, but each PO / WO part LOWERS that
+    document's `amount_paid` (owner, 2026-09-17): the `Vendor Refunds` hook recomputes it inside this
+    savepoint, without committing.
 
     ⚠️ THE RULE (`services/vendor_refunds.refund_allocation_problem`) IS ASKED AGAINST THE BANK ROW'S
     AMOUNT before anything is written: every document this vendor's, on the chosen project if any, paid, each part

@@ -30,8 +30,8 @@ side: `Project Inflows` and a **negative** `Non Project Expense`.
 >
 > **Nothing here creates a `Project Payment`, from any source, in either direction.** A vendor
 > refund on a CREDIT (2026-09-17) is recorded as `Vendor Refunds` records -- one per PO / WO it is
-> against, plus one Misc. Expense for the rest -- which move no paid amount; the PO Adjustment "Vendor has refund" flow still
-> owns that. See the 2026-09-17 section at the end. `settle.create_expense_from_row` still hard-guards
+> against, plus one Misc. Expense for the rest -- and each PO / WO record LOWERS that document's
+> `amount_paid` (recomputed as Paid payments less refunds; no payment is created). See the 2026-09-17 section at the end. `settle.create_expense_from_row` still hard-guards
 > `is_expense_doctype`, and the inflow path is a **new function beside it, never a widened one**.
 
 The three settle-side ledgers all settle `Approved → Paid` and nothing else. It is an *alternative
@@ -5668,12 +5668,22 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   WO's own `project` (`vendor_refunds.document_project`; the controller fills a blank one on a Desk
   save too). A Misc. Expense stores the chosen project, or none. Choosing a project only narrows the
   lists; changing it keeps the ticks on documents of the new project, and clearing it keeps them all.
-- ⚠️ **It creates NO `Project Payment` or `Project Expense` and moves NO paid amount** (owner, 2026-09-17,
-  after a same-day negative-payment design was rejected). The PO Adjustment refund flow still owns that.
+- ⚠️ **It creates NO `Project Payment` or `Project Expense`** (a same-day negative-payment design was
+  rejected), **but a PO / WO refund LOWERS that document's `amount_paid`** (REVERSED later on 2026-09-17 —
+  the first cut moved no paid amount). The stored figure is **`vendor_refunds.amount_paid_of` = Paid
+  payments − Vendor Refunds**, recomputed from source, never decremented. ALL THREE writers ask it:
+  `Project Payments.update_parent_amount_paid`, `_payment_utils._recalculate_amount_paid`, and the
+  `Vendor Refunds` doc_events hook `integrations/controllers/vendor_refunds.recompute_document_amount_paid`
+  (`on_update` + `after_delete`; recomputes BOTH documents when a refund is re-pointed; skips an edit that
+  moves no money; `amount_due` follows; never commits, so the import savepoint holds). Undo deletes via
+  `frappe.delete_doc`, so it restores the paid amount. ⚠️ A RAW delete of a refund runs no hook (the
+  refund tests capture + restore their POs' figures for this). ⚠️ Recording the same money through the PO
+  Adjustment "Vendor has refund" flow too lowers it twice. ⚠️ Refunds saved BEFORE this change are not
+  netted until something recomputes their document.
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
-  (`paid_of` = `amount_paid`) and `0 < amount <= refundable`, where **refundable = paid − earlier Vendor
-  Refunds on it**; a **Misc. Expense** names no document and needs only `amount > 0`, no cap) is asked by
+  (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)
+  and `0 < amount <= refundable`, where **refundable = paid − earlier Vendor Refunds on it**; a **Misc. Expense** names no document and needs only `amount > 0`, no cap) is asked by
   the doctype `validate` AND for each part by `refund_allocation_problem` (one credit: vendor, at least
   one part, no document twice, **at most one Misc. Expense**, parts adding up **to the paisa** to the BANK
   ROW's amount), which `settle.create_vendor_refund_from_row` asks first. `refund_documents(vendor,
@@ -5725,5 +5735,7 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   (read-permission on the refund; reads the bytes server-side because the storage URL is cross-origin;
   `parser._read_grid`, first 2,000 rows) and the refund's own row is highlighted by its UTR. PDFs and
   images still open in a new tab.
-- Tests: `test_inflows.py` (`TestTheVendorRefund`, `TestTheVendorRefundRefusals`); `outflowTableModel.test.ts`
+- Tests: `test_inflows.py` (`TestTheVendorRefund`, `TestTheVendorRefundRefusals`);
+  `doctype/vendor_refunds/test_vendor_refunds.py` (the paid-amount hook: insert / edit / re-point / delete,
+  a payment recompute keeping the refund off, the cap reading gross paid); `outflowTableModel.test.ts`
   (`vendorRefund` branch, `suggestRefundVendor`, `vendor refund allocations`).
