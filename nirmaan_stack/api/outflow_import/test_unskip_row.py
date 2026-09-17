@@ -56,7 +56,7 @@ REASON = "It was a site labour advance after all"
 
 _STORED = (
     "row_status", "skip_origin", "skip_reason", "outcome_note", "decided_by", "decided_at",
-    "suggested_name", "duplicate_basis",
+    "suggested_name", "duplicate_basis", "skip_kind",
 )
 
 
@@ -146,6 +146,7 @@ class TestUnskipALineWithNothingRecorded(SkipFixture):
         stored = _stored(row)
         self.assertEqual(stored.row_status, ROW_MISMATCHED)
         self.assertFalse(stored.skip_origin)
+        self.assertFalse(stored.skip_kind)
         self.assertFalse(stored.skip_reason)
         self.assertFalse(stored.decided_by)
         self.assertIsNone(stored.decided_at)
@@ -233,6 +234,8 @@ class TestUnskipReChecksAgainstTheLedger(OutflowReviewFixture):
         self.assertEqual(stored.row_status, ROW_SKIPPED)
         # ⚠️ SYSTEM, so it can never be unskipped into a duplicate.
         self.assertEqual(stored.skip_origin, SKIP_ORIGIN_SYSTEM)
+        # And re-filed under the kind the re-check found, never left as "Skipped by hand".
+        self.assertEqual(stored.skip_kind, "Outflow Already Recorded")
         self.assertFalse(stored.skip_reason)
         with self.assertRaises(frappe.ValidationError) as caught:
             unskip_row(name, REASON)

@@ -124,6 +124,22 @@ class TestStaging(CashbookImportCase):
         self.assertIn(ROW_PENDING_MATCH, origin)
         self.assertFalse(origin[ROW_PENDING_MATCH])  # blank: '' on insert
 
+    def test_a_skipped_row_stores_its_kind_and_a_planned_row_does_not(self):
+        """Skip Type: the Cashbook writer lands the plan's kind beside its reason."""
+        kinds = {
+            r.name: (r.row_status, frappe.db.get_value("Outflow Import Row", r.name, "skip_kind"))
+            for r in self._rows()
+        }
+        self.assertEqual(
+            frappe.db.get_value("Outflow Import Row", self._row("900001-0").name, "skip_kind"),
+            "Cashbook internal movement",
+        )
+        for status, kind in kinds.values():
+            if status == ROW_SKIPPED:
+                self.assertTrue(kind)
+            else:
+                self.assertFalse(kind)
+
     def test_a_row_to_be_created_carries_its_whole_plan(self):
         """⚠️ THE PLAN IS STORED, NOT RECOMPUTED BY THE JOB.
 

@@ -118,6 +118,18 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     RECEIVED_LEDGER_DOCTYPES,
 )
 
+# THE THIRD PERMITTED PACKAGE IMPORT, on the same terms as the two above: `skip_kinds` is a pure
+# vocabulary leaf with no imports at all. It lives outside this module so `cashbook.py` -- which is
+# fenced off from the settlement deriver -- can name the same kinds without importing `status`.
+from nirmaan_stack.services.outflow_import.skip_kinds import (
+    SKIP_KIND_ALREADY_IMPORTED,
+    SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_BY_EXCLUSION_CATEGORY,
+    SKIP_KIND_INFLOW_RECORDED,
+    SKIP_KIND_OUTFLOW_RECORDED,
+    SKIP_KIND_REPEATED_IN_FILE,
+)
+
 __all__ = [
     "ROW_PENDING_MATCH",
     "ROW_MATCHED",
@@ -353,10 +365,14 @@ class RowOutcome:
 
     `note` is written for a person, not parsed. It carries the amount delta and its implied rate,
     the record already recorded as Paid, or how many approved candidates were found.
+
+    `skip_kind` is one of `SKIP_KINDS` on every Skipped outcome, `None` otherwise -- set by the SAME
+    branch that picks the sentence, so the stored kind and the note can never disagree.
     """
 
     status: str
     note: str = ""
+    skip_kind: str | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -443,17 +459,23 @@ def derive_staged_row_outcome(
     """
     if excluded_category:
         return RowOutcome(
-            ROW_SKIPPED, SKIP_REASON_EXCLUDED_AT_INGEST.format(category=excluded_category)
+            ROW_SKIPPED,
+            SKIP_REASON_EXCLUDED_AT_INGEST.format(category=excluded_category),
+            SKIP_KIND_BY_EXCLUSION_CATEGORY[excluded_category],
         )
     if already_imported_in:
         return RowOutcome(
-            ROW_SKIPPED, SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in)
+            ROW_SKIPPED,
+            SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in),
+            SKIP_KIND_ALREADY_IMPORTED,
         )
     if duplicate_in_file:
-        return RowOutcome(ROW_SKIPPED, SKIP_REASON_DUPLICATE_IN_FILE)
+        return RowOutcome(ROW_SKIPPED, SKIP_REASON_DUPLICATE_IN_FILE, SKIP_KIND_REPEATED_IN_FILE)
     if not getattr(row, "is_success", False):
         status_raw = (getattr(row, "status_raw", "") or "unknown").strip() or "unknown"
-        return RowOutcome(ROW_SKIPPED, SKIP_REASON_NOT_SUCCESSFUL.format(status=status_raw))
+        return RowOutcome(
+            ROW_SKIPPED, SKIP_REASON_NOT_SUCCESSFUL.format(status=status_raw), SKIP_KIND_BANK_REFUSED
+        )
     if no_settlement_path:
         return RowOutcome(ROW_MISMATCHED, STAGED_NOTE_NO_SETTLEMENT_PATH)
     return RowOutcome(ROW_PENDING_MATCH, "")
@@ -481,7 +503,9 @@ def derive_row_outcome(
     #    would otherwise match -- offering it again is how the same money gets recorded twice.
     if already_imported_in:
         return RowOutcome(
-            ROW_SKIPPED, SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in)
+            ROW_SKIPPED,
+            SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in),
+            SKIP_KIND_ALREADY_IMPORTED,
         )
 
     # 2 and 3. Money that never moved, then money already recorded as Paid by hand. Both are shared
@@ -521,7 +545,9 @@ def _failed_or_already_paid(row, paid_duplicate) -> RowOutcome | None:
     #    perfectly well, so this must come before any matching is considered.
     if not getattr(row, "is_success", False):
         status_raw = (getattr(row, "status_raw", "") or "unknown").strip() or "unknown"
-        return RowOutcome(ROW_SKIPPED, SKIP_REASON_NOT_SUCCESSFUL.format(status=status_raw))
+        return RowOutcome(
+            ROW_SKIPPED, SKIP_REASON_NOT_SUCCESSFUL.format(status=status_raw), SKIP_KIND_BANK_REFUSED
+        )
 
     # 3. Already recorded as Paid by hand (rule 2). Safe to test before the candidate pool because
     #    an already-Paid record is not IN the candidate pool (rule 1) -- the two cannot contend.
@@ -560,7 +586,25 @@ def _already_recorded_outcome(row, paid_duplicate) -> RowOutcome | None:
         # since the tolerance landed; this branch was the one call site that never got it.
         # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
         return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
-    return RowOutcome(ROW_SKIPPED, _record_sentence(paid_duplicate))
+    return RowOutcome(
+        ROW_SKIPPED, _record_sentence(paid_duplicate), _recorded_skip_kind(row, paid_duplicate)
+    )
+
+
+def _recorded_skip_kind(row, group) -> str:
+    """Outflow or Inflow Already Recorded, for the records behind a duplicate skip.
+
+    An all-inflow group is a receipt, a group with no inflow is a payment -- the same test
+    `_record_sentence` reads. The MIXED group (unreachable today; see `_record_sentence`) has no
+    kind of its own (owner ruling): it takes the LINE's direction, since money in is recorded as an
+    inflow and money out as an outflow whatever else the group holds.
+    """
+    if _is_receipt_group(group):
+        return SKIP_KIND_INFLOW_RECORDED
+    if any(t.doctype in INFLOW_DOCTYPES for t in _targets_of(group)):
+        if is_received_direction(getattr(row, "direction", None)):
+            return SKIP_KIND_INFLOW_RECORDED
+    return SKIP_KIND_OUTFLOW_RECORDED
 
 
 def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:

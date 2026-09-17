@@ -110,6 +110,7 @@ from nirmaan_stack.services.outflow_import.sources import (
     source_has_settlement_path,
     source_runs_the_matcher,
 )
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_HAND
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -666,6 +667,8 @@ def _persist_row_outcome(
             # writer for BOTH the gateway loop and the ICICI contains-guard, so every skip either
             # makes lands System here. A frozen line never reaches it, so a hand skip keeps Manual.
             "skip_origin": outcome.skip_origin,
+            # The kind beside the origin, written on every run including as NULL, for the same reason.
+            "skip_kind": outcome.skip_kind,
             "resolved_vendor": _sole_vendor(result),
             "suggested_doctype": suggestion.doctype if suggestion else None,
             "suggested_name": suggestion.name if suggestion else None,
@@ -1352,6 +1355,7 @@ def skip_row(row: str, reason: str):
             {
                 "row_status": ROW_SKIPPED,
                 "skip_origin": SKIP_ORIGIN_MANUAL,
+                "skip_kind": SKIP_KIND_BY_HAND,
                 "skip_reason": reason,
                 "outcome_note": reason,
                 "decided_at": frappe.utils.now_datetime(),
@@ -1438,6 +1442,7 @@ def unskip_row(row: str, reason: str):
             {
                 "row_status": ROW_PENDING_MATCH,
                 "skip_origin": None,
+                "skip_kind": None,
                 "skip_reason": None,
                 "outcome_note": None,
                 "decided_at": None,

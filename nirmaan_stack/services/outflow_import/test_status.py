@@ -1943,9 +1943,9 @@ class TestPurity(unittest.TestCase):
         """
         import inspect
 
-        from nirmaan_stack.services.outflow_import import amounts, ledgers
+        from nirmaan_stack.services.outflow_import import amounts, ledgers, skip_kinds
 
-        for sibling in (amounts, ledgers):
+        for sibling in (amounts, ledgers, skip_kinds):
             for line in inspect.getsource(sibling).splitlines():
                 stripped = line.strip()
                 if stripped.startswith(("import ", "from ")):
