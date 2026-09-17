@@ -134,7 +134,7 @@ import {
     type RecordSortColumn,
 } from "../recordPickerView";
 import { FanOutRecordTable } from "./FanOutRecordTable";
-import { decideAfterLinking, decideConfirmLabel } from "../linkLinesView";
+import { decideAfterLinking, decideConfirmLabel, decideTickedAmount } from "../linkLinesView";
 import { SettleableRecordTable } from "./SettleableRecordTable";
 
 /**
@@ -474,7 +474,14 @@ export const DecisionDialog = ({
     // reports the actual `SettleableRecord`s it resolved its ticks to, which is what carries an
     // AMOUNT -- `linkTargets` is only ids. See `RecordPicker`.
     const bar: AllocationBar = useMemo(
-        () => allocationBar(row?.amount ?? 0, allocatedLegs, pickedRecords.map((r) => r.amount)),
+        // #1299: `decideTickedAmount`, so a part-linked expense adds what this line moves into it,
+        // not its whole amount.
+        () =>
+            allocationBar(
+                row?.amount ?? 0,
+                allocatedLegs,
+                pickedRecords.map((r) => decideTickedAmount(r, row?.amount ?? 0))
+            ),
         [row?.amount, allocatedLegs, pickedRecords]
     );
 

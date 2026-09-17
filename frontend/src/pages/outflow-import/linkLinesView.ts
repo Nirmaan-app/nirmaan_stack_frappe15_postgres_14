@@ -328,6 +328,20 @@ export const decideAfterLinking = (
 };
 
 /**
+ * What a picked record adds to the dialog's balance bar ("allocated ₹X · left ₹Y").
+ *
+ * ⚠️ ON A PART-LINKED EXPENSE IT IS THE LINE, CAPPED AT WHAT IS LEFT -- never the expense's whole
+ * amount. The slip this line writes is its own amount, so the bar must read the transfer as covered;
+ * adding the whole expense painted a ₹22,000 line on a ₹37,000 expense as "left ₹-15,000" (browser
+ * walk, #1299). A line too big for what is left is capped at the remainder; the fit mark and the
+ * `more_than_left` block say it is too big. Everything else adds its own amount, as before.
+ */
+export const decideTickedAmount = (record: SettleableRecord, lineAmount: number): number =>
+    isPartLinkedRecord(record)
+        ? Math.min(Number(lineAmount), Number(record.remaining ?? record.amount))
+        : Number(record.amount);
+
+/**
  * Decide's Normal-mode Confirm label.
  *
  * ⚠️ IT SAYS PAID ONLY WHEN THE PICK MAKES THE RECORD PAID. A late line that part-fills leaves the
@@ -336,7 +350,8 @@ export const decideAfterLinking = (
  */
 export const decideConfirmLabel = (record: SettleableRecord | null | undefined, lineAmount: number): string => {
     const cell = record ? decideAmountCell(record, lineAmount) : null;
-    return cell && cell.mark.kind === "fits" ? "Confirm → Link to expense" : "Confirm → Paid";
+    // Paid only on a fill: a part-fill stays Reconciliation Pending, and a too-big pick is refused.
+    return cell && cell.mark.kind !== "fills" ? "Confirm → Link to expense" : "Confirm → Paid";
 };
 
 // --- the bulk id ------------------------------------------------------------------------------------

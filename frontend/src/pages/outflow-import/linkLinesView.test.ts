@@ -8,6 +8,7 @@ import {
     decideAfterLinking,
     decideAmountCell,
     decideConfirmLabel,
+    decideTickedAmount,
     filterLinkableExpenses,
     fitMark,
     linkActionLabel,
@@ -377,9 +378,20 @@ describe("Decide: one late line on a part-linked expense", () => {
         );
     });
 
+    it("the balance bar counts what the line can move into the expense, never its whole amount", () => {
+        // Browser walk: the red bar read "allocated ₹37,000 · left ₹-15,000" for a ₹22,000 line on a
+        // ₹37,000 expense with ₹32,000 left, because it added the whole expense amount.
+        expect(decideTickedAmount(record({ amount: 37000, remaining: 32000, line_count: 1 }), 22000)).toBe(22000);
+        expect(decideTickedAmount(record(), 10005)).toBe(10000);
+        // Everything that is not a part-linked expense keeps its own amount.
+        expect(decideTickedAmount(record({ line_count: 0 }), 4475)).toBe(160113);
+    });
+
     it("the Confirm button says Paid only when the pick makes the record Paid", () => {
         expect(decideConfirmLabel(record(), 4475)).toBe("Confirm → Link to expense");
         expect(decideConfirmLabel(record(), 10000)).toBe("Confirm → Paid");
+        // Browser walk: a too-big pick read "Confirm → Paid", an outcome that cannot happen.
+        expect(decideConfirmLabel(record(), 12000)).toBe("Confirm → Link to expense");
         expect(decideConfirmLabel(record({ line_count: 0 }), 4475)).toBe("Confirm → Paid");
         expect(decideConfirmLabel(null, 4475)).toBe("Confirm → Paid");
     });
