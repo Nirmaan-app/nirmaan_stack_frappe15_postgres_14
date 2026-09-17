@@ -1697,12 +1697,15 @@ reject, and strips the declaration `_record_partial_provenance` writes onto both
 ⚠️ **`Project Payments.tds` IS STILL WRITTEN — JUST NOT HERE.** `api/payments/project_payments._fulfil_payment`
 (manual PO fulfilment) remains its writer and is untouched; 625 Paid SR payments hold ₹6,34,002 of
 legacy `tds` and are NOT backfilled. What changed is that **this import touches the column at no point.**
+*Superseded 2026-09-16:* `_fulfil_payment` no longer writes it either, and the field is being retired
+(`.claude/plans/project-payments-tds-drop-plan.md`, ADR-0022 Amendment C).
 
 ⚠️ **THE REGRESSION FENCES.** Three inverted pins, not deletions — a deleted pin checks nothing:
 `test_partial_settle.TestTheIntentVocabulary.test_the_deduction_answer_is_gone_and_this_pin_keeps_it_gone`
 (the module exports none of the removed names), `test_settle_payment.TestPartialSettlementRefusals.test_a_declared_deduction_is_now_refused_outright`
 (the literal wire value `"deduction"` throws and writes nothing), and
-`test_settle_payment.TestTheImportWritesNoTaxAtAll` (no `tds` written; `rewrite_amount` always runs).
+`test_settle_payment.TestTheImportWritesNoTaxAtAll` (`rewrite_amount` always runs; its "no `tds` written"
+half was removed with the field on 2026-09-16).
 The frontend mirror is pinned by an exported-surface loop in `outflowTableModel.test.ts`.
 
 ⚠️ **NAME COLLISION — READ BEFORE GREPPING.** `TDS Items`, `TDS Repository`, `Project TDS Setting`
@@ -2255,8 +2258,8 @@ wrong conclusion from the same reasoning.
   `test_unreconcile_tds.py` (real endpoints, `TaxedWorkOrderFixture`, so the tax code is actually
   reachable). `unreconcile_row` still returns `amount_after` beside `reversed_amount`, and
   `unreconcileNotice` still states a difference — as a BACKSTOP; on the ordinary path the two are equal
-  and it stays quiet. Unrelated and unchanged: the legacy `tds`-field refusal in `leg_verdict` (PTD does
-  not write `tds`).
+  and it stays quiet. The legacy `tds`-field refusal that used to sit in `leg_verdict` was RETIRED on
+  2026-09-16 with the field (ADR-0022 Amendment C); "Leftover taxed" now keys on a deduction row only.
 - **Fixtures stay synthetic — the repo is public.** Real statements carry live beneficiary names,
   accounts and IFSC codes.
 

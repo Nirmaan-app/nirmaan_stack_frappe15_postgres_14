@@ -91,15 +91,14 @@ export interface ApprovalQueueRow {
   tier: "auto" | "l1" | "l1_l2";
   /**
    * Kept under their PAYMENT names deliberately. The bulk-approve engine and the
-   * action dialogs read exactly six fields off a row — amount, name,
-   * document_name, vendor, document_type, tds — so carrying these makes the
+   * action dialogs read exactly five fields off a row — amount, name,
+   * document_name, vendor, document_type — so carrying these makes the
    * normalized row a SUPERSET of what already works, and neither
    * `useBulkPaymentActions` nor `PaymentActionDialog` needs any change.
    * Blank on an expense: it has no PO/SR parent and never withholds tax.
    */
   document_name: string;
   document_type: string;
-  tds: string;
 }
 
 /**

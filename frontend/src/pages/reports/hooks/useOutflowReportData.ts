@@ -71,7 +71,6 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
             'project',
             'vendor',
             'amount',
-            'tds',
             'document_type',
             'document_name',
             'utr'
@@ -131,7 +130,6 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
 
             }
             
-            // const amountPaid = parseNumber(p.amount) - parseNumber(p.tds);
             const amountPaid = parseNumber(p.amount);
 
 

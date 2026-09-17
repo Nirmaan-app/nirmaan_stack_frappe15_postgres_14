@@ -26,8 +26,6 @@ export interface ProjectPayments{
 	voucher_attachment?: string
 	/**	Amount : Data	*/
 	amount: number
-	/**	TDS : Data	*/
-	tds?: number
 	/**
 	 * Payment TDS : Link - Payment TDS Deduction (read-only)
 	 *

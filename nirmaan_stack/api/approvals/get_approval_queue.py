@@ -135,15 +135,14 @@ def _payments_select():
             ''::text                        AS expense_type,
             ''::text                        AS comment_text,
             -- Aliases kept under their PAYMENT names on purpose. The bulk-approve
-            -- engine and the action dialogs read exactly six fields off a row
-            -- (amount, name, document_name, vendor, document_type, tds), so
+            -- engine and the action dialogs read exactly five fields off a row
+            -- (amount, name, document_name, vendor, document_type), so
             -- carrying these makes the normalized row a SUPERSET of what already
             -- works -- `useBulkPaymentActions` and `PaymentActionDialog` need no
             -- change at all. They are blank on an expense, which is honest: an
             -- expense has no PO or SR parent and never withholds tax.
             COALESCE(p."document_name", '')::text AS document_name,
             COALESCE(p."document_type", '')::text AS document_type,
-            COALESCE(p."tds", '')::text     AS tds,
             NULL::date                      AS reconciled_on,
             COALESCE(p."auto_approved", 0)  AS auto_approved
         FROM "tabProject Payments" p
@@ -187,7 +186,6 @@ def _expense_select(table, source, project_col):
             COALESCE(e."comment", '')::text AS comment_text,
             ''::text                        AS document_name,
             ''::text                        AS document_type,
-            ''::text                        AS tds,
             NULL::date                      AS reconciled_on,
             COALESCE(e."auto_approved", 0)  AS auto_approved
         FROM "{table}" e

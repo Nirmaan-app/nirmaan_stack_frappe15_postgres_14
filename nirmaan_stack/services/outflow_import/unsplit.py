@@ -97,8 +97,6 @@ class SplitChild:
     # Its amount when it was created: the oldest `amount` Version's old value, else `amount`.
     created_amount: object = None
     status: str | None = None
-    # The legacy `Project Payments.tds` figure.
-    tds: object = None
     # A `Payment TDS Deduction` row names it.
     tds_deducted: bool = False
     # When the earliest Settled leg on it was matched, or `None` when nothing settles it now.
@@ -143,7 +141,7 @@ def leftover_refusal(leftover: SplitChild) -> tuple | None:
             f"{leftover.paid_on.strftime('%d-%b-%Y')}. Unreconcile that transfer first.",
             None,
         )
-    if normalize_amount(leftover.tds) or leftover.tds_deducted:
+    if leftover.tds_deducted:
         return (
             "Leftover taxed",
             f"Its leftover {name} has TDS on it. Fix the tax on the Payments screen first.",

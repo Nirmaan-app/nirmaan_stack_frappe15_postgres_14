@@ -14,7 +14,7 @@ import { useRefreshApprovalCounts } from "../../hooks/useRefreshApprovalCounts";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 // The unified queue hands this a normalized row that carries every field the bulk
-// path reads (amount, name, document_name, vendor, document_type, tds) under their
+// path reads (amount, name, document_name, vendor, document_type) under their
 // PAYMENT names, so nothing in here had to change — only the type widened.
 import { ApprovalQueueRow } from "../../config/approvalsTable.config";
 

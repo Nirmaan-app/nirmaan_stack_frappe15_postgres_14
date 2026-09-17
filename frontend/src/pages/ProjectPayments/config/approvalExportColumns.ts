@@ -16,7 +16,7 @@
  *     nothing, and headers reading the raw ids `project_value` / `cashflow_gap`. An
  *     export-only list cannot have that failure mode: a column here exists ONLY to
  *     be exported, so it always has a value function.
- *  2. A field absent from every tab's layout (`doctype`, `comment_text`, `tds`,
+ *  2. A field absent from every tab's layout (`doctype`, `comment_text`,
  *     `document_name`, `auto_approved`) has no registry entry at all and therefore
  *     no way to reach a CSV through the render path.
  *  3. It keeps `new-data-table.tsx` untouched. The page hands its own list to
@@ -113,11 +113,10 @@ export const buildApprovalExportColumns = (
   col("proof", "Proof", (r) => (r.has_proof ? "yes" : "")),
   col("payment_by", "Payment By", (r) => r.payment_by || ""),
 
-  // Payment-only fields. Blank on an expense, which has no PO/SR parent and never
-  // withholds tax — the blank IS the true value, so no placeholder.
+  // Payment-only fields. Blank on an expense, which has no PO/SR parent — the blank
+  // IS the true value, so no placeholder.
   col("document_name", "PO / SR", (r) => r.document_name || ""),
   col("document_type", "PO / SR Type", (r) => r.document_type || ""),
-  col("tds", "TDS", (r) => r.tds || ""),
 
   // The two CEO figures. They are per-PROJECT lookups rather than row fields, so they
   // ride the ctx callbacks — and are emitted ONLY when the page supplied them, since

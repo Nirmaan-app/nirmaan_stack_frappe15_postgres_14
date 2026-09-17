@@ -212,14 +212,3 @@ class TestALeftoverThatIsNotUntouched(PartPaymentFixture):
 
         self._refused(row, leftover, f"Its leftover {leftover} was edited on")
 
-    def test_a_leftover_with_tds_is_refused(self):
-        row, leftover = self._part_settle()
-        # RAW, NO HOOKS, and that is the point: no import path writes `tds` any more, so the fixture
-        # plants the legacy figure the payments screen can leave (as `test_reverse_allocation` does).
-        frappe.db.set_value(PAYMENT, leftover, "tds", 400, update_modified=False)
-        frappe.db.commit()
-
-        self._refused(
-            row, leftover,
-            f"Its leftover {leftover} has TDS on it. Fix the tax on the Payments screen first.",
-        )

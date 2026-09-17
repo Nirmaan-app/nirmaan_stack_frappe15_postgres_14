@@ -40,8 +40,6 @@ WHY EACH REFUSAL EXISTS (moved here from `_guard_leg_is_plainly_reversible`, rev
 payment clears status / `utr` / `payment_date` and NOTHING ELSE, so a leg that carries more than a
 status flip must be refused rather than half-undone:
 
-  * A `tds` FIGURE on the payment. Put back to Approved, it would leave withheld tax on money that
-    is waiting to be paid again.
   * EITHER HALF OF A SPLIT THIS IMPORT'S PARTIAL SETTLE DID NOT MAKE (the ones it did: below).
     `settle_row_partial` trims the ORIGINAL to the settled part and mints the balance with
     `split_from` pointing back. The marker on the settled half is therefore a CHILD, not a field on
@@ -187,7 +185,6 @@ class LegFacts:
     target_status: str | None = None
     target_amount: object = None
     target_reference: str | None = None
-    tds: object = None
     # The payment's OWN `split_from`: set when it is the carried-forward balance of a split.
     split_from: str | None = None
     # PAYMENTS ONLY (#1279): every payment whose `split_from` is this one (`unsplit.SplitChild`). The
@@ -263,16 +260,6 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
     if not facts.target_exists:
         return _refused(facts, "Not found", f"Payment '{name}' not found.")
 
-    if normalize_amount(facts.tds):
-        return _refused(
-            facts,
-            "Settled with TDS",
-            f"{name} carries a TDS figure -- withheld tax that "
-            f"this reversal does not clear -- putting it back would leave a tax figure "
-            f"on a payment that is waiting to be paid again. Reverse it on the payments screen, "
-            f"where both the status and the TDS can be corrected together.",
-            FIX_ON_PAYMENTS_SCREEN,
-        )
     if (facts.split_from or "").strip() and not is_balance_of_a_part_settle(
         facts.target_created, facts.parent_settled_at
     ):

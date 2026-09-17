@@ -131,30 +131,17 @@ class TestRulingOKnownLimit(AllocationFixture):
 
 class TestLegsThisReversalCannotCorrectlyUndo(AllocationFixture):
     """⚠️ WHOLE-BRANCH REVIEW F5 -- THE TARGET DOCTYPE WAS THE ONLY TARGET GUARD, AND IT IS NOT
-    ENOUGH. `_revert_payment` clears status / `utr` / `payment_date` and nothing else, but two of
-    the other settle paths also write `Project Payments` legs and each leaves something durable
-    behind: a `tds` figure on the record (the payments screen writes one; the import's old
-    `_settle_as_deduction` path is REMOVED, ADR-0021), and `settle_row_partial` SPLITS it.
-    Ruling O documented only the third case (an amount rewritten by `settle_row`), which is the one
-    that is genuinely undetectable and is accepted.
+    ENOUGH. `_revert_payment` clears status / `utr` / `payment_date` and nothing else, but another
+    settle path also writes `Project Payments` legs and leaves something durable behind:
+    `settle_row_partial` SPLITS it. (A `tds` figure on the record was once a second case; that
+    refusal went with the retired `Project Payments.tds` field.) Ruling O documented only the
+    amount rewritten by `settle_row`, which is the one that is genuinely undetectable and is
+    accepted.
 
-    Today's UI never offers either -- the Reverse button renders only inside
-    `AlreadyAllocatedSection` -- but this endpoint is whitelisted and must refuse them itself. Each
-    refusal NAMES the rule and points at the payments screen, which is where both are repaired.
+    Today's UI never offers it -- the Reverse button renders only inside
+    `AlreadyAllocatedSection` -- but this endpoint is whitelisted and must refuse it itself. Each
+    refusal NAMES the rule and points at the payments screen, which is where it is repaired.
     """
-
-    def test_a_payment_carrying_TDS_is_refused_and_writes_nothing(self):
-        """The marker is `tds` on the record, whatever path put it there -- a reversal that put this
-        payment back to `Approved` would leave a withheld-tax figure on money waiting to be paid
-        again. Planted directly (no import path writes `tds` any more): the guard reads
-        the payment's own state, and this pins the guard."""
-        row, (a, _, _) = self._allocated()
-        leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": a}, "name")
-        frappe.db.set_value("Project Payments", a, "tds", 1.5, update_modified=False)
-        with self.assertRaises(frappe.ValidationError):
-            reverse_allocation(match=leg, reason="wrong PO")
-        self.assertEqual(frappe.db.get_value(MATCH_DOCTYPE, leg, "match_kind"), "Settled")
-        self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), "Paid")
 
     def test_the_settled_half_of_a_SPLIT_payment_is_refused(self):
         """⚠️ THE MARKER IS A CHILD, NOT A FIELD ON THE RECORD ITSELF. `settle_row_partial` trims

@@ -5,7 +5,6 @@ export type FulfilPayload = {
   action   : "fulfil";
   name     : string;
   utr      : string;
-  tds?     : number;
   pay_date?: string;                      // yyyy-mm-dd
   file_url?    : string;
 };

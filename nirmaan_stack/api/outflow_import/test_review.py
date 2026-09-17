@@ -498,9 +498,8 @@ class TestMatchBatch(OutflowReviewFixture):
         }
         for name, expected in planted.items():
             doc = frappe.db.get_value(
-                "Project Payments", name, ["status", "utr", "amount", "tds"], as_dict=True
+                "Project Payments", name, ["status", "utr", "amount"], as_dict=True
             )
-            self.assertIsNone(doc.tds)
             self.assertEqual(doc.status, expected, f"{name} moved to {doc.status}")
 
 

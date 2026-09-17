@@ -11,7 +11,6 @@ const initialPaymentState: NewPaymentFormState = {
     amount: "",
     payment_date: new Date().toISOString().split("T")[0], // Default to today
     utr: "",
-    tds: ""
 };
 
 export const useSRPaymentManager = (
@@ -101,7 +100,6 @@ export const useSRPaymentManager = (
                 vendor: srDoc.vendor,
                 utr: formState.utr,
                 amount: requestedAmount,
-                tds: parseNumber(formState.tds) || undefined, // Send undefined if 0 or empty
                 payment_date: formState.payment_date,
                 status: "Paid" // Directly creating a "Paid" entry
             };

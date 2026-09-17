@@ -7,7 +7,6 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
@@ -37,7 +36,7 @@ export const PaymentsDataDialog = ({
   const { data: fetchedPayments } = useFrappeGetDocList<ProjectPayments>(
     "Project Payments",
     {
-      fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
+      fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment"],
       filters: [["document_name", "=", data?.name], ["status", "=", "Paid"]],
       limit: 0,
     },
@@ -95,7 +94,6 @@ export const PaymentsDataDialog = ({
                 <TableRow>
                   <TableHead>Payment Date</TableHead>
                   <TableHead>Amount</TableHead>
-                  <TableHead className="text-right">TDS Amt</TableHead>
                   <TableHead>UTR No.</TableHead>
                 </TableRow>
               </TableHeader>
@@ -106,10 +104,7 @@ export const PaymentsDataDialog = ({
                       <TableCell className="font-medium">
                         {formatDate(payment.payment_date || payment.creation)}
                       </TableCell>
-                      <TableCell>{formatToRoundedIndianRupee(payment?.amount - parseNumber(payment?.tds))}</TableCell>
-                      <TableCell className="text-center">
-                        {formatToRoundedIndianRupee(parseNumber(payment?.tds) || "N/A")}
-                      </TableCell>
+                      <TableCell>{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                       {payment?.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
                               <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer"

@@ -307,6 +307,25 @@ suites, and the `unreconcileView` vitest — is **inverted to assert the new one
 now read a shared `SETTLEABLE` constant, so a future move of the anchor cannot leave a stale literal
 behind in a test either.
 
+## Amendment C — the "Settled with TDS" refusal is RETIRED (2026-09-16)
+
+The legacy `Project Payments.tds` field is being dropped (plan:
+`.claude/plans/project-payments-tds-drop-plan.md`). Nothing writes it any more — the Fulfil and
+Edit-paid-payment dialogs no longer offer it and `_fulfil_payment` no longer sets it.
+
+The "Settled with TDS" refusal read only that field, so it went with it: `LegFacts.tds` and
+`SplitChild.tds` are removed, and `read_payment_facts` no longer selects the column (which would crash
+once the column is deleted). A leftover is still refused as "Leftover taxed", now only when a
+`Payment TDS Deduction` row names it.
+
+**Accepted consequence:** a payment that carries a legacy `tds` figure is unreconcilable like any other
+payment. Measured on localhost on 2026-09-16: 2 import-settled payments (`PAY-00106-081`,
+`PAY-00187-055`).
+
+**Pins.** The refusal's table rows and ordering tests were removed. The ordering test that used a
+legacy figure on a leftover now uses a deduction row instead. The retirement itself is pinned by
+`test_unreconcile.TestTheOrderTheRefusalsAreAskedIn.test_a_payment_leg_carries_no_legacy_tds_fact`.
+
 ## Consequences
 
 - A hand skip is reversible from the screen, and so is its reversal auditable (Version row, comment).
