@@ -48,6 +48,8 @@ class TestBulkApproveTDS(FrappeTestCase):
 		cls.project = f"{P}PROJ-0001"
 		cls.vendor = f"{P}VEN-RATE2"
 		cls.sr = f"{P}SR-0001"
+		# A company-borne Work Order (owner ruling 2026-09-17): its payments are never reduced.
+		cls.sr_misc = f"{P}SR-MISC"
 		cls.po = f"{P}PO-0001"
 
 		frappe.db.sql(
@@ -67,6 +69,16 @@ class TestBulkApproveTDS(FrappeTestCase):
 				   docstatus, idx, project, vendor, status, total_amount, amount_paid)
 			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 10000000, 0)""",
 			(cls.sr, U, U, cls.project, cls.vendor),
+		)
+		frappe.db.sql(
+			"""INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
+				   docstatus, idx, project, vendor, status, total_amount, amount_paid,
+				   service_category_list)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 10000000, 0, %s)""",
+			(
+				cls.sr_misc, U, U, cls.project, cls.vendor,
+				frappe.as_json({"list": [{"name": "Miscellaneous Services"}, {"name": "Transportation Services"}]}),
+			),
 		)
 		frappe.db.sql(
 			"""INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
@@ -104,7 +116,7 @@ class TestBulkApproveTDS(FrappeTestCase):
 		super().tearDown()
 
 	# -- helpers ---------------------------------------------------------------------------
-	def _pay(self, amount, status="CEO Pending", parent_dt=SR):
+	def _pay(self, amount, status="CEO Pending", parent_dt=SR, parent=None):
 		"""A payment planted straight into the table — see `test_payment_tds`'s note on why."""
 		name = f"{P}PAY-{frappe.generate_hash(length=8)}"
 		frappe.db.sql(
@@ -113,7 +125,7 @@ class TestBulkApproveTDS(FrappeTestCase):
 				VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s)""",
 			(
 				name, U, U, self.project, self.vendor, amount, status,
-				parent_dt, self.sr if parent_dt == SR else self.po,
+				parent_dt, parent or (self.sr if parent_dt == SR else self.po),
 			),
 		)
 		frappe.db.commit()
@@ -143,6 +155,19 @@ class TestBulkApproveTDS(FrappeTestCase):
 		self.assertEqual(self._amount(b), 9800.0)
 		self.assertTrue(self._deduction(a))
 		self.assertTrue(self._deduction(b))
+
+	def test_bulk_approve_keeps_a_company_borne_payment_whole(self):
+		"""A mixed batch: the Misc/Transport Work Order keeps Rs 800, the ordinary one is reduced."""
+		borne, ordinary = self._pay(800, parent=self.sr_misc), self._pay(800)
+
+		res = bulk_actions.bulk_ceo_approve_payments([borne, ordinary], "approve")["data"]
+
+		self.assertEqual(sorted(res["succeeded"]), sorted([borne, ordinary]))
+		self.assertEqual(res["tds_recorded"], 2)
+		self.assertEqual(self._amount(borne), 800.0)
+		self.assertEqual(self._amount(ordinary), 784.0)
+		self.assertEqual(frappe.db.get_value(TDS_DOCTYPE, self._deduction(borne), "tds_amount"), 16.0)
+		self.assertEqual(frappe.db.get_value(TDS_DOCTYPE, self._deduction(ordinary), "tds_amount"), 16.0)
 
 	def test_the_deduction_row_keeps_the_gross(self):
 		"""`Project Payments.amount` is the net afterwards, so the row is the only gross left."""

@@ -18,16 +18,52 @@
  */
 
 import { parseNumber } from "@/utils/parseNumber";
+import { safeJsonParse } from "@/utils/safeJsonParse";
 
 /** The only ledger whose payments are deducted from. Mirrors `payment_tds.DEDUCTIBLE_PARENTS`. */
 export const TDS_PARENT_DOCTYPE = "Service Requests";
+
+/**
+ * Work Order categories whose TDS the COMPANY pays on top (owner ruling 2026-09-17): a Work Order
+ * whose categories are ALL in this set keeps its payment whole — ₹800 approved, ₹16 TDS, the
+ * vendor still receives ₹800.
+ *
+ * ⚠️ MIRRORS `payment_tds.COMPANY_BORNE_CATEGORIES` ON THE SERVER. Change both or neither.
+ */
+export const COMPANY_BORNE_CATEGORIES: ReadonlySet<string> = new Set([
+	"Miscellaneous Services",
+	"Transportation Services",
+]);
+
+/**
+ * Is this Work Order company-borne, from its `service_category_list`?
+ *
+ * Accepts the field as Frappe sends it (a JSON string) or already parsed (`{ list: [{ name }] }`).
+ * ⚠️ "ALL", NOT "ANY", and an empty or unreadable list is NOT company-borne — the same answer
+ * `payment_tds.is_company_borne` gives.
+ */
+export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean => {
+	const parsed = safeJsonParse<{ list?: unknown } | null>(
+		serviceCategoryList as string | { list?: unknown } | null | undefined,
+		null
+	);
+	const list = parsed?.list;
+	if (!Array.isArray(list)) return false;
+	const names = list
+		.map((entry) => (entry && typeof entry === "object" ? String((entry as { name?: unknown }).name ?? "").trim() : ""))
+		.filter(Boolean);
+	return names.length > 0 && names.every((name) => COMPANY_BORNE_CATEGORIES.has(name));
+};
 
 export interface TdsForecast {
 	/** The rate applied, as a percentage. */
 	ratePct: number;
 	/** Tax that will be withheld. */
 	tds: number;
-	/** What will actually reach the vendor — and what `Project Payments.amount` becomes. */
+	/**
+	 * What will actually reach the vendor — and what `Project Payments.amount` becomes. The full
+	 * amount on a company-borne Work Order, where the tax is paid on top.
+	 */
 	net: number;
 }
 
@@ -70,7 +106,9 @@ export const isDeductible = (
 export const forecastTds = (
 	documentType: string | undefined | null,
 	amount: number | string | undefined | null,
-	ratePct: number | string | undefined | null
+	ratePct: number | string | undefined | null,
+	/** The Work Order is company-borne (`isCompanyBorneWorkOrder`): the payment is not reduced. */
+	companyBorne = false
 ): TdsForecast | null => {
 	const gross = parseNumber(amount);
 	const rate = parseNumber(ratePct);
@@ -81,7 +119,7 @@ export const forecastTds = (
 	// zero or less is bad data rather than a deduction, and no row would be written for it.
 	if (tds <= 0 || tds >= gross) return null;
 
-	return { ratePct: rate, tds, net: round2(gross - tds) };
+	return { ratePct: rate, tds, net: companyBorne ? gross : round2(gross - tds) };
 };
 
 export interface TdsTotals {
@@ -89,6 +127,8 @@ export interface TdsTotals {
 	count: number;
 	/** Total tax withheld across them. */
 	tds: number;
+	/** The part of `tds` the company pays on top (company-borne Work Orders) rather than deducts. */
+	companyBorneTds: number;
 	/** Sum of the amounts of the deducted payments, before tax. */
 	gross: number;
 	/** What reaches the vendors, across the deducted payments. */
@@ -103,17 +143,23 @@ export const forecastTdsTotals = <T extends { document_type?: string; amount?: n
 	rows: ReadonlyArray<T>,
 	// Generic in the row so a caller can look the rate up from any field it holds (`vendor`,
 	// today) without this module needing to know the shape of a payment.
-	rateFor: (row: T) => number
+	rateFor: (row: T) => number,
+	companyBorneFor: (row: T) => boolean = () => false
 ): TdsTotals => {
 	let count = 0;
 	let tds = 0;
+	let companyBorneTds = 0;
 	let gross = 0;
+	let net = 0;
 	for (const row of rows) {
-		const f = forecastTds(row.document_type, row.amount, rateFor(row));
+		const borne = companyBorneFor(row);
+		const f = forecastTds(row.document_type, row.amount, rateFor(row), borne);
 		if (!f) continue;
 		count += 1;
 		tds = round2(tds + f.tds);
+		if (borne) companyBorneTds = round2(companyBorneTds + f.tds);
 		gross = round2(gross + parseNumber(row.amount));
+		net = round2(net + f.net);
 	}
-	return { count, tds, gross, net: round2(gross - tds) };
+	return { count, tds, companyBorneTds, gross, net };
 };

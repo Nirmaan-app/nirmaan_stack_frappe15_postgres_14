@@ -55,7 +55,7 @@ import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColum
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
 import { useApprovalFacets } from "../config/useApprovalFacets";
-import { useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
+import { CompanyBorneTdsContext, useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
 // import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -720,7 +720,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.
   // Called AFTER the table hook because it feeds off `data`, and delivered by context because the
   // dialogs are rendered from this component's JSX rather than passed the rate row by row.
-  const { rateFor: tdsRateFor } = useVendorTdsRates(data);
+  const { rateFor: tdsRateFor, companyBorneFor: tdsCompanyBorneFor } = useVendorTdsRates(data);
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
 
@@ -764,6 +764,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // Both approve dialogs read the rate from here. Deliberately NOT surfaced in the table
     // columns (owner ruling 2026-09-10) — the figure matters when deciding, not when scanning.
     <VendorTdsRateContext.Provider value={tdsRateFor}>
+    <CompanyBorneTdsContext.Provider value={tdsCompanyBorneFor}>
     <div className="flex-1 space-y-4">
       {isPageLoading && !data?.length ? (
         <TableSkeleton />
@@ -855,6 +856,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         />
       )}
     </div>
+    </CompanyBorneTdsContext.Provider>
     </VendorTdsRateContext.Provider>
   );
 };

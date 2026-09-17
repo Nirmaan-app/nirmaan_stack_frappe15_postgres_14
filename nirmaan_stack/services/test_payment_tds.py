@@ -42,6 +42,10 @@ class TestPaymentTDS(FrappeTestCase):
 		cls.vendor0 = f"{P}VEN-RATE0"
 		cls.sr = f"{P}SR-0001"
 		cls.po = f"{P}PO-0001"
+		# Company-borne Work Orders (owner ruling 2026-09-17) and the mixed one that is NOT.
+		cls.sr_misc = f"{P}SR-MISC"
+		cls.sr_both = f"{P}SR-BOTH"
+		cls.sr_mixed = f"{P}SR-MIXED"
 
 		frappe.db.sql(
 			"""INSERT INTO "tabProjects" (name, creation, modified, modified_by, owner,
@@ -62,6 +66,21 @@ class TestPaymentTDS(FrappeTestCase):
 			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 1000000, 0)""",
 			(cls.sr, U, U, cls.project, cls.vendor2),
 		)
+		for name, categories in (
+			(cls.sr_misc, ["Miscellaneous Services"]),
+			(cls.sr_both, ["Miscellaneous Services", "Transportation Services"]),
+			(cls.sr_mixed, ["Miscellaneous Services", "Electrical Services"]),
+		):
+			frappe.db.sql(
+				"""INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
+					   docstatus, idx, project, vendor, status, total_amount, amount_paid,
+					   service_category_list)
+				   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 1000000, 0, %s)""",
+				(
+					name, U, U, cls.project, cls.vendor2,
+					frappe.as_json({"list": [{"name": c} for c in categories]}),
+				),
+			)
 		frappe.db.sql(
 			"""INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
 				   docstatus, idx, project, vendor, total_amount, amount_paid, status)
@@ -492,3 +511,89 @@ class TestPaymentTDS(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value(SR, self.sr, "total_tds"), 80.0)
 		total = frappe.db.get_value(SR, self.sr, "total_amount")
 		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_due"), total - 3920 - 80)
+
+	# -- company-borne Work Orders (owner ruling 2026-09-17) ---------------------------------
+	def test_company_borne_is_decided_by_all_categories(self):
+		self.assertTrue(payment_tds.is_company_borne(SR, self.sr_misc))
+		self.assertTrue(payment_tds.is_company_borne(SR, self.sr_both))
+		# ⚠️ "ALL", NOT "ANY": one other category makes it an ordinary Work Order.
+		self.assertFalse(payment_tds.is_company_borne(SR, self.sr_mixed))
+		# No categories at all is ordinary too.
+		self.assertFalse(payment_tds.is_company_borne(SR, self.sr))
+		self.assertFalse(payment_tds.is_company_borne(PO, self.po))
+
+	def test_company_borne_records_the_tax_and_keeps_the_payment_whole(self):
+		"""The owner's example: Rs 800 -> Rs 16 TDS, and the payment STAYS Rs 800."""
+		for parent in (self.sr_misc, self.sr_both):
+			with self.subTest(parent=parent):
+				doc = self._pay(800, parent=parent)
+				row = frappe.get_doc(TDS_DOCTYPE, payment_tds.record_deduction(doc))
+				self.assertEqual(row.gross_amount, 800)
+				self.assertEqual(row.tds_amount, 16)
+				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 800)
+				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "payment_tds"), row.name)
+
+	def test_a_mixed_work_order_is_still_reduced(self):
+		doc = self._pay(800, parent=self.sr_mixed)
+		payment_tds.record_deduction(doc)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 784)
+
+	def test_company_borne_approval_through_the_hook_keeps_the_payment_whole(self):
+		"""Single CEO approve, driven through a real save -- the path `ceo_approve_payment` takes."""
+		for previous in ("Requested", "CEO Pending", "Rejected"):
+			with self.subTest(previous=previous):
+				doc = self._pay(800, status=previous, parent=self.sr_misc)
+				doc.status = "Approved"
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				self.assertEqual(
+					frappe.db.get_value(TDS_DOCTYPE, {"project_payment": doc.name}, "tds_amount"), 16
+				)
+				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 800)
+
+	def test_company_borne_auto_approved_payment_keeps_the_payment_whole(self):
+		"""Auto-approve at insert (`after_insert`). Notification fan-outs patched out, as above."""
+		from unittest.mock import patch
+
+		from nirmaan_stack.integrations.controllers import project_payments as controller
+
+		doc = self._pay(800, status="Approved", parent=self.sr_misc)
+		with patch.object(controller, "_notify_accountants_payment_ready"), patch.object(
+			controller, "_notify_admins_auto_approved"
+		):
+			controller.after_insert(doc, "after_insert")
+		frappe.db.commit()
+
+		self.assertEqual(
+			frappe.db.get_value(TDS_DOCTYPE, {"project_payment": doc.name}, "tds_amount"), 16
+		)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 800)
+
+	def test_company_borne_amount_edit_taxes_the_new_figure_directly(self):
+		"""The payment was never reduced, so an edit to it is an edit to the GROSS: 1,000 -> 20."""
+		doc = self._pay(800, parent=self.sr_misc)
+		row = frappe.get_doc(TDS_DOCTYPE, payment_tds.record_deduction(doc))
+
+		doc = frappe.get_doc(PAYMENT, doc.name)
+		doc.amount = 1000
+		doc.save(ignore_permissions=True)
+
+		row.reload()
+		self.assertEqual(row.gross_amount, 1000)
+		self.assertEqual(row.tds_amount, 20)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 1000)
+
+	def test_company_borne_amount_due_does_not_subtract_the_tax(self):
+		"""Rs 800 paid in full with Rs 16 TDS on top must leave nothing due, not -16."""
+		doc = self._pay(800, parent=self.sr_misc)
+		payment_tds.record_deduction(doc)
+		frappe.db.set_value(PAYMENT, doc.name, "status", "Paid")
+		frappe.db.commit()
+
+		frappe.get_doc(PAYMENT, doc.name).update_parent_amount_paid()
+		frappe.db.commit()
+		self.assertEqual(frappe.db.get_value(SR, self.sr_misc, "amount_paid"), 800)
+		# The tax is still recorded against the order -- it just is not part of settling it.
+		self.assertEqual(frappe.db.get_value(SR, self.sr_misc, "total_tds"), 16.0)
+		total = frappe.db.get_value(SR, self.sr_misc, "total_amount")
+		self.assertEqual(frappe.db.get_value(SR, self.sr_misc, "amount_due"), total - 800)

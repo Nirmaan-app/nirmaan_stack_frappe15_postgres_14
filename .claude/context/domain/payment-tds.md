@@ -55,6 +55,35 @@ original.
 
 ---
 
+## Company-borne Work Orders — the payment is NOT reduced (owner ruling 2026-09-17)
+
+A Work Order whose `service_category_list` holds **only** `Miscellaneous Services` and/or
+`Transportation Services` still gets a deduction row at approval, but its payment keeps the requested
+figure — the company pays the tax on top:
+
+| | Request | TDS row | `Project Payments.amount` after approval |
+|---|---|---|---|
+| ordinary Work Order | 800 | 16 | 784 |
+| company-borne Work Order | 800 | 16 | **800** |
+
+- **"ALL", not "ANY"** — one other category (Electrical, …) makes it ordinary; no categories is ordinary.
+- **ONE rule, `payment_tds.COMPANY_BORNE_CATEGORIES` + `is_company_borne`**, mirrored on the frontend by
+  `tdsForecast.COMPANY_BORNE_CATEGORIES` + `isCompanyBorneWorkOrder`. Change both or neither.
+- **Decided in `record_deduction`**, the one function every approval route shares (single approve, a
+  split's approved half, auto-approve at insert, bulk approve post-commit) → `write_deduction(reduce_payment=False)`.
+  `write_deduction` defaults to reducing, so the historical backfills are unchanged.
+- **Every reader that rebuilds the gross branches on the same rule:** `amount_due` skips `total_tds`
+  (`_item_billing_sync.recompute_document_amount_due`); an amount edit taxes the new figure directly
+  (`tds = amount × rate`, no inversion); the WO page's Amount Paid / request cap don't add the tax;
+  the approve + bulk-confirm previews show "Vendor receives" at the full amount.
+- ⚠️ **DERIVED FROM THE CATEGORIES EVERY TIME, NOT STORED** (owner chose no new field). So the rule
+  also re-reads deductions taken BEFORE it existed: measured 2026-09-17, **37 settled company-borne
+  Work Orders** (₹65,182 of TDS, already netted) now read that TDS as still payable — on the WO page at
+  once, in the stored `amount_due` at its next recompute — and the request cap allows it to be raised
+  again. Changing a Work Order's categories later also moves how its existing deductions are read.
+
+---
+
 ## The two doctypes
 
 **`Payment TDS Deduction`** — one deduction, one payment.
@@ -219,3 +248,5 @@ by `api/payments/test_taxed_work_order_fixture.py`.
   recomputes). One such row exists on localhost by owner decision.
 - Gemini challan extraction has never run against a real challan file; none of the UI has been
   verified in a browser.
+- The TDS register's **Net Paid** column is still `gross − tds`, so a company-borne row reads 784 where
+  the vendor received 800.

@@ -15,7 +15,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { TailSpin } from 'react-loader-spinner';
 import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
-import { useVendorTdsRate } from '../../hooks/useVendorTdsRates';
+import { useCompanyBorneTds, useVendorTdsRate } from '../../hooks/useVendorTdsRates';
 import { forecastTds } from '../../tdsForecast';
 
 interface PaymentActionDialogProps {
@@ -58,6 +58,8 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
     const rateFor = useVendorTdsRate();
+    // Miscellaneous / Transportation-only Work Order: the tax is paid on top, the payment stays whole.
+    const companyBorne = useCompanyBorneTds()(paymentData?.document_name);
 
     const requestedAmount = parseNumber(paymentData?.amount);
     // `isSplittable` is what keeps a REFUND approvable. A negative payment (a credit raised after
@@ -94,8 +96,8 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
      */
     const approvingAmount = isPartialApprove && split.valid ? split.approved : requestedAmount;
     const tds = useMemo(
-        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor)),
-        [paymentData?.document_type, paymentData?.vendor, approvingAmount, rateFor]
+        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor), companyBorne),
+        [paymentData?.document_type, paymentData?.vendor, approvingAmount, rateFor, companyBorne]
     );
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,11 +212,17 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                             <>
                                 <div className="flex items-baseline justify-between px-3 py-2">
                                     <span className="text-muted-foreground">
-                                        TDS @ {tds.ratePct}%
+                                        TDS @ {tds.ratePct}%{companyBorne && " · paid by company"}
                                     </span>
-                                    <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
-                                        − {formatToIndianRupee(tds.tds)}
-                                    </span>
+                                    {companyBorne ? (
+                                        <span className="font-medium tabular-nums">
+                                            {formatToIndianRupee(tds.tds)}
+                                        </span>
+                                    ) : (
+                                        <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
+                                            − {formatToIndianRupee(tds.tds)}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="flex items-baseline justify-between bg-muted/40 px-3 py-2">
                                     <span className="font-semibold">Vendor receives</span>
@@ -229,9 +237,13 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
 
                 {tds && (
                     <p className="text-xs text-muted-foreground">
-                        {withholdsTdsNow
-                            ? "TDS is withheld when you approve, and recorded against the work order."
-                            : "TDS is withheld at CEO approval, not on this step."}
+                        {companyBorne
+                            ? withholdsTdsNow
+                                ? "The vendor receives the full amount; TDS is recorded when you approve and paid by the company on top."
+                                : "The vendor receives the full amount; TDS is recorded at CEO approval and paid by the company on top."
+                            : withholdsTdsNow
+                                ? "TDS is withheld when you approve, and recorded against the work order."
+                                : "TDS is withheld at CEO approval, not on this step."}
                     </p>
                 )}
 

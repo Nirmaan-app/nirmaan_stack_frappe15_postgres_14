@@ -31,6 +31,7 @@ import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -253,15 +254,22 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
     // part of what was requested -- so the Request Payment cap counts each payment GROSS.
+    //
+    // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): `amount` is never
+    // reduced there, so it already IS the gross, and adding the tax would shrink the cap by it.
+    const companyBorneTds = useMemo(
+        () => isCompanyBorneWorkOrder(service_request?.service_category_list),
+        [service_request?.service_category_list]
+    );
     const grossRequested = useMemo(() => {
-        const tdsFor = (statuses: string[]) => (projectPayments || [])
+        const tdsFor = (statuses: string[]) => companyBorneTds ? 0 : (projectPayments || [])
             .filter(i => statuses.includes(i?.status))
             .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
         return {
             paid: getAmountPaid + tdsFor(["Paid"]),
             pending: amountPending + tdsFor(["Requested", "CEO Pending", "Approved"]),
         };
-    }, [projectPayments, tdsByPayment, getAmountPaid, amountPending]);
+    }, [projectPayments, tdsByPayment, getAmountPaid, amountPending, companyBorneTds]);
 
     useEffect(() => {
         if (service_request) {
