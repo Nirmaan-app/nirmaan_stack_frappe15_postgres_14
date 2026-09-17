@@ -591,7 +591,6 @@ export const OutflowMasterPage = () => {
                     row: row.name,
                     project: form.project,
                     customer: form.customer || undefined,
-                    invoice: form.invoice || undefined,
                     ...anyway,
                 });
             } else if (decision.target === "nonProjectInflow") {

@@ -314,7 +314,6 @@ export interface RowDecision {
     newInflow?: {
         project?: string | null;
         customer?: string | null;
-        invoice?: string | null;
     };
     /**
      * Only for `target: "nonProjectInflow"` — a bank CREDIT that belongs to NO project, recorded as

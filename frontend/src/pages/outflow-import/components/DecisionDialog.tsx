@@ -2266,14 +2266,13 @@ const NewInflowForm = ({
         "outflow-inflow-won-projects"
     );
 
-    // ⚠️ ONE ENDPOINT, GATED BY THE IMPORT'S OWN ACCESS RULE, ANSWERING BOTH QUESTIONS — the
-    // customer and the project's invoices. It is the SAME read the write path performs, so the
-    // screen cannot show a customer the server then disagrees with.
+    // ⚠️ ONE ENDPOINT, GATED BY THE IMPORT'S OWN ACCESS RULE, ANSWERING THE CUSTOMER QUESTION. It is
+    // the SAME read the write path performs, so the screen cannot show a customer the server then
+    // disagrees with.
     const { data: contextData, isLoading: contextLoading } = useFrappeGetCall<{
         message: {
             customer: string | null;
             customer_name: string;
-            invoices: { name: string; invoice_no?: string; amount?: number }[];
         };
     }>(
         "nirmaan_stack.api.outflow_import.inflows.get_inflow_context",
@@ -2304,11 +2303,9 @@ const NewInflowForm = ({
                 <Label className="text-xs">Project</Label>
                 <Select
                     value={form.project ?? ""}
-                    // Changing the project changes who the money is from and which invoices exist,
-                    // so both are cleared rather than carried onto a project they do not belong to.
-                    onValueChange={(value) =>
-                        patch({ project: value, customer: null, invoice: null })
-                    }
+                    // Changing the project changes who the money is from, so the customer is
+                    // cleared rather than carried onto a project it does not belong to.
+                    onValueChange={(value) => patch({ project: value, customer: null })}
                 >
                     <SelectTrigger className="h-9">
                         <SelectValue placeholder="Choose a project…" />
@@ -2340,52 +2337,6 @@ const NewInflowForm = ({
                             : "This project has no customer"
                 }
             />
-
-            <div className="space-y-1.5">
-                <Label className="text-xs">Invoice (optional)</Label>
-                <Select
-                    value={form.invoice ?? ""}
-                    onValueChange={(value) => patch({ invoice: value })}
-                    disabled={!form.project || !(context?.invoices ?? []).length}
-                >
-                    <SelectTrigger className="h-9">
-                        <SelectValue
-                            placeholder={
-                                !form.project
-                                    ? "Choose a project first…"
-                                    : (context?.invoices ?? []).length
-                                      ? "Not against an invoice"
-                                      : "No invoices on this project"
-                            }
-                        />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {(context?.invoices ?? []).map((invoice) => (
-                            <SelectItem key={invoice.name} value={invoice.name}>
-                                {invoice.invoice_no || invoice.name}
-                                {invoice.amount
-                                    ? ` — ${formatToRoundedIndianRupee(invoice.amount)}`
-                                    : ""}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                {/* ⚠️ CLEARING IS A SEPARATE ACT FROM CHOOSING -- the same Radix limitation
-                    `RecordPicker` documents: every item sets a value, so without this a reviewer who
-                    linked the wrong invoice could only reach a different wrong one. The invoice is
-                    OPTIONAL, which makes "none" a real answer rather than an undecided state. */}
-                {form.invoice && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => patch({ invoice: null })}
-                    >
-                        <X className="mr-1 h-3 w-3" />
-                        Not against an invoice
-                    </Button>
-                )}
-            </div>
 
             {form.project && !contextLoading && !context?.customer && (
                 <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:col-span-2">

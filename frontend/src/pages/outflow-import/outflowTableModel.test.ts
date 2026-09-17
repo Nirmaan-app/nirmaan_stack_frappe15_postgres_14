@@ -1739,11 +1739,11 @@ describe("isConfirmable", () => {
         ).toBe(false);
     });
 
-    it("does not require an invoice -- it is optional", () => {
+    it("confirms on a project and its customer alone -- there is no invoice to pick", () => {
         expect(
             isConfirmable(row(CREDIT), {
                 target: "inflow",
-                newInflow: { project: "P-1", customer: "CUST-1", invoice: null },
+                newInflow: { project: "P-1", customer: "CUST-1" },
             })
         ).toBe(true);
     });
