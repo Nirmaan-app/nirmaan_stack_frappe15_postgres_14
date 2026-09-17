@@ -26,12 +26,12 @@ side: `Project Inflows` and a **negative** `Non Project Expense`.
 > |---|---|---|
 > | `Cashfree` | out only (no `direction` stated) | **PAYS** what someone approved. Never creates |
 > | `Cashbook` | out only (no `direction` stated) | **CREATES** what a wallet already spent (ADR-0015). Never settles |
-> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow` or a `Non Project Inflow` (#1266) |
+> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds` |
 >
-> **Nothing here creates a `Project Payment`, from any source, in either direction.** That would only
-> happen via **Vendor Refund**, which is deliberately deferred — it is a negative `Project Payments`
-> row minted inside a `PO Adjustments` doc plus a negative `RA Vendor` term, so it cannot be created
-> from a bank row without picking a PO. `settle.create_expense_from_row` still hard-guards
+> **Nothing here creates a `Project Payment`, from any source, in either direction.** A vendor
+> refund on a CREDIT (2026-09-17) is recorded as `Vendor Refunds` records -- one per PO / WO it is
+> against, plus one Misc. Expense for the rest -- which move no paid amount; the PO Adjustment "Vendor has refund" flow still
+> owns that. See the 2026-09-17 section at the end. `settle.create_expense_from_row` still hard-guards
 > `is_expense_doctype`, and the inflow path is a **new function beside it, never a widened one**.
 
 The three settle-side ledgers all settle `Approved → Paid` and nothing else. It is an *alternative
@@ -2404,15 +2404,15 @@ document to read before changing any of this. Slice-by-slice as-built + the owne
 `frontend/.claude/plans/bank-statement-ingestion-plan.md`.
 
 The prime directive at the top of this doc is now scoped by **source AND direction**, not just by
-source — see the table there. **Nothing here creates a `Project Payment`**; that would only happen
-via Vendor Refund, which is deferred.
+source — see the table there. **Nothing here creates a `Project Payment`**; a vendor refund is recorded
+as `Vendor Refunds` (see the 2026-09-17 section at the end).
 
 ### What a row becomes
 
 | Direction | Rows | Value | Offered on the screen |
 |---|---:|---:|---|
 | Debit | 711 | ₹8.28 Cr | create a `Project Expense` / `Non Project Expense` |
-| Credit | 158 | ₹18.00 Cr | create a `Project Inflow` **or** a `Non Project Inflow` (#1266) |
+| Credit | 158 | ₹18.00 Cr | create a `Project Inflow`, a `Non Project Inflow` (#1266) **or** `Vendor Refunds` |
 
 405 further rows are excluded by rule at stage time and never become work
 (`services/outflow_import/bank_exclusions.py`).
@@ -5643,3 +5643,87 @@ child is in neither.** `payment_split` inserts it through the naming series, so 
 each looked like a defect in the code under test. The base fixture now sweeps by `split_from`, so
 every suite inheriting it is covered (`test_unreconcile_tds` part-settles through it too), and the
 suites pass back-to-back with no purge between them.
+
+---
+
+## 2026-09-17 — a bank credit can be recorded as vendor refunds
+
+A credit row offers a THIRD card, **"Create a vendor refund"**: money a vendor paid back. The reviewer
+picks a vendor (suggested from the remarks) and, OPTIONALLY, a project (won, not Completed). "Refund
+against" is **MULTI-select**: ticking PO and/or WO shows each list (with no project, the vendor's
+documents on EVERY project, each row naming its project), and ticking **Misc. Expense** adds one part
+against NO document that takes **whatever the ticked POs / WOs leave** (derived, never typed; a
+description box sits on its line). On Confirm each ticked document -- and the Misc. Expense -- becomes
+**one `Vendor Refunds` record** (three POs + misc -> four records), all in ONE savepoint, one match leg
+each (`created_by_import = 1`, `target_amount` = the part).
+
+Doctype **`Vendor Refunds`** (`VRF-.YY.-.#####`, `track_changes`, no status, Non Project Inflows'
+DocPerms): `vendor` (required), `project` (optional), `document_type` (required Select: Procurement
+Orders / Service Requests / **Misc. Expense**), `document_name` (Dynamic Link, mandatory only when the
+type is not Misc. Expense -- a misc record stores NULL, so the link is never resolved), `amount` (the
+part), `utr` (the line's settlement reference), `payment_date` (the line date), `refund_attachment` (the
+statement), `description` (Small Text; the Misc. Expense line's text, blank on PO / WO parts).
+
+- ⚠️ **Project is recorded from the DOCUMENT, never from the picker:** a PO / WO part stores its PO's /
+  WO's own `project` (`vendor_refunds.document_project`; the controller fills a blank one on a Desk
+  save too). A Misc. Expense stores the chosen project, or none. Choosing a project only narrows the
+  lists; changing it keeps the ticks on documents of the new project, and clearing it keeps them all.
+- ⚠️ **It creates NO `Project Payment` or `Project Expense` and moves NO paid amount** (owner, 2026-09-17,
+  after a same-day negative-payment design was rejected). The PO Adjustment refund flow still owns that.
+- ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
+  a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
+  (`paid_of` = `amount_paid`) and `0 < amount <= refundable`, where **refundable = paid − earlier Vendor
+  Refunds on it**; a **Misc. Expense** names no document and needs only `amount > 0`, no cap) is asked by
+  the doctype `validate` AND for each part by `refund_allocation_problem` (one credit: vendor, at least
+  one part, no document twice, **at most one Misc. Expense**, parts adding up **to the paisa** to the BANK
+  ROW's amount), which `settle.create_vendor_refund_from_row` asks first. `refund_documents(vendor,
+  project=None)` builds the dialog's lists, newest `creation` first, with `paid`, `refunded`,
+  `refundable`, `project` and `project_name` per row (plus the PO / WO figures the details panel shows).
+- ⚠️ **Project Expenses are NO LONGER a refund target** (owner, same day): the earlier "Misc. Expense"
+  list of paid `Project Expenses` was replaced by the document-less Misc. Expense part.
+- **Endpoints** (`api/outflow_import/inflows.py`): `create_vendor_refund(row, vendor, project,
+  allocations, confirm_mismatch)` (allocations = JSON list of `{document_type, document_name, amount}`;
+  the misc part is `{"Misc. Expense", "", amount, description?}`; `project` optional) and
+  `get_vendor_refund_documents(vendor, project=None)`.
+- **Joined the credit-book registry**, which every guard reads: `ledgers.VENDOR_REFUND_DOCTYPE` in
+  `INFLOW_DOCTYPES` (contains-guard, received notes, `_already_created_by_import`, the unreconcile
+  delete-created path), `RECEIVED_LEDGER_DOCTYPES`, `LEDGER_NOUNS`, `candidates.CONTAINS_LEDGERS`
+  (`tabVendor Refunds.utr`), `settle._STATEMENT_ATTACHMENT_FIELDS` and `unreconcile.IMPORT_WRITTEN_FIELDS`
+  (`refund_attachment`). `_already_created_by_import` keys its identity on the ROW's amount (a split
+  refund's legs each carry only a part). **Undo deletes the records -- ALL of them, never some.** A line carrying a vendor refund is
+  undone whole (`services/outflow_import/unreconcile.reverse_all_only`): the plan sends
+  `reverse_all_only` (the dialog hides the per-record Reverse) and `unreconcile_row` refuses a request
+  naming only some live legs. ⚠️ Why: a part-reversed line reads Partially Allocated, which
+  `create_vendor_refund` refuses, while the refunds left on it count as already recorded -- a dead end
+  (hit on the first real test, 2026-09-17).
+- **Screen:** `DecisionTarget` `"vendorRefund"`, form `newVendorRefund {vendor, project?, refundAgainst[]
+  (PO / WO / Misc. Expense, multi), allocations[{documentType, documentName, label, project, paid,
+  refundable, amount}], miscDescription?}`, changed only through `withRefundPick` (new vendor clears
+  every tick; new project keeps only that project's ticks; cleared project keeps all),
+  `toggleRefundAgainst` (unticking PO / WO drops that list's ticks), `toggleRefundAllocation` (a new tick
+  prefills what the other DOCUMENTS leave, capped at refundable -- the misc part never holds a tick back)
+  and `setRefundAllocationAmount`. `refundMiscAmount` derives the misc part; `refundAllocationProblem` is
+  the confirm gate (misc with nothing left is refused, never sent negative); `refundAllocationsPayload`
+  builds the posted parts. Vendor default = `suggestRefundVendor` (payer + `/`/`-`
+  pieces of the remarks, prefix match, exactly one vendor or nothing). Each PO / WO row carries the
+  shared `ItemsHoverCard` (book icon, items) and a details popover (`RefundDocumentDetails`, figures from
+  the list row, link to `/project-payments/<order>`) -- one `RefundDocumentIcons` component, on the list
+  row AND the Selected line; both stop the click so they never tick the row.
+- **Where refunds are READ:** a "View Refunds" button on the right of the PO's and the WO's Transaction
+  Details header (the PO's accordion reads "Payment Details / Refunds";
+  `components/vendor-refunds/VendorRefundsButton`, a dialog of that order's refunds via
+  `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`) and a **Vendor
+  Refunds** tab on the vendor page (`pages/vendors/components/VendorRefundsTab`, the shared server data
+  table on the doctype -- search, Type / PO-WO / Project facets, date filter, export; Misc. Expense
+  included). ⚠️ The doctype's **READ DocPerms mirror `Project Payments`' read roles** (write stays with the
+  accountants), and both reads are permission-aware, so a project-scoped user sees only their projects'
+  refunds -- plus Misc. Expense refunds saved with no project, exactly as a blank link passes user
+  permissions anywhere.
+- **The UTR opens the attachment** (`components/vendor-refunds/RefundAttachmentLink`, both reads). An
+  imported refund's attachment is the bank statement `.xlsx`, which a browser can only download, so a
+  `.xlsx` / `.csv` opens IN-APP: `api/vendor_refunds/attachment_preview.get_refund_attachment_preview(refund)`
+  (read-permission on the refund; reads the bytes server-side because the storage URL is cross-origin;
+  `parser._read_grid`, first 2,000 rows) and the refund's own row is highlighted by its UTR. PDFs and
+  images still open in a new tab.
+- Tests: `test_inflows.py` (`TestTheVendorRefund`, `TestTheVendorRefundRefusals`); `outflowTableModel.test.ts`
+  (`vendorRefund` branch, `suggestRefundVendor`, `vendor refund allocations`).
