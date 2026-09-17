@@ -13,6 +13,9 @@ Two halves, deliberately in one module:
     linked line. It reads, never writes, and takes no request context.
   * `derive_expense_status` / `remaining_balance` -- PURE. Given the expense's amount and those
     two facts they return Paid or Reconciliation Pending, the payment date, and what is left.
+  * The three REFUSAL builders (#1302) -- also pure. They are rules 1-3 of the four document rules
+    `integrations/controllers/expense_bank_links.py` applies on every save and delete; rule 4 is
+    `derive_expense_status` itself. Each returns the sentence a person should read, or `None`.
 
 ⚠️ THE ₹5 WINDOW IS `amounts.AMOUNT_TOLERANCE`, THE SAME ONE THE MATCHER POOL AND THE SETTLE GUARD
 READ. A copy here would let an expense read Paid that the settle guard still thinks has room, or
@@ -37,6 +40,7 @@ from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import (
     AMOUNT_TOLERANCE,
     amounts_match,
+    rupees,
     to_decimal,
 )
 from nirmaan_stack.services.outflow_import.ledgers import PAID, RECONCILIATION_PENDING
@@ -44,13 +48,16 @@ from nirmaan_stack.services.outflow_import.ledgers import PAID, RECONCILIATION_P
 __all__ = [
     "ExpenseLinks",
     "ExpenseStatus",
+    "amount_below_links_refusal",
     "bulk_id_of",
+    "delete_while_linked_refusal",
     "derive_expense_status",
     "lines_fit",
     "linked_totals_join",
     "one_line_fits",
     "load_expense_links",
     "load_linked_totals",
+    "paid_while_short_refusal",
     "remaining_balance",
 ]
 
@@ -150,6 +157,85 @@ def derive_expense_status(amount, links: ExpenseLinks) -> ExpenseStatus:
     if remaining_balance(amount, links.linked_total) > AMOUNT_TOLERANCE:
         return ExpenseStatus(status=RECONCILIATION_PENDING, payment_date=None)
     return ExpenseStatus(status=PAID, payment_date=links.latest_line_date)
+
+
+# --- the four document rules (ADR-0027 Q11/Q22, #1302) ------------------------------------------
+#
+# PURE. Each returns the sentence a person should read, or `None` when the rule is satisfied. The
+# controller in `integrations/controllers/expense_bank_links.py` loads the links, calls these and
+# throws; rule 4 is `derive_expense_status` above, which already existed for the settle.
+#
+# ⚠️ EVERY ONE OF THEM IS ASKED ONLY WHEN THE EXPENSE HAS LIVE SLIPS, and that gate is the whole
+# safety of the change: an expense no bank line has touched -- which is nearly all of them -- must
+# behave exactly as it did before this feature existed. The gate lives in the controller, once,
+# rather than being repeated as a `line_count` test inside each rule.
+#
+# ⚠️ THEY NAME **Bulk Import Transactions** AND **Unreconcile** BY THEIR SCREEN NAMES. These
+# refusals surface on the old expense pages and in Desk, where the reader has no idea a bank
+# statement is involved; a refusal that does not say where to go is a dead end.
+
+
+def _bank_lines(count: int) -> str:
+    """`1 bank line` / `25 bank lines` -- the count is in every one of these sentences."""
+    return f"{count} bank line" + ("" if count == 1 else "s")
+
+
+def amount_below_links_refusal(name: str, amount, links: ExpenseLinks) -> str | None:
+    """RULE 1. The amount may not sit below what the bank lines already add up to.
+
+    ⚠️ IT TESTS THE VALUE, NOT THE CHANGE. A save that leaves the expense claiming less money than
+    its own lines moved is wrong whoever caused it, so this asks the same question of an amount edit,
+    a Desk save and a Data Import row. Nothing can reach it from the link side -- linking is refused
+    past what is left -- so in practice only an edit can trip it.
+
+    The same ₹5 the linking guard allows, in the same direction: an amount ₹5 under the linked total
+    is the rounding the settle window already tolerates, not a shortfall.
+    """
+    if remaining_balance(amount, links.linked_total) >= -AMOUNT_TOLERANCE:
+        return None
+    return (
+        f"{rupees(links.linked_total)} is already linked to {name} across "
+        f"{_bank_lines(links.line_count)}, so its amount cannot be less than that "
+        f"(₹{AMOUNT_TOLERANCE} leeway). Take a line off with Unreconcile on Bulk Import "
+        "Transactions first, then lower the amount."
+    )
+
+
+def paid_while_short_refusal(name: str, amount, links: ExpenseLinks) -> str | None:
+    """RULE 2. Paid may not be set by hand while the bank lines fall short of the amount (Q12).
+
+    ⚠️ THE CALLER DECIDES THAT IT IS BY HAND -- this only answers "is it short?". The difference
+    matters because rule 4 must be free to move an ALREADY-Paid expense to Reconciliation Pending
+    when its amount is raised; that is an ordinary edit (Q8), not an attempt to mark it Paid. The
+    controller asks this only when the status is ARRIVING at Paid on this save.
+    """
+    left = remaining_balance(amount, links.linked_total)
+    if left <= AMOUNT_TOLERANCE:
+        return None
+    return (
+        f"{name} cannot be marked Paid yet: {rupees(links.linked_total)} is linked across "
+        f"{_bank_lines(links.line_count)} and {rupees(left)} is still to link. Link the rest on "
+        "Bulk Import Transactions, or lower the amount to what has actually gone out."
+    )
+
+
+def delete_while_linked_refusal(name: str, links: ExpenseLinks) -> str | None:
+    """RULE 3. An expense with live slips may not be deleted; the bank lines would point at nothing.
+
+    ⚠️ "LIVE" IS COUNTED AFTER A REVERSED STAMP, and that ordering is what keeps Unreconcile's own
+    delete of an import-created expense working: `unreconcile_row` stamps the slip `Reversed` before
+    it carries the verdict out, so by the time the delete runs this reads zero. Counting before the
+    stamp would make the undo refuse itself.
+    """
+    if not links.line_count:
+        return None
+    verb = "is" if links.line_count == 1 else "are"
+    them = "it" if links.line_count == 1 else "them"
+    return (
+        f"{name} cannot be deleted: {_bank_lines(links.line_count)} totalling "
+        f"{rupees(links.linked_total)} {verb} linked to it. Take {them} off with Unreconcile on "
+        "Bulk Import Transactions first."
+    )
 
 
 def load_expense_links(doctype: str, name: str) -> ExpenseLinks:

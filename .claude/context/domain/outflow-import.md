@@ -70,6 +70,7 @@ pick one ad-hoc; ask.
 |---|---|---|
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
 | An expense's linked total, and whether it is fully linked (Paid ⇄ Reconciliation Pending) | `services/outflow_import/expense_links.py` (`load_expense_links` — the ONE aggregate over live Settled slips, with the line count; `derive_expense_status`, `remaining_balance`, `lines_fit` (many-line ₹5 guard), `bulk_id_of` (the reference a many-line expense gets) — pure) — ADR-0027, #1296/#1298. The many-line WRITE is `settle.link_lines_to_expense`, orchestrated by `api/outflow_import/link_lines.link_rows_to_expense` (all-or-nothing; each slip's `target_amount` = its line's own amount); the dialog's pure view is `frontend/.../linkLinesView.ts` (`bulkIdOf` pinned to the Python by `linkLinesParity.test.ts`). **Since #1299 Decide's one line uses the SAME write** (`settle_row` → `link_lines_to_expense(one_line_from_decide=True)`; `settle_existing_expense` is gone). `one_line_fits` is Decide's rule, read by BOTH the picker's `suggested` flag and the write: a fresh expense still needs the whole amount ±₹5, a part-linked one takes a line that fits what is left. `linked_totals_join` is the SQL twin of the aggregate for queries that filter/sort on it (the picker search, the matcher pool `candidates.load_expense_targets`, `ledger_read`), all of which compare against what is LEFT | store or increment a linked total, or decide an expense's Paid/Reconciliation Pending from its slips anywhere else. The settle guard, the server rules and the pickers read it from here |
+| **The four rules that protect an expense its bank lines settle** (ADR-0027 Q11/Q22, #1302) | `services/outflow_import/expense_links.py` (`amount_below_links_refusal`, `paid_while_short_refusal`, `delete_while_linked_refusal` — pure, each returning the sentence or `None`; rule 4 is `derive_expense_status`), wired by `hooks.py` → `integrations/controllers/expense_bank_links.py` (`validate` + `on_trash`, the SAME controller on BOTH expense doctypes) | guard these in an endpoint, or write a second controller per doctype. ⚠️ **Every rule is inert until the expense has live `Settled` slips** — that gate is the whole safety of the change, and it is what lets `unreconcile._revert_expense` put an expense back to Reconciliation Pending after reversing its only slip. ⚠️ **Rule 2 asks about a TRANSITION into Paid** (`_is_arriving_at_paid`, over `get_doc_before_save()`), never the state — otherwise it would refuse the raised-amount edit rule 4 exists to allow (Q8). ⚠️ **Rule 3 counts live slips AFTER the Reversed stamp**, which is what keeps `delete_created`'s own delete working; its `force=True` skips Frappe's link check but not `on_trash`. ⚠️ **No bypass flag for the import** — its writes satisfy the rules by construction (slip first, then save), and that agreement is what proves the rules are right |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
 | The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list** (the list in `amounts.py` is the authority; #1256 added `status.pick_duplicate_group`, #1257 `contains_guard.pick_recorded_group`). Originally SIX call sites: both SQL pool queries, the matcher, the settle guard, the already-paid duplicate check, and (N1) `similarity._amount_score`. The sixth decides NOTHING — it shapes the order of a browse list — and is listed anyway, because the rule is "every amount comparison in this feature", not "every one that writes". `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
 | What amount a settle WRITES (X1) | `services/outflow_import/amounts.py` (`rewrite_amount`) | decide it at a write site. It is **not a sixth window site**: the window already gated the pool and the write guard already re-asserted it, so this answers only "do these differ at all". ⚠️ Do not "finish" it by giving it a tolerance — that would put a second, quieter opinion about what may be settled inside a function whose job is to say what the number is |
@@ -5882,3 +5883,97 @@ in `api/outflow_import/test_recorded_money_guard`, `TestPartLinkedExpensesAreSee
 duplicate refusal, the same-line-twice refusal through `link_rows_to_expense`, the fan-out pin, the
 unrelated-line and Paid-unchanged controls, a Reconciliation Pending expense with **no** slips blocking
 nothing, and a `Reversed` slip not counting) plus `TestTheSlipBranchMirrorsTheMatchSurface` (2).
+
+## #1302 (2026-09-18) — four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22)
+
+An expense can now be settled by many bank lines, so an ordinary edit could silently break the links:
+lower the amount below what the lines already moved, mark it Paid before its money is all in, or delete
+it and leave the slips pointing at nothing. Parent #1295 stories 33–38.
+
+**The rules sit on the DOCUMENT, not on the endpoints (Q22b).** Mark Reconciled on the Payments tab, the
+old expense pages' Mark as Paid / Edit / Delete, Desk, Data Import and the import's own settle and
+unreconcile all reach an expense through `doc.save()` / `frappe.delete_doc()`. An endpoint guard would
+have left every door without an endpoint wide open.
+
+- **Wiring.** `hooks.py` → `integrations/controllers/expense_bank_links.py`, the SAME controller on both
+  expense doctypes (`validate` + an additional `on_trash` beside the existing
+  `delete_doc_versions.generate_versions`). ⚠️ **ONE controller, not a twin per doctype.** `amount`,
+  `status` and `payment_date` are spelled identically on `Project Expenses` and `Non Project Expenses`,
+  and nothing here reads what differs (a project, a vendor, `payment_by`); two files would be two copies
+  of one rule (ADR-0010 F3/B1). ⚠️ **`on_trash` comes FIRST in the list** so a refused delete never mints
+  a version row for a document that is still there.
+- **Logic in `services/outflow_import/expense_links.py`** — the ticket-1 module that already owns "is
+  this expense fully linked". Three new PURE functions returning the sentence a person should read, or
+  `None`: `amount_below_links_refusal` (rule 1), `paid_while_short_refusal` (rule 2),
+  `delete_while_linked_refusal` (rule 3). Rule 4 is the existing `derive_expense_status`.
+- ⚠️ **EVERY RULE IS INERT UNTIL THE EXPENSE HAS LIVE `Settled` SLIPS, and that gate is the safety of
+  the whole change.** An expense no bank line has touched — nearly all of them — behaves exactly as it
+  did before this feature existed, because `line_count == 0` returns before anything is read or written.
+  It is also what lets `unreconcile._revert_expense` put an expense back to Reconciliation Pending after
+  reversing its only slip: by then there are no live slips, so rule 4 does not fire and overwrite the
+  revert. The gate lives in the controller ONCE, not as a `line_count` test repeated inside each rule.
+- ⚠️ **RULE 2 ASKS ABOUT A TRANSITION, RULE 4 ABOUT A STATE — confusing them breaks rule 4.** An expense
+  that is ALREADY Paid and whose amount is then raised must FLIP to Reconciliation Pending (Q8: fixing an
+  amount is an ordinary edit). If rule 2 fired on that save the edit would be refused and the only way out
+  would be to unreconcile the whole run. So rule 2 is asked only when the status is ARRIVING at Paid —
+  `_is_arriving_at_paid`, over `doc.get_doc_before_save()`, which Frappe loads in
+  `run_before_save_methods` immediately before `validate`.
+- ⚠️ **RULE 1 TESTS THE VALUE, NOT THE CHANGE.** A save leaving the expense claiming less money than its
+  own lines moved is wrong whoever caused it. The ₹5 leeway is `amounts.AMOUNT_TOLERANCE`, the same window
+  the linking guard allows in the other direction — rounding, not a shortfall.
+- ⚠️ **RULE 3's "LIVE" IS COUNTED AFTER A REVERSED STAMP**, which is what keeps Unreconcile's own delete
+  of an import-created expense working: `unreconcile_row` stamps the slip `Reversed` *before* it carries
+  the verdict out, so by the time `delete_created` runs this reads zero. Counting before the stamp would
+  make the undo refuse itself. ⚠️ `delete_created` passes `force=True`, which skips Frappe's own
+  dynamic-link check (the kept Reversed slip still names the expense) but **NOT** `on_trash` — so rule 3
+  is the real guard on that path, and the refusal test drives it with `force=True` for exactly that
+  reason: a plain delete would pass for a reason that has nothing to do with rule 3.
+- ⚠️ **RULE 4 REWRITES `payment_date`, NOT ONLY `status`, AND THAT IS SPECIFIED** (the ticket: *every
+  save re-works-out Paid ⇄ Reconciliation Pending **and the payment date***). Worth stating because it
+  is the **one SILENT effect** in this change: a person correcting a settled expense's date by hand, in
+  Desk or on the old expense pages, sees the save succeed and the field revert to the latest linked
+  line's date in the same transaction. The date belongs to the bank lines here, so it is re-derived
+  rather than refused — the other three rules all refuse out loud, and that asymmetry is deliberate.
+  Pinned by `test_a_hand_edited_payment_date_is_re_derived_from_the_lines`, verified to FAIL with the
+  assignment removed.
+- ⚠️ **RULE 4 IS UNCONDITIONAL, NOT ONLY BETWEEN THE TWO STATUSES IT NAMES.** A status the links
+  contradict — an expense with live bank lines saved as `Rejected` — is exactly the state it exists to
+  make unreachable (story 25: *its status always matches its lines*). ⚠️ **A Paid expense whose lines
+  carry no date KEEPS the date it has:** `latest_line_date` is read from the import rows behind the slips,
+  and if those rows were purged the aggregate returns `None`; blanking a settled expense's payment date on
+  an unrelated save would destroy a fact rather than re-derive one. Reconciliation Pending always clears
+  it — there, the absence IS the fact.
+- ⚠️ **NO BYPASS FLAG FOR THE IMPORT** (ADR-0027 Consequences). Its writes satisfy the rules by
+  construction — the slips are inserted BEFORE the expense is saved, so the save sees its own linked
+  total, and `settle._derive_status_and_save` sets exactly what rule 4 would derive. A flag would have
+  made that agreement untested, and the agreement is what proves the rules are right.
+
+**Also moved:** `settle._rupees` → `amounts.rupees` (public). `settle.py` imports `expense_links`, so the
+rules could not import the formatter back without a cycle; `amounts.py` is the pure leaf both sides
+already import, which makes it the one place a money figure in a sentence is spelled. `settle.py` binds
+it as `_rupees` on import, so its three call sites are unchanged.
+
+**Locking — both rules read under a lock they do not take, and each depends on a DIFFERENT frappe
+call taking it.** `validate` is reached through `Document._validate` → `check_if_latest()` →
+`load_doc_before_save(raise_exception=True)`, which does `frappe.get_doc(..., for_update=True)`; that
+same call is what populates `get_doc_before_save()`, so **naming `check_if_latest` rather than
+`run_before_save_methods` matters** — a reader who relocates rule 2 to a hook outside `_save` gets
+`before is None`, which makes `_is_arriving_at_paid` always true and turns rule 2 into a refusal of
+exactly the Q8 raise-the-amount edit rule 4 exists to permit. `on_trash` is reached through
+`frappe.model.delete_doc.delete_doc`, which does `frappe.db.get_value(doctype, name, for_update=True,
+wait=False)` — `SELECT … FOR UPDATE NOWAIT` — **before** it loads the document and runs the hook. So a
+concurrent `link_rows_to_expense` (same row lock, via `settle._lock_settleable_expense`) either blocks
+until the delete commits or already holds the lock and makes the delete fail fast; without it the count
+rule 3 reads would be stale by the time the `DELETE` ran, and the expense could go with live slips
+pointing at it. Neither hook takes a lock of its own — a second lock on a row this transaction already
+holds buys nothing — but **either rule moved off its current call site needs one.**
+
+**Cost, stated:** `validate` now runs one indexed aggregate (`ofm_match_target_idx`) on every expense
+save. The `doc.is_new()` short-circuit keeps it off inserts, which can have no slips.
+
+**Tests:** `services/outflow_import/test_expense_links` gains 13 pure cases (each rule's boundary at
+exactly ₹5 and a paisa past it, and the sentence naming the expense, the linked total, the line count and
+what is left). `api/outflow_import/test_expense_document_rules` is 21 bench cases driven at the DOCUMENT
+seam — `doc.save()` and `frappe.delete_doc()`, never an endpoint, because that is the seam the rules were
+put on — covering all four rules on both doctypes, the no-slips control for each, the import's own settle
+and undo passing under the rules, and an existing 1:1-settled expense saving and staying Paid (story 41).

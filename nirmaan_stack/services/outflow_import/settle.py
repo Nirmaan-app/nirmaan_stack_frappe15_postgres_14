@@ -117,6 +117,7 @@ from nirmaan_stack.services.outflow_import.amounts import (
     AMOUNT_TOLERANCE,
     amounts_match,
     rewrite_amount,
+    rupees as _rupees,
     to_decimal,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -497,22 +498,6 @@ def _lock_settleable_expense(doctype: str, name: str) -> Decimal:
             title="Not settleable",
         )
     return normalize_amount(current.get("amount"))
-
-
-def _rupees(amount) -> str:
-    """`₹21,480` / `₹1,60,113.50` -- Indian grouping, paise only when there are any, for a refusal."""
-    value = to_decimal(amount).quantize(Decimal("0.01"))
-    sign = "-" if value < 0 else ""
-    whole, _, paise = f"{abs(value):.2f}".partition(".")
-    head, tail = whole[:-3], whole[-3:]
-    groups = []
-    while len(head) > 2:
-        groups.insert(0, head[-2:])
-        head = head[:-2]
-    if head:
-        groups.insert(0, head)
-    grouped = ",".join(groups + [tail]) if groups else tail
-    return f"{sign}₹{grouped}" + (f".{paise}" if paise != "00" else "")
 
 
 def _derive_status_and_save(doc, amount) -> None:

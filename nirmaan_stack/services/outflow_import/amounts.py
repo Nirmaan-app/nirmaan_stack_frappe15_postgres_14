@@ -191,6 +191,7 @@ __all__ = [
     "tolerance_bounds",
     "to_decimal",
     "rewrite_amount",
+    "rupees",
 ]
 
 # THE SETTLE WINDOW. Owner ruling 2026-08-07 (widened from Re 1 with tier 2; see the docstring).
@@ -274,3 +275,27 @@ def tolerance_bounds(
     amount = to_decimal(value)
     width = to_decimal(tolerance)
     return amount - width, amount + width
+
+
+def rupees(amount) -> str:
+    """`₹21,480` / `₹1,60,113.50` -- Indian grouping, paise only when there are any, for a refusal.
+
+    ⚠️ IT LIVES HERE, NOT IN THE MODULE THAT FIRST NEEDED IT. It was `settle._rupees` until #1302,
+    when the expense document rules needed the same shape for their own refusals -- and `settle.py`
+    imports `expense_links`, so the rules could not import it back without a cycle. `amounts.py` is
+    the pure leaf both sides already import, which makes it the one place a money figure in a
+    sentence can be spelled. A second copy is how two refusals about the same money end up printing
+    it differently.
+    """
+    value = to_decimal(amount).quantize(Decimal("0.01"))
+    sign = "-" if value < 0 else ""
+    whole, _, paise = f"{abs(value):.2f}".partition(".")
+    head, tail = whole[:-3], whole[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    if head:
+        groups.insert(0, head)
+    grouped = ",".join(groups + [tail]) if groups else tail
+    return f"{sign}₹{grouped}" + (f".{paise}" if paise != "00" else "")

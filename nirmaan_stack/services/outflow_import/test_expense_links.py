@@ -14,10 +14,13 @@ from decimal import Decimal
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.expense_links import (
     ExpenseLinks,
+    amount_below_links_refusal,
     bulk_id_of,
+    delete_while_linked_refusal,
     derive_expense_status,
     lines_fit,
     one_line_fits,
+    paid_while_short_refusal,
     remaining_balance,
 )
 from nirmaan_stack.services.outflow_import.ledgers import PAID, RECONCILIATION_PENDING
@@ -129,6 +132,87 @@ class TestBulkIdOf(unittest.TestCase):
 
     def test_no_lines_name_none(self):
         self.assertIsNone(bulk_id_of([]))
+
+
+class TestAmountBelowLinksRefusal(unittest.TestCase):
+    """RULE 1 (#1302): the amount may not sit below what the bank lines already moved."""
+
+    def _linked(self, total, count=3):
+        return ExpenseLinks(linked_total=Decimal(str(total)), latest_line_date=None, line_count=count)
+
+    def test_an_amount_above_the_linked_total_is_fine(self):
+        self.assertIsNone(amount_below_links_refusal("NPE-1", "160113", self._linked("100000")))
+
+    def test_an_amount_equal_to_the_linked_total_is_fine(self):
+        self.assertIsNone(amount_below_links_refusal("NPE-1", "100000", self._linked("100000")))
+
+    def test_an_amount_under_by_exactly_the_tolerance_is_fine(self):
+        short = Decimal("100000") - AMOUNT_TOLERANCE
+        self.assertIsNone(amount_below_links_refusal("NPE-1", short, self._linked("100000")))
+
+    def test_an_amount_under_by_a_paisa_more_is_refused(self):
+        short = Decimal("100000") - AMOUNT_TOLERANCE - Decimal("0.01")
+        self.assertIsNotNone(amount_below_links_refusal("NPE-1", short, self._linked("100000")))
+
+    def test_the_refusal_names_the_expense_the_linked_total_and_the_line_count(self):
+        message = amount_below_links_refusal("NPE-1", "50000", self._linked("160113", count=25))
+
+        self.assertIn("NPE-1", message)
+        self.assertIn("1,60,113", message)
+        self.assertIn("25 bank lines", message)
+        self.assertIn("Unreconcile", message)
+
+
+class TestPaidWhileShortRefusal(unittest.TestCase):
+    """RULE 2 (#1302, Q12): Paid by hand is refused while the lines fall short."""
+
+    def _linked(self, total, count=3):
+        return ExpenseLinks(linked_total=Decimal(str(total)), latest_line_date=None, line_count=count)
+
+    def test_a_fully_linked_expense_may_be_paid(self):
+        self.assertIsNone(paid_while_short_refusal("NPE-1", "160113", self._linked("160113")))
+
+    def test_short_by_exactly_the_tolerance_may_be_paid(self):
+        """The same edge `derive_expense_status` calls Paid -- the two can never disagree."""
+        short = Decimal("160113") - AMOUNT_TOLERANCE
+        self.assertIsNone(paid_while_short_refusal("NPE-1", "160113", self._linked(short)))
+
+    def test_a_part_linked_expense_may_not_be_paid(self):
+        self.assertIsNotNone(paid_while_short_refusal("NPE-1", "160113", self._linked("100000")))
+
+    def test_the_refusal_names_what_is_linked_and_what_is_left(self):
+        message = paid_while_short_refusal("NPE-1", "160113", self._linked("100000", count=20))
+
+        self.assertIn("NPE-1", message)
+        self.assertIn("1,00,000", message)   # linked
+        self.assertIn("60,113", message)     # left
+        self.assertIn("20 bank lines", message)
+
+
+class TestDeleteWhileLinkedRefusal(unittest.TestCase):
+    """RULE 3 (#1302): live slips block the delete and point at Unreconcile."""
+
+    def test_an_expense_with_no_live_slips_may_be_deleted(self):
+        self.assertIsNone(
+            delete_while_linked_refusal("NPE-1", ExpenseLinks(Decimal("0"), None, 0))
+        )
+
+    def test_one_live_slip_blocks_it_and_reads_as_one_line(self):
+        message = delete_while_linked_refusal(
+            "NPE-1", ExpenseLinks(Decimal("21480"), _LINE_DATE, 1)
+        )
+
+        self.assertIn("1 bank line ", message)
+        self.assertIn("is linked", message)
+        self.assertIn("Unreconcile", message)
+
+    def test_many_live_slips_block_it_and_read_as_many_lines(self):
+        message = delete_while_linked_refusal(
+            "NPE-1", ExpenseLinks(Decimal("160113"), _LINE_DATE, 33)
+        )
+
+        self.assertIn("33 bank lines", message)
+        self.assertIn("are linked", message)
 
 
 if __name__ == "__main__":
