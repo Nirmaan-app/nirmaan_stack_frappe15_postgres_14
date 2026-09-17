@@ -43,6 +43,7 @@ import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { VendorRefundsButton } from "@/components/vendor-refunds/VendorRefundsButton";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -180,6 +181,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
           <p className="text-xl max-sm:text-lg text-red-600">
             Transaction Details
           </p>
+          <VendorRefundsButton documentType="Procurement Orders" documentName={PO?.name} />
           {/* {!accountsPage && !estimatesViewing && !summaryPage && (
             <>
               <Tooltip>
