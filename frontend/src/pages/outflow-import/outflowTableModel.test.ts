@@ -92,6 +92,7 @@ import {
     SCOPE_FOR_TAB,
     countDecided,
     decidedRows,
+    selectedMoneyOut,
     decisionLinkKeys,
     decisionOrigin,
     highlightSegments,
@@ -2166,6 +2167,38 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
             newExpense: { doctype: "Project Expenses" as const, expenseType: "Rent" },
         });
         expect(countDecided(rows, new Set(["a", "b", "c"]), halfFilled)).toBe(2);
+    });
+});
+
+describe("selectedMoneyOut -- the toolbar's money-out total for the ticked lines (#1297)", () => {
+    const rows = [
+        row({ name: "a", amount: 6240, direction: "Debit" }),
+        row({ name: "b", amount: 3870, direction: "Debit" }),
+        row({ name: "c", amount: 1905, direction: "Credit" }),
+        row({ name: "d", amount: 822, direction: undefined }),
+    ];
+
+    it("sums only the ticked lines", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "b"]))).toBe(10110);
+    });
+
+    it("leaves a money-in line out of the total", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "c"]))).toBe(6240);
+    });
+
+    // A blank direction is outflow, exactly as the tabs and the Amount cell's red file it --
+    // `isCreditRow` is the one test, so the total can never disagree with the colour on screen.
+    it("counts a blank-direction line as money out", () => {
+        expect(selectedMoneyOut(rows, new Set(["d"]))).toBe(822);
+    });
+
+    it("is zero with nothing ticked, or only a money-in line ticked", () => {
+        expect(selectedMoneyOut(rows, new Set())).toBe(0);
+        expect(selectedMoneyOut(rows, new Set(["c"]))).toBe(0);
+    });
+
+    it("ignores a ticked name that is not among the loaded rows", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "gone"]))).toBe(6240);
     });
 });
 

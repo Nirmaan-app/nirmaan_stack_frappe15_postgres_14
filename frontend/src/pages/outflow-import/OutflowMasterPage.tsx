@@ -21,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { exportToCsv } from "@/utils/exportToCsv";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type {
     OutflowImportOption,
     OutflowImportRow,
@@ -55,6 +56,7 @@ import {
 import {
     OUTFLOW_COLUMNS,
     decidedRows,
+    selectedMoneyOut,
     clearedPick,
     decisionLinkKeys,
     pickFitsSingleSelect,
@@ -450,6 +452,7 @@ export const OutflowMasterPage = () => {
         () => decidedRows(rows, selected, decisions),
         [rows, selected, decisions]
     );
+    const selectedOut = useMemo(() => selectedMoneyOut(rows, selected), [rows, selected]);
     const originByRow = useMemo(() => {
         const out = new Map<string, DecisionOrigin>();
         for (const row of rows) out.set(row.name, decisionOrigin(row, decisions.get(row.name)));
@@ -1218,8 +1221,58 @@ export const OutflowMasterPage = () => {
                     it with you. The count states what you are currently looking at and Export says
                     "give me that", so the two are one thought and read as one. Grouped with the
                     view-changing controls it would read as a third way to alter the table, which is
-                    the one thing it never does. */}
+                    the one thing it never does. The selection controls join the group (#1297) because
+                    they, too, act on what the view already shows rather than changing the view. */}
                 <div className="ml-auto flex items-center gap-2">
+                    {/* ⚠️ THE SELECTION CONTROLS LIVE HERE, NOT IN A FLOATING BAR (#1297). They sit
+                        before Export because both act on "what I am looking at", and they render
+                        only with a tick -- with none the row is exactly what it was.
+
+                        ⚠️ IT REPORTS HOW MANY SELECTED ROWS ARE ACTUALLY DECIDED, not how many are
+                        ticked (owner ruling). It never silently acts on a row nobody resolved, and it
+                        does not refuse the whole action either -- the rest are ready. Paged, it
+                        counts among the rows LOADED; "Confirm all matched" in the summary is the
+                        whole-import action.
+
+                        ⚠️ NOT GATED ON A TAB (2026-08-10 retab). Only open rows can be ticked at all
+                        -- the table enforces that per row -- so a non-empty selection means there is
+                        something to confirm, whichever tab it was made on.
+
+                        ⚠️ IT HAS NO `!showingApproved` CHECK OF ITS OWN: it relies on this toolbar
+                        being `hidden` on the approved view. Move it out of this row and add one. */}
+                    {selected.size > 0 && (
+                        <>
+                            <span className="text-sm font-medium">{selected.size} selected</span>
+                            <span className="text-xs tabular-nums">
+                                <span className="font-semibold">
+                                    {formatToRoundedIndianRupee(selectedOut)}
+                                </span>{" "}
+                                <span className="text-muted-foreground">out</span>
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                                {readyToConfirm.length} decided
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => setSelected(new Set())}
+                            >
+                                Clear
+                            </Button>
+                            <Button
+                                size="sm"
+                                className="h-8"
+                                disabled={!readyToConfirm.length || busy}
+                                onClick={handleBulkConfirm}
+                            >
+                                {readyToConfirm.length
+                                    ? `Confirm ${readyToConfirm.length} decided`
+                                    : "Confirm decided"}
+                            </Button>
+                            <span aria-hidden className="h-5 w-px bg-border" />
+                        </>
+                    )}
                     <ExportButton total={table.total} onExport={handleExport} />
                     <span className="text-xs text-muted-foreground">
                         {table.total.toLocaleString()}{" "}
@@ -1299,37 +1352,6 @@ export const OutflowMasterPage = () => {
                     />
                     </>
                 ))}
-
-            {/* ⚠️ REPORTS HOW MANY SELECTED ROWS ARE ACTUALLY DECIDED, not how many are ticked
-                (owner ruling). It never silently acts on a row nobody resolved, and it does not
-                refuse the whole action either -- the rest are ready. Paged, it counts among the
-                rows LOADED; "Confirm all matched" in the summary is the whole-import action.
-
-                ⚠️ NO LONGER GATED ON A TAB (2026-08-10 retab). Only open rows can be ticked at all
-                now -- the table enforces that per row -- so a non-empty selection means there is
-                something to confirm, whichever tab it was made on. */}
-            {!showingApproved && selected.size > 0 && (
-                <div className="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-md border bg-background/95 p-3 shadow-lg backdrop-blur">
-                    <span className="text-sm font-medium">{selected.size} selected</span>
-                    <span className="text-xs text-muted-foreground">
-                        {readyToConfirm.length} decided
-                    </span>
-                    <div className="ml-auto flex gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-                            Clear
-                        </Button>
-                        <Button
-                            size="sm"
-                            disabled={!readyToConfirm.length || busy}
-                            onClick={handleBulkConfirm}
-                        >
-                            {readyToConfirm.length
-                                ? `Confirm ${readyToConfirm.length} decided`
-                                : "Confirm decided"}
-                        </Button>
-                    </div>
-                </div>
-            )}
 
             {/* ⚠️ `onRefresh` IS NOT `onImported` (slice CF/S7). The dialog now stays open through
                 the confirm step, so it needs a way to re-read this screen after each settle without

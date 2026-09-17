@@ -2783,6 +2783,26 @@ export const decidedRows = (
 ): OutflowImportRow[] =>
     rows.filter((row) => selected.has(row.name) && isConfirmable(row, decisions.get(row.name)));
 
+/**
+ * The money that left the account across the ticked lines -- the toolbar's "₹X out" (#1297).
+ *
+ * ⚠️ MONEY-IN LINES ARE LEFT OUT, NOT SUBTRACTED. A credit is a different axis, not a negative
+ * debit, so netting it would state a figure that is neither what left nor what arrived. The test is
+ * `isCreditRow`, the same one the Amount cell's colour reads, so a blank direction counts as out
+ * here exactly as it renders red.
+ *
+ * It sums over the LOADED rows only, like `decidedRows`: a ticked name that is not on this page
+ * carries no amount this screen can see.
+ */
+export const selectedMoneyOut = (
+    rows: OutflowImportRow[],
+    selected: ReadonlySet<string>
+): number =>
+    rows.reduce(
+        (sum, row) => (selected.has(row.name) && !isCreditRow(row) ? sum + row.amount : sum),
+        0
+    );
+
 // --- where a settled or suggested record lives ---------------------------------------------------
 
 /**
