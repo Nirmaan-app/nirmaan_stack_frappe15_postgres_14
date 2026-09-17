@@ -2314,6 +2314,10 @@ SCOPE_MATCHED_OUTFLOW = "matched_outflow"
 SCOPE_NOT_MATCHED_INFLOW = "not_matched_inflow"
 SCOPE_SETTLED_INFLOW = "settled_inflow"
 SCOPE_SKIPPED = "skipped"
+# The Skipped popup's Outflow / Inflow tabs (2026-09-17): `skipped`, narrowed to one direction. Scopes,
+# so their counts ride `tab_counts` under the popup's own filters. Still no TAB on the page reaches them.
+SCOPE_SKIPPED_OUTFLOW = "skipped_outflow"
+SCOPE_SKIPPED_INFLOW = "skipped_inflow"
 
 # The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
 # the funnel, the tabs and the summary name a side identically.
@@ -2349,6 +2353,8 @@ _SCOPE_STATUSES = {
     # ⚠️ IT IS THE ONLY SCOPE THAT RETURNS THEM, and it returns nothing else. A scope that mixed
     # skipped rows into a working view would be the thing the ruling forbids, arrived at sideways.
     SCOPE_SKIPPED: (ROW_SKIPPED,),
+    SCOPE_SKIPPED_OUTFLOW: (ROW_SKIPPED,),
+    SCOPE_SKIPPED_INFLOW: (ROW_SKIPPED,),
 }
 
 # The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
@@ -2358,6 +2364,8 @@ _SCOPE_DIRECTION = {
     SCOPE_MATCHED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
     SCOPE_NOT_MATCHED_INFLOW: DIRECTION_INFLOW_LABEL,
     SCOPE_SETTLED_INFLOW: DIRECTION_INFLOW_LABEL,
+    SCOPE_SKIPPED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_SKIPPED_INFLOW: DIRECTION_INFLOW_LABEL,
 }
 
 # ⚠️ THE PRE-#1264 SCOPE IDS, KEPT AS ALIASES. A stale client (an open tab, a bookmark) still sends
@@ -2435,6 +2443,9 @@ _FACET_COLUMNS = {
     # staging by both sources, and `v3_0.backfill_outflow_row_source` fills the rows that predate
     # the field -- without which the funnel would draw itself over 1,043 blanks.
     "source": "r.source",
+    # The Skipped popup's Skip Type funnel (2026-09-17). A STORED column, written beside the reason
+    # sentence by every skip writer -- never an expression over that sentence, which gets reworded.
+    "skip_kind": "r.skip_kind",
     # ⚠️ THE FACET IS THE DERIVED TWO-VALUE LABEL, NOT THE RAW COLUMN -- and this entry REVERSES a
     # deliberate decision. `direction` shipped at B6 as a COLUMN ONLY, and the note beside it in
     # `get_outflow_rows`' SELECT list said in as many words that it was "deliberately NOT in
@@ -2673,7 +2684,7 @@ def get_outflow_rows(
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
                -- Who skipped it, and when (#1273): the Skipped popup's "Skipped by hand" line.
-               r.skip_origin, r.decided_by, r.decided_at,
+               r.skip_origin, r.skip_kind, r.decided_by, r.decided_at,
                -- The Outcome cell's "Confirm by hand" chip (#1280); the date beside it is read below.
                r.confirm_by_hand,
                -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
@@ -3219,7 +3230,7 @@ def export_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
-               r.skip_origin, r.decided_by, r.decided_at,
+               r.skip_origin, r.skip_kind, r.decided_by, r.decided_at,
                r.settlement_origin, r.source,
                {SETTLED_LEDGER_SQL}          AS settled_ledgers,
                {_SETTLED_NAME_SQL}           AS settled_target_names,
