@@ -20,10 +20,9 @@ export const EXR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 export const EXR_DATE_COLUMNS: string[] = ["creation", "modified", "reviewed_on"];
 
+// Approved / Paid / Rejected tabs removed (owner, 17 Sep 2026): those rows are still listed
+// under All, which shows the Status column.
 export const EXR_STATUS_TABS = [
     { label: "Pending Approval", value: "Pending Approval" },
-    { label: "Approved", value: "Approved" },
-    { label: "Paid", value: "Paid" },
-    { label: "Rejected", value: "Rejected" },
     { label: "All", value: "All" },
 ] as const;

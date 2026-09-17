@@ -1,7 +1,7 @@
 // src/pages/Expenses/ExpenseLayout.tsx
 //
-// Unified "Expense" module shell. Renders a page-level pill tab strip (Misc
-// Project Expense / Non-Project Expense) above an <Outlet />. The active tab is
+// Unified "Expense" module shell. Renders a page-level pill tab strip (now only
+// Expense Request -- see the note below) above an <Outlet />. The active tab is
 // the primary button color (red) with white text; inactive tabs are gray with
 // dark text — same style as the status pills (Requested/Approved/Paid) below, so
 // the active tab reads clearly. Each tab is its own URL (/expense/project,
@@ -12,40 +12,17 @@
 
 import React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { useCounts } from "@/hooks/useCounts";
-import { useUserData } from "@/hooks/useUserData";
-
-// A Project Manager reaches this module ONLY to raise expense requests -- the Expense
-// sidebar entry was opened to them for that alone, so the two ledger tabs stay hidden.
-const REQUESTS_ONLY_ROLES = ["Nirmaan Project Manager Profile"];
 
 const ExpenseLayout: React.FC = () => {
   const { pathname } = useLocation();
-  const { role } = useUserData();
-  const requestsOnly = REQUESTS_ONLY_ROLES.includes(role as string);
 
-  // Both tab totals (global, no filters) in ONE batch round-trip via useCounts.
-  const { data: countsData } = useCounts(
-    [
-      { key: "project", doctype: "Project Expenses" },
-      { key: "nonProject", doctype: "Non Project Expenses" },
-    ],
-    "expense_layout_tab_counts"
-  );
-  const projectCount = countsData?.message?.project as number | undefined;
-  const nonProjectCount = countsData?.message?.nonProject as number | undefined;
-
-  // Expense Request sits FIRST (owner ruling). It carries NO count badge: the other two are
-  // whole-table totals, while a request list is scoped per viewer (own + routed), so one
-  // global number would be wrong for everyone who is not an Admin.
+  // Misc Project Expense / Non-Project Expense tabs HIDDEN for every role (owner, 17 Sep 2026);
+  // before that only a Project Manager had them hidden. HIDDEN, NOT DELETED: /expense/project
+  // and /expense/non-project still resolve (routesConfig.tsx), so dashboard cards, bookmarks
+  // and deep links keep working -- only the tab buttons (and their count query) are gone.
+  // Restoring them is putting the two entries back here along with the useCounts batch.
   const tabs: { label: string; to: string; count?: number }[] = [
     { label: "Expense Request", to: "/expense/requests" },
-    ...(requestsOnly
-      ? []
-      : [
-          { label: "Misc Project Expense", to: "/expense/project", count: projectCount },
-          { label: "Non-Project Expense", to: "/expense/non-project", count: nonProjectCount },
-        ]),
   ];
 
   return (

@@ -4,14 +4,16 @@
 // `useServerDataTable` + `DataTable` stack as the Misc Project and Non-Project tabs, so all
 // three behave identically (search, facets, export, paging).
 //
-// ⚠️ VISIBILITY IS ENFORCED SERVER-SIDE. The read DocPerm is deliberately broad; the real
-// rule -- you see your OWN requests plus any whose expense type routes to your role profile
-// -- lives in `permission_query_conditions` (hooks.py -> `access.get_permission_query_conditions`),
-// which the table's `reportview` read passes through. Do NOT add a client-side filter for
-// it: a second copy of that rule would be free to drift from the one the database applies.
+// ⚠️ THERE IS NO SERVER-SIDE ROW SCOPING. The `permission_query_conditions` hook was removed
+// on request (see `access.get_permission_query_conditions`), so every role holding the read
+// DocPerm sees every request.
 //
-// `can_review` is likewise SERVER-computed, fetched once per page via the scoped endpoint and
-// keyed by request name. Never re-derive who may approve.
+// A Project Manager is narrowed to the requests THEY raised (owner, 17 Sep 2026) -- on THIS
+// page only, as a display filter: table, tab counts, facets and export all carry
+// `owner = <user>`. It is NOT access control; the API and Desk still return every request.
+//
+// `can_review` is SERVER-computed, fetched once per page via the scoped endpoint and keyed by
+// request name. Never re-derive who may approve.
 
 import React, { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
@@ -20,6 +22,7 @@ import memoize from "lodash/memoize";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useCounts } from "@/hooks/useCounts";
+import { useUserData } from "@/hooks/useUserData";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { cn } from "@/lib/utils";
 
@@ -38,7 +41,21 @@ import {
 
 const DOCTYPE = "Expense Request";
 
+// Roles that see only the requests they raised themselves.
+const OWN_REQUESTS_ONLY_ROLES = ["Nirmaan Project Manager Profile"];
+
 export const ExpenseRequestsPage: React.FC = () => {
+    const { role, user_id } = useUserData();
+
+    // `useUserData` returns "Loading" while the Nirmaan Users doc is in flight. Mounting the
+    // table then would fetch EVERY request before the owner filter exists, so hold.
+    if (role === "Loading") return null;
+
+    const ownerFilter = OWN_REQUESTS_ONLY_ROLES.includes(role as string) ? user_id : null;
+    return <ExpenseRequestsList ownerFilter={ownerFilter} />;
+};
+
+const ExpenseRequestsList: React.FC<{ ownerFilter: string | null }> = ({ ownerFilter }) => {
     const [statusTab, setStatusTab] = useState<string>("Pending Approval");
     const [review, setReview] = useState<{ action: ReviewAction | null; request: ExpenseRequest | null }>(
         { action: null, request: null }
@@ -63,11 +80,20 @@ export const ExpenseRequestsPage: React.FC = () => {
         [expenseTypes]
     );
 
-    // Tab badge counts. Already scoped -- the counts endpoint reads through the same
-    // permission query condition, so a PM's badges show their own requests.
+    // The owner narrowing, shared by the table, the tab counts, the facets and the export.
+    const scopeFilters = useMemo(
+        () => (ownerFilter ? [["owner", "=", ownerFilter]] : []),
+        [ownerFilter]
+    );
+
+    // Tab badge counts, scoped like the table. The key carries the scope because SWR keys on
+    // it alone, not on the specs.
     const { data: countsData, mutate: mutateCounts } = useCounts(
-        [{ key: "byStatus", doctype: DOCTYPE, group_field: "status" }, { key: "all", doctype: DOCTYPE }],
-        "exr_status_counts"
+        [
+            { key: "byStatus", doctype: DOCTYPE, group_field: "status", filters: scopeFilters },
+            { key: "all", doctype: DOCTYPE, filters: scopeFilters },
+        ],
+        `exr_status_counts:${ownerFilter ?? "all"}`
     );
     const byStatus = (countsData?.message?.byStatus ?? {}) as Record<string, number>;
     const allCount = (countsData?.message?.all as number) ?? 0;
@@ -123,9 +149,18 @@ export const ExpenseRequestsPage: React.FC = () => {
     );
 
     const additionalFilters = useMemo(
-        () => (statusTab !== "All" ? [["status", "=", statusTab]] : []),
-        [statusTab]
+        () => [...scopeFilters, ...(statusTab !== "All" ? [["status", "=", statusTab]] : [])],
+        [scopeFilters, statusTab]
     );
+
+    // Facet option lists follow the same rows the table shows, so a PM's "Raised By" /
+    // "Project" filters never list other people's requests.
+    const facetOverrides = useMemo(() => {
+        const scoped = { additionalFilters };
+        return {
+            type: scoped, projects: scoped, owner: scoped, status: scoped, reviewed_by: scoped,
+        };
+    }, [additionalFilters]);
 
     const columnsDefinition = useMemo(
         () => getExpenseRequestColumns({
@@ -191,6 +226,7 @@ export const ExpenseRequestsPage: React.FC = () => {
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 facetDoctype={DOCTYPE}
+                facetOverrides={facetOverrides}
                 dateFilterColumns={EXR_DATE_COLUMNS}
                 showExportButton={true}
                 onExport={"default"}

@@ -58,10 +58,14 @@ import FormatFieldsRenderer, {
 /** One option per expense type.
  *
  *  ⚠️ The category is deliberately NOT shown or searched (owner ruling 2026-09-16): it still
- *  exists on the master, but requesters pick by type name alone. */
+ *  exists on the master, but requesters pick by type name alone.
+ *
+ *  `scope` is shown grey on the right of each menu row (owner, 17 Sep 2026), worded as the
+ *  Expense Packages master words it. Display only -- it is not searched. */
 interface ExpenseTypeOption extends FuzzyOptionType {
     value: string;
     label: string;
+    scope: "Project" | "Non-Project" | "Both";
 }
 
 const EXPENSE_TYPE_SEARCH: TokenSearchConfig = {
@@ -188,8 +192,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const typeOptions: ExpenseTypeOption[] = useMemo(
         () => categories
             .filter((c) => c.types.length > 0)
-            .flatMap((c) => c.types.map((t) => ({
+            .flatMap((c) => c.types.map((t): ExpenseTypeOption => ({
                 value: t.expense_type, label: t.expense_type,
+                scope: t.project && t.non_project ? "Both" : t.project ? "Project" : "Non-Project",
             })))
             // The catalog arrives grouped by category; with the category hidden that order
             // reads as random, so the list is alphabetical instead.
@@ -473,6 +478,16 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             value={selectedTypeOption}
                             onChange={(o) => handleTypeChange(o?.value ?? "")}
                             placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
+                            // Scope rides the menu rows only; the chosen value stays a clean name
+                            // -- the `VendorSelect` convention.
+                            formatOptionLabel={(o, meta) => meta.context === "value" ? o.label : (
+                                <span className="flex items-center justify-between gap-2 w-full">
+                                    <span className="truncate">{o.label}</span>
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                        {o.scope}
+                                    </span>
+                                </span>
+                            )}
                             // The menu renders in the body -- REQUIRED inside a dialog or it
                             // clips at the dialog's edge, the same reason VendorSelect portals.
                             menuPortalTarget={document.body}

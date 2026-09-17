@@ -377,12 +377,8 @@ export const appRoutes: RouteObject[] = [
             path: "expense",
             element: <ExpenseLayout />,
             children: [
-              // TAB ORDER IS NOT LANDING ORDER. Expense Request renders FIRST, but the
-              // index redirect deliberately does not follow it: every role with access has
-              // landed on Misc Project Expense since the module was unified, and moving
-              // them all is not something adding a tab should do quietly. Only a PM is sent
-              // to Requests -- the ledger tabs are hidden from them, so the historical
-              // default would strand them on a page they cannot see.
+              // Index lands on Requests for every role: the Misc Project / Non-Project tabs are
+              // hidden (ExpenseLayout), but their routes below still resolve for deep links.
               { index: true, element: <ExpenseIndexRedirect /> },
               { path: "requests", element: <ExpenseRequestsPage /> },
               { path: "project", element: <AllProjectExpensesPage /> },

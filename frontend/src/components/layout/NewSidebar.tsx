@@ -571,11 +571,12 @@ export function NewSidebar() {
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
-          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
-          // default (Misc Project) tab; the tab strip handles switching.
+          // Renamed "Expense" -> "Expense Request" (owner, 17 Sep 2026): the module now shows
+          // only the request list -- ExpenseLayout hides the Misc Project / Non-Project tabs.
+          // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
           key: '/expense',
           icon: Landmark,
-          label: 'Expense',
+          label: 'Expense Request',
         },
       ]
       : []),
@@ -1026,7 +1027,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    "Expense",
+                    "Expense Request",
                     "Users",
                     "Assets",
                     "Vendors",

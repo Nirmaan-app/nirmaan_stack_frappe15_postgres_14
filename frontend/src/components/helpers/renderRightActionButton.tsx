@@ -198,7 +198,7 @@ export const RenderRightActionButton = ({
         <DropdownMenuTrigger asChild>
           <Button className="sm:mr-4 mr-2">
             <CirclePlus className="w-5 h-5 pr-1" />
-            Expense <span className="hidden md:flex pl-1">Request</span>
+            Add <span className="hidden md:flex pl-1">Expense</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="mr-16">
