@@ -93,3 +93,43 @@ class TestTheSkippedPopupReads(SkipFixture):
     def test_the_funnel_offers_the_kinds_of_the_tab_on_screen(self):
         values = get_outflow_facet_values("skip_kind", batch=self.batch, scope="skipped_inflow")["values"]
         self.assertEqual(sorted(v for v in values if v), ["Inflow Already Recorded", "Wallet money returned"])
+
+
+class TestTheSkipTypeHoverSources(SkipFixture):
+    """`skip_source` on each Skipped row: the document that caused the skip."""
+
+    def test_already_imported_names_the_earlier_statement(self):
+        tid = f"hover-{frappe.generate_hash(length=8)}"
+        original = self._line(status="Settled", transfer_id=tid, added_on="2026-09-01 10:00:00")
+        first_batch = frappe.db.get_value("Outflow Import Row", original, "import_batch")
+        again = self._line(
+            status=ROW_SKIPPED, transfer_id=tid, added_on="2026-09-01 10:00:00",
+            skip_origin="System", skip_kind="Already imported",
+        )
+        batch = frappe.db.get_value("Outflow Import Row", again, "import_batch")
+        row = next(r for r in get_outflow_rows(scope="skipped", batch=batch)["rows"] if r["name"] == again)
+        self.assertEqual(row["skip_source"]["earlier_import"]["name"], first_batch)
+
+    def test_repeated_in_file_names_the_first_line(self):
+        tid = f"hover-{frappe.generate_hash(length=8)}"
+        first = self._line(status=ROW_MISMATCHED, transfer_id=tid, added_on="2026-09-01 10:00:00")
+        batch = frappe.db.get_value("Outflow Import Row", first, "import_batch")
+        repeat = self._line(
+            batch=batch, status=ROW_SKIPPED, transfer_id=tid, added_on="2026-09-01 10:00:00",
+            skip_origin="System", skip_kind="Repeated in same file",
+        )
+        row = next(r for r in get_outflow_rows(scope="skipped", batch=batch)["rows"] if r["name"] == repeat)
+        self.assertEqual(row["skip_source"]["earlier_line"]["name"], first)
+
+    def test_a_bank_rule_kind_carries_what_the_rule_catches(self):
+        line = self._line(status=ROW_SKIPPED, skip_origin="System", skip_kind="Porter wallet top-up")
+        batch = frappe.db.get_value("Outflow Import Row", line, "import_batch")
+        row = get_outflow_rows(scope="skipped", batch=batch)["rows"][0]
+        self.assertIn("Porter wallet", row["skip_source"]["rule"])
+        self.assertIsNone(row["skip_source"]["earlier_import"])
+
+    def test_a_row_that_is_not_skipped_carries_no_source(self):
+        line = self._line(status=ROW_MISMATCHED)
+        batch = frappe.db.get_value("Outflow Import Row", line, "import_batch")
+        row = get_outflow_rows(scope="not_matched_outflow", batch=batch)["rows"][0]
+        self.assertIsNone(row["skip_source"])

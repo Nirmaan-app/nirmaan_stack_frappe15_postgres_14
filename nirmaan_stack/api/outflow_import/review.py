@@ -38,6 +38,7 @@ from typing import Sequence
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
     require_outflow_undo_access,
@@ -1389,9 +1390,11 @@ def unskip_row(row: str, reason: str):
     three notices the Skipped popup shows ("needs a record", "matched X", "skipped again") are read
     from these -- plus the import's `batch_status`.
 
-    ⚠️ "SKIPS ARE FINAL" IS REVERSED FOR HAND SKIPS ONLY (`skip_origin.unskip_refusal`). A system skip
-    stays skipped: a duplicate, a refused transfer, an exclusion or a repeat of an earlier statement,
-    brought back, is the same money waiting to be recorded twice. So is a Cashbook line (Q16).
+    ⚠️ WHICH LINES MAY COME BACK IS DECIDED BY SKIP KIND (`skip_origin.unskip_refusal`, owner
+    2026-09-17, ADR-0022 Amendment C). Already imported, Repeated in same file, No amount and Bank
+    refused stay skipped, and so does every Cashbook line (Q16). Everything else -- a hand skip, money
+    already recorded, a bank-rule exclusion -- may come back, and the re-check below is what keeps that
+    safe: money still recorded is skipped again, as the same kind.
 
     ⚠️ THE RE-OPEN AND THE RE-CHECK ARE ONE TRANSACTION. The line goes back to `Pending match run`
     through the document layer (a Version row, the doctype tracks changes), then `match_line` runs on
@@ -1399,8 +1402,8 @@ def unskip_row(row: str, reason: str):
     stranded half-open with no outcome.
 
     ⚠️ WHAT IS CLEARED, AND WHY EACH ONE:
-      * `skip_origin`, `skip_reason` -- the line is no longer skipped. If the re-check skips it again,
-        `_persist_row_outcome` writes `System`, so it can never be unskipped into a duplicate.
+      * `skip_origin`, `skip_kind`, `skip_reason` -- the line is no longer skipped. If the re-check
+        skips it again, `_persist_row_outcome` writes `System` and the kind it found.
       * `outcome_note` -- the typed skip reason must not survive as the line's note; the re-check
         writes the real one.
       * `decided_at`, `decided_by`, `settlement_origin` -- nobody has decided the line any more.
@@ -1423,7 +1426,7 @@ def unskip_row(row: str, reason: str):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
-            ["name", "import_batch", "row_status", "skip_origin"],
+            ["name", "import_batch", "row_status", "skip_kind"],
             as_dict=True,
             for_update=True,
         )
@@ -1431,7 +1434,7 @@ def unskip_row(row: str, reason: str):
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
         refusal = unskip_refusal(
             row_status=current.row_status,
-            skip_origin=current.skip_origin,
+            skip_kind=current.skip_kind,
             source=_batch_source(current.import_batch),
         )
         if refusal:
@@ -2740,6 +2743,9 @@ def get_outflow_rows(
     )[0]["n"]
 
     related = _related_records(rows)
+    # The document behind each SKIPPED row on this page, for the Skipped popup's Skip Type hover. Only
+    # Skipped rows are looked at, so the page's own tabs (which never hold one) pay nothing for it.
+    sources = skip_sources(rows, related)
     # #1266 (owner pick A): a settled row's own legs, so the Outcome cell links the record it
     # settled or CREATED. Until then this read sent `matches: []`, so a created Project Inflow,
     # Non-Project Inflow or expense was never linked from the screen.
@@ -2781,6 +2787,7 @@ def get_outflow_rows(
                 # The row's live settlement legs (#1266), the same shape `get_batch_rows` sends.
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
+                "skip_source": sources.get(row["name"]),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
                 "confirm_by_hand": bool(row.get("confirm_by_hand")),
                 # #1280: when the line was last unreconciled and which records came off then, so the

@@ -325,6 +325,24 @@ payment. Measured on localhost on 2026-09-16: 2 import-settled payments (`PAY-00
 **Pins.** The refusal's table rows and ordering tests were removed. The ordering test that used a
 legacy figure on a leftover now uses a deduction row instead. The retirement itself is pinned by
 `test_unreconcile.TestTheOrderTheRefusalsAreAskedIn.test_a_payment_leg_carries_no_legacy_tds_fact`.
+## Amendment C — Unskip is decided by skip KIND, not by who skipped (2026-09-17, owner)
+
+**Reverses** the "Manual only" rule in *Unskip (Q8, Q9)* above.
+
+- Every Skipped line carries `Outflow Import Row.skip_kind` (the Skipped popup's Skip Type).
+  `skip_origin.unskip_refusal(row_status, skip_kind, source)` now refuses exactly:
+  - a line that is not Skipped;
+  - **any Cashbook line**, whatever its kind (owner decision B1 — the re-check never reaches Cashbook);
+  - the four **locked kinds** (`UNSKIP_LOCKED_KINDS`): **Already imported**, **Repeated in same file**,
+    **No amount** and **Bank refused** (owner decision A1 — the last because the re-check would skip it
+    again at once, so a live button would do nothing);
+  - a blank or unknown kind.
+- Everything else may come back: a hand skip, **Outflow / Inflow Already Recorded**, and every
+  **bank-rule** kind. The same-transaction re-check is what keeps "recorded" kinds safe — money still on
+  the books is skipped again straight away, under the same kind.
+- ⚠️ **A bank-rule kind has no such re-check** (exclusions are decided at upload only), so it lands as
+  open work. The Unskip dialog warns that the line was read as money moving between our own accounts.
+- `skip_origin` still records who skipped; it no longer decides anything about Unskip.
 
 ## Consequences
 

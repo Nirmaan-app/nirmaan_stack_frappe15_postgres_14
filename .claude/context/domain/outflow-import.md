@@ -5784,3 +5784,25 @@ parity test now walks `OUTFLOW_COLUMNS` + `SKIPPED_COLUMNS`. The frontend no lon
 `skip_origin` (server params kept). `get_outflow_summary.skipped_by_hand_rows` is now read by nothing on
 screen.
 
+### Follow-up (same day): fewer columns, the document behind each skip, and Unskip by kind
+
+- **The popup also drops Status and Ledger** (`SKIPPED_COLUMNS`): every row is Skipped and settles
+  nothing. The CSV keeps both.
+- **The Skip Type cell names the document behind the skip** and a hover card lists its facts plus the
+  full reason (`skipSourceView.skipSourceSummary`, pure + vitested; the card is PORTALLED so the
+  popup's `overflow-auto` box cannot clip it). The server sends `skip_source` on every Skipped row
+  (`api/outflow_import/skip_sources.py`, read-only): the earlier import (`prior_import_sightings` +
+  `find_prior_sighting`, the pair upload decided with), the earlier line of the same file
+  (`duplicates.row_identity`, lowest row name = earliest in file), the records already on the books
+  (the SAME `related_records` the links use; a Cashbook "already booked" row looks up the expense by
+  `payment_ref`), and a plain-words rule description (`skip_kinds.SKIP_KIND_RULE_DESCRIPTIONS`). A
+  document that cannot be found yields nothing; the card falls back to the reason.
+- ⚠️ **UNSKIP IS DECIDED BY SKIP KIND (ADR-0022 Amendment C, reversing "hand skips only").**
+  `skip_origin.unskip_refusal(row_status, skip_kind, source)` refuses: not Skipped; **any Cashbook line**
+  (B1); the four `UNSKIP_LOCKED_KINDS` — Already imported, Repeated in same file, No amount, **Bank
+  refused** (A1: the re-check would skip it again at once); a blank/unknown kind. Everything else comes
+  back. Recorded kinds stay safe through the same-transaction re-check (still recorded → skipped again,
+  same kind; a second Unskip is allowed and does the same). ⚠️ **A bank-rule kind has no re-check** —
+  exclusions are upload-only — so it lands as open work; the Unskip box shows `unskipView.unskipWarning`.
+  The frontend mirror (`skipKinds.ts`) is pinned to `skip_kinds.py` + `skip_origin.py` by
+  `skipKinds.test.ts`.

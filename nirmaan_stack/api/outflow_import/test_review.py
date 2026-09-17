@@ -376,6 +376,18 @@ class TestMatchBatch(OutflowReviewFixture):
         self.assertEqual(kind("0003"), "Outflow Already Recorded")
         self.assertFalse(kind("0004"))
 
+    def test_an_already_recorded_skip_carries_the_record_behind_it(self):
+        """The Skipped popup's hover: the payment already on the books, with the facts to check."""
+        name = self._rows_by_transfer_suffix()["0003"]["name"]
+        row = next(
+            r for r in get_outflow_rows(scope="skipped", batch=self.batch.name, limit=200)["rows"]
+            if r["name"] == name
+        )
+        records = row["skip_source"]["records"]
+        self.assertEqual([(r["doctype"], r["name"]) for r in records], [("Project Payments", self.pay_already)])
+        self.assertEqual(records[0]["status"], "Paid")
+        self.assertGreater(records[0]["amount"], 0)
+
     def test_fan_out_matches_as_one_group(self):
         row = self._rows_by_transfer_suffix()["0004"]
         self.assertEqual(row["row_status"], "Matched")

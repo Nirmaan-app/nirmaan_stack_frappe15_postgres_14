@@ -72,3 +72,29 @@ SKIP_KINDS = (
     SKIP_KIND_CASHBOOK_INTERNAL,
     SKIP_KIND_BY_HAND,
 )
+
+# The kinds a BANK-STATEMENT RULE decided (`bank_exclusions`): the line was read as money moving inside
+# the bank or between our own accounts. Unskipping one warns before it goes back to work (owner, B1).
+BANK_RULE_SKIP_KINDS = frozenset(SKIP_KIND_BY_EXCLUSION_CATEGORY.values())
+
+# What each rule-decided kind means, in plain words -- the Skip Type hover's "why". One line each; the
+# rule id itself stays in the stored sentence for anyone auditing the rule.
+SKIP_KIND_RULE_DESCRIPTIONS: dict[str, str] = {
+    SKIP_KIND_CASHFREE_TOP_UP: (
+        "Money moved into our Cashfree payout wallet. The real payments come from the Cashfree statement."
+    ),
+    SKIP_KIND_CASHBOOK_TOP_UP: (
+        "Money moved into our Cashbook wallet. The real spends come from the Cashbook statement."
+    ),
+    SKIP_KIND_PORTER_TOP_UP: "Money moved into our Porter wallet. A top-up, not a spend.",
+    SKIP_KIND_WALLET_RETURNED: "Unused money coming back from the payout wallet. Not a receipt.",
+    SKIP_KIND_BANK_INTERNAL_TRANSFER: "The bank's own ledger transfer. No money left or joined the company.",
+    SKIP_KIND_FAILED_PAYMENT_RETURNED: (
+        "A payment we made failed and came back. The original debit is already in this statement."
+    ),
+    SKIP_KIND_CARD_ROUNDING: "A ₹2 card rounding entry the bank posted. Not a transaction anyone made.",
+    SKIP_KIND_CARD_BILL: "Paying the credit card bill. The card's own spends are recorded separately.",
+    SKIP_KIND_CARD_AUTO_DEBIT: "An automatic debit that services the card or credit facility. Not a purchase.",
+    SKIP_KIND_CASHBOOK_INTERNAL: "Money moving between our own Cashbook balances. Not a spend.",
+}
+

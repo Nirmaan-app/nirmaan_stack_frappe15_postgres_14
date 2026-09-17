@@ -254,7 +254,7 @@
    "label": "Skip Reason"
   },
   {
-   "description": "Who set this row aside (#1273). System = the software skipped it (upload staging or the match run: a failed transfer, a duplicate, an exclusion rule, money already recorded). Manual = a person skipped it with review.skip_row and typed skip_reason. Blank = the row is not Skipped. Only a Manual skip may ever be unskipped; a System skip stays skipped so the same money can never be recorded twice.",
+   "description": "Who set this row aside (#1273). System = the software skipped it (upload staging or the match run: a failed transfer, a duplicate, an exclusion rule, money already recorded). Manual = a person skipped it with review.skip_row and typed skip_reason. Blank = the row is not Skipped. Unskip is decided by skip_kind, not by this field (2026-09-17, ADR-0022 Amendment C).",
    "fieldname": "skip_origin",
    "fieldtype": "Select",
    "label": "Skip Origin",
