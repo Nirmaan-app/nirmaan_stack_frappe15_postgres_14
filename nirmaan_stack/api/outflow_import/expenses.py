@@ -1271,7 +1271,9 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "target_name": result.name,
             # `target_amount` means "how much of THIS TRANSFER went to this target". Since the import
             # records no tax (ADR-0021) every settle path writes the payment's own settled figure, so
-            # `result.amount` IS that share -- there is no withheld part to subtract. ⚠️ Do not
+            # `result.amount` IS that share -- there is no withheld part to subtract. On a slip of a
+            # many-line expense (ADR-0027, #1298) `settle.link_lines_to_expense` hands the LINE's own
+            # amount instead, so an expense's linked total is a plain SUM of its slips. ⚠️ Do not
             # reintroduce a net/gross split here: SR tax is withheld at approval by
             # `services/payment_tds.py`, which rewrites `amount` to the net figure before this runs.
             "target_amount": float(result.amount),

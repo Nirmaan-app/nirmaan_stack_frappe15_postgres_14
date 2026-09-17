@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Columns3, History, Search, Upload, Wallet, X } from "lucide-react";
+import { Columns3, History, Info, Link2, Search, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -31,6 +31,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { OPEN_ROW_STATUSES, canUndoOutflow } from "./outflowImportStatus";
 import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } from "./unreconcileView";
 import { UnreconcileDialog } from "./components/UnreconcileDialog";
+import { LinkLinesDialog, type LinkLinesResult } from "./components/LinkLinesDialog";
+import { linkButtonState, linkedNotice, selectedMoneyIn } from "./linkLinesView";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ExportButton } from "./components/ExportButton";
@@ -247,6 +249,13 @@ export const OutflowMasterPage = () => {
      * section -- ends here, worded by the pure `unreconcileNotice` from the server's response.
      */
     const [reverseNotice, setReverseNotice] = useState<UnreconcileNotice | null>(null);
+    /**
+     * The ticked lines the "Link N to one expense" dialog is open on (#1298), or `null`.
+     *
+     * ⚠️ A SNAPSHOT TAKEN AT OPEN, NOT A LIVE DERIVATION. A refetch mid-dialog would otherwise swap the
+     * row objects under the header total and the After linking bar while a person is reading them.
+     */
+    const [linkingLines, setLinkingLines] = useState<OutflowImportRow[] | null>(null);
     /** The Settled line whose Unreconcile dialog is open (#1275), or `null`. */
     const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
     const { role, user_id } = useUserData();
@@ -272,6 +281,18 @@ export const OutflowMasterPage = () => {
      */
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
+    /**
+     * The grid page each ticked line was ticked on (#1298), so "Link N to one expense" can say WHICH
+     * page holds a tick that is not on this one (ADR-0027 R2).
+     *
+     * ⚠️ REFS, NOT STATE. The page is read inside the stable `toggleRow` / `toggleAll`, and the map is
+     * only ever consulted in the same render the selection changes -- a state copy would re-render the
+     * whole table for a fact nothing draws on its own. An entry for a name no longer ticked is inert:
+     * `linkButtonState` only looks up ticked names.
+     */
+    const pageRef = useRef(table.page);
+    pageRef.current = table.page;
+    const tickedOnPageRef = useRef(new Map<string, number>());
 
     /**
      * The Inflow tabs hide when the chosen source can never carry a credit (#1264). The SERVER
@@ -453,6 +474,11 @@ export const OutflowMasterPage = () => {
         [rows, selected, decisions]
     );
     const selectedOut = useMemo(() => selectedMoneyOut(rows, selected), [rows, selected]);
+    const selectedIn = useMemo(() => selectedMoneyIn(rows, selected), [rows, selected]);
+    const linkState = useMemo(
+        () => linkButtonState(rows, selected, tickedOnPageRef.current, table.page),
+        [rows, selected, table.page]
+    );
     const originByRow = useMemo(() => {
         const out = new Map<string, DecisionOrigin>();
         for (const row of rows) out.set(row.name, decisionOrigin(row, decisions.get(row.name)));
@@ -473,6 +499,7 @@ export const OutflowMasterPage = () => {
      * Held in a ref-stable callback because the table passes it straight into an effect dep.
      */
     const toggleRow = useCallback((name: string) => {
+        tickedOnPageRef.current.set(name, pageRef.current);
         setSelected((prev) => {
             const next = new Set(prev);
             next.has(name) ? next.delete(name) : next.add(name);
@@ -481,6 +508,7 @@ export const OutflowMasterPage = () => {
     }, []);
 
     const toggleAll = useCallback((names: string[]) => {
+        names.forEach((n) => tickedOnPageRef.current.set(n, pageRef.current));
         setSelected((prev) => {
             const everyOne = names.every((n) => prev.has(n));
             const next = new Set(prev);
@@ -870,6 +898,23 @@ export const OutflowMasterPage = () => {
         }
     }, [readyToConfirm, decisions, originByRow, settleOne, refreshAll]);
 
+    /**
+     * A link landed (#1298): untick those lines, say where they went, and re-read the screen.
+     *
+     * ⚠️ THE NOTICE REUSES THE REVERSAL'S SLOT. It is this page's one inline success line -- never a
+     * toast (see `exportError`) -- and a link and an undo are never both the latest thing that happened.
+     */
+    const handleLinked = useCallback(
+        async (result: LinkLinesResult, count: number) => {
+            const linked = new Set((linkingLines ?? []).map((line) => line.name));
+            setLinkingLines(null);
+            setSelected((prev) => new Set([...prev].filter((name) => !linked.has(name))));
+            setReverseNotice(linkedNotice(count, result.expense));
+            await refreshAll();
+        },
+        [linkingLines, refreshAll]
+    );
+
     const handleSkip = useCallback(
         async (row: OutflowImportRow, reason: string) => {
             setBusy(true);
@@ -1249,6 +1294,14 @@ export const OutflowMasterPage = () => {
                                 </span>{" "}
                                 <span className="text-muted-foreground">out</span>
                             </span>
+                            {selectedIn > 0 && (
+                                <span className="text-xs tabular-nums text-emerald-700">
+                                    + {formatToRoundedIndianRupee(selectedIn)} in
+                                </span>
+                            )}
+                            {linkState.offPage && (
+                                <span className="text-xs text-amber-700">{linkState.offPage}</span>
+                            )}
                             <span className="text-xs text-muted-foreground">
                                 {readyToConfirm.length} decided
                             </span>
@@ -1259,6 +1312,21 @@ export const OutflowMasterPage = () => {
                                 onClick={() => setSelected(new Set())}
                             >
                                 Clear
+                            </Button>
+                            {/* #1298: many lines -> one expense. Its off-state note sits under the
+                                toolbar, from the pure `linkButtonState`. */}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                disabled={!linkState.enabled || busy}
+                                title={linkState.note ?? undefined}
+                                onClick={() =>
+                                    setLinkingLines(rows.filter((row) => selected.has(row.name)))
+                                }
+                            >
+                                <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                                Link {linkState.count} to one expense
                             </Button>
                             <Button
                                 size="sm"
@@ -1279,6 +1347,12 @@ export const OutflowMasterPage = () => {
                         {table.total === 1 ? "transfer" : "transfers"}
                     </span>
                 </div>
+                {selected.size > 0 && linkState.note && (
+                    <div className="flex w-full items-center justify-end gap-1.5 text-xs text-amber-700">
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        <span>{linkState.note}</span>
+                    </div>
+                )}
             </div>
 
             {/* ⚠️ THE SERVER'S REFUSAL, RENDERED WORD FOR WORD. Over the cap it already names how
@@ -1398,6 +1472,13 @@ export const OutflowMasterPage = () => {
                 open={showingSkipped}
                 onOpenChange={setShowingSkipped}
                 onChanged={refreshAll}
+            />
+
+            <LinkLinesDialog
+                lines={linkingLines ?? []}
+                open={linkingLines !== null}
+                onClose={() => setLinkingLines(null)}
+                onLinked={handleLinked}
             />
 
             <UnreconcileDialog

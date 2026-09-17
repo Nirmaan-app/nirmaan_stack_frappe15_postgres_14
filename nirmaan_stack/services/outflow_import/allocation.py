@@ -68,8 +68,10 @@ def allocated_of(legs: Iterable[Mapping]) -> Decimal:
     ⚠️ `abs()`, AND IT IS A UNITS FIX RATHER THAN A LOOSENING. This sum is subtracted from the
     ROW's amount, and a row amount is a MAGNITUDE by explicit decision -- ADR-0016 rejected a signed
     amount column, so every source stores the positive figure and the direction lives in its own
-    column. A leg's `target_amount`, by contrast, is "the target's own amount at match time" (the
-    field's own description), and on legs written by the REMOVED B7 path that figure is below zero:
+    column. A leg's `target_amount`, by contrast, is "the money that moved between this line and this
+    record" (ADR-0027, #1298: the record's amount on a 1:1 settle, the LINE's own amount on a slip of a
+    many-line expense -- which is exactly what makes such a row sum to its own amount and read
+    `Settled`), and on legs written by the REMOVED B7 path that figure is below zero:
     `inflows.create_non_project_receipt` recorded a bank CREDIT as a NEGATIVE `Non Project Expense`.
     #1266 replaced it with a positive `Non Project Inflow`, but ADR-0016 Amendment A-D2 KEEPS this
     read side, because legs the old path wrote may still exist. Both operands have to mean the same

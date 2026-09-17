@@ -2603,6 +2603,9 @@ _SETTLED_NAME_SQL = (
     'FROM "tabOutflow Row Match" m '
     f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}')"
 )
+# ⚠️ ON A MANY-LINE EXPENSE EACH LINE EXPORTS ITS OWN AMOUNT, NOT THE EXPENSE'S (ADR-0027, #1298): the
+# slip's `target_amount` is that line's figure, so a run of 30 lines adds up to the one expense.
+#
 # ⚠️ `ROUND(..., 2)` (Task 6 review fix G) -- `target_amount` is a Currency column, and a bare
 # `::text` cast on Postgres numeric prints the FULL stored precision (`27504.310000000`), not the
 # two-decimal figure the pre-Task-6 export wrote as a float. Cosmetic in a spreadsheet, but

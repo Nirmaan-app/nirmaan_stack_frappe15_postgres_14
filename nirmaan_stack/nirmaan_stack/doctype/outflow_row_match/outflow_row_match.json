@@ -81,7 +81,7 @@
    "reqd": 1
   },
   {
-   "description": "The target's own amount at match time. Kept so a fan-out group's sum can be compared against the bank amount without re-reading every target.",
+   "description": "The money that moved between this line and this record (ADR-0027): the record's amount on a 1:1 settle, the line's own amount on a slip of a many-line expense. Kept so a fan-out group's sum can be compared against the bank amount, and an expense's linked total summed, without re-reading every target.",
    "fieldname": "target_amount",
    "fieldtype": "Currency",
    "label": "Target Amount"

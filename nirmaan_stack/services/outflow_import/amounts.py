@@ -60,6 +60,9 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                `allocation.is_fully_allocated`: an expense is Paid
                                                once `amount - linked total <= AMOUNT_TOLERANCE`,
                                                otherwise Reconciliation Pending (ADR-0027).
+  * `expense_links.lines_fit` (#1298)        -- the MANY-LINE write guard in
+                                               `settle.link_lines_to_expense`, ONE-SIDED: lines may
+                                               exceed what is left by at most AMOUNT_TOLERANCE.
   * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_already_recorded_
                                                outcome`, reached through `_failed_or_already_paid`,
                                                shared with `derive_duplicate_guard_outcome` -- and,

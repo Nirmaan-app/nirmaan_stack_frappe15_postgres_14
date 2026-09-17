@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+import re
+
 import frappe
 
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -38,8 +40,11 @@ from nirmaan_stack.services.outflow_import.ledgers import PAID, RECONCILIATION_P
 __all__ = [
     "ExpenseLinks",
     "ExpenseStatus",
+    "bulk_id_of",
     "derive_expense_status",
+    "lines_fit",
     "load_expense_links",
+    "load_linked_totals",
     "remaining_balance",
 ]
 
@@ -54,6 +59,9 @@ class ExpenseLinks:
 
     linked_total: Decimal
     latest_line_date: date | None
+    # How many live slips make up the total -- the picker's "25 lines", and what tells a settle
+    # whether the expense will end with exactly one slip (the 1:1 extras, ADR-0027 Q13).
+    line_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,43 @@ class ExpenseStatus:
 def remaining_balance(amount, linked_total) -> Decimal:
     """`amount - linked_total`: how much of the expense no bank line has covered yet."""
     return to_decimal(amount) - to_decimal(linked_total)
+
+
+def lines_fit(remaining, lines_total) -> bool:
+    """Whether bank lines totalling `lines_total` may be linked to an expense with `remaining` left.
+
+    ⚠️ ONE-SIDED, UNLIKE `amounts_match`. Lines BELOW what is left fit -- that is a part-fill, and the
+    expense stays Reconciliation Pending (Q19). Only lines exceeding it by more than
+    `AMOUNT_TOLERANCE` are refused, and then ALL of them are (Q16). The same ₹5 the status reads, so
+    lines that squeeze in are exactly the lines that make the expense Paid.
+    """
+    return to_decimal(lines_total) - to_decimal(remaining) <= AMOUNT_TOLERANCE
+
+
+# An ICICI bulk-transfer id as it sits in a line's narration: `MMT/IMPS/<ref>/BULD75978325/<name>/..`.
+# ⚠️ THE SAME SHAPE `contains_guard._BATCH_ID` REFUSES AS A REFERENCE PIECE, deliberately: that guard
+# ignores it because it is shared by every line of a run, which is exactly why it names the run here.
+# `bulkIdOf` in the frontend's `linkLinesView.ts` spells it too, pinned by `linkLinesParity.test.ts`.
+_BULK_ID = re.compile(r"\bBULD\d+\b")
+
+
+def bulk_id_of(texts) -> str | None:
+    """The one bulk id every given narration carries, or `None`.
+
+    ⚠️ `None` WHEN THE LINES DISAGREE OR ANY LINE HAS NONE. The id is written as a many-line expense's
+    reference (Q10), and a reference naming one run on an expense that also holds lines from another
+    would point a reconciler at the wrong statement. Blank is honest; a guess is not.
+    """
+    found = set()
+    for text in texts:
+        ids = set(_BULK_ID.findall(text or ""))
+        # ⚠️ A NARRATION CUT AT THE COLUMN WIDTH REPEATS THE ID TRUNCATED (`.../BULD67453750  /NAME/
+        # BULD67`, measured in `parser.py`). A prefix of another id on the same line is that stub.
+        ids = {i for i in ids if not any(o != i and o.startswith(i) for o in ids)}
+        if len(ids) != 1:
+            return None
+        found |= ids
+    return found.pop() if len(found) == 1 else None
 
 
 def derive_expense_status(amount, links: ExpenseLinks) -> ExpenseStatus:
@@ -96,6 +141,7 @@ def load_expense_links(doctype: str, name: str) -> ExpenseLinks:
     result = frappe.db.sql(
         f"""
         SELECT COALESCE(SUM(m.target_amount), 0) AS linked_total,
+               COUNT(m.name) AS line_count,
                MAX(r.added_on) AS latest_added_on
         FROM "tab{_MATCH_DOCTYPE}" m
         LEFT JOIN "tab{_ROW_DOCTYPE}" r ON r.name = m.import_row
@@ -112,4 +158,34 @@ def load_expense_links(doctype: str, name: str) -> ExpenseLinks:
     return ExpenseLinks(
         linked_total=to_decimal(result.get("linked_total")),
         latest_line_date=latest,
+        line_count=int(result.get("line_count") or 0),
     )
+
+
+def load_linked_totals(doctype: str) -> dict[str, ExpenseLinks]:
+    """Every expense of one doctype that has live slips -> its linked total and line count, ONE query.
+
+    ⚠️ THE SAME AGGREGATE AS `load_expense_links`, grouped by expense, for a list that needs it for
+    many expenses at once (the link dialog's picker, #1298). Kept beside the one-expense read so the
+    two cannot drift into counting a linked total differently. `latest_line_date` is not read here.
+    """
+    rows = frappe.db.sql(
+        f"""
+        SELECT m.target_name,
+               COALESCE(SUM(m.target_amount), 0) AS linked_total,
+               COUNT(m.name) AS line_count
+        FROM "tab{_MATCH_DOCTYPE}" m
+        WHERE m.target_doctype = %(doctype)s AND m.match_kind = %(settled)s
+        GROUP BY m.target_name
+        """,
+        {"doctype": doctype, "settled": MATCH_SETTLED},
+        as_dict=True,
+    )
+    return {
+        r["target_name"]: ExpenseLinks(
+            linked_total=to_decimal(r.get("linked_total")),
+            latest_line_date=None,
+            line_count=int(r.get("line_count") or 0),
+        )
+        for r in rows
+    }
