@@ -166,6 +166,20 @@ class TargetRef:
     `None` where no date could be established, which makes M4 abstain rather than guess.
     """
 
+    import_row: str = ""
+    """The bank line this candidate IS, when it stands for ONE live `Settled` slip (ADR-0027 R3).
+
+    ⚠️ SET ONLY BY `candidates.load_recorded_by_contains`, AND ONLY FOR A PART-LINKED EXPENSE -- a
+    `Reconciliation Pending` expense settled by several bank lines. Such an expense enters the
+    duplicate guard once PER SLIP: `amount` is that slip's own money and `reference` is that line's
+    own narration (its match surface), so a re-imported line is compared with ITS OWN slip rather
+    than with a whole salary run. `doctype`/`name` stay the expense, so a note, a link and a claim all name the record.
+
+    Blank on every settle candidate and on every whole-record duplicate candidate (a Paid record),
+    which is what keeps `contains_guard.pick_recorded_group`'s one-record-one-line rule unchanged
+    for them.
+    """
+
     @property
     def normalized_reference(self) -> str:
         return normalize_reference(self.reference)

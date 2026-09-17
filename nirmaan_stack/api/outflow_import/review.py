@@ -67,6 +67,7 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
     decode_basis,
     encode_basis,
     find_hits,
+    is_slip_candidate,
     pick_recorded_group,
     skip_basis,
 )
@@ -578,7 +579,22 @@ def _recorded_money_group(row, batch: str, writing=()):
     ⚠️ NOR IS A RECORD THE CALL IS ABOUT TO WRITE (`writing`, `(doctype, name)` pairs). A Link target
     that is already Paid is refused by the settle itself, with `AlreadyPaidError` -- the distinct "somebody
     beat you to it" error a bulk confirm reads. Counting it here would replace that sentence with a
-    vaguer one; it opens no hole, because such a target is refused either way.
+    vaguer one; it opened no hole, because such a target was refused either way.
+
+    ⚠️ THAT LAST CLAUSE STOPPED BEING TRUE FOR A PART-LINKED EXPENSE (ADR-0027 R3), SO ITS OWN SLIPS
+    SURVIVE `writing`. A Reconciliation Pending expense with room is NOT refused by the settle -- room
+    is exactly what linking needs -- so muting the guard on the target would let an overlapping
+    statement link the same bank line to the same run twice, still fitting under the amount. Only
+    SLIP candidates are kept (`contains_guard.is_slip_candidate`): the whole-record candidate of a
+    `writing` target stays muted, so the Paid target keeps its `AlreadyPaidError` sentence. A slip of
+    a DIFFERENT line of the same run cannot refuse anything, because it is found by that line's own
+    narration, which this line does not carry.
+
+    A record THIS ROW already settled is still dropped outright, `writing` or not: an Allocate leg's
+    own slip is not a duplicate of itself. That drop is by `(doctype, name)`, so once this row holds
+    one slip on a run EVERY candidate of that run goes with it -- which is safe only because the
+    database's unique `(transfer_id, target_doctype, target_name)` constraint makes a second slip for
+    the same row and target impossible in the first place.
     """
     own = {
         (m["target_doctype"], m["target_name"])
@@ -587,10 +603,16 @@ def _recorded_money_group(row, batch: str, writing=()):
             filters={"import_row": row.name, "match_kind": MATCH_SETTLED},
             fields=["target_doctype", "target_name"],
         )
-    } | set(writing)
+    }
+    being_written = set(writing)
 
     def _not_own(records):
-        return tuple(r for r in records if (r.doctype, r.name) not in own)
+        return tuple(
+            r
+            for r in records
+            if (r.doctype, r.name) not in own
+            and ((r.doctype, r.name) not in being_written or is_slip_candidate(r))
+        )
 
     if source_has_settlement_path(_batch_source(batch)):
         pools = _paid_duplicate_pools([row.normalized_reference])

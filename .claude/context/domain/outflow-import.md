@@ -96,7 +96,7 @@ pick one ad-hoc; ask.
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
-| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for` | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
+| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for`. **Since #1301 (ADR-0027 R3) a `Reconciliation Pending` expense with live `Settled` slips enters ONCE PER SLIP** — `TargetRef.import_row` set, that slip's amount, that line's narration as the reference — and such a candidate is exempt from one-record-one-line (`is_slip_candidate`), is exempt from `_recorded_money_group`'s `writing` mute, and reads `SKIP_REASON_ALREADY_LINKED` rather than being called Paid | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
 | **What reference a settlement WRITES** (B9; the ICICI rung at #1259) | `services/outflow_import/settlement_reference.py` (`resolve_settlement_reference` at ingest, `settlement_reference_of_row` at settle, `settlement_references_of_row` for the reversal) + `sources.source_writes_its_match_surface` | decide per write site what goes into `utr` / `payment_ref`. ⚠️ For a bank passbook it is `contains_guard.match_surface` and nothing else. ⚠️ **ORDERING RULE: the full-narration write may never ship ahead of the contains-match** -- every exact guard is blind to a stored narration |
 | **Where a settled/matched record's link GOES** (E3; inflows at #1253) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side; an inflow's URL is `inflow-payments/config/inflowPaymentsTable.config.ts` (`inflowHref`, over the ONE key builder `buildInflowUrlSyncKey` the inflow page also reads) | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
 | **How a duplicate note names the records behind it** (#1253) | `services/outflow_import/status.py` (`_record_sentence`, `_records_phrase`, `SKIP_REASON_ALREADY_PAID` / `_RECEIVED`) — pure; ledger nouns from `ledgers.LEDGER_NOUNS`; the link data is `review._related_records` (`related_records`) | print a bare expense id (a random hash), call an inflow "Paid", or offer the TDS hint on a group with no Project Payment. `_related_records` must read the SAME source as the duplicate guard, or a skipped row names a record it cannot link |
@@ -5807,3 +5807,78 @@ screen.
   exclusions are upload-only — so it lands as open work; the Unskip box shows `unskipView.unskipWarning`.
   The frontend mirror (`skipKinds.ts`) is pinned to `skip_kinds.py` + `skip_origin.py` by
   `skipKinds.test.ts`.
+
+## #1301 (2026-09-18) — the duplicate guards see a part-linked expense's own bank lines (ADR-0027 R3)
+
+The "already recorded" guards read **Paid** records only, so a bank line already linked to a
+**Reconciliation Pending** expense was invisible to them. An overlapping statement bringing that line
+again could link the same money twice and still fit under the amount (the Q16 over-limit refusal only
+catches over-payment). Parent #1295 story 29.
+
+**A part-linked expense enters the guard ONCE PER LIVE SLIP, not once as a whole.** That is the whole
+design, and it is what "compare a line with *that line's* slip" means:
+
+- `candidates.load_recorded_by_contains` gains a second UNION branch for the two expense ledgers
+  (`ContainsLedger.part_linked`): every `Reconciliation Pending` expense with a live `Settled` slip
+  contributes one row per slip — the **expense's** `doctype`/`name` (so a note, a link and a claim all
+  name the record), that **slip's** `target_amount`, the settled **line's** `added_on` date, and the
+  settled line's **match surface** as the reference. The `CASE` mirrors `contains_guard.match_surface`
+  (the cheque column is appended only when the narration carries no run of 6+ digits).
+- ⚠️ **THE MATCH SURFACE IS THE POINT.** A 1:1 settle writes its line's narration onto `payment_ref`,
+  which is exactly what lets this guard recognise the money on a later statement. A run's lines have
+  nowhere to write theirs — one expense, one reference field — so the slip stands in for it and the
+  narration is read off the line. The expense's own `payment_ref` is **deliberately not read while it
+  is part-linked**: on a run it is the shared bulk id, which is not an eligible token — and if it were,
+  every line of the run would be a duplicate of every other.
+- `TargetRef.import_row` carries the slip's line. Blank on every settle candidate and on every
+  whole-record duplicate candidate, which is what keeps Paid behaviour byte-unchanged. ⚠️ **It travels
+  through `tok` → `near` → `hit` into the FINAL JOIN**: without it a hit on ONE slip returned the
+  whole run's slips, putting several rows of one expense in front of `pick_recorded_group`, which
+  could then sum two lines' money into one "already recorded" total. Pinned by
+  `test_one_hitting_slip_does_not_drag_its_whole_run_into_the_pool`, verified to FAIL without the
+  join clause.
+- ⚠️ **The `CASE` is a SECOND builder of a match surface, so it is pinned like the tokeniser is.**
+  `TestTheSlipBranchMirrorsTheMatchSurface` drives BOTH branches (a narration with a long number
+  stands alone; a cheque-clearing narration takes the cheque column) against the pure
+  `contains_guard.match_surface` and asserts equality — the mirror rule the residence table states for
+  `match_surface`, and the same rule `test_review.TestTheContainsQueryMirrorsThePureTokens` enforces
+  for the tokeniser. PostgreSQL's `[0-9]` is ASCII where Python's `\d` is Unicode, so the SQL falls
+  into the append branch in a SUPERSET of cases — never narrower, which is the direction that is safe.
+- ⚠️ **A SLIP CANDIDATE IS NEVER CLAIMED** (`contains_guard.is_slip_candidate`, read by
+  `pick_recorded_group`). One-record-one-line (#1258) exists because a stored reference — a
+  counterparty's account number — sits in many unrelated narrations, so one record must not hide a
+  second genuine payment; a slip is found by its own line's narration and can hide nothing but the same
+  transfer. Leaving slips claimable would also be self-defeating: **every slip is claimed by its own
+  line**, so the rule would block the duplicate skip it exists to enable.
+- ⚠️ **`review._recorded_money_group`'s `writing` MUTE NO LONGER COVERS THE TARGET'S OWN SLIPS.** The
+  mute exists so an already-Paid Link target keeps its distinct `AlreadyPaidError` ("somebody beat you
+  to it") sentence, on the argument that such a target is refused either way. **That argument expired
+  for a part-linked expense**: one with room is not refused by the settle — room is what linking needs
+  — so muting the guard on the target let `link_rows_to_expense` link the same line to the same run
+  twice. Only SLIP candidates survive the mute; the whole-record candidate of a `writing` target stays
+  muted, and a record THIS ROW already settled is still dropped outright. Pinned by
+  `test_recorded_money_guard.test_the_same_line_cannot_be_linked_to_the_same_run_twice`, which was
+  verified to FAIL with the exemption removed.
+- **The note never calls a part-linked expense Paid.** `status.SKIP_REASON_ALREADY_LINKED` —
+  *"Already linked to …, which is still being reconciled."* — is read by `_record_sentence` when
+  **every** record in the group is a slip (`_is_slip_group`). A MIXED group keeps the Paid sentence:
+  something in it genuinely is Paid, and understating that would be worse. `status.py` gains
+  `contains_guard` as its fourth permitted pure-sibling import so "is this a slip?" has one definition.
+
+**Unchanged on purpose:** `load_record_claims` (it already read every live `Settled` slip whatever the
+record's status), the skip kind (`Outflow Already Recorded` — no new kind, ADR-0027 R1), the Cashfree
+exact guards, and every Paid record's behaviour.
+
+**Known limit:** the hit is the settled line's narration, so a re-export whose narration shares no
+eligible token with the original is missed here — the same blind spot the upload duplicate check has,
+since its identity includes `remarks`.
+
+**Also touched:** `test_status.TestPurity.test_every_sibling_it_imports_is_itself_bench_free` gains
+`contains_guard` (and `normalize`) — its own docstring is the standard: *"Any further sibling import
+must be added here in the same edit."*
+
+**Tests:** `services/outflow_import/test_contains_guard.TestAPartLinkedExpensesOwnLines` (7 pure) and,
+in `api/outflow_import/test_recorded_money_guard`, `TestPartLinkedExpensesAreSeen` (8 bench — the
+duplicate refusal, the same-line-twice refusal through `link_rows_to_expense`, the fan-out pin, the
+unrelated-line and Paid-unchanged controls, a Reconciliation Pending expense with **no** slips blocking
+nothing, and a `Reversed` slip not counting) plus `TestTheSlipBranchMirrorsTheMatchSurface` (2).

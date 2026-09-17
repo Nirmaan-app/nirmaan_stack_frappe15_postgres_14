@@ -82,6 +82,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    RECONCILIATION_PENDING,
     VENDOR_REFUND_DOCTYPE,
     decided_on_sql,
     settleable_statuses,
@@ -381,17 +382,25 @@ class ContainsLedger:
     reference: str
     paid_only: bool
     description: str | None = None
+    part_linked: bool = False
+    """Does this ledger also enter the guard PER LIVE SLIP while Reconciliation Pending? (ADR-0027 R3)
+
+    True on the two expense ledgers, which a salary or reimbursement run settles with many bank
+    lines. Such an expense contributes one candidate per live `Settled` slip -- that slip's own
+    money, under that line's own narration -- instead of one candidate for the whole run. False
+    everywhere else: a payment is settled by one line, and an inflow has no slips to read.
+    """
 
 
 CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
     ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", paid_only=True),
     ContainsLedger(
         PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", paid_only=True,
-        description="description",
+        description="description", part_linked=True,
     ),
     ContainsLedger(
         NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", paid_only=True,
-        description="description",
+        description="description", part_linked=True,
     ),
     # Inflows have no status: every one counts (owner ruling on #1252).
     ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", paid_only=False),
@@ -421,7 +430,9 @@ def load_recorded_by_contains(
         see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
       * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
         home. A line with no direction contributes nothing;
-      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow and Non Project Inflow.
+      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow and Non Project Inflow;
+        and (ADR-0027 R3) `Reconciliation Pending` expenses that already carry live `Settled` slips,
+        which enter ONCE PER SLIP -- see the comment on that branch below.
 
     ⚠️ NO AMOUNT AND NO DATE PREDICATE, ON PURPOSE. An amount-off hit must still come back so the row
     lands `Mismatched` naming the record, and the date window is the guard's to apply, in one place.
@@ -470,12 +481,51 @@ def load_recorded_by_contains(
             selects.append(
                 f"""
                 SELECT %s AS doctype, %s AS direction, name, amount::text AS amount,
-                       {ref} AS reference, payment_date, {description} AS description
+                       {ref} AS reference, payment_date, {description} AS description,
+                       '' AS import_row
                 FROM "{ledger.table}"
                 WHERE {ref} IS NOT NULL AND btrim({ref}) <> ''{status}
                 """
             )
             select_params += [doctype, direction] + ([PAID] if ledger.paid_only else [])
+            if not ledger.part_linked:
+                continue
+            slip_description = f"e.{description}" if ledger.description else "NULL"
+            # ⚠️ ONE CANDIDATE PER LIVE SLIP, NOT ONE PER EXPENSE (ADR-0027 R3). A Reconciliation
+            # Pending expense is a run the bank paid out over many lines, so the question this guard
+            # asks -- "has THIS line's money already been recorded?" -- is answered by the line's own
+            # slip, never by the run's total. Each slip therefore enters as its own record: the
+            # expense's identity (so a note, a link and a claim all name the expense), that slip's
+            # own `target_amount`, and the SETTLED LINE'S MATCH SURFACE as the reference.
+            #
+            # ⚠️ THE MATCH SURFACE IS THE POINT, AND IT IS THE SAME TEXT A 1:1 SETTLE STORES. A single
+            # line that settles a whole expense writes its narration onto `payment_ref`, which is
+            # exactly what lets this guard recognise the money if it is imported again. A run's lines
+            # have nowhere to write theirs -- one expense, one reference field -- so the slip stands in
+            # for it and the narration is read from the line itself. The `CASE` mirrors
+            # `contains_guard.match_surface` (the cheque column is appended only when the narration
+            # carries no run of 6+ digits); the pure module re-applies every rule over the result.
+            #
+            # ⚠️ THE EXPENSE'S OWN `payment_ref` IS DELIBERATELY NOT READ WHILE IT IS PART-LINKED. On a
+            # run it is the shared bulk id, which is not an eligible token -- and if it were, it would
+            # make every line of the run a duplicate of every other.
+            selects.append(
+                f"""
+                SELECT %s AS doctype, %s AS direction, e.name, m.target_amount::text AS amount,
+                       CASE WHEN coalesce(r.remarks, '') ~ '[0-9]{{6,}}' THEN btrim(r.remarks)
+                            ELSE btrim(btrim(coalesce(r.remarks, ''))
+                                       || ' ' || btrim(coalesce(r.reference_id, '')))
+                       END AS reference,
+                       r.added_on::date AS payment_date,
+                       {slip_description} AS description, m.import_row AS import_row
+                FROM "{ledger.table}" e
+                JOIN "tabOutflow Row Match" m
+                  ON m.target_doctype = %s AND m.target_name = e.name AND m.match_kind = %s
+                JOIN "tabOutflow Import Row" r ON r.name = m.import_row
+                WHERE e.status = %s
+                """
+            )
+            select_params += [doctype, direction, doctype, MATCH_SETTLED, RECONCILIATION_PENDING]
     if not lines or not selects:
         return ()
 
@@ -485,7 +535,11 @@ def load_recorded_by_contains(
         WITH line (transfer_id, surface, direction) AS (VALUES {line_values}),
         rec AS ({" UNION ALL ".join(selects)}),
         tok AS MATERIALIZED (
-            SELECT rec.doctype, rec.name, rec.direction, piece.token
+            -- ⚠️ `import_row` TRAVELS ALL THE WAY TO THE FINAL JOIN (ADR-0027 R3). It is '' for a
+            -- whole-record candidate, so those group exactly as they always did; for a part-linked
+            -- expense it is what keeps ONE hitting slip from fanning its whole run's slips back out
+            -- as candidates, which would put several rows of one expense in front of `_pick`.
+            SELECT rec.doctype, rec.name, rec.direction, rec.import_row, piece.token
             FROM rec
             CROSS JOIN LATERAL (
                 SELECT upper(regexp_replace(rec.reference, '\\s', '', 'g')) AS token
@@ -508,14 +562,16 @@ def load_recorded_by_contains(
             JOIN gram ON gram.direction = tok.direction AND gram.g = left(tok.token, {MIN_TOKEN_LENGTH})
         ),
         hit AS (
-            SELECT DISTINCT near.doctype, near.name, near.direction
+            SELECT DISTINCT near.doctype, near.name, near.direction, near.import_row
             FROM near
             JOIN line ON line.direction = near.direction
              AND (line.transfer_id = near.token OR strpos(line.surface, near.token) > 0)
         )
-        SELECT rec.doctype, rec.name, rec.amount, rec.reference, rec.payment_date, rec.description
+        SELECT rec.doctype, rec.name, rec.amount, rec.reference, rec.payment_date, rec.description,
+               rec.import_row
         FROM rec
-        JOIN hit ON hit.doctype = rec.doctype AND hit.name = rec.name AND hit.direction = rec.direction
+        JOIN hit ON hit.doctype = rec.doctype AND hit.name = rec.name
+                AND hit.direction = rec.direction AND hit.import_row = rec.import_row
         """,
         (*[value for line in lines for value in line], *select_params),
         as_dict=True,
@@ -525,13 +581,25 @@ def load_recorded_by_contains(
             doctype=r["doctype"],
             name=r["name"],
             amount=normalize_amount(r.get("amount")),
-            status=PAID if by_doctype[r["doctype"]].paid_only else "",
+            status=_contains_status(by_doctype[r["doctype"]], r.get("import_row")),
             reference=r.get("reference") or "",
             txn_date=r.get("payment_date"),
             description=r.get("description") or "",
+            import_row=r.get("import_row") or "",
         )
         for r in found
     )
+
+
+def _contains_status(ledger: ContainsLedger, import_row) -> str:
+    """The status a contains-guard candidate carries: the one its branch of the union selected for.
+
+    A per-slip candidate is a `Reconciliation Pending` expense by construction (R3); a whole-record
+    candidate is `Paid` on the three settle ledgers and blank on the inflows, which have no status.
+    """
+    if import_row:
+        return RECONCILIATION_PENDING
+    return PAID if ledger.paid_only else ""
 
 
 def load_record_claims(records) -> tuple[RecordClaim, ...]:
