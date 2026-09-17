@@ -2,6 +2,7 @@ import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { PAYMENT_STATUS } from '../approve-payments/constants';
 import { PP_TABS } from './ppTabs.constants';
+import { CURRENT_USER_TOKEN } from './approvalsTable.config';
 
 export const DEFAULT_PP_FIELDS_TO_FETCH: (keyof ProjectPayments | 'name')[] =  [
     "name", "project", "owner", "vendor", "document_name", "document_type",
@@ -91,6 +92,9 @@ export const getProjectPaymentsStaticFilters = (tab: string): Array<[string, str
         case "Payments Done": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
         case "Payments Pending": return [...base, ["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.CEO_PENDING, PAYMENT_STATUS.APPROVED]]];
         case "All Payments": return [];
+        // Every status, rows the logged-in user created. The server swaps `@me` for the
+        // session user. Without this case the tab would fall to `default` and list every row.
+        case PP_TABS.PAYMENT_BY_ME: return [...base, ["raised_by", "=", CURRENT_USER_TOKEN]];
         default: return base; // Or specific default for this view
     }
 };

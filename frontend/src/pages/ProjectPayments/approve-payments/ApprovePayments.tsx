@@ -468,12 +468,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
 
   const exportFileName = `${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`;
 
-  // Counted over the same union, under this tab's own filters.
-  const approvalFacets = useApprovalFacets({
-    filters: staticFilters as Array<[string, string, unknown]>,
-    projectLabels: projectLabelMap,
-    vendorLabels: vendorLabelMap,
-  });
 
   // Live selected-row count, read by `enableRowSelection` below at CLICK time. Declared
   // ahead of the hook because the config closure captures it; see the cap block under
@@ -491,6 +485,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
+    columnFilters,
     // isRowSelectionActive,
     refetch,
     exportAllRows,
@@ -529,6 +524,18 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       pagination: { pageIndex: 0, pageSize: BULK_MAX_SELECTION },
     },
     additionalFilters: staticFilters,
+  });
+
+  // Counted over the same union, under this tab's filters plus the table's live column
+  // filters and search -- which is why this sits AFTER the table hook.
+  const approvalFacets = useApprovalFacets({
+    filters: staticFilters as Array<[string, string, unknown]>,
+    columnFilters,
+    searchTerm,
+    selectedSearchField,
+    projectLabels: projectLabelMap,
+    vendorLabels: vendorLabelMap,
+    userLabels: userLabelMap,
   });
 
   // ── Bulk selection cap ────────────────────────────────────────────────────────
@@ -797,7 +804,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
               </div>
             ) : null
           }
-          facetFilterOptions={approvalFacets}
+          facetFilterOptions={approvalFacets.facetOptions}
+          onFacetOpen={approvalFacets.onFacetOpen}
           dateFilterColumns={dateColumns}
           // ⚠️ THE BUILT-IN EXPORT BUTTON IS OFF ON THIS SCREEN, DELIBERATELY.
           // With `showRowSelection` on, the shared table's default handler exports the

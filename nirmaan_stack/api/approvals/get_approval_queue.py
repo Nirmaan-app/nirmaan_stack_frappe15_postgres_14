@@ -28,6 +28,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from nirmaan_stack.services.role_profiles import is_nirmaan_admin
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -98,6 +99,17 @@ _OPERATORS = {
     "=": "=", "!=": "!=", ">": ">", "<": "<", ">=": ">=", "<=": "<=",
     "like": "ILIKE", "not like": "NOT ILIKE",
 }
+
+# "Payment By Me" filters `raised_by = "@me"`, and the SERVER puts the logged-in user in
+# its place. The browser never names whose rows it wants, and the tab's URL / saved table
+# state stay the same for every user. The table, its facets and its CSV export all build
+# their WHERE through `_build_where`, so all three agree.
+#
+# ⚠️ AN ADMIN SEES EVERY ROW on that tab (owner, 17 Sep 2026): for an Admin the token
+# adds NO clause, and the badge counts the whole queue. `is_nirmaan_admin` covers the
+# Administrator user and the Nirmaan Admin Profile; the frontend's "Raised by" column
+# keys on the same two.
+CURRENT_USER_TOKEN = "@me"
 
 
 def _payments_select():
@@ -271,6 +283,10 @@ def _build_where(filters, search_term, search_fields):
             # Silently ignoring an unknown filter would show MORE rows than asked
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
+        if field == "raised_by" and value == CURRENT_USER_TOKEN:
+            if is_nirmaan_admin(frappe.session.user):
+                continue
+            value = frappe.session.user
         if field in DATE_FIELDS and op in _DATE_OPERATORS:
             frag, vals = _date_clause(field, op, value)
             clauses.append(frag)
@@ -414,17 +430,27 @@ def get_approval_queue_counts():
     counts = {r["status"] or "": cint(r["cnt"]) for r in rows}
     amounts = {r["status"] or "": flt(r["amt"]) for r in rows}
     counts["All"] = sum(counts.values())
-    return {"counts": counts, "amounts": amounts}
+    # "Payment By Me" badge: every status, rows the logged-in user created -- or the whole
+    # queue for an Admin, matching what that tab lists. Its own key, not inside `counts`,
+    # which is keyed by status.
+    if is_nirmaan_admin(frappe.session.user):
+        by_me = counts["All"]
+    else:
+        by_me = frappe.db.sql(
+            f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
+            (frappe.session.user,),
+        )[0][0]
+    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me)}
 
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in
 # Python from the amount, not stored, so there is nothing in SQL to group by --
 # and a closed 3-value set needs no server round trip anyway.
-FACETABLE = {"source", "source_type", "status", "vendor", "project", "doctype", "expense_type"}
+FACETABLE = {"source", "source_type", "status", "vendor", "project", "doctype", "expense_type", "raised_by"}
 
 
 @frappe.whitelist(allow_guest=False)
-def get_approval_queue_facets(field, filters=None):
+def get_approval_queue_facets(field, filters=None, search_term=None, current_search_fields=None):
     """Distinct values for one facet, counted ACROSS THE UNION.
 
     The data-table's self-fetching facets read ONE doctype, which on this screen
@@ -439,8 +465,15 @@ def get_approval_queue_facets(field, filters=None):
     if not branches:
         frappe.throw(_("Not permitted"), frappe.PermissionError)
 
+    # Counts follow what the table shows: the tab's filters, the OTHER column filters (the
+    # caller leaves this facet's own selection out) and the search box -- so a value that
+    # would match nothing under them is simply not returned, never offered with a 0.
+    search_fields = _coerce(current_search_fields) or []
+    if isinstance(search_fields, str):
+        search_fields = [search_fields]
+
     union = " UNION ALL ".join(branches)
-    where, params = _build_where(_coerce(filters) or [], None, [])
+    where, params = _build_where(_coerce(filters) or [], search_term, search_fields)
 
     rows = frappe.db.sql(
         f'SELECT q."{field}" AS value, COUNT(*) AS cnt FROM ({union}) q {where} '

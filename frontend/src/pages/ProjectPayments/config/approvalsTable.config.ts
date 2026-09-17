@@ -135,12 +135,10 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
   // "Payment Done / Reconciliation Done" — no `select`, no `actions`: there is
-  // nothing left to do to a settled row.
+  // nothing left to do to a settled row. The admin Edit pencil that used to sit
+  // here was removed by owner request (2026-09-17).
   [PP_TABS.PAYMENTS_DONE]: [
-    // `actions` is here only because the live screen has an admin Edit on a
-    // settled payment. The matrix says "nothing left to do to a Paid row"; that
-    // is true of approval, not of correcting a UTR. Renders nothing without `onEdit`.
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on",
+    "source", "against", "vendor", "project", "amount", "paid_on",
     "utr_ref", "proof", "reconciled_on", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
@@ -152,6 +150,13 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   [PP_TABS.ALL_PAYMENTS]: [
     "source", "against", "vendor", "project", "amount", "status",
     "requested_on", "raised_by",
+  ],
+  // "Payment By Me" — `actions` holds ONLY a Delete, on REJECTED rows only, "--" on the rest
+  // (owner, 17 Sep 2026). Its dialog deletes an expense after a confirm; for a PO / SR payment
+  // it links to the PO / SR page, whose own payment table does the delete. No `raised_by` for most users, since every
+  // row is their own; an Admin sees EVERY row here, and AllPayments appends `raised_by`.
+  [PP_TABS.PAYMENT_BY_ME]: [
+    "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.
   [PP_TABS.PO_WISE]: [
@@ -169,6 +174,7 @@ export const TAB_ALLOWS_SELECTION: Record<ApprovalTab, boolean> = {
   [PP_TABS.PAYMENTS_PENDING]: false,
   [PP_TABS.ALL_PAYMENTS]: false,
   [PP_TABS.PO_WISE]: false,
+  [PP_TABS.PAYMENT_BY_ME]: false,
 };
 
 /**
@@ -192,7 +198,15 @@ export const TAB_DEFAULT_SORT: Record<ApprovalTab, string> = {
   [PP_TABS.PAYMENTS_PENDING]: "creation desc",
   [PP_TABS.ALL_PAYMENTS]: "creation desc",
   [PP_TABS.PO_WISE]: "creation desc",
+  [PP_TABS.PAYMENT_BY_ME]: "creation desc",
 };
+
+/**
+ * "Payment By Me": all statuses, rows the logged-in user created — EVERY row for an Admin.
+ * `@me` is resolved ON THE SERVER (`CURRENT_USER_TOKEN` in get_approval_queue.py), so the
+ * browser never names whose rows it gets.
+ */
+export const CURRENT_USER_TOKEN = "@me";
 
 /**
  * ⚠️ EVERY TAB NEEDS AN EXPLICIT CASE.
@@ -225,6 +239,8 @@ export const getApprovalsStaticFilters = (
     case PP_TABS.ALL_PAYMENTS:
     case PP_TABS.PO_WISE:
       return [];
+    case PP_TABS.PAYMENT_BY_ME:
+      return [["raised_by", "=", CURRENT_USER_TOKEN]];
     default: {
       // ⚠️ NOT a fall-through to []. The payments version of this switch returns
       // an unfiltered list on an unknown tab, so a missing case shows EVERY row in

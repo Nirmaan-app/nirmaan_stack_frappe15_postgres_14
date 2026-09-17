@@ -550,7 +550,11 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    // HR Executive added 2026-09-17 (owner): HR gets four VIEW-ONLY tabs there (Reconciliation
+    // Pending, Payment Done, Payments Pending, Payment By Me) -- RenderProjectPaymentsComponent
+    // holds it to them. HR LEAD is
+    // deliberately NOT here: it cannot create or delete an expense, so that tab stays empty.
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan HR Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/project-payments',
@@ -584,9 +588,8 @@ export function NewSidebar() {
     // (search: "Credit Payments") — that Set is matched by LABEL, and an entry missing
     // from it renders as a collapsible group with a chevron that swallows the click.
     //
-    // ⚠️ ONE ROLE LOSES ACCESS FROM THE NAV: Nirmaan HR Executive Profile was in this
-    // gate but is NOT in the "/project-payments" gate above, so HR has no nav route to
-    // expenses any more. The URL still works. Flagged to the owner.
+    // HR Executive was in this gate. Since 2026-09-17 it is in the "/project-payments" gate
+    // above instead, with four view-only tabs.
     // ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
     //   ? [
     //     {

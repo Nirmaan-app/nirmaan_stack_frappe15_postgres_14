@@ -27,6 +27,7 @@ import {
 } from "../components/DetailPopovers";
 
 import {
+  APPROVAL_STATUS,
   ApprovalColumnId,
   ApprovalQueueRow,
   ApprovalTab,
@@ -73,7 +74,11 @@ export interface ApprovalColumnCtx {
    * content, which is what the matrix describes.
    */
   onEdit?: (row: ApprovalQueueRow) => void;
-  /** Delete an approved-but-unpaid record (accountant tab). */
+  /**
+   * The Trash icon on "Payment By Me", shown on REJECTED rows only ("--" otherwise). It opens a
+   * dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
+   * PO / SR page, whose payment table deletes it.
+   */
   onDelete?: (row: ApprovalQueueRow) => void;
 }
 
@@ -164,6 +169,7 @@ const REGISTRY: Record<
       ctx.tab === PP_TABS.NEW_PAYMENTS ? 148
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? 160
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
+        : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
         : 72,
     cell: ({ row }) => {
       const r = row.original;
@@ -199,6 +205,21 @@ const REGISTRY: Record<
               </Button>
             )}
           </div>
+        );
+      }
+
+      // ⚠️ MUST stay above the Approve / Reject fall-through below, or this view-only tab
+      // would render approval buttons on every row.
+      if (ctx.tab === PP_TABS.PAYMENT_BY_ME) {
+        if (!ctx.onDelete || r.status !== APPROVAL_STATUS.REJECTED) {
+          return <span className="text-muted-foreground">--</span>;
+        }
+        return (
+          <Button variant="ghost" size="icon" aria-label="Delete"
+            className="h-7 w-7 text-destructive hover:text-destructive/80"
+            onClick={() => ctx.onDelete?.(r)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
         );
       }
 

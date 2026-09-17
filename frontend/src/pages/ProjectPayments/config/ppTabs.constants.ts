@@ -43,6 +43,10 @@ export const PP_TABS = {
     PO_WISE: 'PO Wise',
     /** Hidden from the tab strip 2026-09-15; still routed, same reason as PO_WISE. */
     ALL_PAYMENTS: 'All Payments',
+    /** label: "Payment Raised By Me" (renamed from "Payment By Me", same day) — NEW 2026-09-17. Every row of all three ledgers the
+     *  logged-in user created, in every status; an ADMIN sees every row. Replaces the
+     *  planned "Rejected" tab. */
+    PAYMENT_BY_ME: 'Payment By Me',
 } as const;
 
 export type PPTabValue = typeof PP_TABS[keyof typeof PP_TABS];
@@ -89,6 +93,12 @@ export const PP_PAYMENT_TYPE_TAB_OPTIONS: PPTabOption[] = [
 // `paymentHref()` sends every NON-paid payment deep link to this tab.
 export const PP_ALL_TAB_OPTIONS: PPTabOption[] = [
     { label: "All Payments", value: PP_TABS.ALL_PAYMENTS, countKey: "pay.all" },
+];
+
+// Shown to EVERY role that can open the page. Its badge comes from the union counts
+// endpoint (`by_me`), so there is no `countKey` into the payments-only store.
+export const PP_BY_ME_TAB_OPTIONS: PPTabOption[] = [
+    { label: "Payment Raised By Me", value: PP_TABS.PAYMENT_BY_ME },
 ];
 
 // Settle-side authority beside the accountants — "Payment need to paid" (Mark as Paid) and

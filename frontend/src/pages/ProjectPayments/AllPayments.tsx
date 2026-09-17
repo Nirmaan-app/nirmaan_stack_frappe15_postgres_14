@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDocTypeEventListener, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useNavigate } from "react-router-dom";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -15,6 +16,7 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import {
     APPROVAL_QUEUE_API,
     APPROVAL_FETCH_FIELDS,
+    TYPE_LABEL,
     APPROVAL_DATE_COLUMNS,
     APPROVAL_SEARCHABLE_FIELDS,
     ApprovalQueueRow,
@@ -44,6 +46,7 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 // --- Helper Components ---
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { buildPaymentsUrlSyncKey, getProjectPaymentsStaticFilters } from "./config/projectPaymentsTable.config";
+import { PP_ACCOUNTANT_ROLES, PP_TABS } from "./config/ppTabs.constants";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { EditFulfilledPaymentDialog } from "./update-payment/EditFulfilledPaymentDialog"; // Import the new dialog
 import { useUserData } from "@/hooks/useUserData";
@@ -53,6 +56,13 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import PaymentSummaryCards from "./PaymentSummaryCards"
 import { useRefreshApprovalCounts } from "./hooks/useRefreshApprovalCounts"
 import { canViewPaymentSummary } from "@/constants/roles"
+import { useToast } from "@/components/ui/use-toast"
+import { getFrappeError } from "@/utils/frappeErrors"
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface SelectOption { label: string; value: string; }
 
@@ -137,6 +147,31 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
     const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
+    // The two identities the server's `is_nirmaan_admin` accepts. Drives "Payment By Me":
+    // an Admin sees every row there, so the "Raised by" column is added for them.
+    const isNirmaanAdmin = isAdmin || user_id === "Administrator";
+    const { toast } = useToast();
+
+    // --- "Payment By Me" delete (Rejected rows only; the column shows "--" otherwise) ---
+    // The Trash icon opens ONE dialog, which branches on the ledger (owner, 17 Sep 2026):
+    //   expense           -> "are you sure?" -> the same `deleteDoc` the expense pages use
+    //   PO / SR payment   -> NOT deleted here; the dialog links to its PO / SR page, whose
+    //                        payment table already deletes a Rejected payment
+    const navigate = useNavigate();
+    const [deleteRow, setDeleteRow] = useState<ApprovalQueueRow | null>(null);
+    const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
+    const deleteIsPayment = deleteRow?.doctype === "Project Payments";
+    const deleteParentLabel = deleteRow?.document_type === "Service Requests" ? "SR" : "PO";
+    const openDeleteParent = useCallback(() => {
+        if (!deleteRow?.document_name) return;
+        const id = deleteRow.document_name.replace(/\//g, "&=");
+        setDeleteRow(null);
+        // `Dispatched PO`, not the page's `Approved PO` default: that one shows a "Heads Up"
+        // screen instead of the PO for any PO already past `PO Approved`.
+        navigate(deleteRow.document_type === "Service Requests"
+            ? `/service-requests/${id}?tab=approved-sr`
+            : `/purchase-orders/${id}?tab=Dispatched PO`);
+    }, [deleteRow, navigate]);
 
     const { setEditFulfilledPaymentDialog } = useDialogStore(); // Get the setter for the new dialog
     const [paymentToEdit, setPaymentToEdit] = useState<ProjectPayments | null>(null); // State to hold the payment for the dialog
@@ -312,6 +347,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             ? (row) => handleOpenEditDialog(row as unknown as ProjectPayments)
             : undefined,
         onMarkReconciled: openPayDialog,
+        onDelete: tab === PP_TABS.PAYMENT_BY_ME ? setDeleteRow : undefined,
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -331,19 +367,22 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         // anyone else it was an empty column with a header. Drop it outright rather than
         // render it blank — keyed on the SAME `isAdmin` that wires `onEdit`, so the header
         // and the pencil can never disagree.
-        const visibleIds = tab === "Payments Done" && !isAdmin
+        // Reconciliation Pending likewise: its Actions column is ONLY Mark Reconciled, which is
+        // for the settle roles (Admin / Accountants). HR can open the tab, view-only (owner, 17 Sep
+        // 2026) -- same rule as RenderProjectPaymentsComponent's `canSettlePayments`.
+        const canSettle = isAdmin || PP_ACCOUNTANT_ROLES.includes(role);
+        const hideActions = (tab === "Payments Done" && !isAdmin)
+            || (tab === PP_TABS.RECONCILIATION_PENDING && !canSettle);
+        const visibleIds = hideActions
             ? ids.filter((id) => id !== "actions")
             : ids;
-        return buildApprovalColumns(visibleIds, columnCtx);
-    }, [tab, isAdmin, columnCtx]);
+        // "Payment By Me" lists EVERY row for an Admin (server-side, `CURRENT_USER_TOKEN`),
+        // so the rows are no longer all the viewer's own and "Raised by" earns its column.
+        // Same two identities as the server's `is_nirmaan_admin`.
+        const byMeShowsAll = tab === PP_TABS.PAYMENT_BY_ME && isNirmaanAdmin;
+        return buildApprovalColumns(byMeShowsAll ? [...visibleIds, "raised_by"] : visibleIds, columnCtx);
+    }, [tab, isAdmin, role, isNirmaanAdmin, columnCtx]);
 
-    // Status varies only on the mixed-status tabs, so the facet is offered there.
-    const approvalFacets = useApprovalFacets({
-        filters: staticFilters as Array<[string, string, unknown]>,
-        projectLabels: projectMap,
-        vendorLabels: vendorLabelMap,
-        includeStatus: ["Payments Pending", "All Payments"].includes(tab),
-    });
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
     const {
@@ -356,6 +395,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         setSelectedSearchField,
         searchTerm,
         setSearchTerm,
+        columnFilters,
         exportAllRows,
         isExporting,
     } = useServerDataTable<ApprovalQueueRow>({
@@ -369,6 +409,19 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: false,
         additionalFilters: staticFilters,
+    });
+
+    // Status varies only on the mixed-status tabs, so the facet is offered there. Called AFTER
+    // the table hook: facet counts follow the table's live column filters and search.
+    const approvalFacets = useApprovalFacets({
+        filters: staticFilters as Array<[string, string, unknown]>,
+        columnFilters,
+        searchTerm,
+        selectedSearchField,
+        projectLabels: projectMap,
+        vendorLabels: vendorLabelMap,
+        userLabels: userLabelMap,
+        includeStatus: ([PP_TABS.PAYMENTS_PENDING, PP_TABS.ALL_PAYMENTS, PP_TABS.PAYMENT_BY_ME] as string[]).includes(tab),
     });
 
     // Full-table CSV. Replaces the table's built-in `'default'` handler rather than
@@ -395,6 +448,23 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // and every mutate() in the hook is commented out.)
     useFrappeDocTypeEventListener("Project Expenses", () => refetch());
     useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+
+    const handleConfirmDelete = useCallback(async () => {
+        if (!deleteRow) return;
+        try {
+            await deleteDoc(deleteRow.doctype, deleteRow.name);
+            toast({
+                title: "Deleted",
+                description: `Expense ${deleteRow.against_primary || deleteRow.name} was deleted.`,
+                variant: "success",
+            });
+            setDeleteRow(null);
+            refetch();
+            refreshTabCounts();
+        } catch (error) {
+            toast({ title: "Couldn't delete", description: getFrappeError(error), variant: "destructive" });
+        }
+    }, [deleteRow, deleteDoc, toast, refetch, refreshTabCounts]);
 
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {
@@ -434,7 +504,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
-                    facetFilterOptions={approvalFacets}
+                    facetFilterOptions={approvalFacets.facetOptions}
+                    onFacetOpen={approvalFacets.onFacetOpen}
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     // Selection is OFF on these tabs, so the built-in button is never
@@ -442,7 +513,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     onExport={exportAll}
                     isExporting={isExporting || isExportingAll}
                     exportFileName={exportFileName}
-                    summaryCard={projectId || customerId || !canViewPaymentSummary(role, user_id) ? null : <PaymentSummaryCards totalCount={totalCount} />}
+                    // Hidden on "Payment By Me": the card summarises ALL payments, not the viewer's own.
+                    summaryCard={projectId || customerId || tab === PP_TABS.PAYMENT_BY_ME || !canViewPaymentSummary(role, user_id) ? null : <PaymentSummaryCards totalCount={totalCount} />}
                     getRowClassName={getRowClassName}
 
                 // toolbarActions={
@@ -483,6 +555,67 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     onSuccess={() => { setPayRow(null); refetch(); refreshTabCounts(); }}
                 />
             )}
+
+            <AlertDialog
+                open={!!deleteRow}
+                onOpenChange={(open) => { if (!open && !deleting) setDeleteRow(null); }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {deleteIsPayment
+                                ? `Delete this payment from its ${deleteParentLabel}`
+                                : `Are you sure you want to delete this ${deleteRow ? (TYPE_LABEL[deleteRow.source_type] ?? deleteRow.source_type) : "expense"}?`}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm">
+                                <p>
+                                    {deleteIsPayment
+                                        ? `A ${deleteParentLabel} payment is deleted from the ${deleteParentLabel} page. Open ${deleteRow?.document_name} and delete it from its payments.`
+                                        : "It will be permanently deleted. This can't be undone."}
+                                </p>
+                                {deleteRow && (
+                                    <div className="rounded border bg-muted/40 p-2">
+                                        <div className="font-medium text-foreground">
+                                            {deleteRow.against_primary || deleteRow.name}
+                                        </div>
+                                        <div className="text-muted-foreground">
+                                            {formatToRoundedIndianRupee(deleteRow.amount)} · {deleteRow.status}
+                                            {deleteRow.vendor ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}` : ""}
+                                        </div>
+                                        {deleteRow.raised_by !== user_id && (
+                                            <div className="text-muted-foreground">
+                                                Created by {userLabelMap.get(deleteRow.raised_by) || deleteRow.raised_by}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        {deleteIsPayment ? (
+                            <>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={openDeleteParent} disabled={!deleteRow?.document_name}>
+                                    Go to {deleteRow?.document_name || deleteParentLabel}
+                                </AlertDialogAction>
+                            </>
+                        ) : (
+                            <>
+                                <AlertDialogCancel disabled={deleting}>No</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={(e) => { e.preventDefault(); handleConfirmDelete(); }}
+                                    disabled={deleting}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                    {deleting ? "Deleting…" : "Yes, delete"}
+                                </AlertDialogAction>
+                            </>
+                        )}
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {/* --- (Indicator) NEW: Render the EditFulfilledPaymentDialog --- */}
             {paymentToEdit && (

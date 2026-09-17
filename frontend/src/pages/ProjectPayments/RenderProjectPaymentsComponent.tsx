@@ -13,13 +13,21 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
-    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
 } from "./config/ppTabs.constants";
 // PP_REM_TAB_OPTIONS (PO Wise) and PP_ALL_TAB_OPTIONS (All Payments) are intentionally
 // NOT imported: their buttons were removed 2026-09-15. Both tabs remain ROUTED via
 // PP_TABS below, so deep links still resolve. Re-import + .map(renderTabButton) to restore.
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
-import { PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+
+/** The tabs HR Executive may open on this page -- all view-only for HR. */
+const HR_TABS = [
+    PP_TABS.RECONCILIATION_PENDING,
+    PP_TABS.PAYMENTS_DONE,
+    PP_TABS.PAYMENTS_PENDING,
+    PP_TABS.PAYMENT_BY_ME,
+] as const;
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -42,7 +50,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // `countValue` wins over `countKey` in renderTabButton, so overriding here
     // leaves the sidebar store — shared with other screens — completely untouched.
     const { data: queueCounts, mutate: mutateQueueCounts } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; amounts: Record<string, number> };
+        message: { counts: Record<string, number>; amounts: Record<string, number>; by_me?: number };
     }>(APPROVAL_COUNTS_API, undefined, APPROVAL_COUNTS_SWR_KEY);
 
     // ── Keep the badges live ──────────────────────────────────────────────────
@@ -80,10 +88,17 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     const isAccountant = useMemo(() => PP_ACCOUNTANT_ROLES.includes(role), [role]);
     const isProjectRole = useMemo(() => PP_PROJECT_ROLES.includes(role), [role]);
     const isPMO = role === PMO_EXECUTIVE_PROFILE;
+    // HR Executive sees FOUR tabs here, all view-only (owner, 17 Sep 2026): Reconciliation
+    // Pending (no Actions column), Payment Done / Reconciliation Done, Payments Pending and
+    // Payment By Me. See `tab` below.
+    const isHR = role === HR_EXECUTIVE_PROFILE;
     // Who may SETTLE a payment: Mark as Paid ("Payment need to paid") and Mark Reconciled
     // ("Reconciliation Pending"). Gates the tab buttons AND the tab bodies below, since both
     // tabs are reachable by a hand-edited `?tab=` URL.
     const canSettlePayments = isAdmin || isAccountant;
+    // Reconciliation Pending is also VIEWABLE by HR -- without the Mark Reconciled action,
+    // which AllPayments drops for anyone who cannot settle.
+    const canViewReconciliation = canSettlePayments || isHR;
 
     const initialTab = useMemo(() => {
         const adminDefault = PP_TABS.APPROVE_PAYMENTS;
@@ -94,10 +109,15 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         // PMO sees neither the approval nor the settle tabs (2026-09-17), so it defaults to
         // Payments Pending -- falling through to PO Wise would open a tab with no button.
         const pmoDefault = PP_TABS.PAYMENTS_PENDING;
-        return getUrlStringParam("tab", isCEO ? ceoDefault : canApprovePayments ? adminDefault : isPMO ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
-    }, [isCEO, canApprovePayments, isPMO, isAccountant, isProjectRole]); // Calculate only once based on role
+        return getUrlStringParam("tab", isHR ? PP_TABS.PAYMENT_BY_ME : isCEO ? ceoDefault : canApprovePayments ? adminDefault : isPMO ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
+    }, [isHR, isCEO, canApprovePayments, isPMO, isAccountant, isProjectRole]); // Calculate only once based on role
 
-    const [tab, setTab] = useState<string>(initialTab);
+    const [selectedTab, setTab] = useState<string>(initialTab);
+    // ⚠️ HR IS HELD TO ITS FOUR TABS, whatever the state or a hand-edited `?tab=` says -- any
+    // other tab falls back to "Payment By Me", since HR has no button for it and a bookmarked
+    // URL must not open one. Derived rather than forced into state, so it also holds while
+    // the role is still loading.
+    const tab = isHR && !(HR_TABS as readonly string[]).includes(selectedTab) ? PP_TABS.PAYMENT_BY_ME : selectedTab;
 
     // Effect to sync tab state TO URL
     useEffect(() => {
@@ -152,8 +172,8 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // Tab four. Same audience as "Payment need to paid" -- the accountant owns both
     // sides of the settlement. Empty until the fulfil path writes the new status.
     const reconciliationTabsFiltered = useMemo(
-        () => canSettlePayments ? withUnionCount(PP_RECONCILIATION_TAB_OPTIONS, APPROVAL_STATUS.RECONCILIATION_PENDING) : [],
-        [canSettlePayments, withUnionCount]
+        () => canViewReconciliation ? withUnionCount(PP_RECONCILIATION_TAB_OPTIONS, APPROVAL_STATUS.RECONCILIATION_PENDING) : [],
+        [canViewReconciliation, withUnionCount]
     );
     const paymentTypeTabsFiltered = useMemo(() => [
         {
@@ -175,6 +195,12 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 + parseNumber(unionCount(APPROVAL_STATUS.APPROVED, counts.pay.approved))
         }
     ], [counts, unionCount]);
+    // "Payment By Me" — every role on the page. The badge stays hidden until the count
+    // loads (`countValue` undefined renders no badge) rather than flashing a 0.
+    const byMeTabsFiltered = useMemo(
+        () => PP_BY_ME_TAB_OPTIONS.map((o) => ({ ...o, countValue: queueCounts?.message?.by_me })),
+        [queueCounts]
+    );
 
     /**
      * Refresh after an expense is created from this page.
@@ -264,6 +290,11 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             {paymentTypeTabsFiltered.map(renderTabButton)}
                         </>
                     )}
+                    {/* Payment By Me -- the viewer's own rows, every status */}
+                    {paymentTypeTabsFiltered.length > 0 && (
+                        <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                    )}
+                    {byMeTabsFiltered.map(renderTabButton)}
                     {/*
                       PO Wise and All Payments are HIDDEN from the strip (owner 2026-09-15).
                       Their BUTTONS are gone; their ROUTES below are not. `paymentHref()` sends
@@ -292,7 +323,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         )
                     ) : tab === PP_TABS.CEO_PENDING ? (
                         <ApprovePayments mode="ceo" readOnly={!isCEO} />
-                    ) : ([PP_TABS.NEW_PAYMENTS, PP_TABS.RECONCILIATION_PENDING].includes(tab as any) && !canSettlePayments) ? (
+                    ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (
                         // Reachable only via a hand-edited / bookmarked `?tab=` URL -- the tab
                         // buttons are not rendered for these roles (PMO removed 2026-09-17).
                         role === "Loading" ? <LoadingFallback /> : (
@@ -308,7 +339,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
                             (
                                 <AccountantTabs />
-                            ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING].includes(tab as any) ? (
+                            ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING, PP_TABS.PAYMENT_BY_ME].includes(tab as any) ? (
                                 <AllPayments tab={tab} />
                             )
                                 : (

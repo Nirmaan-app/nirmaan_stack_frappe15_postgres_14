@@ -101,6 +101,7 @@ export const isBillingProfile = (role?: string | null): boolean =>
 
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
 export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
+export const HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile";
 export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 

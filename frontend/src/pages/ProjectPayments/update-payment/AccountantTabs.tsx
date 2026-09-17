@@ -239,12 +239,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         [tab, columnCtx]
     );
 
-    // Source / Vendor / Project facets, counted over the same union the table reads.
-    const approvalFacets = useApprovalFacets({
-        filters: staticFilters as Array<[string, string, unknown]>,
-        projectLabels: projectLabelMap,
-        vendorLabels: vendorLabelMap,
-    });
 
     // Whether a vendor can go in the BANK FILE. It no longer gates selection or greys the
     // row (owner, 16 Sep): a payment made outside the file still has to be marked as paid.
@@ -301,6 +295,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         table, data, totalCount, isLoading: listIsLoading, error: listError,
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
+        columnFilters,
         isRowSelectionActive,
         refetch,
         exportAllRows,
@@ -316,6 +311,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
+    });
+
+    // Type / Vendor / Project / Raised by facets, counted over the same union the table reads,
+    // under the table's live column filters and search -- hence AFTER the table hook.
+    const approvalFacets = useApprovalFacets({
+        filters: staticFilters as Array<[string, string, unknown]>,
+        columnFilters,
+        searchTerm,
+        selectedSearchField,
+        projectLabels: projectLabelMap,
+        vendorLabels: vendorLabelMap,
+        userLabels: userLabelMap,
     });
 
     // ⚠️ TWO EXPORTS ON THIS TAB, AND THEY ARE NOT VARIANTS OF EACH OTHER.
@@ -606,7 +613,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                         vendor: { additionalFilters: staticFilters },
                     } satisfies FacetOverrides}
                     dateFilterColumns={dateColumns}
-                    facetFilterOptions={approvalFacets}
+                    facetFilterOptions={approvalFacets.facetOptions}
+                    onFacetOpen={approvalFacets.onFacetOpen}
                     // `exportIgnoresSelection` used to sit here. `DataTable` declares
                     // no such prop and never read it — it was a silent no-op stating an
                     // intent the code did not implement. Removed rather than honoured:
