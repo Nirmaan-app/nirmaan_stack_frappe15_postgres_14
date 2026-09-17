@@ -107,6 +107,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Callable
 
 import frappe
 
@@ -126,6 +127,11 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     VENDOR_REFUND_DOCTYPE as VENDOR_REFUND,
     is_expense_doctype,
     settleable_statuses,
+)
+from nirmaan_stack.services.outflow_import.expense_links import (
+    derive_expense_status,
+    load_expense_links,
+    remaining_balance,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.reference_guard import (
@@ -460,6 +466,13 @@ def _not_settleable_message(name: str, status: str) -> str:
 def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -> Decimal:
     """Re-read the target UNDER A ROW LOCK and re-assert everything the reviewer saw.
 
+    ⚠️ THE LINE IS COMPARED WITH THE REMAINING BALANCE, NOT THE WHOLE RECORD (ADR-0027, #1296):
+    `amount - linked total`, where the linked total is the SUM of the expense's live slips
+    (`expense_links.load_expense_links`). An expense with no live slip -- every settleable expense
+    today -- has a linked total of 0, so this is the old whole-record check exactly, and so is its
+    refusal sentence. `bank_amount` is whatever the caller expects this line to cover: the bank
+    figure on a 1:1 settle, or a leg's `expected_amount`. Returns the record's own amount.
+
     ⚠️ `for_update=True` WITHOUT `cache=True`. Frappe's `get_value` silently skips the lock when the
     value comes from cache (`frappe/database/database.py`), so a cached read would take no lock at
     all and this whole guard would be decorative.
@@ -489,13 +502,21 @@ def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -
         )
 
     amount = normalize_amount(current.get("amount"))
+    linked_total = load_expense_links(doctype, name).linked_total
+    remaining = remaining_balance(amount, linked_total)
     # ⚠️ THE SAME WINDOW THE MATCHER USES, and it must stay the same: a pool wider than this guard
     # offers a record the confirm then refuses, and a guard wider than the pool permits a
     # settlement the screen never proposed. See `amounts.py`.
-    if not amounts_match(amount, bank_amount):
+    if not amounts_match(remaining, bank_amount):
+        # Nothing linked yet: the whole record is what is left, and the sentence is unchanged.
+        owed = (
+            f"{name} is for {amount}"
+            if not linked_total
+            else f"{name} has {remaining} of {amount} still to link"
+        )
         frappe.throw(
-            f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
-            f"{abs(amount - bank_amount)}. "
+            f"{owed} but {bank_amount} left the bank, a difference of "
+            f"{abs(remaining - bank_amount)}. "
             f"Settle it against the transfer that matches, or record a new expense.",
             AmountMismatchError,
             title="Amounts differ",
@@ -509,8 +530,24 @@ def settle_existing_expense(
     target_name: str,
     actor: str,
     statement_file_url: str | None = None,
+    rewrite_amount_to_bank: bool = True,
+    expected_amount: Decimal | None = None,
+    *,
+    record_link: Callable[[SettleResult], None],
 ) -> SettleResult:
-    """Mark an already-approved expense `Paid` from a bank row.
+    """Settle an expense from a bank row: write the link, then save the expense.
+
+    ⚠️ THE SAME LEG SHAPE AS `settle_payment` (ADR-0027 Q13, #1296). `expected_amount` replaces the
+    bank figure in the window check, and `rewrite_amount_to_bank=False` leaves the record's amount
+    alone -- so a later change can settle PART of an expense through this one path. A 1:1 settle
+    passes neither and is byte-identical to before.
+
+    ⚠️ `record_link` INSERTS THE SLIP, AND IT RUNS BEFORE THE SAVE -- REQUIRED, KEYWORD-ONLY, ON
+    PURPOSE. It is handed the `SettleResult` (the amount written) and must insert the
+    `Outflow Row Match` record. The expense save then sees its own slip: the status is DERIVED from
+    the linked total (`expense_links.derive_expense_status`), and the server rules on the expense
+    doctypes re-derive it on every save. A save before the slip would read the expense as unlinked
+    and flip it back. There is no default, so no caller can save an expense with no slip behind it.
 
     ⚠️ EXPENSES ONLY, still. `Project Payments` is in `SETTLEABLE_STATUSES` from V1 on, so this
     guard tests `is_expense_doctype` rather than map membership -- the map answers "what status may
@@ -541,8 +578,10 @@ def settle_existing_expense(
        suppresses that ONE branch; the gap recomputation itself still runs, in our transaction. See
        both `_outflow_import_write` and the guard at the hook site.
 
-    ⚠️ `payment_date` AND `payment_ref` ARE STILL ASSIGNED UNCONDITIONALLY, INCLUDING AS `None`,
-    which is exactly what the `set_value` dict did. In practice the field is always blank -- the
+    ⚠️ `payment_ref` IS STILL ASSIGNED UNCONDITIONALLY, INCLUDING AS `None`, which is exactly what
+    the `set_value` dict did. `status` and `payment_date` are no longer set here directly: they come
+    from `derive_expense_status` once the slip exists (#1296), which on a 1:1 settle is Paid on the
+    line's own date -- the same two values as before. In practice the field is always blank -- the
     record is `Approved`, and both are written at settlement.
 
     This used to read as careless beside `settle_payment`'s guarded write, and was kept anyway. At
@@ -559,11 +598,13 @@ def settle_existing_expense(
         )
 
     bank_amount = normalize_amount(getattr(row, "amount", 0))
-    amount = _lock_and_assert_settleable(target_doctype, target_name, bank_amount)
+    amount = _lock_and_assert_settleable(
+        target_doctype,
+        target_name,
+        expected_amount if expected_amount is not None else bank_amount,
+    )
 
     doc = frappe.get_doc(target_doctype, target_name)
-    doc.status = _PAID
-    doc.payment_date = getattr(row, "added_on_date", None)
     doc.payment_ref = _settlement_reference_of(row) or None
     # payment_by exists ONLY on Project Expenses, and it is the finalising user -- deliberately NOT
     # the statement's "Added by", which the gateway truncates to 15 characters (owner ruling).
@@ -574,24 +615,37 @@ def settle_existing_expense(
     # `Project Expenses.amount` a bare numeric STRING and `Non Project Expenses.amount` a number --
     # the two are not twins and writing one shape into the other is how the Data column stops being
     # self-consistent.
+    #
+    # ⚠️ ONLY WHEN `rewrite_amount_to_bank`, as on `settle_payment`: on a leg the bank figure is not
+    # this record's figure, and snapping to it would corrupt the amount.
     written = amount
-    exact = rewrite_amount(amount, bank_amount)
-    if exact is not None:
-        doc.amount = format_amount_for(target_doctype, exact)
-        written = exact
+    if rewrite_amount_to_bank:
+        exact = rewrite_amount(amount, bank_amount)
+        if exact is not None:
+            doc.amount = format_amount_for(target_doctype, exact)
+            written = exact
 
     apply_statement_attachment(doc, statement_file_url)
 
-    with _outflow_import_write():
-        doc.save(ignore_permissions=True, ignore_version=False)
-
-    return SettleResult(
+    result = SettleResult(
         doctype=target_doctype,
         name=target_name,
         amount=written,
         created=False,
         original_amount=amount,
     )
+    # ⚠️ SLIP FIRST, THEN STATUS, THEN SAVE (ADR-0027 § Consequences, write order). The status is
+    # read back from the slips, so it is only right once this line's slip exists. On a 1:1 settle
+    # the slip covers the whole (snapped) amount, so this is Paid on the line's date -- as before.
+    record_link(result)
+    verdict = derive_expense_status(written, load_expense_links(target_doctype, target_name))
+    doc.status = verdict.status
+    doc.payment_date = verdict.payment_date
+
+    with _outflow_import_write():
+        doc.save(ignore_permissions=True, ignore_version=False)
+
+    return result
 
 
 def settle_payment(

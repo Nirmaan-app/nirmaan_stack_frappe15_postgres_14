@@ -304,6 +304,7 @@ def _settle_and_commit(
                 staged, target_name, actor, statement_file_url=statement_file_url
             )
             recompute_for_settled_payment(target_name)
+            _record_settlement(staged, doc, result, actor)
         else:
             result = settle_existing_expense(
                 staged,
@@ -311,8 +312,10 @@ def _settle_and_commit(
                 target_name,
                 actor,
                 statement_file_url=statement_file_url,
+                # ⚠️ THE SLIP IS INSERTED INSIDE THE SETTLE, BEFORE THE EXPENSE SAVE (#1296,
+                # ADR-0027 write order) -- so the save sees its own slip.
+                record_link=lambda settled: _record_settlement(staged, doc, settled, actor),
             )
-        _record_settlement(staged, doc, result, actor)
         # ⚠️ INSIDE THE SAVEPOINT. The status is derived from the legs, so it must be recomputed in
         # the same transaction that added one -- otherwise a rolled-back settle leaves a row
         # claiming money that was never written.

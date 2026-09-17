@@ -52,7 +52,14 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
   * `candidates.load_expense_targets`       -- the SQL pool query
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
-  * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
+  * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard. The expense guard
+                                               compares the line with the REMAINING balance
+                                               (`amount - linked total`, #1296), which is the whole
+                                               record while an expense has no live slip.
+  * `expense_links.derive_expense_status` (#1296) -- SETTLE window, ONE-SIDED like
+                                               `allocation.is_fully_allocated`: an expense is Paid
+                                               once `amount - linked total <= AMOUNT_TOLERANCE`,
+                                               otherwise Reconciliation Pending (ADR-0027).
   * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_already_recorded_
                                                outcome`, reached through `_failed_or_already_paid`,
                                                shared with `derive_duplicate_guard_outcome` -- and,
