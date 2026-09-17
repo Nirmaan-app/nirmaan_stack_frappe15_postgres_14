@@ -9,7 +9,6 @@ import { Separator }  from "@/components/ui/separator";
 import { toast }      from "@/components/ui/use-toast";
 import { TailSpin }   from "react-loader-spinner";
 
-import { parseNumber }           from "@/utils/parseNumber";
 import { formatToRoundedIndianRupee as fmt } from "@/utils/FormatPrice";
 import { CustomAttachment }      from "@/components/helpers/CustomAttachment";
 
@@ -64,7 +63,6 @@ export default function UpdatePaymentRequestDialog({
 
   /* local form state (fulfil only) */
   const [utr, setUtr]       = useState("");
-  const [tds, setTds]       = useState("");
   const [payDate, setPD]    = useState("");
   const [file, setFile]     = useState<File | null>(null);
 
@@ -76,8 +74,8 @@ export default function UpdatePaymentRequestDialog({
   const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
   const [isAutofilling, setIsAutofilling]       = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl]   = useState<string | null>(null);
-  /* Raw values from Document AI — frontend re-derives the mismatch state
-     against (payment.amount − tds) so the banner reacts as TDS changes. */
+  /* Raw values from Document AI — frontend derives the mismatch state
+     against payment.amount. */
   const [receiptAmount, setReceiptAmount]       = useState<number | null>(null);
   const [amountDeltaThreshold, setAmountDeltaThreshold] = useState<number>(2);
   /* Soft beneficiary-name check — receipt payee vs this payment's vendor. Only a
@@ -91,7 +89,7 @@ export default function UpdatePaymentRequestDialog({
      dialog the next time the user clicks Pay. */
   useEffect(() => {
     if (open && mode === "fulfil") {
-      setUtr(""); setTds(""); setPD(""); setFile(null);
+      setUtr(""); setPD(""); setFile(null);
       setAutofilledFields(new Set());
       setUploadedFileUrl(null);
       setIsAutofilling(false);
@@ -109,7 +107,7 @@ export default function UpdatePaymentRequestDialog({
 
   /* ---------------- submit handlers ------------------------------- */
   const reset = () => {
-    setUtr(""); setTds(""); setPD(""); setFile(null);
+    setUtr(""); setPD(""); setFile(null);
     setAutofilledFields(new Set());
     setUploadedFileUrl(null);
     setIsAutofilling(false);
@@ -151,7 +149,7 @@ export default function UpdatePaymentRequestDialog({
       setAutofilledFields(filled);
 
       // Stash raw extracted amount + tolerance; the form derives the
-      // mismatch state dynamically against (payment.amount − tds).
+      // mismatch state against payment.amount.
       const amt = data?.validation?.amount;
       setReceiptAmount(typeof amt?.extracted === "number" ? amt.extracted : null);
       if (typeof amt?.delta_threshold === "number") {
@@ -200,24 +198,21 @@ export default function UpdatePaymentRequestDialog({
     }
   };
 
-  /* Whether this payment's tax was already withheld at approval, in which case `payment.amount`
-     is the net figure and there is nothing left for a person to enter. Scoped to the ledger that
-     automates it - mirrors `payment_tds.DEDUCTIBLE_PARENTS` on the server. */
-  const tdsIsAutomatic = payment?.document_type === "Service Requests";
-
-  /* Live amount mismatch — recomputes when TDS changes so the banner
-     hides automatically once the user accounts for the deduction. */
+  /* Receipt amount vs the requested amount.
+     ⚠️ No TDS is entered here any more (owner 2026-09-16, both ledgers). A Service Request
+     payment has its TDS withheld at approval and `amount` is already the net figure
+     (services/payment_tds.py); a Procurement Order payment no longer takes TDS at fulfil.
+     The legacy `Project Payments.tds` field is being retired and nothing writes it. */
   const amountMismatch = useMemo(() => {
     if (receiptAmount == null) return null;
-    const effectiveExpected = payment.amount - (parseNumber(tds) || 0);
-    const delta = +(receiptAmount - effectiveExpected).toFixed(2);
+    const delta = +(receiptAmount - payment.amount).toFixed(2);
     if (Math.abs(delta) <= amountDeltaThreshold) return null;
     return {
-      expected: effectiveExpected,
+      expected: payment.amount,
       extracted: receiptAmount,
       delta,
     };
-  }, [receiptAmount, amountDeltaThreshold, payment.amount, tds]);
+  }, [receiptAmount, amountDeltaThreshold, payment.amount]);
 
   const doFulfil = async () => {
     try {
@@ -237,7 +232,6 @@ export default function UpdatePaymentRequestDialog({
         action : "fulfil" as const,
         name   : payment.name,
         utr,
-        tds    : parseNumber(tds) || 0,
         pay_date : payDate,
         status: payment?.status,
         file_url   : uploadedFile ? uploadedFile.file_url : undefined
@@ -358,13 +352,12 @@ export default function UpdatePaymentRequestDialog({
                 </div>
               )}
 
-              {/* Soft warning: receipt amount differs from (requested − TDS) by > ₹2 */}
+              {/* Soft warning: receipt amount differs from the requested amount by > ₹2 */}
               {amountMismatch && (
                 <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2.5 py-1.5">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-900 leading-snug">
-                    <span className="font-medium">Amount mismatch:</span> receipt {fmt(amountMismatch.extracted)} vs expected {fmt(amountMismatch.expected)} (off {fmt(Math.abs(amountMismatch.delta))})
-                    {parseNumber(tds) === 0 && !tdsIsAutomatic ? " — add TDS if applicable" : ""}.
+                    <span className="font-medium">Amount mismatch:</span> receipt {fmt(amountMismatch.extracted)} vs expected {fmt(amountMismatch.expected)} (off {fmt(Math.abs(amountMismatch.delta))}).
                   </p>
                 </div>
               )}
@@ -391,27 +384,6 @@ export default function UpdatePaymentRequestDialog({
                        value={utr}
                        onChange={e => { setUtr(e.target.value); clearAutofillFlag("utr"); }} />
               </div>
-
-              {/* TDS — manual entry only where the tax is NOT already withheld.
-                  ⚠️ A Service Request payment has its TDS deducted automatically the moment it
-                  is approved, and its `amount` is ALREADY the net figure (services/payment_tds.py).
-                  Offering the field here would invite a second deduction on top of the first: the
-                  figure would be written to the legacy `tds` column, and the receipt-mismatch
-                  banner below - which expects (amount - tds) - would start flagging a correct
-                  receipt as wrong. A Procurement Order payment is unaffected and still needs it. */}
-              {!tdsIsAutomatic && (
-                <div className="grid grid-cols-5 items-center gap-4">
-                  <Label htmlFor="tds" className="col-span-2 text-right">TDS</Label>
-                  <div className="col-span-3">
-                    <Input id="tds" type="number" className="h-8"
-                           value={tds} onChange={e=>setTds(e.target.value)} />
-                    {parseNumber(tds) > 0 &&
-                      <span className="text-xs text-muted-foreground">
-                        Amt&nbsp;Paid:&nbsp;{fmt(payment.amount - parseNumber(tds))}
-                      </span>}
-                  </div>
-                </div>
-              )}
 
               {/* Date */}
               <div className="grid grid-cols-5 items-center gap-4">

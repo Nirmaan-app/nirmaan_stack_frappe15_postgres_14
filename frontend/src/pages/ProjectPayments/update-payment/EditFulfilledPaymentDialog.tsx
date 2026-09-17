@@ -1,7 +1,7 @@
 // src/pages/ProjectPayments/update-payment/EditFulfilledPaymentDialog.tsx
 // Create this new file.
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useFrappeUpdateDoc, useFrappeFileUpload } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { formatDate as formatDateFns } from "date-fns";
@@ -21,7 +21,6 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import SITEURL from "@/constants/siteURL";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { parseNumber } from "@/utils/parseNumber";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 interface EditFulfilledPaymentDialogProps {
     payment: ProjectPayments;
@@ -30,7 +29,6 @@ interface EditFulfilledPaymentDialogProps {
 
 interface FormState {
     amount: string;
-    tds: string;
     utr: string;
     // --- (Indicator) MOD: Add paymentDate to FormState ---
     paymentDate: string;
@@ -60,7 +58,7 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
 
     console.log("payment",payment)
 
-    const [formState, setFormState] = useState<FormState>({ amount: "", tds: "", utr: "", paymentDate: ""});
+    const [formState, setFormState] = useState<FormState>({ amount: "", utr: "", paymentDate: ""});
     const [newAttachmentFile, setNewAttachmentFile] = useState<File | null>(null);
     const [existingAttachmentUrl, setExistingAttachmentUrl] = useState<string | undefined>(undefined);
     const [attachmentAction, setAttachmentAction] = useState<AttachmentUpdateAction>("keep");
@@ -69,7 +67,6 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
         if (editFulfilledPaymentDialog && payment) {
             setFormState({
                 amount: payment.amount?.toString() || "",
-                tds: payment.tds?.toString() || "",
                 utr: payment.utr || "",
                 // --- (Indicator) MOD: Set initial value for paymentDate ---
                 paymentDate: formatFrappeDateToInput(payment.payment_date)
@@ -80,19 +77,11 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
         }
     }, [editFulfilledPaymentDialog, payment]);
 
-    // --- (Indicator) NEW: Calculate amountPaid using useMemo for efficiency ---
-    const amountPaid = useMemo(() => {
-        const totalAmount = parseNumber(formState.amount);
-        const tdsAmount = parseNumber(formState.tds);
-        return totalAmount - tdsAmount;
-    }, [formState.amount, formState.tds]);
-
     const handleDialogClose = () => setEditFulfilledPaymentDialog(false);
 
     const handleSubmit = async () => {
         const payload: Partial<ProjectPayments> = {
             amount: parseNumber(formState.amount),
-            tds: parseNumber(formState.tds),
             utr: formState.utr,
             payment_date: formState.paymentDate,
         };
@@ -161,17 +150,6 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="amount_edit" className="text-right">Total Amount</Label>
                         <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => setFormState(p => ({ ...p, amount: e.target.value }))} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="tds_edit" className="text-right">TDS</Label>
-                        <Input id="tds_edit" type="number" value={formState.tds} onChange={(e) => setFormState(p => ({ ...p, tds: e.target.value }))} className="col-span-3" />
-                    </div>
-                    {/* --- (Indicator) NEW: Display the calculated Amount Paid --- */}
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="amount_paid_display" className="text-right font-semibold">Amount Paid</Label>
-                        <div id="amount_paid_display" className="col-span-3">
-                            {formatToRoundedIndianRupee(amountPaid)}
-                        </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="utr_edit" className="text-right">UTR</Label>

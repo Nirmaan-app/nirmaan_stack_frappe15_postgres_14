@@ -394,7 +394,6 @@ def _fulfil_payment(pay, args):
 
     pay.status        = "Paid"
     pay.utr           = utr
-    pay.tds           = flt(args.get("tds") or 0)
     pay.payment_date  = args.get("pay_date") or nowdate()
 
     # This save() call will trigger the on_update hook in the other file.
@@ -524,7 +523,6 @@ def _attach_file(pay, file_url: str):
 #       "action" : "fulfil" | "delete",
 #       "name"   : "<PAY-00042-087>",
 #       "utr"    : "...",            # required for fulfil
-#       "tds"    : 123.45,           # optional
 #       "pay_date": "2025-05-24",    # optional, defaults to today
 #       "file_url"   : "..."         # optional, proof of payment
 #     }
@@ -572,7 +570,6 @@ def _attach_file(pay, file_url: str):
 
 #     pay.status        = "Paid"
 #     pay.utr           = utr
-#     pay.tds           = flt(args.get("tds") or 0)
 #     pay.payment_date  = args.get("pay_date") or nowdate()
 
 #     pay.save()                    # row-level lock until commit

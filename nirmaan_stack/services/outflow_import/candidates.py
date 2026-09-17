@@ -81,6 +81,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    VENDOR_REFUND_DOCTYPE,
     decided_on_sql,
     settleable_statuses,
 )
@@ -396,6 +397,8 @@ CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
     # #1268 (ADR-0016 A-D2): a credit's other book. Without it a receipt recorded as a Non Project
     # Inflow -- by hand, or by an earlier import -- is invisible, and the same money is recorded twice.
     ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", paid_only=False),
+    # The third credit book: a credit recorded as a Vendor Refund is recorded, whichever card did it.
+    ContainsLedger(VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", paid_only=False),
 )
 
 

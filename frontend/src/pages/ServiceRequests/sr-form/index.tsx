@@ -24,6 +24,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useSRFormData } from "./hooks/useSRFormData";
+import { useVendorFYLimit, vendorFYLimitBlockedMessage } from "./hooks/useVendorFYLimit";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // Schema & Constants
@@ -34,6 +35,7 @@ import {
     validateStep1,
     validateStep2,
     ValidationResult,
+    calculateTotal,
 } from "./schema";
 import {
     SR_WIZARD_STEPS,
@@ -103,6 +105,14 @@ export const SRFormWizard = () => {
        CEO HOLD GUARD
        ───────────────────────────────────────────────────────── */
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+
+    /* ─────────────────────────────────────────────────────────
+       VENDOR FINANCIAL-YEAR WO LIMIT
+       Blocks Next (vendor step) and Submit; the server refuses the insert too.
+       ───────────────────────────────────────────────────────── */
+    const watchedVendor = form.watch("vendor");
+    const watchedItems = form.watch("items");
+    const vendorFYLimit = useVendorFYLimit(watchedVendor?.id, calculateTotal(watchedItems || []));
 
     /* ─────────────────────────────────────────────────────────
        DATA FETCHING
@@ -196,8 +206,14 @@ export const SRFormWizard = () => {
         switch (currentSection) {
             case "items":
                 return validateStep1(currentFormValues);
-            case "vendor":
-                return validateStep2(currentFormValues);
+            case "vendor": {
+                const step2 = validateStep2(currentFormValues);
+                if (!step2.success) return step2;
+                if (vendorFYLimit.isChecking || vendorFYLimit.isOverLimit) {
+                    return { success: false, error: vendorFYLimitBlockedMessage(vendorFYLimit) };
+                }
+                return step2;
+            }
             case "review":
                 // Full validation on review step
                 const result = srFormSchema.safeParse(currentFormValues);
@@ -225,7 +241,7 @@ export const SRFormWizard = () => {
             default:
                 return { success: true };
         }
-    }, [currentStep, getValues]);
+    }, [currentStep, getValues, vendorFYLimit]);
 
     /* ─────────────────────────────────────────────────────────
        NAVIGATION HANDLERS
@@ -278,6 +294,16 @@ export const SRFormWizard = () => {
         // CEO Hold guard
         if (isCEOHold) {
             showBlockedToast();
+            return;
+        }
+
+        // Vendor financial-year WO limit guard
+        if (vendorFYLimit.isChecking || vendorFYLimit.isOverLimit) {
+            toast({
+                title: vendorFYLimit.isChecking ? "Please wait" : "Vendor Work Order Limit Reached",
+                description: vendorFYLimitBlockedMessage(vendorFYLimit),
+                variant: "destructive",
+            });
             return;
         }
 
@@ -378,7 +404,7 @@ export const SRFormWizard = () => {
                 variant: "destructive",
             });
         }
-    }, [getValues, createDoc, userData?.user_id, navigate, isCEOHold, showBlockedToast]);
+    }, [getValues, createDoc, userData?.user_id, navigate, isCEOHold, showBlockedToast, vendorFYLimit]);
 
     /* ─────────────────────────────────────────────────────────
        RENDER CURRENT STEP
@@ -409,6 +435,7 @@ export const SRFormWizard = () => {
                         form={form}
                         vendors={vendors}
                         isLoading={dataLoading}
+                        vendorLimit={vendorFYLimit}
                     />
                 );
             case "review":
@@ -622,7 +649,11 @@ export const SRFormWizard = () => {
                         Send for Approval
                     </Button>
                 ) : (
-                    <Button onClick={handleNext} className="gap-2">
+                    <Button
+                        onClick={handleNext}
+                        disabled={currentSection === "vendor" && (vendorFYLimit.isChecking || vendorFYLimit.isOverLimit)}
+                        className="gap-2"
+                    >
                         Next
                         <ChevronRight className="h-4 w-4" />
                     </Button>

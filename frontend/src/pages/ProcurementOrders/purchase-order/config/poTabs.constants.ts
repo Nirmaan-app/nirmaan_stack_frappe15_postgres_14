@@ -40,9 +40,12 @@ export const PO_ALL_TAB_OPTIONS: POTabOption[] = [
     { label: "All POs", value: PO_TABS.ALL_POS, countKey: "po.all" },
 ];
 
+// PO approval authority — drives the three "Approve …" tabs (release-po-select.tsx), the
+// approve-view URL guard (RenderPurchaseOrdersTab.tsx) and the /po-revisions-approval route
+// guard (routesConfig.tsx). PMO Executive was intentionally REMOVED on 2026-09-17 (PMO access
+// review, same as PR_ADMIN_ROLES on 2026-07-04). Do NOT re-add PMO without owner sign-off.
 export const PO_ADMIN_ROLES = [
     "Nirmaan Admin Profile",
-    "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
 ];
 

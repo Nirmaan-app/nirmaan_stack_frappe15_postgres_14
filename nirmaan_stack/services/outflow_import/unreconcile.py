@@ -40,8 +40,6 @@ WHY EACH REFUSAL EXISTS (moved here from `_guard_leg_is_plainly_reversible`, rev
 payment clears status / `utr` / `payment_date` and NOTHING ELSE, so a leg that carries more than a
 status flip must be refused rather than half-undone:
 
-  * A `tds` FIGURE on the payment. Put back to Approved, it would leave withheld tax on money that
-    is waiting to be paid again.
   * EITHER HALF OF A SPLIT THIS IMPORT'S PARTIAL SETTLE DID NOT MAKE (the ones it did: below).
     `settle_row_partial` trims the ORIGINAL to the settled part and mints the balance with
     `split_from` pointing back. The marker on the settled half is therefore a CHILD, not a field on
@@ -74,6 +72,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPES,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    VENDOR_REFUND_DOCTYPE,
     is_expense_doctype,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
@@ -136,7 +135,7 @@ WHAT_HAPPENS_UNSPLIT = "The split is undone:"
 #: (`settle._STATEMENT_ATTACHMENT_FIELDS`, spelled here because this module may not import settle).
 #: A Version touching only these is the import's own, never a person's edit. Pinned against the
 #: resolver by `api/outflow_import/test_unreconcile_created.py`.
-IMPORT_WRITTEN_FIELDS = frozenset({"payment_attachment", "inflow_attachment"})
+IMPORT_WRITTEN_FIELDS = frozenset({"payment_attachment", "inflow_attachment", "refund_attachment"})
 
 # `CREATED_WINDOW_SECONDS` (the back-fill's window) lives in `unsplit.py`, shared with the split questions.
 
@@ -161,13 +160,23 @@ __all__ = [
     "VERDICT_REVERT_EXPENSE",
     "VERDICT_REVERT_PAYMENT",
     "VERDICT_UNSPLIT_PAYMENT",
+    "WHOLE_LINE_ONLY_REFUSAL",
+    "WHOLE_LINE_ONLY_TITLE",
     "LegFacts",
     "LegVerdict",
     "SplitChild",
     "first_refusal",
     "leg_created_the_record",
     "leg_verdict",
+    "reverse_all_only",
 ]
+
+#: The refusal when a request reverses only SOME of a vendor refund line's records.
+WHOLE_LINE_ONLY_TITLE = "Reverse all"
+WHOLE_LINE_ONLY_REFUSAL = (
+    "A vendor refund transfer is undone whole: Reverse all deletes every vendor refund on it. "
+    "Nothing was reversed."
+)
 
 
 @dataclass(frozen=True)
@@ -187,7 +196,6 @@ class LegFacts:
     target_status: str | None = None
     target_amount: object = None
     target_reference: str | None = None
-    tds: object = None
     # The payment's OWN `split_from`: set when it is the carried-forward balance of a split.
     split_from: str | None = None
     # PAYMENTS ONLY (#1279): every payment whose `split_from` is this one (`unsplit.SplitChild`). The
@@ -263,16 +271,6 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
     if not facts.target_exists:
         return _refused(facts, "Not found", f"Payment '{name}' not found.")
 
-    if normalize_amount(facts.tds):
-        return _refused(
-            facts,
-            "Settled with TDS",
-            f"{name} carries a TDS figure -- withheld tax that "
-            f"this reversal does not clear -- putting it back would leave a tax figure "
-            f"on a payment that is waiting to be paid again. Reverse it on the payments screen, "
-            f"where both the status and the TDS can be corrected together.",
-            FIX_ON_PAYMENTS_SCREEN,
-        )
     if (facts.split_from or "").strip() and not is_balance_of_a_part_settle(
         facts.target_created, facts.parent_settled_at
     ):
@@ -453,6 +451,19 @@ def leg_created_the_record(
     if not same_user or created_before_import:
         return False
     return all((old or "").strip() == _PAID for old, _new in status_changes_before_match)
+
+
+def reverse_all_only(live_legs) -> bool:
+    """Whether a line may only be undone WHOLE -- it carries a vendor refund (owner, 2026-09-17).
+
+    ⚠️ A PART-REVERSED VENDOR REFUND LINE IS A DEAD END. Its other refunds stay, so the line reads
+    Partially Allocated -- and `create_vendor_refund` refuses a partially allocated line, while the
+    refunds still on it count as already recorded. Nothing could complete it; the only way forward was
+    to reverse the rest. So undoing one vendor refund undoes (deletes) all of them, in one go.
+
+    `live_legs` are the line's Settled legs, as mappings with `target_doctype`.
+    """
+    return any(leg.get("target_doctype") == VENDOR_REFUND_DOCTYPE for leg in live_legs)
 
 
 def first_refusal(verdicts) -> LegVerdict | None:

@@ -127,7 +127,7 @@ export const VendorMaterialOrdersTable: React.FC<
       filters: [["vendor", "=", vendorId]],
       fields: [
         "name", "document_name", "document_type", "status", "amount",
-        "tds", "payment_date", "creation", "utr", "payment_attachment",
+        "payment_date", "creation", "utr", "payment_attachment",
       ],
       limit: 0,
     } as GetDocListArgs<FrappeDoc<ProjectPayments>>,

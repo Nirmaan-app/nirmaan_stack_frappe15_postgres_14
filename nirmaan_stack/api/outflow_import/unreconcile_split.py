@@ -49,7 +49,7 @@ def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
     payment = frappe.db.get_value(
         PAYMENT_DOCTYPE,
         leg.target_name,
-        ["status", "utr", "amount", "tds", "split_from", "creation"],
+        ["status", "utr", "amount", "split_from", "creation"],
         as_dict=True,
         for_update=for_update,
     )
@@ -61,7 +61,6 @@ def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
         target_status=payment.status,
         target_amount=payment.amount,
         target_reference=payment.utr,
-        tds=payment.tds,
         split_from=payment.split_from,
         split_children=split_children_of(leg.target_name, for_update=for_update),
         target_created=payment.creation,
@@ -84,7 +83,7 @@ def split_children_of(name: str, *, for_update: bool) -> tuple:
     children = frappe.get_all(
         PAYMENT_DOCTYPE,
         filters={"split_from": name},
-        fields=["name", "creation", "amount", "status", "tds"],
+        fields=["name", "creation", "amount", "status"],
         order_by="creation asc, name asc",
     )
     return tuple(
@@ -94,7 +93,6 @@ def split_children_of(name: str, *, for_update: bool) -> tuple:
             amount=child.amount,
             created_amount=_created_amount(child.name, child.amount),
             status=child.status,
-            tds=child.tds,
             tds_deducted=bool(
                 frappe.db.exists(TDS_DEDUCTION_DOCTYPE, {"project_payment": child.name})
             ),

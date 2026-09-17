@@ -87,9 +87,10 @@ ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile"
 # ENFORCEMENT boundary, because the endpoints behind that tab save with
 # `ignore_permissions=True` and a bare `@frappe.whitelist()` would otherwise be
 # reachable by any logged-in user. Keep the two lists in sync.
+#
+# PMO Executive was REMOVED on 2026-09-17 (PMO access review), on both sides.
 INVOICE_APPROVAL_PROFILES = (
     ADMIN_PROFILE,
-    PMO_EXECUTIVE_PROFILE,
     ACCOUNTANT_PROFILE,
     ACCOUNTANT_LEAD_PROFILE,
 )

@@ -173,7 +173,6 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         amount: "",
         payment_date: "",
         utr: "",
-        tds: ""
     });
 
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
@@ -246,7 +245,6 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 vendor: newPayment?.vendor_id,
                 utr: newPayment?.utr,
                 amount: parseNumber(newPayment?.amount),
-                tds: parseNumber(newPayment?.tds),
                 payment_date: newPayment?.payment_date,
                 status: "Paid"
             })
@@ -289,7 +287,6 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 amount: "",
                 payment_date: "",
                 utr: "",
-                tds: ""
             })
 
             setPaymentScreenshot(null)
@@ -550,7 +547,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
             //                 const vendor = getVendorName(data?.vendor)
             //                 return <div className="font-medium">
             //                     <SquarePlus onClick={() => {
-            //                         setNewPayment({ ...newPayment, project: project!, vendor: vendor!, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , tds: "", payment_date: new Date().toISOString().split("T")[0]})
+            //                         setNewPayment({ ...newPayment, project: project!, vendor: vendor!, docname: data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : data.type === "Service Order" ? "Service Requests" : "", project_id: data?.project, vendor_id: data?.vendor, amount: "", utr: "" , payment_date: new Date().toISOString().split("T")[0]})
             //                         setWarning("")
             //                         toggleNewPaymentDialog()
             //                     }} className="w-5 h-5 text-red-500 cursor-pointer" />
@@ -641,21 +638,6 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                                         onChange={(e) => handleAmountChange(e)}
                                     />
                                     {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
-                                </div>
-                            </div>
-                            <div className="flex gap-4 w-full">
-                                <Label className="w-[40%]">TDS Amount</Label>
-                                <div className="w-full">
-                                    <Input
-                                        type="number"
-                                        placeholder="Enter TDS Amount"
-                                        value={newPayment.tds}
-                                        onChange={(e) => {
-                                            const tdsValue = e.target.value;
-                                            setNewPayment({ ...newPayment, tds: tdsValue })
-                                        }}
-                                    />
-                                    {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
                                 </div>
                             </div>
                             <div className="flex gap-4 w-full">

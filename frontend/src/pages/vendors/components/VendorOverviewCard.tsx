@@ -71,7 +71,8 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
                      row below it out of alignment. */}
                  <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6 max-sm:gap-y-4">
                     <InfoItem label="Vendor ID" value={vendor?.name} />
-                    <InfoItem label="Address" value={`${vendorAddress?.address_line1}, ${vendorAddress?.address_line2}, ${vendorAddress?.city}, ${vendorAddress?.state}`} className="lg:text-end" />
+                    {/* Address Line 2 is optional -- skip blank parts rather than print "undefined". */}
+                    <InfoItem label="Address" value={[vendorAddress?.address_line1, vendorAddress?.address_line2, vendorAddress?.city, vendorAddress?.state].filter((part) => part?.trim()).join(", ")} className="lg:text-end" />
 
                     <InfoItem label="Nickname" value={vendor?.vendor_nickname} />
                     <InfoItem label="City" value={vendorAddress?.city} className="lg:text-end" />
@@ -85,15 +86,11 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
                     <InfoItem label="Alternate Contact Number" value={vendor?.vendor_alt_mobile || "--"} className="lg:text-end" />
 
                     <InfoItem label="GST Number" value={vendor?.vendor_gst} />
-                    <InfoItem label="Pincode" value={vendorAddress?.pincode} className="lg:text-end" />
+                    <InfoItem label="PAN Number" value={vendor?.vendor_pan} className="lg:text-end" />
 
-                    {/* The right column is the address stack and has run out of
-                        fields, so this row needs an explicit empty cell -- without
-                        it the grid pulls nothing up beside TDS and the pairing of
-                        any row added later silently shifts. `??` (not `||`) so a
-                        deliberate 0% shows as 0, not as "--". */}
+                    {/* `!= null` (not a truthiness test) so a deliberate 0% shows as 0, not as "--". */}
                     <InfoItem label="TDS Deduction %" value={vendor?.tds_deduction_percentage != null ? `${vendor.tds_deduction_percentage}%` : "--"} />
-                    <div aria-hidden />
+                    <InfoItem label="Pincode" value={vendorAddress?.pincode} className="lg:text-end" />
                 </div>
               </CardContent>
             </Card>

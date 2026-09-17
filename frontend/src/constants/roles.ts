@@ -101,6 +101,7 @@ export const isBillingProfile = (role?: string | null): boolean =>
 
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
 export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
+export const HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile";
 export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 
@@ -162,13 +163,15 @@ export const canDeleteCashflowPlan = (
  *
  * Mirrored server-side by `role_profiles.INVOICE_APPROVAL_PROFILES`, which is
  * the ENFORCEMENT boundary; this constant only decides whether the controls
- * render. It also mirrors the inline list in `InvoiceReconciliationContainer`
- * that gates the Pending tab itself — a reviewer who cannot see the queue must
- * not be offered a button that sweeps it.
+ * render. `InvoiceReconciliationContainer` reads the same predicate to gate the
+ * Pending tab itself — a reviewer who cannot see the queue must not be offered a
+ * button that sweeps it.
+ *
+ * PMO Executive was REMOVED on 2026-09-17 (PMO access review). Do not re-add PMO
+ * without owner sign-off.
  */
 const INVOICE_APPROVAL_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
-  PMO_EXECUTIVE_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];
@@ -180,6 +183,26 @@ export const canActionInvoiceApprovals = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
+
+/**
+ * May see the "Payment Summary" card atop the payments tables (Approve Payments,
+ * Accountant tabs, All Payments) — Admin + Accountant + Accountant Lead (owner
+ * ruling). UI-only: `get_payment_dashboard_stats` has no role check, so this
+ * decides whether the card renders (and fetches), not what the server returns.
+ */
+const PAYMENT_SUMMARY_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
+];
+
+/** True when `role` (a role PROFILE) may see the Payment Summary card. */
+export const canViewPaymentSummary = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && PAYMENT_SUMMARY_PROFILES.includes(role));
 
 /**
  * May see Target Progress in the Work Report: the Target column beside Actual,

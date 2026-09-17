@@ -3,6 +3,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
+import { canActionInvoiceApprovals } from '@/constants/roles';
 import { urlStateManager } from '@/utils/urlStateManager';
 
 const InvoiceSummaryCards = React.lazy(() => import('./components/InvoiceSummaryCards'));
@@ -14,14 +15,17 @@ const AllSRInvocies=React.lazy(()=>import('./components/SrInvoices'))
 
 export default function InvoiceReconciliationContainer() {
     // Use your hook to sync tab state with URL param 'tab'
-    const {role} = useUserData();
+    const {role, user_id} = useUserData();
+    // Who may see (and act on) Pending Invoice Approvals -- the one shared predicate, so the
+    // tab, its default and the row controls cannot drift apart. PMO removed 2026-09-17.
+    const canViewPending = canActionInvoiceApprovals(role, user_id);
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role) ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY;
+        const defaultTab = canViewPending ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY;
         return getUrlStringParam("tab", defaultTab);
-    }, [role]); // Calculate only once based on role
+    }, [canViewPending]); // Calculate only once based on role
     
     const [tab, setTab] = useState<string>(initialTab);
     
@@ -46,13 +50,12 @@ export default function InvoiceReconciliationContainer() {
     }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
-    // Filter task tabs based on role (only Admin/PMO/Accountant can see pending approvals)
+    // Filter task tabs based on role (only Admin/Accountant/Accountant Lead can see pending approvals)
     const taskTabs = useMemo(() => {
-        const canViewPending = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
         return canViewPending
             ? INVOICE_TASK_TAB_OPTIONS
             : INVOICE_TASK_TAB_OPTIONS.filter(t => t.value !== INVOICE_TASK_TABS.PENDING);
-    }, [role]);
+    }, [canViewPending]);
          
 
     const onClick = useCallback(
@@ -124,8 +127,12 @@ export default function InvoiceReconciliationContainer() {
                     {tab==="history" &&(
                        <TaskHistoryTable />
                     )}
+                    {/* The tab button is hidden for non-approvers, but `?tab=pending` still lands here.
+                        The approve/reject endpoints behind this table carry no role check. */}
                     {tab === "pending" && (
-                    <PendingTasksTable />
+                        canViewPending ? <PendingTasksTable />
+                        : role === "Loading" ? <LoadingFallback />
+                        : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve vendor invoices.</div>
                     )}
                     {tab==="po_invoices" &&(
                        <AllPoInvocies />

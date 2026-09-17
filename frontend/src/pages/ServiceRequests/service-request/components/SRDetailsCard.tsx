@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
@@ -112,7 +113,17 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   // in the SAME pass as `amount_paid`, so the two always describe the same set of payments. A
   // Procurement Order has no such field and reads 0, leaving that screen untouched.
   const tdsPaid = Number(orderData?.total_tds) || 0;
-  const grossPaid = useMemo(() => amountPaid + tdsPaid, [amountPaid, tdsPaid]);
+  // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): its payments are
+  // never reduced, so `amountPaid` already covers the order and the tax was paid ON TOP. Adding it
+  // here would count it twice. Mirrors `payment_tds.is_company_borne` / the server's `amount_due`.
+  const companyBorneTds = useMemo(
+    () => isCompanyBorneWorkOrder(orderData?.service_category_list),
+    [orderData?.service_category_list]
+  );
+  const grossPaid = useMemo(
+    () => amountPaid + (companyBorneTds ? 0 : tdsPaid),
+    [amountPaid, tdsPaid, companyBorneTds]
+  );
 
   // Calculate amount pending (total - gross paid)
   //
@@ -237,12 +248,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                           {formatToIndianRupee(amountPaid || 0)}
                         </span>
                       </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-gray-500">TDS withheld</span>
-                        <span className="font-medium tabular-nums">
-                          {formatToIndianRupee(tdsPaid)}
-                        </span>
-                      </div>
+                      {!companyBorneTds && (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-500">TDS withheld</span>
+                          <span className="font-medium tabular-nums">
+                            {formatToIndianRupee(tdsPaid)}
+                          </span>
+                        </div>
+                      )}
                       <Separator className="my-1" />
                       <div className="flex justify-between gap-4">
                         <span className="font-semibold">Total</span>
@@ -250,6 +263,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                           {formatToIndianRupee(grossPaid)}
                         </span>
                       </div>
+                      {companyBorneTds && (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-500">TDS paid by company (on top)</span>
+                          <span className="font-medium tabular-nums">
+                            {formatToIndianRupee(tdsPaid)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </HoverCardContent>
                 </HoverCard>

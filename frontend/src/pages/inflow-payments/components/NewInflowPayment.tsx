@@ -3,7 +3,6 @@ import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeFileUpload, u
 import memoize from 'lodash/memoize';
 import { AlertCircle, ArrowDownToLine, Building2, Calendar, CreditCard, FileText, Hash, IndianRupee, Loader2, Sparkles } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
-import ReactSelect from "react-select";
 
 // --- UI Components ---
 import ProjectSelect from "@/components/custom-select/project-select";
@@ -21,14 +20,10 @@ import { Separator } from "@/components/ui/separator";
 
 // --- Types ---
 import { ProjectInflows as ProjectInflowsType } from "@/types/NirmaanStack/ProjectInflows"; // Alias for clarity
-import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 
-type InvoiceOption = { value: string; label: string };
-
 // --- Utils & State ---
-import { getSelectStyles } from "@/config/selectTheme";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
@@ -88,9 +83,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
     // the form with stale data.
     const extractionSessionRef = useRef(0);
 
-    // --- Linked invoice (single — one inflow pays against one invoice) ---
-    const [selectedInvoice, setSelectedInvoice] = useState<InvoiceOption | null>(null);
-
     // --- Data Mutators ---
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
@@ -124,28 +116,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
             limit: 0,
         },
         formState.project ? `ProjectInflowsForProject_${formState.project}` : null
-    );
-
-    // Invoices belonging to the currently selected project — populates the
-    // "Linked Invoices" multi-select. Only fires once a project is picked.
-    const { data: projectInvoicesForLink, isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>(
-        "Project Invoices",
-        {
-            filters: formState.project ? [["project", "=", formState.project]] : undefined,
-            fields: ["name", "invoice_no", "amount", "invoice_date"],
-            limit: 1000,
-            orderBy: { field: "invoice_date", order: "desc" },
-        },
-        formState.project ? `ProjectInvoicesForInflow_${formState.project}` : null
-    );
-
-    const invoiceOptions = useMemo<InvoiceOption[]>(
-        () =>
-            (projectInvoicesForLink ?? []).map(inv => ({
-                value: inv.name,
-                label: `${inv.invoice_no || inv.name} — ${formatToRoundedIndianRupee(inv.amount || 0)}`,
-            })),
-        [projectInvoicesForLink]
     );
 
     // --- Event Listener for Realtime Updates ---
@@ -193,8 +163,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
         setAutofilledFields(new Set());
         setIsAutofilling(false);
         setReceiptStage("upload");
-        // Linked invoice is project-scoped — clear it when the project changes.
-        setSelectedInvoice(null);
     }, [projects, customers, toast]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -329,8 +297,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                 payment_date: formState.payment_date,
                 utr: formState.utr.trim(),
                 inflow_attachment: fileUrl, // Will be undefined if no screenshot
-                // Single Link to a Project Invoice; one invoice can be paid by multiple inflows.
-                invoice: selectedInvoice?.value || undefined,
             };
 
             await createDoc("Project Inflows", docToCreate);
@@ -346,7 +312,7 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
             console.error("Error adding inflow payment:", error);
             toast({ title: "Failed!", description: error.message || "Failed to add payment.", variant: "destructive" });
         }
-    }, [createDoc, formState, paymentScreenshot, uploadedFileUrl, selectedInvoice, toggleNewInflowDialog, projectInflowsMutate, upload, validateForm, toast]);
+    }, [createDoc, formState, paymentScreenshot, uploadedFileUrl, toggleNewInflowDialog, projectInflowsMutate, upload, validateForm, toast]);
 
     const closeDialogAndReset = () => {
         // Invalidate any in-flight autofill so its eventual response doesn't
@@ -359,7 +325,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
         setAutofilledFields(new Set());
         setIsAutofilling(false);
         setReceiptStage("upload");
-        setSelectedInvoice(null);
         toggleNewInflowDialog(); // From Zustand store
     };
 
@@ -376,7 +341,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
             setAutofilledFields(new Set());
             setIsAutofilling(false);
             setReceiptStage("upload");
-            setSelectedInvoice(null);
         }
     }, [newInflowDialog]);
 
@@ -471,39 +435,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                                     This project has no customer assigned. Please update the project details before recording payments.
                                 </AlertDescription>
                             </Alert>
-                        )}
-
-                        {/* Linked Invoice — single-select, scoped to selected project.
-                            One inflow pays against one invoice; one invoice can receive many inflows. */}
-                        {formState.project && isProjectValidForPayment && (
-                            <div className="space-y-1.5">
-                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Linked Invoice
-                                    <span className="text-xs font-normal text-slate-400 ml-1">(Optional)</span>
-                                </Label>
-                                <ReactSelect
-                                    options={invoiceOptions}
-                                    value={selectedInvoice}
-                                    onChange={(opt) => setSelectedInvoice((opt as InvoiceOption | null) ?? null)}
-                                    isClearable
-                                    placeholder={
-                                        projectInvoicesLoading
-                                            ? "Loading invoices…"
-                                            : invoiceOptions.length === 0
-                                                ? "No invoices found for this project"
-                                                : "Select the invoice this payment covers…"
-                                    }
-                                    isDisabled={projectInvoicesLoading}
-                                    isLoading={projectInvoicesLoading}
-                                    classNamePrefix="react-select"
-                                    menuPortalTarget={typeof document !== "undefined" ? document.body : undefined}
-                                    menuPosition="fixed"
-                                    // Centralized theme sets `pointer-events: auto` on every menu
-                                    // layer — required so clicks land inside Radix dialogs.
-                                    styles={getSelectStyles<InvoiceOption, false>()}
-                                    noOptionsMessage={() => "No invoices found for this project"}
-                                />
-                            </div>
                         )}
                     </div>
 

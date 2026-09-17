@@ -1045,7 +1045,7 @@ export const PurchaseOrder = ({
               <AccordionTrigger>
                 <div className="flex items-center gap-3 pl-6">
                   <p className="font-semibold text-lg text-red-600">
-                    Payment Details
+                    Payment Details / Refunds
                   </p>
                   {(poPayments || []).filter((p) => p?.status === "Paid").length > 0 && (
                     <Badge variant="secondary">

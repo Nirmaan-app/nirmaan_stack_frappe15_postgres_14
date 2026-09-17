@@ -54,14 +54,14 @@ class TestAllOrNothing(UnreconcileFixture):
         already have reverted it by the time the refused one is reached."""
         row, (a, b, _) = self._allocated()
         good, bad = self._leg(row, a), self._leg(row, b)
-        frappe.db.set_value("Project Payments", b, "tds", 1.5, update_modified=False)
+        frappe.db.set_value("Project Payments", b, "amount", 11.0, update_modified=False)
         frappe.db.commit()
 
         with self.assertRaises(frappe.ValidationError) as caught:
             unreconcile_row(row=row, legs=json.dumps([good, bad]), reason="wrong PO")
 
         self.assertIn(b, str(caught.exception))
-        self.assertIn("TDS", str(caught.exception))
+        self.assertIn("Somebody has changed the record since", str(caught.exception))
         self._assert_untouched(row, [good, bad], [a, b])
 
     def test_all_with_one_refused_leg_writes_nothing(self):

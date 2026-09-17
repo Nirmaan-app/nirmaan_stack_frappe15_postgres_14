@@ -85,17 +85,6 @@ export const SRNewPaymentDialog: React.FC<SRNewPaymentDialogProps> = ({
                     {paymentValidationWarning && <p className="col-span-4 text-xs text-destructive text-center -mt-2">{paymentValidationWarning}</p>}
 
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="tds" className="text-right col-span-1">TDS</Label>
-                        <Input id="tds" type="number" placeholder="0.00" value={paymentFormState.tds}
-                               onChange={e => handlePaymentInputChange("tds", e.target.value)} className="col-span-3" />
-                    </div>
-                     {parseNumber(paymentFormState.tds) > 0 && parseNumber(paymentFormState.amount) > 0 && (
-                        <p className="col-span-4 text-xs text-muted-foreground text-right">
-                            Net Payable to Vendor: {formatToRoundedIndianRupee(parseNumber(paymentFormState.amount) - parseNumber(paymentFormState.tds))}
-                        </p>
-                    )}
-
-                    <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="utr" className="text-right col-span-1">UTR/Ref No.*</Label>
                         <Input id="utr" value={paymentFormState.utr}
                                onChange={e => handlePaymentInputChange("utr", e.target.value)} className="col-span-3" />

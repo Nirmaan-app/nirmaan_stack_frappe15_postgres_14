@@ -372,19 +372,12 @@ class TestTheHappyPath(PaymentSettlementFixture):
         settle_row(row.name, PAYMENT, self.planted["0001"])
 
         after = frappe.db.get_value(
-            PAYMENT, self.planted["0001"], ["status", "utr", "tds"], as_dict=True
+            PAYMENT, self.planted["0001"], ["status", "utr"], as_dict=True
         )
         self.assertEqual(after.status, "Paid")
         self.assertEqual(
             frappe.db.get_value(ROW_DOCTYPE, row.name, "row_status"), "Settled"
         )
-
-    def test_no_tds_figure_is_ever_written(self):
-        """`tds` is recorded at fulfilment by a human who knows the deduction. This import does not
-        know it, and inventing one would corrupt a number the finance team reconciles against."""
-        row = self._import_row("0003")
-        settle_row(row.name, PAYMENT, self.planted["0003"])
-        self.assertFalse(frappe.db.get_value(PAYMENT, self.planted["0003"], "tds"))
 
     def test_the_settlement_records_a_match_row(self):
         row = self._import_row("0004")
@@ -1283,19 +1276,13 @@ class TestTheImportWritesNoTaxAtAll(PaymentSettlementFixture):
     """⚠️ INVERTED FROM `TestTheOrdinarySettleIsUntouchedByTheTdsParameter`, NOT DELETED.
 
     That class asserted an optional `tds` parameter had not changed the DEFAULT behaviour. There is
-    no parameter now and no branch behind it, so the same two assertions became the stronger claim:
-    this import never writes `Project Payments.tds`, and `rewrite_amount` always runs.
+    no parameter now and no branch behind it, so the assertion became the stronger claim:
+    `rewrite_amount` always runs. (Its sibling -- "this import never writes `Project Payments.tds`"
+    -- went with the retired field: there is nothing left to write.)
 
-    Both are worth keeping precisely because the surrounding tests cannot see them -- they assert an
-    ABSENCE, which is what a re-added deduction path would quietly break.
+    It is worth keeping precisely because the surrounding tests cannot see it -- a re-added deduction
+    path would quietly break it.
     """
-
-    def test_an_ordinary_settle_writes_no_tds(self):
-        row = self._import_row("0001")
-        settle_row(row.name, PAYMENT, self.planted["0001"])
-        self.assertFalse(
-            (frappe.db.get_value(PAYMENT, self.planted["0001"], "tds") or "").strip()
-        )
 
     def test_a_settle_always_rewrites_the_amount_to_the_bank_figure(self):
         """X1's rule, which the removed deduction path deliberately skipped. It now runs

@@ -43,6 +43,7 @@ import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { VendorRefundsButton } from "@/components/vendor-refunds/VendorRefundsButton";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -77,7 +78,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
     amount: "",
     payment_date: "",
     utr: "",
-    tds: ""
   });
 
   const [deleteFlagged, setDeleteFlagged] = useState<ProjectPayments | null>(null);
@@ -122,7 +122,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
         project: PO?.project,
         vendor: PO?.vendor,
         utr: newPayment?.utr,
-        tds: newPayment?.tds,
         amount: newPayment?.amount,
         payment_date: newPayment?.payment_date,
         status: "Paid"
@@ -162,7 +161,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
         amount: "",
         payment_date: "",
         utr: "",
-        tds: ""
       });
 
       setPaymentScreenshot(null);
@@ -183,6 +181,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
           <p className="text-xl max-sm:text-lg text-red-600">
             Transaction Details
           </p>
+          <VendorRefundsButton documentType="Procurement Orders" documentName={PO?.name} />
           {/* {!accountsPage && !estimatesViewing && !summaryPage && (
             <>
               <Tooltip>
@@ -249,21 +248,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                           onChange={(e) => handleAmountChange(e)}
                         />
                         {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
-                      </div>
-                    </div>
-                    <div className="flex gap-4 w-full">
-                      <Label className="w-[40%]">TDS Amount</Label>
-                      <div className="w-full">
-                        <Input
-                          type="number"
-                          placeholder="Enter TDS Amount"
-                          value={newPayment.tds}
-                          onChange={(e) => {
-                            const tdsValue = e.target.value;
-                            setNewPayment({ ...newPayment, tds: tdsValue })
-                          }}
-                        />
-                        {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee((parseNumber(newPayment?.amount)) - parseNumber(newPayment?.tds))}</span>}
                       </div>
                     </div>
                     <div className="flex gap-4 w-full">

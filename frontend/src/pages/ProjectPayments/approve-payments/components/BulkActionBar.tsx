@@ -10,10 +10,11 @@ import {
 } from "@/components/ui/popover";
 import { useToast } from "@/components/ui/use-toast";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { useRefreshApprovalCounts } from "../../hooks/useRefreshApprovalCounts";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 // The unified queue hands this a normalized row that carries every field the bulk
-// path reads (amount, name, document_name, vendor, document_type, tds) under their
+// path reads (amount, name, document_name, vendor, document_type) under their
 // PAYMENT names, so nothing in here had to change — only the type widened.
 import { ApprovalQueueRow } from "../../config/approvalsTable.config";
 
@@ -39,6 +40,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 }) => {
   const { toast } = useToast();
   const { submit, loading } = useBulkApprovalActions(mode);
+  const refreshTabCounts = useRefreshApprovalCounts();
 
   const [dialogAction, setDialogAction] = useState<BulkAction | null>(null);
   const [lastFailures, setLastFailures] = useState<BulkFailure[]>([]);
@@ -99,6 +101,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 
         refetch();
         invalidateSidebarCounts();
+        refreshTabCounts();
         table.resetRowSelection();
         setDialogAction(null);
       } catch (err: any) {
@@ -109,7 +112,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
         });
       }
     },
-    [dialogAction, count, selectedPayments, mix, submit, toast, refetch, table]
+    [dialogAction, count, selectedPayments, mix, submit, toast, refetch, table, refreshTabCounts]
   );
 
   if (count === 0) {

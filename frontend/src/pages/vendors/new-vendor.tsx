@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
-import { ACCOUNT_NUMBER_REGEX, GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex"
-import { accountNumberDuplicateMessage, findVendorByGst } from "./utils/vendorDuplicates"
+import { ACCOUNT_NUMBER_REGEX, IFSC_REGEX, NAME_REGEX } from "@/constants/vendorFormRegex"
+import { accountNumberDuplicateMessage, findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates"
+import { vendorTaxIdSchemas } from "./utils/vendorTaxIds"
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -24,38 +25,7 @@ import * as z from "zod"
 
 
 
-const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
-    const vendorGstSchema = isTaxGSTType
-    ? z
-        .string({
-          required_error: "Vendor GST is required",
-        })
-        .regex(GST_REGEX, {
-          message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-        }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
-          const owner = findVendorByGst(existingVendors, value);
-          return {
-            message: owner
-              ? `This GST is already registered to ${owner.vendor_name || owner.name}.`
-              : "This GST is already registered to another vendor.",
-          };
-        })
-    : z
-        .string({
-          required_error: "Vendor PAN is required",
-        })
-        .regex(PAN_REGEX, {
-          message: "Invalid PAN format. Example: ABCDE1234F",
-        }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
-          const owner = findVendorByGst(existingVendors, value);
-          return {
-            message: owner
-              ? `This PAN is already registered to ${owner.vendor_name || owner.name}.`
-              : "This PAN is already registered to another vendor.",
-          };
-        });
-
-  const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
+const getVendorFormSchema = (service: boolean, accountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
   // Bank details are MANDATORY at creation. edit-vendor deliberately keeps them
   // optional — a large share of existing vendors predate this rule and must stay
   // editable without sourcing bank details first.
@@ -106,12 +76,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
           }).min(1, {
               message: "Address Line 1 Required"
           }),
-      address_line_2: z
-          .string({
-              required_error: "Address Line 2 Required"
-          }).min(1, {
-              message: "Address Line 2 Required"
-          }),
+      address_line_2: z.string().optional(),
       vendor_city: z
           .string({
               required_error: "Must Provide City"
@@ -164,7 +129,8 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
       //     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
       //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
       //     }),
-      vendor_gst: finalVendorGstSchema,
+      // GST required unless Service; PAN required for every vendor.
+      ...vendorTaxIdSchemas(existingVendors, service),
       // `coerce` because an <Input type="number"> hands back a string. Without it
       // every submit fails a zod number check on a field the user never touched.
       // ⚠️ A BLANK MUST NOT REACH `z.coerce.number()` -- `Number("")` is 0, so an
@@ -228,7 +194,6 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
 
     const navigate = useNavigate()
     const [vendorType, setVendorType] = useState<string | null>(null)
-    const [taxationType, setTaxationType] = useState<string | null>("GST")
     const [accountNumber, setAccountNumber] = useState<string>("");
     const [IFSC, setIFSC] = useState<string>("");
     const [pincode, setPincode] = useState<string>("")
@@ -248,7 +213,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
 
     }, [bank_details, IFSC]) 
 
-    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", taxationType === "GST", accountNumber, existingVendors, bank_details, pincode_data)
+    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", accountNumber, existingVendors, bank_details, pincode_data)
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         // Every other field starts blank; this one is the sole seeded default, so
@@ -303,6 +268,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             vendor_mobile: undefined,
             vendor_alt_mobile: undefined,
             vendor_gst: undefined,
+            vendor_pan: undefined,
             // NOT `undefined` like its neighbours -- "Reset" must return this to
             // the standard rate, the same state a freshly-opened form is in.
             tds_deduction_percentage: 2,
@@ -541,6 +507,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
         }
     }, [createVendorAndAddress, navigation, mutate, vendorType, categories, dynamicCategories,renderCategorySelection, service ]);
 
+    // A PAN another vendor already holds is allowed — warn, never block.
+    const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
+
 
     return (
         <>
@@ -555,7 +524,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                     <Label htmlFor="vendorType">Vendor_Type<sup className="text-sm text-red-600">*</sup></Label>
                     <Select value={vendorType} onValueChange={(value) => {
                         setVendorType(value)
-                        form.trigger("vendor_gst")
+                        form.clearErrors(["vendor_gst", "vendor_pan"])
                     }} defaultValue={service ? "Service" : "Material"}>
                         <SelectTrigger className="">
                             <SelectValue className="text-gray-200" placeholder="Select Vendor Type" />
@@ -621,42 +590,42 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                     )}
                                 />
 
-                                <div className="flex flex-col items-start space-y-2">
-                                    <Label htmlFor="taxationType" >Taxation Type</Label>
-                                    <Select value={taxationType} onValueChange={(value) => {
-                                        setTaxationType(value)
-                                        form.trigger("vendor_gst", {
-                                            shouldFocus: true
-                                        })
-                                    }} defaultValue={"GST"}>
-                                        <SelectTrigger className="">
-                                            <SelectValue className="text-gray-200" placeholder="Select Taxation Type" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                                <SelectItem value="GST">GST</SelectItem>
-                                                <SelectItem value="PAN">PAN</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
                                 <FormField
                                     control={form.control}
                                     name="vendor_gst"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel className="flex">{taxationType === "GST" ? "GST Number" : "PAN Number"} {vendorType !== "Service" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                                            <FormLabel className="flex">GST Number {vendorType !== "Service" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                                             <FormControl>
-                                                <Input placeholder={taxationType === "GST" ? "enter gst..." : "enter pan..."}
+                                                <Input placeholder="enter gst..."
                                                  {...field}
                                                 onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
                                                  />
                                             </FormControl>
                                             <FormMessage />
-                                            {/* {gstError && <FormMessage>{gstError}</FormMessage>} */}
                                         </FormItem>
-
                                     )}
                                 />
+                                <FormField
+                                    control={form.control}
+                                    name="vendor_pan"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex">PAN Number <sup className="text-sm text-red-600">*</sup></FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="enter pan..."
+                                                 {...field}
+                                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                                                 />
+                                            </FormControl>                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                {samePanVendors.length > 0 && (
+                                    <p className="text-xs text-amber-700">
+                                        PAN already used by {vendorNamesLabel(samePanVendors)}. You can still save.
+                                    </p>
+                                )}
                                 <FormField
                                     control={form.control}
                                     name="tds_deduction_percentage"
@@ -727,7 +696,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                     render={({ field }) => (
                                         <FormItem>
 
-                                            <FormLabel className="flex">Address Line 2<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                            <FormLabel className="flex">Address Line 2</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="Street name, area, landmark" {...field}
                                                 onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}

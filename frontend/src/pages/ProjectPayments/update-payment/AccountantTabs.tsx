@@ -58,6 +58,12 @@ import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 import PaymentSummaryCards from "../PaymentSummaryCards"
+import { useUserData } from "@/hooks/useUserData"
+import { canViewPaymentSummary } from "@/constants/roles"
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
+import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
+import { countLabel, summarizeSelection } from "../bulkSelectionSummary"
+import { IndianRupee } from "lucide-react"
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -81,19 +87,10 @@ const CASHFREE_CONTACT_PHONE = "8904007419";
 
 const ICICI_DEBIT_ACCOUNT = "093705003327";
 
-// A vendor with no bank account / IFSC cannot be paid out at all, so its row is made inert
-// rather than merely unselectable: dimmed, and pointer-events stripped so nothing inside it
-// responds to a click. canPaymentRowBeSelected already kills the checkbox; this is the
-// visual half, so it is obvious WHY the checkbox is dead instead of looking like a bug.
-// NOTE: pointer-events-none covers the whole row, so the Pay button, the delete button and
-// the PO/SR link on that row are unclickable too. That is the intent -- the row is not
-// actionable until someone fills in the vendor's bank details.
-const NO_BANK_DETAILS_ROW_CLASSES =
-    "opacity-50 bg-muted/40 pointer-events-none select-none";
-
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
+    const { role, user_id } = useUserData();
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -101,13 +98,19 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
     const { getTotalAmount, getDeliveredAmount } = useOrderTotals()
 
-    // "Mark as Done" — a plain confirmation, NOT the payment-details dialog.
-    const [confirmDoneRow, setConfirmDoneRow] = useState<ApprovalQueueRow | null>(null);
-    const [markingDone, setMarkingDone] = useState(false);
-    // The payment-details dialog no longer lives on this tab. "Mark as Done" is a
+    // "Mark as Paid" — a plain confirmation, NOT the payment-details dialog.
+    // ONE dialog for both entry points: the row button confirms `[row]`, the bulk
+    // toolbar button confirms the ticked rows. The rows are SNAPSHOT at click time, so a
+    // realtime refetch while the dialog is open cannot change what gets written.
+    const [confirmPaidRows, setConfirmPaidRows] = useState<ApprovalQueueRow[] | null>(null);
+    // How many rows have been written so far; null when idle.
+    const [markingProgress, setMarkingProgress] = useState<number | null>(null);
+    const markingPaid = markingProgress !== null;
+    // The payment-details dialog no longer lives on this tab. "Mark as Paid" is a
     // plain confirmation; the UTR / date / proof are captured on the Reconciliation
     // Pending tab, which is what actually settles the row.
     const { updateDoc } = useFrappeUpdateDoc();
+    const refreshTabCounts = useRefreshApprovalCounts();
 
 
     // --- State for Export Dialog ---
@@ -215,7 +218,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // status — so the audit's DIFF = 0 proof is unaffected; without it this
         // figure would silently under-report the moment the fulfil path switches over.
         getAmountPaid: (docName) => getTotalAmountPaidForPO(docName, [...SETTLED_STATUSES]),
-        onRecordPayment: (row) => setConfirmDoneRow(row),
+        onRecordPayment: (row) => setConfirmPaidRows([row]),
         // Delete is deliberately NOT offered here (owner, 15 Sep). The registry renders
         // the trash icon only when `onDelete` is supplied, so withholding it is the
         // whole change — the dialog and its "delete" mode stay intact for any caller
@@ -236,18 +239,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         [tab, columnCtx]
     );
 
-    // Source / Vendor / Project facets, counted over the same union the table reads.
-    const approvalFacets = useApprovalFacets({
-        filters: staticFilters as Array<[string, string, unknown]>,
-        projectLabels: projectLabelMap,
-        vendorLabels: vendorLabelMap,
-    });
 
-    // Function to determine if a row can be selected (passed to hook)
-    //
-    // This is the gate that keeps an unpayable vendor out of the export file: the checkbox
-    // renders disabled off row.getCanSelect(), so the row cannot be selected and therefore
-    // cannot reach either CSV builder.
+    // Whether a vendor can go in the BANK FILE. It no longer gates selection or greys the
+    // row (owner, 16 Sep): a payment made outside the file still has to be marked as paid.
+    // So this is now enforced where it matters — `exportSelectedToCSV` leaves such rows out.
     //
     // BOTH halves of the bank details are required, not just the account number. An account
     // number on its own still exports a blank `ifsc` -- Cashfree and ICICI both reject a
@@ -260,20 +255,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return !!account && !!ifsc;
     }, [vendors]);
 
-    const canPaymentRowBeSelected = useCallback((row: Row<ApprovalQueueRow>): boolean => {
-        if (tab !== "New Payments") return false;
-        // ⚠️ SELECTABLE ≠ EXPORTABLE. All three ledgers can be ticked, so "select all"
-        // means all the rows on the page — but the bank-transfer CSV is a VENDOR payout
-        // file, and an expense has no vendor and no bank row to write. The export filters
-        // them back out (see exportSelectedToCSV); this gate must not, or the checkbox
-        // silently refuses rows the accountant is looking straight at.
-        //
-        // Note this is NOT the bank-details rule: an expense is fully actionable here via
-        // its own Mark-as-Done button, so it must never pick up NO_BANK_DETAILS_ROW_CLASSES
-        // (those carry pointer-events-none and would kill that button).
-        if (row.original.source !== "Vendor Payment") return true;
-        return hasBankDetails(row.original.vendor);
-    }, [hasBankDetails, tab]);
+    // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — expenses, and
+    // vendors with no bank details — because the ticks also drive bulk Mark as Paid. The
+    // bank-transfer CSV filters the unpayable ones back out (see exportSelectedToCSV).
+    const canPaymentRowBeSelected = useCallback(
+        (_row: Row<ApprovalQueueRow>): boolean => tab === "New Payments",
+        [tab]
+    );
 
     // --- CEO Hold Row Highlighting ---
 
@@ -293,28 +281,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {
-            // CEO hold stays first: it is a safety signal and must not be dimmed away. Such a
-            // row is already unpayable, and its checkbox is disabled by the bank-details rule
-            // anyway, so nothing is lost by letting the red win.
             const projectId = row.original.project;
             if (projectId && ceoHoldProjectIds.has(projectId)) {
                 return CEO_HOLD_ROW_CLASSES;
             }
-            // ⚠️ SCOPED TO VENDOR PAYMENTS. These classes carry `pointer-events-none`,
-            // so applying them to an expense row would grey it out AND make its own
-            // Mark-as-Paid button unclickable — a row the accountant is supposed to
-            // act on, rendered dead, for a reason ("no bank details") that does not
-            // apply to a ledger with no vendor field at all.
-            if (
-                tab === "New Payments"
-                && row.original.source === "Vendor Payment"
-                && !hasBankDetails(row.original.vendor)
-            ) {
-                return NO_BANK_DETAILS_ROW_CLASSES;
-            }
             return undefined;
         },
-        [ceoHoldProjectIds, hasBankDetails, tab]
+        [ceoHoldProjectIds]
     );
 
     // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
@@ -322,6 +295,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         table, data, totalCount, isLoading: listIsLoading, error: listError,
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
+        columnFilters,
         isRowSelectionActive,
         refetch,
         exportAllRows,
@@ -337,6 +311,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
+    });
+
+    // Type / Vendor / Project / Raised by facets, counted over the same union the table reads,
+    // under the table's live column filters and search -- hence AFTER the table hook.
+    const approvalFacets = useApprovalFacets({
+        filters: staticFilters as Array<[string, string, unknown]>,
+        columnFilters,
+        searchTerm,
+        selectedSearchField,
+        projectLabels: projectLabelMap,
+        vendorLabels: vendorLabelMap,
+        userLabels: userLabelMap,
     });
 
     // ⚠️ TWO EXPORTS ON THIS TAB, AND THEY ARE NOT VARIANTS OF EACH OTHER.
@@ -362,31 +348,72 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
      * This is the MONEY-OUT event — the moment the system says the cash has left.
      * The UTR, date and proof are captured afterwards on the Reconciliation Pending
      * tab, which is what moves it to Paid.
+     *
+     * ⚠️ SEQUENTIAL ON PURPOSE, one write per row through the same `updateDoc` the row
+     * button always used, so each row runs its own doctype hooks exactly as before.
+     * Two payments on the SAME PO both recompute that PO in their hooks; firing them in
+     * parallel races those parent writes. Each row commits on its own, so one failure
+     * never rolls back the others — it is reported, and the rest still move.
      */
-    const handleMarkDone = useCallback(async () => {
-        if (!confirmDoneRow) return;
-        setMarkingDone(true);
-        try {
-            await updateDoc(confirmDoneRow.doctype, confirmDoneRow.name, {
-                status: APPROVAL_STATUS.RECONCILIATION_PENDING,
-            });
+    const handleMarkPaid = useCallback(async () => {
+        if (!confirmPaidRows?.length) return;
+        const rows = confirmPaidRows;
+        const failed: { row: ApprovalQueueRow; reason: string }[] = [];
+        setMarkingProgress(0);
+        for (let i = 0; i < rows.length; i++) {
+            try {
+                await updateDoc(rows[i].doctype, rows[i].name, {
+                    status: APPROVAL_STATUS.RECONCILIATION_PENDING,
+                });
+            } catch (e: any) {
+                failed.push({ row: rows[i], reason: e?.message || "Please try again." });
+            }
+            setMarkingProgress(i + 1);
+        }
+        setMarkingProgress(null);
+
+        const movedCount = rows.length - failed.length;
+        if (failed.length === 0) {
             toast({
-                title: "Marked as Done",
-                description: `${confirmDoneRow.against_primary} moved to Reconciliation Pending.`,
+                title: "Marked as Paid",
+                description: rows.length === 1
+                    ? `${rows[0].against_primary} moved to Reconciliation Pending.`
+                    : `${countLabel(summarizeSelection(rows))} moved to Reconciliation Pending.`,
                 variant: "success",
             });
-            setConfirmDoneRow(null);
-            await refetch();
-        } catch (e: any) {
+        } else {
+            const failedList = failed
+                .slice(0, 3)
+                .map((f) => `${f.row.against_primary}: ${f.reason}`)
+                .join(" · ");
             toast({
-                title: "Could not mark as Done",
-                description: e?.message || "Please try again.",
+                title: movedCount > 0
+                    ? `${movedCount} marked as Paid, ${failed.length} failed`
+                    : "Could not mark as Paid",
+                description: failed.length > 3 ? `${failedList} · +${failed.length - 3} more` : failedList,
                 variant: "destructive",
             });
-        } finally {
-            setMarkingDone(false);
         }
-    }, [confirmDoneRow, updateDoc, toast, refetch]);
+
+        // Nothing written → keep the dialog open so the accountant can retry, as the row
+        // button always did.
+        if (movedCount === 0) return;
+        setConfirmPaidRows(null);
+        // ⚠️ RESET, EVEN AFTER A SINGLE ROW. Selection is keyed by row INDEX (the table
+        // has no getRowId), so once moved rows drop out of the list every tick shifts
+        // onto a different payment — and the bulk button and the bank-file export both
+        // act on those ticks.
+        table.resetRowSelection();
+        invalidateSidebarCounts();
+        refreshTabCounts();
+        await refetch();
+    }, [confirmPaidRows, updateDoc, toast, refetch, table, refreshTabCounts]);
+
+    const selectedRows = table.getSelectedRowModel().rows;
+    const confirmPaidTotal = useMemo(
+        () => (confirmPaidRows ?? []).reduce((sum, r) => sum + parseNumber(r.amount), 0),
+        [confirmPaidRows]
+    );
 
     // --- CSV Export Logic using papaparse ---
     const handlePrepareExport = () => {
@@ -420,19 +447,30 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // ⚠️ THE BANK FILE IS A VENDOR PAYOUT FILE — the selection is not.
-        // Expense rows (Project Expenses / Non Project Expenses) are selectable so that
-        // "select all" behaves, but they carry no vendor and would export a blank
-        // beneficiary account + IFSC. ICICI and Cashfree both accept such a file at upload
-        // and only reject the individual rows afterwards, so the filter has to happen HERE,
-        // not at the bank. Skipped rows are reported in the toast rather than dropped
-        // silently — the accountant must know the file is shorter than their selection.
-        const payableRows = rowsToExport.filter(row => row.original.source === "Vendor Payment");
-        const skippedCount = rowsToExport.length - payableRows.length;
+        // Two kinds of ticked row would export a blank beneficiary account / IFSC: an
+        // expense (no vendor at all) and a vendor payment whose vendor lacks bank details.
+        // ICICI and Cashfree both accept such a file at upload and only reject the
+        // individual rows afterwards, so the filter has to happen HERE, not at the bank.
+        // This is now the ONLY bank-details gate — selection no longer blocks those rows.
+        // Skipped rows are reported in the toast rather than dropped silently — the
+        // accountant must know the file is shorter than their selection.
+        const vendorRows = rowsToExport.filter(row => row.original.source === "Vendor Payment");
+        const payableRows = vendorRows.filter(row => hasBankDetails(row.original.vendor));
+        const skippedExpenses = rowsToExport.length - vendorRows.length;
+        const skippedNoBank = vendorRows.filter(row => !hasBankDetails(row.original.vendor));
+        const skippedParts = [
+            skippedExpenses > 0
+                ? `${skippedExpenses} expense${skippedExpenses > 1 ? "s" : ""} (no vendor)`
+                : "",
+            skippedNoBank.length > 0
+                ? `${skippedNoBank.length} payment${skippedNoBank.length > 1 ? "s" : ""} with no vendor bank account / IFSC (${skippedNoBank.slice(0, 3).map(r => r.original.document_name).join(", ")}${skippedNoBank.length > 3 ? ", …" : ""})`
+                : "",
+        ].filter(Boolean);
 
         if (payableRows.length === 0) {
             toast({
                 title: "Nothing to export",
-                description: "Expenses have no vendor bank details, so they cannot go in a bank transfer file. Select at least one vendor payment.",
+                description: `No selected row can go in a bank transfer file: ${skippedParts.join("; ")}. Select a vendor payment whose vendor has a bank account and IFSC.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);
@@ -524,10 +562,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
         toast({
             title: "Export Successful",
-            description: skippedCount > 0
-                ? `${csvData.length} payments exported. ${skippedCount} expense${skippedCount > 1 ? "s" : ""} skipped — no vendor bank details to pay into.`
+            description: skippedParts.length > 0
+                ? `${csvData.length} payments exported. Skipped: ${skippedParts.join("; ")}.`
                 : `${csvData.length} payments exported.`,
-            variant: "success",
+            variant: skippedNoBank.length > 0 ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
@@ -558,7 +596,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
                     summaryCard={
-                        <PaymentSummaryCards totalCount={totalCount} />
+                        canViewPaymentSummary(role, user_id) ? <PaymentSummaryCards totalCount={totalCount} /> : null
                     }
                     // globalFilterValue={globalFilter}
                     // onGlobalFilterChange={setGlobalFilter}
@@ -575,7 +613,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                         vendor: { additionalFilters: staticFilters },
                     } satisfies FacetOverrides}
                     dateFilterColumns={dateColumns}
-                    facetFilterOptions={approvalFacets}
+                    facetFilterOptions={approvalFacets.facetOptions}
+                    onFacetOpen={approvalFacets.onFacetOpen}
                     // `exportIgnoresSelection` used to sit here. `DataTable` declares
                     // no such prop and never read it — it was a silent no-op stating an
                     // intent the code did not implement. Removed rather than honoured:
@@ -590,11 +629,27 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     showRowSelection={isRowSelectionActive}
                     getRowClassName={getRowClassName}
                     toolbarActions={
-                        <ApprovalExportButton
-                            onClick={exportAll}
-                            isExporting={isExportingAll}
-                            label="Export table"
-                        />
+                        <>
+                            {/* Bulk "Mark as Paid": the ticked rows → Reconciliation Pending.
+                                Same checkboxes as the bank-file export — but the export
+                                clears them when it finishes, so tick again before this. */}
+                            {tab === "New Payments" && selectedRows.length > 0 && (
+                                <Button
+                                    size="sm"
+                                    className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
+                                    disabled={markingPaid}
+                                    onClick={() => setConfirmPaidRows(selectedRows.map((r) => r.original))}
+                                >
+                                    <IndianRupee className="h-4 w-4" />
+                                    Mark as Paid ({selectedRows.length})
+                                </Button>
+                            )}
+                            <ApprovalExportButton
+                                onClick={exportAll}
+                                isExporting={isExportingAll}
+                                label="Export table"
+                            />
+                        </>
                     }
                 />
             )}
@@ -655,43 +710,64 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             </Dialog>
 
             <AlertDialog
-                open={!!confirmDoneRow}
-                onOpenChange={(open) => { if (!open && !markingDone) setConfirmDoneRow(null); }}
+                open={!!confirmPaidRows}
+                onOpenChange={(open) => { if (!open && !markingPaid) setConfirmPaidRows(null); }}
             >
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Mark this payment as Done?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                            {confirmPaidRows && confirmPaidRows.length > 1
+                                ? `Mark ${countLabel(summarizeSelection(confirmPaidRows))} as Paid?`
+                                : "Mark this payment as Paid?"}
+                        </AlertDialogTitle>
                         <AlertDialogDescription asChild>
                             <div className="space-y-2 text-sm">
                                 <p>
-                                    This records that the money has gone out. It moves to{" "}
+                                    This records that the money has gone out.{" "}
+                                    {confirmPaidRows && confirmPaidRows.length > 1 ? "They move" : "It moves"} to{" "}
                                     <span className="font-medium text-foreground">Reconciliation Pending</span>,
-                                    where you add the UTR and proof to finish it.
+                                    where you add the UTR and proof to finish {confirmPaidRows && confirmPaidRows.length > 1 ? "them" : "it"}.
                                 </p>
-                                {confirmDoneRow && (
-                                    <div className="rounded border bg-muted/40 p-2">
-                                        <div className="font-medium text-foreground">
-                                            {confirmDoneRow.against_primary}
-                                        </div>
-                                        <div className="text-muted-foreground">
-                                            {formatToRoundedIndianRupee(confirmDoneRow.amount)}
-                                            {confirmDoneRow.vendor
-                                                ? ` · ${vendorLabelMap.get(confirmDoneRow.vendor) || confirmDoneRow.vendor}`
-                                                : ""}
-                                        </div>
+                                {confirmPaidRows && confirmPaidRows.length > 1 && (
+                                    <div className="flex items-center justify-between rounded border bg-muted/40 px-2 py-1.5">
+                                        <span className="text-muted-foreground">Total</span>
+                                        <span className="font-semibold tabular-nums text-foreground">
+                                            {formatToRoundedIndianRupee(confirmPaidTotal)}
+                                        </span>
                                     </div>
                                 )}
+                                {/* Every row is listed, not just counted: this is the last look
+                                    before money is recorded as gone for all of them. */}
+                                <div className="max-h-60 space-y-1.5 overflow-y-auto">
+                                    {confirmPaidRows?.map((row) => (
+                                        <div key={`${row.doctype}:${row.name}`} className="rounded border bg-muted/40 p-2">
+                                            <div className="font-medium text-foreground">
+                                                {row.against_primary}
+                                            </div>
+                                            <div className="text-muted-foreground">
+                                                {formatToRoundedIndianRupee(row.amount)}
+                                                {row.vendor
+                                                    ? ` · ${vendorLabelMap.get(row.vendor) || row.vendor}`
+                                                    : ""}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel disabled={markingDone}>No</AlertDialogCancel>
+                        <AlertDialogCancel disabled={markingPaid}>No</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={(e) => { e.preventDefault(); handleMarkDone(); }}
-                            disabled={markingDone}
+                            onClick={(e) => { e.preventDefault(); handleMarkPaid(); }}
+                            disabled={markingPaid}
                             className="bg-green-600 hover:bg-green-700"
                         >
-                            {markingDone ? "Marking…" : "Yes, mark as Done"}
+                            {markingPaid
+                                ? (confirmPaidRows && confirmPaidRows.length > 1
+                                    ? `Marking ${markingProgress}/${confirmPaidRows.length}…`
+                                    : "Marking…")
+                                : "Yes, mark as Paid"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

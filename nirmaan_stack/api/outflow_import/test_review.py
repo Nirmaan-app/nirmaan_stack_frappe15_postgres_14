@@ -498,9 +498,8 @@ class TestMatchBatch(OutflowReviewFixture):
         }
         for name, expected in planted.items():
             doc = frappe.db.get_value(
-                "Project Payments", name, ["status", "utr", "amount", "tds"], as_dict=True
+                "Project Payments", name, ["status", "utr", "amount"], as_dict=True
             )
-            self.assertIsNone(doc.tds)
             self.assertEqual(doc.status, expected, f"{name} moved to {doc.status}")
 
 
@@ -4290,13 +4289,13 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
             [b["ledger"] for b in by_direction["Paid"]["ledgers"]],
             ["Project Payments", "Project Expenses", "Non Project Expenses"],
         )
-        # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266;
-        # `Non Project Expenses` stays for rows the removed receipt path wrote.
+        # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266,
+        # `Vendor Refunds` since; `Non Project Expenses` stays for rows the removed receipt path wrote.
         received = by_direction["Received"]
         self.assertEqual(received["rows"], 1)
         self.assertEqual(
-            [b["ledger"] for b in received["ledgers"]][:3],
-            ["Project Inflows", "Non Project Inflows", "Non Project Expenses"],
+            [b["ledger"] for b in received["ledgers"]][:4],
+            ["Project Inflows", "Non Project Inflows", "Vendor Refunds", "Non Project Expenses"],
         )
         self.assertEqual(received["ledgers"][-1]["ledger"], "Other")
 

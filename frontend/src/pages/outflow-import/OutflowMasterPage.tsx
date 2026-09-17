@@ -76,6 +76,7 @@ import {
     inflowTabsVisible,
     postImportTab,
     reachableTab,
+    refundAllocationsPayload,
     tabFromCarried,
     visibleTabs,
 } from "./outflowTableModel";
@@ -377,6 +378,11 @@ export const OutflowMasterPage = () => {
     const { call: callCreateNonProjectInflow } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.inflows.create_non_project_inflow"
     );
+    // THE THIRD CREDIT DISPOSITION: money a vendor paid back, recorded as a `Vendor Refund`.
+    // ⚠️ THE PAYLOAD CARRIES ONLY THE VENDOR: magnitude, date and reference are read server-side.
+    const { call: callCreateVendorRefund } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.inflows.create_vendor_refund"
+    );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
     // answering one question about one row, which is what keeps it outside the settle window
@@ -591,7 +597,6 @@ export const OutflowMasterPage = () => {
                     row: row.name,
                     project: form.project,
                     customer: form.customer || undefined,
-                    invoice: form.invoice || undefined,
                     ...anyway,
                 });
             } else if (decision.target === "nonProjectInflow") {
@@ -602,6 +607,19 @@ export const OutflowMasterPage = () => {
                     row: row.name,
                     inflow_type: form.inflowType,
                     description: form.description?.trim() || undefined,
+                    ...anyway,
+                });
+            } else if (decision.target === "vendorRefund") {
+                // ⚠️ THE ROW'S AMOUNT, DATE AND REFERENCE ARE NOT SENT: the server reads them off the
+                // staged row and re-checks every part -- this vendor's, this project, paid, within its
+                // paid amount, and adding up to the row. The Misc. Expense part rides as a blank-document
+                // part (`refundAllocationsPayload`).
+                const form = decision.newVendorRefund;
+                await callCreateVendorRefund({
+                    row: row.name,
+                    vendor: form?.vendor || undefined,
+                    project: form?.project || undefined,
+                    allocations: JSON.stringify(refundAllocationsPayload(form, row.amount)),
                     ...anyway,
                 });
             } else {
@@ -658,7 +676,14 @@ export const OutflowMasterPage = () => {
                 // refuses before `settleOne` is ever called -- see `handleConfirmOne`.
             }
         },
-        [callAllocate, callCreate, callCreateInflow, callCreateNonProjectInflow, callSettle]
+        [
+            callAllocate,
+            callCreate,
+            callCreateInflow,
+            callCreateNonProjectInflow,
+            callCreateVendorRefund,
+            callSettle,
+        ]
     );
 
     /**

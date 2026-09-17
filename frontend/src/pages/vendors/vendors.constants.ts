@@ -17,6 +17,7 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
     'vendor_state',
     'vendor_category',// JSON field: { categories: string[] }
     'vendor_gst',
+    'vendor_pan',
     'vendor_status',
     'credit_limit',
     'credit_used',
@@ -45,6 +46,7 @@ export const VENDOR_HIDDEN_COLUMNS: Record<string, boolean> = {
     bank_name: false,
     bank_branch: false,
     vendor_gst: false,
+    vendor_pan: false,
     vendor_contact_person_name: false,
     vendor_mobile: false,
     tds_deduction_percentage: false,
@@ -56,6 +58,7 @@ export const VENDOR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "Vendor ID", placeholder: "Search by ID..." },
     { value: "vendor_email", label: "Email", placeholder: "Search by email..." },
     { value: "vendor_gst", label: "GST No.", placeholder: "Search by GST No...." },
+    { value: "vendor_pan", label: "PAN No.", placeholder: "Search by PAN No...." },
     // Note: Searching directly within vendor_category.categories requires backend support.
     // For now, if 'category' is a searchable field, it might refer to a primary category string field if one exists,
     // or a generalized text search might pick it up if the JSON is cast to text.

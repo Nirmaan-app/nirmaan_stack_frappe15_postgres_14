@@ -111,6 +111,7 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
+from nirmaan_stack.services.vendor_refunds import document_project, money, refund_allocation_problem
 from nirmaan_stack.services.outflow_import.amounts import (
     amounts_match,
     rewrite_amount,
@@ -122,6 +123,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
     SETTLEABLE_STATUSES,
+    VENDOR_REFUND_DOCTYPE as VENDOR_REFUND,
     is_expense_doctype,
     settleable_statuses,
 )
@@ -135,6 +137,7 @@ __all__ = [
     "NON_PROJECT_EXPENSE",
     "INFLOW_DOCTYPE",
     "NON_PROJECT_INFLOW",
+    "VENDOR_REFUND",
     "DIRECTION_CREDIT",
     "SETTLEABLE_STATUSES",
     "ExpenseSettlementError",
@@ -150,6 +153,7 @@ __all__ = [
     "create_expense_from_row",
     "create_inflow_from_row",
     "create_non_project_inflow_from_row",
+    "create_vendor_refund_from_row",
     "format_amount_for",
     "statement_attachment_field",
 ]
@@ -321,9 +325,11 @@ PAYMENT_ATTACHMENT_FIELD = "payment_attachment"
 #: that note promised: everything outside it keeps `payment_attachment`, so the three settle ledgers
 #: are byte-unchanged, and NOTHING else in the feature has to know that a ledger disagrees.
 #: `Non Project Inflows` (#1266) copies Project Inflows' Inflow Details, so it spells it the same way.
+#: `Vendor Refunds` names it `refund_attachment`, the PO Adjustment refund entry's own word for it.
 _STATEMENT_ATTACHMENT_FIELDS = {
     INFLOW_DOCTYPE: "inflow_attachment",
     NON_PROJECT_INFLOW: "inflow_attachment",
+    VENDOR_REFUND: "refund_attachment",
 }
 
 
@@ -1247,6 +1253,104 @@ def create_non_project_inflow_from_row(
         doc.insert(ignore_permissions=True)
 
     return SettleResult(doctype=NON_PROJECT_INFLOW, name=doc.name, amount=amount, created=True)
+
+
+def create_vendor_refund_from_row(
+    row,
+    actor: str,
+    vendor: str,
+    direction: str,
+    project: str | None = None,
+    allocations: list[dict] | None = None,
+    statement_file_url: str | None = None,
+) -> list[SettleResult]:
+    """Record a bank CREDIT that a VENDOR paid back, as one new `Vendor Refund` per document.
+
+    The third disposition a credit can take, beside `create_inflow_from_row` and
+    `create_non_project_inflow_from_row`. `allocations` split the credit across PAID POs and Work Orders
+    of one vendor -- on the chosen project, or on any when none is chosen -- plus at most one Misc.
+    Expense part against no document; each part becomes its own `Vendor Refund` (vendor, its project,
+    the document or none, the part, the line's reference and date, the statement, a Misc. Expense's
+    description). Returns one `SettleResult` per record, in allocation order;
+    each becomes one match leg.
+
+    ⚠️ IT CREATES NO `Project Payment` AND NO `Project Expense`, AND MOVES NO PAID AMOUNT (owner,
+    2026-09-17). The document is a reference; the PO Adjustment "Vendor has refund" flow still owns
+    lowering a PO's paid amount.
+
+    ⚠️ THE RULE (`services/vendor_refunds.refund_allocation_problem`) IS ASKED AGAINST THE BANK ROW'S
+    AMOUNT before anything is written: every document this vendor's, on the chosen project if any, paid, each part
+    within what is still refundable on it, and the parts adding up to the row exactly. Each record's
+    own `validate` asks the per-document half again on insert.
+
+    ⚠️ NO STATUS, NO APPROVAL: a record counts the moment it is saved; the review gate is the bank row a
+    person confirmed (owner ruling Q8), as on the other inflow books.
+    """
+    if (direction or "").strip() != DIRECTION_CREDIT:
+        frappe.throw(
+            "Only a credit can be recorded as a vendor refund. This transfer is a "
+            f"{(direction or '').strip().lower() or 'transfer with no stated direction'}, so it "
+            f"took money out.",
+            InflowNotRecordableError,
+            title="Not a credit",
+        )
+
+    amount = normalize_amount(getattr(row, "amount", 0))
+    if amount <= 0:
+        frappe.throw(
+            "A credit of zero or less cannot be recorded as a vendor refund.",
+            AmountMismatchError,
+            title="Nothing to record",
+        )
+
+    vendor = (vendor or "").strip()
+    project = (project or "").strip()
+    allocations = [
+        {
+            "document_type": (a.get("document_type") or "").strip(),
+            "document_name": (a.get("document_name") or "").strip(),
+            "amount": a.get("amount"),
+            "description": (a.get("description") or "").strip(),
+        }
+        for a in (allocations or [])
+        if isinstance(a, dict)
+    ]
+    problem = refund_allocation_problem(vendor, project, allocations, amount)
+    if problem:
+        frappe.throw(problem, InflowNotRecordableError, title="Check the vendor refund")
+
+    reference = _settlement_reference_of(row) or None
+    results = []
+    for allocation in allocations:
+        part = money(allocation["amount"])
+        doc = frappe.new_doc(VENDOR_REFUND)
+        doc.update(
+            {
+                "vendor": vendor,
+                # ⚠️ A PO / WO part records ITS DOCUMENT'S project, which the rule already checked
+                # against the chosen one -- the project is optional, so it may be blank. A Misc.
+                # Expense has no document: the chosen project, or none.
+                "project": document_project(allocation["document_type"], allocation["document_name"])
+                or project
+                or None,
+                "document_type": allocation["document_type"],
+                # A Misc. Expense part names no document: NULL, not "".
+                "document_name": allocation["document_name"] or None,
+                "description": allocation["description"] or None,
+                # The part of THIS transfer against the document -- a positive magnitude.
+                "amount": format_amount_for(VENDOR_REFUND, part),
+                # The ONE reference resolved at ingest (ADR-0020 B9), on every record of the line --
+                # it is what the credit-side contains-match searches for.
+                "utr": reference,
+                "payment_date": getattr(row, "added_on_date", None),
+            }
+        )
+        # A brand-new record has no proof of its own, so the blank-only rule always lets this land.
+        apply_statement_attachment(doc, statement_file_url)
+        with _outflow_import_write():
+            doc.insert(ignore_permissions=True)
+        results.append(SettleResult(doctype=VENDOR_REFUND, name=doc.name, amount=part, created=True))
+    return results
 
 
 def _default_description(doctype: str, beneficiary: str, remarks: str) -> str:

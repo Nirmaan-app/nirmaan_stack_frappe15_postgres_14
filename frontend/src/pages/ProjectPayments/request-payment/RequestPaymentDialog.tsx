@@ -39,22 +39,28 @@ export default function RequestPaymentDialog(p:Props){
   const [perc,setPerc]     = useState("");
   const [warn,setWarn]     = useState("");
 
-  const max = useMemo(()=> p.totalIncGST - p.paid - p.pending, [p]);
+  /* A GST Work Order can only be requested up to its base amount (ex-GST) --
+     every option below (Full, %, Due, the balance cap) is measured against it. */
+  const baseOnly = p.docType === "Service Requests" && p.gst;
+  const payable  = baseOnly ? p.totalExGST : p.totalIncGST;
+
+  const requested = p.paid + p.pending;
+  const max = useMemo(()=> payable - p.paid - p.pending, [payable,p]);
   const amount = useMemo(()=>{
     switch(mode){
-      case "full"   : return p.totalIncGST;
+      case "full"   : return payable;
       case "exGST"  : return p.totalExGST;
       case "due"    : return max;
-      case "percentage": return (p.totalIncGST*parseNumber(perc))/100;
+      case "percentage": return (payable*parseNumber(perc))/100;
       default       : return parseNumber(custom);
     }
-  },[mode,custom,perc,max,p]);
+  },[mode,custom,perc,max,payable,p]);
 
   useMemo(()=>{
     if(amount>max+1e-6)
-      setWarn(`Request exceeds balance ${formatToIndianRupee(max)}`);
+      setWarn(`Request exceeds ${baseOnly ? "base (ex-GST) " : ""}balance ${formatToIndianRupee(max)}`);
     else setWarn("");
-  },[amount,max]);
+  },[amount,max,baseOnly]);
 
   const { trigger, isMutating, error } = useRequestPayment();
 
@@ -91,6 +97,13 @@ export default function RequestPaymentDialog(p:Props){
          Request Payment
       </AlertDialogTitle></AlertDialogHeader>
 
+      {baseOnly &&
+        <p className="text-xs text-muted-foreground text-center -mt-2">
+          {requested > 0
+            ? <>GST Work Order — base amount (ex-GST) {formatToIndianRupee(p.totalExGST)}, already requested {formatToIndianRupee(requested)}, balance {formatToIndianRupee(Math.max(max, 0))}</>
+            : <>GST Work Order — payment can be requested only up to the base amount (ex-GST) {formatToIndianRupee(p.totalExGST)}</>}
+        </p>}
+
       <RadioGroup value={mode} onValueChange={v=>setMode(v as any)} className="space-y-3">
 
         <div className="flex items-center gap-2">
@@ -110,7 +123,7 @@ export default function RequestPaymentDialog(p:Props){
             <Label htmlFor="pct">% of Amount</Label>
           </div>
 
-          {p.gst &&
+          {p.gst && !baseOnly &&
             <div className="flex items-center gap-2">
               <RadioGroupItem value="exGST" id="exgst"/>
               <Label htmlFor="exgst">Total (ex-GST)</Label>
@@ -118,11 +131,13 @@ export default function RequestPaymentDialog(p:Props){
 
           <div className="flex items-center gap-2">
             <RadioGroupItem value="full" id="full"/>
-            <Label htmlFor="full">Full Amount</Label>
+            <Label htmlFor="full">Full Amount{baseOnly && " (ex-GST)"}</Label>
           </div>
         </>}
 
-        {p.paid>0 &&
+        {/* On a GST Work Order already requested past its base amount the balance is
+            negative -- hide "Due" so it can't turn into an accidental refund request. */}
+        {p.paid>0 && (!baseOnly || max>0) &&
           <div className="flex items-center gap-2">
             <RadioGroupItem value="due" id="due"/>
             <Label htmlFor="due">Due {formatToIndianRupee(max)}</Label>
@@ -145,6 +160,11 @@ export default function RequestPaymentDialog(p:Props){
                       onClick={submit}>Confirm</Button>
             </>}
       </div>
+
+      {baseOnly &&
+        <p className="mt-1 border-t pt-2 text-[11px] text-amber-600 text-center">
+          To settle the GST amount of {formatToIndianRupee(p.totalIncGST - p.totalExGST)}, please contact the Accountant.
+        </p>}
     </AlertDialogContent>
   </AlertDialog>);
 }

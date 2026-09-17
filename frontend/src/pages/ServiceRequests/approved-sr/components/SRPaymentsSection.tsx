@@ -37,7 +37,7 @@ interface SRPaymentsSectionProps {
 
 const PAYMENT_TABLE_FIELDS: (keyof ProjectPayments | 'name')[] = [
     "name", "utr", "payment_attachment", "document_name", "project",
-    "payment_date", "creation", "amount", "status", "tds", "docstatus"
+    "payment_date", "creation", "amount", "status", "docstatus"
 ];
 const PAYMENT_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "Payment ID", default: true },
@@ -101,7 +101,6 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
         },
         { accessorKey: "payment_date", header: "Date", cell: ({ row }) => formatDate(row.original.payment_date || row.original.creation), size: 100 },
         { accessorKey: "amount", header: () => <div className="text-right">Amount</div>, cell: ({ row }) => <div className="text-right font-medium">{formatToRoundedIndianRupee(row.original.amount)}</div>, size: 110 },
-        { accessorKey: "tds", header: () => <div className="text-right">TDS</div>, cell: ({ row }) => <div className="text-right">{row.original.tds ? formatToRoundedIndianRupee(row.original.tds) : "-"}</div>, size: 90 },
         { accessorKey: "status", header: "Status", cell: ({ row }) => <Badge variant={row.original.status === "Paid" ? "green" : row.original.status === "Requested" || row.original.status === "Approved" ? "destructive" : "outline"}>{row.original.status}</Badge>, size: 100 },
         {
             id: "actions",
@@ -147,7 +146,8 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
                                 Request Payment
                             </Button>
                         )}
-                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) && (
+                        {/* PMO removed 2026-09-17 (PMO access review) -- recording money out is accounts + Admin only. */}
+                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role) && (
                             <Button size="sm" variant="default" className="text-xs" onClick={() => setIsNewPaymentDialogOpen(true)}>
                                 <SquarePlus className="mr-2 h-4 w-4" /> Record Paid Entry
                             </Button>

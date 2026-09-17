@@ -63,7 +63,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { useGstOptions } from "@/hooks/useGstOptions";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 
 // =================================================================================
 // PROPS & TYPE DEFINITIONS
@@ -779,7 +779,8 @@ const canRequestPaymentForTerm = (term: PaymentTerm): boolean => {
 };
 
 const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
-  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  // PMO removed 2026-09-17 (PMO access review): no Request Payment. Keep in step with `isTermsReadOnly` below.
+  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
 
   // Calculate eligibility using the helper function
   const isEligibleForRequest = canRequestPaymentForTerm(term);
@@ -937,6 +938,9 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
 
   const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  // PMO removed from PAYMENT TERMS editing 2026-09-17 (PMO access review). GST for Billing & Notes
+  // stays editable for PMO -- it is required before dispatch, which PMO still does.
+  const isTermsReadOnly = isReadOnly || role === PMO_EXECUTIVE_PROFILE;
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (
@@ -1115,7 +1119,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
               <h3 className="text-lg font-bold text-red-600">
                 PO Payment Terms
               </h3>
-              {!isReadOnly && (
+              {!isTermsReadOnly && (
                 <Button
                   variant="outline"
                   size="sm"
