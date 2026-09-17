@@ -583,6 +583,14 @@ export const ReleasePOSelect: React.FC = () => {
 
     // --- Determine which view to render based on tab ---
     const renderTabView = () => {
+        if (PO_ADMIN_TAB_OPTIONS.some((t) => t.value === tab) && !isAdmin) {
+            // Approval authority is PO_ADMIN_ROLES (isAdmin). The tab buttons are hidden for
+            // non-approvers, but a manual/bookmarked `?tab=Approve PO` still reaches this branch —
+            // so block the approval lists here too. Mirrors the approve-view guard in
+            // RenderPurchaseOrdersTab.tsx. (PMO removed from PO_ADMIN_ROLES on 2026-09-17.)
+            if (role === "Loading") return <TableSkeleton />;
+            return <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve purchase orders.</div>;
+        }
         if (tab === PO_TABS.APPROVE_PO) return <ApproveSelectVendor />;
         if (tab === PO_TABS.APPROVE_SENT_BACK_PO) return <ApproveSelectSentBack />;
         if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;

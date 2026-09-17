@@ -19,6 +19,7 @@ import {
 // NOT imported: their buttons were removed 2026-09-15. Both tabs remain ROUTED via
 // PP_TABS below, so deep links still resolve. Re-import + .map(renderTabButton) to restore.
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
+import { PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -78,6 +79,11 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     const isAdmin = useMemo(() => PP_ADMIN_ROLES.includes(role), [role]);
     const isAccountant = useMemo(() => PP_ACCOUNTANT_ROLES.includes(role), [role]);
     const isProjectRole = useMemo(() => PP_PROJECT_ROLES.includes(role), [role]);
+    const isPMO = role === PMO_EXECUTIVE_PROFILE;
+    // Who may SETTLE a payment: Mark as Paid ("Payment need to paid") and Mark Reconciled
+    // ("Reconciliation Pending"). Gates the tab buttons AND the tab bodies below, since both
+    // tabs are reachable by a hand-edited `?tab=` URL.
+    const canSettlePayments = isAdmin || isAccountant;
 
     const initialTab = useMemo(() => {
         const adminDefault = PP_TABS.APPROVE_PAYMENTS;
@@ -85,12 +91,11 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         const accountantDefault = PP_TABS.NEW_PAYMENTS;
         const userDefault = PP_TABS.PAYMENTS_DONE;
         const remDefault = PP_TABS.PO_WISE;
-        // Approve Payments is Admin-only, so only an approver may DEFAULT to it --
-        // PMO Executive is in PP_ADMIN_ROLES but cannot see the tab, and landing on a
-        // tab that no longer renders would show an empty page.
+        // PMO sees neither the approval nor the settle tabs (2026-09-17), so it defaults to
+        // Payments Pending -- falling through to PO Wise would open a tab with no button.
         const pmoDefault = PP_TABS.PAYMENTS_PENDING;
-        return getUrlStringParam("tab", isCEO ? ceoDefault : canApprovePayments ? adminDefault : isAdmin ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
-    }, [isCEO, canApprovePayments, isAdmin, isAccountant, isProjectRole]); // Calculate only once based on role
+        return getUrlStringParam("tab", isCEO ? ceoDefault : canApprovePayments ? adminDefault : isPMO ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
+    }, [isCEO, canApprovePayments, isPMO, isAccountant, isProjectRole]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
 
@@ -141,14 +146,14 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         [isCEO, withUnionCount]
     );
     const newPaymentsTabsFiltered = useMemo(
-        () => (isAdmin || isAccountant) ? withUnionCount(PP_NEW_PAYMENTS_TAB_OPTIONS, APPROVAL_STATUS.APPROVED) : [],
-        [isAdmin, isAccountant, withUnionCount]
+        () => canSettlePayments ? withUnionCount(PP_NEW_PAYMENTS_TAB_OPTIONS, APPROVAL_STATUS.APPROVED) : [],
+        [canSettlePayments, withUnionCount]
     );
     // Tab four. Same audience as "Payment need to paid" -- the accountant owns both
     // sides of the settlement. Empty until the fulfil path writes the new status.
     const reconciliationTabsFiltered = useMemo(
-        () => (isAdmin || isAccountant) ? withUnionCount(PP_RECONCILIATION_TAB_OPTIONS, APPROVAL_STATUS.RECONCILIATION_PENDING) : [],
-        [isAdmin, isAccountant, withUnionCount]
+        () => canSettlePayments ? withUnionCount(PP_RECONCILIATION_TAB_OPTIONS, APPROVAL_STATUS.RECONCILIATION_PENDING) : [],
+        [canSettlePayments, withUnionCount]
     );
     const paymentTypeTabsFiltered = useMemo(() => [
         {
@@ -287,6 +292,17 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         )
                     ) : tab === PP_TABS.CEO_PENDING ? (
                         <ApprovePayments mode="ceo" readOnly={!isCEO} />
+                    ) : ([PP_TABS.NEW_PAYMENTS, PP_TABS.RECONCILIATION_PENDING].includes(tab as any) && !canSettlePayments) ? (
+                        // Reachable only via a hand-edited / bookmarked `?tab=` URL -- the tab
+                        // buttons are not rendered for these roles (PMO removed 2026-09-17).
+                        role === "Loading" ? <LoadingFallback /> : (
+                            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+                                <Info className="h-4 w-4 text-blue-600" />
+                                <AlertDescription className="text-sm text-blue-800">
+                                    Marking payments as paid or reconciled is restricted to admins and accountants.
+                                </AlertDescription>
+                            </Alert>
+                        )
                     ) :
 
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?

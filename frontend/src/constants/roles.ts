@@ -162,13 +162,15 @@ export const canDeleteCashflowPlan = (
  *
  * Mirrored server-side by `role_profiles.INVOICE_APPROVAL_PROFILES`, which is
  * the ENFORCEMENT boundary; this constant only decides whether the controls
- * render. It also mirrors the inline list in `InvoiceReconciliationContainer`
- * that gates the Pending tab itself — a reviewer who cannot see the queue must
- * not be offered a button that sweeps it.
+ * render. `InvoiceReconciliationContainer` reads the same predicate to gate the
+ * Pending tab itself — a reviewer who cannot see the queue must not be offered a
+ * button that sweeps it.
+ *
+ * PMO Executive was REMOVED on 2026-09-17 (PMO access review). Do not re-add PMO
+ * without owner sign-off.
  */
 const INVOICE_APPROVAL_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
-  PMO_EXECUTIVE_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];

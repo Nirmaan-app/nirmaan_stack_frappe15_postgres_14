@@ -173,8 +173,16 @@ export const ServiceRequestsTabs: React.FC = () => {
 
             {/* Tab Content */}
             <Suspense fallback={<LoadingFallback />}>
-                {tab === SR_TABS.APPROVE_WO && <ApproveSelectSR />}
-                {tab === SR_TABS.APPROVE_AMENDED && <ApproveSelectAmendSR />}
+                {/* Approval authority is SR_ADMIN_ROLES (isAdmin). The tab buttons are hidden for
+                    non-approvers, but a manual/bookmarked `?tab=approve-service-order` still lands
+                    here — so block the approval lists too. (PMO removed 2026-09-17.) */}
+                {!isAdmin && (tab === SR_TABS.APPROVE_WO || tab === SR_TABS.APPROVE_AMENDED) && (
+                    role === "Loading"
+                        ? <LoadingFallback />
+                        : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve work orders.</div>
+                )}
+                {isAdmin && tab === SR_TABS.APPROVE_WO && <ApproveSelectSR />}
+                {isAdmin && tab === SR_TABS.APPROVE_AMENDED && <ApproveSelectAmendSR />}
                 {tab === SR_TABS.PENDING && <SelectServiceVendorList />}
                 {tab === SR_TABS.ALL && (
                     <div className="space-y-4">

@@ -132,6 +132,7 @@ import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
 // PO Revisions Approval
 import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDetail";
+import { PO_ADMIN_ROLES } from "@/pages/ProcurementOrders/purchase-order/config/poTabs.constants";
 
 //Help Repository
 import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
@@ -335,6 +336,9 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "po-revisions-approval",
+            // Same approver set as the "Approve PO Revision" tab. The approve/reject calls behind
+            // this screen carry no role check, so the route itself is the gate (PMO out, 2026-09-17).
+            element: <RoleRoute allowed={PO_ADMIN_ROLES} what="PO revision approvals" />,
             children: [
               { path: ":id", element: <PORevisionsApprovalDetail /> },
             ],

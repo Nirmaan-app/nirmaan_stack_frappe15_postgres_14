@@ -91,9 +91,11 @@ export const PP_ALL_TAB_OPTIONS: PPTabOption[] = [
     { label: "All Payments", value: PP_TABS.ALL_PAYMENTS, countKey: "pay.all" },
 ];
 
+// Settle-side authority beside the accountants — "Payment need to paid" (Mark as Paid) and
+// "Payment Done / Reconciliation Pending" (Mark Reconciled). PMO Executive was intentionally
+// REMOVED on 2026-09-17 (PMO access review). Do NOT re-add PMO without owner sign-off.
 export const PP_ADMIN_ROLES = [
     "Nirmaan Admin Profile",
-    "Nirmaan PMO Executive Profile",
 ];
 
 export const PP_ACCOUNTANT_ROLES = [

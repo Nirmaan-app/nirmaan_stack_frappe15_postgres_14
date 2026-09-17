@@ -147,7 +147,8 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
                                 Request Payment
                             </Button>
                         )}
-                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) && (
+                        {/* PMO removed 2026-09-17 (PMO access review) -- recording money out is accounts + Admin only. */}
+                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role) && (
                             <Button size="sm" variant="default" className="text-xs" onClick={() => setIsNewPaymentDialogOpen(true)}>
                                 <SquarePlus className="mr-2 h-4 w-4" /> Record Paid Entry
                             </Button>
