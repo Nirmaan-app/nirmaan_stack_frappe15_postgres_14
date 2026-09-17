@@ -89,6 +89,14 @@ interface Props {
      */
     actionColumn?: TableActionColumn;
     /**
+     * The column set, when a surface needs a different one -- the Skipped popup swaps Outcome for Skip
+     * Type (`SKIPPED_COLUMNS`). Absent = the page's `OUTFLOW_COLUMNS`, so the page is unchanged.
+     *
+     * ⚠️ PASS A MODULE CONSTANT, never a list built per render: it feeds a `useMemo`, and every
+     * memoized row receives the filtered result.
+     */
+    columns?: readonly OutflowColumn[];
+    /**
      * Open the Unreconcile dialog for a Settled line (#1275). PRESENCE IS THE GATE: the page passes it
      * only for the undo roles, so a plain Accountant sees neither the button nor the Cashbook sentence.
      *
@@ -131,10 +139,11 @@ export const OutflowRowsTable = ({
     onOpenDecision,
     actionColumn,
     onUnreconcile,
+    columns: columnSet = OUTFLOW_COLUMNS,
 }: Props) => {
     const columns = useMemo(
-        () => OUTFLOW_COLUMNS.filter((c) => !hiddenColumns.has(c.id)),
-        [hiddenColumns]
+        () => columnSet.filter((c) => !hiddenColumns.has(c.id)),
+        [columnSet, hiddenColumns]
     );
     // ⚠️ SELECT-ALL ACTS ON THE SELECTABLE ROWS, NOT EVERY ROW ON THE PAGE. On a mixed tab the two
     // differ, and ticking a settled row would put it in a selection the confirm then silently
@@ -649,6 +658,9 @@ const Cell = ({
                 />
             );
 
+        case "skip_kind":
+            return <SkipTypeCell row={row} />;
+
         case "import_batch":
             // The FILENAME is what a person recognises an import by; the batch id means nothing to
             // an accountant. It stays on the title so it is still recoverable when one is needed.
@@ -836,6 +848,34 @@ const OutcomeButton = ({
  * both identically would promise a precision one of them does not have, and the reader would only
  * discover the difference by clicking and hunting.
  */
+/**
+ * The Skipped popup's Skip Type cell: the kind, then everything Outcome used to show for a skipped line.
+ *
+ * ⚠️ THE FULL REASON RIDES THE `title` OF THE KIND. The type says which bucket; the sentence names the
+ * batch, the record or the bank rule, and a reviewer arguing with a skip needs that too. The record
+ * links and the "Skipped by hand · who · when" line stay visible, as they were under Outcome.
+ */
+const SkipTypeCell = ({ row }: { row: OutflowImportRow }) => {
+    const reason = outcomeNoteOf(row);
+    const byHand = skippedByHandLine(row);
+    const links = rowSettlementLinks(row);
+    return (
+        <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
+            <span className="block truncate text-xs font-medium" title={reason || undefined}>
+                {row.skip_kind || "—"}
+            </span>
+            {byHand && (
+                <span className="block truncate text-[11px] text-muted-foreground/80" title={byHand}>
+                    {byHand}
+                </span>
+            )}
+            {links.map((link) => (
+                <RecordLink key={`${link.href}-${link.label}`} link={link} />
+            ))}
+        </div>
+    );
+};
+
 const RecordLink = ({ link, iconOnly = false }: { link: SettlementLink; iconOnly?: boolean }) => (
     <Link
         to={link.href}

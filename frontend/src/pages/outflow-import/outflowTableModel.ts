@@ -807,6 +807,41 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
 ];
 
+/**
+ * The Skipped popup's own column: WHAT KIND of skip a line is (owner-confirmed 2026-09-17).
+ *
+ * ⚠️ A FACET OVER A STORED FIELD (`Outflow Import Row.skip_kind`), never over the reason sentence --
+ * the sentence is written for a person and gets reworded. The cell still carries the full reason on
+ * hover, the record links and the "Skipped by hand" line, so nothing Outcome showed is lost.
+ */
+export const SKIP_TYPE_COLUMN: OutflowColumn = {
+    id: "skip_kind",
+    title: "Skip Type",
+    get: (r) => r.skip_kind ?? "",
+    filter: "facet",
+    width: "220px",
+};
+
+/**
+ * The popup's columns: the page's, with Outcome REPLACED by Skip Type (owner ruling). Outcome on a
+ * skipped line is a sentence cut off at 204px; the type is the fact a reader filters by.
+ *
+ * ⚠️ A SEPARATE LIST, NOT A HIDDEN COLUMN ON THE PAGE. The page's Columns menu walks
+ * `OUTFLOW_COLUMNS`, and no tab on the page ever shows a skipped line, so Skip Type there would be a
+ * column that is blank on every row it could reach.
+ */
+export const SKIPPED_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.map((column) =>
+    column.id === "outcome" ? SKIP_TYPE_COLUMN : column
+);
+
+/**
+ * What the popup's CSV carries: every page column (Outcome included -- a file keeps the full reason,
+ * it costs no screen width) with Skip Type beside it.
+ */
+export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
+    column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
+);
+
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
 ).map((c) => c.id);
@@ -1256,6 +1291,8 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // ⚠️ `direction` LEFT THIS LIST WITH ITS COLUMN (owner, 2026-09-14). With no column there is
     // no funnel to tick, and the direction tabs scope by it instead. The server's
     // `_FACET_COLUMNS["direction"]` stays: the tab scopes and counts read the same expression.
+    // The Skipped popup's Skip Type (`SKIP_TYPE_COLUMN`). Only that popup draws its funnel.
+    "skip_kind",
 ];
 
 /**
@@ -1304,21 +1341,6 @@ export interface MasterTableState {
 
 export interface OutflowRowsQuery {
     scope: string;
-    /**
-     * Split `Skipped` into the two facts it hides: `true` = the bank refused it, `false` = it was
-     * skipped for any other reason, absent = both.
-     *
-     * ⚠️ IT EXISTS BECAUSE TWO CORRECT NUMBERS DISAGREED. The summary's Skipped chip reports 20 and
-     * the `skipped` scope returns 47, because a transfer the bank REFUSED is excluded from every
-     * figure the summary reports (owner ruling, option B) while still carrying `row_status`
-     * `Skipped`. Nothing could ask for one group or the other until this.
-     */
-    failed?: boolean;
-    /**
-     * `"Manual"` narrows the Skipped popup to lines a person skipped (#1273) -- the "Skipped by hand"
-     * segment. A server filter, so the page, its count and the export agree.
-     */
-    skip_origin?: typeof SKIP_ORIGIN_MANUAL;
     batch?: string;
     search?: string;
     facets?: Record<string, string[]>;
@@ -1389,16 +1411,10 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
         .join(" ");
     if (text && !search) query.search = text;
 
-    // ⚠️ A PSEUDO-COLUMN, handled here rather than in `_FACET_COLUMNS`, because the question is not
-    // "which values of a column" but "is this row on the excluded side of an owner ruling". The
-    // facet machinery answers with an IN list, which cannot express "anything that is not SUCCESS"
-    // without this screen learning the bank's whole vocabulary.
-    const bank = String(filters.failed ?? "").trim();
-    if (bank === "failed") query.failed = true;
-    if (bank === "recorded") query.failed = false;
-    // The fourth segment of the same control (#1273). Not a `failed` value: a hand skip is a
-    // successful transfer, and sending `failed` too would only restate that.
-    if (bank === SKIPPED_BY_HAND_FILTER) query.skip_origin = SKIP_ORIGIN_MANUAL;
+    // ⚠️ THE `failed` PSEUDO-FILTER IS GONE (owner, 2026-09-17). It drove the Skipped popup's
+    // All / On purpose / Bank refused / Skipped by hand segments, which the Skip Type facet and the
+    // popup's All / Inflow / Outflow tabs replaced. "Bank refused" and "Skipped by hand" are Skip
+    // Type values now; the server still accepts `failed` and `skip_origin`, nothing here sends them.
 
     const amount = filters.amount as RangeFilter | undefined;
     if (amount?.min != null) query.amount_min = amount.min;
@@ -1456,15 +1472,23 @@ export interface SummaryTile {
  *
  * ⚠️ NOT "already recorded as Paid by hand" -- that was false for most of the figure (#1252 browser
  * walk). It also holds a received Project Inflow, a line excluded as not spending, a line imported
- * before, and a line a person skipped. The row's Outcome says which. Shared by `summaryTiles`' hint
+ * before, and a line a person skipped. The row's Skip Type says which. Shared by `summaryTiles`' hint
  * and `SkippedRowsDialog`, so the two cannot drift apart again.
  */
 export const SKIPPED_ON_PURPOSE_PHRASE = "skipped on purpose";
-export const SKIPPED_ON_PURPOSE_LABEL = "On purpose";
 
-/** The Skipped popup's fourth segment (#1273): the `failed` pseudo-filter value, and its label. */
-export const SKIPPED_BY_HAND_FILTER = "manual";
+/** The "Skipped by hand · user · date" line's lead -- the same words as its Skip Type value. */
 export const SKIPPED_BY_HAND_LABEL = "Skipped by hand";
+
+/**
+ * The Skipped popup's tabs (owner, 2026-09-17): the whole `skipped` scope, then each direction.
+ * Each tab IS a server scope, so its count comes back in `tab_counts` under the popup's filters.
+ */
+export const SKIPPED_TABS: { scope: OutflowScope; label: string }[] = [
+    { scope: "skipped", label: "All" },
+    { scope: "skipped_inflow", label: "Inflow" },
+    { scope: "skipped_outflow", label: "Outflow" },
+];
 
 /**
  * The note a line's Outcome shows: for a line SKIPPED BY HAND the reason the person typed, otherwise the

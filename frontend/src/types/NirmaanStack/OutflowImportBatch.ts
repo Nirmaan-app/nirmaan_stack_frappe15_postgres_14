@@ -141,6 +141,11 @@ export interface OutflowImportRow {
      * typed `skip_reason`). Blank on a line that is not Skipped. Only a Manual skip can be unskipped.
      */
     skip_origin?: "" | "System" | "Manual" | null;
+    /**
+     * WHAT KIND of skip this is -- the Skipped popup's Skip Type column and filter. One of the
+     * server's `skip_kinds.SKIP_KINDS` labels, shown verbatim; blank on a line that is not Skipped.
+     */
+    skip_kind?: string | null;
     /** Who decided this line, and when -- the "Skipped by hand · user · date" line reads both. */
     decided_by?: string | null;
     decided_at?: string | null;
@@ -282,6 +287,9 @@ export interface OutflowRowsPage {
         not_matched_inflow: number;
         settled_inflow: number;
         skipped: number;
+        /** The Skipped popup's Outflow / Inflow tabs: `skipped` narrowed to one direction. */
+        skipped_outflow: number;
+        skipped_inflow: number;
     };
     /**
      * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH

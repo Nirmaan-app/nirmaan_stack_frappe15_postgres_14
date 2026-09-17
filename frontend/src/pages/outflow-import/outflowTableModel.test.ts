@@ -1028,6 +1028,8 @@ describe("inflow tab visibility (#1264)", () => {
         not_matched_inflow: inflow,
         settled_inflow: 0,
         skipped: 0,
+        skipped_outflow: 0,
+        skipped_inflow: 0,
     });
 
     it("shows the Inflow tabs when the chosen source can carry a credit", () => {
@@ -3320,6 +3322,8 @@ describe("tabCountParts", () => {
         not_matched_inflow: 3,
         settled_inflow: 5,
         skipped: 47,
+        skipped_outflow: 45,
+        skipped_inflow: 2,
     };
     const zero = {
         "Pending match run": 0,
@@ -3394,14 +3398,19 @@ describe("tabCountParts", () => {
 
     // ⚠️ THE OWNER RULING, PINNED IN THE ONE PLACE THE TWO VOCABULARIES MEET. Skipped rows have a
     // scope so the dialog can ask for them by name; they must never acquire a tab.
-    it("no tab maps to the skipped scope", () => {
-        expect(Object.values(SCOPE_FOR_TAB)).not.toContain("skipped");
+    it("no tab maps to a skipped scope", () => {
+        for (const scope of ["skipped", "skipped_outflow", "skipped_inflow"]) {
+            expect(Object.values(SCOPE_FOR_TAB)).not.toContain(scope);
+        }
     });
 
     it("the tab strip never renders a skipped count", () => {
         for (const tab of OUTFLOW_TABS) {
             const parts = tabCountParts(tab.id, tabCounts, directionStatusCounts);
-            expect(parts.map((p) => p.count)).not.toContain(tabCounts.skipped);
+            const shown = parts.map((p) => p.count);
+            expect(shown).not.toContain(tabCounts.skipped);
+            expect(shown).not.toContain(tabCounts.skipped_outflow);
+            expect(shown).not.toContain(tabCounts.skipped_inflow);
         }
     });
 });
@@ -3692,47 +3701,65 @@ describe("orderLabel", () => {
     });
 });
 
-describe("serverQuery — the skipped split", () => {
-    // ⚠️ TWO CORRECT NUMBERS THAT DISAGREED. The summary chip counted 20 skipped, the `skipped`
-    // scope returns 47, and the difference is the 27 the bank refused — excluded from every summary
-    // FIGURE by owner ruling while still carrying `row_status` Skipped.
-    it("asks for neither half by default", () => {
-        expect(serverQuery({ scope: "skipped" }).failed).toBeUndefined();
-    });
-
-    it("asks for the refused half", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "failed" } }).failed).toBe(true);
-    });
-
-    it("asks for everything else", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "recorded" } }).failed).toBe(false);
-    });
-
-    // `false` and "absent" are different questions; sending one for the other would silently drop
-    // the 27 from a list that exists to hold them.
-    it("an empty choice is absent, never false", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "" } }).failed).toBeUndefined();
-    });
-
-    it("counts as an active filter so the clear control appears", () => {
-        expect(activeFilterCount({ failed: "failed" })).toBe(1);
-        expect(activeFilterCount({ failed: "" })).toBe(0);
-    });
-
-    // #1273: the fourth segment asks the server for hand skips, and says nothing about `failed`.
-    it("asks for the lines skipped by hand", () => {
-        const query = serverQuery({
-            scope: "skipped",
-            filters: { failed: model.SKIPPED_BY_HAND_FILTER },
-        });
-        expect(query.skip_origin).toBe("Manual");
-        expect(query.failed).toBeUndefined();
-    });
-
-    it("sends no origin for any other segment", () => {
-        for (const failed of ["", "failed", "recorded"]) {
-            expect(serverQuery({ scope: "skipped", filters: { failed } }).skip_origin).toBeUndefined();
+describe("serverQuery — the Skipped popup (Skip Type, 2026-09-17)", () => {
+    // ⚠️ INVERTED, NOT DELETED. The popup used to split `Skipped` with a `failed` pseudo-filter
+    // (All / On purpose / Bank refused / Skipped by hand). Skip Type and the direction tabs replaced it,
+    // so a stale `failed` value -- a state object left from before -- must send NOTHING.
+    it("never sends the retired failed / skip_origin split", () => {
+        for (const failed of ["", "failed", "recorded", "manual"]) {
+            const query = serverQuery({ scope: "skipped", filters: { failed } }) as unknown as Record<string, unknown>;
+            expect(query.failed).toBeUndefined();
+            expect(query.skip_origin).toBeUndefined();
         }
+        expect("SKIPPED_BY_HAND_FILTER" in model).toBe(false);
+        expect("SKIPPED_ON_PURPOSE_LABEL" in model).toBe(false);
+    });
+
+    it("sends a Skip Type tick as a server facet", () => {
+        const query = serverQuery({
+            scope: "skipped_outflow",
+            filters: { skip_kind: ["Bank refused", "Skipped by hand"] },
+        });
+        expect(query.scope).toBe("skipped_outflow");
+        expect(query.facets).toEqual({ skip_kind: ["Bank refused", "Skipped by hand"] });
+    });
+
+    it("the tabs are All, Inflow, Outflow, each its own scope", () => {
+        expect(model.SKIPPED_TABS).toEqual([
+            { scope: "skipped", label: "All" },
+            { scope: "skipped_inflow", label: "Inflow" },
+            { scope: "skipped_outflow", label: "Outflow" },
+        ]);
+    });
+});
+
+describe("the Skipped popup's columns", () => {
+    it("replaces Outcome with Skip Type, in the same place", () => {
+        const ids = model.SKIPPED_COLUMNS.map((c) => c.id);
+        expect(ids).not.toContain("outcome");
+        expect(ids.indexOf("skip_kind")).toBe(model.OUTFLOW_COLUMNS.findIndex((c) => c.id === "outcome"));
+        expect(model.SKIPPED_COLUMNS.find((c) => c.id === "skip_kind")).toMatchObject({
+            title: "Skip Type",
+            filter: "facet",
+        });
+    });
+
+    it("leaves the page's own columns without Skip Type", () => {
+        expect(model.OUTFLOW_COLUMNS.map((c) => c.id)).not.toContain("skip_kind");
+    });
+
+    it("exports Skip Type beside the full Outcome reason", () => {
+        const ids = model.SKIPPED_EXPORT_COLUMNS.map((c) => c.id);
+        expect(ids).toContain("outcome");
+        expect(ids.indexOf("skip_kind")).toBe(ids.indexOf("outcome") - 1);
+    });
+
+    it("reads the stored kind, never the sentence", () => {
+        const column = model.SKIP_TYPE_COLUMN;
+        expect(column.get({ skip_kind: "Bank refused", outcome_note: "Transfer did not succeed" } as any)).toBe(
+            "Bank refused"
+        );
+        expect(column.get({ outcome_note: "Already imported in batch X." } as any)).toBe("");
     });
 });
 
@@ -3887,7 +3914,10 @@ describe("the period column", () => {
         //
         // No unit test could see that, because each list was internally consistent. This one
         // compares them.
-        const funnelled = OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id);
+        // The Skipped popup's own list is included: its Skip Type funnel needs the same three lists.
+        const funnelled = [...OUTFLOW_COLUMNS, ...model.SKIPPED_COLUMNS]
+            .filter((c) => c.filter === "facet")
+            .map((c) => c.id);
         expect(funnelled.length).toBeGreaterThan(0);
         for (const id of funnelled) {
             if (DEAD_FUNNELS.has(id)) continue;
@@ -3900,7 +3930,9 @@ describe("the period column", () => {
         // dead weight, and `added_on` is the cautionary tale -- it sat here after P1 and was
         // harmless only because `serverQuery`'s loop happened to skip a non-array value.
         const funnelled = new Set(
-            OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id)
+            [...OUTFLOW_COLUMNS, ...model.SKIPPED_COLUMNS]
+                .filter((c) => c.filter === "facet")
+                .map((c) => c.id)
         );
         for (const id of SERVER_FACET_COLUMNS) {
             expect(funnelled.has(id)).toBe(true);

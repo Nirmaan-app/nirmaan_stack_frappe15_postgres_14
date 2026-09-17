@@ -41,12 +41,12 @@ import { canUndoOutflow } from "../outflowImportStatus";
 import { unskipBlockReason, unskipNotice, type UnskipNotice, type UnskipResult } from "../unskipView";
 import { exportFileBase, toExportColumns } from "../outflowExport";
 import {
-    OUTFLOW_COLUMNS,
-    SKIPPED_BY_HAND_FILTER,
-    SKIPPED_BY_HAND_LABEL,
-    SKIPPED_ON_PURPOSE_LABEL,
+    SKIPPED_COLUMNS,
+    SKIPPED_EXPORT_COLUMNS,
     SKIPPED_ON_PURPOSE_PHRASE,
+    SKIPPED_TABS,
     describeFrappeError,
+    type OutflowScope,
 } from "../outflowTableModel";
 
 interface Props {
@@ -67,8 +67,6 @@ interface Props {
      */
     skippedRows?: number;
     failedRows?: number;
-    /** `get_outflow_summary.skipped_by_hand_rows` -- the count the "Skipped by hand" filter returns. */
-    skippedByHandRows?: number;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /**
@@ -77,12 +75,6 @@ interface Props {
      */
     onChanged?: () => Promise<void> | void;
 }
-
-/**
- * Which slice of `Skipped` is on screen. `""` is all of it. `manual` (#1273) is a subset of `recorded`
- * -- the lines a person skipped -- offered as its own segment so they can be found fast.
- */
-type BankFilter = "" | "recorded" | "failed" | typeof SKIPPED_BY_HAND_FILTER;
 
 /** Nothing here is selectable, so the shared empty set is passed rather than a new one per render. */
 const NOTHING: ReadonlySet<string> = new Set();
@@ -112,17 +104,16 @@ const NO_ORIGINS = new Map();
  * rides the table's `actionColumn`, live only for a hand skip (`unskipBlockReason`); every other line
  * shows the button disabled with its reason in words. "Skips are final" still holds for system skips.
  *
- * ⚠️ THE REASON IS IN THE OUTCOME COLUMN, NOT IN `skip_reason`. 20 of the 47 skipped rows on the
- * first real statement carry no `skip_reason` at all -- the already-Paid duplicates record it as
- * "Already recorded as Paid on Project Payment PAY-…" in the note, exactly as the Mismatched causes do. The table's
- * terminal cell already falls back `outcome_note || skip_reason`, which is why this dialog needs no
- * column of its own.
+ * ⚠️ SKIP TYPE REPLACES OUTCOME HERE, AND THE TABS ARE DIRECTION (owner, 2026-09-17). The Outcome cell
+ * on a skipped line was a reason sentence cut off at 204px; the stored `skip_kind` is what a reader
+ * filters by, and the full sentence rides that cell's hover (`SKIPPED_COLUMNS`). The old
+ * All / On purpose / Bank refused / Skipped by hand segments are gone: "Bank refused" and "Skipped by
+ * hand" are Skip Type values, and the tabs split by direction as the page's own tabs do.
  */
 export const SkippedRowsDialog = ({
     batch,
     skippedRows,
     failedRows,
-    skippedByHandRows,
     open,
     onOpenChange,
     onChanged,
@@ -130,8 +121,11 @@ export const SkippedRowsDialog = ({
     // ⚠️ `enabled` MATTERS HERE. A dialog that is mounted but closed must not query -- this one sits
     // in the page's tree for the whole session and would otherwise fetch on every filter change
     // behind it.
+    // ⚠️ THE TAB IS THE SCOPE. Each tab is a server scope (`SKIPPED_TABS`), so the tab counts come back
+    // in `tab_counts` under this popup's own search and filters, and changing tab resets the page.
+    const [scope, setScope] = useState<OutflowScope>("skipped");
     const table = useOutflowRows({
-        scope: "skipped",
+        scope,
         batch,
         enabled: open,
         // ⚠️ THE IMPORT COLUMN IS NOW SHOWN (slice P1). It was hidden because every row carried the
@@ -139,9 +133,6 @@ export const SkippedRowsDialog = ({
         // several, where "which statement did this come from" is a real question. Outcome keeps its
         // width; the Columns menu is still there for anyone who wants it back.
     });
-
-    const bank = (String(table.filters.failed ?? "") as BankFilter) || "";
-    const setBank = (next: BankFilter) => table.setFilter("failed", next || undefined);
 
     const empty = useMemo(
         () => !table.loading && table.rows.length === 0,
@@ -155,8 +146,7 @@ export const SkippedRowsDialog = ({
 
     /**
      * ⚠️ IT SENDS **THIS** TABLE'S QUERY, NOT THE PAGE'S. This dialog holds its own `useOutflowRows`
-     * instance — fixed to the `skipped` scope, carrying its own search and its own Already-paid /
-     * Bank-refused split — and exporting the page's query here would download the worklist from
+     * instance — on a skipped scope, carrying its own search, tab and Skip Type filter — and exporting the page's query here would download the worklist from
      * behind the dialog under a filename saying `outflow-skipped`. The scope in `exportQuery` names
      * the file and selects the rows, so the two cannot come apart.
      */
@@ -172,7 +162,8 @@ export const SkippedRowsDialog = ({
                 response?.message?.rows ?? [],
                 // See `toExportColumns` — this is the shape `exportToCsv` reads, which TanStack's
                 // `ColumnDef` cannot express without augmenting `ColumnMeta` app-wide.
-                toExportColumns(OUTFLOW_COLUMNS) as any
+                // The popup's own list: every page column plus Skip Type, so the file keeps the reason.
+                toExportColumns(SKIPPED_EXPORT_COLUMNS) as any
             );
         } catch (err) {
             setExportError(describeFrappeError(err, "The export failed."));
@@ -233,6 +224,7 @@ export const SkippedRowsDialog = ({
             if (!next) {
                 setNotice(null);
                 setUnskipping(null);
+                setScope("skipped");
             }
             onOpenChange(next);
         },
@@ -243,8 +235,8 @@ export const SkippedRowsDialog = ({
         <Dialog open={open} onOpenChange={handleOpenChange}>
             {/* ⚠️ WIDER THAN THE OTHER DIALOGS ON PURPOSE. This one renders the SAME table as the
                 page, and that table's columns are sized for a full-width screen — at `max-w-6xl` the
-                Outcome column fell off the right edge, which on this screen is the only column that
-                says why a row was skipped. */}
+                reason column fell off the right edge, which on this screen is the column that says
+                why a row was skipped. */}
             <DialogContent className="max-w-[95vw]">
                 <DialogHeader>
                     <DialogTitle>Skipped transfers</DialogTitle>
@@ -261,7 +253,7 @@ export const SkippedRowsDialog = ({
                                 <strong className="font-medium text-foreground">
                                     {skippedRows}
                                 </strong>{" "}
-                                were {SKIPPED_ON_PURPOSE_PHRASE} (the Outcome column says why) and{" "}
+                                were {SKIPPED_ON_PURPOSE_PHRASE} (Skip Type says which kind) and{" "}
                                 <strong className="font-medium text-foreground">
                                     {failedRows}
                                 </strong>{" "}
@@ -300,33 +292,29 @@ export const SkippedRowsDialog = ({
                             </button>
                         )}
                     </div>
-                    {/* Three buttons over ONE filter, so the split is reachable rather than merely
-                        explained. The counts come from the summary, not from this page of rows. */}
+                    {/* All / Inflow / Outflow (owner, 2026-09-17). Each is a server scope, so the count
+                        beside it is `tab_counts` under this popup's search and Skip Type filter. */}
                     <div className="flex items-center gap-1 rounded-md border p-0.5">
-                        {(
-                            [
-                                ["", "All", (skippedRows ?? 0) + (failedRows ?? 0)],
-                                ["recorded", SKIPPED_ON_PURPOSE_LABEL, skippedRows],
-                                ["failed", "Bank refused", failedRows],
-                                [SKIPPED_BY_HAND_FILTER, SKIPPED_BY_HAND_LABEL, skippedByHandRows],
-                            ] as [BankFilter, string, number | undefined][]
-                        ).map(([value, label, count]) => (
-                            <button
-                                key={value || "all"}
-                                type="button"
-                                onClick={() => setBank(value)}
-                                className={`rounded px-2 py-1 text-xs transition-colors ${
-                                    bank === value
-                                        ? "bg-primary/10 font-medium text-primary"
-                                        : "text-muted-foreground hover:bg-muted"
-                                }`}
-                            >
-                                {label}
-                                {count != null && (
-                                    <span className="ml-1 tabular-nums">{count}</span>
-                                )}
-                            </button>
-                        ))}
+                        {SKIPPED_TABS.map((tab) => {
+                            const count = table.tabCounts?.[tab.scope];
+                            return (
+                                <button
+                                    key={tab.scope}
+                                    type="button"
+                                    onClick={() => setScope(tab.scope)}
+                                    className={`rounded px-2 py-1 text-xs transition-colors ${
+                                        scope === tab.scope
+                                            ? "bg-primary/10 font-medium text-primary"
+                                            : "text-muted-foreground hover:bg-muted"
+                                    }`}
+                                >
+                                    {tab.label}
+                                    {count != null && (
+                                        <span className="ml-1 tabular-nums">{count}</span>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </div>
                     <ClearFiltersButton count={table.filterCount} onClear={table.clearFilters} />
                     {/* Export rides with the COUNT, not with the filters — the count says what you
@@ -391,8 +379,8 @@ export const SkippedRowsDialog = ({
                 </AlertDialog>
 
                 {/* ⚠️ BOTH AXES. The table is wider than a dialog, and without the horizontal scroll the
-                    Status and Outcome columns fall off the right edge — Outcome being the one that
-                    carries the reason, which is the whole point of this screen. */}
+                    Status and Skip Type columns fall off the right edge — Skip Type being the one that
+                    says why, which is the whole point of this screen. */}
                 <div className="max-h-[55vh] overflow-auto">
                     {table.loading && !table.rows.length ? (
                         <div className="flex h-40 items-center justify-center">
@@ -400,10 +388,15 @@ export const SkippedRowsDialog = ({
                         </div>
                     ) : empty ? (
                         <p className="py-10 text-center text-sm text-muted-foreground">
-                            Nothing was skipped in this import.
+                            {/* ⚠️ A NARROWED VIEW MUST NOT CLAIM NOTHING WAS SKIPPED. A tab or a Skip
+                                Type tick can empty the list while the popup still holds rows. */}
+                            {scope === "skipped" && !table.filterCount && !table.search
+                                ? "Nothing was skipped in this import."
+                                : "No skipped transfers match this tab and these filters."}
                         </p>
                     ) : (
                         <OutflowRowsTable
+                            columns={SKIPPED_COLUMNS}
                             rows={table.rows}
                             loadFacetValues={table.loadFacetValues}
                             query={table.search}

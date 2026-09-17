@@ -709,8 +709,8 @@ needs one vocabulary rather than one per writer.
       it now names the MONEY figures only. Anything that reverts the chip must revert that sentence
       too, or the panel contradicts itself again in the other direction.
     - **`get_outflow_rows` takes `failed`** (tri-state: absent = both halves) so the two facts inside
-      `Skipped` can be asked for separately — the Skipped dialog's `All / Already paid / Bank refused`
-      control. It binds `parser.BANK_SUCCESS_STATUS` rather than spelling `'SUCCESS'` a second time,
+      `Skipped` can be asked for separately. (The Skipped dialog's segment control that sent it was
+      REPLACED on 2026-09-17 by Skip Type + direction tabs — see that section; the server param stays.) It binds `parser.BANK_SUCCESS_STATUS` rather than spelling `'SUCCESS'` a second time,
       and it lives in `_row_filters`, so a filtered view's tab counts move with it.
     - ⚠️ **`auto_skipped` excludes them on the same terms**, or `manually_skipped_rows`
       (`skipped_rows - auto_skipped`) subtracts rows its minuend no longer contains.
@@ -1189,8 +1189,9 @@ is a browser walk, because there is no DOM test environment here.
 and decisions deliberately stayed on the page: it is a worklist, the dialog is read-only, and folding
 those in would hand the dialog affordances it must not have behind a flag. **The dialog is read-only
 BY CONSTRUCTION** — `Skipped` is terminal so the table renders no action, and an empty
-`selectableRowNames` removes the checkbox column. Its `All / Already paid / Bank refused` control is
-what makes the split inside `Skipped` actionable.
+`selectableRowNames` removes the checkbox column. (Its old segment control — last
+`All / On purpose / Bank refused / Skipped by hand` — was replaced on 2026-09-17 by the Skip Type column
+and `All / Inflow / Outflow` tabs; see "Skip Type" at the end of this file.)
 
 ---
 
@@ -5739,3 +5740,47 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   `doctype/vendor_refunds/test_vendor_refunds.py` (the paid-amount hook: insert / edit / re-point / delete,
   a payment recompute keeping the refund off, the cap reading gross paid); `outflowTableModel.test.ts`
   (`vendorRefund` branch, `suggestRefundVendor`, `vendor refund allocations`).
+## Skip Type — the Skipped popup's column, filter and direction tabs (2026-09-17)
+
+Owner-confirmed. Branch `feature/outflow-skip-type`. Three commits: store, read, popup.
+
+**What changed on screen.** The popup's Outcome column is REPLACED by **Skip Type** (a facet funnel).
+The kind shows in the cell, the full reason sentence rides its hover, and the record links and the
+"Skipped by hand · who · when" line stay. The four segments are gone; the popup has **All / Inflow /
+Outflow** tabs instead. The CSV keeps Outcome AND adds Skip Type. The page's own table is unchanged —
+`SKIPPED_COLUMNS` is a separate list, so no blank Skip Type column appears in the page's Columns menu.
+
+**Stored, not derived (owner pick B).** `Outflow Import Row.skip_kind` (read-only Select; JSON added by a
+sanctioned CC edit — root CLAUDE.md). Vocabulary: `services/outflow_import/skip_kinds.py`, a leaf with no
+imports so both `status.py` and the fenced-off `cashbook.py` can name it. 17 values: Already imported ·
+Repeated in same file · Bank refused · No amount · Outflow Already Recorded · Inflow Already Recorded ·
+one per bank-exclusion rule (the two GL-transfer rules share "Bank internal transfer") · Cashbook
+internal movement · Skipped by hand.
+
+**Writers — each sets the kind in the SAME branch as the sentence:** `status.RowOutcome.skip_kind`
+(upload staging, match run, contains-guard) → `upload._stage_batch` and `review._persist_row_outcome`;
+`cashbook._skip_reason` returns `(reason, kind)` → `api/outflow_import/cashbook.py`; `review.skip_row`
+writes Skipped by hand; `unskip_row` clears it (a re-check that skips again writes its new kind).
+
+**Rulings encoded.**
+- A line both bank-refused AND already imported is **Already imported** — the sentence wins (140 local rows).
+- Cashbook "Already booked as …" is **Outflow Already Recorded** (same meaning as "already paid").
+- The mixed "Already recorded on …" group (unreachable today) has no kind of its own; it follows the
+  LINE's direction (`status._recorded_skip_kind`).
+- ⚠️ A new `bank_exclusions` rule needs a kind in `SKIP_KIND_BY_EXCLUSION_CATEGORY` in the same change —
+  `test_skip_kinds` fails otherwise, and the staging deriver would `KeyError`.
+
+**History.** `patches/v3_0/backfill_outflow_skip_kind.py` reads the kind back out of the stored sentence
+through `skip_kind_backfill.classify_stored_skip_kind` (the ONLY place a kind is read from text).
+Manual origin → Skipped by hand; else `skip_reason`, then `outcome_note`. ⚠️ It REFUSES — writes nothing,
+names the lines — if any Skipped line names no known kind. Local run: Already imported 2239 · Bank
+refused 92 · Outflow Already Recorded 87 · Cashbook internal movement 62 · Cashfree wallet top-up 10 ·
+No amount 1 (= all 2,491).
+
+**Reads.** New scopes `skipped_outflow` / `skipped_inflow` (`_SCOPE_STATUSES` + `_SCOPE_DIRECTION`), so
+the tab counts ride `tab_counts` under the popup's filters; no page tab maps to them (test-pinned both
+sides). `_FACET_COLUMNS["skip_kind"] = "r.skip_kind"`; `SERVER_FACET_COLUMNS` carries it; the funnel
+parity test now walks `OUTFLOW_COLUMNS` + `SKIPPED_COLUMNS`. The frontend no longer sends `failed` /
+`skip_origin` (server params kept). `get_outflow_summary.skipped_by_hand_rows` is now read by nothing on
+screen.
+

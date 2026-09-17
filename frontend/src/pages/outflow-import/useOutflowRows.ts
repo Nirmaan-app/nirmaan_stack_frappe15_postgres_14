@@ -132,9 +132,8 @@ export interface UseOutflowRowsOptions {
     /**
      * Columns to hide on top of the defaults.
      *
-     * ⚠️ FOR COLUMNS THAT ARE MEANINGLESS IN THIS CONTEXT, not for taste. The Skipped dialog is
-     * scoped to ONE import, so its Import column would repeat the same filename on every row and
-     * cost the width that the Outcome — the only thing that says why a row was skipped — needs.
+     * ⚠️ FOR COLUMNS THAT ARE MEANINGLESS IN THIS CONTEXT, not for taste -- a column that would
+     * repeat the same value on every row and cost width a meaningful one needs.
      */
     alsoHidden?: readonly string[];
 }
@@ -273,7 +272,6 @@ export function useOutflowRows({
             });
             const params = new URLSearchParams({ column: columnId, scope });
             if (query.batch) params.set("batch", query.batch);
-            if (query.failed != null) params.set("failed", query.failed ? "1" : "0");
             if (query.search) params.set("search", query.search);
             if (query.amount_min != null) params.set("amount_min", String(query.amount_min));
             if (query.amount_max != null) params.set("amount_max", String(query.amount_max));

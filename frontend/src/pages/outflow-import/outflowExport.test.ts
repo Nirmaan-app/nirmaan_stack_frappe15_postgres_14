@@ -5,6 +5,7 @@ import { EXPORT_ONLY_COLUMNS, exportFileBase, toExportColumns } from "./outflowE
 import {
     DEFAULT_HIDDEN_COLUMNS,
     OUTFLOW_COLUMNS,
+    SKIPPED_EXPORT_COLUMNS,
     referenceValue,
     shortReference,
 } from "./outflowTableModel";
@@ -174,6 +175,19 @@ describe("toExportColumns", () => {
         ).toBe("");
     });
 
+    it("the Skipped popup's file carries Skip Type beside the full reason", () => {
+        const byId = new Map(toExportColumns(SKIPPED_EXPORT_COLUMNS).map((c) => [c.id, c]));
+        const skipped = row({
+            skip_kind: "Bank refused",
+            outcome_note: "Transfer did not succeed at the bank (FAILED).",
+        });
+        expect(byId.get("skip_kind")!.meta.exportHeaderName).toBe("Skip Type");
+        expect(byId.get("skip_kind")!.meta.exportValue(skipped)).toBe("Bank refused");
+        expect(byId.get("outcome")!.meta.exportValue(skipped)).toBe(
+            "Transfer did not succeed at the bank (FAILED)."
+        );
+    });
+
     it("SHIPS THE HIDDEN COLUMNS TOO — a CSV is an archive, not a screenshot", () => {
         // ⚠️ There is no `hidden` parameter at all, so no call site can reintroduce the question.
         const ids = new Set(toExportColumns(OUTFLOW_COLUMNS).map((c) => c.id));
@@ -214,6 +228,9 @@ describe("exportFileBase", () => {
         expect(exportFileBase("not_matched")).toBe("outflow-transfers-not-matched");
         expect(exportFileBase("matched")).toBe("outflow-transfers-matched");
         expect(exportFileBase("skipped")).toBe("outflow-skipped");
+        // The Skipped popup's direction tabs: an inflow file is never named `outflow-…`.
+        expect(exportFileBase("skipped_outflow")).toBe("outflow-skipped-outflow");
+        expect(exportFileBase("skipped_inflow")).toBe("inflow-skipped");
         // The direction tabs (#1264) say their direction in the name, because the file cannot.
         expect(exportFileBase("not_matched_outflow")).toBe("outflow-transfers-not-matched");
         expect(exportFileBase("partly_outflow")).toBe("outflow-transfers-partly-allocated");
