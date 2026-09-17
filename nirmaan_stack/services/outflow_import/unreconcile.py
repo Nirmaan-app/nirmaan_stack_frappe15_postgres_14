@@ -8,8 +8,8 @@ leg goes in; one verdict comes out. The write path (`api/outflow_import/unreconc
 facts UNDER ITS LOCKS and asks here, so the decision is always made on a picture nobody else can be
 changing -- a plan shown on screen earlier is never trusted.
 
-IT KNOWS FIVE VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278),
-`unsplit_payment` (#1279) and `refused`. A new one is a new branch HERE, never a check at a call
+IT KNOWS SIX VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278),
+`unsplit_payment` (#1279), `unlink_expense_line` (#1300) and `refused`. A new one is a new branch HERE, never a check at a call
 site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile dialog shows beside the record -- so the screen never has to know what a verdict does to its target.
 
 ⚠️ EVERY PAYMENT REFUSAL SENTENCE IS THE ONE `expenses.reverse_allocation` PRINTED BEFORE THIS MODULE
@@ -26,6 +26,12 @@ three "changed elsewhere" facts as a payment -- amount, status, reference -- wit
 CREATE it? A created expense must be deleted, not put back to Approved -- an Approved record for money
 nobody sanctioned would be worse than the settle it undoes. The created question is asked LAST: a
 record that has been changed since is something a person can act on, the created question is not.
+
+ONE LINE OF A MANY-LINE EXPENSE (#1300, ADR-0027 Q15/Q21) is judged on none of those three facts. Linking
+never rewrote the amount or wrote the line's reference, and the expense is only Paid once every line is
+in, so each check would refuse every line but one. Only that line comes off; the expense re-derives
+from the lines left and keeps its amount and reference. WHICH EXPENSES ARE MANY-LINE is
+`_is_many_line_expense`: no stored flag says "this was a 1:1 settle", so it reads what the slips show.
 
 A CREATED RECORD (#1278, ADR-0022 reverses ADR-0016 AR3 "an import-created inflow cannot be undone")
 is DELETED. `created_by_import` is the leg's STORED flag (`Outflow Row Match.created_by_import`), set by
@@ -67,11 +73,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE, to_decimal
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPE,
     INFLOW_DOCTYPES,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    RECONCILIATION_PENDING,
     VENDOR_REFUND_DOCTYPE,
     is_expense_doctype,
 )
@@ -91,6 +99,7 @@ VERDICT_REVERT_PAYMENT = "revert_payment"
 VERDICT_REVERT_EXPENSE = "revert_expense"
 VERDICT_DELETE_CREATED = "delete_created"
 VERDICT_UNSPLIT_PAYMENT = "unsplit_payment"
+VERDICT_UNLINK_EXPENSE_LINE = "unlink_expense_line"
 VERDICT_REFUSED = "refused"
 
 # Where a refused leg is repaired. `None` on a refusal means there is nothing to repair.
@@ -159,9 +168,11 @@ __all__ = [
     "VERDICT_REFUSED",
     "VERDICT_REVERT_EXPENSE",
     "VERDICT_REVERT_PAYMENT",
+    "VERDICT_UNLINK_EXPENSE_LINE",
     "VERDICT_UNSPLIT_PAYMENT",
     "WHOLE_LINE_ONLY_REFUSAL",
     "WHOLE_LINE_ONLY_TITLE",
+    "ExpenseSlip",
     "LegFacts",
     "LegVerdict",
     "SplitChild",
@@ -177,6 +188,15 @@ WHOLE_LINE_ONLY_REFUSAL = (
     "A vendor refund transfer is undone whole: Reverse all deletes every vendor refund on it. "
     "Nothing was reversed."
 )
+
+
+@dataclass(frozen=True)
+class ExpenseSlip:
+    """ANOTHER slip on the same expense (#1300): its amount, whether it is live, and when it was undone."""
+
+    amount: object
+    live: bool
+    reversed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -217,6 +237,8 @@ class LegFacts:
     # CREATED RECORDS ONLY: `(when, fieldnames)` per Version row of the record, any order. Fieldnames
     # cover `changed` fields and the table fields of added / removed / changed child rows.
     versions: tuple = ()
+    # EXPENSES ONLY (#1300): every OTHER slip on the expense (`ExpenseSlip`), live or Reversed.
+    other_slips: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -234,6 +256,12 @@ class LegVerdict:
     leftover_amount: object = None
     restored_amount: object = None
     joins_terms: bool = False
+    # `unlink_expense_line` ONLY: what stays linked, across how many other lines, the expense's amount,
+    # and whether what stays still makes it Paid.
+    stays_linked: object = None
+    other_lines: int = 0
+    expense_amount: object = None
+    stays_paid: bool = False
 
 
 def _refused(facts: LegFacts, title: str, reason: str, fix_at: str | None = None) -> LegVerdict:
@@ -352,6 +380,8 @@ def _expense_verdict(facts: LegFacts) -> LegVerdict:
     name = facts.target_name
     if not facts.target_exists:
         return _refused(facts, "Not found", f"Expense '{name}' not found.")
+    if _is_many_line_expense(facts):
+        return _unlink_line_verdict(facts)
     if normalize_amount(facts.leg_amount) != normalize_amount(facts.target_amount):
         return _refused(
             facts,
@@ -387,6 +417,54 @@ def _expense_verdict(facts: LegFacts) -> LegVerdict:
             if facts.target_doctype == PROJECT_EXPENSE_DOCTYPE
             else WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE
         ),
+    )
+
+
+def _is_many_line_expense(facts: LegFacts) -> bool:
+    """Whether this leg is one line of a many-line expense, rather than a 1:1 settle (#1300).
+
+    TWO SHAPES, because nothing stored says which kind of settle wrote the leg:
+
+      * ANOTHER SLIP SHARED THE EXPENSE WITH THIS ONE -- still live, or undone AFTER this leg was
+        matched. A slip undone BEFORE it is a 1:1 settle that was reversed and settled again, which
+        keeps today's exact checks.
+      * THE ONE LINE ONLY PART-FILLS IT: the expense is Reconciliation Pending and the leg is short of
+        its amount by more than ₹5. A 1:1 settle only happens when the line fills the expense, and
+        leaves it Paid.
+
+    ⚠️ EVERY DOUBT IS 1:1. An unknown match or reversal time is not sharing: 1:1 keeps the checks, and a
+    wrong refusal is repaired by hand where a wrong revert is not.
+    """
+    for slip in facts.other_slips:
+        if slip.live:
+            return True
+        if slip.reversed_at and facts.matched_at and slip.reversed_at > facts.matched_at:
+            return True
+    short = to_decimal(facts.target_amount) - to_decimal(facts.leg_amount) > AMOUNT_TOLERANCE
+    # ⚠️ THE STATUS COMES FROM `ledgers`, never a local copy: three modules once held private ones and
+    # they agreed right up to the day the map moved.
+    return (facts.target_status or "").strip() == RECONCILIATION_PENDING and short
+
+
+def _unlink_line_verdict(facts: LegFacts) -> LegVerdict:
+    """Only this line comes off a many-line expense (#1300). No "changed elsewhere" check (Q21).
+
+    ⚠️ A CREATED EXPENSE IS NOT DELETED HERE: other lines still settle it. `stays_paid` is the same ₹5
+    reading `expense_links.derive_expense_status` makes, which the write re-derives from the slips.
+    """
+    live = [slip for slip in facts.other_slips if slip.live]
+    stays_linked = sum((to_decimal(slip.amount) for slip in live), to_decimal(0))
+    expense_amount = to_decimal(facts.target_amount)
+    stays_paid = expense_amount - stays_linked <= AMOUNT_TOLERANCE
+    after = "stays Paid" if stays_paid else "goes back to Reconciliation Pending"
+    return LegVerdict(
+        leg=facts.leg,
+        verdict=VERDICT_UNLINK_EXPENSE_LINE,
+        what_happens=f"Only this line comes off. {facts.target_name} {after}.",
+        stays_linked=stays_linked,
+        other_lines=len(live),
+        expense_amount=expense_amount,
+        stays_paid=stays_paid,
     )
 
 

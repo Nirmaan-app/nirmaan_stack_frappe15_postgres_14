@@ -17,9 +17,11 @@ import {
     VERDICT_REVERT_EXPENSE,
     LEFTOVER_PAID_TITLE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNLINK_EXPENSE_LINE,
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_UNSPLIT,
     confirmByHandNote,
+    legAmountLabel,
     legOutcomeLine,
     recordsHeading,
     reverseAllBlockedSentence,
@@ -101,6 +103,7 @@ describe("parity with the Python decision module", () => {
         expect(decisionSource).toContain(`VERDICT_DELETE_CREATED = "${VERDICT_DELETE_CREATED}"`);
         expect(decisionSource).toContain(`VERDICT_REFUSED = "${VERDICT_REFUSED}"`);
         expect(decisionSource).toContain(`VERDICT_UNSPLIT_PAYMENT = "${VERDICT_UNSPLIT_PAYMENT}"`);
+        expect(decisionSource).toContain(`VERDICT_UNLINK_EXPENSE_LINE = "${VERDICT_UNLINK_EXPENSE_LINE}"`);
     });
 
     it("leads the amber line with the server's sentence", () => {
@@ -587,5 +590,102 @@ describe("the bulk refusal sentence is the server's", () => {
             .map((line) => line.trim().replace(/^"|"$/g, ""))
             .join("");
         expect(joined).toBe(CONFIRM_BY_HAND_REFUSAL);
+    });
+});
+
+describe("one line of a many-line expense (#1300, mockup board 6)", () => {
+    const lineLeg = (over: Partial<UnreconcilePlanLeg> = {}) =>
+        leg({
+            target_doctype: "Non Project Expenses",
+            target_name: "toj650dsqd",
+            target_amount: 6240,
+            verdict: VERDICT_UNLINK_EXPENSE_LINE,
+            what_happens: "Only this line comes off. toj650dsqd goes back to Reconciliation Pending.",
+            stays_linked: 153873,
+            other_lines: 29,
+            expense_amount: 160113,
+            stays_paid: false,
+            ...over,
+        });
+
+    it("is blue, leads with the server's sentence and lists what stays, the date and the amount", () => {
+        expect(legOutcomeLine(lineLeg())).toEqual({
+            tone: "back",
+            lead: null,
+            text: "Only this line comes off. toj650dsqd goes back to Reconciliation Pending.",
+            items: [
+                "₹1,53,873 stays linked, across 29 other lines",
+                "The payment date is cleared. The reference is kept.",
+                "The amount is not changed",
+            ],
+        });
+    });
+
+    it("says one other line in the singular, and nothing staying when it was the last", () => {
+        expect(legOutcomeLine(lineLeg({ stays_linked: 5000, other_lines: 1 })).items?.[0]).toBe(
+            "₹5,000 stays linked, across 1 other line",
+        );
+        expect(legOutcomeLine(lineLeg({ stays_linked: 0, other_lines: 0 })).items?.[0]).toBe(
+            "No other line stays linked",
+        );
+    });
+
+    it("an expense the lines that stay still fill keeps a date, from the latest of them", () => {
+        const stays = lineLeg({
+            what_happens: "Only this line comes off. toj650dsqd stays Paid.",
+            stays_paid: true,
+        });
+        expect(legOutcomeLine(stays).items?.[1]).toBe(
+            "The payment date becomes the latest remaining line's. The reference is kept.",
+        );
+    });
+
+    it("the amount cell reads 'of' the expense's amount", () => {
+        expect(legAmountLabel(lineLeg())).toBe("₹6,240 of ₹1,60,113");
+        expect(legAmountLabel(leg())).toBe("₹1,00,000");
+    });
+
+    it("the notice counts it as back to Reconciliation Pending and never reports the amount as changed", () => {
+        const notice = unreconcileNotice({
+            row: "ROW-1",
+            row_status: "Mismatched",
+            allocated: 0,
+            remaining: 6240,
+            reversed: [
+                {
+                    match: "M1",
+                    target_doctype: "Non Project Expenses",
+                    target_name: "toj650dsqd",
+                    verdict: VERDICT_UNLINK_EXPENSE_LINE,
+                    reversed_amount: 6240,
+                    amount_after: 160113,
+                    stays_paid: false,
+                },
+            ],
+        });
+        expect(notice.body).toBe(
+            "1 record came off this transfer and went back to Reconciliation Pending. It now needs a record.",
+        );
+    });
+
+    it("the notice does not claim Reconciliation Pending when the expense stays Paid", () => {
+        const notice = unreconcileNotice({
+            row: "ROW-1",
+            row_status: "Mismatched",
+            allocated: 0,
+            remaining: 3,
+            reversed: [
+                {
+                    match: "M1",
+                    target_doctype: "Non Project Expenses",
+                    target_name: "toj650dsqd",
+                    verdict: VERDICT_UNLINK_EXPENSE_LINE,
+                    reversed_amount: 3,
+                    amount_after: 1000,
+                    stays_paid: true,
+                },
+            ],
+        });
+        expect(notice.body).toBe("1 record came off this transfer. It now needs a record.");
     });
 });

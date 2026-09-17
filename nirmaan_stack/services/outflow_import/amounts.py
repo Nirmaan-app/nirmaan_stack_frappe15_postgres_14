@@ -47,7 +47,7 @@ NEITHER WINDOW IS THE DEFERRED Q11 TOLERANCE PASS: TDS is a deduction of THOUSAN
 amount), which neither can reach and neither may be stretched to reach. A TDS payment still arrives
 `Unmatched` and is settled by hand.
 
-⚠️ ONE OWNER, FIVE CALL SITES, AND THAT IS THE WHOLE POINT. The rule is applied by:
+⚠️ ONE OWNER, AND EVERY CALL SITE IS LISTED -- THAT IS THE WHOLE POINT. The rule is applied by:
   * `candidates.load_payments_by_amount`    -- the SQL pool query
   * `candidates.load_expense_targets`       -- the SQL pool query
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
@@ -65,6 +65,19 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
   * `expense_links.lines_fit` (#1298)        -- the MANY-LINE write guard in
                                                `settle.link_lines_to_expense`, ONE-SIDED: lines may
                                                exceed what is left by at most AMOUNT_TOLERANCE.
+  * `unreconcile._is_many_line_expense` (#1300) -- SETTLE window, ONE-SIDED, and it DECIDES A VERDICT
+                                               rather than a write: a lone line short of the expense
+                                               by more than AMOUNT_TOLERANCE, on a Reconciliation
+                                               Pending expense, is a part-fill of a many-line run,
+                                               not a 1:1 settle.
+  * `unreconcile._unlink_line_verdict` (#1300) -- SETTLE window, the SAME one-sided reading
+                                               `expense_links.derive_expense_status` makes, and it
+                                               only SAYS what that function then writes: whether the
+                                               lines left behind still make the expense Paid. ⚠️ It
+                                               is a second reading, not a second owner -- the write
+                                               re-derives through `derive_expense_status`. Reading
+                                               that function here would make this pure module import
+                                               `frappe` (`expense_links` holds the aggregate too).
   * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_already_recorded_
                                                outcome`, reached through `_failed_or_already_paid`,
                                                shared with `derive_duplicate_guard_outcome` -- and,

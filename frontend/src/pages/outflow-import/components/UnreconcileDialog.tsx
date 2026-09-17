@@ -22,6 +22,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { describeFrappeError, ledgerLabel } from "../outflowTableModel";
 import {
+    legAmountLabel,
     legOutcomeLine,
     recordsHeading,
     reverseAllBlockedSentence,
@@ -161,7 +162,7 @@ export const UnreconcilePanel = ({
                                 </span>
                                 <span className="font-mono">{leg.target_name}</span>
                                 <span className="tabular-nums text-xs text-muted-foreground">
-                                    {formatToRoundedIndianRupee(leg.target_amount)}
+                                    {legAmountLabel(leg)}
                                 </span>
                             </div>
                             <div className="row-span-2">
