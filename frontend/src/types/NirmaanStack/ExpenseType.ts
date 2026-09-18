@@ -13,4 +13,11 @@ export interface ExpenseType {
     expense_name: string
     project?: boolean
     non_project?: boolean
+    /** Groups this type. Kept on the master but no longer shown in the app. */
+    expense_category?: string | null
+    /** Optional JSON form format for Expense Requests of this type. Empty is normal. */
+    source_format?: string | null
+    /** "Enable Source": on => the request dialog shows `source_format`; off => the standard
+     *  fields. Cannot be on without a format. */
+    source_format_enabled?: 0 | 1 | boolean
 }
