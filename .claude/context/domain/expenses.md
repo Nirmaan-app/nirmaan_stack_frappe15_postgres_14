@@ -35,6 +35,15 @@ Both share one approval lifecycle and are entered/managed together in a single u
   2026-09-15 (moved to ₹50,000 on 2026-09-16, so all three money-out ledgers now band
   identically).
 - **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009).
+- **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
+  settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
+  per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
+  `Settled` `Outflow Row Match` slips; short of the amount the expense stays `Reconciliation Pending`,
+  and within ₹5 of it it is `Paid`, dated by the latest linked line. ⚠️ **The linked total is always
+  RECOMPUTED from the slips by one aggregate, never stored on the expense and never incremented** — it
+  is owned by `services/outflow_import/expense_links.py` (`load_expense_links`, `derive_expense_status`,
+  `remaining_balance`), which is also the ONE place that answers "is this expense fully linked". Full
+  as-built: `.claude/context/domain/outflow-import.md`.
 
 ---
 
@@ -169,6 +178,26 @@ documented Payment By as Paid-only while the code had drifted.
 ---
 
 ## What was IMPROVED / CHANGED
+
+### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
+Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
+`hooks.py` on `validate` + `on_trash`. The refusals themselves are pure functions in
+`services/outflow_import/expense_links.py` (`amount_below_links_refusal`, `paid_while_short_refusal`,
+`delete_while_linked_refusal`; rule 4 is `derive_expense_status`):
+1. the amount may not drop below the linked total (₹5 leeway);
+2. a hand-set `Paid` is refused while the linked total is short;
+3. deleting is refused while live `Settled` slips exist;
+4. every save re-derives `Paid` ⇄ `Reconciliation Pending` and the payment date from the slips — so
+   RAISING an amount above the linked total moves a `Paid` expense back to `Reconciliation Pending` and
+   clears its payment date.
+
+⚠️ **Every rule is inert until the expense has live `Settled` slips** — an expense nothing has linked to
+behaves exactly as before, and that gate is what lets the import's own Unreconcile put an expense back.
+⚠️ **Rule 2 asks about a TRANSITION into `Paid`**, never the state, or it would refuse the very edit rule 4
+exists to allow. ⚠️ **There is no bypass flag for the import** — it writes the slip first, then saves, so
+its own writes satisfy the rules by construction. These rules hold from EVERY door: the Payments tab, the
+old expense pages, Desk and Data Import. Detail + the read-only Bank-lines card on the Payments & Expenses
+table (#1303): `.claude/context/domain/outflow-import.md`.
 
 ### Paid-only financial rollups (only settled spend counts)
 Every cross-surface expense calculation now filters `status = "Paid"`:
@@ -600,10 +629,13 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 ---
 
 ## Cross-references
-- Glossary: `CONTEXT.md` → "Expense workflow & settlement".
+- Glossary: `CONTEXT.md` → "Expense workflow & settlement" (incl. *linked total*
+  under *Reconciliation Pending*, and *Bounced transfer*).
 - Decision: `docs/adr/0009-project-expense-type-normalization.md`.
 - Decision: `docs/adr/0016-expense-request-vs-expense.md` (request vs expense).
+- Decision: `docs/adr/0027-many-lines-one-expense.md` — many bank lines settle one expense.
 - Plan / as-built: `.claude/plans/expense-request-plan.md`.
+- Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
 ## Deliberate design decisions (do NOT "fix")
 
