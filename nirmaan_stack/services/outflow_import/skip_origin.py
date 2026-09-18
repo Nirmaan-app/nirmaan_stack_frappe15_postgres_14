@@ -6,6 +6,9 @@
 PURE: no `frappe`, no database. The back-fill patch (`patches/v3_0/backfill_outflow_skip_origin.py`)
 reads the facts and writes the answer; this decides it.
 
+⚠️ SINCE 2026-09-17 THE ORIGIN NO LONGER DECIDES UNSKIP -- the skip KIND does (`unskip_refusal`,
+ADR-0022 Amendment C). The reasoning below is kept as the history of the back-fill it drove.
+
 ⚠️ EVERY DOUBT RESOLVES TO SYSTEM, AND THAT IS THE WHOLE DESIGN. A line called Manual can be unskipped;
 a line called System cannot. Unskipping a system skip -- a duplicate, a transfer the bank refused, an
 exclusion rule -- is how the same money gets recorded twice, while a hand skip wrongly called System
@@ -33,6 +36,13 @@ prints what it classified so production can be checked.
 """
 
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+from nirmaan_stack.services.outflow_import.skip_kinds import (
+    SKIP_KIND_ALREADY_IMPORTED,
+    SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_NO_AMOUNT,
+    SKIP_KIND_REPEATED_IN_FILE,
+    SKIP_KINDS,
+)
 from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
@@ -44,7 +54,13 @@ from nirmaan_stack.services.outflow_import.status import (
     SYSTEM_SKIP_SENTENCES,
 )
 
-__all__ = ["classify_skip_origin", "is_system_skip_sentence", "manual_skip_refusal", "unskip_refusal"]
+__all__ = [
+    "UNSKIP_LOCKED_KINDS",
+    "classify_skip_origin",
+    "is_system_skip_sentence",
+    "manual_skip_refusal",
+    "unskip_refusal",
+]
 
 SKIP_REFUSED_SETTLED = "This transfer has already settled a record, so it cannot be skipped."
 SKIP_REFUSED_PARTIALLY_ALLOCATED = (
@@ -83,32 +99,50 @@ def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | 
 
 
 UNSKIP_REFUSED_NOT_SKIPPED = "This transfer is not skipped, so there is nothing to unskip."
-UNSKIP_REFUSED_SYSTEM = (
-    "Only a transfer skipped by hand can be unskipped. The system skipped this one, and its reason "
-    "still stands."
-)
 UNSKIP_REFUSED_CASHBOOK = "Cashbook rows can't be unskipped."
+UNSKIP_REFUSED_NO_KIND = "This transfer has no skip type, so it can't be unskipped."
+
+# The four kinds that stay skipped, each with the sentence the disabled button shows (owner, 2026-09-17,
+# decision A1). Every one names the SAME money being somewhere else, or no money at all:
+#   * Already imported / Repeated in same file -- another line already holds this transfer, so bringing
+#     this one back is the duplicate path itself;
+#   * No amount -- nothing moved;
+#   * Bank refused -- nothing moved, and the re-check would skip it again at once (a button that does
+#     nothing is worse than a disabled one that says why).
+UNSKIP_LOCKED_KINDS: dict[str, str] = {
+    SKIP_KIND_ALREADY_IMPORTED: "The same transfer is in an earlier statement.",
+    SKIP_KIND_REPEATED_IN_FILE: "The same transfer appears earlier in this statement.",
+    SKIP_KIND_NO_AMOUNT: "No money moved on this line.",
+    SKIP_KIND_BANK_REFUSED: "The bank never moved this money.",
+}
 
 
 def unskip_refusal(
-    *, row_status: str | None, skip_origin: str | None, source: str | None
+    *, row_status: str | None, skip_kind: str | None, source: str | None
 ) -> str | None:
-    """Why this line may NOT be unskipped, as the sentence to show -- or `None` when it may (#1274).
+    """Why this line may NOT be unskipped, as the sentence to show -- or `None` when it may.
 
-    ⚠️ MANUAL ONLY. A system skip is a duplicate, a transfer the bank refused, an exclusion rule or a
-    repeat of an earlier statement; bringing one back is how the same money gets recorded twice. A
-    blank origin is refused too: every Skipped line was back-filled at #1273, so a blank one is a line
-    nobody can vouch for.
+    ⚠️ KEYED ON THE SKIP KIND, NO LONGER ON THE ORIGIN (owner, 2026-09-17 -- REVERSES #1274's "Manual
+    only", ADR-0022 Amendment C). Every kind may come back except `UNSKIP_LOCKED_KINDS`. What keeps the
+    rest safe is the re-check `review.unskip_row` runs in the same transaction: a line whose money is
+    still recorded is skipped again straight away, as Outflow / Inflow Already Recorded. A bank-rule
+    kind has no such re-check (exclusions are decided at upload), so the popup warns before it goes back.
 
-    ⚠️ CASHBOOK IS REFUSED EVEN WHEN MARKED MANUAL (parent #1270 Q16). Its lines carry the plan its own
-    job writes from, and the re-check an unskip runs never reaches them.
+    ⚠️ A BLANK OR UNKNOWN KIND IS REFUSED. Every Skipped line was back-filled with a kind, so a blank
+    one is a line nobody can vouch for.
+
+    ⚠️ CASHBOOK IS REFUSED WHATEVER ITS KIND (parent #1270 Q16, owner decision B1). Its lines carry the
+    plan its own job writes from, and the re-check an unskip runs never reaches them.
     """
     if (row_status or "").strip() != ROW_SKIPPED:
         return UNSKIP_REFUSED_NOT_SKIPPED
     if not source_runs_the_matcher(source or ""):
         return UNSKIP_REFUSED_CASHBOOK
-    if (skip_origin or "").strip() != SKIP_ORIGIN_MANUAL:
-        return UNSKIP_REFUSED_SYSTEM
+    kind = (skip_kind or "").strip()
+    if kind in UNSKIP_LOCKED_KINDS:
+        return UNSKIP_LOCKED_KINDS[kind]
+    if kind not in SKIP_KINDS:
+        return UNSKIP_REFUSED_NO_KIND
     return None
 
 

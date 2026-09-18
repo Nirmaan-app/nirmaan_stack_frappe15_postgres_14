@@ -46,6 +46,7 @@ from dataclasses import dataclass
 
 import frappe
 
+from nirmaan_stack.services.outflow_import.expense_links import linked_totals_join
 from nirmaan_stack.services.outflow_import.ledgers import settleable_statuses
 
 __all__ = [
@@ -88,6 +89,9 @@ class LedgerSource:
     """The ledger's own status column — `p.status` in one, `n.status` in another."""
     project_expr: str = ""
     """How this ledger names a project, or `""` when it has none at all (asymmetry 3)."""
+    remaining_expr: str = ""
+    """What is still waiting for a bank line, on a ledger many lines can part-link; `""` elsewhere.
+    A record with nothing left is not waiting, and is not listed (#1299)."""
 
 
 LEDGER_SOURCES: dict[str, LedgerSource] = {
@@ -106,7 +110,9 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
             -- have is a hard SQL error that takes the whole page down, not a blank in one cell. The
             -- KEY is still present in the shape, because a caller reading all three ledgers in one
             -- table must never have to ask which one it is holding before it can read a key.
-            NULL AS description
+            NULL AS description,
+            -- ⚠️ NOTHING LINKED, ALL OF IT LEFT (#1299): many lines link only to an expense.
+            0::numeric AS linked_total, 0::bigint AS line_count, p.amount AS remaining
         """,
         # LEFT joins, never inner: a payment whose vendor or project link is broken must still be
         # listed. Dropping it would hide an approved record for a reason invisible on the screen.
@@ -136,11 +142,15 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
             e.modified AS updated_on,
             -- The real column, and the one this ledger already searches on. UNION ALL matches by
             -- POSITION, so the three selects must carry it in the same slot as each other.
-            e.description
+            e.description,
+            -- ⚠️ WHAT A RUN HAS LINKED AND WHAT IS LEFT (#1299, ADR-0027), from the one aggregate.
+            COALESCE(l.linked_total, 0) AS linked_total, COALESCE(l.line_count, 0) AS line_count,
+            e.amount - COALESCE(l.linked_total, 0) AS remaining
         """,
         frm='''"tabProject Expenses" e
                LEFT JOIN "tabVendors" v ON v.name = e.vendor
-               LEFT JOIN "tabProjects" pr ON pr.name = e.projects''',
+               LEFT JOIN "tabProjects" pr ON pr.name = e.projects'''
+        + linked_totals_join(PROJECT_EXPENSE, "e"),
         search_columns=(
             "e.name",
             "e.description",
@@ -153,6 +163,7 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
         sort_date_expr="e.modified",
         status_expr="e.status",
         project_expr="COALESCE(pr.project_name, e.projects)",
+        remaining_expr="e.amount - COALESCE(l.linked_total, 0)",
     ),
     NON_PROJECT_EXPENSE: LedgerSource(
         doctype=NON_PROJECT_EXPENSE,
@@ -166,9 +177,11 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
             -- The real column, as on `Project Expenses`. ⚠️ ALL THREE LEDGERS MOVED TOGETHER: a key
             -- present on two and absent on the third is exactly the accidental asymmetry this
             -- module exists to make explicit.
-            n.description
+            n.description,
+            COALESCE(l.linked_total, 0) AS linked_total, COALESCE(l.line_count, 0) AS line_count,
+            n.amount - COALESCE(l.linked_total, 0) AS remaining
         """,
-        frm='"tabNon Project Expenses" n',
+        frm='"tabNon Project Expenses" n' + linked_totals_join(NON_PROJECT_EXPENSE, "n"),
         search_columns=("n.name", "n.description", "n.type"),
         amount_expr="n.amount",
         sort_date_expr="n.modified",
@@ -176,6 +189,7 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
         # No project column at all -- see asymmetry 3. A project filter EXCLUDES this ledger rather
         # than matching nothing inside it, which is the same answer arrived at honestly.
         project_expr="",
+        remaining_expr="n.amount - COALESCE(l.linked_total, 0)",
     ),
 }
 
@@ -206,6 +220,8 @@ def _branch(source: LedgerSource, *, search: str, project: str):
     statuses = settleable_statuses(source.doctype)
     params: list = [*statuses]
     where = [f"{source.status_expr} IN ({', '.join(['%s'] * len(statuses))})"]
+    if source.remaining_expr:
+        where.append(f"COALESCE({source.remaining_expr}, 1) > 0")
 
     needle = (search or "").strip().lower()
     if needle:
@@ -280,14 +296,18 @@ def approved_rows(
 
 
 def approved_count(doctypes, *, search: str = "", project: str = "") -> dict:
-    """How many records and how much money, per ledger and in total, under the same filters."""
+    """How many records and how much money, per ledger and in total, under the same filters.
+
+    ⚠️ THE MONEY IS WHAT IS LEFT (#1299): a part-linked expense counts only the part no bank line has
+    covered yet. Equal to the amount on every record nothing is linked to.
+    """
     union, params = _union(doctypes, search=search, project=project)
     if not union:
         return {"total": 0, "value": 0.0, "by_ledger": {}}
 
     rows = frappe.db.sql(
         f"""
-        SELECT target_doctype, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS v
+        SELECT target_doctype, COUNT(*) AS n, COALESCE(SUM(remaining), 0) AS v
         FROM ({union}) u GROUP BY target_doctype
         """,
         tuple(params),
@@ -348,4 +368,9 @@ def _shape(row: dict) -> dict:
         # ⚠️ SEPARATE KEYS. Exactly one is ever filled. See asymmetry 1.
         "approved_on": str(row["approved_on"]) if row.get("approved_on") else "",
         "updated_on": str(row["updated_on"]) if row.get("updated_on") else "",
+        # What a run of bank lines has already covered, and what is still waiting (#1299). Nothing
+        # linked and all of it left on a payment, and on any expense no line has reached yet.
+        "linked_total": float(row.get("linked_total") or 0),
+        "line_count": int(row.get("line_count") or 0),
+        "remaining": float(row["remaining"]) if row.get("remaining") is not None else None,
     }

@@ -43,7 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 2 (ADR-0003) — group-driven project TDS consumption.
+// Phase 2 (ADR-0025) — group-driven project TDS consumption.
 //
 // A project consumes by selecting a **TDS Item (group) + Make**. One cart row =
 // one `(TDS Item, Make)` pair. The picker (FuzzySearchSelect backed by the
@@ -230,7 +230,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
 
     const memberCounts = memberIndexData?.message?.counts ?? {};
 
-    // Picker options: one per group result. ADR-0004 — the picker searches GROUP
+    // Picker options: one per group result. ADR-0026 — the picker searches GROUP
     // NAMES only (stakeholder ruling), so there is no member hit to attribute and
     // the old "contains <member>" subtitle is gone. `search_tds_items` still
     // returns `matched_member`, but always null unless someone opts back in via
@@ -457,7 +457,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 await Promise.all(itemsToDelete.map(name => deleteOldStyleDoc(name, projectId)));
             }
 
-            // 2. Create each row (pure snapshot — ROW SHAPE per ADR-0003).
+            // 2. Create each row (pure snapshot — ROW SHAPE per ADR-0025).
             await Promise.all(cartItems.map(async (item) => {
                 const docData = {
                     tdsi_project_id: projectId,

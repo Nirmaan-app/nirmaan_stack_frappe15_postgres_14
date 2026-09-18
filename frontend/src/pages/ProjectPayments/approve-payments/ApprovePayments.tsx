@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/use-toast";
 // --- Dialog Component ---
 import { PaymentActionDialog } from "./components/PaymentActionDialog";
 import { BulkActionBar } from "./components/BulkActionBar";
+import { SelectionBlockedNotice } from "./components/SelectionBlockedNotice";
 
 // --- Types and Constants ---
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -34,6 +35,8 @@ import {
   DialogActionType,
 } from "./constants";
 import PaymentSummaryCards from "../PaymentSummaryCards";
+import { useUserData } from "@/hooks/useUserData";
+import { canViewPaymentSummary } from "@/constants/roles";
 
 // --- Hooks & Utils ---
 import { Row } from "@tanstack/react-table";
@@ -52,7 +55,7 @@ import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColum
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
 import { useApprovalFacets } from "../config/useApprovalFacets";
-import { useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
+import { CompanyBorneTdsContext, useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
 // import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -72,6 +75,7 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -102,6 +106,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const isCEOMode = mode === "ceo";
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
+  const { role, user_id } = useUserData();
+  const refreshTabCounts = useRefreshApprovalCounts();
   // const { mutate } = useSWRConfig();
   // --- State for Dialogs ---
   const [selectedPayment, setSelectedPayment] =
@@ -462,12 +468,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
 
   const exportFileName = `${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`;
 
-  // Counted over the same union, under this tab's own filters.
-  const approvalFacets = useApprovalFacets({
-    filters: staticFilters as Array<[string, string, unknown]>,
-    projectLabels: projectLabelMap,
-    vendorLabels: vendorLabelMap,
-  });
 
   // Live selected-row count, read by `enableRowSelection` below at CLICK time. Declared
   // ahead of the hook because the config closure captures it; see the cap block under
@@ -485,6 +485,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
+    columnFilters,
     // isRowSelectionActive,
     refetch,
     exportAllRows,
@@ -525,6 +526,18 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     additionalFilters: staticFilters,
   });
 
+  // Counted over the same union, under this tab's filters plus the table's live column
+  // filters and search -- which is why this sits AFTER the table hook.
+  const approvalFacets = useApprovalFacets({
+    filters: staticFilters as Array<[string, string, unknown]>,
+    columnFilters,
+    searchTerm,
+    selectedSearchField,
+    projectLabels: projectLabelMap,
+    vendorLabels: vendorLabelMap,
+    userLabels: userLabelMap,
+  });
+
   // ── Bulk selection cap ────────────────────────────────────────────────────────
   // The bulk endpoints throw the WHOLE batch back above BULK_MAX_SELECTION, before any
   // write — so an over-sized selection approves NOTHING. It is reachable because the
@@ -552,6 +565,16 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRowCount]);
+
+  // Rows on this page whose checkbox the CEO-Hold clause above disables — surfaced by
+  // SelectionBlockedNotice so a dead checkbox never goes unexplained. Same predicate as
+  // `enableRowSelection`, so the count and the checkboxes cannot disagree.
+  const heldRowsOnPage = useMemo(
+    () => (data ?? []).filter((r) => r.project && ceoHoldProjectIds.has(r.project)).length,
+    [data, ceoHoldProjectIds]
+  );
+  const showSummaryCard = canViewPaymentSummary(role, user_id);
+  const showSelectionNotice = !readOnly && (heldRowsOnPage > 0 || selectedRowCount >= BULK_MAX_SELECTION);
 
   // Full-table CSV, all columns, whole filtered queue. Rendered through
   // `toolbarActions` rather than the built-in export button — see the note on the
@@ -671,6 +694,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         refetch();
         closeDialog();
         invalidateSidebarCounts();
+        refreshTabCounts();
 
         toast({
           title: "Success!",
@@ -690,13 +714,13 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch]
+    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.
   // Called AFTER the table hook because it feeds off `data`, and delivered by context because the
   // dialogs are rendered from this component's JSX rather than passed the rate row by row.
-  const { rateFor: tdsRateFor } = useVendorTdsRates(data);
+  const { rateFor: tdsRateFor, companyBorneFor: tdsCompanyBorneFor } = useVendorTdsRates(data);
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
 
@@ -740,6 +764,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // Both approve dialogs read the rate from here. Deliberately NOT surfaced in the table
     // columns (owner ruling 2026-09-10) — the figure matters when deciding, not when scanning.
     <VendorTdsRateContext.Provider value={tdsRateFor}>
+    <CompanyBorneTdsContext.Provider value={tdsCompanyBorneFor}>
     <div className="flex-1 space-y-4">
       {isPageLoading && !data?.length ? (
         <TableSkeleton />
@@ -764,8 +789,24 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           //     toggle: toggleItemSearch,
           //     label: "Item Search"
           // }}
-          summaryCard={<PaymentSummaryCards totalCount={totalCount} />}
-          facetFilterOptions={approvalFacets}
+          // The notice rides the summary slot so it sits directly above the toolbar and
+          // table. Read-only viewers get no checkboxes, so there is nothing to explain.
+          summaryCard={
+            showSummaryCard || showSelectionNotice ? (
+              <div className="space-y-2">
+                {showSummaryCard && <PaymentSummaryCards totalCount={totalCount} />}
+                {showSelectionNotice && (
+                  <SelectionBlockedNotice
+                    heldRowsOnPage={heldRowsOnPage}
+                    capReached={selectedRowCount >= BULK_MAX_SELECTION}
+                    cap={BULK_MAX_SELECTION}
+                  />
+                )}
+              </div>
+            ) : null
+          }
+          facetFilterOptions={approvalFacets.facetOptions}
+          onFacetOpen={approvalFacets.onFacetOpen}
           dateFilterColumns={dateColumns}
           // ⚠️ THE BUILT-IN EXPORT BUTTON IS OFF ON THIS SCREEN, DELIBERATELY.
           // With `showRowSelection` on, the shared table's default handler exports the
@@ -815,6 +856,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         />
       )}
     </div>
+    </CompanyBorneTdsContext.Provider>
     </VendorTdsRateContext.Provider>
   );
 };

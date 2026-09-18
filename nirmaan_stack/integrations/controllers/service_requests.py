@@ -3,17 +3,20 @@ from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_us
 from frappe import _
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.projects._tendering_guard import validate_won
+from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_fy_limit
 
 
 def validate(doc, method):
-    """Tendering operational guard (Slice 5 / B5).
+    """Tendering operational guard (Slice 5 / B5) + vendor financial-year WO limit.
 
     Defense-in-depth backstop: refuse to create a Service Request (Work Order)
-    against a Tendering project stub. Guard only NEW docs so edits to
-    existing/legacy SRs are never blocked.
+    against a Tendering project stub, or one that takes its vendor above the
+    financial-year limit. Guard only NEW docs so edits to existing/legacy SRs
+    are never blocked.
     """
     if doc.is_new():
         validate_won(doc.project, "Service Request")
+        validate_vendor_fy_limit(doc)
 
 
 def on_trash(doc, method):

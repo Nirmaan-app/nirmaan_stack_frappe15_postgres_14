@@ -6,7 +6,7 @@ This module does ALL the DB I/O; the business definition lives in pure predicate
 from current document state and upserts the `Project Action Item` rows to match —
 never delta, never increment/decrement a single row in isolation (§2 invariant 1).
 
-Correctness guarantees (docs/prd/project-action-items.md §2/§4):
+Correctness guarantees (git show e6547258:docs/prd/project-action-items.md §2/§4):
   * Idempotent + concurrency-safe — N runs (even concurrent, same project) yield the
     same rows and never abort on a UNIQUE violation. Keyed by
     `dedup_key = "{project}::{reference_name}::{action_type}"`.

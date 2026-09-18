@@ -7,7 +7,7 @@ def before_save(doc, method=None):
 	"""Snapshot `tds_category` onto a Project TDS Item List row from its linked
 	TDS Item group's member categories.
 
-	Why this hook exists (TDS 3-level restructure, ADR-0003):
+	Why this hook exists (TDS 3-level restructure, ADR-0025):
 	  After the restructure, category is no longer chosen at request time and is
 	  no longer stored on `TDS Repository`. The authoritative origin is
 	  `Items.category`, surfaced (derived) on the `TDS Items` group's member child

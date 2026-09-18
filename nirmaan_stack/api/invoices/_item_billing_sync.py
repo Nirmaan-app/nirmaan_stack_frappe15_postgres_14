@@ -257,6 +257,15 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
         return
     minuend, subtrahends = operands
 
+    # ⚠️ A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only) KEEPS ITS PAYMENTS GROSS
+    # -- the tax is paid on top, not taken out -- so `amount_paid` already covers the whole order
+    # and subtracting `total_tds` as well would read it overpaid by its own tax (Rs 800 order,
+    # Rs 800 paid, Rs 16 TDS -> -16). The rule lives in `services/payment_tds.is_company_borne`.
+    from nirmaan_stack.services import payment_tds
+
+    if payment_tds.is_company_borne(document_type, document_name):
+        subtrahends = tuple(col for col in subtrahends if col != "total_tds")
+
     # Column and table names come from the constant above, never from a caller.
     projected = ", ".join(
         'COALESCE("{0}", 0) AS s{1}'.format(col, i) for i, col in enumerate(subtrahends)

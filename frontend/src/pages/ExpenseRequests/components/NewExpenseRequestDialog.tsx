@@ -1,0 +1,711 @@
+// src/pages/ExpenseRequests/components/NewExpenseRequestDialog.tsx
+//
+// Raise an expense request. This creates an `Expense Request`, NOT an expense — the ledger
+// row only exists once a reviewer approves.
+//
+// The type list comes from the backend (`get_request_catalog`) rather than a TS mirror, so
+// the picker can never offer a type the create endpoint would then refuse. The catalog also
+// carries each type's project flags, which drive the CONDITIONAL Project field:
+//   project only     -> shown and required
+//   non-project only -> hidden entirely
+//   both             -> shown and optional; the choice picks the ledger
+//
+// The type's "Enable Source" switch decides the rest of the form. ON: the type's own
+// format. OFF (or no format): the STANDARD fields a directly-entered expense needs --
+// a required Description, a required Vendor once a project is chosen, and optional invoice
+// details that reach the ledger row's invoice columns at approval.
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { AlertTriangle } from "lucide-react";
+import { TailSpin } from "react-loader-spinner";
+
+import {
+    AlertDialog, AlertDialogCancel, AlertDialogContent,
+    AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
+import {
+    FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig,
+} from "@/components/ui/fuzzy-search-select";
+import { useToast } from "@/components/ui/use-toast";
+import ProjectSelect from "@/components/custom-select/project-select";
+import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
+
+import { useDialogStore } from "@/zustand/useDialogStore";
+import { useUserData } from "@/hooks/useUserData";
+import { parseNumber } from "@/utils/parseNumber";
+import { getFrappeError } from "@/utils/frappeErrors";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatDate } from "@/utils/FormatDate";
+import type {
+    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
+} from "@/types/NirmaanStack/ExpenseRequest";
+import {
+    answersFromSourceData, NATIVE_INVOICE_SECTION, NATIVE_INVOICE_SLOT, parseFormat,
+    readDetailDescription, readNativeInvoice, seedAnswers,
+} from "@/utils/expenseFormat";
+import FormatFieldsRenderer, {
+    FormatAnswers, FormatFiles, requiredKeys, toResponses,
+} from "./FormatFieldsRenderer";
+
+/** One option per expense type.
+ *
+ *  ⚠️ The category is deliberately NOT shown or searched (owner ruling 2026-09-16): it still
+ *  exists on the master, but requesters pick by type name alone.
+ *
+ *  `scope` is shown grey on the right of each menu row (owner, 17 Sep 2026), worded as the
+ *  Expense Packages master words it. Display only -- it is not searched. */
+interface ExpenseTypeOption extends FuzzyOptionType {
+    value: string;
+    label: string;
+    scope: "Project" | "Non-Project" | "Both";
+}
+
+const EXPENSE_TYPE_SEARCH: TokenSearchConfig = {
+    searchFields: ["label"],
+    minSearchLength: 1,
+    partialMatch: true,
+    minTokenLength: 1,
+    fieldWeights: { label: 2.0 },
+    minTokenMatches: 1,
+};
+
+interface Props {
+    onSuccess?: () => void;
+    /** The request being EDITED, or null to raise a new one.
+     *
+     *  ONE dialog for both, deliberately (ADR-0010 F3): a copy would be a near-twin of ~390
+     *  lines, and every rule the create path applies -- the type/project gate, the vendor
+     *  gate, the duplicate warning, the format renderer -- would have to be kept in step by
+     *  hand across the two. */
+    editing?: ExpenseRequest | null;
+    onEditingChange?: (r: ExpenseRequest | null) => void;
+}
+
+interface FormState {
+    expense_type: string;
+    projects: string;
+    // Holds the SENTINEL for "Others (No Vendor)", never "" -- see `vendor-select`. The
+    // payload maps it back to nothing, so the sentinel never leaves this file.
+    vendor: string;
+    amount: string;
+    description: string;
+    comment: string;
+    // Standard-request invoice details (form OFF only).
+    recordInvoice: boolean;
+    invoice_date: string;
+    invoice_ref: string;
+    /** The file already on a request being edited; kept unless replaced or removed. */
+    existingInvoiceUrl: string;
+}
+
+const EMPTY: FormState = {
+    expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
+    recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
+};
+
+const INVOICE_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
+
+export const NewExpenseRequestDialog: React.FC<Props> = ({
+    onSuccess, editing = null, onEditingChange,
+}) => {
+    const { newExpenseRequestDialog, setNewExpenseRequestDialog } = useDialogStore();
+    const { toast } = useToast();
+    const { full_name, user_id } = useUserData();
+
+    const [form, setForm] = useState<FormState>(EMPTY);
+    const [answers, setAnswers] = useState<FormatAnswers>({});
+    // Files are held, not uploaded, until submit -- a cancelled dialog then cannot orphan one.
+    const [files, setFiles] = useState<FormatFiles>({});
+    const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    // Edit-only: the requester has asked to swap the project, so hand them the picker.
+    const [changingProject, setChangingProject] = useState(false);
+
+    const isEdit = !!editing;
+    // The catalog lists only the types the caller's role may see. An EDIT also asks for the
+    // request's own type, which its owner may keep even after that type's roles were narrowed.
+    const { data: catalogRes, isLoading: catalogLoading } =
+        useFrappeGetCall<{ message: GetRequestCatalogResponse }>(
+            "nirmaan_stack.api.expense_requests.read.get_request_catalog",
+            editing?.type ? { include_type: editing.type } : undefined,
+            editing?.type ? `expense_request_catalog_${editing.type}` : "expense_request_catalog"
+        );
+
+    const { call: updateRequest } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.update.update_expense_request"
+    );
+    const { call: createRequest } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.create.create_expense_request"
+    );
+    const { upload } = useFrappeFileUpload();
+
+    // Fetched once a type is picked. Returns null when the type's form is switched OFF, which
+    // is how that switch reaches this screen.
+    const { data: formatRes, isLoading: formatLoading } = useFrappeGetCall<{ message: { source_format: string | null } }>(
+        "nirmaan_stack.api.expense_requests.read.get_expense_format",
+        { expense_type: form.expense_type },
+        form.expense_type ? `expense_format_${form.expense_type}` : null
+    );
+    const parsedFormat = useMemo(
+        () => parseFormat(formatRes?.message?.source_format),
+        [formatRes]
+    );
+
+    // ⚠️ WARN, NEVER BLOCK (owner, 2026-08-20). Debounced while the form is filled, because
+    // the answers that identify a duplicate -- the person and the period -- are typed late.
+    // A type with no rule, or a half-filled form, returns nothing, so this never nags.
+    const [duplicates, setDuplicates] = useState<{ subject: string; overlapping: any[] } | null>(null);
+    const { call: checkDuplicates } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.similar.check_new_request"
+    );
+    const answersKey = JSON.stringify(toResponses(answers));
+    useEffect(() => {
+        if (!form.expense_type || !parsedFormat) { setDuplicates(null); return; }
+        let live = true;
+        const t = setTimeout(async () => {
+            try {
+                const res = await checkDuplicates({
+                    expense_type: form.expense_type,
+                    source_data: JSON.stringify({ responses: JSON.parse(answersKey) }),
+                    // While EDITING, the request in this dialog is not its own duplicate --
+                    // it is the same saved answers coming back. Without this the warning
+                    // names the very row being corrected, which reads as the check being
+                    // broken and trains the requester to ignore a real finding.
+                    exclude: editing?.name,
+                });
+                if (live) setDuplicates(res?.message ?? null);
+            } catch { if (live) setDuplicates(null); }
+        }, 500);
+        return () => { live = false; clearTimeout(t); };
+    }, [form.expense_type, answersKey, parsedFormat, checkDuplicates, editing?.name]);
+
+    const categories = catalogRes?.message?.categories ?? [];
+
+    const typeOptions: ExpenseTypeOption[] = useMemo(
+        () => categories
+            .filter((c) => c.types.length > 0)
+            .flatMap((c) => c.types.map((t): ExpenseTypeOption => ({
+                value: t.expense_type, label: t.expense_type,
+                scope: t.project && t.non_project ? "Both" : t.project ? "Project" : "Non-Project",
+            })))
+            // The catalog arrives grouped by category; with the category hidden that order
+            // reads as random, so the list is alphabetical instead.
+            .sort((a, b) => a.label.localeCompare(b.label)),
+        [categories]
+    );
+    // Resolved from the options rather than held in state, so the chosen row and the form's
+    // value can never disagree -- and an unloaded catalog reads as nothing selected.
+    const selectedTypeOption = useMemo(
+        () => typeOptions.find((o) => o.value === form.expense_type) ?? null,
+        [typeOptions, form.expense_type]
+    );
+
+    const typesById = useMemo(() => {
+        const m = new Map<string, RequestCatalogType>();
+        categories.forEach((c) => c.types.forEach((t) => m.set(t.expense_type, t)));
+        return m;
+    }, [categories]);
+
+    // Seed bound + default answers once a format is chosen. Keyed on the format's identity,
+    // and it runs only after `handleTypeChange` has already cleared `answers` -- so it fills a
+    // blank form and never overwrites something the requester typed.
+    // ⚠️ SKIPPED ONCE WHEN OPENING AN EDIT. The format is fetched from the type, so this
+    // effect resolves AFTER the edit seed below and would overwrite the requester's stored
+    // answers with blank defaults -- silently, and only for formatted types. It is skipped
+    // exactly once per opened request; a later type CHANGE clears the flag, so switching type
+    // mid-edit still seeds the new format's defaults as it does on a fresh request.
+    const skipNextSeed = useRef(false);
+    useEffect(() => {
+        if (!parsedFormat) return;
+        if (skipNextSeed.current) { skipNextSeed.current = false; return; }
+        setAnswers(seedAnswers(parsedFormat, { userFullName: full_name, userEmail: user_id }));
+    }, [parsedFormat, full_name, user_id]);
+
+    // The project to SHOW instead of the picker: only on an edit, only while the requester has
+    // not asked to change it, and only while `form.projects` still holds what the request came
+    // with -- a type change clears it, which must hand back the picker rather than keep showing
+    // a project the new type may not even allow. Falls back to the id when the readable name is
+    // absent, because showing the id beats showing nothing on a required field.
+    const chosenProjectLabel = isEdit && !changingProject && form.projects
+        ? (editing?.projects_name || form.projects)
+        : "";
+
+    const selected = form.expense_type ? typesById.get(form.expense_type) : undefined;
+    const showProject = !!selected?.project_allowed;
+    const projectRequired = !!selected?.project_required;
+
+    // Vendor is a PROJECT-ONLY field, and the gate is the project being CHOSEN, not merely
+    // offered: `Non Project Expenses` has no vendor column at all, so a vendor recorded on a
+    // non-project request would be silently dropped at approval. Asking for it only once a
+    // project is on screen is what keeps the request and the ledger row able to agree.
+    const showVendor = showProject && !!form.projects;
+
+    // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
+    // dialog asks what a directly-entered expense needs. While a switched-on format is still
+    // loading neither mode is shown, so the standard fields never flash up and vanish.
+    const formatPending = !!selected?.has_format && formatLoading;
+    const isStandard = !!selected && !parsedFormat && !formatPending;
+    const showDescription = isStandard;
+
+    const set = useCallback(
+        <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v })),
+        []
+    );
+
+    // Answers belong to the type that was on screen when they were typed. Carrying them to
+    // a different type would silently file one type's answers under another's format.
+    const handleTypeChange = useCallback((value: string) => {
+        setAnswers({});
+        setFiles({});
+        setInvoiceFile(null);
+        // Clear the project: a stale value on a type that just became non-project would be
+        // refused by the server, which reads as the form ignoring what was typed. The vendor
+        // hangs off the project, so it goes with it -- a vendor left behind on a now
+        // non-project type is exactly the value the server refuses.
+        setForm((f) => ({ ...f, expense_type: value, projects: "", vendor: "" }));
+    }, []);
+
+    // Clearing or switching the project clears the vendor with it. Without this a vendor
+    // picked under one project would silently ride along to another, or sit invisible on a
+    // request with no project at all.
+    const handleProjectChange = useCallback((projectId: string) => {
+        setForm((f) => (f.projects === projectId ? f : { ...f, projects: projectId, vendor: "" }));
+    }, []);
+
+    const amountValue = parseNumber(form.amount);
+    const missingFormatAnswers = useMemo(
+        () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
+        [parsedFormat, answers]
+    );
+    // The standard request's own requirements -- the SAME rules the server's
+    // `guard_request_form` applies, plus the vendor pick, which only this screen can see
+    // ("Others (No Vendor)" and an untouched field both reach the server as nothing).
+    const hasInvoiceFile = !!invoiceFile || !!form.existingInvoiceUrl;
+    const standardComplete =
+        !isStandard || (
+            !!form.description.trim() &&
+            (!showVendor || !!form.vendor) &&
+            (!form.recordInvoice || (
+                !!form.invoice_date && (!hasInvoiceFile || !!form.invoice_ref.trim())
+            ))
+        );
+    const canSubmit =
+        !!form.expense_type &&
+        amountValue > 0 &&
+        (!projectRequired || !!form.projects) &&
+        !formatPending &&
+        missingFormatAnswers.length === 0 &&
+        standardComplete &&
+        !submitting;
+
+    const close = useCallback(() => {
+        setForm(EMPTY);
+        setChangingProject(false);
+        setAnswers({});
+        setFiles({});
+        setInvoiceFile(null);
+        setNewExpenseRequestDialog(false);
+        onEditingChange?.(null);
+    }, [setNewExpenseRequestDialog, onEditingChange]);
+
+    // Seed from the request being edited. Keyed on its NAME, not the object: the row is
+    // re-fetched on every refresh, so an object-identity dep would re-seed the form under the
+    // requester mid-edit and discard what they had typed.
+    useEffect(() => {
+        if (!editing) return;
+        const invoice = readNativeInvoice(editing.source_data);
+        setForm({
+            expense_type: editing.type ?? "",
+            projects: editing.projects ?? "",
+            // "Others (No Vendor)" is a UI-ONLY sentinel that submit strips, so a request
+            // saved with it is stored exactly like one whose Vendor field was never touched
+            // -- both hold an empty `vendor`, and nothing records which happened. On a SAVED
+            // request there is no undecided state left to represent: an empty vendor IS "no
+            // vendor on record", so seed the sentinel back and the field reads as the
+            // requester left it instead of as an untouched prompt.
+            vendor: editing.vendor || OTHERS_VENDOR_VALUE,
+            amount: String(editing.amount ?? ""),
+            // A format-less request keeps its typed text under the synthetic `detail`
+            // key -- the doctype has no `description` column to read it back from.
+            description: readDetailDescription(editing.source_data),
+            comment: editing.comment ?? "",
+            recordInvoice: !!(invoice.invoice_date || invoice.invoice_ref || invoice.invoice_attachment),
+            invoice_date: invoice.invoice_date,
+            invoice_ref: invoice.invoice_ref,
+            existingInvoiceUrl: invoice.invoice_attachment,
+        });
+        setChangingProject(false);
+        skipNextSeed.current = true;
+        setAnswers(answersFromSourceData(editing.source_data));
+        setFiles({});
+        setInvoiceFile(null);
+    }, [editing?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleSubmit = useCallback(async () => {
+        if (!canSubmit) return;
+        setSubmitting(true);
+        try {
+            // Upload now, so nothing is orphaned by a cancelled dialog. The file is stored as
+            // a URL inside `source_data.attachments`, keyed by SLOT -- which is what lets the
+            // backend find the slot declaring `maps_to: invoice_attachment` and carry that one
+            // file onto the ledger row at approval.
+            const attachments: Record<string, string[]> = {};
+            for (const [slotKey, file] of Object.entries(files)) {
+                if (!file) continue;
+                const uploaded = await upload(file, {
+                    doctype: "Expense Request", fieldname: "source_data", isPrivate: true,
+                });
+                attachments[slotKey] = [uploaded.file_url];
+            }
+
+            // A standard request's invoice file: a new pick replaces the one already on the
+            // request; unticking "Add invoice details" drops both.
+            let invoiceUrl = "";
+            if (isStandard && form.recordInvoice) {
+                if (invoiceFile) {
+                    const uploaded = await upload(invoiceFile, {
+                        doctype: "Expense Request", fieldname: "source_data", isPrivate: true,
+                    });
+                    invoiceUrl = uploaded.file_url;
+                } else {
+                    invoiceUrl = form.existingInvoiceUrl;
+                }
+            }
+
+            const submit = isEdit ? updateRequest : createRequest;
+            const res = await submit({
+                ...(isEdit ? { name: editing!.name } : {}),
+                expense_type: form.expense_type,
+                amount: amountValue,
+                // ⚠️ NEVER send a hidden value. Someone can type a description and THEN pick
+                // a type that has a format -- the field disappears but the text is still in
+                // state, and submitting it would file an answer the requester can no longer
+                // see. The state is kept (so switching back restores their typing); only the
+                // PAYLOAD is gated.
+                comment: form.comment || undefined,
+                // Only ever send a project the type actually allows.
+                projects: showProject && form.projects ? form.projects : undefined,
+                // Same gate as the project, plus the sentinel: "Others (No Vendor)" is a
+                // deliberate "no vendor on record", so it sends NOTHING rather than an
+                // empty Link. The server refuses a vendor without a project, so the
+                // `showVendor` half is what keeps a hidden value from ever reaching it.
+                vendor:
+                    showVendor && form.vendor && form.vendor !== OTHERS_VENDOR_VALUE
+                        ? form.vendor
+                        : undefined,
+                // Wrapped in the `responses` envelope the backend flattener reads. Omitted
+                // entirely when the type has no format, so a format-less request stores NULL
+                // and converts exactly as it would have before formats existed.
+                // `source_data` is the ONLY home for the requester's detail. With a format
+                // that is the answers; without one it is the typed description, under the
+                // synthetic `detail.description` key. The doctype carries no `description`
+                // field at all, so there is exactly one place every later reader looks and
+                // nothing that can hold a second, disagreeing copy.
+                source_data: parsedFormat
+                    ? {
+                        templateId: parsedFormat.templateId,
+                        templateVersion: parsedFormat.templateVersion,
+                        responses: toResponses(answers),
+                        ...(Object.keys(attachments).length ? { attachments } : {}),
+                    }
+                    : isStandard
+                        ? {
+                            responses: {
+                                detail: { description: form.description.trim() },
+                                ...(form.recordInvoice ? {
+                                    [NATIVE_INVOICE_SECTION]: {
+                                        invoice_date: form.invoice_date,
+                                        ...(form.invoice_ref.trim()
+                                            ? { invoice_ref: form.invoice_ref.trim() } : {}),
+                                    },
+                                } : {}),
+                            },
+                            ...(invoiceUrl
+                                ? { attachments: { [NATIVE_INVOICE_SLOT]: [invoiceUrl] } } : {}),
+                        }
+                        : undefined,
+            });
+            const created = (res as any)?.message;
+            toast({
+                title: "Sent for approval",
+                description: `${created?.name} is now pending review.`,
+                variant: "success",
+            });
+            close();
+            onSuccess?.();
+        } catch (e: any) {
+            // ⚠️ Frappe puts the useful text in `_server_messages` / `exception`, NEVER in
+            // `message` -- so `e?.message` rendered the duplicate refusal as the entirely
+            // uninformative "There was an error." `getFrappeError` is the shared reader.
+            toast({
+                title: isEdit ? "Could not save the changes" : "Could not raise the request",
+                description: getFrappeError(e),
+                variant: "destructive",
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
+        amountValue, showProject, showVendor, isStandard, invoiceFile,
+        parsedFormat, answers, toast, close, onSuccess]);
+
+    return (
+        <AlertDialog
+            open={newExpenseRequestDialog || isEdit}
+            onOpenChange={(o) => { if (!o) close(); else setNewExpenseRequestDialog(true); }}
+        >
+            <AlertDialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                <AlertDialogHeader>
+                    <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "Raise Expense Request"}</AlertDialogTitle>
+                </AlertDialogHeader>
+                <Separator />
+
+                <div className="space-y-4 py-2">
+                    <div className="space-y-1.5">
+                        <Label>Expense Type <span className="text-destructive">*</span></Label>
+                        <FuzzySearchSelect<ExpenseTypeOption, false>
+                            allOptions={typeOptions}
+                            tokenSearchConfig={EXPENSE_TYPE_SEARCH}
+                            isLoading={catalogLoading}
+                            value={selectedTypeOption}
+                            onChange={(o) => handleTypeChange(o?.value ?? "")}
+                            placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
+                            // Scope rides the menu rows only; the chosen value stays a clean name
+                            // -- the `VendorSelect` convention.
+                            formatOptionLabel={(o, meta) => meta.context === "value" ? o.label : (
+                                <span className="flex items-center justify-between gap-2 w-full">
+                                    <span className="truncate">{o.label}</span>
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                        {o.scope}
+                                    </span>
+                                </span>
+                            )}
+                            // The menu renders in the body -- REQUIRED inside a dialog or it
+                            // clips at the dialog's edge, the same reason VendorSelect portals.
+                            menuPortalTarget={document.body}
+                            menuPosition="fixed"
+                            // Clearing the type would leave the form with a format and no type
+                            // to file it under; switching to another type is the way out.
+                            isClearable={false}
+                        />
+                    </div>
+
+                    {showProject && (
+                        <div className="space-y-1.5">
+                            <Label>
+                                Project {projectRequired && <span className="text-destructive">*</span>}
+                            </Label>
+                            {chosenProjectLabel ? (
+                                // ⚠️ `ProjectSelect` keeps its selection in INTERNAL state and
+                                // takes no `value`, so it CANNOT display a project the user did
+                                // not pick in this session -- on an edit it renders its
+                                // placeholder over a required field that IS set, which reads as
+                                // unset. It is shared across many screens, so the fix stays
+                                // HERE: show what the request already carries, and mount the
+                                // untouched picker only once the requester asks to change it.
+                                <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                                    <span className="truncate text-sm">{chosenProjectLabel}</span>
+                                    <Button
+                                        type="button" variant="ghost" size="sm"
+                                        className="h-7 shrink-0 text-xs"
+                                        onClick={() => setChangingProject(true)}
+                                    >
+                                        Change
+                                    </Button>
+                                </div>
+                            ) : (
+                                <ProjectSelect
+                                    universal={false}
+                                    usePortal
+                                    onChange={(o) => handleProjectChange(o?.value ?? "")}
+                                />
+                            )}
+                            {!projectRequired && (
+                                <p className="text-xs text-muted-foreground">
+                                    Optional. Pick a project to charge it there; leave blank for a
+                                    company-wide expense.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {showVendor && (
+                        <div className="space-y-1.5">
+                            <Label>
+                                Vendor {isStandard && <span className="text-destructive">*</span>}
+                            </Label>
+                            <VendorSelect
+                                usePortal
+                                value={form.vendor}
+                                onChange={(o) => set("vendor", o?.value ?? "")}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {isStandard ? "" : "Optional. "}
+                                Choose "Others (No Vendor)" if the payee is not on record.
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                        <Label>Amount <span className="text-destructive">*</span></Label>
+                        <Input
+                            type="number" placeholder="0" value={form.amount}
+                            onChange={(e) => set("amount", e.target.value)}
+                        />
+                        {amountValue > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                                {formatToRoundedIndianRupee(amountValue)}
+                            </p>
+                        )}
+                    </div>
+
+                    {showDescription && (
+                        <div className="space-y-1.5">
+                            <Label>Description <span className="text-destructive">*</span></Label>
+                            <Textarea
+                                placeholder="What is this for?"
+                                value={form.description}
+                                onChange={(e) => set("description", e.target.value)}
+                            />
+                        </div>
+                    )}
+
+                    {isStandard && (
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-medium">
+                                <Checkbox
+                                    checked={form.recordInvoice}
+                                    onCheckedChange={(v) => set("recordInvoice", !!v)}
+                                    disabled={submitting}
+                                />
+                                Add invoice details
+                            </label>
+                            {form.recordInvoice && (
+                                <div className="ml-2 space-y-3 border-l-2 border-dashed pl-4">
+                                    <div className="space-y-1.5">
+                                        <Label>Invoice Date <span className="text-destructive">*</span></Label>
+                                        <Input
+                                            type="date"
+                                            value={form.invoice_date}
+                                            onChange={(e) => set("invoice_date", e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>
+                                            Invoice Ref {hasInvoiceFile && <span className="text-destructive">*</span>}
+                                        </Label>
+                                        <Input
+                                            value={form.invoice_ref}
+                                            onChange={(e) => set("invoice_ref", e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label>Invoice Attachment</Label>
+                                        {form.existingInvoiceUrl && !invoiceFile ? (
+                                            <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                                                <span className="truncate text-sm">
+                                                    {form.existingInvoiceUrl.split("/").pop()}
+                                                </span>
+                                                <Button
+                                                    type="button" variant="ghost" size="sm"
+                                                    className="h-7 shrink-0 text-xs"
+                                                    onClick={() => set("existingInvoiceUrl", "")}
+                                                >
+                                                    Remove
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <CustomAttachment
+                                                label="Upload Invoice Document"
+                                                selectedFile={invoiceFile}
+                                                onFileSelect={setInvoiceFile}
+                                                onError={({ message }) =>
+                                                    toast({ title: "Attachment", description: message, variant: "destructive" })
+                                                }
+                                                maxFileSize={5 * 1024 * 1024}
+                                                acceptedTypes={INVOICE_ACCEPTED_TYPES}
+                                                disabled={submitting}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {parsedFormat && (
+                        <FormatFieldsRenderer
+                            format={parsedFormat}
+                            answers={answers}
+                            onChange={(k, v) => setAnswers((a) => ({ ...a, [k]: v }))}
+                            files={files}
+                            onFileChange={(slotKey, file) =>
+                                setFiles((f) => {
+                                    if (!file) { const { [slotKey]: _drop, ...rest } = f; return rest; }
+                                    return { ...f, [slotKey]: file };
+                                })
+                            }
+                            onFileError={(message) =>
+                                toast({ title: "Attachment", description: message, variant: "destructive" })
+                            }
+                            disabled={submitting}
+                        />
+                    )}
+
+                    <div className="space-y-1.5">
+                        <Label>Comment</Label>
+                        <Input
+                            placeholder="Anything the reviewer should know"
+                            value={form.comment}
+                            onChange={(e) => set("comment", e.target.value)}
+                        />
+                    </div>
+                </div>
+
+                {(duplicates?.overlapping?.length ?? 0) > 0 && (
+                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+                        <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300">
+                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                            {duplicates!.subject} already has a {form.expense_type} for this period
+                        </p>
+                        <ul className="mt-1 space-y-0.5 pl-5.5 text-amber-900/90 dark:text-amber-200/90">
+                            {duplicates!.overlapping.map((d) => (
+                                <li key={d.name}>
+                                    {formatDate(d.period_from)}
+                                    {d.period_to !== d.period_from && ` – ${formatDate(d.period_to)}`}
+                                    {" · "}{formatToRoundedIndianRupee(d.amount)}
+                                    {" · "}{d.name}{" · "}{d.status}
+                                    {d.context && <span className="text-xs"> ({d.context})</span>}
+                                </li>
+                            ))}
+                        </ul>
+                        {/* Informational ONLY -- `canSubmit` is untouched, so this never blocks. */}
+                        <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-300/80">
+                            You can still send this for approval.
+                        </p>
+                    </div>
+                )}
+
+                <Separator />
+                <AlertDialogFooter className="gap-2">
+                    <AlertDialogCancel onClick={close} disabled={submitting}>Cancel</AlertDialogCancel>
+                    <Button onClick={handleSubmit} disabled={!canSubmit}>
+                        {submitting
+                            ? <TailSpin color="white" height={20} width={20} />
+                            : isEdit ? "Save changes" : "Send for Approval"}
+                    </Button>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+};
+
+export default NewExpenseRequestDialog;

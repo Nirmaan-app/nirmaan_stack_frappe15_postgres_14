@@ -17,7 +17,7 @@ def after_insert(doc, method):
 # ─────────────────────────────────────────────────────────────────────────────
 # `members` DISPLAY-MIRROR maintenance (owner decision 2026-08-04).
 #
-# HISTORY: this hook was RETIRED at ADR-0004 because the child table stopped
+# HISTORY: this hook was RETIRED at ADR-0026 because the child table stopped
 # being read — there was no denormalized copy left to keep fresh. The owner has
 # since asked for the Desk `Members` grid to show members again, so the child
 # table is repopulated as a ONE-WAY MIRROR of `Items.linked_tds_item` (the

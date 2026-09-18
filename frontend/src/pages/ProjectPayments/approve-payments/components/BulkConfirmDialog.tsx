@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useVendorTdsRate } from "../../hooks/useVendorTdsRates";
+import { useCompanyBorneTds, useVendorTdsRate } from "../../hooks/useVendorTdsRates";
 import { forecastTdsTotals } from "../../tdsForecast";
 import { parseNumber } from "@/utils/parseNumber";
 // Same superset row as BulkActionBar — every field this dialog reads is carried
@@ -161,9 +161,11 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
    * withholds tax.
    */
   const rateFor = useVendorTdsRate();
+  // Miscellaneous / Transportation-only Work Orders keep their payment whole; the tax is paid on top.
+  const companyBorneFor = useCompanyBorneTds();
   const tdsTotals = useMemo(
-    () => forecastTdsTotals(payments, (p) => rateFor(p.vendor)),
-    [payments, rateFor]
+    () => forecastTdsTotals(payments, (p) => rateFor(p.vendor), (p) => companyBorneFor(p.document_name)),
+    [payments, rateFor, companyBorneFor]
   );
 
   const count = payments.length;
@@ -210,10 +212,26 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
                 <span className="text-muted-foreground">
                   TDS on {tdsTotals.count} work order payment{tdsTotals.count !== 1 ? "s" : ""}
                 </span>
-                <span className="tabular-nums font-medium text-rose-600 dark:text-rose-400">
-                  − {formatToRoundedIndianRupee(tdsTotals.tds)}
-                </span>
+                {tdsTotals.companyBorneTds > 0 ? (
+                  <span className="tabular-nums font-medium">
+                    {formatToRoundedIndianRupee(tdsTotals.tds)}
+                  </span>
+                ) : (
+                  <span className="tabular-nums font-medium text-rose-600 dark:text-rose-400">
+                    − {formatToRoundedIndianRupee(tdsTotals.tds)}
+                  </span>
+                )}
               </div>
+              {tdsTotals.companyBorneTds > 0 && (
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    of which paid by company (Misc / Transport WOs)
+                  </span>
+                  <span className="tabular-nums font-medium">
+                    {formatToRoundedIndianRupee(tdsTotals.companyBorneTds)}
+                  </span>
+                </div>
+              )}
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-semibold">Vendors receive</span>
                 <span className="tabular-nums font-semibold text-green-700 dark:text-green-400">

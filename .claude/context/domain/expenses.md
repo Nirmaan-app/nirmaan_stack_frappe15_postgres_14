@@ -35,6 +35,15 @@ Both share one approval lifecycle and are entered/managed together in a single u
   2026-09-15 (moved to ₹50,000 on 2026-09-16, so all three money-out ledgers now band
   identically).
 - **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009).
+- **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
+  settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
+  per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
+  `Settled` `Outflow Row Match` slips; short of the amount the expense stays `Reconciliation Pending`,
+  and within ₹5 of it it is `Paid`, dated by the latest linked line. ⚠️ **The linked total is always
+  RECOMPUTED from the slips by one aggregate, never stored on the expense and never incremented** — it
+  is owned by `services/outflow_import/expense_links.py` (`load_expense_links`, `derive_expense_status`,
+  `remaining_balance`), which is also the ONE place that answers "is this expense fully linked". Full
+  as-built: `.claude/context/domain/outflow-import.md`.
 
 ---
 
@@ -169,6 +178,26 @@ documented Payment By as Paid-only while the code had drifted.
 ---
 
 ## What was IMPROVED / CHANGED
+
+### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
+Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
+`hooks.py` on `validate` + `on_trash`. The refusals themselves are pure functions in
+`services/outflow_import/expense_links.py` (`amount_below_links_refusal`, `paid_while_short_refusal`,
+`delete_while_linked_refusal`; rule 4 is `derive_expense_status`):
+1. the amount may not drop below the linked total (₹5 leeway);
+2. a hand-set `Paid` is refused while the linked total is short;
+3. deleting is refused while live `Settled` slips exist;
+4. every save re-derives `Paid` ⇄ `Reconciliation Pending` and the payment date from the slips — so
+   RAISING an amount above the linked total moves a `Paid` expense back to `Reconciliation Pending` and
+   clears its payment date.
+
+⚠️ **Every rule is inert until the expense has live `Settled` slips** — an expense nothing has linked to
+behaves exactly as before, and that gate is what lets the import's own Unreconcile put an expense back.
+⚠️ **Rule 2 asks about a TRANSITION into `Paid`**, never the state, or it would refuse the very edit rule 4
+exists to allow. ⚠️ **There is no bypass flag for the import** — it writes the slip first, then saves, so
+its own writes satisfy the rules by construction. These rules hold from EVERY door: the Payments tab, the
+old expense pages, Desk and Data Import. Detail + the read-only Bank-lines card on the Payments & Expenses
+table (#1303): `.claude/context/domain/outflow-import.md`.
 
 ### Paid-only financial rollups (only settled spend counts)
 Every cross-surface expense calculation now filters `status = "Paid"`:
@@ -314,9 +343,299 @@ Actions column visibility: same rule as Non-Project.
 - `v3_0.backfill_non_project_expenses_status #v3` (was #v2 — now sweeps all legacy → Paid)
 - `v3_0.normalize_project_expense_types`
 
+## Expense Request — the PM-raised ask (2026-08-18)
+
+A **request is not an expense.** `Expense Request` is a separate doctype that appears in NO
+financial rollup; approval is what creates the real ledger row. It DOES reach `Paid`, but only
+as a MIRROR of the ledger — the row is what gets paid and the request follows it.
+Full rationale: `docs/adr/0016-expense-request-vs-expense.md`.
+
+```
+PM raises  ->  Pending Approval  ->  routed reviewer
+                                       |- Reject (comment required)  -> terminal
+                                       `- Approve -> ONE ledger row, status "Approved"
+                                                     -> Accountant marks Paid
+                                                        -> request follows to Paid (hook)
+                                                     -> ledger row DELETED
+                                                        -> request deleted with it (hook)
+```
+
+### Schema
+
+| Doctype | |
+|---|---|
+| `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
+| `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
+| `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) |
+| `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
+| `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
+
+### Load-bearing invariants
+
+- **There is NO `expense_kind` field.** The PRESENCE of `projects` decides the target ledger,
+  and the doctype `validate` checks it against the type's `project` / `non_project` flags:
+  project-only requires one, non-project-only forbids one, both makes it optional
+  (`Petty Cash` is the only both-flag type). `type_allows_project` is a `fetch_from` mirror
+  of `Expense Type.project`, existing ONLY so `depends_on` can hide the field — Frappe cannot
+  evaluate a linked doctype's field. Never treat the mirror as authority; `validate` reads
+  the master.
+- **⚠️ THE LEDGER'S OWN THRESHOLD DECIDES THE STATUS (owner ruling, 2026-08-20 — REVERSING
+  the earlier "created at `Approved`, never `Requested`").** `create_ledger_row` no longer
+  sets `status`, so the row is born at the ledger default `Requested` and each doctype's
+  `validate` applies the rule it applies to any directly-entered row — identical on both:
+  `0 < amount < ₹5,000` auto-approves, `₹5,000` or more stays `Requested`, and a zero or
+  negative (a refund) stays `Requested`. **The fix was a DELETION, not a new branch:** setting
+  the status was precisely what bypassed the rule, because `validate` returns early once the
+  status is anything other than `Requested`.
+  **⚠️ CONSEQUENCE, ACCEPTED BY THE OWNER: an expense of ₹5,000 or more is NOT payable on
+  approval alone** — it needs the ledger's own Approve, which is admin-only. The prior
+  measurement that argued against this still stands as a RISK, not a refutation: on
+  2026-08-17 all 8 rows at `Requested` were stranded, the oldest 3+ weeks, while 99% of
+  expenses went straight to `Paid`. If nobody works that queue, a large approved request
+  never gets paid.
+- **The reviewer gate is SERVER-SIDE** (`api/expense_requests/access.guard_reviewer`), unlike
+  the rest of this module. It refuses two distinct ways — wrong role, and own request — and
+  runs before any write, so a refusal mutates nothing. Admin passes both (they are the
+  fallback reviewer for every unrouted category).
+- **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every
+  `bench migrate` re-imports each row and RESETS any field the file does not carry. When
+  `source_format` and `expense_category` were added and the fixture was not regenerated, ONE
+  migrate silently destroyed all 40 request forms and every category assignment — no error,
+  discovered only because tests went red. **After authoring a format or re-categorising a type
+  in the app, run `bench --site <site> export-fixtures --app nirmaan_stack` and commit**, or
+  the next migrate reverts it. `Expense Category` is a fixture too, because it is a Link target
+  and would otherwise dangle. Guarded by
+  `api/expense_requests/test_fixture_completeness.py`, which fails naming the missing field —
+  and which was verified by reproducing the bug, not merely by passing.
+- **Every expense request is reviewed by `Nirmaan Admin Profile`.** `Expense Category.reviewer_role`
+  ("Reviewed By") was REMOVED on request 2026-09-16 — every category had it blank, so no live
+  routing changed; categories now only group types. Read through
+  `services/expense_request_routing.py` (which REPLACED the temporary
+  `services/expense_request_catalog.py`, deleted 2026-08-18) — it caches per request, because
+  `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe
+  Desk.** Since 2026-09-16 the category is **not shown anywhere in the app** (request picker or
+  Expense Packages): a new type is saved as `Uncategorized`, an edit keeps the current one.
+- **"Enable Source" switch (`Expense Type.source_format_enabled`, 2026-09-16).** ON → the
+  request dialog shows the type's `source_format`; OFF → the STANDARD fields a direct expense
+  needs: Description (required), Vendor (required once a project is chosen; "Others" allowed —
+  UI-only, the server cannot tell it from blank) and optional invoice details. Those ride
+  `source_data` under minted keys (`responses.detail.description`,
+  `responses.invoice.{invoice_date, invoice_ref}`, `attachments.invoice`) and approval copies them
+  to the ledger's invoice columns (`flatten.native_invoice`). **Cannot be ON without a format**
+  (doctype `validate`); clearing a format switches it OFF (`save_expense_format`). ONE rule picks
+  the governing form — `convert.applicable_format`: the switch, EXCEPT a request already filled
+  against the form (`templateId` in its answers) keeps it after the switch goes off. **Only the
+  OFF side is server-enforced** (`create.guard_request_form`: description, invoice coherence,
+  refuses form answers); a form's own required answers are still dialog-only, as before.
+- **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
+  the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
+  only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
+  (create; update only when the type CHANGES, so narrowing roles never strands a pending request —
+  the edit dialog passes `include_type`). Scope is the REQUEST dialog only: ledger dialogs, outflow
+  import and the request list are untouched.
+  **Owner's role mapping (2026-09-16, in the fixture)** — Project Manager + Project Lead:
+  Accommodation Deposit, Staff / Labour Accommodation Rent. Accountant + Accountant Lead: Audit
+  Fee, GST Payment, TDS Payment, Other Project Related Charges, Professional Charges, Salaries &
+  Employee Wages, EPFO Payment, Professional Tax. HR Executive + HR Lead: Electricity Expenses,
+  Fixed Assets, Internet & Mobile Charges, Software Chagres, Rent Expenses. **Every other type is
+  Admin only.** "Salary – TDS" and "Misc. Expenses" had no matching type and are unassigned.
+  To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
+  Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
+  the PM profile on the real types it uses for its run and removes exactly those rows after.
+- **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
+  `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
+  docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to
+  the type: `Project Expenses.type`, `Non Project Expenses.type`, `Expense Request.type`,
+  `Outflow Import Expense Rule.expense_type`.
+  **⚠️ Two places KEEP THE OLD TYPE NAME, by owner ruling — they store it as plain text and are
+  deliberately not rewritten:** `PO Adjustment Items.expense_type` and
+  `Outflow Import Row.suggested_expense_type`. A type-name search across those will not find the
+  renamed type's history.
+  **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: every
+  `duplicates.RULES` key + `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a
+  rename would silently switch off that duplicate warning / the bank-import fallback.
+  **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
+  migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
+  name.
+- **⚠️ THERE IS NO ROW SCOPING ON READS (owner ruling, 2026-08-18).** The
+  `permission_query_conditions` hook was REMOVED, so a list read returns everything the
+  caller's ROLE may read — and **eight roles hold read DocPerm** (System Manager, PM, HR
+  Executive, HR Lead, Accountant, Accountant Lead, PMO Executive, Project Lead), so a PM sees
+  other PMs' personal claims. `access.get_permission_query_conditions` still EXISTS and is
+  still correct, but nothing calls it; re-wiring is a one-line hooks entry. `can_review`
+  narrows who may ACT on a row, never who may SEE one. `get_my_expense_requests` still uses
+  `frappe.get_list` over `get_all` — the latter would ignore the DocPerm too. Pinned by
+  `test_a_pm_sees_another_pms_request`, which flips if the hook ever returns.
+- **⚠️ THE LINK POINTS BACKWARDS: the LEDGER carries `request_id`, not the reverse**
+  (owner ruling, 2026-08-18; `created_expense` was removed). A ledger row may be raised
+  DIRECTLY with no request at all, so the side that may or may not have a counterpart is the
+  side that carries the field. It also puts the Paid hook one field access from the request
+  instead of a reverse query. **A `Link` is a REFERENCE, not ownership** — the same field type
+  points that row at its Project, Vendor and Expense Type — so Frappe blocks deleting the
+  REQUEST while an expense names it, and does nothing about the reverse. Only child tables
+  cascade.
+- **⚠️ THE LEDGER OWNS `Paid`.** `Expense Request.status` reaches `Paid` through
+  `integrations/controllers/expense_request_status.on_expense_paid` and NOWHERE else — no
+  endpoint, no button, no reviewer action. Payment happens on the expense row, so the request
+  can only report what the ledger already did; a second writer would let the two disagree
+  about whether money moved. It rides the ledger's own transaction (both land or neither),
+  guards on the TRANSITION into Paid, and flips only `Approved → Paid` — a whitelist of the
+  one legal predecessor, because anything else means our model of the flow is wrong and
+  overwriting would erase the evidence. It uses `set_value`, so this transition writes NO
+  `Version` row; the audit lives on the ledger row, which carries the payment date, reference
+  and attachment.
+- **⚠️ DELETING THE EXPENSE DELETES THE REQUEST** (`on_expense_deleted`, owner ruling
+  2026-08-18) — and it MUST be `after_delete`, never `on_trash`: `on_trash` fires BEFORE the
+  row leaves the database, so the expense still points at the request and Frappe refuses
+  (`LinkExistsError`). The cashflow recompute on the same doctype moved to `after_delete` for
+  the same class of reason. **It clears the request's notifications FIRST, and that is not
+  tidiness — it is what makes the delete possible**: `Nirmaan Notifications.docname` is a
+  **Dynamic Link**, and Frappe's delete guard walks dynamic links, so any rejected or paid
+  request carries a notification that would block it. `ignore_links=True` is the WRONG fix —
+  it leaves bell entries pointing at a record that no longer exists. Not swallowed: the
+  expense is already gone, so a failure rolls back and NEITHER is deleted.
+  **⚠️ COST, accepted by the owner: this destroys the only copy of the request detail** —
+  `source_data` is the sole home for what was asked, so a delete-and-redo loses the original
+  ask and the requester's record of it.
+- **A reviewer is a `Nirmaan Users.role_profile`, NEVER a Frappe Role.** The Role Profile
+  `Nirmaan Admin Profile` grants `Nirmaan Project Manager` among seven others, and a Role of
+  that exact name is assigned to nobody — a `frappe.get_roles()` gate would match no one and
+  read every Admin as a PM.
+- **⚠️ THERE IS NO `description` FIELD — `source_data` IS THE ONLY HOME FOR THE DETAIL**
+  (owner, 2026-08-18). With a format that is the answers; without one it is the typed
+  description, stored under the synthetic `detail.description` key exactly as the dialog
+  writes it. One home means the approval dialog, the ledger description and the flatten all
+  read the same place and none of them can hold a second, disagreeing copy. The field was
+  removed from the doctype AND its orphan column dropped (a Frappe field removal leaves the
+  column behind; `information_schema` is the truth, `frappe.db.has_column` reads a cache).
+- **`comment` deliberately reuses the ledgers' own field name**, which is what makes that
+  part of the conversion a straight copy with no mapping table.
+- **A FORMAT-LESS REQUEST IS FLATTENED VALUES-ONLY ONTO THE LEDGER.** Its key is one WE mint,
+  not one the requester saw, so labelling it would print "Description:" on the ledger as if
+  they had written it. A formatted request DOES print its labels — those are the questions
+  they actually answered.
+- **Master writes are ADMIN-GATED endpoints** (`api/expense_requests/masters.py`), not client
+  `updateDoc`: `Expense Type` carries `write = 1` for ~15 roles including Project Manager, so
+  a raw write would let a requester edit the scope and form governing their own requests.
+
+### Formats
+
+`Expense Type.source_format` holds a JSON form; `Expense Request.source_data` holds the
+answers. Authored in **Packages Settings → Expense Packages → Format**, which **refuses to
+save an invalid template**.
+
+- **THE VALIDATOR IS THIS MODULE'S OWN** (`utils/expenseFormat.validateFormat`), NOT
+  commissioning's `parseTemplate`. It shared that parser until the sharing was found to cut
+  both ways: commissioning's binding allowlist is project-scoped, so it REFUSED every expense
+  format using `bind: "user.full_name"` — five of seven shipped formats could not be saved
+  through the editor — while simultaneously ACCEPTING section types (`checklist`, `matrix`,
+  `rowsTable`) that `FormatFieldsRenderer` cannot draw, letting a format save clean and reach
+  a requester with a section missing. The two systems do not share a grammar. Do not re-couple
+  them: the expense validator tracks the expense RENDERER, which is the invariant that
+  matters.
+
+- **Empty is normal and valid** — 33 of 40 types have no format and use the plain form.
+  Unlike commissioning, an unauthored format must never block a request.
+- **`Expense Type.source_format` is the ONLY home.** There is deliberately no seed file and
+  no reference copy in the repo (owner ruling, 2026-08-18): a second copy drifts the moment
+  someone edits a format in the app, and the rule "remember to mirror it" is one that depends
+  on remembering. New environments restore a production backup, so the formats travel with the
+  database. Read a live format from Desk or `get_expense_format` — never from a checked-in file.
+- **A format NEVER declares a field named after a native column** (`comment`,
+  `amount`, `type`, `projects`). Those are real columns the ledger row is built from; a format
+  field of the same name would record the value twice and let the two disagree.
+- **Payee bank details are NOT asked** (owner, 2026-08-18). Payment details belong to the
+  payment, not the request — the accountant records them at Mark-as-Paid.
+- **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
+  accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four
+  different questions, and the evidence differs per type: all 7 live Staff rows name exactly
+  ONE person (so it never asks a count), while the single Labour row reads
+  `4x6500=26000` (so it is the only one that does). Hotel does not re-ask the accommodation
+  type — the expense type already says Hotel. **There is no reference copy in the repo** — see
+  the ONLY-home rule above; read a live format from Desk or `get_expense_format`.
+- **The travel MODE is the expense TYPE** (Bus / Train / Flight), never a field — a `mode`
+  field would record it twice and let the two disagree.
+- On approval the answers become the ledger `description` through **THREE renderings, best
+  first** (`convert.compose_description`), with the request id appended in every case:
+  1. the format's own `description_template` — a written sentence;
+  2. no template → the labelled flatten, `Label: value · Label: value`;
+  3. no format at all → the values, joined, unlabelled.
+
+  Envelope keys (`templateId`, `filledAt`, …) are stripped; **`0` and `False` are kept**
+  because a recorded zero is an answer. The id stays even though `request_id` now exists:
+  2,586 shipped descriptions already carry it and several tests assert it. Removing it is its
+  own change.
+- **`description_template` is CONFIG, living in the format beside the fields it names**, so
+  making a type read well is an edit to that type and touches no code. Two placeholder kinds,
+  and the difference is the whole safety story: **`{key}` is REQUIRED** — no answer means the
+  sentence would have a hole in it, so the WHOLE render is abandoned and it falls back to
+  rendering 2, because a half-written sentence reads as complete and is worse than a form
+  dump; **`[[… {key} …]]` is an OPTIONAL SPAN**, dropped whole when any answer inside it is
+  missing, which is what stops a skipped field leaving `", ,"` behind. ISO dates become
+  `1 Aug 2026`. **The placeholder is the field `key`, never its label** — rename a key and the
+  template must be renamed in the same edit, or it silently stops working with no error
+  anywhere. Live on Staff Accommodation Rent and all three Travel types (each stating its own
+  mode, since the mode is the TYPE).
+- An attachment slot may declare `"maps_to": "invoice_attachment"` — at most one per format;
+  the first declaring slot wins and a format declaring none carries no file.
+
+### Notifications
+
+Bell + realtime, **no Firebase push** (the Reminders precedent). **TWO events** (owner
+ruling, 2026-08-18), both addressed to the REQUESTER:
+
+| Event | Fired from | `event_id` |
+|---|---|---|
+| rejected | `review.reject_expense_request`, carries the reason | `expense_request:rejected` |
+| paid | `integrations/controllers/expense_request_notify.on_expense_update` | `expense_request:paid` |
+
+- **⚠️ APPROVAL IS DELIBERATELY SILENT.** Approve and Paid are one story to a requester and
+  the money has not moved yet, so the approval message was noise that cost attention from the
+  one that matters. `notify_decided` KEEPS its `decision` parameter so an APPROVED call is a
+  documented no-op rather than a crash — the safe direction, enforcing the rule from any
+  future call site. Consequence, accepted: a requester now gets no signal at all between
+  raising and payment.
+
+- **A notification must never break what it reports.** Every entry point is wrapped so a
+  failure is logged and swallowed — an approval that succeeded must not roll back because a
+  bell message could not be written.
+- **The Paid hook is deliberately narrow.** It fires on EVERY save of BOTH ledgers (~3,300
+  rows that have nothing to do with a request), so it exits on `status != Paid` first, then on
+  `has_value_changed("status")` — the TRANSITION, not the state, so editing an
+  already-Paid row does not re-notify. Only then does it read `request_id` off the row — one
+  field access, no reverse query. Pinned by a test asserting an ordinary paid expense notifies
+  nobody.
+- **The bell CARD shows expense facts, not the stock procurement lines.** `Project` /
+  `Work Package` / `Action By` are procurement-shaped and an expense notification sets none of
+  them, so it rendered three blanks and one "Administrator". `components/nav/
+  expenseNotificationDetails.ts` (pure) builds the lines instead, keyed on
+  `document === "Expense Request"`. **Nothing extra is stored on the notification** — the
+  ledger comes from whether the request names a project (the same rule as `target_doctype`),
+  the type and approver from the request, and "Paid By" is the notification's own `sender`.
+  ONE batched read for the whole screen, skipped when no expense notification is present. A
+  rejection deliberately gets fewer lines: no ledger row and no approver exist, so printing
+  them would state something untrue.
+- **`Non Project Expenses` gained its FIRST `on_update` hook** for this; `Project Expenses`
+  keeps the CEO-Hold handler and takes this as a LIST, so neither replaces the other.
+- `action_url` is always `expense/requests` — the requester cannot see the ledger row.
+
+### Testing gotcha
+
+`test_expense_requests.py` runs against the LIVE site. A test that mutates a type's
+`source_format` MUST capture the original and restore **that** — `addCleanup(..., None)`
+silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_format` helper.
+
+---
+
 ## Cross-references
-- Glossary: `CONTEXT.md` → "Expense workflow & settlement".
+- Glossary: `CONTEXT.md` → "Expense workflow & settlement" (incl. *linked total*
+  under *Reconciliation Pending*, and *Bounced transfer*).
 - Decision: `docs/adr/0009-project-expense-type-normalization.md`.
+- Decision: `docs/adr/0016-expense-request-vs-expense.md` (request vs expense).
+- Decision: `docs/adr/0027-many-lines-one-expense.md` — many bank lines settle one expense.
+- Plan / as-built: `.claude/plans/expense-request-plan.md`.
+- Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
 ## Deliberate design decisions (do NOT "fix")
 

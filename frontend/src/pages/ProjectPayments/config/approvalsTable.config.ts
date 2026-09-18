@@ -13,6 +13,8 @@ export const APPROVAL_QUEUE_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue";
 export const APPROVAL_COUNTS_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue_counts";
+/** SWR key of the tab-badge fetch — shared so a child tab can refresh the badges. */
+export const APPROVAL_COUNTS_SWR_KEY = "approval-queue-counts";
 
 /** The five statuses in sequence, plus the end state. `Paid` means RECONCILED. */
 export const APPROVAL_STATUS = {
@@ -57,6 +59,12 @@ export type ApprovalColumnId =
 export interface ApprovalQueueRow {
   name: string;
   source: "Vendor Payment" | "Project Expense" | "Non-Project";
+  /**
+   * What the Type column shows and filters on — `source` with a vendor payment split by
+   * its parent. Display + filter ONLY: every ledger branch keeps reading `source`.
+   * "Vendor Payment" survives here only as the server's fallback for an unrecognised parent.
+   */
+  source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project";
   doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
   status: string;
   amount: number;
@@ -80,18 +88,25 @@ export interface ApprovalQueueRow {
   expense_type: string;
   reconciled_on: string | null;
   auto_approved: number;
+  /**
+   * How many live bank lines settle this expense (ADR-0027 R5, #1303). Always 0 on a payment —
+   * a payment is settled by exactly one line and has no Bank lines card.
+   *
+   * ⚠️ IT DECIDES ONLY WHETHER THE Against CELL OFFERS THE CARD. The lines themselves are fetched
+   * lazily on open, so an expense no line has reached shows no trigger and costs no query.
+   */
+  bank_line_count: number;
   tier: "auto" | "l1" | "l1_l2";
   /**
    * Kept under their PAYMENT names deliberately. The bulk-approve engine and the
-   * action dialogs read exactly six fields off a row — amount, name,
-   * document_name, vendor, document_type, tds — so carrying these makes the
+   * action dialogs read exactly five fields off a row — amount, name,
+   * document_name, vendor, document_type — so carrying these makes the
    * normalized row a SUPERSET of what already works, and neither
    * `useBulkPaymentActions` nor `PaymentActionDialog` needs any change.
    * Blank on an expense: it has no PO/SR parent and never withholds tax.
    */
   document_name: string;
   document_type: string;
-  tds: string;
 }
 
 /**
@@ -103,11 +118,11 @@ export interface ApprovalQueueRow {
  * column changes it on every tab at once, because there is only one of it.
  */
 export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
-  // "Payment Pending Approval" — `tier` is here and ONLY here: it says what your
-  // click does, finish the approval or forward it to the CEO.
+  // "Payment Pending Approval" — `tier` was removed from the screen by owner request;
+  // it is still written to the CSV export (approvalExportColumns.ts).
   [PP_TABS.APPROVE_PAYMENTS]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "tier", "raised_by",
+    "vendor", "project", "amount", "raised_by",
   ],
   // "Payment Pending CEO Approval" — no `tier`: every row here is L1+L2 by
   // definition, so it would be one word repeated down the page. The two CEO-only
@@ -128,12 +143,10 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
   // "Payment Done / Reconciliation Done" — no `select`, no `actions`: there is
-  // nothing left to do to a settled row.
+  // nothing left to do to a settled row. The admin Edit pencil that used to sit
+  // here was removed by owner request (2026-09-17).
   [PP_TABS.PAYMENTS_DONE]: [
-    // `actions` is here only because the live screen has an admin Edit on a
-    // settled payment. The matrix says "nothing left to do to a Paid row"; that
-    // is true of approval, not of correcting a UTR. Renders nothing without `onEdit`.
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on",
+    "source", "against", "vendor", "project", "amount", "paid_on",
     "utr_ref", "proof", "reconciled_on", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
@@ -145,6 +158,13 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   [PP_TABS.ALL_PAYMENTS]: [
     "source", "against", "vendor", "project", "amount", "status",
     "requested_on", "raised_by",
+  ],
+  // "Payment By Me" — `actions` holds ONLY a Delete, on REJECTED rows only, "--" on the rest
+  // (owner, 17 Sep 2026). Its dialog deletes an expense after a confirm; for a PO / SR payment
+  // it links to the PO / SR page, whose own payment table does the delete. No `raised_by` for most users, since every
+  // row is their own; an Admin sees EVERY row here, and AllPayments appends `raised_by`.
+  [PP_TABS.PAYMENT_BY_ME]: [
+    "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.
   [PP_TABS.PO_WISE]: [
@@ -162,6 +182,7 @@ export const TAB_ALLOWS_SELECTION: Record<ApprovalTab, boolean> = {
   [PP_TABS.PAYMENTS_PENDING]: false,
   [PP_TABS.ALL_PAYMENTS]: false,
   [PP_TABS.PO_WISE]: false,
+  [PP_TABS.PAYMENT_BY_ME]: false,
 };
 
 /**
@@ -185,7 +206,15 @@ export const TAB_DEFAULT_SORT: Record<ApprovalTab, string> = {
   [PP_TABS.PAYMENTS_PENDING]: "creation desc",
   [PP_TABS.ALL_PAYMENTS]: "creation desc",
   [PP_TABS.PO_WISE]: "creation desc",
+  [PP_TABS.PAYMENT_BY_ME]: "creation desc",
 };
+
+/**
+ * "Payment By Me": all statuses, rows the logged-in user created — EVERY row for an Admin.
+ * `@me` is resolved ON THE SERVER (`CURRENT_USER_TOKEN` in get_approval_queue.py), so the
+ * browser never names whose rows it gets.
+ */
+export const CURRENT_USER_TOKEN = "@me";
 
 /**
  * ⚠️ EVERY TAB NEEDS AN EXPLICIT CASE.
@@ -218,6 +247,8 @@ export const getApprovalsStaticFilters = (
     case PP_TABS.ALL_PAYMENTS:
     case PP_TABS.PO_WISE:
       return [];
+    case PP_TABS.PAYMENT_BY_ME:
+      return [["raised_by", "=", CURRENT_USER_TOKEN]];
     default: {
       // ⚠️ NOT a fall-through to []. The payments version of this switch returns
       // an unfiltered list on an unknown tab, so a missing case shows EVERY row in
@@ -271,6 +302,34 @@ export const SOURCE_LABEL: Record<ApprovalQueueRow["source"], string> = {
   "Non-Project": "Non Project Expense",
 };
 
+const SOURCE_BADGE_BASE: Record<ApprovalQueueRow["source"], string> = {
+  "Vendor Payment": "bg-sky-50 text-sky-700 ring-sky-200",
+  "Project Expense": "bg-violet-50 text-violet-700 ring-violet-200",
+  "Non-Project": "bg-amber-50 text-amber-800 ring-amber-200",
+};
+
+/** What the Type column READS. Stored values are what the facet filter and the endpoint match on. */
+export const TYPE_LABEL: Record<ApprovalQueueRow["source_type"], string> = {
+  "PO Payment": "PO Payment",
+  "SR Payment": "SR Payment",
+  "Vendor Payment": "Payment",
+  "Project Expense": "Project Expense",
+  "Non-Project": "Non Project Expense",
+};
+
+/** The Type filter's options. The "Vendor Payment" fallback is left out: no row carries it today. */
+export const TYPE_FILTER_VALUES: ApprovalQueueRow["source_type"][] = [
+  "PO Payment", "SR Payment", "Project Expense", "Non-Project",
+];
+
+export const TYPE_BADGE: Record<ApprovalQueueRow["source_type"], string> = {
+  "PO Payment": SOURCE_BADGE_BASE["Vendor Payment"],
+  "SR Payment": "bg-teal-50 text-teal-700 ring-teal-200",
+  "Vendor Payment": SOURCE_BADGE_BASE["Vendor Payment"],
+  "Project Expense": SOURCE_BADGE_BASE["Project Expense"],
+  "Non-Project": SOURCE_BADGE_BASE["Non-Project"],
+};
+
 /**
  * Line 1 of an expense description — the one thing that identifies the row.
  *
@@ -285,8 +344,4 @@ export const descriptionFirstLine = (text?: string): string =>
   (text || "").split("\n")[0].trim();
 
 /** One soft badge per ledger, so the three read apart at a glance. */
-export const SOURCE_BADGE: Record<ApprovalQueueRow["source"], string> = {
-  "Vendor Payment": "bg-sky-50 text-sky-700 ring-sky-200",
-  "Project Expense": "bg-violet-50 text-violet-700 ring-violet-200",
-  "Non-Project": "bg-amber-50 text-amber-800 ring-amber-200",
-};
+export const SOURCE_BADGE: Record<ApprovalQueueRow["source"], string> = SOURCE_BADGE_BASE;

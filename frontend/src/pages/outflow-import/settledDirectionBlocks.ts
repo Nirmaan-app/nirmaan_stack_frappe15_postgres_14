@@ -101,3 +101,30 @@ export const settledBlockSubLine = (
     if (block.rows <= 0 || opts.fromSuggestion == null) return recorded;
     return `${recorded} · ${opts.fromSuggestion} auto-matched`;
 };
+
+/**
+ * The SHORT name a ledger line shows inside a Settled card, where it sits BESIDE the figure.
+ *
+ * ⚠️ DISPLAY ONLY — THE FULL NAME STAYS ONE HOVER AWAY. The card renders this and puts the
+ * server's verbatim `ledger` in the line's `title`, so nothing is renamed, only abbreviated
+ * (owner ruling 2026-09-18: keep the split on the right at every width and shorten the text,
+ * rather than let it wrap under the figure). Word-level, so a ledger this list does not know
+ * (`Other`, a future doctype) still comes out readable instead of being guessed at.
+ *
+ * ⚠️ A MULTI-LEDGER GROUP (`"Project Expenses|Project Payments"`, one row settled into two books)
+ * keeps both halves, joined with `+`.
+ */
+const LEDGER_WORD_SHORT: readonly [RegExp, string][] = [
+    [/\bNon Project\b/g, "Non-Proj."],
+    [/\bProject\b/g, "Proj."],
+    [/\bExpenses?\b/g, "Exp."],
+    [/\bPayments?\b/g, "Pmts"],
+];
+
+export const shortLedgerLabel = (ledger: string): string =>
+    ledger
+        .split("|")
+        .map((part) =>
+            LEDGER_WORD_SHORT.reduce((text, [pattern, short]) => text.replace(pattern, short), part.trim())
+        )
+        .join(" + ");

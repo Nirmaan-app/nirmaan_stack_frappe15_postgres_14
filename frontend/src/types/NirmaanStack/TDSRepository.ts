@@ -6,7 +6,7 @@
 // Member") — instead of holding a bare item id/name/category. The TypeScript
 // interface name (`TDSRepository`) is kept unchanged so imports don't break.
 // `work_package` is fetched from the linked `tds_item`. Design source of
-// truth: `nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md`.
+// truth: `.claude/context/domain/tds/phase-1-plan.md`.
 
 export interface TDSRepository {
   name: string;

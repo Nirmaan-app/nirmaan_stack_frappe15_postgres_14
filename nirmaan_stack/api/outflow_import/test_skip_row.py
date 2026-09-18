@@ -271,6 +271,7 @@ class TestASuccessfulSkip(SkipFixture):
         self.assertIsNotNone(stored.decided_at)
         # The displayed note BECOMES the reason, replacing the matcher's old sentence.
         self.assertEqual(stored.outcome_note, self.REASON)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "skip_kind"), "Skipped by hand")
 
     def test_it_writes_a_version_row_and_a_comment(self):
         row = self._line()

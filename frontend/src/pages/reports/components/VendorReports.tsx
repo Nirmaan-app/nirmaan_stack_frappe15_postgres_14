@@ -4,9 +4,8 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 import { DataTable } from "@/components/data-table/new-data-table";
-import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { useVendorLedgerCalculations } from "../hooks/useVendorLedgerCalculations";
-import { getVendorColumns } from "./columns/vendorColumns";
+import { VendorCalculatedFields, useVendorLedgerCalculations } from "../hooks/useVendorLedgerCalculations";
+import { VendorReportRow, getVendorColumns } from "./columns/vendorColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -33,6 +32,14 @@ const VENDOR_REPORTS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 const URL_SYNC_KEY = "vendor_ledger_report"; // Use a specific key for URL state
 
+type VendorSearchField = "vendor_name" | "name" | "vendor_type";
+
+// Same separators the server data-table search splits on (api/data_table/token_search.py);
+// every token must appear in the field, case-insensitively.
+const SEARCH_TOKEN_SEPARATOR = /[\s\-_/()]+/;
+
+const EMPTY_TOTALS: VendorCalculatedFields = { totalPO: 0, totalSR: 0, totalInvoiced: 0, totalPaid: 0, balance: 0 };
+
 export default function VendorReports() {
   // 1. Manage date range state, initialized from URL or with a default
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
@@ -53,7 +60,7 @@ export default function VendorReports() {
   });
 
   // 2. Pass the date range state into the calculation hook.
-  const { getVendorCalculatedFields, isLoadingGlobalDeps, globalDepsError } =
+  const { vendors, getVendorCalculatedFields, isLoadingGlobalDeps, globalDepsError } =
     useVendorLedgerCalculations({
       startDate: dateRange?.from,
       endDate: dateRange?.to,
@@ -74,6 +81,31 @@ export default function VendorReports() {
 
   const tableColumns = useMemo(() => getVendorColumns(), []);
 
+  // Every vendor with its totals. The calculation hook already loads all vendors and their
+  // POs/SRs/invoices/payments, so the table runs client-side and can sort on the totals.
+  const reportRows = useMemo<VendorReportRow[]>(() => {
+    if (isLoadingGlobalDeps || !vendors) return [];
+    return vendors.map((vendor) => ({
+      ...vendor,
+      ...(getVendorCalculatedFields(vendor.name) ?? EMPTY_TOTALS),
+    }));
+  }, [vendors, getVendorCalculatedFields, isLoadingGlobalDeps]);
+
+  // The table hook owns the search box state and its URL sync, but it must be handed rows
+  // that are already searched. So the search is applied from the hook's values, copied in
+  // by the effect below (one render behind).
+  const [appliedSearch, setAppliedSearch] = useState({ term: "", field: "vendor_name" });
+
+  const searchedRows = useMemo(() => {
+    const tokens = appliedSearch.term.toLowerCase().split(SEARCH_TOKEN_SEPARATOR).filter(Boolean);
+    if (!tokens.length) return reportRows;
+    const field = appliedSearch.field as VendorSearchField;
+    return reportRows.filter((row) => {
+      const value = String(row[field] ?? "").toLowerCase();
+      return tokens.every((token) => value.includes(token));
+    });
+  }, [reportRows, appliedSearch]);
+
   const {
     table,
     data: vendorsData,
@@ -86,15 +118,20 @@ export default function VendorReports() {
     setSelectedSearchField,
     exportAllRows,
     isExporting,
-  } = useServerDataTable<Vendors>({
+  } = useServerDataTable<VendorReportRow>({
     doctype: "Vendors",
     columns: tableColumns,
-    fetchFields: ["name", "vendor_name", "vendor_type", "creation"],
+    fetchFields: [],
     searchableFields: VENDOR_REPORTS_SEARCHABLE_FIELDS,
     urlSyncKey: URL_SYNC_KEY,
-    defaultSort: "vendor_name asc",
-    meta: { getVendorCalculatedFields, isLoadingGlobalDeps },
+    clientData: searchedRows,
+    clientTotalCount: searchedRows.length,
+    initialState: { sorting: [{ id: "vendor_name", desc: false }] },
   });
+
+  useEffect(() => {
+    setAppliedSearch({ term: searchTerm, field: selectedSearchField });
+  }, [searchTerm, selectedSearchField]);
 
   const isLoading = isLoadingGlobalDeps || isVendorsLoading;
   const error = globalDepsError || vendorsError;
@@ -109,6 +146,7 @@ export default function VendorReports() {
       return;
     }
 
+    // Client-side mode: the searched rows, in the order currently sorted on screen.
     const allRows = await exportAllRows();
     if (!allRows || allRows.length === 0) {
       toast({
@@ -120,20 +158,15 @@ export default function VendorReports() {
     }
 
     // 1. Manually construct the data array for the CSV
-    const dataToExport = allRows.map((vendor) => {
-      const calculated = getVendorCalculatedFields(vendor.name);
-      return {
-        vendor_name: vendor.vendor_name || vendor.name,
-        vendor_type: vendor.vendor_type || "N/A",
-        total_po: calculated ? formatForReport(calculated.totalPO) : "0",
-        total_sr: calculated ? formatForReport(calculated.totalSR) : "0",
-        total_invoiced: calculated
-          ? formatForReport(calculated.totalInvoiced)
-          : "0",
-        total_paid: calculated ? formatForReport(calculated.totalPaid) : "0",
-        balance: calculated ? formatForReport(calculated.balance) : "0",
-      };
-    });
+    const dataToExport = allRows.map((vendor) => ({
+      vendor_name: vendor.vendor_name || vendor.name,
+      vendor_type: vendor.vendor_type || "N/A",
+      total_po: formatForReport(vendor.totalPO),
+      total_sr: formatForReport(vendor.totalSR),
+      total_invoiced: formatForReport(vendor.totalInvoiced),
+      total_paid: formatForReport(vendor.totalPaid),
+      balance: formatForReport(vendor.balance),
+    }));
 
     // 2. Define the columns for the CSV export
     const exportColumns: ColumnDef<any, any>[] = [
@@ -174,7 +207,7 @@ export default function VendorReports() {
         variant: "destructive",
       });
     }
-  }, [exportAllRows, getVendorCalculatedFields, isLoadingGlobalDeps]);
+  }, [exportAllRows, isLoadingGlobalDeps, dateRange]);
 
   console.log("dateRange", dateRange);
 
@@ -210,7 +243,7 @@ export default function VendorReports() {
       {isLoading && !vendorsData?.length ? (
         <LoadingFallback />
       ) : (
-        <DataTable<Vendors>
+        <DataTable<VendorReportRow>
           table={table}
           columns={tableColumns}
           isLoading={isLoading}

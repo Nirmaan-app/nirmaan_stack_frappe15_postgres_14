@@ -9,7 +9,7 @@ DB I/O and feeds these predicates plain dicts.
 
 The definitions here are the CORRECTED, red-teamed versions from
 `.claude/context/domain/action-center.md` (v2) — NOT the older derive-on-read report
-logic. See docs/prd/project-action-items.md §2/§14.
+logic. See git show e6547258:docs/prd/project-action-items.md §2/§14.
 
 Key correctness invariants (from the red-team, §14):
   * "fully delivered" uses the SAME 2.5%-float / integer-exact tolerance as

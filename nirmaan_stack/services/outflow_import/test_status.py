@@ -29,6 +29,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_INFLOW_DOCTYPE,
     RECEIVED_LEDGER_DOCTYPES,
     SETTLEABLE_STATUSES,
+    VENDOR_REFUND_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.matcher import (
     BASIS_BANK_REFERENCE,
@@ -1939,12 +1940,23 @@ class TestPurity(unittest.TestCase):
         this test naming only `amounts` would have let the new dependency go unchecked, which is
         exactly the hole a transitive purity test exists to close. Any further sibling import must
         be added here in the same edit.
+
+        ⚠️ WIDENED AGAIN WITH THE FOURTH (#1301). `status.py` grew a `contains_guard` import so that
+        "is this candidate one slip of a part-linked expense?" has one definition; the guard's own
+        siblings (`amounts`, `ledgers`, `normalize`) are pure, and `normalize` is checked here too
+        rather than being reached only through it.
         """
         import inspect
 
-        from nirmaan_stack.services.outflow_import import amounts, ledgers
+        from nirmaan_stack.services.outflow_import import (
+            amounts,
+            contains_guard,
+            ledgers,
+            normalize,
+            skip_kinds,
+        )
 
-        for sibling in (amounts, ledgers):
+        for sibling in (amounts, contains_guard, ledgers, normalize, skip_kinds):
             for line in inspect.getsource(sibling).splitlines():
                 stripped = line.strip()
                 if stripped.startswith(("import ", "from ")):
@@ -2328,7 +2340,7 @@ class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
         self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 1, "value": Decimal("10")})
 
     def test_the_received_order_is_the_books_a_credit_can_reach(self):
-        """A credit becomes a `Project Inflow` or a `Non Project Inflow` (#1266).
+        """A credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds`.
 
         ⚠️ `Non Project Expenses` IS IN BOTH TUPLES ON PURPOSE, NOT BY COPY-PASTE. The removed B7
         path stored a non-project receipt as a NEGATIVE `Non Project Expense`, and those rows may
@@ -2336,7 +2348,12 @@ class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
         keys on the ROW's direction."""
         self.assertEqual(
             RECEIVED_LEDGER_DOCTYPES,
-            (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE),
+            (
+                INFLOW_DOCTYPE,
+                NON_PROJECT_INFLOW_DOCTYPE,
+                VENDOR_REFUND_DOCTYPE,
+                NON_PROJECT_EXPENSE_DOCTYPE,
+            ),
         )
         self.assertIn(NON_PROJECT_EXPENSE_DOCTYPE, LEDGER_DOCTYPES)
 

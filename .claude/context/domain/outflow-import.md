@@ -26,12 +26,12 @@ side: `Project Inflows` and a **negative** `Non Project Expense`.
 > |---|---|---|
 > | `Cashfree` | out only (no `direction` stated) | **PAYS** what someone approved. Never creates |
 > | `Cashbook` | out only (no `direction` stated) | **CREATES** what a wallet already spent (ADR-0015). Never settles |
-> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow` or a `Non Project Inflow` (#1266) |
+> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds` |
 >
-> **Nothing here creates a `Project Payment`, from any source, in either direction.** That would only
-> happen via **Vendor Refund**, which is deliberately deferred — it is a negative `Project Payments`
-> row minted inside a `PO Adjustments` doc plus a negative `RA Vendor` term, so it cannot be created
-> from a bank row without picking a PO. `settle.create_expense_from_row` still hard-guards
+> **Nothing here creates a `Project Payment`, from any source, in either direction.** A vendor
+> refund on a CREDIT (2026-09-17) is recorded as `Vendor Refunds` records -- one per PO / WO it is
+> against, plus one Misc. Expense for the rest -- and each PO / WO record LOWERS that document's
+> `amount_paid` (recomputed as Paid payments less refunds; no payment is created). See the 2026-09-17 section at the end. `settle.create_expense_from_row` still hard-guards
 > `is_expense_doctype`, and the inflow path is a **new function beside it, never a widened one**.
 
 The three settle-side ledgers all settle `Approved → Paid` and nothing else. It is an *alternative
@@ -69,6 +69,8 @@ pick one ad-hoc; ask.
 | Concept | Owner (module) | Nothing else may… |
 |---|---|---|
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
+| An expense's linked total, and whether it is fully linked (Paid ⇄ Reconciliation Pending) | `services/outflow_import/expense_links.py` (`load_expense_links` — the ONE aggregate over live Settled slips, with the line count; `derive_expense_status`, `remaining_balance`, `lines_fit` (many-line ₹5 guard), `bulk_id_of` (the reference a many-line expense gets) — pure) — ADR-0027, #1296/#1298. The many-line WRITE is `settle.link_lines_to_expense`, orchestrated by `api/outflow_import/link_lines.link_rows_to_expense` (all-or-nothing; each slip's `target_amount` = its line's own amount); the dialog's pure view is `frontend/.../linkLinesView.ts` (`bulkIdOf` pinned to the Python by `linkLinesParity.test.ts`). **Since #1299 Decide's one line uses the SAME write** (`settle_row` → `link_lines_to_expense(one_line_from_decide=True)`; `settle_existing_expense` is gone). `one_line_fits` is Decide's rule, read by BOTH the picker's `suggested` flag and the write: a fresh expense still needs the whole amount ±₹5, a part-linked one takes a line that fits what is left. `linked_totals_join` is the SQL twin of the aggregate for queries that filter/sort on it (the picker search, the matcher pool `candidates.load_expense_targets`, `ledger_read`), all of which compare against what is LEFT | store or increment a linked total, or decide an expense's Paid/Reconciliation Pending from its slips anywhere else. The settle guard, the server rules and the pickers read it from here |
+| **The four rules that protect an expense its bank lines settle** (ADR-0027 Q11/Q22, #1302) | `services/outflow_import/expense_links.py` (`amount_below_links_refusal`, `paid_while_short_refusal`, `delete_while_linked_refusal` — pure, each returning the sentence or `None`; rule 4 is `derive_expense_status`), wired by `hooks.py` → `integrations/controllers/expense_bank_links.py` (`validate` + `on_trash`, the SAME controller on BOTH expense doctypes) | guard these in an endpoint, or write a second controller per doctype. ⚠️ **Every rule is inert until the expense has live `Settled` slips** — that gate is the whole safety of the change, and it is what lets `unreconcile._revert_expense` put an expense back to Reconciliation Pending after reversing its only slip. ⚠️ **Rule 2 asks about a TRANSITION into Paid** (`_is_arriving_at_paid`, over `get_doc_before_save()`), never the state — otherwise it would refuse the raised-amount edit rule 4 exists to allow (Q8). ⚠️ **Rule 3 counts live slips AFTER the Reversed stamp**, which is what keeps `delete_created`'s own delete working; its `force=True` skips Frappe's link check but not `on_trash`. ⚠️ **No bypass flag for the import** — its writes satisfy the rules by construction (slip first, then save), and that agreement is what proves the rules are right |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
 | The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list** (the list in `amounts.py` is the authority; #1256 added `status.pick_duplicate_group`, #1257 `contains_guard.pick_recorded_group`). Originally SIX call sites: both SQL pool queries, the matcher, the settle guard, the already-paid duplicate check, and (N1) `similarity._amount_score`. The sixth decides NOTHING — it shapes the order of a browse list — and is listed anyway, because the rule is "every amount comparison in this feature", not "every one that writes". `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
 | What amount a settle WRITES (X1) | `services/outflow_import/amounts.py` (`rewrite_amount`) | decide it at a write site. It is **not a sixth window site**: the window already gated the pool and the write guard already re-asserted it, so this answers only "do these differ at all". ⚠️ Do not "finish" it by giving it a tolerance — that would put a second, quieter opinion about what may be settled inside a function whose job is to say what the number is |
@@ -90,12 +92,12 @@ pick one ad-hoc; ask.
 | **May a transfer pay PART of a record?** (PS; slice TD's DEDUCTION answer is REMOVED) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `looks_like_tds`, `INTENT_PART_PAYMENT`, `VALID_INTENTS`) — pure. ⚠️ `deduction_eligibility` and the band/service gate are GONE: the import records no tax, `services/payment_tds.py` withholds SR tax at approval | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing. **Its inverse lives beside it** (#1279): `unsplit_payment` joins a balance back — delete it, restore the original's amount, fold the balance term into the original's — so the sum invariant has one implementation in each direction. Whether a leftover is safe to join back is `services/outflow_import/unsplit.py`'s question, never this module's |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
-| **Can this leg be unreconciled, and what happens?** (#1271) | `services/outflow_import/unreconcile.py` (`leg_verdict`, `first_refusal`, `LegFacts`, `VERDICT_*`) — pure, B1; the ONE writer that acts on it is `api/outflow_import/unreconcile.unreconcile_row`, which `expenses.reverse_allocation` wraps with one leg; the ONE reader of the plan is `unreconcile.get_unreconcile_plan` (#1275), sharing `_read_facts` with the write. Screen copy: `frontend/.../outflow-import/unreconcileView.ts` | decide at a call site whether a leg may be reversed, or write a reversal anywhere else. The write path reads the facts UNDER its row / leg / target locks and asks here; a plan shown earlier is never trusted. One refused leg means NOTHING is written. Refusal sentences and their ORDER are pinned by `test_unreconcile.py` (a leg wrong in several ways is told only the first). Later verdicts (`revert_expense`, `delete_created`, `unsplit_payment`) are new branches here; which split child is a leg's own leftover, and whether it is untouched, is decided here too (#1279) |
+| **Can this leg be unreconciled, and what happens?** (#1271) | `services/outflow_import/unreconcile.py` (`leg_verdict`, `first_refusal`, `LegFacts`, `VERDICT_*`) — pure, B1; the ONE writer that acts on it is `api/outflow_import/unreconcile.unreconcile_row`, which `expenses.reverse_allocation` wraps with one leg; the ONE reader of the plan is `unreconcile.get_unreconcile_plan` (#1275), sharing `_read_facts` with the write. Screen copy: `frontend/.../outflow-import/unreconcileView.ts` | decide at a call site whether a leg may be reversed, or write a reversal anywhere else. The write path reads the facts UNDER its row / leg / target locks and asks here; a plan shown earlier is never trusted. One refused leg means NOTHING is written. Refusal sentences and their ORDER are pinned by `test_unreconcile.py` (a leg wrong in several ways is told only the first). Later verdicts (`revert_expense`, `delete_created`, `unsplit_payment`, `unlink_expense_line`) are new branches here; which split child is a leg's own leftover, and whether it is untouched, is decided here too (#1279). **`unlink_expense_line` (#1300, ADR-0027 Q15/Q21) is one line off a many-line expense: NONE of the three "changed elsewhere" checks (amount, Paid, reference) apply** — linking never rewrote the amount or wrote that line's reference, and the expense is only Paid once every line is in, so each check would refuse every line but one. **Which legs are many-line is `_is_many_line_expense`, and nothing stored says it** — no flag marks a 1:1 settle — so it reads the slips: another slip shared the expense (live, or Reversed AFTER this leg was matched), or this lone line only part-fills a Reconciliation Pending expense (short by more than ₹5). ⚠️ **EVERY DOUBT IS 1:1**, which keeps the exact checks: an unknown match or reversal time is not sharing, and a 1:1 settle that was reversed and settled again by a new line is still 1:1. ⚠️ **THE SECOND SHAPE GOES PAST Q21's LETTER AND IS AWAITING OWNER RATIFICATION** (flagged at #1300): Q21 says "a single-slip undo keeps today's exact check", and a lone line that only part-fills IS single-slip — but it is the FIRST GO OF A RUN, and today's checks refuse it on all three counts (short amount, not Paid, the run's reference), so without this shape that line can never come off and the run is stuck. The cost is that a 1:1 expense whose amount was RAISED after settling (which #1302's rule 4 flips to Reconciliation Pending) reads as part-linked and reverts instead of refusing — which is the Q8 reading, a raised amount being an expense with room. A LOWERED amount still refuses, because it leaves the expense Paid and not short. The write `api/.../unreconcile._unlink_expense_line` touches NEITHER the amount, the reference nor `payment_by` (other lines still settle it) and re-derives status + date through the same `settle._derive_status_and_save` every expense settle ends in, AFTER the Reversed stamp so it reads only the lines that stay. The statement attachment — and its `File` link row, via `CarriedOut.statement_still_linked` — comes off only when no live line from the same import is left. Figures for the screen ride the plan and the response through `expense_line_fields` (`stays_linked`, `other_lines`, `expense_amount`, `stays_paid`); `unreconcileView.expenseLineConsequences` / `legAmountLabel` render them, and ⚠️ **such a leg is excluded from the notice's changed-amount line** — its figure is one line's, the expense keeps its own |
 | **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
-| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for` | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
+| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for`. **Since #1301 (ADR-0027 R3) a `Reconciliation Pending` expense with live `Settled` slips enters ONCE PER SLIP** — `TargetRef.import_row` set, that slip's amount, that line's narration as the reference — and such a candidate is exempt from one-record-one-line (`is_slip_candidate`), is exempt from `_recorded_money_group`'s `writing` mute, and reads `SKIP_REASON_ALREADY_LINKED` rather than being called Paid | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
 | **What reference a settlement WRITES** (B9; the ICICI rung at #1259) | `services/outflow_import/settlement_reference.py` (`resolve_settlement_reference` at ingest, `settlement_reference_of_row` at settle, `settlement_references_of_row` for the reversal) + `sources.source_writes_its_match_surface` | decide per write site what goes into `utr` / `payment_ref`. ⚠️ For a bank passbook it is `contains_guard.match_surface` and nothing else. ⚠️ **ORDERING RULE: the full-narration write may never ship ahead of the contains-match** -- every exact guard is blind to a stored narration |
 | **Where a settled/matched record's link GOES** (E3; inflows at #1253) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side; an inflow's URL is `inflow-payments/config/inflowPaymentsTable.config.ts` (`inflowHref`, over the ONE key builder `buildInflowUrlSyncKey` the inflow page also reads) | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
 | **How a duplicate note names the records behind it** (#1253) | `services/outflow_import/status.py` (`_record_sentence`, `_records_phrase`, `SKIP_REASON_ALREADY_PAID` / `_RECEIVED`) — pure; ledger nouns from `ledgers.LEDGER_NOUNS`; the link data is `review._related_records` (`related_records`) | print a bare expense id (a random hash), call an inflow "Paid", or offer the TDS hint on a group with no Project Payment. `_related_records` must read the SAME source as the duplicate guard, or a skipped row names a record it cannot link |
@@ -709,8 +711,8 @@ needs one vocabulary rather than one per writer.
       it now names the MONEY figures only. Anything that reverts the chip must revert that sentence
       too, or the panel contradicts itself again in the other direction.
     - **`get_outflow_rows` takes `failed`** (tri-state: absent = both halves) so the two facts inside
-      `Skipped` can be asked for separately — the Skipped dialog's `All / Already paid / Bank refused`
-      control. It binds `parser.BANK_SUCCESS_STATUS` rather than spelling `'SUCCESS'` a second time,
+      `Skipped` can be asked for separately. (The Skipped dialog's segment control that sent it was
+      REPLACED on 2026-09-17 by Skip Type + direction tabs — see that section; the server param stays.) It binds `parser.BANK_SUCCESS_STATUS` rather than spelling `'SUCCESS'` a second time,
       and it lives in `_row_filters`, so a filtered view's tab counts move with it.
     - ⚠️ **`auto_skipped` excludes them on the same terms**, or `manually_skipped_rows`
       (`skipped_rows - auto_skipped`) subtracts rows its minuend no longer contains.
@@ -1189,8 +1191,9 @@ is a browser walk, because there is no DOM test environment here.
 and decisions deliberately stayed on the page: it is a worklist, the dialog is read-only, and folding
 those in would hand the dialog affordances it must not have behind a flag. **The dialog is read-only
 BY CONSTRUCTION** — `Skipped` is terminal so the table renders no action, and an empty
-`selectableRowNames` removes the checkbox column. Its `All / Already paid / Bank refused` control is
-what makes the split inside `Skipped` actionable.
+`selectableRowNames` removes the checkbox column. (Its old segment control — last
+`All / On purpose / Bank refused / Skipped by hand` — was replaced on 2026-09-17 by the Skip Type column
+and `All / Inflow / Outflow` tabs; see "Skip Type" at the end of this file.)
 
 ---
 
@@ -1697,12 +1700,15 @@ reject, and strips the declaration `_record_partial_provenance` writes onto both
 ⚠️ **`Project Payments.tds` IS STILL WRITTEN — JUST NOT HERE.** `api/payments/project_payments._fulfil_payment`
 (manual PO fulfilment) remains its writer and is untouched; 625 Paid SR payments hold ₹6,34,002 of
 legacy `tds` and are NOT backfilled. What changed is that **this import touches the column at no point.**
+*Superseded 2026-09-16:* `_fulfil_payment` no longer writes it either, and the field is being retired
+(`.claude/plans/project-payments-tds-drop-plan.md`, ADR-0022 Amendment C).
 
 ⚠️ **THE REGRESSION FENCES.** Three inverted pins, not deletions — a deleted pin checks nothing:
 `test_partial_settle.TestTheIntentVocabulary.test_the_deduction_answer_is_gone_and_this_pin_keeps_it_gone`
 (the module exports none of the removed names), `test_settle_payment.TestPartialSettlementRefusals.test_a_declared_deduction_is_now_refused_outright`
 (the literal wire value `"deduction"` throws and writes nothing), and
-`test_settle_payment.TestTheImportWritesNoTaxAtAll` (no `tds` written; `rewrite_amount` always runs).
+`test_settle_payment.TestTheImportWritesNoTaxAtAll` (`rewrite_amount` always runs; its "no `tds` written"
+half was removed with the field on 2026-09-16).
 The frontend mirror is pinned by an exported-surface loop in `outflowTableModel.test.ts`.
 
 ⚠️ **NAME COLLISION — READ BEFORE GREPPING.** `TDS Items`, `TDS Repository`, `Project TDS Setting`
@@ -2255,8 +2261,8 @@ wrong conclusion from the same reasoning.
   `test_unreconcile_tds.py` (real endpoints, `TaxedWorkOrderFixture`, so the tax code is actually
   reachable). `unreconcile_row` still returns `amount_after` beside `reversed_amount`, and
   `unreconcileNotice` still states a difference — as a BACKSTOP; on the ordinary path the two are equal
-  and it stays quiet. Unrelated and unchanged: the legacy `tds`-field refusal in `leg_verdict` (PTD does
-  not write `tds`).
+  and it stays quiet. The legacy `tds`-field refusal that used to sit in `leg_verdict` was RETIRED on
+  2026-09-16 with the field (ADR-0022 Amendment C); "Leftover taxed" now keys on a deduction row only.
 - **Fixtures stay synthetic — the repo is public.** Real statements carry live beneficiary names,
   accounts and IFSC codes.
 
@@ -2401,15 +2407,15 @@ document to read before changing any of this. Slice-by-slice as-built + the owne
 `frontend/.claude/plans/bank-statement-ingestion-plan.md`.
 
 The prime directive at the top of this doc is now scoped by **source AND direction**, not just by
-source — see the table there. **Nothing here creates a `Project Payment`**; that would only happen
-via Vendor Refund, which is deferred.
+source — see the table there. **Nothing here creates a `Project Payment`**; a vendor refund is recorded
+as `Vendor Refunds` (see the 2026-09-17 section at the end).
 
 ### What a row becomes
 
 | Direction | Rows | Value | Offered on the screen |
 |---|---:|---:|---|
 | Debit | 711 | ₹8.28 Cr | create a `Project Expense` / `Non Project Expense` |
-| Credit | 158 | ₹18.00 Cr | create a `Project Inflow` **or** a `Non Project Inflow` (#1266) |
+| Credit | 158 | ₹18.00 Cr | create a `Project Inflow`, a `Non Project Inflow` (#1266) **or** `Vendor Refunds` |
 
 405 further rows are excluded by rule at stage time and never become work
 (`services/outflow_import/bank_exclusions.py`).
@@ -2532,7 +2538,7 @@ Pinned by `test_expenses.TestTheGuardIsOnePredicate`.
 ⚠️ **A BLANK DIRECTION MUST STILL SETTLE, AND THIS IS THE HALF THAT BREAKS UNDER "TIDYING".**
 Cashfree and Cashbook state no direction at all; a guard refusing anything not explicitly `Debit`
 would refuse every row from both sources — the two the feature was built for. There is deliberately
-**no service-layer twin** on the debit side: `settle_payment` / `settle_existing_expense` /
+**no service-layer twin** on the debit side: `settle_payment` / `link_lines_to_expense` /
 `create_expense_from_row` take no `direction` argument, because direction chooses a *sign* only on
 the credit paths. Do not "restore symmetry" by inventing one.
 
@@ -5640,3 +5646,435 @@ child is in neither.** `payment_split` inserts it through the naming series, so 
 each looked like a defect in the code under test. The base fixture now sweeps by `split_from`, so
 every suite inheriting it is covered (`test_unreconcile_tds` part-settles through it too), and the
 suites pass back-to-back with no purge between them.
+
+---
+
+## 2026-09-17 — a bank credit can be recorded as vendor refunds
+
+A credit row offers a THIRD card, **"Create a vendor refund"**: money a vendor paid back. The reviewer
+picks a vendor (suggested from the remarks) and, OPTIONALLY, a project (won, not Completed). "Refund
+against" is **MULTI-select**: ticking PO and/or WO shows each list (with no project, the vendor's
+documents on EVERY project, each row naming its project), and ticking **Misc. Expense** adds one part
+against NO document that takes **whatever the ticked POs / WOs leave** (derived, never typed; a
+description box sits on its line). On Confirm each ticked document -- and the Misc. Expense -- becomes
+**one `Vendor Refunds` record** (three POs + misc -> four records), all in ONE savepoint, one match leg
+each (`created_by_import = 1`, `target_amount` = the part).
+
+Doctype **`Vendor Refunds`** (`VRF-.YY.-.#####`, `track_changes`, no status, Non Project Inflows'
+DocPerms): `vendor` (required), `project` (optional), `document_type` (required Select: Procurement
+Orders / Service Requests / **Misc. Expense**), `document_name` (Dynamic Link, mandatory only when the
+type is not Misc. Expense -- a misc record stores NULL, so the link is never resolved), `amount` (the
+part), `utr` (the line's settlement reference), `payment_date` (the line date), `refund_attachment` (the
+statement), `description` (Small Text; the Misc. Expense line's text, blank on PO / WO parts).
+
+- ⚠️ **Project is recorded from the DOCUMENT, never from the picker:** a PO / WO part stores its PO's /
+  WO's own `project` (`vendor_refunds.document_project`; the controller fills a blank one on a Desk
+  save too). A Misc. Expense stores the chosen project, or none. Choosing a project only narrows the
+  lists; changing it keeps the ticks on documents of the new project, and clearing it keeps them all.
+- ⚠️ **It creates NO `Project Payment` or `Project Expense`** (a same-day negative-payment design was
+  rejected), **but a PO / WO refund LOWERS that document's `amount_paid`** (REVERSED later on 2026-09-17 —
+  the first cut moved no paid amount). The stored figure is **`vendor_refunds.amount_paid_of` = Paid
+  payments − Vendor Refunds**, recomputed from source, never decremented. ALL THREE writers ask it:
+  `Project Payments.update_parent_amount_paid`, `_payment_utils._recalculate_amount_paid`, and the
+  `Vendor Refunds` doc_events hook `integrations/controllers/vendor_refunds.recompute_document_amount_paid`
+  (`on_update` + `after_delete`; recomputes BOTH documents when a refund is re-pointed; skips an edit that
+  moves no money; `amount_due` follows; never commits, so the import savepoint holds). Undo deletes via
+  `frappe.delete_doc`, so it restores the paid amount. ⚠️ A RAW delete of a refund runs no hook (the
+  refund tests capture + restore their POs' figures for this). ⚠️ Recording the same money through the PO
+  Adjustment "Vendor has refund" flow too lowers it twice. ⚠️ Refunds saved BEFORE this change are not
+  netted until something recomputes their document.
+- ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
+  a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
+  (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)
+  and `0 < amount <= refundable`, where **refundable = paid − earlier Vendor Refunds on it**; a **Misc. Expense** names no document and needs only `amount > 0`, no cap) is asked by
+  the doctype `validate` AND for each part by `refund_allocation_problem` (one credit: vendor, at least
+  one part, no document twice, **at most one Misc. Expense**, parts adding up **to the paisa** to the BANK
+  ROW's amount), which `settle.create_vendor_refund_from_row` asks first. `refund_documents(vendor,
+  project=None)` builds the dialog's lists, newest `creation` first, with `paid`, `refunded`,
+  `refundable`, `project` and `project_name` per row (plus the PO / WO figures the details panel shows).
+- ⚠️ **Project Expenses are NO LONGER a refund target** (owner, same day): the earlier "Misc. Expense"
+  list of paid `Project Expenses` was replaced by the document-less Misc. Expense part.
+- **Endpoints** (`api/outflow_import/inflows.py`): `create_vendor_refund(row, vendor, project,
+  allocations, confirm_mismatch)` (allocations = JSON list of `{document_type, document_name, amount}`;
+  the misc part is `{"Misc. Expense", "", amount, description?}`; `project` optional) and
+  `get_vendor_refund_documents(vendor, project=None)`.
+- **Joined the credit-book registry**, which every guard reads: `ledgers.VENDOR_REFUND_DOCTYPE` in
+  `INFLOW_DOCTYPES` (contains-guard, received notes, `_already_created_by_import`, the unreconcile
+  delete-created path), `RECEIVED_LEDGER_DOCTYPES`, `LEDGER_NOUNS`, `candidates.CONTAINS_LEDGERS`
+  (`tabVendor Refunds.utr`), `settle._STATEMENT_ATTACHMENT_FIELDS` and `unreconcile.IMPORT_WRITTEN_FIELDS`
+  (`refund_attachment`). `_already_created_by_import` keys its identity on the ROW's amount (a split
+  refund's legs each carry only a part). **Undo deletes the records -- ALL of them, never some.** A line carrying a vendor refund is
+  undone whole (`services/outflow_import/unreconcile.reverse_all_only`): the plan sends
+  `reverse_all_only` (the dialog hides the per-record Reverse) and `unreconcile_row` refuses a request
+  naming only some live legs. ⚠️ Why: a part-reversed line reads Partially Allocated, which
+  `create_vendor_refund` refuses, while the refunds left on it count as already recorded -- a dead end
+  (hit on the first real test, 2026-09-17).
+- **Screen:** `DecisionTarget` `"vendorRefund"`, form `newVendorRefund {vendor, project?, refundAgainst[]
+  (PO / WO / Misc. Expense, multi), allocations[{documentType, documentName, label, project, paid,
+  refundable, amount}], miscDescription?}`, changed only through `withRefundPick` (new vendor clears
+  every tick; new project keeps only that project's ticks; cleared project keeps all),
+  `toggleRefundAgainst` (unticking PO / WO drops that list's ticks), `toggleRefundAllocation` (a new tick
+  prefills what the other DOCUMENTS leave, capped at refundable -- the misc part never holds a tick back)
+  and `setRefundAllocationAmount`. `refundMiscAmount` derives the misc part; `refundAllocationProblem` is
+  the confirm gate (misc with nothing left is refused, never sent negative); `refundAllocationsPayload`
+  builds the posted parts. Vendor default = `suggestRefundVendor` (payer + `/`/`-`
+  pieces of the remarks, prefix match, exactly one vendor or nothing). Each PO / WO row carries the
+  shared `ItemsHoverCard` (book icon, items) and a details popover (`RefundDocumentDetails`, figures from
+  the list row, link to `/project-payments/<order>`) -- one `RefundDocumentIcons` component, on the list
+  row AND the Selected line; both stop the click so they never tick the row.
+- **Where refunds are READ:** a "View Refunds" button on the right of the PO's and the WO's Transaction
+  Details header (the PO's accordion reads "Payment Details / Refunds";
+  `components/vendor-refunds/VendorRefundsButton`, a dialog of that order's refunds via
+  `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`) and a **Vendor
+  Refunds** tab on the vendor page (`pages/vendors/components/VendorRefundsTab`, the shared server data
+  table on the doctype -- search, Type / PO-WO / Project facets, date filter, export; Misc. Expense
+  included). ⚠️ The doctype's **READ DocPerms mirror `Project Payments`' read roles** (write stays with the
+  accountants), and both reads are permission-aware, so a project-scoped user sees only their projects'
+  refunds -- plus Misc. Expense refunds saved with no project, exactly as a blank link passes user
+  permissions anywhere.
+- **The UTR opens the attachment** (`components/vendor-refunds/RefundAttachmentLink`, both reads). An
+  imported refund's attachment is the bank statement `.xlsx`, which a browser can only download, so a
+  `.xlsx` / `.csv` opens IN-APP: `api/vendor_refunds/attachment_preview.get_refund_attachment_preview(refund)`
+  (read-permission on the refund; reads the bytes server-side because the storage URL is cross-origin;
+  `parser._read_grid`, first 2,000 rows) and the refund's own row is highlighted by its UTR. PDFs and
+  images still open in a new tab.
+- Tests: `test_inflows.py` (`TestTheVendorRefund`, `TestTheVendorRefundRefusals`);
+  `doctype/vendor_refunds/test_vendor_refunds.py` (the paid-amount hook: insert / edit / re-point / delete,
+  a payment recompute keeping the refund off, the cap reading gross paid); `outflowTableModel.test.ts`
+  (`vendorRefund` branch, `suggestRefundVendor`, `vendor refund allocations`).
+## Skip Type — the Skipped popup's column, filter and direction tabs (2026-09-17)
+
+Owner-confirmed. Branch `feature/outflow-skip-type`. Three commits: store, read, popup.
+
+**What changed on screen.** The popup's Outcome column is REPLACED by **Skip Type** (a facet funnel).
+The kind shows in the cell, the full reason sentence rides its hover, and the record links and the
+"Skipped by hand · who · when" line stay. The four segments are gone; the popup has **All / Inflow /
+Outflow** tabs instead. The CSV keeps Outcome AND adds Skip Type. The page's own table is unchanged —
+`SKIPPED_COLUMNS` is a separate list, so no blank Skip Type column appears in the page's Columns menu.
+
+**Stored, not derived (owner pick B).** `Outflow Import Row.skip_kind` (read-only Select; JSON added by a
+sanctioned CC edit — root CLAUDE.md). Vocabulary: `services/outflow_import/skip_kinds.py`, a leaf with no
+imports so both `status.py` and the fenced-off `cashbook.py` can name it. 17 values: Already imported ·
+Repeated in same file · Bank refused · No amount · Outflow Already Recorded · Inflow Already Recorded ·
+one per bank-exclusion rule (the two GL-transfer rules share "Bank internal transfer") · Cashbook
+internal movement · Skipped by hand.
+
+**Writers — each sets the kind in the SAME branch as the sentence:** `status.RowOutcome.skip_kind`
+(upload staging, match run, contains-guard) → `upload._stage_batch` and `review._persist_row_outcome`;
+`cashbook._skip_reason` returns `(reason, kind)` → `api/outflow_import/cashbook.py`; `review.skip_row`
+writes Skipped by hand; `unskip_row` clears it (a re-check that skips again writes its new kind).
+
+**Rulings encoded.**
+- A line both bank-refused AND already imported is **Already imported** — the sentence wins (140 local rows).
+- Cashbook "Already booked as …" is **Outflow Already Recorded** (same meaning as "already paid").
+- The mixed "Already recorded on …" group (unreachable today) has no kind of its own; it follows the
+  LINE's direction (`status._recorded_skip_kind`).
+- ⚠️ A new `bank_exclusions` rule needs a kind in `SKIP_KIND_BY_EXCLUSION_CATEGORY` in the same change —
+  `test_skip_kinds` fails otherwise, and the staging deriver would `KeyError`.
+
+**History.** `patches/v3_0/backfill_outflow_skip_kind.py` reads the kind back out of the stored sentence
+through `skip_kind_backfill.classify_stored_skip_kind` (the ONLY place a kind is read from text).
+Manual origin → Skipped by hand; else `skip_reason`, then `outcome_note`. ⚠️ It REFUSES — writes nothing,
+names the lines — if any Skipped line names no known kind. Local run: Already imported 2239 · Bank
+refused 92 · Outflow Already Recorded 87 · Cashbook internal movement 62 · Cashfree wallet top-up 10 ·
+No amount 1 (= all 2,491).
+
+**Reads.** New scopes `skipped_outflow` / `skipped_inflow` (`_SCOPE_STATUSES` + `_SCOPE_DIRECTION`), so
+the tab counts ride `tab_counts` under the popup's filters; no page tab maps to them (test-pinned both
+sides). `_FACET_COLUMNS["skip_kind"] = "r.skip_kind"`; `SERVER_FACET_COLUMNS` carries it; the funnel
+parity test now walks `OUTFLOW_COLUMNS` + `SKIPPED_COLUMNS`. The frontend no longer sends `failed` /
+`skip_origin` (server params kept). `get_outflow_summary.skipped_by_hand_rows` is now read by nothing on
+screen.
+
+### Follow-up (same day): fewer columns, the document behind each skip, and Unskip by kind
+
+- **The popup also drops Status and Ledger** (`SKIPPED_COLUMNS`): every row is Skipped and settles
+  nothing. The CSV keeps both.
+- **The Skip Type cell names the document behind the skip** and a hover card lists its facts plus the
+  full reason (`skipSourceView.skipSourceSummary`, pure + vitested; the card is PORTALLED so the
+  popup's `overflow-auto` box cannot clip it). The server sends `skip_source` on every Skipped row
+  (`api/outflow_import/skip_sources.py`, read-only): the earlier import (`prior_import_sightings` +
+  `find_prior_sighting`, the pair upload decided with), the earlier line of the same file
+  (`duplicates.row_identity`, lowest row name = earliest in file), the records already on the books
+  (the SAME `related_records` the links use; a Cashbook "already booked" row looks up the expense by
+  `payment_ref`), and a plain-words rule description (`skip_kinds.SKIP_KIND_RULE_DESCRIPTIONS`). A
+  document that cannot be found yields nothing; the card falls back to the reason.
+- ⚠️ **UNSKIP IS DECIDED BY SKIP KIND (ADR-0022 Amendment C, reversing "hand skips only").**
+  `skip_origin.unskip_refusal(row_status, skip_kind, source)` refuses: not Skipped; **any Cashbook line**
+  (B1); the four `UNSKIP_LOCKED_KINDS` — Already imported, Repeated in same file, No amount, **Bank
+  refused** (A1: the re-check would skip it again at once); a blank/unknown kind. Everything else comes
+  back. Recorded kinds stay safe through the same-transaction re-check (still recorded → skipped again,
+  same kind; a second Unskip is allowed and does the same). ⚠️ **A bank-rule kind has no re-check** —
+  exclusions are upload-only — so it lands as open work; the Unskip box shows `unskipView.unskipWarning`.
+  The frontend mirror (`skipKinds.ts`) is pinned to `skip_kinds.py` + `skip_origin.py` by
+  `skipKinds.test.ts`.
+
+## #1301 (2026-09-18) — the duplicate guards see a part-linked expense's own bank lines (ADR-0027 R3)
+
+The "already recorded" guards read **Paid** records only, so a bank line already linked to a
+**Reconciliation Pending** expense was invisible to them. An overlapping statement bringing that line
+again could link the same money twice and still fit under the amount (the Q16 over-limit refusal only
+catches over-payment). Parent #1295 story 29.
+
+**A part-linked expense enters the guard ONCE PER LIVE SLIP, not once as a whole.** That is the whole
+design, and it is what "compare a line with *that line's* slip" means:
+
+- `candidates.load_recorded_by_contains` gains a second UNION branch for the two expense ledgers
+  (`ContainsLedger.part_linked`): every `Reconciliation Pending` expense with a live `Settled` slip
+  contributes one row per slip — the **expense's** `doctype`/`name` (so a note, a link and a claim all
+  name the record), that **slip's** `target_amount`, the settled **line's** `added_on` date, and the
+  settled line's **match surface** as the reference. The `CASE` mirrors `contains_guard.match_surface`
+  (the cheque column is appended only when the narration carries no run of 6+ digits).
+- ⚠️ **THE MATCH SURFACE IS THE POINT.** A 1:1 settle writes its line's narration onto `payment_ref`,
+  which is exactly what lets this guard recognise the money on a later statement. A run's lines have
+  nowhere to write theirs — one expense, one reference field — so the slip stands in for it and the
+  narration is read off the line. The expense's own `payment_ref` is **deliberately not read while it
+  is part-linked**: on a run it is the shared bulk id, which is not an eligible token — and if it were,
+  every line of the run would be a duplicate of every other.
+- `TargetRef.import_row` carries the slip's line. Blank on every settle candidate and on every
+  whole-record duplicate candidate, which is what keeps Paid behaviour byte-unchanged. ⚠️ **It travels
+  through `tok` → `near` → `hit` into the FINAL JOIN**: without it a hit on ONE slip returned the
+  whole run's slips, putting several rows of one expense in front of `pick_recorded_group`, which
+  could then sum two lines' money into one "already recorded" total. Pinned by
+  `test_one_hitting_slip_does_not_drag_its_whole_run_into_the_pool`, verified to FAIL without the
+  join clause.
+- ⚠️ **The `CASE` is a SECOND builder of a match surface, so it is pinned like the tokeniser is.**
+  `TestTheSlipBranchMirrorsTheMatchSurface` drives BOTH branches (a narration with a long number
+  stands alone; a cheque-clearing narration takes the cheque column) against the pure
+  `contains_guard.match_surface` and asserts equality — the mirror rule the residence table states for
+  `match_surface`, and the same rule `test_review.TestTheContainsQueryMirrorsThePureTokens` enforces
+  for the tokeniser. PostgreSQL's `[0-9]` is ASCII where Python's `\d` is Unicode, so the SQL falls
+  into the append branch in a SUPERSET of cases — never narrower, which is the direction that is safe.
+- ⚠️ **A SLIP CANDIDATE IS NEVER CLAIMED** (`contains_guard.is_slip_candidate`, read by
+  `pick_recorded_group`). One-record-one-line (#1258) exists because a stored reference — a
+  counterparty's account number — sits in many unrelated narrations, so one record must not hide a
+  second genuine payment; a slip is found by its own line's narration and can hide nothing but the same
+  transfer. Leaving slips claimable would also be self-defeating: **every slip is claimed by its own
+  line**, so the rule would block the duplicate skip it exists to enable.
+- ⚠️ **`review._recorded_money_group`'s `writing` MUTE NO LONGER COVERS THE TARGET'S OWN SLIPS.** The
+  mute exists so an already-Paid Link target keeps its distinct `AlreadyPaidError` ("somebody beat you
+  to it") sentence, on the argument that such a target is refused either way. **That argument expired
+  for a part-linked expense**: one with room is not refused by the settle — room is what linking needs
+  — so muting the guard on the target let `link_rows_to_expense` link the same line to the same run
+  twice. Only SLIP candidates survive the mute; the whole-record candidate of a `writing` target stays
+  muted, and a record THIS ROW already settled is still dropped outright. Pinned by
+  `test_recorded_money_guard.test_the_same_line_cannot_be_linked_to_the_same_run_twice`, which was
+  verified to FAIL with the exemption removed.
+- **The note never calls a part-linked expense Paid.** `status.SKIP_REASON_ALREADY_LINKED` —
+  *"Already linked to …, which is still being reconciled."* — is read by `_record_sentence` when
+  **every** record in the group is a slip (`_is_slip_group`). A MIXED group keeps the Paid sentence:
+  something in it genuinely is Paid, and understating that would be worse. `status.py` gains
+  `contains_guard` as its fourth permitted pure-sibling import so "is this a slip?" has one definition.
+
+**Unchanged on purpose:** `load_record_claims` (it already read every live `Settled` slip whatever the
+record's status), the skip kind (`Outflow Already Recorded` — no new kind, ADR-0027 R1), the Cashfree
+exact guards, and every Paid record's behaviour.
+
+**Known limit:** the hit is the settled line's narration, so a re-export whose narration shares no
+eligible token with the original is missed here — the same blind spot the upload duplicate check has,
+since its identity includes `remarks`.
+
+**Also touched:** `test_status.TestPurity.test_every_sibling_it_imports_is_itself_bench_free` gains
+`contains_guard` (and `normalize`) — its own docstring is the standard: *"Any further sibling import
+must be added here in the same edit."*
+
+**Tests:** `services/outflow_import/test_contains_guard.TestAPartLinkedExpensesOwnLines` (7 pure) and,
+in `api/outflow_import/test_recorded_money_guard`, `TestPartLinkedExpensesAreSeen` (8 bench — the
+duplicate refusal, the same-line-twice refusal through `link_rows_to_expense`, the fan-out pin, the
+unrelated-line and Paid-unchanged controls, a Reconciliation Pending expense with **no** slips blocking
+nothing, and a `Reversed` slip not counting) plus `TestTheSlipBranchMirrorsTheMatchSurface` (2).
+
+## #1302 (2026-09-18) — four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22)
+
+An expense can now be settled by many bank lines, so an ordinary edit could silently break the links:
+lower the amount below what the lines already moved, mark it Paid before its money is all in, or delete
+it and leave the slips pointing at nothing. Parent #1295 stories 33–38.
+
+**The rules sit on the DOCUMENT, not on the endpoints (Q22b).** Mark Reconciled on the Payments tab, the
+old expense pages' Mark as Paid / Edit / Delete, Desk, Data Import and the import's own settle and
+unreconcile all reach an expense through `doc.save()` / `frappe.delete_doc()`. An endpoint guard would
+have left every door without an endpoint wide open.
+
+- **Wiring.** `hooks.py` → `integrations/controllers/expense_bank_links.py`, the SAME controller on both
+  expense doctypes (`validate` + an additional `on_trash` beside the existing
+  `delete_doc_versions.generate_versions`). ⚠️ **ONE controller, not a twin per doctype.** `amount`,
+  `status` and `payment_date` are spelled identically on `Project Expenses` and `Non Project Expenses`,
+  and nothing here reads what differs (a project, a vendor, `payment_by`); two files would be two copies
+  of one rule (ADR-0010 F3/B1). ⚠️ **`on_trash` comes FIRST in the list** so a refused delete never mints
+  a version row for a document that is still there.
+- **Logic in `services/outflow_import/expense_links.py`** — the ticket-1 module that already owns "is
+  this expense fully linked". Three new PURE functions returning the sentence a person should read, or
+  `None`: `amount_below_links_refusal` (rule 1), `paid_while_short_refusal` (rule 2),
+  `delete_while_linked_refusal` (rule 3). Rule 4 is the existing `derive_expense_status`.
+- ⚠️ **EVERY RULE IS INERT UNTIL THE EXPENSE HAS LIVE `Settled` SLIPS, and that gate is the safety of
+  the whole change.** An expense no bank line has touched — nearly all of them — behaves exactly as it
+  did before this feature existed, because `line_count == 0` returns before anything is read or written.
+  It is also what lets `unreconcile._revert_expense` put an expense back to Reconciliation Pending after
+  reversing its only slip: by then there are no live slips, so rule 4 does not fire and overwrite the
+  revert. The gate lives in the controller ONCE, not as a `line_count` test repeated inside each rule.
+- ⚠️ **RULE 2 ASKS ABOUT A TRANSITION, RULE 4 ABOUT A STATE — confusing them breaks rule 4.** An expense
+  that is ALREADY Paid and whose amount is then raised must FLIP to Reconciliation Pending (Q8: fixing an
+  amount is an ordinary edit). If rule 2 fired on that save the edit would be refused and the only way out
+  would be to unreconcile the whole run. So rule 2 is asked only when the status is ARRIVING at Paid —
+  `_is_arriving_at_paid`, over `doc.get_doc_before_save()`, which Frappe loads in
+  `run_before_save_methods` immediately before `validate`.
+- ⚠️ **RULE 1 TESTS THE VALUE, NOT THE CHANGE.** A save leaving the expense claiming less money than its
+  own lines moved is wrong whoever caused it. The ₹5 leeway is `amounts.AMOUNT_TOLERANCE`, the same window
+  the linking guard allows in the other direction — rounding, not a shortfall.
+- ⚠️ **RULE 3's "LIVE" IS COUNTED AFTER A REVERSED STAMP**, which is what keeps Unreconcile's own delete
+  of an import-created expense working: `unreconcile_row` stamps the slip `Reversed` *before* it carries
+  the verdict out, so by the time `delete_created` runs this reads zero. Counting before the stamp would
+  make the undo refuse itself. ⚠️ `delete_created` passes `force=True`, which skips Frappe's own
+  dynamic-link check (the kept Reversed slip still names the expense) but **NOT** `on_trash` — so rule 3
+  is the real guard on that path, and the refusal test drives it with `force=True` for exactly that
+  reason: a plain delete would pass for a reason that has nothing to do with rule 3.
+- ⚠️ **RULE 4 REWRITES `payment_date`, NOT ONLY `status`, AND THAT IS SPECIFIED** (the ticket: *every
+  save re-works-out Paid ⇄ Reconciliation Pending **and the payment date***). Worth stating because it
+  is the **one SILENT effect** in this change: a person correcting a settled expense's date by hand, in
+  Desk or on the old expense pages, sees the save succeed and the field revert to the latest linked
+  line's date in the same transaction. The date belongs to the bank lines here, so it is re-derived
+  rather than refused — the other three rules all refuse out loud, and that asymmetry is deliberate.
+  Pinned by `test_a_hand_edited_payment_date_is_re_derived_from_the_lines`, verified to FAIL with the
+  assignment removed.
+- ⚠️ **RULE 4 IS UNCONDITIONAL, NOT ONLY BETWEEN THE TWO STATUSES IT NAMES.** A status the links
+  contradict — an expense with live bank lines saved as `Rejected` — is exactly the state it exists to
+  make unreachable (story 25: *its status always matches its lines*). ⚠️ **A Paid expense whose lines
+  carry no date KEEPS the date it has:** `latest_line_date` is read from the import rows behind the slips,
+  and if those rows were purged the aggregate returns `None`; blanking a settled expense's payment date on
+  an unrelated save would destroy a fact rather than re-derive one. Reconciliation Pending always clears
+  it — there, the absence IS the fact.
+- ⚠️ **NO BYPASS FLAG FOR THE IMPORT** (ADR-0027 Consequences). Its writes satisfy the rules by
+  construction — the slips are inserted BEFORE the expense is saved, so the save sees its own linked
+  total, and `settle._derive_status_and_save` sets exactly what rule 4 would derive. A flag would have
+  made that agreement untested, and the agreement is what proves the rules are right.
+
+**Also moved:** `settle._rupees` → `amounts.rupees` (public). `settle.py` imports `expense_links`, so the
+rules could not import the formatter back without a cycle; `amounts.py` is the pure leaf both sides
+already import, which makes it the one place a money figure in a sentence is spelled. `settle.py` binds
+it as `_rupees` on import, so its three call sites are unchanged.
+
+**Locking — both rules read under a lock they do not take, and each depends on a DIFFERENT frappe
+call taking it.** `validate` is reached through `Document._validate` → `check_if_latest()` →
+`load_doc_before_save(raise_exception=True)`, which does `frappe.get_doc(..., for_update=True)`; that
+same call is what populates `get_doc_before_save()`, so **naming `check_if_latest` rather than
+`run_before_save_methods` matters** — a reader who relocates rule 2 to a hook outside `_save` gets
+`before is None`, which makes `_is_arriving_at_paid` always true and turns rule 2 into a refusal of
+exactly the Q8 raise-the-amount edit rule 4 exists to permit. `on_trash` is reached through
+`frappe.model.delete_doc.delete_doc`, which does `frappe.db.get_value(doctype, name, for_update=True,
+wait=False)` — `SELECT … FOR UPDATE NOWAIT` — **before** it loads the document and runs the hook. So a
+concurrent `link_rows_to_expense` (same row lock, via `settle._lock_settleable_expense`) either blocks
+until the delete commits or already holds the lock and makes the delete fail fast; without it the count
+rule 3 reads would be stale by the time the `DELETE` ran, and the expense could go with live slips
+pointing at it. Neither hook takes a lock of its own — a second lock on a row this transaction already
+holds buys nothing — but **either rule moved off its current call site needs one.**
+
+**Cost, stated:** `validate` now runs one indexed aggregate (`ofm_match_target_idx`) on every expense
+save. The `doc.is_new()` short-circuit keeps it off inserts, which can have no slips.
+
+**Tests:** `services/outflow_import/test_expense_links` gains 13 pure cases (each rule's boundary at
+exactly ₹5 and a paisa past it, and the sentence naming the expense, the linked total, the line count and
+what is left). `api/outflow_import/test_expense_document_rules` is 21 bench cases driven at the DOCUMENT
+seam — `doc.save()` and `frappe.delete_doc()`, never an endpoint, because that is the seam the rules were
+put on — covering all four rules on both doctypes, the no-slips control for each, the import's own settle
+and undo passing under the rules, and an existing 1:1-settled expense saving and staying Paid (story 41).
+
+## #1303 (2026-09-18) — the expense's bank lines, read-only on the Payments & Expenses table (ADR-0027 R5)
+
+A reimbursement run leaves the bank as 30 lines and is recorded as ONE expense. Until now nothing on the
+Payments & Expenses table said which lines had paid it, so a row sitting at *Reconciliation Pending* gave
+the reader no way to see what was still to link. Parent #1295 stories 30–32.
+
+**The card is a click-to-open popover on the Against cell, the same shape a payment row already has.**
+R5 ruled out a read-only section inside the Mark Reconciled dialog: links are read far more often than
+they are changed, and the dialog is only reachable from one tab.
+
+- **Trigger — `ExpenseBankLinesPopover` (`pages/ProjectPayments/components/`)**, reusing
+  `DetailPopovers.DETAIL_TRIGGER_CLASS`. On this table a dotted underline already means "there is more
+  behind this"; a second affordance for the same promise would read as a different one. A payment row
+  keeps its document card; an expense row with no live slips keeps today's description hover.
+- ⚠️ **THE TRIGGER IS GATED ON `bank_line_count`, NEVER ON THE STATUS.** An expense no line has reached
+  shows no trigger at all, so nobody opens a card to be told it is empty (story 31). The count rides the
+  queue row: `get_approval_queue`'s two expense branches gained
+  `COALESCE(l."line_count", 0) AS bank_line_count` through **`expense_links.linked_totals_join`** — the
+  same aggregate `candidates`, `ledger_read` and `review` read, never a count written here, or a second
+  definition of "live slip" could offer a card on an expense whose links had all been reversed. The
+  payments branch selects a literal `0`: a payment is settled by exactly one line and has no card.
+  The join groups by target, so it can only add columns to a row, never duplicate one (pinned).
+- ⚠️ **THE CARD REPLACES THE Against HOVER ON THE ROWS IT RENDERS ON, SO IT CARRIES THE WHOLE OF IT.**
+  That hover showed `against_full` with its line breaks PLUS `comment_text`; about a third of expense
+  descriptions carry a line break and the extra lines are BANK DETAILS. Both are passed into the card and
+  rendered `whitespace-pre-wrap` in a scrollable block — never truncated to a one-line subtitle, which is
+  what the first cut did and would have been a silent regression on exactly the rows this feature is for.
+  Neither needs a fetch: the queue row already carries them.
+- ⚠️ **NOTHING IS FETCHED UNTIL THE CARD IS OPENED** (one trigger renders PER ROW). The lines come from
+  `useFrappeGetCall(..., open ? undefined : null)` — the third argument is the swrKey, `null` = do not
+  fetch — the same on/off switch the Against / Vendor / Project cards use. The queue's count is one extra
+  column on a query that already ran; the 30 lines behind it are a query only on open, cached by SWR.
+- **Read endpoint — `api/approvals/expense_bank_lines.get_expense_bank_lines(doctype, name)`,** a thin
+  orchestrator (ADR-0010 B4): gate, read, shape. Returns the expense's own facts (`status`, `amount`,
+  `payment_date`), the derived `linked_total` / `line_count` / `remaining`, and `lines` oldest first
+  (`match`, `import_row`, `import_batch`, `added_on`, `beneficiary_name`, `reference`, `amount`).
+- ⚠️ **BOTH READS BELONG TO `services/outflow_import/expense_links.py`, WHICH OWNS WHAT A LIVE LINK IS.**
+  `load_expense_links` totals the slips; the new **`list_expense_lines`** itemises the SAME slips, and it
+  sits beside the aggregate on purpose (ADR-0010 B2) — written in `api/` it would have needed a third
+  spelling of the two doctype names and its own `match_kind` filter, free to drift from the figure
+  printed above it on the same card. A test asserts the column sums to the headline.
+- ⚠️ **A LEFT JOIN ONTO THE IMPORT ROW, LIKE `load_expense_links`.** A slip whose import row was deleted
+  still counts towards the linked total there, so an inner join would return fewer lines than the total
+  is made of, with nothing on screen to explain the gap. It comes back with blank line facts instead.
+- ⚠️ **`Reversed` SLIPS ARE NOT LISTED** (`match_kind = 'Settled'`). A reversed slip is an undone link and
+  contributes nothing to the total above it. The card then also explains why the expense left Paid.
+- ⚠️ **THE GATE IS "CAN YOU READ THIS EXPENSE", NOT `require_outflow_access`.** This card renders on the
+  approvals screen, whose readers include roles that never open Bulk Import Transactions; the module gate
+  would have hidden it from most of the people the screen is for. Read permission on the expense is the
+  honest rule — see which bank lines paid an expense you may already read. It is also why the module lives
+  in `api/approvals/` and not beside the outflow endpoints, every one of which is gated the other way.
+- ⚠️ **THE PERMISSION TEST COMES BEFORE ANY READ OF THE NAME, AND THE ORDER IS THE POINT.** Checked after,
+  the "not found" refusal answers *does this expense exist?* for somebody who may not read a single one of
+  them — an enumeration oracle. So the DOCTYPE-level test runs first (a document-level one needs the
+  document loaded, which is the read being gated), then the load, then the document-level test on top for
+  any User Permission narrowing it. Two bench cases pin that a real name and an invented one refuse
+  identically.
+- **Pure display helpers — `expenseBankLinesView.ts`.** `linkedProgress(figures)` gives the one progress
+  line (`₹1,38,633` · `of ₹1,60,113 linked · 25 lines` · `₹21,480 still to link`) and the bar's width and
+  tone; `statusTone(status)` is a TOTAL map with a neutral fallback, the idiom
+  `outflow-import/outflowImportStatus.ts` already sets — a status this card was not designed around (a
+  Rejected expense that still carries links) must not borrow the colour of one it was.
+- ⚠️ **"WHAT IS LEFT" HAS ONE OWNER: THE SERVER'S `remaining`.** `linkedProgress` takes it as sent and
+  never recomputes `amount − linked_total`; the server measures it in Decimal, from the same aggregate the
+  settle guard measures room against, so the sentence under the bar cannot contradict the refusal the next
+  link would get. A test hands the helper figures that disagree, to prove which one governs.
+- ⚠️ **The ₹5 is `linkLinesView.LINK_TOLERANCE`, IMPORTED, never a second 5** — that constant is the
+  frontend's one mirror of `amounts.AMOUNT_TOLERANCE` and is pinned to it by `linkLinesParity.test.ts`; a
+  copy could call an expense short that the server reads Paid. `complete` is the same ONE-SIDED test as
+  `derive_expense_status`: only a shortfall past ₹5 is short. ⚠️ The bar is CLAMPED at both ends — a blank
+  or zero amount would divide by zero, and CSS drops a `NaN%` width silently, so a fully linked row would
+  render an EMPTY bar reading as "nothing linked".
+- **What makes the Paid look a Paid look is the DATE, not the colour.** `payment_date` is the latest
+  linked line's (ADR-0027), so a Paid card reads *"Paid on 18-Aug-2026, the latest linked line."* and a
+  short one shows nothing there — the absence is the fact. Colour alone would have left the two looks
+  distinguishable only by hue. Paid green, Reconciliation Pending orange: the mockups' proposal, since the
+  app still has no colour for that status.
+- **Layout:** the line list scrolls (`max-h-56`) rather than pushing the footer off, because the footer is
+  where the reader is told what to do next. The mockup's "Show all 30 lines" collapse was dropped for the
+  scroll — one fewer state, and every line is reachable.
+- ⚠️ **READ-ONLY, AND THAT IS THE DESIGN, NOT AN OMISSION** (Q15). The module writes nothing and takes no
+  lock. Links come off in ONE place — Unreconcile on Bulk Import Transactions — because the verdict that
+  decides whether a line MAY come off lives there (`unreconcile._expense_verdict`); the footer says so and
+  links to the screen rather than leaving the reader to wonder.
+
+**Deliberately NOT extracted: `DetailPopovers.CardShell`.** It takes a required `to` / `linkLabel` and
+renders a two-column field grid; this card is a progress bar over a five-column table. Widening the shell
+to cover both would have made it a parameter bag serving two shapes — the four cards look alike because
+they share the TRIGGER and the popover chrome, which they do share.
+
+**Tests:** `api/approvals/test_expense_bank_lines` — 15 bench cases driven through the endpoint the card
+calls, on expenses linked by `link_rows_to_expense` exactly as the screen links them: a filled run lists
+every line with its five facts and adds up to the headline, oldest first; a part-linked expense reads
+Reconciliation Pending with what is left and no date; a Project Expense reads the same way; an expense no
+line has reached has nothing to open; a reversed line is neither listed nor counted; a payment, a missing
+expense and an unpermitted reader are each refused by name. The queue's `bank_line_count` is asserted in
+the SAME file — it is the OTHER half of "no slips, no trigger", and the card's own emptiness is never seen
+if that number is wrong — including that the join never duplicates a row. Frontend:
+`expenseBankLinesView.test.ts`, 9 vitest cases over the progress line and the tone map, including both
+clamps, the ₹5 boundary read through `LINK_TOLERANCE`, and the server-`remaining`-governs case.

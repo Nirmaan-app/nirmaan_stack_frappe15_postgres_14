@@ -53,7 +53,7 @@ interface StagedRow {
     /** human-readable category name for display. */
     categoryName: string;
     /**
-     * ADR-0004: the group this SKU currently belongs to, if any. Membership is
+     * ADR-0026: the group this SKU currently belongs to, if any. Membership is
      * N:1, so staging an already-linked item MOVES it out of that group. Carried
      * on the staged row so the warning survives from pick to commit.
      */
@@ -112,7 +112,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
         }
     }, [open]);
 
-    // ADR-0004: current linkage for every SKU in this Work Package, fetched ONCE
+    // ADR-0026: current linkage for every SKU in this Work Package, fetched ONCE
     // (batched, not per option) so each picker row can show whether adding it
     // would MOVE it out of another group. "No silent member theft" — and this is
     // the surface where it would otherwise be silent, because the picker does not
@@ -252,7 +252,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                             ({option.categoryName})
                                         </span>
                                     )}
-                                    {/* ADR-0004: N:1 membership — adding this MOVES it. */}
+                                    {/* ADR-0026: N:1 membership — adding this MOVES it. */}
                                     {option.linkedGroupName && (
                                         <span className="text-amber-600 ml-1 text-xs">
                                             · linked to {groupRef(option.linkedGroupName, option.linkedGroupId)}

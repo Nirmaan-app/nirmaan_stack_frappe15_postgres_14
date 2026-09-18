@@ -99,6 +99,8 @@ larger change.
 - **`Project Payments.tds` is still written, just not here.** `_fulfil_payment` (manual PO
   fulfilment) remains its writer. 625 Paid SR payments hold ₹6,34,002 of legacy `tds` and are **not**
   backfilled.
+  *Superseded 2026-09-16:* `_fulfil_payment` no longer writes it either, and the field is being
+  retired — see ADR-0022 Amendment C.
 - **`settleBlockText` / `AMOUNT_GAP_HINT` were deliberately not reverted.** Their destination-free
   wording became unconditionally true again, but it was also chosen for an independent reason — point
   at the affordance, not the outcome (browser walk, 2026-08-13).
@@ -113,6 +115,6 @@ Three inverted pins, not deletions — a deleted pin checks nothing:
 - `test_settle_payment.TestPartialSettlementRefusals.test_a_declared_deduction_is_now_refused_outright`
   — the literal wire value `"deduction"` throws and writes nothing.
 - `test_settle_payment.TestTheImportWritesNoTaxAtAll` — no `tds` is written and `rewrite_amount`
-  always runs.
+  always runs. *(2026-09-16: the `tds` half was removed with the field; `rewrite_amount` stays pinned.)*
 
 The frontend mirror is pinned by an exported-surface loop in `outflowTableModel.test.ts`.

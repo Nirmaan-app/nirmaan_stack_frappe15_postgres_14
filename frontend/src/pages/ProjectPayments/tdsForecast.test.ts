@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { forecastTds, forecastTdsTotals, isDeductible } from "./tdsForecast";
+import { forecastTds, forecastTdsTotals, isCompanyBorneWorkOrder, isDeductible } from "./tdsForecast";
 
 const SR = "Service Requests";
 const PO = "Procurement Orders";
@@ -84,6 +84,7 @@ describe("forecastTdsTotals", () => {
 		expect(forecastTdsTotals(rows, rate)).toEqual({
 			count: 2,
 			tds: 700,
+			companyBorneTds: 0,
 			gross: 35000, // ⚠️ the PO's 90,000 must NOT appear here
 			net: 34300,
 		});
@@ -93,6 +94,7 @@ describe("forecastTdsTotals", () => {
 		expect(forecastTdsTotals([{ document_type: PO, amount: 5000 }], rate)).toEqual({
 			count: 0,
 			tds: 0,
+			companyBorneTds: 0,
 			gross: 0,
 			net: 0,
 		});
@@ -111,5 +113,41 @@ describe("forecastTdsTotals", () => {
 	it("does not accumulate floating-point drift across many rows", () => {
 		const rows = Array.from({ length: 100 }, () => ({ document_type: SR, amount: 1333.33 }));
 		expect(forecastTdsTotals(rows, rate).tds).toBe(2667);
+	});
+});
+
+describe("company-borne Work Orders (Miscellaneous / Transportation only)", () => {
+	const list = (...names: string[]) => JSON.stringify({ list: names.map((name) => ({ name })) });
+
+	it("is company-borne only when EVERY category is Miscellaneous or Transportation", () => {
+		expect(isCompanyBorneWorkOrder(list("Miscellaneous Services"))).toBe(true);
+		expect(isCompanyBorneWorkOrder(list("Miscellaneous Services", "Transportation Services"))).toBe(true);
+		expect(isCompanyBorneWorkOrder({ list: [{ name: "Transportation Services" }] })).toBe(true);
+		expect(isCompanyBorneWorkOrder(list("Miscellaneous Services", "Electrical Services"))).toBe(false);
+	});
+
+	it("treats an empty, missing or unreadable list as an ordinary Work Order", () => {
+		expect(isCompanyBorneWorkOrder(list())).toBe(false);
+		expect(isCompanyBorneWorkOrder(undefined)).toBe(false);
+		expect(isCompanyBorneWorkOrder("not json")).toBe(false);
+	});
+
+	it("matches the owner's example: 800 approved, 16 TDS, the vendor still receives 800", () => {
+		expect(forecastTds(SR, 800, 2, true)).toEqual({ ratePct: 2, tds: 16, net: 800 });
+		expect(forecastTds(SR, 800, 2, false)).toEqual({ ratePct: 2, tds: 16, net: 784 });
+	});
+
+	it("totals a mixed selection per row", () => {
+		const rows = [
+			{ document_type: SR, amount: 800, borne: true },
+			{ document_type: SR, amount: 800, borne: false },
+		];
+		expect(forecastTdsTotals(rows, () => 2, (r) => r.borne)).toEqual({
+			count: 2,
+			tds: 32,
+			companyBorneTds: 16,
+			gross: 1600,
+			net: 1584,
+		});
 	});
 });

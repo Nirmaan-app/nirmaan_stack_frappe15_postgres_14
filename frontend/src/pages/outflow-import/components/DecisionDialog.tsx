@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
-import { AlertTriangle, Check, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
+import {
+    AlertTriangle,
+    Check,
+    ChevronsUpDown,
+    ExternalLink,
+    Info,
+    Loader2,
+    SkipForward,
+    X,
+} from "lucide-react";
 
 import {
     AlertDialog,
@@ -16,9 +25,19 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import {
     Select,
     SelectContent,
@@ -75,7 +94,23 @@ import {
     settleBlockRemedy,
     settleBlockText,
     settleBlocker,
+    suggestRefundVendor,
+    orderPaymentsHref,
     tickAllowedForFanOut,
+    withRefundPick,
+    toggleRefundAgainst,
+    isRefundAgainst,
+    toggleRefundAllocation,
+    setRefundAllocationAmount,
+    refundAllocationTotals,
+    refundAllocationProblem,
+    refundMiscAmount,
+    REFUND_AGAINST_OPTIONS,
+    REFUND_DOCUMENT_TYPES,
+    REFUND_MISC_EXPENSE,
+    type RefundAllocation,
+    type RefundDocumentType,
+    type VendorRefundForm,
     type DecisionTarget,
     type MatcherCandidate,
     type PartialIntent,
@@ -99,6 +134,7 @@ import {
     type RecordSortColumn,
 } from "../recordPickerView";
 import { FanOutRecordTable } from "./FanOutRecordTable";
+import { decideAfterLinking, decideConfirmLabel, decideTickedAmount } from "../linkLinesView";
 import { SettleableRecordTable } from "./SettleableRecordTable";
 
 /**
@@ -196,6 +232,16 @@ const CREATE_NON_PROJECT_INFLOW_TARGET: { id: DecisionTarget; label: string; hin
     id: "nonProjectInflow",
     label: "Create a non-project inflow",
     hint: "money received against no project — interest, an FD closure, a loan, or other",
+};
+
+/**
+ * The THIRD thing a credit row can become: money a VENDOR paid back, recorded as one `Vendor Refund`
+ * per paid PO or WO it is against, plus one Misc. Expense for the rest. No payment or expense is created.
+ */
+const CREATE_VENDOR_REFUND_TARGET: { id: DecisionTarget; label: string; hint: string } = {
+    id: "vendorRefund",
+    label: "Create a vendor refund",
+    hint: "money a vendor paid back — one vendor refund per PO, WO or misc. expense it is against",
 };
 
 interface Props {
@@ -428,7 +474,14 @@ export const DecisionDialog = ({
     // reports the actual `SettleableRecord`s it resolved its ticks to, which is what carries an
     // AMOUNT -- `linkTargets` is only ids. See `RecordPicker`.
     const bar: AllocationBar = useMemo(
-        () => allocationBar(row?.amount ?? 0, allocatedLegs, pickedRecords.map((r) => r.amount)),
+        // #1299: `decideTickedAmount`, so a part-linked expense adds what this line moves into it,
+        // not its whole amount.
+        () =>
+            allocationBar(
+                row?.amount ?? 0,
+                allocatedLegs,
+                pickedRecords.map((r) => decideTickedAmount(r, row?.amount ?? 0))
+            ),
         [row?.amount, allocatedLegs, pickedRecords]
     );
 
@@ -615,7 +668,12 @@ export const DecisionDialog = ({
             ? gate.balanceReason === "balance-unknown"
                 ? allocateButtonLabel({ ticks, complete: false })
                 : allocateButtonLabel({ ticks, complete: bar.complete })
-            : "Confirm → Paid";
+            : // ⚠️ #1299: a late line that only part-fills an expense leaves it Reconciliation
+              // Pending, so the label must not promise Paid. `decideConfirmLabel` keeps today's
+              // wording for everything that is not a part-linked expense.
+              isLinkDecision && effectiveMode === "normal"
+              ? decideConfirmLabel(picked, row.amount)
+              : "Confirm → Paid";
 
     /**
      * ⚠️ WHICH CARDS THIS ROW GETS IS MEMBERSHIP IN THE ONE PARTITION, NEVER A `direction` TEST
@@ -788,7 +846,7 @@ export const DecisionDialog = ({
                         <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                             This transfer is money received, so it is recorded rather than settled
                             against a payable. Choose one of the options below — a project
-                            inflow, or a non-project inflow.
+                            inflow, a non-project inflow, or a vendor refund.
                         </p>
                     )}
 
@@ -853,6 +911,22 @@ export const DecisionDialog = ({
                                 decision={decision!}
                                 onChange={onChange}
                             />
+                        </TargetOption>
+                    )}
+
+                    {/* The third credit card, under the same `isCreditRow` gate: money a vendor
+                        paid back. The vendor is suggested from the bank line's payer name. */}
+                    {isCreditRow(row) && (
+                        <TargetOption
+                            target={CREATE_VENDOR_REFUND_TARGET}
+                            decision={decision}
+                            onChange={onChange}
+                            seed={() => ({
+                                target: "vendorRefund",
+                                newVendorRefund: decision?.newVendorRefund ?? {},
+                            })}
+                        >
+                            <NewVendorRefundForm row={row} decision={decision!} onChange={onChange} />
                         </TargetOption>
                     )}
 
@@ -971,10 +1045,13 @@ const AmountOutsideWindowDialog = ({
                     <AlertDialogDescription asChild>
                         <div className="space-y-3 text-sm">
                             <p>
-                                <span className="font-mono">{block?.recordName}</span> is for{" "}
+                                <span className="font-mono">{block?.recordName}</span>{" "}
+                                {/* #1299: a part-linked expense's figure is what is LEFT. */}
+                                {block?.reason === "more_than_left" ? "has only" : "is for"}{" "}
                                 <span className="font-medium tabular-nums">
                                     {formatToIndianRupee(block?.recordAmount ?? 0)}
                                 </span>
+                                {block?.reason === "more_than_left" ? " left to link" : ""}
                                 , but{" "}
                                 <span className="font-medium tabular-nums">
                                     {formatToIndianRupee(block?.bankAmount ?? 0)}
@@ -1931,6 +2008,7 @@ const RecordPicker = ({
                 <RecordVerdict
                     key={recordKey(record)}
                     record={record}
+                    row={row}
                     bankAmount={pickerBankAmount}
                     mode={mode}
                 />
@@ -1996,10 +2074,13 @@ const RecordPicker = ({
  */
 const RecordVerdict = ({
     record,
+    row,
     bankAmount,
     mode,
 }: {
     record: SettleableRecord;
+    /** The bank line, for the After linking bar on a part-linked expense (#1299). */
+    row: OutflowImportRow;
     bankAmount: number;
     /**
      * ⚠️ THE GAP SENTENCE IS MODE-SPECIFIC, AND THIS LINE RENDERS IN BOTH MODES (walk #1245).
@@ -2014,6 +2095,24 @@ const RecordVerdict = ({
     const settleable = record.suggested;
     // `document_name` is the ORDER this payment is against -- the app's own route (slice E3).
     const link = settlementLink(record.target_doctype, record.name, false, record.document_name);
+    // ⚠️ A PART-LINKED EXPENSE GETS THE AFTER LINKING BAR INSTEAD OF THE GAP SENTENCE (#1299). Its
+    // gap against the whole amount is not what decides anything; what is left is, and the bar says
+    // what the expense becomes. Built by `linkLinesView.afterLinking`, the link dialog's own words.
+    const after = decideAfterLinking(record, row);
+    if (after) {
+        return (
+            <div
+                className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-sm tabular-nums ${
+                    after.tone === "over"
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-muted-foreground/20 bg-muted/40"
+                }`}
+            >
+                <span className="font-medium">{after.summary}</span>
+                {after.detail && <span className="text-xs text-muted-foreground">{after.detail}</span>}
+            </div>
+        );
+    }
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
             <p
@@ -2266,14 +2365,13 @@ const NewInflowForm = ({
         "outflow-inflow-won-projects"
     );
 
-    // ⚠️ ONE ENDPOINT, GATED BY THE IMPORT'S OWN ACCESS RULE, ANSWERING BOTH QUESTIONS — the
-    // customer and the project's invoices. It is the SAME read the write path performs, so the
-    // screen cannot show a customer the server then disagrees with.
+    // ⚠️ ONE ENDPOINT, GATED BY THE IMPORT'S OWN ACCESS RULE, ANSWERING THE CUSTOMER QUESTION. It is
+    // the SAME read the write path performs, so the screen cannot show a customer the server then
+    // disagrees with.
     const { data: contextData, isLoading: contextLoading } = useFrappeGetCall<{
         message: {
             customer: string | null;
             customer_name: string;
-            invoices: { name: string; invoice_no?: string; amount?: number }[];
         };
     }>(
         "nirmaan_stack.api.outflow_import.inflows.get_inflow_context",
@@ -2304,11 +2402,9 @@ const NewInflowForm = ({
                 <Label className="text-xs">Project</Label>
                 <Select
                     value={form.project ?? ""}
-                    // Changing the project changes who the money is from and which invoices exist,
-                    // so both are cleared rather than carried onto a project they do not belong to.
-                    onValueChange={(value) =>
-                        patch({ project: value, customer: null, invoice: null })
-                    }
+                    // Changing the project changes who the money is from, so the customer is
+                    // cleared rather than carried onto a project it does not belong to.
+                    onValueChange={(value) => patch({ project: value, customer: null })}
                 >
                     <SelectTrigger className="h-9">
                         <SelectValue placeholder="Choose a project…" />
@@ -2340,52 +2436,6 @@ const NewInflowForm = ({
                             : "This project has no customer"
                 }
             />
-
-            <div className="space-y-1.5">
-                <Label className="text-xs">Invoice (optional)</Label>
-                <Select
-                    value={form.invoice ?? ""}
-                    onValueChange={(value) => patch({ invoice: value })}
-                    disabled={!form.project || !(context?.invoices ?? []).length}
-                >
-                    <SelectTrigger className="h-9">
-                        <SelectValue
-                            placeholder={
-                                !form.project
-                                    ? "Choose a project first…"
-                                    : (context?.invoices ?? []).length
-                                      ? "Not against an invoice"
-                                      : "No invoices on this project"
-                            }
-                        />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {(context?.invoices ?? []).map((invoice) => (
-                            <SelectItem key={invoice.name} value={invoice.name}>
-                                {invoice.invoice_no || invoice.name}
-                                {invoice.amount
-                                    ? ` — ${formatToRoundedIndianRupee(invoice.amount)}`
-                                    : ""}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                {/* ⚠️ CLEARING IS A SEPARATE ACT FROM CHOOSING -- the same Radix limitation
-                    `RecordPicker` documents: every item sets a value, so without this a reviewer who
-                    linked the wrong invoice could only reach a different wrong one. The invoice is
-                    OPTIONAL, which makes "none" a real answer rather than an undecided state. */}
-                {form.invoice && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => patch({ invoice: null })}
-                    >
-                        <X className="mr-1 h-3 w-3" />
-                        Not against an invoice
-                    </Button>
-                )}
-            </div>
 
             {form.project && !contextLoading && !context?.customer && (
                 <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:col-span-2">
@@ -2490,6 +2540,762 @@ const NewNonProjectInflowForm = ({
                 className="sm:col-span-2"
             />
         </div>
+    );
+};
+
+/** One row of a refund document list, as `inflows.get_vendor_refund_documents` sends it. */
+interface RefundDocument {
+    name: string;
+    status?: string;
+    paid: number;
+    /** What earlier vendor refunds already took off it. */
+    refunded: number;
+    /** Paid less refunded -- the most a new refund part against it may be. */
+    refundable: number;
+    total_amount?: number;
+    amount_paid?: number;
+    amount_invoiced?: number;
+    amount_due?: number;
+    tax_amount?: number;
+    po_amount_delivered?: number;
+    latest_payment_date?: string;
+    creation?: string;
+    /** A PO's amount before tax. */
+    amount?: number;
+    project?: string;
+    /** The project's name, for the vendor-wide list (no project chosen). */
+    project_name?: string;
+}
+
+/**
+ * The Vendor Refund form, in place: which vendor paid the money back, on which project, and how much
+ * of it is against each of that vendor's PAID POs and Work Orders there -- with whatever they leave
+ * going to a Misc. Expense, against no document.
+ *
+ * ⚠️ THE VENDOR IS SUGGESTED, NEVER FORCED. `suggestRefundVendor` reads the vendor the bank remarks
+ * name and answers only when they name exactly one; the suggestion lands only in a vendor the reviewer
+ * has never touched (`undefined`), so clearing it is not undone on the next render.
+ *
+ * ⚠️ THE LISTS ARE THE SERVER'S (`get_vendor_refund_documents`), filtered by the same rule the write
+ * re-checks: paid documents only, no merged PO. "Refund against" is MULTI-select: each ticked PO / WO
+ * kind shows its list (unticking one drops its ticks), and ticks on every list collect in the Selected
+ * section, each with its own amount. A ticked Misc. Expense joins that section as one read-only line
+ * holding the rest of the refund (`refundMiscAmount`).
+ *
+ * ⚠️ THE PROJECT IS OPTIONAL: with none chosen the lists cover the vendor's documents on EVERY project
+ * (each row names its project), and the server records each PO / WO refund on its document's project.
+ * Projects offered are those not Completed, among won projects -- a project still in tendering has
+ * nothing paid to refund. The dialog header shows the date and reference; this form states the amount.
+ */
+const NewVendorRefundForm = ({
+    row,
+    decision,
+    onChange,
+}: {
+    row: OutflowImportRow;
+    decision: RowDecision;
+    onChange: (decision: RowDecision) => void;
+}) => {
+    const form = decision.newVendorRefund ?? {};
+    const allocations = form.allocations ?? [];
+    const update = (next: VendorRefundForm) => onChange({ ...decision, newVendorRefund: next });
+
+    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<{
+        name: string;
+        vendor_name: string;
+        vendor_city?: string;
+    }>(
+        "Vendors",
+        {
+            fields: ["name", "vendor_name", "vendor_city"],
+            limit: 0,
+            orderBy: { field: "vendor_name", order: "asc" },
+        },
+        "outflow-vendor-refund-vendors"
+    );
+
+    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<{
+        name: string;
+        project_name: string;
+        status?: string;
+    }>(
+        "Projects",
+        {
+            fields: ["name", "project_name", "status"],
+            filters: [
+                ["tendering_status", "=", "Won"],
+                ["status", "!=", "Completed"],
+            ],
+            limit: 0,
+            orderBy: { field: "project_name", order: "asc" },
+        },
+        "outflow-vendor-refund-projects"
+    );
+
+    // The vendor alone is enough: no project means the vendor's documents on every project.
+    const ready = Boolean(form.vendor);
+    const { data: documentsData, isLoading: documentsLoading } = useFrappeGetCall<{
+        message: Record<RefundDocumentType, RefundDocument[]>;
+    }>(
+        "nirmaan_stack.api.outflow_import.inflows.get_vendor_refund_documents",
+        { vendor: form.vendor, project: form.project || undefined },
+        ready ? `vendor-refund-documents-${form.vendor}-${form.project || "all"}` : null
+    );
+    const documents = ready ? documentsData?.message : undefined;
+    // The Selected section's icons need the whole list row, found by kind + name.
+    const documentByKey = useMemo(() => {
+        const map = new Map<string, RefundDocument>();
+        for (const type of REFUND_DOCUMENT_TYPES) {
+            for (const document of documents?.[type.doctype] ?? []) {
+                map.set(`${type.doctype}|${document.name}`, document);
+            }
+        }
+        return map;
+    }, [documents]);
+
+    const suggested = useMemo(() => suggestRefundVendor(row, vendors ?? []), [row, vendors]);
+
+    useEffect(() => {
+        if (form.vendor !== undefined || !suggested) return;
+        update(withRefundPick(form, { vendor: suggested }));
+        // Keyed on the two values that decide it, as `NewInflowForm`'s customer effect is.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [suggested, form.vendor]);
+
+    const { allocated, remaining } = refundAllocationTotals(form, row.amount);
+    const miscAmount = refundMiscAmount(form, row.amount);
+    const problem =
+        allocations.length || miscAmount !== null ? refundAllocationProblem(form, row.amount) : null;
+    const tickedIn = (type: RefundDocumentType) =>
+        allocations.filter((a) => a.documentType === type).length;
+
+    return (
+        <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                    <Label className="text-xs">Vendor</Label>
+                    <SearchPicker
+                        value={form.vendor}
+                        onChange={(vendor) => update(withRefundPick(form, { vendor }))}
+                        loading={vendorsLoading}
+                        placeholder="Choose a vendor…"
+                        searchPlaceholder="Search vendors…"
+                        options={(vendors ?? []).map((vendor) => ({
+                            value: vendor.name,
+                            label: vendor.vendor_name,
+                            hint: vendor.vendor_city,
+                        }))}
+                    />
+                    {suggested && form.vendor === suggested && (
+                        <p className="text-xs text-muted-foreground">
+                            Taken from the bank remarks. Change it if it is wrong.
+                        </p>
+                    )}
+                </div>
+                <div className="space-y-1.5">
+                    <Label className="text-xs">
+                        Project <span className="font-normal text-muted-foreground">(optional)</span>
+                    </Label>
+                    <SearchPicker
+                        value={form.project}
+                        onChange={(project) => update(withRefundPick(form, { project }))}
+                        loading={projectsLoading}
+                        placeholder="All projects"
+                        searchPlaceholder="Search projects…"
+                        options={(projects ?? []).map((project) => ({
+                            value: project.name,
+                            label: project.project_name,
+                            hint: project.status,
+                        }))}
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-1.5">
+                <Label className="text-xs">Refund against</Label>
+                <div role="group" aria-label="Refund against" className="flex flex-wrap gap-2">
+                    {REFUND_AGAINST_OPTIONS.map((option) => {
+                        const isMisc = option.value === REFUND_MISC_EXPENSE;
+                        const count = isMisc
+                            ? undefined
+                            : documents?.[option.value as RefundDocumentType]?.length;
+                        const ticked = isMisc ? 0 : tickedIn(option.value as RefundDocumentType);
+                        const checked = isRefundAgainst(form, option.value);
+                        return (
+                            <label
+                                key={option.value}
+                                className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                                    checked
+                                        ? "border-primary bg-primary/5"
+                                        : "border-muted-foreground/20 hover:bg-muted/50"
+                                }`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 accent-primary"
+                                    checked={checked}
+                                    onChange={() => update(toggleRefundAgainst(form, option.value))}
+                                />
+                                {option.label}
+                                {count !== undefined && (
+                                    <span className="text-xs text-muted-foreground">({count})</span>
+                                )}
+                                {ticked > 0 && (
+                                    <span className="rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+                                        {ticked} ticked
+                                    </span>
+                                )}
+                                {isMisc && checked && (
+                                    <span className="text-xs text-muted-foreground">takes the rest</span>
+                                )}
+                            </label>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {REFUND_DOCUMENT_TYPES.filter((type) => isRefundAgainst(form, type.doctype)).map((type) => (
+                <RefundDocumentList
+                    key={type.doctype}
+                    documentType={type.doctype}
+                    documents={documents?.[type.doctype] ?? []}
+                    loading={ready && documentsLoading}
+                    ready={ready}
+                    allProjects={!form.project}
+                    isTicked={(name) =>
+                        allocations.some((a) => a.documentType === type.doctype && a.documentName === name)
+                    }
+                    onToggle={(document) =>
+                        update(
+                            toggleRefundAllocation(
+                                form,
+                                {
+                                    documentType: type.doctype,
+                                    documentName: document.name,
+                                    label: document.name,
+                                    project: document.project ?? null,
+                                    paid: document.paid,
+                                    refundable: document.refundable,
+                                },
+                                row.amount
+                            )
+                        )
+                    }
+                />
+            ))}
+
+            <RefundSelection
+                allocations={allocations}
+                documentFor={(allocation) =>
+                    documentByKey.get(`${allocation.documentType}|${allocation.documentName}`)
+                }
+                miscAmount={miscAmount}
+                miscDescription={form.miscDescription ?? ""}
+                onMiscDescription={(miscDescription) => update({ ...form, miscDescription })}
+                onRemoveMisc={() => update(toggleRefundAgainst(form, REFUND_MISC_EXPENSE))}
+                refundAmount={row.amount}
+                allocated={allocated}
+                remaining={remaining}
+                problem={problem}
+                onAmount={(allocation, amount) =>
+                    update(
+                        setRefundAllocationAmount(
+                            form,
+                            allocation.documentType,
+                            allocation.documentName,
+                            amount
+                        )
+                    )
+                }
+                onRemove={(allocation) => update(toggleRefundAllocation(form, allocation, row.amount))}
+            />
+        </div>
+    );
+};
+
+/**
+ * The records of one kind a refund may be recorded against, with a tick each.
+ *
+ * ⚠️ AN EMPTY LIST SAYS WHY, because an empty table under a chosen vendor and project otherwise reads
+ * as a list that failed to load.
+ */
+const RefundDocumentList = ({
+    documentType,
+    documents,
+    loading,
+    ready,
+    allProjects,
+    isTicked,
+    onToggle,
+}: {
+    documentType: RefundDocumentType;
+    documents: RefundDocument[];
+    loading: boolean;
+    ready: boolean;
+    /** No project chosen: the list spans the vendor's projects, so each row names its own. */
+    allProjects: boolean;
+    isTicked: (name: string) => boolean;
+    onToggle: (document: RefundDocument) => void;
+}) => {
+    const label = REFUND_DOCUMENT_TYPES.find((type) => type.doctype === documentType)?.label;
+
+    if (!ready) {
+        return (
+            <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                Choose a vendor to see their paid {label} list.
+            </p>
+        );
+    }
+    if (loading) {
+        return (
+            <p className="flex items-center gap-2 px-1 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+            </p>
+        );
+    }
+    if (!documents.length) {
+        return (
+            <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                This vendor has no paid {label}
+                {allProjects ? "" : " on this project"}.
+            </p>
+        );
+    }
+
+    return (
+        <div className="max-h-[200px] overflow-y-auto rounded-md border">
+            <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted/60 text-xs text-muted-foreground">
+                    <tr>
+                        <th className="w-8 px-2 py-1.5" />
+                        <th className="px-2 py-1.5 text-left font-medium">{label}</th>
+                        {allProjects && <th className="px-2 py-1.5 text-left font-medium">Project</th>}
+                        <th className="px-2 py-1.5 text-left font-medium">Status</th>
+                        <th className="px-2 py-1.5 text-right font-medium">Total</th>
+                        <th className="px-2 py-1.5 text-right font-medium">Paid</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {documents.map((document) => {
+                        const ticked = isTicked(document.name);
+                        return (
+                            <tr
+                                key={document.name}
+                                className={`cursor-pointer border-t ${
+                                    ticked ? "bg-primary/5" : "hover:bg-muted/40"
+                                }`}
+                                onClick={() => onToggle(document)}
+                            >
+                                <td className="px-2 py-1.5 text-center">
+                                    <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 accent-primary"
+                                        checked={ticked}
+                                        onClick={(event) => event.stopPropagation()}
+                                        onChange={() => onToggle(document)}
+                                    />
+                                </td>
+                                <td className="max-w-[280px] px-2 py-1.5">
+                                    <span className="flex items-center gap-1">
+                                        <span className="truncate font-medium">{document.name}</span>
+                                        <RefundDocumentIcons
+                                            documentType={documentType}
+                                            name={document.name}
+                                            document={document}
+                                        />
+                                    </span>
+                                </td>
+                                {allProjects && (
+                                    <td
+                                        className="max-w-[160px] truncate px-2 py-1.5 text-xs"
+                                        title={document.project_name || document.project}
+                                    >
+                                        {document.project_name || document.project || "—"}
+                                    </td>
+                                )}
+                                <td className="px-2 py-1.5 text-xs text-muted-foreground">
+                                    {document.status || "—"}
+                                </td>
+                                <td className="px-2 py-1.5 text-right tabular-nums">
+                                    {formatToRoundedIndianRupee(document.total_amount)}
+                                </td>
+                                <td className="px-2 py-1.5 text-right tabular-nums">
+                                    {formatToIndianRupee(document.paid)}
+                                    {document.refunded > 0 && (
+                                        <span className="block text-[11px] text-muted-foreground">
+                                            refunded {formatToIndianRupee(document.refunded)}
+                                        </span>
+                                    )}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+/**
+ * A PO's or WO's two icons -- the items (book) and the details panel -- shared by its list row and its
+ * Selected line. The details icon needs the list row's figures, so it waits for them.
+ *
+ * ⚠️ THE ICONS STOP THE CLICK, so opening the items or the details never ticks or unticks a list row.
+ * React bubbles a portal's clicks through this span too.
+ */
+const RefundDocumentIcons = ({
+    documentType,
+    name,
+    document,
+}: {
+    documentType: RefundDocumentType;
+    name: string;
+    document: RefundDocument | undefined;
+}) => (
+    <span className="flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
+        {documentType === "Procurement Orders" ? (
+            <ItemsHoverCard
+                parentDoc={{ name } as any}
+                parentDoctype="Procurement Orders"
+                childTableName="items"
+            />
+        ) : (
+            <ItemsHoverCard
+                parentDoc={{ name } as any}
+                parentDoctype="Service Requests"
+                childTableName="work_order_items"
+                isSR
+            />
+        )}
+        {document && <RefundDocumentDetails documentType={documentType} document={document} />}
+    </span>
+);
+
+/**
+ * A PO's or WO's figures, one click from its row: what it is worth, what was delivered, invoiced and
+ * paid on it, what vendor refunds already took off it, and a link to its payments page.
+ *
+ * Everything shown comes from the list row `get_vendor_refund_documents` already sent -- nothing is
+ * fetched on open.
+ */
+const RefundDocumentDetails = ({
+    documentType,
+    document,
+}: {
+    documentType: RefundDocumentType;
+    document: RefundDocument;
+}) => {
+    const isPO = documentType === "Procurement Orders";
+    const money = (value?: number) =>
+        value === undefined || value === null ? "—" : formatToIndianRupee(value);
+    const date = (value?: string) => (value ? formatDate(value.split(/[ T]/)[0]) : "—");
+    const lines: [string, string][] = [
+        ["Status", document.status || "—"],
+        ["Created", date(document.creation)],
+        ...(isPO
+            ? ([
+                  ["Amount (excl. tax)", money(document.amount)],
+                  ["Tax", money(document.tax_amount)],
+              ] as [string, string][])
+            : []),
+        [isPO ? "Total (incl. tax)" : "Total", money(document.total_amount)],
+        ...(isPO ? ([["Delivered", money(document.po_amount_delivered)]] as [string, string][]) : []),
+        ["Invoiced", money(document.amount_invoiced)],
+        ["Paid", money(document.paid)],
+        ["Refunded (vendor refunds)", money(document.refunded)],
+        ["Still refundable", money(document.refundable)],
+        ["Due", money(document.amount_due)],
+        ...(isPO ? ([["Last payment", date(document.latest_payment_date)]] as [string, string][]) : []),
+    ];
+
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <button
+                    type="button"
+                    aria-label={`${document.name} details`}
+                    className="cursor-pointer rounded p-1 hover:bg-gray-100"
+                >
+                    <Info className="h-4 w-4 text-muted-foreground" />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0" align="start">
+                <div className="border-b px-3 py-2">
+                    <p className="text-sm font-semibold">{document.name}</p>
+                    <p className="text-xs text-muted-foreground">{isPO ? "Purchase order" : "Work order"}</p>
+                </div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-xs">
+                    {lines.map(([label, value]) => (
+                        <div key={label} className="contents">
+                            <dt className="text-muted-foreground">{label}</dt>
+                            <dd className="text-right tabular-nums">{value}</dd>
+                        </div>
+                    ))}
+                </dl>
+                <div className="border-t px-3 py-2">
+                    <Link
+                        to={orderPaymentsHref(document.name)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                        Open {isPO ? "PO" : "WO"} payments <ExternalLink className="h-3 w-3" />
+                    </Link>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+};
+
+/**
+ * The ticked documents, each with the part of the refund against it, the Misc. Expense line when it is
+ * ticked, and the running total.
+ *
+ * ⚠️ THE MISC. EXPENSE AMOUNT IS SHOWN, NEVER TYPED: it is whatever the ticked documents leave
+ * (`refundMiscAmount`), so it follows every PO / WO amount change. A blank figure means nothing is left.
+ *
+ * The line under the total says what still stops Confirm -- `refundAllocationProblem`, the same rule
+ * the confirm gate and the bulk bar read.
+ */
+const RefundSelection = ({
+    allocations,
+    documentFor,
+    miscAmount,
+    miscDescription,
+    onMiscDescription,
+    onRemoveMisc,
+    refundAmount,
+    allocated,
+    remaining,
+    problem,
+    onAmount,
+    onRemove,
+}: {
+    allocations: RefundAllocation[];
+    /** The list row behind a tick, for its details panel; absent while the list is loading. */
+    documentFor: (allocation: RefundAllocation) => RefundDocument | undefined;
+    /** The Misc. Expense part, or `null` when Misc. Expense is not ticked. */
+    miscAmount: number | null;
+    miscDescription: string;
+    onMiscDescription: (description: string) => void;
+    onRemoveMisc: () => void;
+    refundAmount: number;
+    allocated: number;
+    remaining: number;
+    problem: string | null;
+    onAmount: (allocation: RefundAllocation, amount: number | null) => void;
+    onRemove: (allocation: RefundAllocation) => void;
+}) => {
+    const typeLabel = (type: RefundDocumentType) =>
+        REFUND_DOCUMENT_TYPES.find((t) => t.doctype === type)?.label ?? type;
+    const lineCount = allocations.length + (miscAmount !== null ? 1 : 0);
+
+    return (
+        <div className="rounded-md border">
+            <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                <span>Selected ({lineCount})</span>
+                <span>Amount</span>
+            </div>
+            {lineCount === 0 ? (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                    Tick the POs or WOs this refund is against, or Misc. Expense for the rest.
+                </p>
+            ) : (
+                <ul className="divide-y">
+                    {allocations.map((allocation) => (
+                        <li
+                            key={`${allocation.documentType}|${allocation.documentName}`}
+                            className="flex items-center gap-2 px-3 py-1.5"
+                        >
+                            <span className="w-24 shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {typeLabel(allocation.documentType)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1">
+                                    <span className="truncate text-sm" title={allocation.label}>
+                                        {allocation.label}
+                                    </span>
+                                    <RefundDocumentIcons
+                                        documentType={allocation.documentType}
+                                        name={allocation.documentName}
+                                        document={documentFor(allocation)}
+                                    />
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                    paid {formatToIndianRupee(allocation.paid)}
+                                    {allocation.refundable < allocation.paid &&
+                                        ` · refundable ${formatToIndianRupee(allocation.refundable)}`}
+                                    {documentFor(allocation)?.project_name &&
+                                        ` · ${documentFor(allocation)?.project_name}`}
+                                </span>
+                            </span>
+                            <Input
+                                type="number"
+                                inputMode="decimal"
+                                min={0}
+                                step="0.01"
+                                className="h-8 w-32 text-right tabular-nums"
+                                value={allocation.amount ?? ""}
+                                onChange={(event) =>
+                                    onAmount(
+                                        allocation,
+                                        event.target.value === "" ? null : Number(event.target.value)
+                                    )
+                                }
+                            />
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0"
+                                aria-label={`Remove ${allocation.label}`}
+                                onClick={() => onRemove(allocation)}
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </Button>
+                        </li>
+                    ))}
+                    {miscAmount !== null && (
+                        <li className="flex items-center gap-2 px-3 py-1.5">
+                            <span className="w-24 shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Misc. Expense
+                            </span>
+                            <span className="min-w-0 flex-1 space-y-1">
+                                <span className="block text-xs text-muted-foreground">
+                                    Rest of the refund is against a vendor Misc Expense
+                                </span>
+                                <Input
+                                    className="h-8 text-sm"
+                                    placeholder="Description — what was this misc. expense?"
+                                    value={miscDescription}
+                                    onChange={(event) => onMiscDescription(event.target.value)}
+                                />
+                            </span>
+                            <span className="w-32 pr-3 text-right text-sm tabular-nums">
+                                {miscAmount > 0 ? formatToIndianRupee(miscAmount) : "—"}
+                            </span>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0"
+                                aria-label="Remove Misc. Expense"
+                                onClick={onRemoveMisc}
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </Button>
+                        </li>
+                    )}
+                </ul>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-xs">
+                <span className={problem ? "text-amber-700" : "text-muted-foreground"}>
+                    {problem ?? (lineCount ? "Ready to confirm." : "")}
+                </span>
+                <span className="tabular-nums">
+                    Allocated{" "}
+                    <span className="font-medium">{formatToIndianRupee(allocated)}</span> of{" "}
+                    <span className="font-medium">{formatToIndianRupee(refundAmount)}</span>
+                    {remaining !== 0 && (
+                        <span className="text-muted-foreground">
+                            {" "}
+                            · {remaining > 0 ? "left" : "over"} {formatToIndianRupee(Math.abs(remaining))}
+                        </span>
+                    )}
+                </span>
+            </div>
+        </div>
+    );
+};
+
+/**
+ * A searchable single-select over a long list (vendors, projects), inside the dialog.
+ *
+ * The ✕ clears the pick with `null`. It sits BESIDE the trigger, not inside it -- a button nested in
+ * the trigger button is invalid HTML and would also open the popover. `null`, not `undefined`, so a
+ * cleared vendor is not re-filled by the refund form's bank-remarks suggestion.
+ */
+const SearchPicker = ({
+    value,
+    onChange,
+    options,
+    loading,
+    placeholder,
+    searchPlaceholder,
+}: {
+    value?: string | null;
+    onChange: (value: string | null) => void;
+    options: { value: string; label: string; hint?: string }[];
+    loading?: boolean;
+    placeholder: string;
+    searchPlaceholder: string;
+}) => {
+    const [open, setOpen] = useState(false);
+    const chosen = options.find((option) => option.value === value);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <div className="relative">
+                <PopoverTrigger asChild>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={open}
+                        className="h-9 w-full justify-between px-3 font-normal"
+                    >
+                        <span className={`truncate ${chosen ? "pr-6" : "text-muted-foreground"}`}>
+                            {chosen ? chosen.label : loading ? "Loading…" : placeholder}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </Button>
+                </PopoverTrigger>
+                {chosen && (
+                    <button
+                        type="button"
+                        aria-label="Clear"
+                        title="Clear"
+                        onClick={() => onChange(null)}
+                        className="absolute right-8 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                )}
+            </div>
+            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command>
+                    <CommandInput placeholder={searchPlaceholder} />
+                    <CommandList className="max-h-[260px]">
+                        <CommandEmpty>Nothing matches that.</CommandEmpty>
+                        <CommandGroup>
+                            {options.map((option) => (
+                                <CommandItem
+                                    key={option.value}
+                                    value={option.value}
+                                    keywords={[option.label, option.hint ?? ""]}
+                                    onSelect={() => {
+                                        onChange(option.value);
+                                        setOpen(false);
+                                    }}
+                                >
+                                    <Check
+                                        className={`mr-2 h-4 w-4 shrink-0 ${
+                                            option.value === value ? "opacity-100" : "opacity-0"
+                                        }`}
+                                    />
+                                    <span className="truncate">{option.label}</span>
+                                    {option.hint && (
+                                        <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+                                            {option.hint}
+                                        </span>
+                                    )}
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
     );
 };
 

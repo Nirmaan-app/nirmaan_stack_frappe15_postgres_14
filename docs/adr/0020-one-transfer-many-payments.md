@@ -5,6 +5,7 @@
 - **Supersedes:** owner ruling **Q4** ("fan-out is report-only")
 - **Feature:** Bulk Import Transactions (`outflow_import`)
 - **Design spec:** `frontend/.claude/plans/outflow-fanout-allocation-plan.md`
+- **Amended by:** [ADR-0027](0027-many-lines-one-expense.md) — many bank lines settle one expense (D1 and B2, expenses only)
 
 ---
 
@@ -247,6 +248,11 @@ no fourth status — the same silent shape Amendment A1 was written for.
 
 > **Reversal half reversed (2026-09-15, [ADR-0022](0022-unreconcile-and-unskip.md), #1277):** an existing
 > expense leg can now be unreconciled. The allocation half below still stands.
+>
+> **Widened for expenses, in ONE direction ([ADR-0027](0027-many-lines-one-expense.md), accepted 2026-09-17,
+> not built):** many bank lines may settle one Project Expense or Non Project Expense, each line a slip whose
+> `target_amount` is that line's own amount. One line → many expenses (`allocate_row`) is still refused, as
+> below.
 
 `allocate_row` refuses every target that is not `Project Payments`, per-target, before any write
 (*"Only Project Payments can be allocated from one transfer. Settle a '<X>' on its own."*).

@@ -42,7 +42,7 @@ export const findVendorsByAccountNumber = (
     );
 };
 
-/** The vendor already holding this GST / PAN, if any. */
+/** The vendor already holding this GST, if any. */
 export const findVendorByGst = (
     existingVendors: Vendors[] | undefined,
     gst?: string | null
@@ -51,9 +51,35 @@ export const findVendorByGst = (
     return (existingVendors ?? []).find((vendor) => vendor.vendor_gst === gst);
 };
 
-/** "A", "A and B", "A, B and C" — for naming the matched vendors in a message. */
+/**
+ * Every other vendor already holding this PAN. A WARNING only, never a block: one company
+ * legitimately appears under several GSTINs (one per state) carrying the same PAN.
+ */
+export const findVendorsByPan = (
+    existingVendors: Vendors[] | undefined,
+    pan?: string | null
+): Vendors[] => {
+    if (!pan) return [];
+    return (existingVendors ?? []).filter((vendor) => vendor.vendor_pan === pan);
+};
+
+/**
+ * "A", "A and B", "A, B and C" — for naming the matched vendors in a message.
+ *
+ * Names are DEDUPED and sorted A→Z. One company registered per state is several vendor
+ * records under the SAME name, so without the dedupe a PAN match read
+ * "X LLP and X LLP". Comparison ignores case and extra spaces; the first spelling wins.
+ */
 export const vendorNamesLabel = (vendors: Vendors[]): string => {
-    const names = vendors.map((vendor) => vendor.vendor_name || vendor.name);
+    const byKey = new Map<string, string>();
+    for (const vendor of vendors) {
+        const label = (vendor.vendor_name || vendor.name || "").trim();
+        const key = label.replace(/\s+/g, " ").toLowerCase();
+        if (label && !byKey.has(key)) byKey.set(key, label);
+    }
+    const names = [...byKey.values()].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
     if (names.length === 0) return "";
     if (names.length === 1) return names[0];
     return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;

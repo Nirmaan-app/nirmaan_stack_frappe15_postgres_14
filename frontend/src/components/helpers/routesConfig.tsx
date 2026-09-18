@@ -76,6 +76,8 @@ import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import ExpenseLayout from "@/pages/Expenses/ExpenseLayout";
+import ExpenseRequestsPage from "@/pages/ExpenseRequests/ExpenseRequestsPage";
+import { ExpenseIndexRedirect } from "@/pages/Expenses/ExpenseIndexRedirect";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
@@ -132,6 +134,7 @@ import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
 // PO Revisions Approval
 import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDetail";
+import { PO_ADMIN_ROLES } from "@/pages/ProcurementOrders/purchase-order/config/poTabs.constants";
 
 //Help Repository
 import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
@@ -335,6 +338,9 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "po-revisions-approval",
+            // Same approver set as the "Approve PO Revision" tab. The approve/reject calls behind
+            // this screen carry no role check, so the route itself is the gate (PMO out, 2026-09-17).
+            element: <RoleRoute allowed={PO_ADMIN_ROLES} what="PO revision approvals" />,
             children: [
               { path: ":id", element: <PORevisionsApprovalDetail /> },
             ],
@@ -371,7 +377,10 @@ export const appRoutes: RouteObject[] = [
             path: "expense",
             element: <ExpenseLayout />,
             children: [
-              { index: true, element: <Navigate to="/expense/project" replace /> },
+              // Index lands on Requests for every role: the Misc Project / Non-Project tabs are
+              // hidden (ExpenseLayout), but their routes below still resolve for deep links.
+              { index: true, element: <ExpenseIndexRedirect /> },
+              { path: "requests", element: <ExpenseRequestsPage /> },
               { path: "project", element: <AllProjectExpensesPage /> },
               { path: "non-project", element: <NonProjectExpensesPage /> },
             ],

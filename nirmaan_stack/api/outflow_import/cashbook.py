@@ -534,6 +534,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 "skip_reason": None if creating else planned.reason,
                 # A Cashbook skip is the import plan's decision, never a person's (#1273).
                 "skip_origin": None if creating else SKIP_ORIGIN_SYSTEM,
+                "skip_kind": None if creating else planned.skip_kind,
                 "suggested_doctype": planned.ledger if creating else None,
                 "suggested_expense_type": planned.expense_type if creating else None,
                 "resolved_project": (

@@ -55,10 +55,14 @@ def restore_derived_state(carried, statement_file_url: str | None) -> None:
     back to Approved, and records already deleted."""
     projects = {leg.project for leg in carried if leg.deleted and leg.project}
     by_doctype = {}
+    unlinked = {}
     for leg in carried:
         if not leg.deleted:
             by_doctype.setdefault(leg.doctype, set()).add(leg.name)
-    for doctype, names in sorted(by_doctype.items()):
+            # #1300: a line off a many-line expense whose statement is still attached keeps its link.
+            if not leg.statement_held_by_another_line:
+                unlinked.setdefault(leg.doctype, set()).add(leg.name)
+    for doctype, names in sorted(unlinked.items()):
         delete_statement_file_links(doctype, sorted(names), statement_file_url)
 
     payment_names = sorted(by_doctype.get(PAYMENT_DOCTYPE, ()))

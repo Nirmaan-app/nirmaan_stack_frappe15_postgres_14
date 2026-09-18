@@ -99,6 +99,8 @@ interface DocumentDetailPopoverProps {
   /** "Procurement Orders" (PO) or "Service Requests" (WO). */
   docType: string;
   vendorLabel?: string;
+  /** The project id — the PO link routes under it (`/projects/:id/po/:po`). */
+  projectId?: string;
   projectLabel?: string;
   children: React.ReactNode;
 }
@@ -107,6 +109,7 @@ export const DocumentDetailPopover: React.FC<DocumentDetailPopoverProps> = ({
   docName,
   docType,
   vendorLabel,
+  projectId,
   projectLabel,
   children,
 }) => {
@@ -122,6 +125,15 @@ export const DocumentDetailPopover: React.FC<DocumentDetailPopoverProps> = ({
   const total = Number(data?.total_amount ?? 0);
   const paid = Number(data?.amount_paid ?? 0);
 
+  // ⚠️ The PO opens under its PROJECT (`/projects/:projectId/po/:poId`), the summary
+  // view that renders for every status. NOT bare `/purchase-orders/:id`: with no
+  // `tab` that route falls back to "Approve PO", the PR vendor-quote approval
+  // screen, which 404s looking the PO id up as a Procurement Request.
+  const poProject = projectId || data?.project;
+  const poLink = poProject
+    ? `/projects/${poProject}/po/${routeName(docName)}`
+    : `/purchase-orders/${routeName(docName)}?tab=Dispatched+PO`;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className={DETAIL_TRIGGER_CLASS}>{children}</PopoverTrigger>
@@ -130,7 +142,7 @@ export const DocumentDetailPopover: React.FC<DocumentDetailPopoverProps> = ({
           title={docName}
           subtitle={isPO ? "Purchase Order" : "Work Order"}
           loading={isLoading}
-          to={isPO ? `/purchase-orders/${routeName(docName)}` : `/service-requests-list/${routeName(docName)}`}
+          to={isPO ? poLink : `/service-requests-list/${routeName(docName)}`}
           linkLabel={isPO ? "Open PO" : "Open WO"}
         >
           <Field label="Vendor" value={data?.vendor_name || vendorLabel || data?.vendor} />

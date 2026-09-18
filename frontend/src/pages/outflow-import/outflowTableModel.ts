@@ -167,17 +167,20 @@ function wrapToWidth(text: string | null | undefined, width: number): string[] {
 /**
  * Which ledger a row is being settled against, or which kind of record it is CREATING.
  *
- * ⚠️ `new`, `inflow` AND `nonProjectInflow` ARE NOT LEDGERS AND NEVER APPEAR ON A `SettleableRecord`.
- * The first three members are real doctypes and are what `recordKey` / `parseRecordKey` round-trip;
- * the last three are CREATE intents, which have no record to key. Anything narrowing this union for
- * a record list must exclude them rather than assume they cannot occur.
+ * ⚠️ `new`, `inflow`, `nonProjectInflow` AND `vendorRefund` ARE NOT LEDGERS AND NEVER APPEAR ON A
+ * `SettleableRecord`. The first three members are real doctypes and are what `recordKey` /
+ * `parseRecordKey` round-trip; the last four are CREATE intents, which have no record to key. Anything
+ * narrowing this union for a record list must exclude them rather than assume they cannot occur.
  *
- * ⚠️ `inflow` AND `nonProjectInflow` ARE THE TWO THAT MOVE MONEY THE OTHER WAY, and both are offered
- * only on a row whose `direction` is `Credit`. They divide on whether a PROJECT is behind the money:
+ * ⚠️ `inflow`, `nonProjectInflow` AND `vendorRefund` ARE THE ONES THAT MOVE MONEY THE OTHER WAY, and
+ * all three are offered only on a row whose `direction` is `Credit`. They divide on who is behind the
+ * money:
  *   * `inflow` (B6) — a client receipt, written as a `Project Inflow`.
- *   * `nonProjectInflow` (#1266) — everything else (FD interest, an FD closing, a loan drawdown, a
- *     refund), written as a `Non Project Inflow` with an Inflow Type. It replaced the B7 `receipt`,
- *     which wrote a NEGATIVE `Non Project Expense` (ADR-0016 Amendment A-D2).
+ *   * `nonProjectInflow` (#1266) — FD interest, an FD closing, a loan drawdown, written as a
+ *     `Non Project Inflow` with an Inflow Type. It replaced the B7 `receipt`, which wrote a NEGATIVE
+ *     `Non Project Expense` (ADR-0016 Amendment A-D2).
+ *   * `vendorRefund` — money a vendor paid back, written as a `Vendor Refund` naming the vendor. It
+ *     moves no PO or vendor paid amount; the PO Adjustment refund flow still owns that.
  */
 export type DecisionTarget =
     | "Project Payments"
@@ -185,7 +188,8 @@ export type DecisionTarget =
     | "Non Project Expenses"
     | "new"
     | "inflow"
-    | "nonProjectInflow";
+    | "nonProjectInflow"
+    | "vendorRefund";
 
 /** The debit-side dispositions: settle an approved record, or create the expense that is missing. */
 const PAID_TARGETS: readonly DecisionTarget[] = [
@@ -195,14 +199,20 @@ const PAID_TARGETS: readonly DecisionTarget[] = [
     "new",
 ];
 
-/** The credit-side dispositions, in the order the dialog offers them. The ONLY two (#1266). */
-const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "nonProjectInflow"];
+/** The credit-side dispositions, in the order the dialog offers them. The ONLY three. */
+const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "nonProjectInflow", "vendorRefund"];
 
 /** The dispositions that CREATE a record rather than link an existing one. */
-const CREATE_TARGETS: readonly DecisionTarget[] = ["new", "inflow", "nonProjectInflow"];
+const CREATE_TARGETS: readonly DecisionTarget[] = [
+    "new",
+    "inflow",
+    "nonProjectInflow",
+    "vendorRefund",
+];
 
 /**
- * Does this disposition create a new record (an expense, a project inflow, a non-project inflow)?
+ * Does this disposition create a new record (an expense, a project inflow, a non-project inflow, a
+ * vendor refund)?
  * The ONE test -- the dialog's dimming, its link-vs-create wording and `recordAnywayWording` read it.
  */
 export const isCreateTarget = (target: DecisionTarget | undefined): boolean =>
@@ -314,7 +324,6 @@ export interface RowDecision {
     newInflow?: {
         project?: string | null;
         customer?: string | null;
-        invoice?: string | null;
     };
     /**
      * Only for `target: "nonProjectInflow"` — a bank CREDIT that belongs to NO project, recorded as
@@ -330,7 +339,338 @@ export interface RowDecision {
         inflowType?: string | null;
         description?: string;
     };
+    /**
+     * Only for `target: "vendorRefund"` — a bank CREDIT a vendor paid back, split across PAID POs and
+     * Work Orders of that vendor (on the chosen project, or on any when none is chosen), with whatever
+     * they do not take going to a Misc. Expense (no document). The server writes each part as its own `Vendor Refund` record; no payment
+     * or expense is created and no paid amount moves.
+     *
+     * ⚠️ THE ROW'S AMOUNT, DATE AND REFERENCE ARE NOT HERE: the server reads them off the staged bank
+     * row, and re-checks that the parts add up to it.
+     *
+     * ⚠️ `vendor` ABSENT MEANS "NEVER TOUCHED", NULL MEANS "DELIBERATELY CLEARED" -- the `linkTo`
+     * contract. The form prefills `suggestRefundVendor`'s answer only into an absent one, so clearing
+     * the vendor is never undone by the suggestion.
+     *
+     * ⚠️ EVERY CHANGE GOES THROUGH `withRefundPick` / `toggleRefundAgainst` / `toggleRefundAllocation`
+     * / `setRefundAllocationAmount`: a document ticked for one vendor, project or kind must never ride
+     * along onto another.
+     */
+    newVendorRefund?: VendorRefundForm;
 }
+
+/** One ticked PO or WO and the part of the refund against it. */
+export interface RefundAllocation {
+    documentType: RefundDocumentType;
+    documentName: string;
+    /** How the document reads on the selected list (its PO / WO number). */
+    label: string;
+    /** The project the document is on -- decides whether the tick survives a project change. */
+    project?: string | null;
+    /** What was paid on it, from the list at tick time. */
+    paid: number;
+    /** What is still refundable on it (paid, less earlier refunds) -- the most this part may be. */
+    refundable: number;
+    /** The part of the refund against it, as entered. `null` until there is one. */
+    amount: number | null;
+}
+
+export interface VendorRefundForm {
+    vendor?: string | null;
+    project?: string | null;
+    /**
+     * What the refund is against -- MULTI-select. Each ticked PO / WO kind shows its list; a ticked
+     * Misc. Expense takes whatever the ticked documents leave (`refundMiscAmount`), with no document.
+     */
+    refundAgainst?: RefundAgainst[];
+    /** The ticked POs and WOs. A Misc. Expense is never here -- its amount is derived, not entered. */
+    allocations?: RefundAllocation[];
+    /** What the Misc. Expense refund was for, saved as its `description`. Optional. */
+    miscDescription?: string;
+}
+
+/**
+ * The documents a vendor refund may be recorded against, in the order the dialog lists them. The
+ * server's list is `services/vendor_refunds.REFUND_DOCUMENT_FIELDS`, which re-checks every pick.
+ */
+export const REFUND_DOCUMENT_TYPES = [
+    { doctype: "Procurement Orders", label: "PO" },
+    { doctype: "Service Requests", label: "WO" },
+] as const;
+
+export type RefundDocumentType = (typeof REFUND_DOCUMENT_TYPES)[number]["doctype"];
+
+/**
+ * A refund part against NO document (owner, 2026-09-17) -- the server's
+ * `services/vendor_refunds.MISC_EXPENSE`, sent as the part's `document_type` with a blank name.
+ */
+export const REFUND_MISC_EXPENSE = "Misc. Expense";
+
+export type RefundAgainst = RefundDocumentType | typeof REFUND_MISC_EXPENSE;
+
+/** The "Refund against" choices, in the order the dialog offers them. */
+export const REFUND_AGAINST_OPTIONS: readonly { value: RefundAgainst; label: string }[] = [
+    ...REFUND_DOCUMENT_TYPES.map((type) => ({ value: type.doctype, label: type.label })),
+    { value: REFUND_MISC_EXPENSE, label: "Misc. Expense" },
+];
+
+const isRefundDocumentType = (value: unknown): value is RefundDocumentType =>
+    REFUND_DOCUMENT_TYPES.some((type) => type.doctype === value);
+
+/** Money in whole paise, so every refund comparison is exact. The server compares at the paisa too. */
+const toPaise = (value: number | null | undefined): number => Math.round((Number(value) || 0) * 100);
+
+const sameDocument = (a: RefundAllocation, type: RefundDocumentType, name: string) =>
+    a.documentType === type && a.documentName === name;
+
+/**
+ * The form after a change of vendor or project. The PROJECT IS OPTIONAL -- with none chosen the lists
+ * cover the vendor's documents on every project. A new vendor clears every tick (none is theirs); a new
+ * project keeps only the ticks on documents of that project, and clearing it keeps them all. The
+ * "Refund against" choices stay.
+ */
+export const withRefundPick = (
+    form: VendorRefundForm,
+    change: Pick<VendorRefundForm, "vendor" | "project">
+): VendorRefundForm => {
+    const next = { ...form, ...change };
+    if ("vendor" in change && change.vendor !== form.vendor) return { ...next, allocations: [] };
+    if ("project" in change && change.project && change.project !== form.project) {
+        return {
+            ...next,
+            allocations: (form.allocations ?? []).filter((a) => a.project === change.project),
+        };
+    }
+    return next;
+};
+
+/** Whether the refund is against this kind. */
+export const isRefundAgainst = (form: VendorRefundForm | undefined, value: RefundAgainst): boolean =>
+    (form?.refundAgainst ?? []).includes(value);
+
+/**
+ * Tick or untick one "Refund against" choice. Unticking PO or WO drops the ticks on that list -- a
+ * hidden tick would still be recorded.
+ */
+export const toggleRefundAgainst = (form: VendorRefundForm, value: RefundAgainst): VendorRefundForm => {
+    const current = form.refundAgainst ?? [];
+    if (!current.includes(value)) {
+        // Kept in the offered order, whatever order they were ticked in.
+        const next = REFUND_AGAINST_OPTIONS.map((o) => o.value).filter(
+            (v) => v === value || current.includes(v)
+        );
+        return { ...form, refundAgainst: next };
+    }
+    return {
+        ...form,
+        refundAgainst: current.filter((v) => v !== value),
+        allocations: (form.allocations ?? []).filter((a) => a.documentType !== value),
+    };
+};
+
+/** What the ticked POs and WOs take, in paise. */
+const documentsPaise = (form: VendorRefundForm): number =>
+    (form.allocations ?? []).reduce((sum, a) => sum + toPaise(a.amount), 0);
+
+/**
+ * The Misc. Expense part: whatever of the refund the ticked POs and WOs leave, or `null` when Misc.
+ * Expense is not ticked. It may be 0 or negative -- `refundAllocationProblem` refuses that.
+ */
+export const refundMiscAmount = (
+    form: VendorRefundForm | undefined,
+    refundAmount: number
+): number | null =>
+    form && isRefundAgainst(form, REFUND_MISC_EXPENSE)
+        ? (toPaise(refundAmount) - documentsPaise(form)) / 100
+        : null;
+
+/** How much of the refund the ticked documents and the Misc. Expense take, and what is left of it. */
+export const refundAllocationTotals = (
+    form: VendorRefundForm,
+    refundAmount: number
+): { allocated: number; remaining: number } => {
+    const miscPaise = Math.max(toPaise(refundMiscAmount(form, refundAmount)), 0);
+    const allocatedPaise = documentsPaise(form) + miscPaise;
+    return {
+        allocated: allocatedPaise / 100,
+        remaining: (toPaise(refundAmount) - allocatedPaise) / 100,
+    };
+};
+
+/**
+ * Tick or untick one document. A new tick is PREFILLED with what the other ticked documents leave,
+ * capped at what is still refundable on it -- so the first tick takes the whole refund when it can,
+ * and each later one the rest. A Misc. Expense never holds a tick back: it takes what is left after.
+ */
+export const toggleRefundAllocation = (
+    form: VendorRefundForm,
+    document: Pick<
+        RefundAllocation,
+        "documentType" | "documentName" | "label" | "paid" | "refundable" | "project"
+    >,
+    refundAmount: number
+): VendorRefundForm => {
+    const allocations = form.allocations ?? [];
+    if (allocations.some((a) => sameDocument(a, document.documentType, document.documentName))) {
+        return {
+            ...form,
+            allocations: allocations.filter(
+                (a) => !sameDocument(a, document.documentType, document.documentName)
+            ),
+        };
+    }
+    const remainingPaise = toPaise(refundAmount) - documentsPaise(form);
+    const prefillPaise = Math.min(toPaise(document.refundable), remainingPaise);
+    return {
+        ...form,
+        allocations: [
+            ...allocations,
+            { ...document, amount: prefillPaise > 0 ? prefillPaise / 100 : null },
+        ],
+    };
+};
+
+/** Set the part of the refund against one ticked document. */
+export const setRefundAllocationAmount = (
+    form: VendorRefundForm,
+    documentType: RefundDocumentType,
+    documentName: string,
+    amount: number | null
+): VendorRefundForm => ({
+    ...form,
+    allocations: (form.allocations ?? []).map((a) =>
+        sameDocument(a, documentType, documentName) ? { ...a, amount } : a
+    ),
+});
+
+/**
+ * Why this refund cannot be confirmed yet, or `null` when it can. The server's
+ * `services/vendor_refunds.refund_allocation_problem`, in the reviewer's words -- the server re-checks
+ * every rule, including that each document still is this vendor's and still was paid that much.
+ */
+export const refundAllocationProblem = (
+    form: VendorRefundForm | undefined,
+    refundAmount: number
+): string | null => {
+    if (!form?.vendor?.trim()) return "Choose the vendor.";
+    const allocations = form.allocations ?? [];
+    const misc = refundMiscAmount(form, refundAmount);
+    if (!allocations.length && misc === null) {
+        return "Tick at least one PO or WO, or choose Misc. Expense.";
+    }
+    for (const a of allocations) {
+        if (!isRefundDocumentType(a.documentType) || !a.documentName) {
+            return "Every ticked document needs a PO or WO.";
+        }
+        if (toPaise(a.amount) <= 0) return `Enter an amount for ${a.label}.`;
+        if (toPaise(a.amount) > toPaise(a.refundable)) {
+            return `No more than ${a.refundable} can be refunded against ${a.label}.`;
+        }
+    }
+    if (misc !== null) {
+        // The Misc. Expense takes exactly what is left, so the total always matches -- unless nothing is.
+        return toPaise(misc) > 0
+            ? null
+            : "Nothing is left for the Misc. Expense. Lower a PO or WO amount, or untick Misc. Expense.";
+    }
+    const { remaining } = refundAllocationTotals(form, refundAmount);
+    if (toPaise(remaining) !== 0) {
+        return remaining > 0
+            ? `${remaining} of the refund is not allocated yet.`
+            : `The amounts are ${-remaining} more than the refund.`;
+    }
+    return null;
+};
+
+/** One part a vendor refund posts. */
+export interface RefundAllocationPart {
+    document_type: string;
+    document_name: string;
+    amount: number | null;
+    description?: string;
+}
+
+/**
+ * The `allocations` a vendor refund posts: one per ticked PO / WO, plus the Misc. Expense part (blank
+ * document, its description) when it is ticked. Send only once `refundAllocationProblem` is `null`.
+ */
+export const refundAllocationsPayload = (
+    form: VendorRefundForm | undefined,
+    refundAmount: number
+): RefundAllocationPart[] => {
+    const parts: RefundAllocationPart[] = (form?.allocations ?? []).map((a) => ({
+        document_type: a.documentType,
+        document_name: a.documentName,
+        amount: a.amount,
+    }));
+    const misc = refundMiscAmount(form, refundAmount);
+    if (misc !== null) {
+        const description = form?.miscDescription?.trim();
+        parts.push({
+            document_type: REFUND_MISC_EXPENSE,
+            document_name: "",
+            amount: misc,
+            ...(description ? { description } : {}),
+        });
+    }
+    return parts;
+};
+
+/** Words a bank and our vendor master spell differently or drop, so a name key ignores them. */
+const COMPANY_FORM_WORDS = new Set(["PVT", "PRIVATE", "LTD", "LIMITED", "LLP"]);
+
+/** Shortest payer key that may suggest a vendor: a shorter one prefixes too many names to mean one. */
+const MIN_VENDOR_KEY_LENGTH = 6;
+
+/**
+ * A company name reduced to what a bank line and the vendor master agree on: upper case, no
+ * `(Bangalore)`-style branch note, no leading `M/S` / `M S`, no legal-form words, and no separators.
+ * `M S OCTEL NETWORKS PRIVATE LIMITED` and `OCTEL NETWORKS PVT LTD` both read `OCTELNETWORKS`.
+ */
+export const vendorNameKey = (name: string | null | undefined): string =>
+    (name ?? "")
+        .toUpperCase()
+        .replace(/\([^)]*\)/g, " ")
+        .replace(/^\s*M\s*[/.\s]\s*S\b\.?/, " ")
+        .split(/[^A-Z0-9]+/)
+        .filter((word) => word && !COMPANY_FORM_WORDS.has(word))
+        .join("");
+
+/**
+ * The vendor a credit's remarks name, or `null` when they do not name exactly one.
+ *
+ * It reads the payer the parser lifted out of the remarks AND every `/`- or `-`-separated piece of
+ * the remarks themselves, because some narrations carry a name the parser does not lift (a UPI line,
+ * `UPI/PANKAJ MEH/...`, has no payer at all).
+ *
+ * ⚠️ A PREFIX MATCH, BECAUSE THE BANK TRUNCATES SILENTLY. IMPS keeps 10 characters and ICICI's
+ * internal channels 14 (`RAJAT REFR`, `KEYWEST GEOGRI`), so an exact compare would miss most IMPS
+ * refunds. The remark's key must therefore START the vendor's key -- never the other way round, which
+ * would let a short vendor name claim every longer remark.
+ *
+ * ⚠️ IT REFUSES TO GUESS BETWEEN TWO, across ALL the pieces together. `ANJ TURNKEY PROJECTS` is both a
+ * Bangalore and a Kolkata entry; picking one would pre-select the wrong vendor half the time, looking
+ * deliberate. A suggestion is a convenience -- the reviewer still sees and can change it.
+ */
+export const suggestRefundVendor = (
+    row: Pick<OutflowImportRow, "beneficiary_name" | "remarks">,
+    vendors: readonly { name: string; vendor_name?: string | null }[]
+): string | null => {
+    const pieces = [row.beneficiary_name, ...(row.remarks ?? "").split(/[/-]/)];
+    const keys = pieces
+        .map(vendorNameKey)
+        .filter((key) => key.length >= MIN_VENDOR_KEY_LENGTH && /[A-Z]{3}/.test(key));
+    if (!keys.length) return null;
+    const hits = new Set(
+        vendors
+            .filter((vendor) => {
+                const vendorKey = vendorNameKey(vendor.vendor_name);
+                return keys.some((key) => vendorKey.startsWith(key));
+            })
+            .map((vendor) => vendor.name)
+    );
+    return hits.size === 1 ? [...hits][0] : null;
+};
 
 /**
  * The Description a new Non-Project Inflow card starts with: the payer, then the bank remarks
@@ -466,6 +806,47 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     { id: "ifsc", title: "IFSC", get: (r) => r.ifsc ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
 ];
+
+/**
+ * The Skipped popup's own column: WHAT KIND of skip a line is (owner-confirmed 2026-09-17).
+ *
+ * ⚠️ A FACET OVER A STORED FIELD (`Outflow Import Row.skip_kind`), never over the reason sentence --
+ * the sentence is written for a person and gets reworded. The cell still carries the full reason on
+ * hover, the record links and the "Skipped by hand" line, so nothing Outcome showed is lost.
+ */
+export const SKIP_TYPE_COLUMN: OutflowColumn = {
+    id: "skip_kind",
+    title: "Skip Type",
+    get: (r) => r.skip_kind ?? "",
+    filter: "facet",
+    width: "220px",
+};
+
+/**
+ * The popup's columns: the page's, with Outcome REPLACED by Skip Type (owner ruling). Outcome on a
+ * skipped line is a sentence cut off at 204px; the type is the fact a reader filters by.
+ *
+ * ⚠️ STATUS AND LEDGER ARE DROPPED TOO (owner, 2026-09-17). Every row here is `Skipped` and a skip
+ * settles nothing, so both columns said the same thing -- or nothing -- on every line. The CSV keeps
+ * them (`SKIPPED_EXPORT_COLUMNS`): a file is the full record.
+ *
+ * ⚠️ A SEPARATE LIST, NOT A HIDDEN COLUMN ON THE PAGE. The page's Columns menu walks
+ * `OUTFLOW_COLUMNS`, and no tab on the page ever shows a skipped line, so Skip Type there would be a
+ * column that is blank on every row it could reach.
+ */
+const NOT_IN_SKIPPED_POPUP: readonly string[] = ["row_status", "settled_ledger"];
+
+export const SKIPPED_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.filter(
+    (column) => !NOT_IN_SKIPPED_POPUP.includes(column.id)
+).map((column) => (column.id === "outcome" ? SKIP_TYPE_COLUMN : column));
+
+/**
+ * What the popup's CSV carries: every page column (Outcome included -- a file keeps the full reason,
+ * it costs no screen width) with Skip Type beside it.
+ */
+export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
+    column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
+);
 
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
@@ -916,6 +1297,8 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // ⚠️ `direction` LEFT THIS LIST WITH ITS COLUMN (owner, 2026-09-14). With no column there is
     // no funnel to tick, and the direction tabs scope by it instead. The server's
     // `_FACET_COLUMNS["direction"]` stays: the tab scopes and counts read the same expression.
+    // The Skipped popup's Skip Type (`SKIP_TYPE_COLUMN`). Only that popup draws its funnel.
+    "skip_kind",
 ];
 
 /**
@@ -964,21 +1347,6 @@ export interface MasterTableState {
 
 export interface OutflowRowsQuery {
     scope: string;
-    /**
-     * Split `Skipped` into the two facts it hides: `true` = the bank refused it, `false` = it was
-     * skipped for any other reason, absent = both.
-     *
-     * ⚠️ IT EXISTS BECAUSE TWO CORRECT NUMBERS DISAGREED. The summary's Skipped chip reports 20 and
-     * the `skipped` scope returns 47, because a transfer the bank REFUSED is excluded from every
-     * figure the summary reports (owner ruling, option B) while still carrying `row_status`
-     * `Skipped`. Nothing could ask for one group or the other until this.
-     */
-    failed?: boolean;
-    /**
-     * `"Manual"` narrows the Skipped popup to lines a person skipped (#1273) -- the "Skipped by hand"
-     * segment. A server filter, so the page, its count and the export agree.
-     */
-    skip_origin?: typeof SKIP_ORIGIN_MANUAL;
     batch?: string;
     search?: string;
     facets?: Record<string, string[]>;
@@ -1049,16 +1417,10 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
         .join(" ");
     if (text && !search) query.search = text;
 
-    // ⚠️ A PSEUDO-COLUMN, handled here rather than in `_FACET_COLUMNS`, because the question is not
-    // "which values of a column" but "is this row on the excluded side of an owner ruling". The
-    // facet machinery answers with an IN list, which cannot express "anything that is not SUCCESS"
-    // without this screen learning the bank's whole vocabulary.
-    const bank = String(filters.failed ?? "").trim();
-    if (bank === "failed") query.failed = true;
-    if (bank === "recorded") query.failed = false;
-    // The fourth segment of the same control (#1273). Not a `failed` value: a hand skip is a
-    // successful transfer, and sending `failed` too would only restate that.
-    if (bank === SKIPPED_BY_HAND_FILTER) query.skip_origin = SKIP_ORIGIN_MANUAL;
+    // ⚠️ THE `failed` PSEUDO-FILTER IS GONE (owner, 2026-09-17). It drove the Skipped popup's
+    // All / On purpose / Bank refused / Skipped by hand segments, which the Skip Type facet and the
+    // popup's All / Inflow / Outflow tabs replaced. "Bank refused" and "Skipped by hand" are Skip
+    // Type values now; the server still accepts `failed` and `skip_origin`, nothing here sends them.
 
     const amount = filters.amount as RangeFilter | undefined;
     if (amount?.min != null) query.amount_min = amount.min;
@@ -1116,15 +1478,23 @@ export interface SummaryTile {
  *
  * ⚠️ NOT "already recorded as Paid by hand" -- that was false for most of the figure (#1252 browser
  * walk). It also holds a received Project Inflow, a line excluded as not spending, a line imported
- * before, and a line a person skipped. The row's Outcome says which. Shared by `summaryTiles`' hint
+ * before, and a line a person skipped. The row's Skip Type says which. Shared by `summaryTiles`' hint
  * and `SkippedRowsDialog`, so the two cannot drift apart again.
  */
 export const SKIPPED_ON_PURPOSE_PHRASE = "skipped on purpose";
-export const SKIPPED_ON_PURPOSE_LABEL = "On purpose";
 
-/** The Skipped popup's fourth segment (#1273): the `failed` pseudo-filter value, and its label. */
-export const SKIPPED_BY_HAND_FILTER = "manual";
+/** The "Skipped by hand · user · date" line's lead -- the same words as its Skip Type value. */
 export const SKIPPED_BY_HAND_LABEL = "Skipped by hand";
+
+/**
+ * The Skipped popup's tabs (owner, 2026-09-17): the whole `skipped` scope, then each direction.
+ * Each tab IS a server scope, so its count comes back in `tab_counts` under the popup's filters.
+ */
+export const SKIPPED_TABS: { scope: OutflowScope; label: string }[] = [
+    { scope: "skipped", label: "All" },
+    { scope: "skipped_inflow", label: "Inflow" },
+    { scope: "skipped_outflow", label: "Outflow" },
+];
 
 /**
  * The note a line's Outcome shows: for a line SKIPPED BY HAND the reason the person typed, otherwise the
@@ -2242,7 +2612,8 @@ export const previewCounts = (preview: {
  * `linkTargets` on every pick -- a seeded decision arrives carrying `linkTargets`, so a Normal
  * picker that forgets would settle the machine's old record instead of the person's new one.
  *
- * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `nonProjectInflow` are
+ * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `nonProjectInflow` /
+ * `vendorRefund` are
  * dispositions that write something rather than link to something, so a leftover link under one of
  * them must never fold into a key that looks like a settle target.
  */
@@ -2364,6 +2735,14 @@ export const isConfirmable = (
         return !descriptionRequired(inflowType) || Boolean(form?.description?.trim());
     }
     /**
+     * ⚠️ A CREDIT ONLY, and every allocation rule the server applies (`refundAllocationProblem`) --
+     * this keeps the bulk bar from counting such a row as decided.
+     */
+    if (decision.target === "vendorRefund") {
+        if (!isCreditRow(row)) return false;
+        return refundAllocationProblem(decision.newVendorRefund, row.amount) === null;
+    }
+    /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MISSING HALF, AND THE ONE THAT MOVED REAL MONEY. Every
      * record this branch can link to is an APPROVED PAYABLE waiting to be paid; settling one
      * against a CREDIT marks a payment we owe as discharged out of money that came IN, leaving the
@@ -2403,6 +2782,26 @@ export const decidedRows = (
     decisions: ReadonlyMap<string, RowDecision>
 ): OutflowImportRow[] =>
     rows.filter((row) => selected.has(row.name) && isConfirmable(row, decisions.get(row.name)));
+
+/**
+ * The money that left the account across the ticked lines -- the toolbar's "₹X out" (#1297).
+ *
+ * ⚠️ MONEY-IN LINES ARE LEFT OUT, NOT SUBTRACTED. A credit is a different axis, not a negative
+ * debit, so netting it would state a figure that is neither what left nor what arrived. The test is
+ * `isCreditRow`, the same one the Amount cell's colour reads, so a blank direction counts as out
+ * here exactly as it renders red.
+ *
+ * It sums over the LOADED rows only, like `decidedRows`: a ticked name that is not on this page
+ * carries no amount this screen can see.
+ */
+export const selectedMoneyOut = (
+    rows: OutflowImportRow[],
+    selected: ReadonlySet<string>
+): number =>
+    rows.reduce(
+        (sum, row) => (selected.has(row.name) && !isCreditRow(row) ? sum + row.amount : sum),
+        0
+    );
 
 // --- where a settled or suggested record lives ---------------------------------------------------
 
@@ -2776,12 +3175,14 @@ export const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
  * `suggested === false`. Adding a reason must not change WHICH records are blocked, only what the
  * reviewer is told about them; the cross-pin against `partialOffer` below is what holds that.
  *
- * Four cases, and they are TOTAL over a blocked pick:
+ * Five cases, and they are TOTAL over a blocked pick:
  *
  *   `not_positive`       the record's amount, or the transfer's, is zero or negative
  *   `bank_paid_more`     the bank moved MORE than the record is for -- an overpayment
  *   `expense_exact_only` the record is larger, but it is an expense, which cannot be part-settled
  *   `record_larger`      the record is larger and IS a payment -- ordinarily the partial dialog
+ *   `more_than_left`     a part-linked expense has less left than the line (#1299); measured
+ *                        against the remainder, never the whole amount
  *
  * The last one reaches the dead-end branch only when `SHOW_PARTIAL_SETTLE` is off, and it has to
  * exist anyway: this function is total, and a silent fall-through would print nothing at all.
@@ -2790,7 +3191,8 @@ export type SettleBlockReason =
     | "not_positive"
     | "bank_paid_more"
     | "expense_exact_only"
-    | "record_larger";
+    | "record_larger"
+    | "more_than_left";
 
 export interface SettleBlock {
     kind: "amount_outside_window";
@@ -2838,17 +3240,54 @@ const settleBlockReason = (
     return "record_larger";
 };
 
+/**
+ * Whether a run of bank lines has already linked part of this record (#1299, ADR-0027).
+ *
+ * ⚠️ FAILS CLOSED TO "NOT PART-LINKED". An older payload with no `line_count` is a record exactly as
+ * before, so every existing amount cell, verdict and block keeps its old shape. Only an expense can
+ * be part-linked; a payment is never linked by many lines.
+ */
+export const isPartLinkedRecord = (
+    record: { target_doctype?: string; line_count?: number } | null | undefined
+): boolean =>
+    Boolean(record) &&
+    Boolean(record!.target_doctype) &&
+    record!.target_doctype !== PROJECT_PAYMENTS_DOCTYPE &&
+    Number(record!.line_count ?? 0) > 0;
+
 export const settleBlocker = (
     record:
-        | { name: string; amount: number; suggested?: boolean; target_doctype?: string }
+        | {
+              name: string;
+              amount: number;
+              suggested?: boolean;
+              target_doctype?: string;
+              line_count?: number;
+              remaining?: number;
+          }
         | null
         | undefined,
     bankAmount: number
 ): SettleBlock | null => {
     if (!record) return null;
     if (record.suggested !== false) return null;
-    const recordAmount = Number(record.amount);
     const bank = Number(bankAmount);
+    // ⚠️ A PART-LINKED EXPENSE IS MEASURED AGAINST WHAT IS LEFT (#1299). The server marks it
+    // unsettleable only when the line is over that by more than ₹5, so the gap the dialog prints is
+    // against the remainder -- the whole amount would state a difference nobody can act on.
+    if (isPartLinkedRecord(record) && record.remaining !== undefined) {
+        const remaining = Number(record.remaining);
+        return {
+            kind: "amount_outside_window",
+            reason: "more_than_left",
+            recordName: record.name,
+            recordAmount: remaining,
+            bankAmount: bank,
+            difference: remaining - bank,
+            targetDoctype: record.target_doctype,
+        };
+    }
+    const recordAmount = Number(record.amount);
     return {
         kind: "amount_outside_window",
         reason: settleBlockReason(record.target_doctype, recordAmount, bank),
@@ -2945,9 +3384,14 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
         case "bank_paid_more":
             return "The bank moved more than this record is for. An import only ever settles a record for the amount that actually left the bank, so it cannot record this transfer against a smaller record — the overpayment has to be sorted out on the record itself first.";
         case "expense_exact_only":
-            return "An expense can only be settled at its exact amount. It cannot be settled in parts or carried forward, because neither expense ledger has anywhere for a balance to go.";
+            // ⚠️ REWORDED AT #1299. "It cannot be settled in parts" stopped being true when many bank
+            // lines could link to one expense. From HERE the first line must still equal the whole
+            // expense; a run that pays it in parts is started from the grid.
+            return "From here, an expense with no bank lines linked yet can only be settled at its exact amount. If this line is one part of a run that pays it, tick the run's lines on the grid and use Link to one expense.";
         case "record_larger":
             return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
+        case "more_than_left":
+            return "This line is for more than this expense still has left to link, so linking it would pay the expense more than its amount.";
     }
 };
 
@@ -2980,6 +3424,7 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
 export const settleBlockRemedy = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     const splittable = !block.targetDoctype || block.targetDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    if (block.reason === "more_than_left") return "Pick another expense, or raise its amount first.";
     if (block.reason === "bank_paid_more" && splittable) {
         return `To settle it as one part of this transfer, choose '${SETTLE_MODE_LABEL.split}' on the row.`;
     }
@@ -3081,6 +3526,17 @@ export interface SettleableRecord {
      */
     similarity: number;
     similarity_reasons: string[];
+    /**
+     * What a run of bank lines has already linked to this record, and what is left (#1299, ADR-0027).
+     *
+     * ⚠️ OPTIONAL, AND ABSENT READS AS NOTHING LINKED -- see `isPartLinkedRecord`. Only an expense can
+     * be part-linked; the server sends 0 / 0 / the whole amount for a payment. `payment_ref` is the
+     * expense's stored reference, which the After linking bar reads to say whether it is kept.
+     */
+    linked_total?: number;
+    line_count?: number;
+    remaining?: number;
+    payment_ref?: string;
     /**
      * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
      * expense doctype has the field at all. The expense's last-changed timestamp is real and useful

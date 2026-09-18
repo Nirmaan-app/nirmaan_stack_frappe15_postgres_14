@@ -23,6 +23,7 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [domain/non-project-inflows.md](domain/non-project-inflows.md) | Non-Project Inflows | Company money-in with no project/customer: doctype, validation, role permissions, receipt adoption, the `/non-project-inflows` page (#1265, ADR-0016 Amendment A) |
 | [domain/outflow-import.md](domain/outflow-import.md) | Bulk Import Outflow | Bank-statement import that settles Approved→Paid across the three ledgers: matcher, status deriver, tolerance, decision screen |
 | [domain/payment-tds.md](domain/payment-tds.md) | Payment TDS (tax deducted at source) | Deduction + TDS Challan Attachment doctypes, the recompute-from-source rule for `reconciled_amount`, paying under a challan, restating a deduction when a payment is edited, Gemini challan extraction, the Reports-hub ledger. **Not** the Technical Data Sheet family |
+| [domain/tds/](domain/tds/) | Technical Data Sheets (TDS) | Historical Phase 1–3 build plans for the TDS Repository (TDS Items, Repository Entries, item-owned membership, Project TDS). Glossary: root `CONTEXT.md` § Technical Data Sheets; decisions: `docs/adr/0023`–`0026`. **Not** tax TDS |
 
 ### Frontend Context (in `frontend/.claude/context/`)
 

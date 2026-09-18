@@ -15,6 +15,12 @@ is tracked and purged in `tearDownClass`: the inflows, their `Version` rows (the
 ⚠️ #1266 MAKES IT CREATE REAL `Non Project Inflows` TOO. Those are purged the same way and by the
 same list discipline: a stray one reads as company money received to anyone reading that list.
 
+⚠️ THE VENDOR-REFUND TESTS CREATE REAL `Vendor Refunds` against real paid POs, and each one LOWERS its
+PO's `amount_paid`. They are purged by the same list discipline as the other inflow books -- by raw
+delete, which runs no hook -- so `setUpClass` captures each refund PO's stored paid figures and
+`tearDownClass` writes THOSE back, never a recompute (a recompute moves a PO whose stored figure
+already disagreed with its payments).
+
 What is pinned hardest is the set of REFUSALS. A wrongly created inflow is invisible -- there is no
 status to look wrong and no approval queue it fails to leave -- so the guards carry more weight than
 the happy path.
@@ -38,7 +44,9 @@ from nirmaan_stack.api.outflow_import.inflows import (
     _already_created_by_import,
     create_inflow,
     create_non_project_inflow,
+    create_vendor_refund,
     get_inflow_context,
+    get_vendor_refund_documents,
 )
 from nirmaan_stack.api.outflow_import.review import (
     BATCH_DOCTYPE,
@@ -59,20 +67,26 @@ from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     NON_PROJECT_INFLOW,
     PROJECT_EXPENSE,
+    VENDOR_REFUND,
     AmountMismatchError,
     InflowNotRecordableError,
     apply_statement_attachment,
     create_non_project_inflow_from_row,
+    create_vendor_refund_from_row,
     format_amount_for,
     statement_attachment_field,
 )
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
+from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 
 SOURCE = "ICICI Bank Statement"
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
     + "/services/outflow_import/tests/fixtures/icici_sample.csv"
 )
+
+#: What a Vendor Refund's hook writes on its PO, captured before the suite and restored after it.
+_REFUND_PO_FIGURES = ["amount_paid", "amount_due", "modified", "modified_by"]
 
 
 def _fresh_parse():
@@ -92,6 +106,7 @@ class InflowFixture(unittest.TestCase):
     batches: list = []
     inflows: list = []
     non_project_inflows: list = []
+    vendor_refunds: list = []
 
     @classmethod
     def setUpClass(cls):
@@ -102,6 +117,8 @@ class InflowFixture(unittest.TestCase):
         cls.inflows = []
         # #1266: the `Non Project Inflows` this suite creates. Same discipline.
         cls.non_project_inflows = []
+        # Every `Vendor Refunds` record a vendor-refund test created.
+        cls.vendor_refunds = []
 
         cls.parsed = _fresh_parse()
         cls.batch = _stage_batch(
@@ -117,6 +134,28 @@ class InflowFixture(unittest.TestCase):
             "Projects", {"tendering_status": "Won", "customer": ["is", "set"]}, "name"
         )
         cls.customer = frappe.db.get_value("Projects", cls.project, "customer")
+        # Two real PAID POs of one real vendor on one real project -- what a Vendor Refund is
+        # allocated against. Each was paid at least the Rs 1,000 a refund test records.
+        pair = frappe.db.sql(
+            """
+            SELECT vendor, project, array_agg(name ORDER BY name) AS names
+            FROM "tabProcurement Orders"
+            WHERE status = 'Delivered' AND amount_paid >= 1000
+              AND vendor IS NOT NULL AND project IS NOT NULL
+            GROUP BY vendor, project HAVING COUNT(*) >= 2
+            ORDER BY vendor, project LIMIT 1
+            """,
+            as_dict=True,
+        )[0]
+        cls.vendor, cls.refund_project = pair.vendor, pair.project
+        cls.refund_pos = list(pair.names[:2])
+        # A refund lowers its PO's stored paid figures; the raw purge below cannot put them back.
+        cls.refund_po_figures = {
+            po: frappe.db.get_value(
+                "Procurement Orders", po, _REFUND_PO_FIGURES, as_dict=True
+            )
+            for po in cls.refund_pos
+        }
         frappe.db.commit()
 
     @classmethod
@@ -142,6 +181,22 @@ class InflowFixture(unittest.TestCase):
             )
             for name in cls.non_project_inflows:
                 frappe.db.delete(NON_PROJECT_INFLOW, {"name": name})
+        if cls.vendor_refunds:
+            for side in ("Version", "Nirmaan Versions"):
+                frappe.db.delete(side, {"ref_doctype": VENDOR_REFUND, "docname": ["in", cls.vendor_refunds]})
+            frappe.db.delete(
+                "File",
+                {"attached_to_doctype": VENDOR_REFUND, "attached_to_name": ["in", cls.vendor_refunds]},
+            )
+            frappe.db.delete(
+                "Deleted Document",
+                {"deleted_doctype": VENDOR_REFUND, "deleted_name": ["in", cls.vendor_refunds]},
+            )
+            for name in cls.vendor_refunds:
+                frappe.db.delete(VENDOR_REFUND, {"name": name})
+        # The raw purge ran no refund hook: put back each PO's figures exactly as found.
+        for po, figures in cls.refund_po_figures.items():
+            frappe.db.set_value("Procurement Orders", po, figures, update_modified=False)
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
@@ -208,6 +263,55 @@ class InflowFixture(unittest.TestCase):
         summary = create_non_project_inflow(row=row["name"], inflow_type=inflow_type, **kwargs)
         self.non_project_inflows.append(summary["settled"]["name"])
         return row, summary
+
+    REFUND_AMOUNT = Decimal("1000.00")
+
+    def _refund_row(self, amount=None):
+        """An open credit row whose amount is set to `amount` (Rs 1,000 by default).
+
+        ⚠️ THE FIXTURE'S CREDITS RUN TO Rs 25 LAKH, more than any one real PO was paid, and a refund
+        may not exceed what its documents were paid. The row is this suite's own staged row and is
+        purged with its batch, so its figure is the test's to set."""
+        row = self._next_credit_row()
+        amount = amount if amount is not None else self.REFUND_AMOUNT
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], "amount", amount, update_modified=False)
+        frappe.db.commit()
+        row["amount"] = amount
+        return row
+
+    def _po(self, name, amount):
+        return {"document_type": "Procurement Orders", "document_name": name, "amount": amount}
+
+    def _misc(self, amount, document_name="", description=None):
+        """A Misc. Expense part: against no document."""
+        part = {"document_type": "Misc. Expense", "document_name": document_name, "amount": amount}
+        if description is not None:
+            part["description"] = description
+        return part
+
+    def _refund(self, row=None, **kwargs):
+        """Record a credit row as a `Vendor Refund`, tracking it for the purge."""
+        row = row or self._refund_row()
+        kwargs.setdefault("vendor", self.vendor)
+        kwargs.setdefault("project", self.refund_project)
+        kwargs.setdefault("allocations", [self._po(self.refund_pos[0], str(row["amount"]))])
+        summary = create_vendor_refund(row=row["name"], **kwargs)
+        self.vendor_refunds.extend(r["name"] for r in summary["records"])
+        return row, summary
+
+    def _twin_of(self, row_name, **changes):
+        """A second staged row for the same credit, as an overlapping statement would produce."""
+        twin = frappe.copy_doc(frappe.get_doc(ROW_DOCTYPE, row_name))
+        twin.row_status = "Mismatched"
+        twin.outcome_note = None
+        twin.decided_at = None
+        twin.decided_by = None
+        twin.settlement_origin = None
+        twin.update(changes)
+        twin.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: frappe.db.delete(ROW_DOCTYPE, {"name": twin.name}))
+        return {"name": twin.name, "row_status": twin.row_status}
 
     def _assert_nothing_written(self, row, count_before):
         """A refusal leaves no record, no match leg, and the row where it was."""
@@ -567,20 +671,6 @@ class TestTheNonProjectInflowDuplicateGuards(InflowFixture):
         frappe.db.delete(NON_PROJECT_INFLOW, {"name": name})
         frappe.db.commit()
 
-    def _twin_of(self, row_name, **changes):
-        """A second staged row for the same credit, as an overlapping statement would produce."""
-        twin = frappe.copy_doc(frappe.get_doc(ROW_DOCTYPE, row_name))
-        twin.row_status = "Mismatched"
-        twin.outcome_note = None
-        twin.decided_at = None
-        twin.decided_by = None
-        twin.settlement_origin = None
-        twin.update(changes)
-        twin.insert(ignore_permissions=True)
-        frappe.db.commit()
-        self.addCleanup(lambda: frappe.db.delete(ROW_DOCTYPE, {"name": twin.name}))
-        return {"name": twin.name, "row_status": twin.row_status}
-
     def test_a_non_project_inflow_keyed_in_by_hand_refuses_a_second_one(self):
         row = self._next_credit_row()
         planted = self._plant_non_project_inflow(row, row["remarks"])
@@ -716,6 +806,7 @@ class TestTheSharedHelpers(unittest.TestCase):
         self.assertEqual(statement_attachment_field(INFLOW_DOCTYPE), "inflow_attachment")
         # #1266: the fifth ledger copies `Project Inflows`' Inflow Details, field name included.
         self.assertEqual(statement_attachment_field(NON_PROJECT_INFLOW), "inflow_attachment")
+        self.assertEqual(statement_attachment_field(VENDOR_REFUND), "refund_attachment")
         for doctype in ("Project Payments", PROJECT_EXPENSE, "Non Project Expenses"):
             self.assertEqual(statement_attachment_field(doctype), "payment_attachment")
 
@@ -933,6 +1024,346 @@ class TestTheNonProjectInflowRefusals(InflowFixture):
         # The one leg from the first recording, and no second one; the row stays Settled.
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 1)
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+
+# =================================================================================================
+# A credit a VENDOR paid back, recorded as a `Vendor Refund` naming the vendor. It creates no payment,
+# and each PO part lowers that PO's paid amount by the part.
+# =================================================================================================
+
+
+class TestTheVendorRefund(InflowFixture):
+    """The happy path. ⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
+
+    def _paid(self, po):
+        return frappe.db.get_value("Procurement Orders", po, "amount_paid")
+
+    def test_a_split_refund_writes_one_vendor_refund_per_document_and_no_payment(self):
+        """⚠️ THE CLIENT SENDS WHO AND HOW MUCH. Date and reference are read off the row, and the parts
+        must add up to the row's amount. Nothing lands in `Project Payments`; each PO's paid amount
+        drops by its part."""
+        first, second = self.refund_pos
+        paid_before = {po: self._paid(po) for po in self.refund_pos}
+        payments_before = frappe.db.count("Project Payments", {"vendor": self.vendor})
+        row = self._refund_row()
+        row, summary = self._refund(
+            row=row,
+            # JSON, as the screen posts it.
+            allocations=frappe.as_json([self._po(first, 600), self._po(second, "400.00")]),
+        )
+
+        records = summary["records"]
+        self.assertEqual([r["doctype"] for r in records], [VENDOR_REFUND, VENDOR_REFUND])
+        for record, po, part in zip(records, (first, second), (600.0, 400.0)):
+            refund = frappe.db.get_value(
+                VENDOR_REFUND,
+                record["name"],
+                ["vendor", "project", "document_type", "document_name", "amount", "utr",
+                 "payment_date", "refund_attachment"],
+                as_dict=True,
+            )
+            self.assertEqual((refund.vendor, refund.project), (self.vendor, self.refund_project))
+            self.assertEqual((refund.document_type, refund.document_name), ("Procurement Orders", po))
+            self.assertEqual(refund.amount, part)
+            self.assertEqual(refund.utr, match_surface(row["remarks"], row["reference_id"]))
+            self.assertEqual(refund.payment_date, row["added_on"].date())
+            self.assertEqual(refund.refund_attachment, "/private/files/test-statement.csv")
+            self.assertEqual(
+                Decimal(str(paid_before[po])) - Decimal(str(self._paid(po))), Decimal(str(part))
+            )
+        self.assertEqual(frappe.db.count("Project Payments", {"vendor": self.vendor}), payments_before)
+
+        legs = frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={"import_row": row["name"]},
+            fields=["target_doctype", "target_amount", "created_by_import", "match_kind"],
+            order_by="target_amount desc",
+        )
+        self.assertEqual(
+            [(l.target_doctype, l.target_amount, l.created_by_import, l.match_kind) for l in legs],
+            [(VENDOR_REFUND, 600.0, 1, "Settled"), (VENDOR_REFUND, 400.0, 1, "Settled")],
+        )
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+    def test_a_misc_expense_part_is_its_own_vendor_refund_against_no_document(self):
+        """PO parts plus the rest as a Misc. Expense: one record each, the misc one naming no document
+        and taking nothing off any PO's refundable amount."""
+        po = self.refund_pos[0]
+
+        def refunded():
+            return {
+                d["name"]: d
+                for d in get_vendor_refund_documents(self.vendor, self.refund_project)["Procurement Orders"]
+            }[po]["refunded"]
+
+        before = refunded()
+        row, summary = self._refund(
+            row=self._refund_row(),
+            allocations=frappe.as_json([self._po(po, "600"), self._misc("400")]),
+        )
+        records = summary["records"]
+        self.assertEqual([r["amount"] for r in records], [600.0, 400.0])
+        misc = frappe.db.get_value(
+            VENDOR_REFUND,
+            records[1]["name"],
+            ["vendor", "project", "document_type", "document_name", "amount", "refund_attachment"],
+            as_dict=True,
+        )
+        self.assertEqual((misc.vendor, misc.project), (self.vendor, self.refund_project))
+        self.assertEqual((misc.document_type, misc.document_name), ("Misc. Expense", None))
+        self.assertEqual(misc.amount, 400.0)
+        self.assertEqual(misc.refund_attachment, "/private/files/test-statement.csv")
+        # Only the PO part counts against the PO.
+        self.assertEqual(Decimal(str(refunded())) - Decimal(str(before)), Decimal("600"))
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 2)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+    def test_without_a_project_each_refund_takes_its_document_s_project(self):
+        """The project is optional: a PO part records the PO's project, a Misc. Expense part records none,
+        and the Misc. Expense keeps its description."""
+        po = self.refund_pos[0]
+        _, summary = self._refund(
+            row=self._refund_row(),
+            project=None,
+            allocations=[self._po(po, "700"), self._misc("300", description="  Scaffolding deposit  ")],
+        )
+        by_type = {
+            r.document_type: r
+            for r in frappe.get_all(
+                VENDOR_REFUND,
+                filters={"name": ["in", [x["name"] for x in summary["records"]]]},
+                fields=["document_type", "project", "description"],
+            )
+        }
+        self.assertEqual(by_type["Procurement Orders"].project, self.refund_project)
+        self.assertIsNone(by_type["Procurement Orders"].description)
+        self.assertIsNone(by_type["Misc. Expense"].project)
+        self.assertEqual(by_type["Misc. Expense"].description, "Scaffolding deposit")
+
+        # The vendor-wide list covers this project's POs too, and names each one's project.
+        everywhere = get_vendor_refund_documents(self.vendor)["Procurement Orders"]
+        here = get_vendor_refund_documents(self.vendor, self.refund_project)["Procurement Orders"]
+        self.assertTrue({d["name"] for d in here} <= {d["name"] for d in everywhere})
+        for document in everywhere:
+            self.assertTrue(document["project"])
+            self.assertTrue(document["project_name"])
+
+    def test_an_earlier_refund_lowers_what_the_next_may_take(self):
+        """A document cannot be refunded more, in total, than was paid on it. Measured as a change:
+        other tests in this class refund the same PO and their records live until the class ends."""
+        po = self.refund_pos[0]
+
+        def offered():
+            return {
+                d["name"]: d
+                for d in get_vendor_refund_documents(self.vendor, self.refund_project)["Procurement Orders"]
+            }[po]
+
+        before = offered()
+        self._refund(row=self._refund_row())
+        after = offered()
+        self.assertEqual(
+            Decimal(str(after["refunded"])) - Decimal(str(before["refunded"])), self.REFUND_AMOUNT
+        )
+        self.assertEqual(
+            Decimal(str(after["refundable"])),
+            Decimal(str(after["paid"])) - Decimal(str(after["refunded"])),
+        )
+
+        over = Decimal(str(after["refundable"])).quantize(Decimal("0.01")) + Decimal("0.01")
+        row = self._refund_row(amount=over)
+        count = frappe.db.count(VENDOR_REFUND)
+        with self.assertRaises(InflowNotRecordableError) as caught:
+            create_vendor_refund(
+                row=row["name"], vendor=self.vendor, project=self.refund_project,
+                allocations=[self._po(po, str(over))],
+            )
+        self.assertIn("already refunded", str(caught.exception))
+        self.assertEqual(frappe.db.count(VENDOR_REFUND), count)
+
+    def test_undo_deletes_the_vendor_refunds(self):
+        row, summary = self._refund()
+        name = summary["records"][0]["name"]
+        result = unreconcile_row(row=row["name"], legs="all", reason="test: vendor refund undo")
+        self.assertEqual([leg["verdict"] for leg in result["reversed"]], ["delete_created"])
+        self.assertFalse(frappe.db.exists(VENDOR_REFUND, name))
+        self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+    def test_a_vendor_refund_line_is_only_undone_whole(self):
+        """Reversing ONE refund of a split would strand the line part-allocated, where no refund can be
+        recorded again -- so the plan offers Reverse all only and the write refuses a part."""
+        first, second = self.refund_pos
+        row, summary = self._refund(allocations=[self._po(first, "600"), self._po(second, "400")])
+        names = [r["name"] for r in summary["records"]]
+
+        plan = get_unreconcile_plan(row["name"])
+        self.assertTrue(plan["reverse_all_only"])
+        with self.assertRaises(frappe.ValidationError) as caught:
+            unreconcile_row(row=row["name"], legs=frappe.as_json([plan["legs"][0]["match"]]), reason="test: part")
+        self.assertIn("undone whole", str(caught.exception))
+        for name in names:
+            self.assertTrue(frappe.db.exists(VENDOR_REFUND, name))
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+        result = unreconcile_row(row=row["name"], legs="all", reason="test: whole")
+        self.assertEqual([leg["verdict"] for leg in result["reversed"]], ["delete_created", "delete_created"])
+        for name in names:
+            self.assertFalse(frappe.db.exists(VENDOR_REFUND, name))
+        self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+    def test_a_credit_recorded_as_a_refund_cannot_then_become_an_inflow(self):
+        """The same money is not recorded again in another book, whichever card is clicked next."""
+        row, summary = self._refund()
+        twin = self._twin_of(row["name"])
+        before = frappe.db.count(INFLOW_DOCTYPE)
+
+        refusal = self._refusal(twin, error=InflowNotRecordableError)
+        self.assertIn(summary["records"][0]["name"], refusal)
+        self.assertEqual(frappe.db.count(INFLOW_DOCTYPE), before)
+
+    def test_a_vendor_refund_is_a_received_ledger_with_a_display_noun(self):
+        self.assertIn(VENDOR_REFUND, RECEIVED_LEDGER_DOCTYPES)
+        self.assertEqual(LEDGER_NOUNS[VENDOR_REFUND], ("Vendor Refund", "Vendor Refunds"))
+        self.assertTrue(frappe.db.exists("DocType", VENDOR_REFUND))
+
+    def test_the_list_offers_only_paid_documents_newest_first(self):
+        offered = get_vendor_refund_documents(self.vendor, self.refund_project)
+        # A Misc. Expense names no document, so it has no list.
+        self.assertEqual(set(offered), {"Procurement Orders", "Service Requests"})
+        pos = offered["Procurement Orders"]
+        for name in self.refund_pos:
+            self.assertIn(name, [po["name"] for po in pos])
+        self.assertEqual([po["creation"] for po in pos], sorted((po["creation"] for po in pos), reverse=True))
+        for kind in offered.values():
+            for document in kind:
+                self.assertGreater(document["paid"], 0)
+
+
+class TestTheVendorRefundRefusals(InflowFixture):
+    """Each refusal writes NOTHING: no record, no match leg, and the row where it was."""
+
+    def _refused(self, row, error=InflowNotRecordableError, expect=None, **kwargs):
+        picks = {
+            "vendor": self.vendor,
+            "project": self.refund_project,
+            "allocations": [self._po(self.refund_pos[0], str(row["amount"]))],
+        }
+        picks.update(kwargs)
+        before = frappe.db.count(VENDOR_REFUND)
+        with self.assertRaises(error) as caught:
+            create_vendor_refund(row=row["name"], **picks)
+        if expect:
+            self.assertIn(expect, str(caught.exception))
+        self.assertEqual(frappe.db.count(VENDOR_REFUND), before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+        self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+
+    def test_a_debit_is_refused(self):
+        row = self._next_debit_row()
+        self._refused(row, allocations=[self._po(self.refund_pos[0], str(row["amount"]))])
+
+    def test_a_missing_vendor_or_allocation_is_refused(self):
+        """The project is NOT required -- see `test_without_a_project_each_refund_takes_its_document_s_project`."""
+        row = self._refund_row()
+        for missing in ("", None, "   "):
+            self._refused(row, vendor=missing)
+        for empty in (None, [], "[]"):
+            self._refused(row, allocations=empty)
+
+    def test_a_document_that_is_not_a_po_or_wo_is_refused(self):
+        row = self._refund_row()
+        for kind, name in (("Project Payments", "PAY-1"), ("Project Expenses", "EXP-1")):
+            self._refused(
+                row,
+                allocations=[{"document_type": kind, "document_name": name, "amount": "1000"}],
+                expect="PO, a Work Order or a Misc. Expense",
+            )
+
+    def test_a_misc_expense_names_no_document_is_positive_and_appears_once(self):
+        row = self._refund_row()
+        first = self.refund_pos[0]
+        self._refused(row, allocations=[self._misc("1000", document_name=first)], expect="leave the document blank")
+        self._refused(row, allocations=[self._misc("0"), self._po(first, "1000")], expect="greater than 0")
+        self._refused(row, allocations=[self._misc("500"), self._misc("500")], expect="Misc. Expense is chosen twice")
+        self._refused(row, allocations=[self._po(first, "600"), self._misc("300")], expect="must match")
+
+    def test_another_vendor_s_or_another_project_s_document_is_refused(self):
+        row = self._refund_row()
+        self._refused(row, vendor="VEN-NOT-A-VENDOR", expect="is not VEN-NOT-A-VENDOR's PO")
+        self._refused(row, project="NOT-THIS-PROJECT", expect="is not on project NOT-THIS-PROJECT")
+
+    def test_amounts_must_be_positive_within_paid_unique_and_add_up_to_the_refund(self):
+        row = self._refund_row()
+        first, second = self.refund_pos
+        for bad in ("0", "-100"):
+            self._refused(
+                row, allocations=[self._po(first, bad), self._po(second, "1000")], expect="greater than 0"
+            )
+        self._refused(
+            row, allocations=[self._po(first, "500"), self._po(first, "500")], expect="chosen twice"
+        )
+        self._refused(
+            row, allocations=[self._po(first, "600"), self._po(second, "399.99")], expect="must match"
+        )
+        paid = frappe.db.get_value("Procurement Orders", first, "amount_paid")
+        over = Decimal(str(paid)).quantize(Decimal("0.01")) + Decimal("0.01")
+        big = self._refund_row(amount=over)
+        self._refused(big, allocations=[self._po(first, str(over))], expect="no more than")
+
+    def test_a_merged_or_unpaid_po_is_refused_and_not_offered(self):
+        """A merged PO's payments moved to its master PO; an unpaid one has nothing to refund."""
+        row = self._refund_row()
+        for filters in (
+            {"status": "Merged"},
+            {"status": ["!=", "Merged"], "amount_paid": ["in", [0, None]]},
+        ):
+            po = frappe.db.get_value(
+                "Procurement Orders",
+                {**filters, "vendor": ["is", "set"], "project": ["is", "set"]},
+                ["name", "vendor", "project"],
+                as_dict=True,
+            )
+            if not po:
+                continue
+            self._refused(
+                row,
+                vendor=po.vendor,
+                project=po.project,
+                allocations=[self._po(po.name, "1000")],
+            )
+            offered = get_vendor_refund_documents(po.vendor, po.project)["Procurement Orders"]
+            self.assertNotIn(po.name, [d["name"] for d in offered])
+
+    def test_the_service_refuses_a_missing_or_debit_direction(self):
+        class _Row:
+            amount = 1000
+            added_on_date = None
+            settlement_reference = "REF-1"
+
+        for direction in (None, "", "Debit"):
+            with self.assertRaises(InflowNotRecordableError):
+                create_vendor_refund_from_row(
+                    _Row(),
+                    actor="Administrator",
+                    vendor=self.vendor,
+                    project=self.refund_project,
+                    allocations=[self._po(self.refund_pos[0], "1000")],
+                    direction=direction,
+                )
+
+    def test_an_already_settled_row_is_refused(self):
+        row, _ = self._refund()
+        before = frappe.db.count(VENDOR_REFUND)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            create_vendor_refund(
+                row=row["name"],
+                vendor=self.vendor,
+                project=self.refund_project,
+                allocations=[self._po(self.refund_pos[0], "1000")],
+            )
+        self.assertIn("already settled", str(caught.exception))
+        self.assertEqual(frappe.db.count(VENDOR_REFUND), before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 1)
 
 
 class TestTheReceiptPathIsGone(unittest.TestCase):

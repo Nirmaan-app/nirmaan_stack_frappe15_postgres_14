@@ -25,10 +25,12 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNLINK_EXPENSE_LINE,
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_DELETE,
     WHAT_HAPPENS_DELETE_PROJECT_INFLOW,
     WHAT_HAPPENS_UNSPLIT,
+    ExpenseSlip,
     LegFacts,
     SplitChild,
     first_refusal,
@@ -50,7 +52,6 @@ REVERSIBLE = LegFacts(
     target_status="Paid",
     target_amount=60.0,
     target_reference=REF,
-    tds=0,
     split_from="",
     settlement_references=(REF, "UTR123-OLD"),
 )
@@ -87,8 +88,6 @@ class TestTheReversibleLeg(unittest.TestCase):
                     "parent_settled_at": (datetime(2026, 9, 15, 10, 0, 0),),
                 },
             ),
-            ("tds None", {"tds": None}),
-            ("tds blank string", {"tds": ""}),
         ]:
             with self.subTest(label):
                 self.assertEqual(leg_verdict(facts(**change)).verdict, VERDICT_REVERT_PAYMENT)
@@ -122,16 +121,6 @@ class TestEveryRefusal(unittest.TestCase):
             "Not found",
             "Payment 'PAY-1' not found.",
             None,
-        ),
-        (
-            "non-zero TDS",
-            {"tds": 1.5},
-            "Settled with TDS",
-            "PAY-1 carries a TDS figure -- withheld tax that this reversal does not clear -- "
-            "putting it back would leave a tax figure on a payment that is waiting to "
-            "be paid again. Reverse it on the payments screen, where both the status and the TDS "
-            "can be corrected together.",
-            FIX_ON_PAYMENTS_SCREEN,
         ),
         (
             "the carried-forward balance half of a split",
@@ -217,7 +206,7 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
 
     def test_already_reversed_wins_over_everything(self):
         verdict = leg_verdict(
-            facts(match_kind="Reversed", target_doctype="Project Inflows", tds=5)
+            facts(match_kind="Reversed", target_doctype="Project Inflows", target_exists=False)
         )
         self.assertEqual(verdict.title, "Already reversed")
 
@@ -225,10 +214,12 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
         verdict = leg_verdict(facts(target_doctype="Vendor Invoices", target_exists=False))
         self.assertEqual(verdict.title, "Can't be undone yet")
 
-    def test_tds_is_named_before_a_split(self):
-        self.assertEqual(
-            leg_verdict(facts(tds=2, split_from="PAY-0")).title, "Settled with TDS"
-        )
+    def test_a_payment_leg_carries_no_legacy_tds_fact(self):
+        # ⚠️ INVERTED when `Project Payments.tds` was retired: the "Settled with TDS" refusal went
+        # with the field, so a leg has no tax figure to be refused on. A split is now the first
+        # payment fact asked about.
+        self.assertNotIn("tds", {f.name for f in dataclasses.fields(LegFacts)})
+        self.assertEqual(leg_verdict(facts(split_from="PAY-0")).title, "Part of a split payment")
 
     def test_the_balance_half_is_named_before_the_settled_half(self):
         self.assertEqual(
@@ -335,9 +326,9 @@ class TestAnExistingExpense(unittest.TestCase):
         )
 
     def test_payment_only_facts_never_refuse_an_expense(self):
-        # An expense has no TDS and no split; stray values must not borrow the payment refusals.
+        # An expense has no split; stray values must not borrow the payment refusals.
         self.assertEqual(
-            leg_verdict(expense(tds=5, split_from="X", split_children=(SplitChild(name="Y"),))).verdict,
+            leg_verdict(expense(split_from="X", split_children=(SplitChild(name="Y"),))).verdict,
             VERDICT_REVERT_EXPENSE,
         )
 
@@ -407,6 +398,130 @@ class TestAnExistingExpense(unittest.TestCase):
             leg_verdict(expense(match_kind="Reversed", target_exists=False)).title,
             "Already reversed",
         )
+
+
+RUN_MATCHED = datetime(2026, 9, 17, 10, 0, 0)
+
+# One line of a 3-line run: a Paid ₹1,000 expense filled by 600 + 250 + 150. This leg is the 250.
+LINE_OF_A_RUN = expense(
+    target_doctype="Non Project Expenses",
+    leg_amount=250.0,
+    target_amount=1000.0,
+    target_reference="BULD75978325",
+    settlement_references=("UTR-THIS-LINE",),
+    matched_at=RUN_MATCHED,
+    other_slips=(
+        ExpenseSlip(amount=600.0, live=True),
+        ExpenseSlip(amount=150.0, live=True),
+    ),
+)
+
+
+def line_of_a_run(**changes) -> LegFacts:
+    return dataclasses.replace(LINE_OF_A_RUN, **changes)
+
+
+class TestOneLineOfAManyLineExpense(unittest.TestCase):
+    """#1300, ADR-0027 Q15/Q21: one line comes off an expense several lines settled.
+
+    ⚠️ NONE OF THE THREE "CHANGED ELSEWHERE" CHECKS APPLY. Linking never rewrote the amount or wrote this
+    line's reference, and the expense is only Paid once every line is in, so each check would refuse
+    every line but one.
+    """
+
+    def test_a_paid_expense_takes_one_line_off_and_goes_back_to_reconciliation_pending(self):
+        verdict = leg_verdict(LINE_OF_A_RUN)
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+        self.assertIsNone(verdict.reason)
+        self.assertEqual(
+            verdict.what_happens,
+            "Only this line comes off. EXP-1 goes back to Reconciliation Pending.",
+        )
+        self.assertEqual(verdict.stays_linked, Decimal("750"))
+        self.assertEqual(verdict.other_lines, 2)
+        self.assertEqual(verdict.expense_amount, Decimal("1000"))
+        self.assertFalse(verdict.stays_paid)
+
+    def test_no_amount_status_or_reference_check_refuses_it(self):
+        for label, change in (
+            ("amount is not the leg's", {"target_amount": 1200.0}),
+            ("status is Reconciliation Pending", {"target_status": "Reconciliation Pending"}),
+            ("reference is the run's, not the line's", {"target_reference": "SOMEONE-ELSE"}),
+        ):
+            with self.subTest(label):
+                self.assertEqual(leg_verdict(line_of_a_run(**change)).verdict, VERDICT_UNLINK_EXPENSE_LINE)
+
+    def test_the_last_live_line_of_a_run_still_comes_off(self):
+        """Every other line already reversed -- after this one was matched, so they shared the expense."""
+        later = RUN_MATCHED + timedelta(hours=1)
+        verdict = leg_verdict(
+            line_of_a_run(
+                target_status="Reconciliation Pending",
+                other_slips=(
+                    ExpenseSlip(amount=600.0, live=False, reversed_at=later),
+                    ExpenseSlip(amount=150.0, live=False, reversed_at=later),
+                ),
+            )
+        )
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+        self.assertEqual(verdict.stays_linked, Decimal("0"))
+        self.assertEqual(verdict.other_lines, 0)
+
+    def test_a_lone_line_that_only_part_fills_comes_off(self):
+        """The first go of a run: one line, nothing else yet, the expense still Reconciliation Pending."""
+        verdict = leg_verdict(line_of_a_run(target_status="Reconciliation Pending", other_slips=()))
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+
+    def test_a_tiny_line_leaving_the_rest_within_five_rupees_stays_paid(self):
+        verdict = leg_verdict(
+            line_of_a_run(
+                leg_amount=3.0,
+                other_slips=(ExpenseSlip(amount=997.0, live=True),),
+            )
+        )
+        self.assertTrue(verdict.stays_paid)
+        self.assertEqual(verdict.what_happens, "Only this line comes off. EXP-1 stays Paid.")
+
+    def test_a_created_expense_with_other_lines_is_never_deleted(self):
+        verdict = leg_verdict(line_of_a_run(created_by_import=True))
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+
+    def test_cashbook_already_reversed_and_not_found_still_come_first(self):
+        self.assertEqual(leg_verdict(line_of_a_run(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+        self.assertEqual(leg_verdict(line_of_a_run(match_kind="Reversed")).title, "Already reversed")
+        self.assertEqual(leg_verdict(line_of_a_run(target_exists=False)).title, "Not found")
+
+
+class TestAOneToOneExpenseKeepsTodaysVerdict(unittest.TestCase):
+    """#1300: an expense one line settled is still judged on the exact checks."""
+
+    def test_a_reversal_before_this_leg_was_matched_did_not_share_the_expense(self):
+        """Settled, undone, then settled again by a new line: still 1:1, so an edited amount refuses."""
+        earlier = RUN_MATCHED - timedelta(hours=1)
+        verdict = leg_verdict(
+            expense(
+                matched_at=RUN_MATCHED,
+                target_amount="450",
+                other_slips=(ExpenseSlip(amount=500.0, live=False, reversed_at=earlier),),
+            )
+        )
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertIn("Somebody has changed the record", verdict.reason)
+
+    def test_an_edited_amount_on_a_paid_one_to_one_expense_still_refuses(self):
+        for amount in ("450", "600"):
+            with self.subTest(amount=amount):
+                self.assertEqual(leg_verdict(expense(target_amount=amount)).verdict, VERDICT_REFUSED)
+
+    def test_an_unknown_reversal_time_does_not_count_as_sharing(self):
+        verdict = leg_verdict(
+            expense(
+                matched_at=RUN_MATCHED,
+                target_amount="450",
+                other_slips=(ExpenseSlip(amount=500.0, live=False, reversed_at=None),),
+            )
+        )
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
 
 
 MATCHED_AT = datetime(2026, 9, 15, 10, 0, 0)
@@ -522,7 +637,11 @@ class TestACreatedRecord(unittest.TestCase):
         )
 
     def test_the_attachment_fields_are_the_ones_the_import_writes(self):
-        self.assertEqual(IMPORT_WRITTEN_FIELDS, frozenset({"payment_attachment", "inflow_attachment"}))
+        # `refund_attachment`: where a `Vendor Refunds` record keeps the statement the import attached.
+        self.assertEqual(
+            IMPORT_WRITTEN_FIELDS,
+            frozenset({"payment_attachment", "inflow_attachment", "refund_attachment"}),
+        )
 
 
 class TestTheBackfillRule(unittest.TestCase):
@@ -587,7 +706,6 @@ LEFTOVER = SplitChild(
     created=MATCHED - timedelta(seconds=1),
     amount=40.0,
     status="Reconciliation Pending",
-    tds=0,
     has_term=True,
 )
 
@@ -632,8 +750,6 @@ class TestAPartPayment(unittest.TestCase):
             # part-approval's balance, which reaches `Approved` at its own later approval, is days
             # older and can never arrive here.
             ("the status a pre-#1289 part settle left it at", {"status": "Approved"}),
-            ("tds None", {"tds": None}),
-            ("tds blank", {"tds": ""}),
             ("minted in the same instant as the leg", {"created": MATCHED}),
             (
                 "minted at the edge of the window",
@@ -674,13 +790,6 @@ class TestAPartPayment(unittest.TestCase):
             "Its leftover PAY-2 was paid by another transfer on 14-Sep-2026. Unreconcile that "
             "transfer first.",
             None,
-        ),
-        (
-            "the leftover carries a TDS figure",
-            {"tds": 4},
-            "Leftover taxed",
-            "Its leftover PAY-2 has TDS on it. Fix the tax on the Payments screen first.",
-            FIX_ON_PAYMENTS_SCREEN,
         ),
         (
             "the leftover has a TDS deduction",
@@ -736,28 +845,22 @@ class TestAPartPayment(unittest.TestCase):
     def test_paid_is_named_before_taxed_before_changed_before_edited(self):
         everything = {
             "paid_on": MATCHED + timedelta(days=1),
-            "tds": 4,
+            "tds_deducted": True,
             "status": "Paid",
             "versions": ((MATCHED + timedelta(days=1), ("remarks",)),),
         }
         self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover paid")
         del everything["paid_on"]
         self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover taxed")
-        del everything["tds"]
+        del everything["tds_deducted"]
         self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover changed")
         del everything["status"]
         self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover edited")
 
     def test_the_original_is_still_judged_on_its_own_facts(self):
-        self.assertEqual(leg_verdict(part(tds=2)).title, "Settled with TDS")
         for change in ({"target_amount": 61.0}, {"target_status": "Approved"}, {"target_reference": "ELSE"}):
             with self.subTest(change=change):
                 self.assertEqual(leg_verdict(part(**change)).title, "Changed elsewhere")
-
-    def test_tds_on_the_original_is_named_before_the_leftover(self):
-        self.assertEqual(leg_verdict(part(tds=2, split_children=(
-            dataclasses.replace(LEFTOVER, status="Paid"),
-        ))).title, "Settled with TDS")
 
     def test_a_split_this_settle_did_not_make_keeps_the_old_refusal(self):
         """A CEO partial approval, or any split minted outside this leg's request, is not undone
@@ -784,7 +887,7 @@ class TestAPartPayment(unittest.TestCase):
 
     def test_a_leftover_refusal_is_named_before_an_amount_change(self):
         verdict = leg_verdict(part(
-            target_amount=1, split_children=(dataclasses.replace(LEFTOVER, tds=4),)
+            target_amount=1, split_children=(dataclasses.replace(LEFTOVER, tds_deducted=True),)
         ))
         self.assertEqual(verdict.title, "Leftover taxed")
 
@@ -825,12 +928,12 @@ class TestFirstRefusal(unittest.TestCase):
     def test_the_first_refused_leg_in_the_order_given(self):
         verdicts = [
             leg_verdict(REVERSIBLE),
-            leg_verdict(facts(leg="MATCH-2", tds=1)),
+            leg_verdict(facts(leg="MATCH-2", target_exists=False)),
             leg_verdict(facts(leg="MATCH-3", match_kind="Reversed")),
         ]
         refused = first_refusal(verdicts)
         self.assertEqual(refused.leg, "MATCH-2")
-        self.assertEqual(refused.title, "Settled with TDS")
+        self.assertEqual(refused.title, "Not found")
 
 
 class TestItIsPure(unittest.TestCase):
@@ -846,3 +949,18 @@ class TestItIsPure(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAVendorRefundLineIsUndoneWhole(unittest.TestCase):
+    """A part-reversed vendor refund line could never be completed again, so it is undone whole."""
+
+    def test_a_line_carrying_a_vendor_refund_is_reverse_all_only(self):
+        self.assertTrue(
+            unreconcile.reverse_all_only(
+                [{"target_doctype": "Project Inflows"}, {"target_doctype": "Vendor Refunds"}]
+            )
+        )
+
+    def test_any_other_line_may_be_part_reversed(self):
+        for doctypes in ([], ["Project Payments", "Project Expenses"], ["Project Inflows"]):
+            self.assertFalse(unreconcile.reverse_all_only([{"target_doctype": d} for d in doctypes]))

@@ -25,15 +25,17 @@ import {
   ProjectDetailPopover,
   VendorDetailPopover,
 } from "../components/DetailPopovers";
+import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 
 import {
+  APPROVAL_STATUS,
   ApprovalColumnId,
   ApprovalQueueRow,
   ApprovalTab,
   descriptionFirstLine,
-  SOURCE_BADGE,
-  SOURCE_LABEL,
   TIER_LABEL,
+  TYPE_BADGE,
+  TYPE_LABEL,
 } from "./approvalsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
 
@@ -73,7 +75,11 @@ export interface ApprovalColumnCtx {
    * content, which is what the matrix describes.
    */
   onEdit?: (row: ApprovalQueueRow) => void;
-  /** Delete an approved-but-unpaid record (accountant tab). */
+  /**
+   * The Trash icon on "Payment By Me", shown on REJECTED rows only ("--" otherwise). It opens a
+   * dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
+   * PO / SR page, whose payment table deletes it.
+   */
   onDelete?: (row: ApprovalQueueRow) => void;
 }
 
@@ -107,9 +113,9 @@ const daysSince = (iso?: string | null): number | null => {
   return Math.floor((Date.now() - then) / 86_400_000);
 };
 
-const SourceChip = ({ source }: { source: ApprovalQueueRow["source"] }) => (
-  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${SOURCE_BADGE[source]}`}>
-    {SOURCE_LABEL[source]}
+const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => (
+  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
+    {TYPE_LABEL[type] ?? type}
   </span>
 );
 
@@ -164,6 +170,7 @@ const REGISTRY: Record<
       ctx.tab === PP_TABS.NEW_PAYMENTS ? 148
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? 160
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
+        : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
         : 72,
     cell: ({ row }) => {
       const r = row.original;
@@ -180,16 +187,16 @@ const REGISTRY: Record<
       }
 
       if (ctx.tab === PP_TABS.NEW_PAYMENTS) {
-        // "Mark as Done", not "Mark as Paid" (owner, 15 Sep). It no longer records
-        // the payment — it states that the money went out, moving the row to
-        // Reconciliation Pending. The UTR / date / proof are captured later, on the
-        // Reconciliation Pending tab, which is what actually settles it.
+        // "Mark as Paid" (owner, 16 Sep — reverses the 15 Sep "Mark as Done" label).
+        // ⚠️ THE LABEL IS NOT THE STATUS: it does NOT write `Paid`. It states that the
+        // money went out, moving the row to Reconciliation Pending; the UTR / date /
+        // proof are captured later on that tab, which is what actually settles it.
         return (
           <div className="flex items-center gap-2">
             <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
               onClick={() => ctx.onRecordPayment?.(r)}>
               <IndianRupee className="mr-1 h-3.5 w-3.5" />
-              Mark as Done
+              Mark as Paid
             </Button>
             {ctx.onDelete && (
               <Button variant="ghost" size="icon" aria-label="Delete"
@@ -199,6 +206,21 @@ const REGISTRY: Record<
               </Button>
             )}
           </div>
+        );
+      }
+
+      // ⚠️ MUST stay above the Approve / Reject fall-through below, or this view-only tab
+      // would render approval buttons on every row.
+      if (ctx.tab === PP_TABS.PAYMENT_BY_ME) {
+        if (!ctx.onDelete || r.status !== APPROVAL_STATUS.REJECTED) {
+          return <span className="text-muted-foreground">--</span>;
+        }
+        return (
+          <Button variant="ghost" size="icon" aria-label="Delete"
+            className="h-7 w-7 text-destructive hover:text-destructive/80"
+            onClick={() => ctx.onDelete?.(r)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
         );
       }
 
@@ -230,15 +252,17 @@ const REGISTRY: Record<
     },
   }),
 
-  // The only column unification adds. Faceted, so the queue narrows to one ledger.
+  // The only column unification adds. Faceted, so the queue narrows to one ledger — or,
+  // for payments, to PO or SR. The registry key stays `source`; the column id is the
+  // server field it filters and sorts on (see the id note on `against` below).
   source: () => ({
-    id: "source",
-    accessorKey: "source",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
-    cell: ({ row }) => <SourceChip source={row.original.source} />,
+    id: "source_type",
+    accessorKey: "source_type",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    cell: ({ row }) => <TypeChip type={row.original.source_type} />,
     // Sized for the longest label, "Non Project Expense", rendered as a pill.
     size: 158,
-    meta: { exportHeaderName: "Source", exportValue: (r: ApprovalQueueRow) => SOURCE_LABEL[r.source] },
+    meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },
   }),
 
   against: (ctx) => ({
@@ -283,10 +307,36 @@ const REGISTRY: Record<
             docName={r.document_name}
             docType={r.document_type}
             vendorLabel={r.vendor ? ctx.vendorLabels.get(r.vendor) : undefined}
+            projectId={r.project || undefined}
             projectLabel={r.project ? ctx.projectLabels.get(r.project) : undefined}
           >
             {body}
           </DocumentDetailPopover>
+        );
+      }
+      // An expense several bank lines settled opens its Bank lines card instead (#1303,
+      // ADR-0027 R5) — the same click-to-open shape a payment row already has, answering the
+      // question this row actually raises: why is it still Reconciliation Pending?
+      //
+      // ⚠️ THE HOVER IS NOT LOST, IT MOVES INSIDE — and it moves WHOLE. The card carries the same
+      // two things this hover shows, `against_full` with its line breaks and `comment_text`, so
+      // the bank details a third of expense descriptions carry are still one click away.
+      //
+      // ⚠️ GATED ON `bank_line_count`, NEVER ON THE STATUS. An expense no line has reached shows
+      // no trigger at all, so nobody opens a card to be told it is empty.
+      if (r.bank_line_count > 0) {
+        return (
+          <ExpenseBankLinesPopover
+            doctype={r.doctype}
+            name={r.name}
+            expenseType={r.expense_type}
+            description={r.against_full || r.against_primary}
+            comment={r.comment_text}
+            status={r.status}
+            lineCount={r.bank_line_count}
+          >
+            {body}
+          </ExpenseBankLinesPopover>
         );
       }
       // Everything trimmed off is one hover away — nothing is lost.

@@ -8,7 +8,7 @@ export const useOrderPayments = () => {
   const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>(
     'Project Payments',
     {
-      fields: ['name', "document_name", "document_type", "amount", "status", "tds"],
+      fields: ['name', "document_name", "document_type", "amount", "status"],
       limit: 0,
       orderBy: { field: 'creation', order: 'desc' },
     },

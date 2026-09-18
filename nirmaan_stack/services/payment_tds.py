@@ -141,10 +141,32 @@ APPROVAL_SOURCE_STATUSES = frozenset(
 #: and so `total_tds` can never be summed for a ledger that has nowhere to store it.
 DEDUCTIBLE_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE})
 
+#: Work Order service categories whose TDS the COMPANY pays on top (owner ruling 2026-09-17).
+#:
+#: A Work Order whose categories are ALL in this set keeps its payment at the requested figure:
+#: Rs 800 approved -> Rs 16 recorded at 2% -> the payment STAYS Rs 800, and the Rs 16 is paid to the
+#: department on top. Every other Work Order is unchanged -- Rs 800 -> Rs 784 + Rs 16.
+#:
+#: ⚠️ "ALL", NOT "ANY". A Work Order mixing one of these with any other category (Electrical, ...)
+#: is taxed the ordinary way. A Work Order with no categories at all is ordinary too.
+#:
+#: ⚠️ DECIDED FROM THE WORK ORDER'S CATEGORIES EVERY TIME, NOT STORED ON THE DEDUCTION (owner
+#: ruling 2026-09-17, no new field). Two consequences that were accepted with it:
+#:   * the 50 deductions already recorded on such Work Orders (measured 2026-09-17, 49 of them
+#:     netted before this rule existed) are now READ as company-borne, so their `amount_due` reads
+#:     short by their own tax the next time it is recomputed;
+#:   * changing a Work Order's categories later moves how its existing deductions are read.
+#:
+#: ⚠️ MIRRORED IN THE FRONTEND by `COMPANY_BORNE_CATEGORIES` in
+#: `frontend/src/pages/ProjectPayments/tdsForecast.ts`. Change both or neither.
+COMPANY_BORNE_CATEGORIES = frozenset({"Miscellaneous Services", "Transportation Services"})
+
 __all__ = [
 	"APPROVAL_SOURCE_STATUSES",
+	"COMPANY_BORNE_CATEGORIES",
 	"DEDUCTIBLE_PARENTS",
 	"is_approval_from_an_earlier_step",
+	"is_company_borne",
 	"is_deductible",
 	"existing_deduction",
 	"write_deduction",
@@ -191,6 +213,37 @@ def is_deductible(doc) -> bool:
 	if (doc.get("status") or "").strip() != APPROVED:
 		return False
 	return bool((doc.get("vendor") or "").strip())
+
+
+def is_company_borne(document_type: str | None, document_name: str | None) -> bool:
+	"""Does the company pay this Work Order's TDS on top, leaving its payments unreduced?
+
+	True only for a `Service Requests` parent whose `service_category_list` is non-empty and holds
+	nothing outside `COMPANY_BORNE_CATEGORIES` -- see that constant for the rule and its ruling.
+
+	⚠️ THE HEADER LIST, NOT THE ITEM CATEGORIES. `service_category_list` is what the Work Order was
+	raised under and is the one list the frontend can read beside a payment; the item table agreed
+	with it on 926 of 927 Work Orders (2026-09-17), the odd one out being a `Penalty` line.
+	"""
+	if (document_type or "").strip() not in DEDUCTIBLE_PARENTS or not document_name:
+		return False
+
+	raw = frappe.db.get_value(SERVICE_REQUEST_DOCTYPE, document_name, "service_category_list")
+	# A Postgres `json` column can arrive already decoded or as text, depending on the driver path.
+	try:
+		parsed = frappe.parse_json(raw) if isinstance(raw, str) else raw
+	except Exception:
+		return False
+	if not isinstance(parsed, dict):
+		return False
+
+	categories = {
+		(entry.get("name") or "").strip()
+		for entry in (parsed.get("list") or [])
+		if isinstance(entry, dict)
+	}
+	categories.discard("")
+	return bool(categories) and categories <= COMPANY_BORNE_CATEGORIES
 
 
 def existing_deduction(payment_name: str) -> str | None:
@@ -269,6 +322,9 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 
 	    gross = net / (1 - rate/100)          tds = gross - net
 
+	⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (`is_company_borne`), whose payment was never reduced:
+	there the edited figure IS the gross, and `tds = amount * rate/100`.
+
 	⚠️ AT THE DEDUCTION'S OWN SNAPSHOTTED RATE, NEVER THE VENDOR'S CURRENT ONE. 561 of 629 rows
 	already carry a rate that differs from their vendor's today, so re-reading the master would
 	restate a historical deduction at a rate that was never withheld from anyone.
@@ -294,15 +350,21 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 		as_dict=True,
 	)
 	rate = flt(row.get("tds_percentage"))
-	net = flt(doc.get("amount"))
+	amount = flt(doc.get("amount"))
 
 	# A rate of 0 or >= 100 cannot be inverted (the divisor would be zero or negative) and a
-	# non-positive net has no tax to carry. Leave the row exactly as it was withheld.
-	if rate <= 0 or rate >= 100 or net <= 0:
+	# non-positive amount has no tax to carry. Leave the row exactly as it was withheld.
+	if rate <= 0 or rate >= 100 or amount <= 0:
 		return name
 
-	gross = flt(net / (1 - rate / 100.0), 2)
-	tds = flt(gross - net, 2)
+	if is_company_borne(doc.get("document_type"), doc.get("document_name")):
+		# The payment was never reduced, so the edited figure IS the gross and the tax is taken on
+		# it directly -- the same arithmetic `record_deduction` used at approval.
+		gross = amount
+		tds = flt(gross * rate / 100.0, 2)
+	else:
+		gross = flt(amount / (1 - rate / 100.0), 2)
+		tds = flt(gross - amount, 2)
 	old_tds = flt(row.get("tds_amount"), 2)
 
 	if gross == flt(row.get("gross_amount"), 2) and tds == old_tds:
@@ -339,9 +401,14 @@ def write_deduction(
 	tds_percentage,
 	payment_approved_on: str | None = None,
 	update_modified: bool = True,
+	reduce_payment: bool = True,
 ) -> str | None:
 	"""Record ONE deduction and net the payment. The caller supplies the FIGURES; this owns the
 	record, the ordering and the guards.
+
+	`reduce_payment=False` records the deduction but leaves `Project Payments.amount` at the gross
+	figure -- a company-borne Work Order (`is_company_borne`). It defaults to True so the historical
+	backfills, which call this directly, keep writing exactly what they always wrote.
 
 	⚠️ IT EXISTS BECAUSE THE TWO ERAS SOURCE THE TAX DIFFERENTLY BUT MUST WRITE IT IDENTICALLY.
 	A payment approved from now on derives its tax from the vendor's CURRENT rate
@@ -403,6 +470,11 @@ def write_deduction(
 	# inside the payment's own save, so a plain assignment would be discarded.
 	doc.db_set("payment_tds", row.name, update_modified=update_modified)
 
+	# A company-borne Work Order keeps its payment at the gross figure: the vendor receives it in
+	# full and the tax is paid on top (owner ruling 2026-09-17, `COMPANY_BORNE_CATEGORIES`).
+	if not reduce_payment:
+		return row.name
+
 	# The payment now states what will actually leave the bank (owner ruling 2026-09-10).
 	#
 	# ⚠️ THE DEDUCTION ROW IS WRITTEN FIRST, AND THE ORDER IS THE SAFETY. `gross_amount` is the only
@@ -458,6 +530,11 @@ def record_deduction(doc, *, payment_approved_on: str | None = None, update_modi
 		# never does (new environments restore a backup, and the Patch Log travels with it).
 		payment_approved_on=payment_approved_on,
 		update_modified=update_modified,
+		# ⚠️ DECIDED HERE, ON THE ONE PATH EVERY APPROVAL SHARES -- single approve and a split's
+		# approved half (`on_update`), auto-approve (`after_insert`) and bulk approve
+		# (`_record_bulk_deductions`) all arrive through this function, so none can reduce a
+		# company-borne payment that another would leave whole.
+		reduce_payment=not is_company_borne(doc.get("document_type"), doc.get("document_name")),
 	)
 
 

@@ -37,6 +37,8 @@ export interface Vendors{
 	vendor_email?: string
 	/**	Vendor GST : Data	*/
 	vendor_gst?: string
+	/**	Vendor PAN : Data — for a GST vendor, always characters 3-12 of vendor_gst	*/
+	vendor_pan?: string
 	/**	TDS Deduction Percentage : Percent — Tax Deducted at Source rate for this
 	 *  vendor's payments, default 2. NOT related to the "TDS Items" /
 	 *  "TDS Repository" doctypes, where TDS means Technical Data Sheet.	*/

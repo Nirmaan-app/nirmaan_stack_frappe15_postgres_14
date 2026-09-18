@@ -41,7 +41,8 @@ from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.skip_origin import (
     UNSKIP_REFUSED_CASHBOOK,
     UNSKIP_REFUSED_NOT_SKIPPED,
-    UNSKIP_REFUSED_SYSTEM,
+    UNSKIP_LOCKED_KINDS,
+    UNSKIP_REFUSED_NO_KIND,
 )
 from nirmaan_stack.services.outflow_import.status import (
     BATCH_COMPLETED,
@@ -56,7 +57,7 @@ REASON = "It was a site labour advance after all"
 
 _STORED = (
     "row_status", "skip_origin", "skip_reason", "outcome_note", "decided_by", "decided_at",
-    "suggested_name", "duplicate_basis",
+    "suggested_name", "duplicate_basis", "skip_kind",
 )
 
 
@@ -82,6 +83,7 @@ def _hand_skip(row):
         {
             "row_status": ROW_SKIPPED,
             "skip_origin": SKIP_ORIGIN_MANUAL,
+            "skip_kind": "Skipped by hand",
             "skip_reason": "not ours",
             "outcome_note": "not ours",
             "decided_by": "Administrator",
@@ -101,7 +103,9 @@ class TestUnskipRefusals(SkipFixture):
         self.assertEqual(_stored(row), before)
 
     def test_a_plain_accountant_is_refused_and_nothing_is_written(self):
-        row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, amount=8231.77)
+        row = self._line(
+            status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind="Skipped by hand", amount=8231.77
+        )
         before = _stored(row)
         frappe.set_user(self.users.make(ACCOUNTANT))
         with self.assertRaises(frappe.PermissionError):
@@ -110,26 +114,58 @@ class TestUnskipRefusals(SkipFixture):
         self.assertEqual(_stored(row), before)
 
     def test_a_reason_is_required(self):
-        row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, amount=8231.77)
+        row = self._line(
+            status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind="Skipped by hand", amount=8231.77
+        )
         with self.assertRaises(frappe.ValidationError) as caught:
             unskip_row(row, "   ")
         self.assertIn(UNSKIP_REASON_REQUIRED, str(caught.exception))
         self.assertEqual(_stored(row).row_status, ROW_SKIPPED)
 
-    def test_a_system_skip_is_refused(self):
-        row = self._line(
-            status=ROW_SKIPPED,
-            skip_origin=SKIP_ORIGIN_SYSTEM,
-            outcome_note="Already recorded as Paid on Project Payment PAY-1.",
-        )
-        self._assert_refused(row, UNSKIP_REFUSED_SYSTEM)
+    def test_the_four_locked_kinds_are_refused_with_their_own_sentence(self):
+        """Owner, 2026-09-17 (A1): these stay skipped. INVERTED from #1274's "a system skip is refused"."""
+        for kind, sentence in UNSKIP_LOCKED_KINDS.items():
+            with self.subTest(kind=kind):
+                row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_SYSTEM, skip_kind=kind)
+                self._assert_refused(row, sentence)
+
+    def test_a_line_with_no_kind_is_refused(self):
+        row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_SYSTEM, skip_kind="")
+        self._assert_refused(row, UNSKIP_REFUSED_NO_KIND)
 
     def test_a_cashbook_line_is_refused(self):
-        row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, source="Cashbook")
-        self._assert_refused(row, UNSKIP_REFUSED_CASHBOOK)
+        """Owner decision B1: Cashbook stays locked whatever its kind."""
+        for kind in ("Skipped by hand", "Cashbook internal movement", "Outflow Already Recorded"):
+            with self.subTest(kind=kind):
+                row = self._line(
+                    status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind=kind, source="Cashbook"
+                )
+                self._assert_refused(row, UNSKIP_REFUSED_CASHBOOK)
 
     def test_a_line_that_is_not_skipped_is_refused(self):
         self._assert_refused(self._line(status=ROW_MISMATCHED), UNSKIP_REFUSED_NOT_SKIPPED)
+
+
+class TestUnskipASystemSkip(SkipFixture):
+    """Owner, 2026-09-17: a system skip outside the locked kinds comes back, and is re-checked at once."""
+
+    def test_a_bank_rule_exclusion_comes_back_as_work(self):
+        # The re-check does not re-apply bank rules (they are decided at upload), so the line is open.
+        row = self._line(
+            status=ROW_SKIPPED,
+            skip_origin=SKIP_ORIGIN_SYSTEM,
+            skip_kind="Porter wallet top-up",
+            skip_reason="Not spending -- this line is money moving inside the bank or between our own "
+            "accounts. Excluded by bank-statement rule 'platform_porter'.",
+            outcome_note=None,
+            amount=8231.77,
+        )
+        result = unskip_row(row, REASON)
+        stored = _stored(row)
+        self.assertEqual(stored.row_status, ROW_MISMATCHED)
+        self.assertEqual(result["status"], ROW_MISMATCHED)
+        self.assertFalse(stored.skip_kind)
+        self.assertFalse(stored.skip_origin)
 
 
 class TestUnskipALineWithNothingRecorded(SkipFixture):
@@ -146,6 +182,7 @@ class TestUnskipALineWithNothingRecorded(SkipFixture):
         stored = _stored(row)
         self.assertEqual(stored.row_status, ROW_MISMATCHED)
         self.assertFalse(stored.skip_origin)
+        self.assertFalse(stored.skip_kind)
         self.assertFalse(stored.skip_reason)
         self.assertFalse(stored.decided_by)
         self.assertIsNone(stored.decided_at)
@@ -231,12 +268,15 @@ class TestUnskipReChecksAgainstTheLedger(OutflowReviewFixture):
         self.assertIn(self.pay_already, result["outcome_note"])
         stored = _stored(name)
         self.assertEqual(stored.row_status, ROW_SKIPPED)
-        # ⚠️ SYSTEM, so it can never be unskipped into a duplicate.
         self.assertEqual(stored.skip_origin, SKIP_ORIGIN_SYSTEM)
+        # And re-filed under the kind the re-check found, never left as "Skipped by hand".
+        self.assertEqual(stored.skip_kind, "Outflow Already Recorded")
         self.assertFalse(stored.skip_reason)
-        with self.assertRaises(frappe.ValidationError) as caught:
-            unskip_row(name, REASON)
-        self.assertIn(UNSKIP_REFUSED_SYSTEM, str(caught.exception))
+        # ⚠️ INVERTED (owner, 2026-09-17): an already-recorded skip MAY be unskipped now -- and the
+        # SAME re-check that just skipped it skips it again, so the money is never opened twice.
+        again = unskip_row(name, REASON)
+        self.assertEqual(again["status"], ROW_SKIPPED)
+        self.assertEqual(_stored(name).skip_kind, "Outflow Already Recorded")
 
 
 class TestUnskipReleasesTheDuplicateClaim(OutflowReviewFixture):

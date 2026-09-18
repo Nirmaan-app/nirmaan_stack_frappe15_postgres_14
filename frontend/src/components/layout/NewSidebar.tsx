@@ -550,7 +550,11 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    // HR Executive added 2026-09-17 (owner): HR gets four VIEW-ONLY tabs there (Reconciliation
+    // Pending, Payment Done, Payments Pending, Payment By Me) -- RenderProjectPaymentsComponent
+    // holds it to them. HR LEAD is
+    // deliberately NOT here: it cannot create or delete an expense, so that tab stays empty.
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan HR Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/project-payments',
@@ -561,6 +565,18 @@ export function NewSidebar() {
           // The ROUTE stays `/project-payments`: eight backend notification deep links
           // point at it, so renaming the key would 404 live and historical sends.
           label: 'Project Payment & Expense',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          // Renamed "Expense" -> "Expense Request" (owner, 17 Sep 2026): the module now shows
+          // only the request list -- ExpenseLayout hides the Misc Project / Non-Project tabs.
+          // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+          key: '/expense',
+          icon: Landmark,
+          label: 'Expense Request',
         },
       ]
       : []),
@@ -584,9 +600,8 @@ export function NewSidebar() {
     // (search: "Credit Payments") — that Set is matched by LABEL, and an entry missing
     // from it renders as a collapsible group with a chevron that swallows the click.
     //
-    // ⚠️ ONE ROLE LOSES ACCESS FROM THE NAV: Nirmaan HR Executive Profile was in this
-    // gate but is NOT in the "/project-payments" gate above, so HR has no nav route to
-    // expenses any more. The URL still works. Flagged to the owner.
+    // HR Executive was in this gate. Since 2026-09-17 it is in the "/project-payments" gate
+    // above instead, with four view-only tabs.
     // ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
     //   ? [
     //     {
@@ -872,7 +887,9 @@ export function NewSidebar() {
     "/non-project-inflows": ["non-project-inflows"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
-    "/expense/project": ["expense"],
+    // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
+    // sidebar entry highlighted -- they share the first path segment.
+    "/expense": ["expense"],
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/snag-list': ['snag-list'],
@@ -1010,7 +1027,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    // "Expense",  // hidden from the nav — see the commented block above
+                    "Expense Request",
                     "Users",
                     "Assets",
                     "Vendors",

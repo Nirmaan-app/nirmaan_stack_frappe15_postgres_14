@@ -9,7 +9,13 @@
   "details_section",
   "expense_name",
   "project",
-  "non_project"
+  "non_project",
+  "expense_category",
+  "access_section",
+  "allowed_roles",
+  "request_form_section",
+  "source_format_enabled",
+  "source_format"
  ],
  "fields": [
   {
@@ -34,12 +40,51 @@
    "fieldname": "non_project",
    "fieldtype": "Check",
    "label": "Non Project"
+  },
+  {
+   "description": "Groups this type for ROUTING an expense request to a reviewer. Blank routes to Nirmaan Admin Profile.",
+   "fieldname": "expense_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Expense Category",
+   "options": "Expense Category"
+  },
+  {
+   "fieldname": "access_section",
+   "fieldtype": "Section Break",
+   "label": "Visible To"
+  },
+  {
+   "description": "Role profiles that may pick this type when raising an expense request. Nirmaan Admin Profile always sees every type and is never listed here, so an empty table means Admin only.",
+   "fieldname": "allowed_roles",
+   "fieldtype": "Table",
+   "label": "Allowed Roles",
+   "options": "Expense Type Role"
+  },
+  {
+   "fieldname": "request_form_section",
+   "fieldtype": "Section Break",
+   "label": "Expense Request Form"
+  },
+  {
+   "default": "0",
+   "description": "On: the request dialog shows this type's Source Format. Off: it asks the standard project / non-project expense fields instead. Cannot be on without a format.",
+   "fieldname": "source_format_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Source"
+  },
+  {
+   "description": "Optional JSON form format for Expense Requests of this type. EMPTY IS NORMAL -- a type with no format is still fully requestable on the native fields alone. One format can serve many types.",
+   "fieldname": "source_format",
+   "fieldtype": "Long Text",
+   "label": "Source Format"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.741386",
+ "modified": "2026-09-16 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Type",

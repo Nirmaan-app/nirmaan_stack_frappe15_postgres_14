@@ -369,6 +369,25 @@ class TestMatchBatch(OutflowReviewFixture):
         self.assertEqual(origin("0003"), "System")
         self.assertFalse(origin("0004"))
 
+    def test_a_match_run_skip_stores_its_kind_and_a_match_does_not(self):
+        """Skip Type: the match run's one persister writes the kind beside the note, NULL otherwise."""
+        rows = self._rows_by_transfer_suffix()
+        kind = lambda suffix: frappe.db.get_value(ROW_DOCTYPE, rows[suffix]["name"], "skip_kind")
+        self.assertEqual(kind("0003"), "Outflow Already Recorded")
+        self.assertFalse(kind("0004"))
+
+    def test_an_already_recorded_skip_carries_the_record_behind_it(self):
+        """The Skipped popup's hover: the payment already on the books, with the facts to check."""
+        name = self._rows_by_transfer_suffix()["0003"]["name"]
+        row = next(
+            r for r in get_outflow_rows(scope="skipped", batch=self.batch.name, limit=200)["rows"]
+            if r["name"] == name
+        )
+        records = row["skip_source"]["records"]
+        self.assertEqual([(r["doctype"], r["name"]) for r in records], [("Project Payments", self.pay_already)])
+        self.assertEqual(records[0]["status"], "Paid")
+        self.assertGreater(records[0]["amount"], 0)
+
     def test_fan_out_matches_as_one_group(self):
         row = self._rows_by_transfer_suffix()["0004"]
         self.assertEqual(row["row_status"], "Matched")
@@ -498,9 +517,8 @@ class TestMatchBatch(OutflowReviewFixture):
         }
         for name, expected in planted.items():
             doc = frappe.db.get_value(
-                "Project Payments", name, ["status", "utr", "amount", "tds"], as_dict=True
+                "Project Payments", name, ["status", "utr", "amount"], as_dict=True
             )
-            self.assertIsNone(doc.tds)
             self.assertEqual(doc.status, expected, f"{name} moved to {doc.status}")
 
 
@@ -3990,6 +4008,76 @@ class TestTheImportReadingOrder(unittest.TestCase):
         self.assertEqual(rows[self.july.name]["successful_rows"], 0)
 
 
+class TestTheImportListNarrowsBySourceOnTheServer(unittest.TestCase):
+    """`list_imports(sources=...)` -- the cap applies AFTER the source, not before it.
+
+    The production defect: more than `limit` statements existed, the picker fetched the newest `limit`
+    across EVERY source and narrowed to ICICI in the browser, so an ICICI statement covering an older
+    period sat below the cut and choosing ICICI could never bring it back.
+    """
+
+    ICICI = "ICICI Bank Statement"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.made = []
+        # The oldest statement on the site -- the one a whole-site cap drops first.
+        cls.old_icici = cls._batch(source=cls.ICICI, period_to="1990-01-31")
+        # Busier sources, newer periods: they fill the cap ahead of it.
+        for _ in range(3):
+            cls._batch(source="Cashfree", period_to="2099-12-31")
+        frappe.db.commit()
+
+    @classmethod
+    def _batch(cls, *, source, period_to):
+        doc = frappe.new_doc(BATCH_DOCTYPE)
+        doc.source = source
+        doc.original_filename = f"source-test-{frappe.generate_hash(length=8)}.xlsx"
+        doc.period_from = "1990-01-01"
+        doc.period_to = period_to
+        doc.uploaded_by = "Administrator"
+        doc.insert(ignore_permissions=True)
+        cls.made.append(doc.name)
+        return doc
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls.made:
+            frappe.delete_doc(BATCH_DOCTYPE, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _icici_or_blank_count(self):
+        return frappe.db.sql(
+            """SELECT COUNT(*) FROM "tabOutflow Import Batch"
+               WHERE TRIM(COALESCE(source, '')) IN (%s, '')""",
+            (self.ICICI,),
+        )[0][0]
+
+    def test_the_old_statement_is_reachable_once_its_source_is_chosen(self):
+        # A cap exactly as wide as ICICI's own population: whole-site, the three newer Cashfree
+        # fixtures alone take slots ahead of it; narrowed first, every ICICI statement fits.
+        limit = self._icici_or_blank_count()
+        names = [b["name"] for b in list_imports(limit=limit, sources=[self.ICICI])]
+        self.assertIn(self.old_icici.name, names)
+
+    def test_it_returns_only_the_chosen_source(self):
+        rows = list_imports(limit=200, sources=[self.ICICI])
+        self.assertTrue(rows)
+        self.assertEqual({(r["source"] or "").strip() for r in rows} - {"", self.ICICI}, set())
+
+    def test_sources_arrive_as_json_from_a_get_call(self):
+        rows = list_imports(limit=200, sources=json.dumps([self.ICICI]))
+        self.assertIn(self.old_icici.name, [r["name"] for r in rows])
+        self.assertNotIn("Cashfree", {r["source"] for r in rows})
+
+    def test_no_sources_means_every_source(self):
+        for empty in (None, "", "[]", []):
+            names = [b["name"] for b in list_imports(limit=200, sources=empty)]
+            self.assertTrue(set(self.made) <= set(names), empty)
+
+
 class TestTheHistoryFigures(OutflowReviewFixture):
     """`list_imports` -- the count and the amount the History dialog prints (slice CF/S4)."""
 
@@ -4290,13 +4378,13 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
             [b["ledger"] for b in by_direction["Paid"]["ledgers"]],
             ["Project Payments", "Project Expenses", "Non Project Expenses"],
         )
-        # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266;
-        # `Non Project Expenses` stays for rows the removed receipt path wrote.
+        # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266,
+        # `Vendor Refunds` since; `Non Project Expenses` stays for rows the removed receipt path wrote.
         received = by_direction["Received"]
         self.assertEqual(received["rows"], 1)
         self.assertEqual(
-            [b["ledger"] for b in received["ledgers"]][:3],
-            ["Project Inflows", "Non Project Inflows", "Non Project Expenses"],
+            [b["ledger"] for b in received["ledgers"]][:4],
+            ["Project Inflows", "Non Project Inflows", "Vendor Refunds", "Non Project Expenses"],
         )
         self.assertEqual(received["ledgers"][-1]["ledger"], "Other")
 
@@ -4930,6 +5018,13 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         open_lines = [r["name"] for r in rows if r["row_status"] != ROW_SKIPPED]
         self.assertTrue(open_lines)
         self.assertEqual({origin[name] or None for name in open_lines}, {None})
+
+    def test_a_contains_guard_skip_stores_outflow_already_recorded(self):
+        """Skip Type on the ICICI path: money out already on the books."""
+        skipped = self._bank_rows()[_BANK_ALREADY_PAID]["name"]
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, skipped, "skip_kind"), "Outflow Already Recorded"
+        )
 
     def test_the_skip_sentence_is_the_SHARED_one_not_a_bank_specific_retype(self):
         row = self._bank_rows()[_BANK_ALREADY_PAID]

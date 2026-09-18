@@ -62,14 +62,20 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 ## Expense workflow & settlement
 
+- **Expense Request** — an *ask* for an expense, raised by someone who may not record one directly (a Project Manager). It is **not money**: it appears in no financial figure. A senior reviews it, and **approval is what creates the actual Expense** — one only, either a Project Expense or a Non-Project Expense, depending on whether a project was named. It does reach *Paid*, but only as a **mirror**: the Expense is what gets paid, and the request follows it. Deleting that Expense deletes the request with it. Rejection is final and must carry a reason.
+
+- **Reviewer** — the person who decides an Expense Request. Who that is depends on the **expense type**, so accommodation can be reviewed by one team and everything else by another. Nobody may decide their own request.
+
+- **Request form (source format)** — the extra questions a particular expense type asks. Hotel and accommodation ask for the occupant, the property and the rent period; travel asks where and when. Most types ask nothing extra and use the plain form — that is normal, not a gap. Set up in **Packages Settings → Expense Packages**. When a request is approved, its answers are written onto the created Expense in readable form, so the accountant sees them where they already look.
+
 - **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
 
 - **Expense and Payment status** — the single field describing where an Expense or a Project Payment sits in its lifecycle. It advances in one direction: *Requested* → *CEO Pending* → *Approved* → *Reconciliation Pending* → *Paid*, with *Rejected* as the one way out. A record holds exactly one at a time. Not every record meets every step: only a payment above the CEO's threshold waits at *CEO Pending*, and a small Expense is auto-approved straight to *Approved*.
   - **Requested** — entered, awaiting approval; not yet sanctioned and no cash has gone out.
   - **CEO Pending** — approved by the team and waiting for the CEO, who may approve it in full or approve part of it and leave the balance here.
   - **Approved** — sanctioned to spend, but the money has **not** yet left. A staging state, not settled spend.
-  - **Reconciliation Pending** — an Accountant has pressed **Mark as Done**: the money has gone out of the bank, and the record is now waiting to be matched against the bank line that paid it. Still not settled spend — the money is gone but nothing has proved it yet.
-  - **Paid** — the cash has gone out **and** a bank line has been matched to it, or somebody marked it reconciled by hand. The **final** state and the **only** one that counts as real spend.
+  - **Reconciliation Pending** — an Accountant has pressed **Mark as Done**: the money has gone out of the bank, and the record is now waiting to be matched against the bank line that paid it. An Expense also waits here while the bank lines linked to it so far — its **linked total** — add up to less than its amount, which is how a run that left the bank as many transfers settles one Expense; it becomes *Paid* only once the linked total reaches the amount. Still not settled spend — the money is gone but nothing has proved it yet.
+  - **Paid** — the cash has gone out **and** every bank line that paid it has been matched to it — one line for most records, and for an Expense as many as the run took — or somebody marked it reconciled by hand. The **final** state and the **only** one that counts as real spend.
   - **Rejected** — refused. It counts toward nothing, and re-approving it from here withholds Work Order tax as a first approval does.
 
 - **Mark as Done** — the Accountant's action that moves a record from *Approved* to *Reconciliation Pending*, meaning "the money has left the bank". It is the step that makes a record visible to Bulk Import: from 2026-09-16 the import settles a record only from *Reconciliation Pending*, never from *Approved*. A record still sitting at *Approved* cannot be matched to a bank line, and the import says so by name — "mark it as done first" — rather than refusing without explanation. *Avoid*: marking it paid, settling it. (2026-09-16, #1289.)
@@ -97,8 +103,11 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Total Unreconciled Outflow** — how much bank money has been paid out and still needs reconciling: every imported bank line whose direction is *Outflow* and which still owes somebody a decision, across every import, every source and all time. Shown on the Payments summary card with the number of lines. It excludes lines already settled, lines skipped, and transfers the bank refused, because none of those is outstanding work. It is the same figure Bulk Import shows as *Still open* under *Paid out* with no filters, and the two are never allowed to disagree. It is **not** a 30-day figure and is never added to the 30-day outflow beside it. (2026-09-16.)
   *Avoid*: unmatched outflow, open outflow, unreconciled payments.
 
-- **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Only a line skipped by hand can later be brought back. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement — and stays skipped, so the same money is never recorded twice. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
+- **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement — so the same money is never recorded twice. Whether a skipped line can later be brought back is decided by its **skip kind** — the reason it was skipped, shown as Skip Type — and not by who skipped it: a hand skip can come back, and so can a line skipped as already recorded or by a bank-statement rule; a line already imported, repeated in the same file, carrying no amount, or refused by the bank never can, and nor can any Cashbook line. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); what can be brought back amended 2026-09-17 by [Amendment C](docs/adr/0022-unreconcile-and-unskip.md).)
   *Avoid*: manual skip for a system skip a person merely confirmed.
+
+- **Bounced transfer (an imported bank line)** — money that left the bank and was sent back, so the statement shows the same money twice: the transfer going out, and the transfer coming back. The out line is **skipped by hand** with the reason "bounced"; the line coming back is a **system skip** under the bank rule *Failed payment bounced back*. Neither line is linked to any record, and no record's amount is raised to cover it — the money never stayed out, so nothing was spent. Different from a transfer **the bank refused** outright, which never left the account and so appears only once. (2026-09-18, [ADR-0027](docs/adr/0027-many-lines-one-expense.md).)
+  *Avoid*: calling the pair a refused transfer — the bank refused nothing; the money left and came back.
 
 - **Unreconcile (an imported bank line)** — undoing a match on a settled bank line, with a typed reason, one record at a time or all at once (**Reverse all**, which changes nothing unless every record can be undone). Each record says first what will happen to it; a Project Payment goes back to *Reconciliation Pending* with its UTR and payment date cleared, and an existing Project Expense or Non-Project Expense goes back to *Reconciliation Pending* with its payment date, reference and "paid by" cleared — the status a bank line settles FROM, so the record can be matched to the right line without anyone pressing Mark as Done a second time; either is then free to match another line. A record the import itself created (a Project Inflow, a Non-Project Inflow, or a new expense) is deleted instead — unless someone edited it after the import made it — and a bank credit whose inflow was deleted can be recorded again. A **part payment** is joined back together — the leftover payment is deleted, the payment gets its full amount back and the PO's two payment terms become one — but only while the leftover is untouched; a leftover already paid by another transfer must have that transfer unreconciled first. The match record is kept, marked Reversed. The line keeps its previous suggestion but is marked **Confirm by hand**: "Confirm all matched" leaves it out and refuses it, until a person settles it from the line itself. Unreconciling a Work Order payment **never changes its amount and never withholds tax** — see *TDS withheld*. Cashbook lines cannot be unreconciled yet. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); the revert target amended 2026-09-16 by [Amendment B](docs/adr/0022-unreconcile-and-unskip.md).)
 
@@ -106,7 +115,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   ⚠️ **Not the Technical Data Sheet**, which the same three letters name elsewhere in this system.
   *Avoid*: tax deducted again, re-deduction, TDS on Approved.
 
-- **Unskip (an imported bank line)** — bringing a line **skipped by hand** back, with a typed reason. The line goes back to matching and is checked again straight away: it may come back needing a record, matched to a record, or skipped again because its money has since been recorded — and a line skipped again that way is a system skip and cannot be unskipped. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
+- **Unskip (an imported bank line)** — bringing a skipped line back, with a typed reason; which lines may come back is decided by the **skip kind** (see *Skipped by hand*). The line goes back to matching and is checked again straight away: it may come back needing a record, matched to a record, or skipped again because its money has since been recorded. A line a bank-statement rule skipped gets no such re-check — those rules are applied when the statement is read in — so it comes back as open work, and the dialog warns that the line was read as money moving between our own accounts. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); amended 2026-09-17 by [Amendment C](docs/adr/0022-unreconcile-and-unskip.md).)
 
 ## Vendor invoices & credit notes
 
@@ -193,3 +202,89 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   source remarks.
 
 - **Manual Snag** — a Snag entered by hand rather than imported, belonging to no Batch. It behaves identically to an imported Snag in every other respect.
+
+## Technical Data Sheets (TDS)
+
+⚠️ **"TDS" names two unrelated things in this system.** This section is the **Technical Data Sheet**:
+a manufacturer's datasheet PDF for a product, kept in a shared catalogue and bundled per project into a
+signed submittal report. It is **not** *TDS withheld* (tax deducted at source) above. When the context
+does not make it obvious, say "Technical Data Sheet" or "tax TDS" in full.
+
+The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (the group), and each
+**TDS Repository Entry** is one Make's datasheet for that group. Decisions:
+[ADR-0023](docs/adr/0023-tds-item-grouping-model.md) (the grouping model),
+[ADR-0024](docs/adr/0024-tds-phase1-restructure-in-place-freeze-consumption.md) (Phase 1),
+[ADR-0025](docs/adr/0025-tds-phase2-group-driven-consumption.md) (Phase 2),
+[ADR-0026](docs/adr/0026-tds-membership-n1-owned-by-item.md) (membership).
+
+- **TDS Item** *("TDS SKU")* — the **group**: a named set of catalogue items that one datasheet family
+  covers. It belongs to **one Work Package**; its members may come from **several Categories** inside
+  that package, so a TDS Item has no category of its own. It has **no Make and no datasheet** — those
+  live on its Repository Entries, one per Make. **Members are optional**: a TDS Item with none is a
+  *Custom Item*. "TDS SKU" is an informal synonym; the canonical noun is **TDS Item**.
+  *Avoid*: TDS group record, spec group.
+
+- **TDS Repository Entry** — one datasheet: a **(TDS Item, Make)** pair plus its PDF and a
+  *Verified / Not Verified* status. A group has at most one entry per Make.
+  *Avoid*: TDS row, repository item.
+
+- **TDS Repository** — the company-wide catalogue of TDS Items and their Repository Entries. Not tied to
+  any project. Maintained by Admins.
+
+- **Items SKU** — a row of the **Items** master (item code, name, category). It belongs to **at most one**
+  TDS Item, and the **item owns that link** — a group's members are simply the items that name it
+  (ADR-0026, which replaced the original many-to-many).
+
+- **Members mirror** — a read-only copy of a group's members kept on the TDS Item, only so the Frappe
+  Desk form can list them. It is **not** a second source of truth: nothing in the product reads it, and
+  membership changes only by changing an item's link, never by editing the mirror (ADR-0026 Amendment B).
+
+- **Project TDS** — the per-project workflow: picking TDS Items for a project, sending them for
+  approval, and exporting the merged project TDS report PDF.
+
+- **Project TDS row** *(`Project TDS Item List`)* — one picked **TDS Item + Make** on a project, with its
+  own approval status (*New*, *Pending*, *Approved*, *Rejected*). It is a **snapshot**: the group id and
+  name, make, work package and datasheet are copied onto the row when it is picked, so a signed report
+  does not change when someone later edits the catalogue. Picking an existing entry makes a *Pending*
+  row; asking for something the catalogue lacks makes a *New* row (a *request*).
+
+- **Project TDS Setting** — a project's report branding: client, architect, consultant and contractor
+  names and logos, used on the report cover.
+
+- **Custom Item** — something with **no Items-master SKU**, recorded as a TDS Item with **no members** —
+  "custom" is inferred from having zero members, not from a flag. No Items-master row is ever created
+  for it. Legacy `CUS-` catalogue rows became member-less TDS Items. The old project-only custom
+  (`PCUS-`) is **retired**: every approved custom joins the shared catalogue (ADR-0025).
+
+- **Approval-time promotion** — approving a *New* request writes the catalogue: a missing Make becomes a
+  new Repository Entry, a brand-new group becomes a new member-less TDS Item plus its entry, and both are
+  born *Verified*. Admin-only.
+
+- **Verified / Not Verified** — a Repository Entry's status: has this datasheet been vetted. Approving any
+  project row that uses the entry marks it *Verified*. It is separate from a project row's approval
+  status — every project pick still needs its own approval, whatever the entry's status.
+
+- **Coverage** — the member items of a picked group, shown for information on the project row and the
+  report (the report's *Model No.* is the members' categories, and its sample description lists the
+  member names). Coverage is **read live from the catalogue** when the report is built, so it can move
+  after signing; only the **datasheet** is the frozen, signed artefact. The row also keeps a frozen copy of
+  the categories, used only when the group no longer exists or has no members.
+  ⚠️ *Open question, 2026-09-17:* the code that freezes that category copy says it exists "so the signed
+  PDF stays historically accurate", but the report prefers the live categories whenever the group still
+  has members. The two intents disagree; which one is right is an owner call.
+
+### Who can do what (TDS)
+
+- **Admin** (`Nirmaan Admin Profile`) — full control of the TDS Repository (groups and entries). The
+  **only** approver of Project TDS rows. Deletes any Project TDS row, at any status.
+- **PMO Executive** — project-level manager. Uses **Request New** to propose new groups or makes, manages
+  Project TDS setup, and may set an item's TDS group from the Items side. Deletes Project TDS rows **at
+  any status**, like an Admin (owner ruling, changed from Pending/Rejected-only). Cannot approve, and
+  cannot author groups or entries.
+- **Project user** (leads, managers, others) — can only pick existing catalogue entries for their
+  projects. No edit, no delete, no Request New.
+
+⚠️ **The delete rules and the approver rule are screen-level only, not enforced.** Project TDS rows are
+deleted straight through the standard document API with no server check, and every Nirmaan role holds
+write and delete on them — so any role can delete any row, *Approved* included, through the REST API.
+Approval is checked only inside the approve endpoint. Closing either gap needs a server-side check.

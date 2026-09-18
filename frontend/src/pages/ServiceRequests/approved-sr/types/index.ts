@@ -7,5 +7,4 @@ export interface NewPaymentFormState {
     amount: string;
     payment_date: string;
     utr: string;
-    tds: string;
 }

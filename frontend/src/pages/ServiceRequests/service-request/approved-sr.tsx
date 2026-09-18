@@ -31,6 +31,7 @@ import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -45,6 +46,7 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
 import { useUserData } from "@/hooks/useUserData";
+import { VendorRefundsButton } from "@/components/vendor-refunds/VendorRefundsButton";
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
@@ -226,7 +228,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     // Tax withheld from this order's payments. Keyed by payment so a row can show its own
     // deduction and the summary can restrict itself to the PAID ones.
-    const { data: tdsDeductions } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
+    const { data: tdsDeductions, mutate: tdsDeductionsMutate } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
         fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on"],
         filters: [["document_name", "=", id]],
         limit: 100,
@@ -238,10 +240,36 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         return map;
     }, [tdsDeductions]);
 
+    // A new request can be auto-approved with TDS withheld at insert, so both lists must refresh
+    // together -- otherwise the new row shows its net amount with no TDS and the request cap misses it.
+    const refreshPayments = useCallback(
+        () => Promise.all([projectPaymentsMutate(), tdsDeductionsMutate()]),
+        [projectPaymentsMutate, tdsDeductionsMutate]
+    );
+
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
 
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
+
+    // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
+    // part of what was requested -- so the Request Payment cap counts each payment GROSS.
+    //
+    // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): `amount` is never
+    // reduced there, so it already IS the gross, and adding the tax would shrink the cap by it.
+    const companyBorneTds = useMemo(
+        () => isCompanyBorneWorkOrder(service_request?.service_category_list),
+        [service_request?.service_category_list]
+    );
+    const grossRequested = useMemo(() => {
+        const tdsFor = (statuses: string[]) => companyBorneTds ? 0 : (projectPayments || [])
+            .filter(i => statuses.includes(i?.status))
+            .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
+        return {
+            paid: getAmountPaid + tdsFor(["Paid"]),
+            pending: amountPending + tdsFor(["Requested", "CEO Pending", "Approved"]),
+        };
+    }, [projectPayments, tdsByPayment, getAmountPaid, amountPending, companyBorneTds]);
 
     useEffect(() => {
         if (service_request) {
@@ -579,128 +607,131 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                             <p>Transaction Details</p>
 
-                            {!accountsPage && !summaryPage && (
-                                <>
-                                    <Button
-                                        variant="outline"
-                                        className="text-primary border-primary text-xs px-2"
-                                        onClick={toggleRequestPaymentDialog}
-                                        disabled={isPMUser || isEstimatesExecutive}
+                            <div className="flex items-center gap-2">
+                                <VendorRefundsButton documentType="Service Requests" documentName={orderData?.name} />
+                                {!accountsPage && !summaryPage && (
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            className="text-primary border-primary text-xs px-2"
+                                            onClick={toggleRequestPaymentDialog}
+                                            disabled={isPMUser || isEstimatesExecutive}
 
-                                    >
-                                        Request Payment
-                                    </Button>
+                                        >
+                                            Request Payment
+                                        </Button>
 
-                                    <RequestPaymentDialog
-                                        totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
-                                        totalExGST={getTotal || 0}
-                                        paid={getAmountPaid}
-                                        pending={amountPending}
-                                        gst={orderData?.gst === "true"}
-                                        docType="Service Requests"
-                                        docName={orderData?.name || "Unknown"}
-                                        project={orderData?.project || "Unknown"}
-                                        vendor={orderData?.vendor || "Unknown"}
-                                        onSuccess={projectPaymentsMutate}
-                                    />
-                                </>
-                            )}
-                            {accountsPage && (
-                                <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
-                                    <AlertDialogTrigger
-                                        onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
-                                    >
-                                        <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                                        <AlertDialogHeader className="text-start">
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">Project:</Label>
-                                                <span className="">{project?.project_name}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">Vendor:</Label>
-                                                <span className="">{service_vendor?.vendor_name}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                                <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
-                                            </div>
-                                            {orderData?.gst === "true" && (
+                                        <RequestPaymentDialog
+                                            totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
+                                            totalExGST={getTotal || 0}
+                                            paid={grossRequested.paid}
+                                            pending={grossRequested.pending}
+                                            gst={orderData?.gst === "true"}
+                                            docType="Service Requests"
+                                            docName={orderData?.name || "Unknown"}
+                                            project={orderData?.project || "Unknown"}
+                                            vendor={orderData?.vendor || "Unknown"}
+                                            onSuccess={refreshPayments}
+                                        />
+                                    </>
+                                )}
+                                {accountsPage && (
+                                    <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
+                                        <AlertDialogTrigger
+                                            onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
+                                        >
+                                            <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                            <AlertDialogHeader className="text-start">
                                                 <div className="flex items-center justify-between">
-                                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
+                                                    <Label className=" text-red-700">Project:</Label>
+                                                    <span className="">{project?.project_name}</span>
                                                 </div>
-                                            )}
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                                <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
-                                            </div>
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">Vendor:</Label>
+                                                    <span className="">{service_vendor?.vendor_name}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                                                    <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
+                                                </div>
+                                                {orderData?.gst === "true" && (
+                                                    <div className="flex items-center justify-between">
+                                                        <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                                                        <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
+                                                </div>
 
-                                            <div className="flex flex-col gap-4 pt-4">
-                                                <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
-                                                    <div className="w-full">
+                                                <div className="flex flex-col gap-4 pt-4">
+                                                    <div className="flex gap-4 w-full">
+                                                        <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
+                                                        <div className="w-full">
+                                                            <Input
+                                                                type="number"
+                                                                placeholder="Enter Amount"
+                                                                value={newPayment.amount}
+                                                                onChange={(e) => handleAmountChange(e)}
+                                                            />
+                                                            {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-4 w-full">
+                                                        <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                                         <Input
-                                                            type="number"
-                                                            placeholder="Enter Amount"
-                                                            value={newPayment.amount}
-                                                            onChange={(e) => handleAmountChange(e)}
+                                                            type="text"
+                                                            placeholder="Enter UTR"
+                                                            value={newPayment.utr}
+                                                            onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
                                                         />
-                                                        {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                    </div>
+
+                                                    <div className="flex gap-4 w-full" >
+                                                        <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                                        <Input
+                                                            type="date"
+                                                            value={newPayment.payment_date}
+                                                            placeholder="DD/MM/YYYY"
+                                                            onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
+                                                            max={new Date().toISOString().split("T")[0]}
+                                                            onKeyDown={(e) => e.preventDefault()}
+                                                        />
                                                     </div>
                                                 </div>
-                                                <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                    <Input
-                                                        type="text"
-                                                        placeholder="Enter UTR"
-                                                        value={newPayment.utr}
-                                                        onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                    />
+
+                                                <CustomAttachment
+                                                    maxFileSize={20 * 1024 * 1024} // 20MB
+                                                    selectedFile={paymentScreenshot}
+                                                    onFileSelect={setPaymentScreenshot}
+                                                    label="Attach Screenshot"
+                                                    className="w-full"
+                                                />
+
+                                                <div className="flex gap-2 items-center pt-4 justify-center">
+
+                                                    {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
+                                                        <>
+                                                            <AlertDialogCancel className="flex-1" asChild>
+                                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                            </AlertDialogCancel>
+                                                            <Button
+                                                                onClick={AddPayment}
+                                                                disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || isPMUser}
+                                                                className="flex-1">Add Payment
+                                                            </Button>
+                                                        </>
+                                                    )}
                                                 </div>
 
-                                                <div className="flex gap-4 w-full" >
-                                                    <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
-                                                    <Input
-                                                        type="date"
-                                                        value={newPayment.payment_date}
-                                                        placeholder="DD/MM/YYYY"
-                                                        onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
-                                                        max={new Date().toISOString().split("T")[0]}
-                                                        onKeyDown={(e) => e.preventDefault()}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <CustomAttachment
-                                                maxFileSize={20 * 1024 * 1024} // 20MB
-                                                selectedFile={paymentScreenshot}
-                                                onFileSelect={setPaymentScreenshot}
-                                                label="Attach Screenshot"
-                                                className="w-full"
-                                            />
-
-                                            <div className="flex gap-2 items-center pt-4 justify-center">
-
-                                                {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
-                                                    <>
-                                                        <AlertDialogCancel className="flex-1" asChild>
-                                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                                        </AlertDialogCancel>
-                                                        <Button
-                                                            onClick={AddPayment}
-                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || isPMUser}
-                                                            className="flex-1">Add Payment
-                                                        </Button>
-                                                    </>
-                                                )}
-                                            </div>
-
-                                        </AlertDialogHeader>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
+                                            </AlertDialogHeader>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                )}
+                            </div>
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="overflow-auto">

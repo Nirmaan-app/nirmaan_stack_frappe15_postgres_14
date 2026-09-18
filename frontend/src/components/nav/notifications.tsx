@@ -20,6 +20,56 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
+import {
+  ExpenseNotificationRequest,
+  expenseDetailLines,
+  expenseRequestNamesIn,
+  isExpenseNotification,
+} from "./expenseNotificationDetails";
+
+/** The lines under a notification's description.
+ *
+ *  ONE renderer for both surfaces (the bell dropdown and the full list). They carried
+ *  duplicate markup that had already drifted -- the list showed a raw user id where the
+ *  dropdown resolved a name -- so a change had to be made twice to fully apply.
+ *
+ *  An EXPENSE notification sets none of `project` / `work_package`, so the stock lines
+ *  rendered three blanks; it gets its own lines instead. Everything else is unchanged. */
+interface NotificationDetailsProps {
+  notification: any;
+  request?: ExpenseNotificationRequest;
+  getName: (userId: string) => string | undefined;
+  className: string;
+}
+
+const NotificationDetails = ({
+  notification,
+  request,
+  getName,
+  className,
+}: NotificationDetailsProps) => {
+  if (isExpenseNotification(notification)) {
+    return (
+      <div className={className}>
+        {expenseDetailLines(notification, request, getName).map((d) => (
+          <p key={d.label}>
+            {d.label}: {d.value}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className={className}>
+      <p>Project: {notification.project}</p>
+      <p>Work Package: {notification.work_package}</p>
+      <p>
+        Action By:{" "}
+        {notification?.sender ? getName(notification?.sender) : "Administrator"}
+      </p>
+    </div>
+  );
+};
 
 const formatNotificationDate = (creationDate) => {
   const date = new Date(creationDate);
@@ -31,6 +81,45 @@ const formatNotificationDate = (creationDate) => {
   }
 
   return format(date, "MMM dd, yyyy, HH:mm");
+};
+
+/** The lookups BOTH notification surfaces need: user display names, and the expense requests
+ *  behind any expense notifications currently on screen.
+ *
+ *  One hook rather than two copies -- the full-page list had neither, which is why it rendered
+ *  a raw user id where the dropdown resolved a name.
+ *
+ *  The expense read is ONE batched query for the whole screen, not one per card, and is
+ *  skipped entirely when no expense notification is present. Every expense line is DERIVED
+ *  from the request (the ledger from whether it names a project, exactly as the backend
+ *  decides it), so nothing has to be stored on the notification itself. */
+const useNotificationDetailData = (notifications: any[]) => {
+  const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+    fields: ["full_name", "name"],
+    limit: 1000,
+  });
+
+  const getName = (name) => {
+    if (usersList) {
+      return usersList?.find((user) => user.name === name)?.full_name;
+    }
+  };
+
+  const expenseRequestNames = expenseRequestNamesIn(notifications || []);
+  const { data: expenseRequests } = useFrappeGetDocList<ExpenseNotificationRequest>(
+    "Expense Request",
+    {
+      fields: ["name", "type", "projects", "reviewed_by"],
+      filters: [["name", "in", expenseRequestNames]],
+      limit: 0,
+    },
+    expenseRequestNames.length ? undefined : null
+  );
+  const expenseRequestByName = new Map(
+    (expenseRequests || []).map((r) => [r.name, r])
+  );
+
+  return { getName, expenseRequestByName };
 };
 
 export function Notifications({ isMobileMain = false }) {
@@ -45,16 +134,7 @@ export function Notifications({ isMobileMain = false }) {
 
   const { isMobile, state, toggleSidebar } = useSidebar();
 
-  const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
-    fields: ["full_name", "name"],
-    limit: 1000,
-  });
-
-  const getName = (name) => {
-    if (usersList) {
-      return usersList?.find((user) => user.name === name)?.full_name;
-    }
-  };
+  const { getName, expenseRequestByName } = useNotificationDetailData(notifications);
 
   const handleNavigate = (url, notification) => {
     if (url) {
@@ -141,16 +221,12 @@ export function Notifications({ isMobileMain = false }) {
                       <p className="text-sm text-gray-600">
                         {notification.description}
                       </p>
-                      <div className="text-xs text-gray-500 mt-1">
-                        <p>Project: {notification.project}</p>
-                        <p>Work Package: {notification.work_package}</p>
-                        <p>
-                          Action By:{" "}
-                          {notification?.sender
-                            ? getName(notification?.sender)
-                            : "Administrator"}
-                        </p>
-                      </div>
+                      <NotificationDetails
+                        notification={notification}
+                        request={expenseRequestByName.get(notification.docname)}
+                        getName={getName}
+                        className="text-xs text-gray-500 mt-1"
+                      />
                     </div>
                     <div className="flex justify-end py-1 pr-2">
                       {notification.seen === "true" ? (
@@ -199,6 +275,7 @@ export const NotificationsPage = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { notifications, mark_seen_notification } = useNotificationStore();
   const navigate = useNavigate();
+  const { getName, expenseRequestByName } = useNotificationDetailData(notifications);
 
   const handleMarkAllAsRead = () => {
     notifications.forEach((notification) => {
@@ -261,11 +338,12 @@ export const NotificationsPage = () => {
                 </span>
               </div>
               <p className="text-gray-600">{notification.description}</p>
-              <div className="text-sm text-gray-500 mt-2">
-                <p>Project: {notification.project}</p>
-                <p>Work Package: {notification.work_package}</p>
-                <p>Action By: {notification?.sender || "Administrator"}</p>
-              </div>
+              <NotificationDetails
+                notification={notification}
+                request={expenseRequestByName.get(notification.docname)}
+                getName={getName}
+                className="text-sm text-gray-500 mt-2"
+              />
             </div>
             <div className="flex justify-end mt-2">
               {notification.seen === "true" ? (

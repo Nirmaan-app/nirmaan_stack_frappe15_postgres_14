@@ -19,6 +19,17 @@ import {
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
     availableDecisionTargets,
+    suggestRefundVendor,
+    vendorNameKey,
+    withRefundPick,
+    toggleRefundAgainst,
+    toggleRefundAllocation,
+    setRefundAllocationAmount,
+    refundAllocationTotals,
+    refundAllocationProblem,
+    refundAllocationsPayload,
+    refundMiscAmount,
+    REFUND_MISC_EXPENSE,
     wrapRemarks,
     REMARKS_WRAP_CHARS,
     vendorDescriptionLabel,
@@ -45,6 +56,7 @@ import {
     matcherCandidateLine,
     confirmFunnel,
     describeFrappeError,
+    settleBlockRemedy,
     settleBlockText,
     settleBlocker,
     previewCounts,
@@ -81,6 +93,7 @@ import {
     SCOPE_FOR_TAB,
     countDecided,
     decidedRows,
+    selectedMoneyOut,
     decisionLinkKeys,
     decisionOrigin,
     highlightSegments,
@@ -710,11 +723,12 @@ describe("which way the money went — the ONE definition of the axis", () => {
         expect(isCreditRow({ direction: "Refund" } as any)).toBe(false);
     });
 
-    it("offers the two credit dispositions on a credit row, and nothing else", () => {
-        // #1266: project inflow and non-project inflow are the ONLY two -- the receipt is gone.
+    it("offers the three credit dispositions on a credit row, and nothing else", () => {
+        // #1266: the receipt is gone; project inflow, non-project inflow and vendor refund remain.
         expect(availableDecisionTargets({ direction: "Credit" } as any)).toEqual([
             "inflow",
             "nonProjectInflow",
+            "vendorRefund",
         ]);
     });
 
@@ -739,6 +753,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
                 "new",
                 "inflow",
                 "nonProjectInflow",
+                "vendorRefund",
             ].sort()
         );
     });
@@ -746,7 +761,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
         const first = availableDecisionTargets({ direction: "Credit" } as any);
         first.pop();
-        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(2);
+        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(3);
     });
 });
 
@@ -1015,6 +1030,8 @@ describe("inflow tab visibility (#1264)", () => {
         not_matched_inflow: inflow,
         settled_inflow: 0,
         skipped: 0,
+        skipped_outflow: 0,
+        skipped_inflow: 0,
     });
 
     it("shows the Inflow tabs when the chosen source can carry a credit", () => {
@@ -1739,11 +1756,11 @@ describe("isConfirmable", () => {
         ).toBe(false);
     });
 
-    it("does not require an invoice -- it is optional", () => {
+    it("confirms on a project and its customer alone -- there is no invoice to pick", () => {
         expect(
             isConfirmable(row(CREDIT), {
                 target: "inflow",
-                newInflow: { project: "P-1", customer: "CUST-1", invoice: null },
+                newInflow: { project: "P-1", customer: "CUST-1" },
             })
         ).toBe(true);
     });
@@ -1870,6 +1887,92 @@ describe("isConfirmable", () => {
                 isConfirmable(
                     row({ row_status: status, direction: "Credit" } as any),
                     npi({ inflowType: "Interest Payouts" })
+                )
+            ).toBe(false);
+        }
+    });
+
+    // --- the `vendorRefund` branch ----------------------------------------------------------------
+    //
+    // Money a vendor paid back becomes a `Vendor Refund`. The bulk bar counts with this function too.
+
+    const refund = (form: RowDecision["newVendorRefund"]): RowDecision => ({
+        target: "vendorRefund",
+        newVendorRefund: form,
+    });
+
+    // `row(CREDIT)` carries an amount; the parts below add up to it exactly.
+    const creditAmount = row(CREDIT).amount;
+    const complete = {
+        vendor: "VEN-Material-0690",
+        project: "BENGALURU-PROJ-00190",
+        allocations: [
+            {
+                documentType: "Procurement Orders" as const,
+                documentName: "PO/001/00190/26-27",
+                label: "PO/001/00190/26-27",
+                paid: creditAmount,
+                refundable: creditAmount,
+                amount: creditAmount,
+            },
+        ],
+    };
+
+    it("accepts a credit row whose parts add up to it, on a PO, a WO or a Misc. Expense", () => {
+        expect(isConfirmable(row(CREDIT), refund(complete))).toBe(true);
+        expect(
+            isConfirmable(
+                row(CREDIT),
+                refund({
+                    ...complete,
+                    allocations: [{ ...complete.allocations[0], documentType: "Service Requests" }],
+                })
+            )
+        ).toBe(true);
+        // A Misc. Expense alone takes the whole refund, with no document.
+        expect(
+            isConfirmable(
+                row(CREDIT),
+                refund({ ...complete, allocations: [], refundAgainst: [REFUND_MISC_EXPENSE] })
+            )
+        ).toBe(true);
+    });
+
+    it("refuses a vendor refund on a DEBIT or blank-direction row", () => {
+        const form = refund(complete);
+        expect(
+            isConfirmable(row({ row_status: "Mismatched", direction: "Debit" } as any), form)
+        ).toBe(false);
+        expect(isConfirmable(row({ row_status: "Mismatched" }), form)).toBe(false);
+    });
+
+    it("refuses a vendor refund with no vendor or nothing ticked -- the project is optional", () => {
+        expect(isConfirmable(row(CREDIT), { target: "vendorRefund" })).toBe(false);
+        expect(isConfirmable(row(CREDIT), refund({}))).toBe(false);
+        for (const blank of [undefined, null, "", "   "]) {
+            expect(isConfirmable(row(CREDIT), refund({ ...complete, vendor: blank } as any))).toBe(false);
+            // No project: the server records each PO / WO refund on its document's project.
+            expect(isConfirmable(row(CREDIT), refund({ ...complete, project: blank } as any))).toBe(true);
+        }
+        expect(isConfirmable(row(CREDIT), refund({ ...complete, allocations: [] }))).toBe(false);
+        // A kind the server does not accept is not a document.
+        expect(
+            isConfirmable(
+                row(CREDIT),
+                refund({
+                    ...complete,
+                    allocations: [{ ...complete.allocations[0], documentType: "Project Payments" }],
+                } as any)
+            )
+        ).toBe(false);
+    });
+
+    it("still refuses a complete vendor refund on a terminal or unmatched row", () => {
+        for (const status of ["Settled", "Skipped", "Pending match run"]) {
+            expect(
+                isConfirmable(
+                    row({ row_status: status, direction: "Credit" } as any),
+                    refund(complete)
                 )
             ).toBe(false);
         }
@@ -2065,6 +2168,38 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
             newExpense: { doctype: "Project Expenses" as const, expenseType: "Rent" },
         });
         expect(countDecided(rows, new Set(["a", "b", "c"]), halfFilled)).toBe(2);
+    });
+});
+
+describe("selectedMoneyOut -- the toolbar's money-out total for the ticked lines (#1297)", () => {
+    const rows = [
+        row({ name: "a", amount: 6240, direction: "Debit" }),
+        row({ name: "b", amount: 3870, direction: "Debit" }),
+        row({ name: "c", amount: 1905, direction: "Credit" }),
+        row({ name: "d", amount: 822, direction: undefined }),
+    ];
+
+    it("sums only the ticked lines", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "b"]))).toBe(10110);
+    });
+
+    it("leaves a money-in line out of the total", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "c"]))).toBe(6240);
+    });
+
+    // A blank direction is outflow, exactly as the tabs and the Amount cell's red file it --
+    // `isCreditRow` is the one test, so the total can never disagree with the colour on screen.
+    it("counts a blank-direction line as money out", () => {
+        expect(selectedMoneyOut(rows, new Set(["d"]))).toBe(822);
+    });
+
+    it("is zero with nothing ticked, or only a money-in line ticked", () => {
+        expect(selectedMoneyOut(rows, new Set())).toBe(0);
+        expect(selectedMoneyOut(rows, new Set(["c"]))).toBe(0);
+    });
+
+    it("ignores a ticked name that is not among the loaded rows", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "gone"]))).toBe(6240);
     });
 });
 
@@ -2924,6 +3059,28 @@ describe("settleBlocker", () => {
         expect(settleBlocker({ name: "P", amount: 90, suggested: false }, 100)!.difference).toBe(-10);
     });
 
+    it("a line too big for what a part-linked expense has left is measured against what is left (#1299)", () => {
+        const block = settleBlocker(
+            {
+                name: "toj650dsqd",
+                amount: 160113,
+                suggested: false,
+                target_doctype: "Non Project Expenses",
+                line_count: 25,
+                remaining: 10000,
+            },
+            12000
+        );
+        expect(block).toMatchObject({
+            reason: "more_than_left",
+            recordAmount: 10000,
+            bankAmount: 12000,
+            difference: -2000,
+        });
+        expect(settleBlockText(block)).toContain("more than this expense still has left to link");
+        expect(settleBlockRemedy(block)).toBe("Pick another expense, or raise its amount first.");
+    });
+
     it("does not block a record the server accepts", () => {
         expect(settleBlocker({ name: "PAY-1", amount: 86553, suggested: true }, 86553)).toBeNull();
     });
@@ -3038,6 +3195,12 @@ describe("settleBlockReason / settleBlockText — WHY this pick cannot be settle
                 "expense_exact_only"
             );
         }
+        // ⚠️ INVERTED AT #1299: the sentence used to say an expense "cannot be settled in parts",
+        // which "Link N to one expense" made untrue. It now names that route instead.
+        const text = settleBlockText(settleBlocker({ ...larger, target_doctype: "Non Project Expenses" }, 200000));
+        expect(text).not.toContain("cannot be settled in parts");
+        expect(text).toContain("Link");
+        expect(text).toContain("to one expense");
         // And the payment ledger is the other way round on both.
         const payment = { ...larger, target_doctype: "Project Payments" };
         expect(partialOffer(payment, 200000)).not.toBeNull();
@@ -3221,6 +3384,8 @@ describe("tabCountParts", () => {
         not_matched_inflow: 3,
         settled_inflow: 5,
         skipped: 47,
+        skipped_outflow: 45,
+        skipped_inflow: 2,
     };
     const zero = {
         "Pending match run": 0,
@@ -3295,14 +3460,19 @@ describe("tabCountParts", () => {
 
     // ⚠️ THE OWNER RULING, PINNED IN THE ONE PLACE THE TWO VOCABULARIES MEET. Skipped rows have a
     // scope so the dialog can ask for them by name; they must never acquire a tab.
-    it("no tab maps to the skipped scope", () => {
-        expect(Object.values(SCOPE_FOR_TAB)).not.toContain("skipped");
+    it("no tab maps to a skipped scope", () => {
+        for (const scope of ["skipped", "skipped_outflow", "skipped_inflow"]) {
+            expect(Object.values(SCOPE_FOR_TAB)).not.toContain(scope);
+        }
     });
 
     it("the tab strip never renders a skipped count", () => {
         for (const tab of OUTFLOW_TABS) {
             const parts = tabCountParts(tab.id, tabCounts, directionStatusCounts);
-            expect(parts.map((p) => p.count)).not.toContain(tabCounts.skipped);
+            const shown = parts.map((p) => p.count);
+            expect(shown).not.toContain(tabCounts.skipped);
+            expect(shown).not.toContain(tabCounts.skipped_outflow);
+            expect(shown).not.toContain(tabCounts.skipped_inflow);
         }
     });
 });
@@ -3593,47 +3763,73 @@ describe("orderLabel", () => {
     });
 });
 
-describe("serverQuery — the skipped split", () => {
-    // ⚠️ TWO CORRECT NUMBERS THAT DISAGREED. The summary chip counted 20 skipped, the `skipped`
-    // scope returns 47, and the difference is the 27 the bank refused — excluded from every summary
-    // FIGURE by owner ruling while still carrying `row_status` Skipped.
-    it("asks for neither half by default", () => {
-        expect(serverQuery({ scope: "skipped" }).failed).toBeUndefined();
-    });
-
-    it("asks for the refused half", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "failed" } }).failed).toBe(true);
-    });
-
-    it("asks for everything else", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "recorded" } }).failed).toBe(false);
-    });
-
-    // `false` and "absent" are different questions; sending one for the other would silently drop
-    // the 27 from a list that exists to hold them.
-    it("an empty choice is absent, never false", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "" } }).failed).toBeUndefined();
-    });
-
-    it("counts as an active filter so the clear control appears", () => {
-        expect(activeFilterCount({ failed: "failed" })).toBe(1);
-        expect(activeFilterCount({ failed: "" })).toBe(0);
-    });
-
-    // #1273: the fourth segment asks the server for hand skips, and says nothing about `failed`.
-    it("asks for the lines skipped by hand", () => {
-        const query = serverQuery({
-            scope: "skipped",
-            filters: { failed: model.SKIPPED_BY_HAND_FILTER },
-        });
-        expect(query.skip_origin).toBe("Manual");
-        expect(query.failed).toBeUndefined();
-    });
-
-    it("sends no origin for any other segment", () => {
-        for (const failed of ["", "failed", "recorded"]) {
-            expect(serverQuery({ scope: "skipped", filters: { failed } }).skip_origin).toBeUndefined();
+describe("serverQuery — the Skipped popup (Skip Type, 2026-09-17)", () => {
+    // ⚠️ INVERTED, NOT DELETED. The popup used to split `Skipped` with a `failed` pseudo-filter
+    // (All / On purpose / Bank refused / Skipped by hand). Skip Type and the direction tabs replaced it,
+    // so a stale `failed` value -- a state object left from before -- must send NOTHING.
+    it("never sends the retired failed / skip_origin split", () => {
+        for (const failed of ["", "failed", "recorded", "manual"]) {
+            const query = serverQuery({ scope: "skipped", filters: { failed } }) as unknown as Record<string, unknown>;
+            expect(query.failed).toBeUndefined();
+            expect(query.skip_origin).toBeUndefined();
         }
+        expect("SKIPPED_BY_HAND_FILTER" in model).toBe(false);
+        expect("SKIPPED_ON_PURPOSE_LABEL" in model).toBe(false);
+    });
+
+    it("sends a Skip Type tick as a server facet", () => {
+        const query = serverQuery({
+            scope: "skipped_outflow",
+            filters: { skip_kind: ["Bank refused", "Skipped by hand"] },
+        });
+        expect(query.scope).toBe("skipped_outflow");
+        expect(query.facets).toEqual({ skip_kind: ["Bank refused", "Skipped by hand"] });
+    });
+
+    it("the tabs are All, Inflow, Outflow, each its own scope", () => {
+        expect(model.SKIPPED_TABS).toEqual([
+            { scope: "skipped", label: "All" },
+            { scope: "skipped_inflow", label: "Inflow" },
+            { scope: "skipped_outflow", label: "Outflow" },
+        ]);
+    });
+});
+
+describe("the Skipped popup's columns", () => {
+    it("replaces Outcome with Skip Type, in the same place, and drops Status and Ledger", () => {
+        const ids = model.SKIPPED_COLUMNS.map((c) => c.id);
+        expect(ids).not.toContain("outcome");
+        // Owner, 2026-09-17: every row is Skipped and settles nothing, so these said nothing.
+        expect(ids).not.toContain("row_status");
+        expect(ids).not.toContain("settled_ledger");
+        const page = model.OUTFLOW_COLUMNS.map((c) => c.id);
+        expect(ids).toEqual(
+            page
+                .filter((id) => id !== "row_status" && id !== "settled_ledger")
+                .map((id) => (id === "outcome" ? "skip_kind" : id))
+        );
+        expect(model.SKIPPED_COLUMNS.find((c) => c.id === "skip_kind")).toMatchObject({
+            title: "Skip Type",
+            filter: "facet",
+        });
+    });
+
+    it("leaves the page's own columns without Skip Type", () => {
+        expect(model.OUTFLOW_COLUMNS.map((c) => c.id)).not.toContain("skip_kind");
+    });
+
+    it("exports Skip Type beside the full Outcome reason", () => {
+        const ids = model.SKIPPED_EXPORT_COLUMNS.map((c) => c.id);
+        expect(ids).toContain("outcome");
+        expect(ids.indexOf("skip_kind")).toBe(ids.indexOf("outcome") - 1);
+    });
+
+    it("reads the stored kind, never the sentence", () => {
+        const column = model.SKIP_TYPE_COLUMN;
+        expect(column.get({ skip_kind: "Bank refused", outcome_note: "Transfer did not succeed" } as any)).toBe(
+            "Bank refused"
+        );
+        expect(column.get({ outcome_note: "Already imported in batch X." } as any)).toBe("");
     });
 });
 
@@ -3788,7 +3984,10 @@ describe("the period column", () => {
         //
         // No unit test could see that, because each list was internally consistent. This one
         // compares them.
-        const funnelled = OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id);
+        // The Skipped popup's own list is included: its Skip Type funnel needs the same three lists.
+        const funnelled = [...OUTFLOW_COLUMNS, ...model.SKIPPED_COLUMNS]
+            .filter((c) => c.filter === "facet")
+            .map((c) => c.id);
         expect(funnelled.length).toBeGreaterThan(0);
         for (const id of funnelled) {
             if (DEAD_FUNNELS.has(id)) continue;
@@ -3801,7 +4000,9 @@ describe("the period column", () => {
         // dead weight, and `added_on` is the cautionary tale -- it sat here after P1 and was
         // harmless only because `serverQuery`'s loop happened to skip a non-array value.
         const funnelled = new Set(
-            OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id)
+            [...OUTFLOW_COLUMNS, ...model.SKIPPED_COLUMNS]
+                .filter((c) => c.filter === "facet")
+                .map((c) => c.id)
         );
         for (const id of SERVER_FACET_COLUMNS) {
             expect(funnelled.has(id)).toBe(true);
@@ -4298,5 +4499,229 @@ describe("the record-anyway confirmation (#1260)", () => {
             " Open the transfer to record it anyway."
         );
         expect(model.bulkRecordAnywayHint(refusal("MoneyAlreadyRecordedError"))).toBe("");
+    });
+});
+
+describe("vendorNameKey / suggestRefundVendor", () => {
+    const vendors = [
+        { name: "VEN-Material-0690", vendor_name: "OCTEL NETWORKS PVT LTD" },
+        { name: "VEN-Material-0197", vendor_name: "RAJAT REFRIGERATION CENTRE" },
+        {
+            name: "VEN-Material-0121",
+            vendor_name: "Keywest Geogrid Engineering Solution Pvt. Ltd. (Bangalore)",
+        },
+        { name: "VEN-Material-0411", vendor_name: "FARGO ELECTRIC INDIA PRIVATE LIMITED" },
+        { name: "VEN-A", vendor_name: "ANJ TURNKEY PROJECTS (Bangalore)" },
+        { name: "VEN-B", vendor_name: "ANJ TURNKEY PROJECTS (Kolkata)" },
+    ];
+
+    it("reduces a bank name and a vendor name to the same key", () => {
+        expect(vendorNameKey("M S OCTEL NETWORKS PRIVATE LIMITED")).toBe("OCTELNETWORKS");
+        expect(vendorNameKey("OCTEL NETWORKS PVT LTD")).toBe("OCTELNETWORKS");
+        expect(vendorNameKey("M/S. Octel Networks Pvt. Ltd.")).toBe("OCTELNETWORKS");
+        expect(vendorNameKey("Keywest Geogrid (Bangalore)")).toBe("KEYWESTGEOGRID");
+        expect(vendorNameKey(null)).toBe("");
+    });
+
+    const payer = (beneficiary_name?: string, remarks = "") => ({ beneficiary_name, remarks });
+
+    it("suggests the one vendor a full or bank-truncated payer name points at", () => {
+        expect(suggestRefundVendor(payer("M S OCTEL NETWORKS PRIVATE LIMITED"), vendors)).toBe(
+            "VEN-Material-0690"
+        );
+        // IMPS keeps 10 characters, ICICI's internal channels 14 -- a prefix still finds the vendor.
+        expect(suggestRefundVendor(payer("RAJAT REFR"), vendors)).toBe("VEN-Material-0197");
+        expect(suggestRefundVendor(payer("KEYWEST GEOGRI"), vendors)).toBe("VEN-Material-0121");
+        expect(
+            suggestRefundVendor(payer("FARGO ELECTRIC INDIA PRIVATE LIMITED"), vendors)
+        ).toBe("VEN-Material-0411");
+    });
+
+    it("reads a vendor out of the remarks when the line has no payer", () => {
+        const withPankaj = [
+            ...vendors,
+            {
+                name: "VEN-Service-0160",
+                vendor_name: "PANKAJ MEHTA- (Flat Rent) - Noida Project (Maconns)",
+            },
+            { name: "VEN-Service-0236", vendor_name: "Pankaj Kumar" },
+        ];
+        expect(
+            suggestRefundVendor(
+                payer(
+                    undefined,
+                    "UPI/PANKAJ MEH/pankajmehta281/Security r/State Bank/626112478830/SBI4b8e2d17c0a9"
+                ),
+                withPankaj
+            )
+        ).toBe("VEN-Service-0160");
+        expect(
+            suggestRefundVendor(
+                payer(undefined, "NEFT-SBIN126260281177-M S OCTEL NETWORKS PRIVATE LIMITED-ATTNINB-0000"),
+                vendors
+            )
+        ).toBe("VEN-Material-0690");
+    });
+
+    it("refuses to guess between two vendors, or from a blank or too-short name", () => {
+        expect(suggestRefundVendor(payer("ANJ TURNKEY PROJECTS"), vendors)).toBeNull();
+        expect(suggestRefundVendor(payer(""), vendors)).toBeNull();
+        expect(suggestRefundVendor(payer(undefined, ""), vendors)).toBeNull();
+        expect(suggestRefundVendor(payer("RAJAT"), vendors)).toBeNull();
+        expect(suggestRefundVendor(payer("HAUT LUXE TECHNOLOGIES PRIVATE"), vendors)).toBeNull();
+        // Two different vendors named in one line is not one vendor.
+        expect(
+            suggestRefundVendor(payer("RAJAT REFR", "IMPS/1/FARGO ELECTRIC INDIA/State Bank"), vendors)
+        ).toBeNull();
+    });
+
+    it("never lets a short vendor name claim a longer payer", () => {
+        expect(
+            suggestRefundVendor(payer("OCTEL NETWORKS SOLUTIONS"), [
+                { name: "VEN-1", vendor_name: "OCTEL NETWORKS" },
+            ])
+        ).toBeNull();
+    });
+});
+
+describe("vendor refund allocations", () => {
+    const po = (name: string, refundable: number, paid = refundable) => ({
+        documentType: "Procurement Orders" as const,
+        documentName: name,
+        label: name,
+        paid,
+        refundable,
+    });
+    const wo = (name: string, refundable: number, paid = refundable) => ({
+        ...po(name, refundable, paid),
+        documentType: "Service Requests" as const,
+    });
+    const base = { vendor: "VEN-1", project: "PROJ-1" };
+
+    it("prefills a new tick with what is left, capped at what is still refundable on it", () => {
+        let form = toggleRefundAllocation(base, po("PO/1", 600), 1000);
+        expect(form.allocations?.map((a) => a.amount)).toEqual([600]);
+        form = toggleRefundAllocation(form, po("PO/2", 5000), 1000);
+        expect(form.allocations?.map((a) => a.amount)).toEqual([600, 400]);
+        // Nothing left: the third tick waits for an amount rather than taking 0.
+        form = toggleRefundAllocation(form, po("PO/3", 5000), 1000);
+        expect(form.allocations?.[2].amount).toBeNull();
+    });
+
+    it("unticks, keeps ticks when another kind is ticked, and drops a kind's ticks when it is unticked", () => {
+        let form = toggleRefundAgainst(base, "Procurement Orders");
+        form = toggleRefundAllocation(form, po("PO/1", 600), 1000);
+        form = toggleRefundAgainst(form, "Service Requests");
+        form = toggleRefundAllocation(form, wo("WO/1", 400), 1000);
+        expect(form.refundAgainst).toEqual(["Procurement Orders", "Service Requests"]);
+        expect(form.allocations?.map((a) => a.documentName)).toEqual(["PO/1", "WO/1"]);
+        expect(toggleRefundAllocation(form, po("PO/1", 600), 1000).allocations).toHaveLength(1);
+
+        // Unticking WO hides its list, so its ticks go with it; the PO tick stays.
+        const noWo = toggleRefundAgainst(form, "Service Requests");
+        expect(noWo.refundAgainst).toEqual(["Procurement Orders"]);
+        expect(noWo.allocations?.map((a) => a.documentName)).toEqual(["PO/1"]);
+    });
+
+    it("keeps the kinds in the offered order, whatever order they are ticked in", () => {
+        let form = toggleRefundAgainst(base, REFUND_MISC_EXPENSE);
+        form = toggleRefundAgainst(form, "Service Requests");
+        form = toggleRefundAgainst(form, "Procurement Orders");
+        expect(form.refundAgainst).toEqual(["Procurement Orders", "Service Requests", REFUND_MISC_EXPENSE]);
+    });
+
+    it("gives a Misc. Expense whatever the ticked POs and WOs leave, and sends it with no document", () => {
+        let form = toggleRefundAgainst(base, "Procurement Orders");
+        form = toggleRefundAgainst(form, "Service Requests");
+        form = toggleRefundAllocation(form, po("PO/1", 300.25), 1000);
+        form = toggleRefundAllocation(form, wo("WO/1", 200), 1000);
+        expect(refundMiscAmount(form, 1000)).toBeNull();
+        expect(refundAllocationProblem(form, 1000)).toContain("not allocated");
+
+        form = toggleRefundAgainst(form, REFUND_MISC_EXPENSE);
+        expect(refundMiscAmount(form, 1000)).toBe(499.75);
+        expect(refundAllocationTotals(form, 1000)).toEqual({ allocated: 1000, remaining: 0 });
+        expect(refundAllocationProblem(form, 1000)).toBeNull();
+        expect(refundAllocationsPayload(form, 1000)).toEqual([
+            { document_type: "Procurement Orders", document_name: "PO/1", amount: 300.25 },
+            { document_type: "Service Requests", document_name: "WO/1", amount: 200 },
+            { document_type: REFUND_MISC_EXPENSE, document_name: "", amount: 499.75 },
+        ]);
+
+        // It follows an amount change -- it is derived, never typed.
+        const moved = setRefundAllocationAmount(form, "Procurement Orders", "PO/1", 100);
+        expect(refundMiscAmount(moved, 1000)).toBe(700);
+
+        // Misc. Expense alone takes the whole refund, and carries its description when there is one.
+        const alone = toggleRefundAgainst(base, REFUND_MISC_EXPENSE);
+        expect(refundAllocationProblem(alone, 1000)).toBeNull();
+        expect(refundAllocationsPayload(alone, 1000)).toEqual([
+            { document_type: REFUND_MISC_EXPENSE, document_name: "", amount: 1000 },
+        ]);
+        expect(refundAllocationsPayload({ ...alone, miscDescription: "  Scaffolding deposit  " }, 1000)).toEqual([
+            {
+                document_type: REFUND_MISC_EXPENSE,
+                document_name: "",
+                amount: 1000,
+                description: "Scaffolding deposit",
+            },
+        ]);
+    });
+
+    it("refuses a Misc. Expense that the ticked documents leave nothing for", () => {
+        let form = toggleRefundAgainst(base, "Procurement Orders");
+        form = toggleRefundAgainst(form, REFUND_MISC_EXPENSE);
+        // A new tick is prefilled from what the DOCUMENTS leave, so it takes the whole refund...
+        form = toggleRefundAllocation(form, po("PO/1", 5000), 1000);
+        expect(form.allocations?.[0].amount).toBe(1000);
+        expect(refundMiscAmount(form, 1000)).toBe(0);
+        expect(refundAllocationProblem(form, 1000)).toContain("Nothing is left for the Misc. Expense");
+        // ...and more than the refund is refused the same way, never sent as a negative part.
+        const over = setRefundAllocationAmount(form, "Procurement Orders", "PO/1", 1200);
+        expect(refundAllocationProblem(over, 1000)).toContain("Nothing is left for the Misc. Expense");
+        expect(refundAllocationTotals(over, 1000)).toEqual({ allocated: 1200, remaining: -200 });
+    });
+
+    it("drops every tick on a new vendor, and on a new project only the ticks on other projects", () => {
+        // Picked with no project chosen: the list spans the vendor's projects.
+        let form = toggleRefundAllocation({ vendor: "VEN-1" }, { ...po("PO/1", 600), project: "PROJ-1" }, 1000);
+        form = toggleRefundAllocation(form, { ...po("PO/2", 400), project: "PROJ-2" }, 1000);
+        expect(withRefundPick(form, { vendor: "VEN-2" }).allocations).toEqual([]);
+        expect(withRefundPick(form, { vendor: "VEN-1" }).allocations).toHaveLength(2);
+        const onOne = withRefundPick(form, { project: "PROJ-1" });
+        expect(onOne.allocations?.map((a) => a.documentName)).toEqual(["PO/1"]);
+        // Clearing the project widens the list, so nothing ticked stops fitting.
+        expect(withRefundPick(onOne, { project: null }).allocations?.map((a) => a.documentName)).toEqual([
+            "PO/1",
+        ]);
+    });
+
+    it("totals to the paisa and says what still stops Confirm", () => {
+        let form = toggleRefundAllocation(base, po("PO/1", 600.1), 1000.3);
+        form = toggleRefundAllocation(form, po("PO/2", 500), 1000.3);
+        expect(refundAllocationTotals(form, 1000.3)).toEqual({ allocated: 1000.3, remaining: 0 });
+        expect(refundAllocationProblem(form, 1000.3)).toBeNull();
+
+        const short = setRefundAllocationAmount(form, "Procurement Orders", "PO/2", 400);
+        expect(refundAllocationProblem(short, 1000.3)).toContain("not allocated");
+        const over = setRefundAllocationAmount(form, "Procurement Orders", "PO/1", 700);
+        expect(refundAllocationProblem(over, 1000.3)).toContain("No more than");
+        // The cap is what is still refundable, not what was paid.
+        const refundedBefore = toggleRefundAllocation(base, po("PO/9", 300, 1000), 300);
+        expect(refundedBefore.allocations?.[0].amount).toBe(300);
+        expect(
+            refundAllocationProblem(
+                setRefundAllocationAmount(refundedBefore, "Procurement Orders", "PO/9", 301),
+                301
+            )
+        ).toContain("No more than 300");
+        const blank = setRefundAllocationAmount(form, "Procurement Orders", "PO/2", null);
+        expect(refundAllocationProblem(blank, 1000.3)).toContain("Enter an amount");
+        expect(refundAllocationProblem({ ...form, vendor: "" }, 1000.3)).toContain("vendor");
+        expect(refundAllocationProblem({ ...base, allocations: [] }, 1000.3)).toContain("Tick");
+        // Ticking a kind is not ticking a document.
+        expect(
+            refundAllocationProblem({ ...base, refundAgainst: ["Procurement Orders"], allocations: [] }, 1000.3)
+        ).toContain("Tick");
     });
 });

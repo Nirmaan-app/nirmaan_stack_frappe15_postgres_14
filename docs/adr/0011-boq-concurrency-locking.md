@@ -15,7 +15,7 @@ D11 resolved = optimistic **compare-and-set** (implemented as B3).
 
 Grill-locked design (20 decisions, D1–D20). Migration-critical facts adversarially verified against
 live code + data. Full build plan: `frontend/.claude/plans/boq-concurrency-locking-plan.md`.
-Illustrated explainer (diagrams): `docs/boq/concurrency-locking.html`. Numbered `0011` (highest existing
+Illustrated explainer (diagrams): `git show e6547258:docs/boq/concurrency-locking.html` (removed from the tree). Numbered `0011` (highest existing
 is `0010`; historical `0002`/`0007`/`0008` collisions are **not** renumbered — out of scope).
 
 ## Context

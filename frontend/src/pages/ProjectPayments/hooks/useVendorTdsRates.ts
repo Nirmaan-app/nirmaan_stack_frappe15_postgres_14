@@ -19,13 +19,15 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { createContext, useContext, useMemo } from "react";
 
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { parseNumber } from "@/utils/parseNumber";
-import { TDS_PARENT_DOCTYPE } from "../tdsForecast";
+import { isCompanyBorneWorkOrder, TDS_PARENT_DOCTYPE } from "../tdsForecast";
 
 interface DeductibleRow {
 	vendor?: string;
 	document_type?: string;
+	document_name?: string;
 }
 
 /**
@@ -64,6 +66,28 @@ export const useVendorTdsRates = (rows: ReadonlyArray<DeductibleRow> | undefined
 		vendorIds.length ? `vendor-tds-rates-${vendorIds.join(",")}` : null
 	);
 
+	// The Work Orders on the page, for the company-borne rule (Miscellaneous / Transportation only:
+	// the payment is not reduced). Same page-scoped `in` filter and stable key as the vendors above.
+	const workOrderIds = useMemo(() => {
+		const ids = new Set<string>();
+		(rows || []).forEach((r) => {
+			if ((r?.document_type || "").trim() === TDS_PARENT_DOCTYPE && r?.document_name) {
+				ids.add(r.document_name);
+			}
+		});
+		return Array.from(ids).sort();
+	}, [rows]);
+
+	const { data: workOrders, isLoading: workOrdersLoading } = useFrappeGetDocList<ServiceRequests>(
+		"Service Requests",
+		{
+			fields: ["name", "service_category_list"],
+			filters: [["name", "in", workOrderIds]],
+			limit: workOrderIds.length || 1,
+		},
+		workOrderIds.length ? `work-order-tds-borne-${workOrderIds.join(",")}` : null
+	);
+
 	const rateByVendor = useMemo(() => {
 		const map: Record<string, number> = {};
 		(data || []).forEach((v) => {
@@ -72,12 +96,30 @@ export const useVendorTdsRates = (rows: ReadonlyArray<DeductibleRow> | undefined
 		return map;
 	}, [data]);
 
+	const companyBorneByWorkOrder = useMemo(() => {
+		const map: Record<string, boolean> = {};
+		(workOrders || []).forEach((wo) => {
+			map[wo.name] = isCompanyBorneWorkOrder(wo.service_category_list);
+		});
+		return map;
+	}, [workOrders]);
+
+	// ⚠️ NO RATE UNTIL THE WORK ORDERS HAVE LANDED TOO. The categories decide whether the vendor
+	// receives the full amount or the amount less tax; a rate released ahead of them would show a
+	// reduced figure for a company-borne Work Order. 0 renders nothing — see the note above.
 	const rateFor = useMemo(
-		() => (vendor: string | undefined | null): number => (vendor && rateByVendor[vendor]) || 0,
-		[rateByVendor]
+		() => (vendor: string | undefined | null): number =>
+			workOrdersLoading ? 0 : (vendor && rateByVendor[vendor]) || 0,
+		[rateByVendor, workOrdersLoading]
 	);
 
-	return { rateByVendor, rateFor, isLoading };
+	const companyBorneFor = useMemo(
+		() => (workOrder: string | undefined | null): boolean =>
+			Boolean(workOrder && companyBorneByWorkOrder[workOrder]),
+		[companyBorneByWorkOrder]
+	);
+
+	return { rateByVendor, rateFor, companyBorneFor, isLoading: isLoading || workOrdersLoading };
 };
 
 
@@ -97,3 +139,14 @@ export const VendorTdsRateContext = createContext<(vendor: string | undefined | 
 );
 
 export const useVendorTdsRate = () => useContext(VendorTdsRateContext);
+
+/**
+ * `(workOrderId) => is its TDS paid by the company on top?`, shared with the approve dialogs the
+ * same way as the rate. Defaults to `false` outside a provider, where the rate is 0 and nothing
+ * is forecast anyway.
+ */
+export const CompanyBorneTdsContext = createContext<(workOrder: string | undefined | null) => boolean>(
+	() => false
+);
+
+export const useCompanyBorneTds = () => useContext(CompanyBorneTdsContext);

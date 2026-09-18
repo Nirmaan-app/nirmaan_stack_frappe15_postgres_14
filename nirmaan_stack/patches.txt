@@ -163,3 +163,5 @@ nirmaan_stack.patches.v3_0.backfill_outflow_settlement_reference
 nirmaan_stack.patches.v3_0.backfill_outflow_skip_origin
 nirmaan_stack.patches.v3_0.backfill_outflow_match_created_flag
 nirmaan_stack.patches.v3_0.recompute_icici_gross_outflow
+nirmaan_stack.patches.v3_0.split_vendor_gst_pan #v1
+nirmaan_stack.patches.v3_0.backfill_outflow_skip_kind

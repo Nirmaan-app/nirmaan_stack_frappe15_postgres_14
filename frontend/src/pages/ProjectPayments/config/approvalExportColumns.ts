@@ -16,7 +16,7 @@
  *     nothing, and headers reading the raw ids `project_value` / `cashflow_gap`. An
  *     export-only list cannot have that failure mode: a column here exists ONLY to
  *     be exported, so it always has a value function.
- *  2. A field absent from every tab's layout (`doctype`, `comment_text`, `tds`,
+ *  2. A field absent from every tab's layout (`doctype`, `comment_text`,
  *     `document_name`, `auto_approved`) has no registry entry at all and therefore
  *     no way to reach a CSV through the render path.
  *  3. It keeps `new-data-table.tsx` untouched. The page hands its own list to
@@ -33,7 +33,7 @@ import { formatDate } from "@/utils/FormatDate";
 
 import {
   ApprovalQueueRow,
-  SOURCE_LABEL,
+  TYPE_LABEL,
   TIER_LABEL,
 } from "./approvalsTable.config";
 import { ApprovalColumnCtx } from "./approvalColumns";
@@ -63,8 +63,8 @@ export const buildApprovalExportColumns = (
   ctx: ApprovalColumnCtx,
 ): ColumnDef<ApprovalQueueRow>[] => [
   col("name", "ID", (r) => r.name),
-  col("source", "Source", (r) => SOURCE_LABEL[r.source] ?? r.source),
-  // The ledger a row came from. Invisible on screen — Source is the friendly form —
+  col("source_type", "Type", (r) => TYPE_LABEL[r.source_type] ?? r.source_type),
+  // The ledger a row came from. Invisible on screen — Type is the friendly form —
   // but it is what makes a merged export traceable back to a doctype.
   col("doctype", "Ledger", (r) => r.doctype),
   col("status", "Status", (r) => r.status),
@@ -113,11 +113,10 @@ export const buildApprovalExportColumns = (
   col("proof", "Proof", (r) => (r.has_proof ? "yes" : "")),
   col("payment_by", "Payment By", (r) => r.payment_by || ""),
 
-  // Payment-only fields. Blank on an expense, which has no PO/SR parent and never
-  // withholds tax — the blank IS the true value, so no placeholder.
+  // Payment-only fields. Blank on an expense, which has no PO/SR parent — the blank
+  // IS the true value, so no placeholder.
   col("document_name", "PO / SR", (r) => r.document_name || ""),
   col("document_type", "PO / SR Type", (r) => r.document_type || ""),
-  col("tds", "TDS", (r) => r.tds || ""),
 
   // The two CEO figures. They are per-PROJECT lookups rather than row fields, so they
   // ride the ctx callbacks — and are emitted ONLY when the page supplied them, since

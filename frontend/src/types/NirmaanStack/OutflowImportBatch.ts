@@ -141,6 +141,17 @@ export interface OutflowImportRow {
      * typed `skip_reason`). Blank on a line that is not Skipped. Only a Manual skip can be unskipped.
      */
     skip_origin?: "" | "System" | "Manual" | null;
+    /**
+     * WHAT KIND of skip this is -- the Skipped popup's Skip Type column and filter. One of the
+     * server's `skip_kinds.SKIP_KINDS` labels, shown verbatim; blank on a line that is not Skipped.
+     */
+    skip_kind?: string | null;
+    /**
+     * The document behind a Skipped row's skip, for the popup's Skip Type hover. `null` on any other
+     * row. Derived server-side (`api/outflow_import/skip_sources.py`) through the same lookups the skip
+     * was decided with; display only.
+     */
+    skip_source?: SkipSource | null;
     /** Who decided this line, and when -- the "Skipped by hand · user · date" line reads both. */
     decided_by?: string | null;
     decided_at?: string | null;
@@ -282,6 +293,9 @@ export interface OutflowRowsPage {
         not_matched_inflow: number;
         settled_inflow: number;
         skipped: number;
+        /** The Skipped popup's Outflow / Inflow tabs: `skipped` narrowed to one direction. */
+        skipped_outflow: number;
+        skipped_inflow: number;
     };
     /**
      * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH
@@ -757,3 +771,45 @@ export interface ApprovedRecordsPage {
     ledger: string;
     sortable: string[];
 }
+
+/** The earlier statement that already holds an "Already imported" transfer. */
+export interface SkipSourceImport {
+    name: string;
+    filename: string;
+    source: string;
+    uploaded_by: string;
+    uploaded_at: string | null;
+    period_from: string | null;
+    period_to: string | null;
+}
+
+/** The earlier line of the same statement that holds a "Repeated in same file" transfer. */
+export interface SkipSourceLine {
+    name: string;
+    added_on: string | null;
+    amount: number;
+    reference: string;
+    row_status: string;
+}
+
+/** A record already on the books, behind an "Already Recorded" skip. */
+export interface SkipSourceRecord {
+    doctype: string;
+    name: string;
+    amount: number;
+    date: string | null;
+    status: string | null;
+    party: string | null;
+    project: string | null;
+    reference: string;
+    description: string;
+}
+
+export interface SkipSource {
+    earlier_import: SkipSourceImport | null;
+    earlier_line: SkipSourceLine | null;
+    records: SkipSourceRecord[];
+    /** What a bank rule catches, in plain words -- set only on a bank-rule kind. */
+    rule: string | null;
+}
+

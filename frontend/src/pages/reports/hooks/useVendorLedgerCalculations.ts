@@ -27,6 +27,7 @@ export interface VendorCalculatedFields {
 
 // 2. The hook's return type (no change)
 export interface UseVendorLedgerCalculationsResult {
+    vendors: Vendors[] | undefined; // Every vendor, for building the report rows
     getVendorCalculatedFields: (vendorId: string) => VendorCalculatedFields | null;
     isLoadingGlobalDeps: boolean;
     globalDepsError: Error | null;
@@ -61,7 +62,7 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
 
     // 3. Fetch all underlying data (one-time fetches, no date filters here)
      const { data: vendors, isLoading: isLoadingVendors, error: errorVendors } = useFrappeGetDocList<Vendors>('Vendors', {
-        fields: ['name', 'invoice_balance', 'payment_balance'],
+        fields: ['name', 'vendor_name', 'vendor_type', 'invoice_balance', 'payment_balance'],
         limit: 0
     }, 'all-vendors-with-opening-balances');
 
@@ -249,6 +250,7 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     const globalDepsError = errorVendors || errorPOs || errorSRs || errorPayments || errorInvoices;
 
     return {
+        vendors,
         getVendorCalculatedFields,
         isLoadingGlobalDeps,
         globalDepsError: globalDepsError instanceof Error ? globalDepsError : null,

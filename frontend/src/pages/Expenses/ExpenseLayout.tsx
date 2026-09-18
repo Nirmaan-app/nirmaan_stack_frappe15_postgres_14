@@ -1,7 +1,7 @@
 // src/pages/Expenses/ExpenseLayout.tsx
 //
-// Unified "Expense" module shell. Renders a page-level pill tab strip (Misc
-// Project Expense / Non-Project Expense) above an <Outlet />. The active tab is
+// Unified "Expense" module shell. Renders a page-level pill tab strip (now only
+// Expense Request -- see the note below) above an <Outlet />. The active tab is
 // the primary button color (red) with white text; inactive tabs are gray with
 // dark text — same style as the status pills (Requested/Approved/Paid) below, so
 // the active tab reads clearly. Each tab is its own URL (/expense/project,
@@ -12,25 +12,17 @@
 
 import React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { useCounts } from "@/hooks/useCounts";
 
 const ExpenseLayout: React.FC = () => {
   const { pathname } = useLocation();
 
-  // Both tab totals (global, no filters) in ONE batch round-trip via useCounts.
-  const { data: countsData } = useCounts(
-    [
-      { key: "project", doctype: "Project Expenses" },
-      { key: "nonProject", doctype: "Non Project Expenses" },
-    ],
-    "expense_layout_tab_counts"
-  );
-  const projectCount = countsData?.message?.project as number | undefined;
-  const nonProjectCount = countsData?.message?.nonProject as number | undefined;
-
+  // Misc Project Expense / Non-Project Expense tabs HIDDEN for every role (owner, 17 Sep 2026);
+  // before that only a Project Manager had them hidden. HIDDEN, NOT DELETED: /expense/project
+  // and /expense/non-project still resolve (routesConfig.tsx), so dashboard cards, bookmarks
+  // and deep links keep working -- only the tab buttons (and their count query) are gone.
+  // Restoring them is putting the two entries back here along with the useCounts batch.
   const tabs: { label: string; to: string; count?: number }[] = [
-    { label: "Misc Project Expense", to: "/expense/project", count: projectCount },
-    { label: "Non-Project Expense", to: "/expense/non-project", count: nonProjectCount },
+    { label: "Expense Request", to: "/expense/requests" },
   ];
 
   return (
