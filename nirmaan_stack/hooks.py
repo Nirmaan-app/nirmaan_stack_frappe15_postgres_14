@@ -291,6 +291,12 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
+    # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
+    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund.
+    "Vendor Refunds": {
+        "on_update": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
+        "after_delete": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
+    },
     "Project Payments": {
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",

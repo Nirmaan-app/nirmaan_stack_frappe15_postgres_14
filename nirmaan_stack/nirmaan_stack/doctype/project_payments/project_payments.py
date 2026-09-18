@@ -93,30 +93,12 @@ class ProjectPayments(Document):
 		if not self.document_type or not self.document_name:
 			return
 
-        # --- 1. Fetch all relevant payment amounts in a single query ---
-        # frappe.get_all is the ORM equivalent of a SELECT statement.
-        # It's efficient because it fetches only the 'amount' field for all
-        # matching documents in one database trip.
-		filters = {
-			"document_type": self.document_type,
-			"document_name": self.document_name,
-			"status": "Paid"
-		}
-		if exclude_name:
-			filters["name"] = ["!=", exclude_name]
-		paid_payments = frappe.get_all(
-            "Project Payments",
-            filters=filters,
-            fields=["amount"]  # Specify only the field we need
-        )
-		# print(f"DEBUGGPS: Fetched {len(paid_payments)} paid payments for {self.document_type} {self.document_name}")
+        # --- 1-2. The parent's Paid payments LESS its Vendor Refunds ---
+        # The rule has one home (`services/vendor_refunds.amount_paid_of`), shared with the refund hook
+        # and the PO Adjustment recompute, so settling a payment never writes a refund back out.
+		from nirmaan_stack.services.vendor_refunds import amount_paid_of
 
-        # --- 2. Calculate the total in Python ---
-        # paid_payments is a list of dictionaries, e.g., [{'amount': 100}, {'amount': 250}]
-        # We use a list comprehension and sum() to calculate the total.
-        # flt() ensures each value is a float before summing.
-		total_paid = sum(flt(p.amount) for p in paid_payments)
-		# print(f"DEBUGGPS: Total amount paid for {self.document_type} {self.document_name}: {total_paid}")
+		total_paid = amount_paid_of(self.document_type, self.document_name, exclude_payment=exclude_name)
 
         # --- 3. Update the parent document ---
 		try:

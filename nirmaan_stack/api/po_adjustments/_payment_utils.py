@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.services.po_credit import usable_credit
+from nirmaan_stack.services.vendor_refunds import amount_paid_of
 
 
 def usable_po_credit(po_id, for_update=False):
@@ -63,20 +64,12 @@ def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attac
 def _recalculate_amount_paid(po_id):
     """
     Manually recalculates and sets amount_paid on a Procurement Order
-    by summing all its 'Paid' Project Payments.
+    by summing all its 'Paid' Project Payments, less its Vendor Refunds
+    (`services/vendor_refunds.amount_paid_of`, the one rule every writer shares).
     Called after creating payments with from_adjustment=True flag,
     since the normal project_payments.py on_update hook is skipped.
     """
-    paid_payments = frappe.get_all(
-        "Project Payments",
-        filters={
-            "document_type": "Procurement Orders",
-            "document_name": po_id,
-            "status": "Paid"
-        },
-        fields=["amount"]
-    )
-    total_paid = sum(flt(p.amount) for p in paid_payments)
+    total_paid = amount_paid_of("Procurement Orders", po_id)
     frappe.db.set_value("Procurement Orders", po_id, "amount_paid", total_paid)
 
     # `amount_due` on the PO is amount_invoiced - amount_paid, so it moves with the

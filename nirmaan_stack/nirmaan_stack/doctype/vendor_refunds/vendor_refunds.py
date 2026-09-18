@@ -8,9 +8,10 @@ Created from a bank-statement credit on the Bulk Import Transactions screen: a c
 three POs and a misc remainder becomes four records. It has NO status -- it counts the moment it is saved, like the other
 inflow books (`Project Inflows`, `Non Project Inflows`).
 
-⚠️ IT MOVES NO PO, WORK ORDER, EXPENSE OR VENDOR PAID AMOUNT, and creates no Project Payment. The
-document is a reference; the PO Adjustment "Vendor has refund" flow is still the path that lowers a
-PO's paid amount.
+⚠️ IT LOWERS ITS PO'S / WORK ORDER'S `amount_paid` (owner, 2026-09-17): the stored figure is the Paid
+payments LESS the refunds, recomputed on every save and delete by
+`integrations/controllers/vendor_refunds`. It creates no Project Payment. Recording the same money
+through the PO Adjustment "Vendor has refund" flow as well would lower the paid amount twice.
 """
 
 import frappe

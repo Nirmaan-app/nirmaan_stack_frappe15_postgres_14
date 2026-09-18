@@ -20,6 +20,14 @@ bank credit split across three POs and the rest as misc becomes four records. Tw
 `refund_documents` is the list the Bulk Import dialog offers, built from the SAME field map, status
 exclusions and paid rule, so it cannot offer a document the write then refuses.
 
+⚠️ A REFUND LOWERS ITS PO'S / WO'S `amount_paid` (owner, 2026-09-17, reversing the same day's "moves no
+paid amount"). The stored field is `amount_paid_of`: the document's Paid `Project Payments` LESS its
+Vendor Refunds -- recomputed from source, never decremented. EVERY writer of the field asks it
+(`Project Payments.update_parent_amount_paid`, `_payment_utils._recalculate_amount_paid`, and the refund
+hook in `integrations/controllers/vendor_refunds`), so a payment settling after a refund cannot write
+the refund back out. It creates no `Project Payment`. Because the stored figure is now NET, `paid_of`
+adds the refunds back to get what was PAID -- the cap would otherwise subtract every refund twice.
+
 ⚠️ THE PROJECT IS OPTIONAL (owner, 2026-09-17). With none chosen the lists cover the vendor's documents
 on EVERY project, and a PO / WO refund records its DOCUMENT'S project (`document_project`) -- never a
 guess. A Misc. Expense records the chosen project, or none.
@@ -28,6 +36,7 @@ guess. A Misc. Expense records the chosen project, or none.
 from decimal import ROUND_HALF_UP, Decimal
 
 import frappe
+from frappe.utils import flt
 
 VENDOR_REFUNDS = "Vendor Refunds"
 PROCUREMENT_ORDERS = "Procurement Orders"
@@ -68,9 +77,29 @@ def money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(_PAISA, rounding=ROUND_HALF_UP)
 
 
-def paid_of(document_type: str, document) -> Decimal:
-    """How much has been paid on this document -- THE one definition of "paid" for a refund."""
-    return money(document.get("amount_paid"))
+def paid_of(document_type: str, document, refunded: Decimal) -> Decimal:
+    """How much has been paid on this document -- THE one definition of "paid" for a refund.
+
+    The stored `amount_paid` is NET of the document's refunds (`amount_paid_of`), so `refunded` -- EVERY
+    refund stored against it, a record being re-saved included -- is added back.
+    """
+    return money(document.get("amount_paid")) + refunded
+
+
+def amount_paid_of(document_type: str, document_name: str, exclude_payment: str | None = None) -> float:
+    """THE stored `amount_paid` of a PO / Work Order: its `Paid` Project Payments LESS its Vendor Refunds.
+
+    `exclude_payment` is a payment being trashed -- still in the table while its `on_trash` runs. With
+    no refund against the document this is exactly the plain sum of its Paid payments.
+    """
+    filters = {"document_type": document_type, "document_name": document_name, "status": "Paid"}
+    if exclude_payment:
+        filters["name"] = ["!=", exclude_payment]
+    total_paid = sum(
+        flt(p.amount) for p in frappe.get_all("Project Payments", filters=filters, fields=["amount"])
+    )
+    refunded = refunded_on(document_type, [document_name]).get(document_name)
+    return total_paid - float(refunded) if refunded else total_paid
 
 
 def refunded_on(document_type: str, names, exclude_refund: str | None = None) -> dict[str, Decimal]:
@@ -124,8 +153,8 @@ def refund_documents(vendor: str, project: str | None = None) -> dict[str, list[
         )
         refunded = refunded_on(document_type, [row.name for row in rows])
         for row in rows:
-            paid = paid_of(document_type, row)
             already = refunded.get(row.name, Decimal("0"))
+            paid = paid_of(document_type, row, already)
             row["paid"] = float(paid)
             row["refunded"] = float(already)
             row["refundable"] = float(max(paid - already, Decimal("0")))
@@ -189,13 +218,18 @@ def refund_document_problem(
     if document.get("status") in EXCLUDED_STATUSES.get(document_type, ()):
         return f"{document_name} is {document.get('status')}; record the refund on its master PO."
 
-    paid = paid_of(document_type, document)
+    stored = refunded_on(document_type, [document_name]).get(document_name, Decimal("0"))
+    paid = paid_of(document_type, document, stored)
     if paid <= 0:
         return f"Nothing has been paid on {document_name}, so nothing can be refunded against it."
     amount = money(amount)
     if amount <= 0:
         return f"Enter an amount greater than 0 for {document_name}."
-    already = refunded_on(document_type, [document_name], exclude_refund).get(document_name, Decimal("0"))
+    already = (
+        refunded_on(document_type, [document_name], exclude_refund).get(document_name, Decimal("0"))
+        if exclude_refund
+        else stored
+    )
     refundable = max(paid - already, Decimal("0"))
     if amount > refundable:
         return (
