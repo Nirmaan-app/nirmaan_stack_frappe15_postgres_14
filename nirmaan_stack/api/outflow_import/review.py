@@ -3717,7 +3717,7 @@ def _targets_by_name(target_doctype: str, names: list) -> dict:
 
 
 @frappe.whitelist()
-def list_imports(limit=60):
+def list_imports(limit=60, sources=None):
     """The import picker's options: newest first, labelled by what a person recognises.
 
     ⚠️ NOT THE BATCH ID. An accountant knows a statement by its file and the fortnight it covers;
@@ -3766,10 +3766,24 @@ def list_imports(limit=60):
     ⚠️ A BATCH WITH NO ROWS STILL APPEARS, at zero. `LEFT JOIN` rather than `JOIN`: an import that
     staged nothing is exactly the one somebody goes looking for in a history, and dropping it would
     make the failure invisible on the only screen that lists imports as imports.
+
+    ⚠️ THE SOURCE NARROWS HERE, BEFORE THE `LIMIT`, NOT IN THE BROWSER AFTER IT. The picker used to
+    fetch the newest `limit` across EVERY source and narrow client-side, so once the site held more
+    than `limit` statements an ICICI statement covering an older period sat below the cut -- and
+    choosing ICICI could never bring it back, because the narrowing only ever saw the capped list.
+    A statement with a BLANK source stays in every narrowing, mirroring the client's
+    `importsForSource`: it cannot be scoped out by a word it does not carry.
     """
     require_outflow_access()
+    chosen = _parsed_sources(sources)
+    source_clause = ""
+    params = [BANK_SUCCESS_STATUS, DIRECTION_DEBIT]
+    if chosen:
+        source_clause = "WHERE (TRIM(COALESCE(b.source, '')) IN %s OR TRIM(COALESCE(b.source, '')) = '')"
+        params.append(tuple(chosen))
+    params.append(max(1, min(int(limit or 60), 200)))
     return frappe.db.sql(
-        """
+        f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
                b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by,
                COUNT(r.name) FILTER (
@@ -3778,14 +3792,34 @@ def list_imports(limit=60):
                ) AS successful_rows
         FROM "tabOutflow Import Batch" b
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
+        {source_clause}
         GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
                  b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by, b.creation
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         LIMIT %s
         """,
-        (BANK_SUCCESS_STATUS, DIRECTION_DEBIT, max(1, min(int(limit or 60), 200))),
+        tuple(params),
         as_dict=True,
     )
+
+
+def _parsed_sources(sources) -> list:
+    """The chosen sources as clean strings. EMPTY MEANS EVERY SOURCE, as on the page's store.
+
+    Arrives as a JSON string on a GET and as a real list from Python, so both are accepted. A value
+    that does not parse narrows NOTHING rather than throwing -- a stale link should show the whole
+    list, not an error.
+    """
+    if not sources:
+        return []
+    if isinstance(sources, str):
+        try:
+            sources = frappe.parse_json(sources)
+        except Exception:
+            return []
+    if not isinstance(sources, (list, tuple)):
+        return []
+    return [str(s).strip() for s in sources if str(s or "").strip()]
 
 
 # --- helpers -----------------------------------------------------------------------------------

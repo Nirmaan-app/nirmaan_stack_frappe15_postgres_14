@@ -362,13 +362,26 @@ export const OutflowMasterPage = () => {
     );
 
     const summary = summaryData?.message;
+    /**
+     * ⚠️ THE SOURCE GOES TO THE SERVER, SO THE 60-STATEMENT CAP APPLIES AFTER IT. Narrowing the
+     * capped list in the browser (the old shape) could never surface a statement the cap had already
+     * dropped -- an older ICICI statement stayed missing even with ICICI chosen. `importsForSource`
+     * still narrows client-side; with `keepPreviousData` that is what hides the other sources' rows
+     * for the moment between a source change and the refetch landing.
+     */
+    const importsArgs = useMemo(() => ({ sources: JSON.stringify(sources) }), [sources]);
     const {
         data: importsData,
         isLoading: importsLoading,
         mutate: mutateImports,
     } = useFrappeGetCall<{
         message: OutflowImportOption[];
-    }>("nirmaan_stack.api.outflow_import.review.list_imports", {}, "outflow-imports");
+    }>(
+        "nirmaan_stack.api.outflow_import.review.list_imports",
+        importsArgs,
+        `outflow-imports-${importsArgs.sources}`,
+        { keepPreviousData: true }
+    );
 
     const importOptions = useMemo(() => importsData?.message ?? [], [importsData]);
 
