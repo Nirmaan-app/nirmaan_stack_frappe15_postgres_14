@@ -48,7 +48,7 @@ export interface UseSRFormDataReturn {
 
     // Service categories that have at least one WO Service Item (for the main package picker)
     categories: CategoryOption[];
-    // Service categories with NO items — shown only in the Add Custom Service dialog
+    // Service categories with NO items — custom services only
     emptyCategories: CategoryOption[];
     categoriesLoading: boolean;
     categoriesError: unknown;
@@ -139,8 +139,8 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
 
     /* ─────────────────────────────────────────────────────────
        TRANSFORM + SPLIT CATEGORIES
-       - `categories`: have ≥1 WO Service Item — shown in main "Select Package"
-       - `emptyCategories`: have 0 items — shown only in Add Custom Service dialog
+       - `categories`: have ≥1 WO Service Item
+       - `emptyCategories`: have 0 items — custom services only
        ───────────────────────────────────────────────────────── */
     const { categories, emptyCategories } = useMemo<{
         categories: CategoryOption[];

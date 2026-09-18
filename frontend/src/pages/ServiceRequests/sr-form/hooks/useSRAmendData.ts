@@ -16,9 +16,9 @@ export interface UseSRAmendDataReturn {
     srDoc: ServiceRequests | undefined;
     /** Form values transformed from the SR document */
     initialFormValues: SRFormValues | undefined;
-    /** Service categories that have rate-card items (main package picker) */
+    /** Service categories that have rate-card items */
     categories: CategoryOption[];
-    /** Service categories with no rate-card items (Add Custom Service dialog only) */
+    /** Service categories with no rate-card items (custom services only) */
     emptyCategories: CategoryOption[];
     /** Service items (rate card) */
     serviceItems: any[];
