@@ -46,7 +46,8 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
 import { useUserData } from "@/hooks/useUserData";
-import { VendorRefundsButton } from "@/components/vendor-refunds/VendorRefundsButton";
+import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
+import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
@@ -218,6 +219,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         filters: [["document_name", "=", id]],
         limit: 100
     })
+
+    // Refunds against this WO sit in the payments table as their own rows (badge "Vendor Refund").
+    const { refunds } = useVendorRefunds({ documentType: "Service Requests", documentName: id ?? "" });
+    const transactionRows = useMemo(() => mergePaymentsAndRefunds(projectPayments, refunds), [projectPayments, refunds]);
 
     // Fetch vendor invoices for this SR
     const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
@@ -608,7 +613,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <p>Transaction Details</p>
 
                             <div className="flex items-center gap-2">
-                                <VendorRefundsButton documentType="Service Requests" documentName={orderData?.name} />
                                 {!accountsPage && !summaryPage && (
                                     <>
                                         <Button
@@ -750,8 +754,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {(projectPayments || []).length > 0 ? (
-                                    projectPayments?.map((payment) => {
+                                {transactionRows.length > 0 ? (
+                                    transactionRows.map((row) => {
+                                        if (row.kind === "refund") {
+                                            return <VendorRefundTableRow key={row.name} refund={row.refund} tdsColumn className="font-semibold" />;
+                                        }
+                                        const payment = row.payment;
                                         const tds = tdsByPayment[payment?.name];
                                         return (
                                             <TableRow key={payment?.name}>

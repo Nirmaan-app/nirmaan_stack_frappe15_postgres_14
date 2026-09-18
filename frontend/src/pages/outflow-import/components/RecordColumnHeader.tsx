@@ -108,7 +108,8 @@ const filterIsActive = (filter: FilterSpec): boolean => {
     return Boolean(filter.from || filter.to);
 };
 
-const ColumnFilterPopover = ({ title, filter }: { title: string; filter: FilterSpec }) => {
+/** The funnel alone, for a header with no sort -- the vendor refund form's PO / WO lists use it too. */
+export const ColumnFilterPopover = ({ title, filter }: { title: string; filter: FilterSpec }) => {
     const [open, setOpen] = useState(false);
     const active = filterIsActive(filter);
 

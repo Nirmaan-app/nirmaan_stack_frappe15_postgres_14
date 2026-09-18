@@ -5722,17 +5722,20 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   shared `ItemsHoverCard` (book icon, items) and a details popover (`RefundDocumentDetails`, figures from
   the list row, link to `/project-payments/<order>`) -- one `RefundDocumentIcons` component, on the list
   row AND the Selected line; both stop the click so they never tick the row.
-- **Where refunds are READ:** a "View Refunds" button on the right of the PO's and the WO's Transaction
-  Details header (the PO's accordion reads "Payment Details / Refunds";
-  `components/vendor-refunds/VendorRefundsButton`, a dialog of that order's refunds via
-  `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`) and a **Vendor
+- **Where refunds are READ:** as their own rows in the PO's and the WO's Transaction Details table,
+  beside the payments, sorted in by payment date: teal-tinted row, a **Refund** tag under the amount,
+  status **Received** (no voucher, no delete; `components/vendor-refunds/VendorRefundTableRow` +
+  `mergePaymentsAndRefunds`, fed by
+  `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`; this replaced the
+  old "View Refunds" button + dialog) and a **Vendor
   Refunds** tab on the vendor page (`pages/vendors/components/VendorRefundsTab`, the shared server data
   table on the doctype -- search, Type / PO-WO / Project facets, date filter, export; Misc. Expense
   included). ⚠️ The doctype's **READ DocPerms mirror `Project Payments`' read roles** (write stays with the
   accountants), and both reads are permission-aware, so a project-scoped user sees only their projects'
   refunds -- plus Misc. Expense refunds saved with no project, exactly as a blank link passes user
   permissions anywhere.
-- **The UTR opens the attachment** (`components/vendor-refunds/RefundAttachmentLink`, both reads). An
+- **The UTR opens the attachment** on the vendor page's tab only (`components/vendor-refunds/RefundAttachmentLink`;
+  the PO / WO Transaction Details rows show the UTR as plain text, like the payment rows). An
   imported refund's attachment is the bank statement `.xlsx`, which a browser can only download, so a
   `.xlsx` / `.csv` opens IN-APP: `api/vendor_refunds/attachment_preview.get_refund_attachment_preview(refund)`
   (read-permission on the refund; reads the bytes server-side because the storage URL is cross-origin;

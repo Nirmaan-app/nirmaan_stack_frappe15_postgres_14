@@ -24,12 +24,12 @@ export interface VendorRefundsTarget {
 }
 
 /**
- * The vendor refunds against one PO / WO. `enabled = false` skips the fetch (a closed dialog). The read
- * is permission-aware: the doctype's read DocPerms mirror `Project Payments`, and project User
- * Permissions apply.
+ * The vendor refunds against one PO / WO, shown as rows of its Transaction Details. The read is
+ * permission-aware: the doctype's read DocPerms mirror `Project Payments`, and project User Permissions
+ * apply.
  */
-export const useVendorRefunds = (target: VendorRefundsTarget, enabled = true) => {
-    const ready = enabled && Boolean(target.documentName);
+export const useVendorRefunds = (target: VendorRefundsTarget) => {
+    const ready = Boolean(target.documentName);
     const { data, error, isLoading, mutate } = useFrappeGetCall<{ message: VendorRefundRow[] }>(
         "nirmaan_stack.api.vendor_refunds.list_refunds.get_vendor_refunds",
         { document_type: target.documentType, document_name: target.documentName },
