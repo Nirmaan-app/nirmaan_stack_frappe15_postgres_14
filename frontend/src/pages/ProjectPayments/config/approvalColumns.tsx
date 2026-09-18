@@ -76,9 +76,10 @@ export interface ApprovalColumnCtx {
    */
   onEdit?: (row: ApprovalQueueRow) => void;
   /**
-   * The Trash icon on "Payment By Me", shown on REJECTED rows only ("--" otherwise). It opens a
-   * dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
-   * PO / SR page, whose payment table deletes it.
+   * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise) and opens
+   * a dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
+   * PO / SR page, whose payment table deletes it. On "Payment need to paid" it sits beside
+   * Mark as Paid on every row, and deletes any of the three ledgers in place.
    */
   onDelete?: (row: ApprovalQueueRow) => void;
 }
@@ -165,9 +166,9 @@ const REGISTRY: Record<
     header: "Actions",
     enableSorting: false,
     size:
-      // 148: measured — the button itself is 136px and the cell needs 144. Was 172
-      // while a trash icon sat beside it; that icon is no longer offered on this tab.
-      ctx.tab === PP_TABS.NEW_PAYMENTS ? 148
+      // 148: measured — the button itself is 136px and the cell needs 144. 180 with the
+      // trash icon beside it (removed 15 Sep, restored 18 Sep).
+      ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148)
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? 160
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
         : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64

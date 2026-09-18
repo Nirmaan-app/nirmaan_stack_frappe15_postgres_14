@@ -795,7 +795,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {/* ----------------------------------------------- */}
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                    {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
+                                                    {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
+                                                        Deleting the payment also deletes its Payment TDS Deduction (server on_trash). */}
+                                                    {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !summaryPage &&
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"

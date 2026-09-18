@@ -371,7 +371,8 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : ("--")}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
-                      {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
+                      {/* Approved: Admin only (owner, 18 Sep) — as on the SR page. Paid: never. */}
+                      {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !estimatesViewing && !summaryPage &&
                         role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
                         (payment?.status !== "CEO Pending" || role === "Nirmaan Admin Profile") &&
                         <Button
