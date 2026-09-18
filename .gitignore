@@ -14,3 +14,5 @@ build
 .roo*
 # Nirmaan delivery process - per-worktree slice state (local only)
 .claude/state/
+# Personal daily task notes
+.A-Daily Task/
