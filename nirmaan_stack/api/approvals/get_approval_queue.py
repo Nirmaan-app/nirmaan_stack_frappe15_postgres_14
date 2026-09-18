@@ -28,7 +28,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from nirmaan_stack.services.outflow_import.expense_links import linked_totals_join
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -156,7 +158,11 @@ def _payments_select():
             COALESCE(p."document_name", '')::text AS document_name,
             COALESCE(p."document_type", '')::text AS document_type,
             NULL::date                      AS reconciled_on,
-            COALESCE(p."auto_approved", 0)  AS auto_approved
+            COALESCE(p."auto_approved", 0)  AS auto_approved,
+            -- Expenses only (ADR-0027): a payment is settled by exactly one bank
+            -- line and has no Bank lines card, so this is honestly zero rather
+            -- than a count nothing on a payment row would ever render.
+            0                               AS bank_line_count
         FROM "tabProject Payments" p
     """.format(src=SOURCE_VENDOR_PAYMENT, po=TYPE_PO_PAYMENT, sr=TYPE_SR_PAYMENT)
 
@@ -169,6 +175,8 @@ def _expense_select(table, source, project_col):
     project_expr = f'COALESCE(e."{project_col}", \'\')::text' if project_col else "''::text"
     vendor_expr = 'COALESCE(e."vendor", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
     payment_by_expr = 'COALESCE(e."payment_by", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
+    # Grouped by target, so it can only ever add columns to a row -- never duplicate one.
+    linked_join = linked_totals_join(SOURCE_TO_DOCTYPE[source], "e")
     return f"""
         SELECT
             e."name"                        AS name,
@@ -199,8 +207,20 @@ def _expense_select(table, source, project_col):
             ''::text                        AS document_name,
             ''::text                        AS document_type,
             NULL::date                      AS reconciled_on,
-            COALESCE(e."auto_approved", 0)  AS auto_approved
+            COALESCE(e."auto_approved", 0)  AS auto_approved,
+            -- How many live bank lines settle this expense (ADR-0027 R5, #1303).
+            -- It decides ONLY whether the Against cell offers the Bank lines card:
+            -- an expense no line has reached shows no trigger, so nobody opens a
+            -- card to be told it is empty. The lines themselves are fetched lazily,
+            -- on open, by `expense_bank_lines.get_expense_bank_lines`.
+            --
+            -- ⚠️ THE SAME AGGREGATE EVERY OTHER READER USES
+            -- (`expense_links.linked_totals_join`), never a count written here: a
+            -- second definition of "live slip" could offer a card on an expense
+            -- whose links had all been reversed.
+            COALESCE(l."line_count", 0)     AS bank_line_count
         FROM "{table}" e
+        {linked_join}
     """
 
 
@@ -406,6 +426,7 @@ def get_approval_queue(
         r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
         r["amount"] = flt(r.get("amount"))
         r["has_proof"] = bool(r.get("proof"))
+        r["bank_line_count"] = cint(r.get("bank_line_count"))
 
     return {
         "data": rows,

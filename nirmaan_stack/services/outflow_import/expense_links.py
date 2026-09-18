@@ -54,6 +54,7 @@ __all__ = [
     "derive_expense_status",
     "lines_fit",
     "linked_totals_join",
+    "list_expense_lines",
     "one_line_fits",
     "load_expense_links",
     "load_linked_totals",
@@ -268,6 +269,44 @@ def load_expense_links(doctype: str, name: str) -> ExpenseLinks:
         linked_total=to_decimal(result.get("linked_total")),
         latest_line_date=latest,
         line_count=int(result.get("line_count") or 0),
+    )
+
+
+def list_expense_lines(doctype: str, name: str) -> list[dict]:
+    """The same live slips `load_expense_links` TOTALS, itemised -- one row per link, oldest first.
+
+    ⚠️ IT LIVES BESIDE THE AGGREGATE ON PURPOSE (#1303, ADR-0010 B2). A list of an expense's bank
+    lines and the total of those lines are two readings of ONE fact, and the whole point of this
+    module is that there is one definition of a live link. Written in `api/` it would have needed a
+    third spelling of the two doctype names and its own `match_kind` filter, free to drift from the
+    figure printed above it on the same card.
+
+    ⚠️ LEFT JOIN, LIKE `load_expense_links`. A slip whose import row was deleted still counts towards
+    the linked total there, so an inner join here would return fewer lines than the total is made of,
+    with nothing on screen to explain the gap. It comes back with blank line facts instead.
+
+    Each row carries the slip (`match`, `import_row`, `target_amount`) and the bank line's own facts.
+    Formatting -- which reference wins, how a blank reads -- belongs to the caller.
+    """
+    return frappe.db.sql(
+        f"""
+        SELECT m.name              AS match_name,
+               m.import_row        AS import_row,
+               m.target_amount     AS target_amount,
+               r.import_batch      AS import_batch,
+               r.added_on          AS added_on,
+               r.beneficiary_name  AS beneficiary_name,
+               r.bank_reference_no AS bank_reference_no,
+               r.transfer_id       AS transfer_id
+        FROM "tab{_MATCH_DOCTYPE}" m
+        LEFT JOIN "tab{_ROW_DOCTYPE}" r ON r.name = m.import_row
+        WHERE m.target_doctype = %(doctype)s
+          AND m.target_name = %(name)s
+          AND m.match_kind = %(settled)s
+        ORDER BY r.added_on ASC NULLS LAST, m.name ASC
+        """,
+        {"doctype": doctype, "name": name, "settled": MATCH_SETTLED},
+        as_dict=True,
     )
 
 

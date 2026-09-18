@@ -5977,3 +5977,104 @@ what is left). `api/outflow_import/test_expense_document_rules` is 21 bench case
 seam — `doc.save()` and `frappe.delete_doc()`, never an endpoint, because that is the seam the rules were
 put on — covering all four rules on both doctypes, the no-slips control for each, the import's own settle
 and undo passing under the rules, and an existing 1:1-settled expense saving and staying Paid (story 41).
+
+## #1303 (2026-09-18) — the expense's bank lines, read-only on the Payments & Expenses table (ADR-0027 R5)
+
+A reimbursement run leaves the bank as 30 lines and is recorded as ONE expense. Until now nothing on the
+Payments & Expenses table said which lines had paid it, so a row sitting at *Reconciliation Pending* gave
+the reader no way to see what was still to link. Parent #1295 stories 30–32.
+
+**The card is a click-to-open popover on the Against cell, the same shape a payment row already has.**
+R5 ruled out a read-only section inside the Mark Reconciled dialog: links are read far more often than
+they are changed, and the dialog is only reachable from one tab.
+
+- **Trigger — `ExpenseBankLinesPopover` (`pages/ProjectPayments/components/`)**, reusing
+  `DetailPopovers.DETAIL_TRIGGER_CLASS`. On this table a dotted underline already means "there is more
+  behind this"; a second affordance for the same promise would read as a different one. A payment row
+  keeps its document card; an expense row with no live slips keeps today's description hover.
+- ⚠️ **THE TRIGGER IS GATED ON `bank_line_count`, NEVER ON THE STATUS.** An expense no line has reached
+  shows no trigger at all, so nobody opens a card to be told it is empty (story 31). The count rides the
+  queue row: `get_approval_queue`'s two expense branches gained
+  `COALESCE(l."line_count", 0) AS bank_line_count` through **`expense_links.linked_totals_join`** — the
+  same aggregate `candidates`, `ledger_read` and `review` read, never a count written here, or a second
+  definition of "live slip" could offer a card on an expense whose links had all been reversed. The
+  payments branch selects a literal `0`: a payment is settled by exactly one line and has no card.
+  The join groups by target, so it can only add columns to a row, never duplicate one (pinned).
+- ⚠️ **THE CARD REPLACES THE Against HOVER ON THE ROWS IT RENDERS ON, SO IT CARRIES THE WHOLE OF IT.**
+  That hover showed `against_full` with its line breaks PLUS `comment_text`; about a third of expense
+  descriptions carry a line break and the extra lines are BANK DETAILS. Both are passed into the card and
+  rendered `whitespace-pre-wrap` in a scrollable block — never truncated to a one-line subtitle, which is
+  what the first cut did and would have been a silent regression on exactly the rows this feature is for.
+  Neither needs a fetch: the queue row already carries them.
+- ⚠️ **NOTHING IS FETCHED UNTIL THE CARD IS OPENED** (one trigger renders PER ROW). The lines come from
+  `useFrappeGetCall(..., open ? undefined : null)` — the third argument is the swrKey, `null` = do not
+  fetch — the same on/off switch the Against / Vendor / Project cards use. The queue's count is one extra
+  column on a query that already ran; the 30 lines behind it are a query only on open, cached by SWR.
+- **Read endpoint — `api/approvals/expense_bank_lines.get_expense_bank_lines(doctype, name)`,** a thin
+  orchestrator (ADR-0010 B4): gate, read, shape. Returns the expense's own facts (`status`, `amount`,
+  `payment_date`), the derived `linked_total` / `line_count` / `remaining`, and `lines` oldest first
+  (`match`, `import_row`, `import_batch`, `added_on`, `beneficiary_name`, `reference`, `amount`).
+- ⚠️ **BOTH READS BELONG TO `services/outflow_import/expense_links.py`, WHICH OWNS WHAT A LIVE LINK IS.**
+  `load_expense_links` totals the slips; the new **`list_expense_lines`** itemises the SAME slips, and it
+  sits beside the aggregate on purpose (ADR-0010 B2) — written in `api/` it would have needed a third
+  spelling of the two doctype names and its own `match_kind` filter, free to drift from the figure
+  printed above it on the same card. A test asserts the column sums to the headline.
+- ⚠️ **A LEFT JOIN ONTO THE IMPORT ROW, LIKE `load_expense_links`.** A slip whose import row was deleted
+  still counts towards the linked total there, so an inner join would return fewer lines than the total
+  is made of, with nothing on screen to explain the gap. It comes back with blank line facts instead.
+- ⚠️ **`Reversed` SLIPS ARE NOT LISTED** (`match_kind = 'Settled'`). A reversed slip is an undone link and
+  contributes nothing to the total above it. The card then also explains why the expense left Paid.
+- ⚠️ **THE GATE IS "CAN YOU READ THIS EXPENSE", NOT `require_outflow_access`.** This card renders on the
+  approvals screen, whose readers include roles that never open Bulk Import Transactions; the module gate
+  would have hidden it from most of the people the screen is for. Read permission on the expense is the
+  honest rule — see which bank lines paid an expense you may already read. It is also why the module lives
+  in `api/approvals/` and not beside the outflow endpoints, every one of which is gated the other way.
+- ⚠️ **THE PERMISSION TEST COMES BEFORE ANY READ OF THE NAME, AND THE ORDER IS THE POINT.** Checked after,
+  the "not found" refusal answers *does this expense exist?* for somebody who may not read a single one of
+  them — an enumeration oracle. So the DOCTYPE-level test runs first (a document-level one needs the
+  document loaded, which is the read being gated), then the load, then the document-level test on top for
+  any User Permission narrowing it. Two bench cases pin that a real name and an invented one refuse
+  identically.
+- **Pure display helpers — `expenseBankLinesView.ts`.** `linkedProgress(figures)` gives the one progress
+  line (`₹1,38,633` · `of ₹1,60,113 linked · 25 lines` · `₹21,480 still to link`) and the bar's width and
+  tone; `statusTone(status)` is a TOTAL map with a neutral fallback, the idiom
+  `outflow-import/outflowImportStatus.ts` already sets — a status this card was not designed around (a
+  Rejected expense that still carries links) must not borrow the colour of one it was.
+- ⚠️ **"WHAT IS LEFT" HAS ONE OWNER: THE SERVER'S `remaining`.** `linkedProgress` takes it as sent and
+  never recomputes `amount − linked_total`; the server measures it in Decimal, from the same aggregate the
+  settle guard measures room against, so the sentence under the bar cannot contradict the refusal the next
+  link would get. A test hands the helper figures that disagree, to prove which one governs.
+- ⚠️ **The ₹5 is `linkLinesView.LINK_TOLERANCE`, IMPORTED, never a second 5** — that constant is the
+  frontend's one mirror of `amounts.AMOUNT_TOLERANCE` and is pinned to it by `linkLinesParity.test.ts`; a
+  copy could call an expense short that the server reads Paid. `complete` is the same ONE-SIDED test as
+  `derive_expense_status`: only a shortfall past ₹5 is short. ⚠️ The bar is CLAMPED at both ends — a blank
+  or zero amount would divide by zero, and CSS drops a `NaN%` width silently, so a fully linked row would
+  render an EMPTY bar reading as "nothing linked".
+- **What makes the Paid look a Paid look is the DATE, not the colour.** `payment_date` is the latest
+  linked line's (ADR-0027), so a Paid card reads *"Paid on 18-Aug-2026, the latest linked line."* and a
+  short one shows nothing there — the absence is the fact. Colour alone would have left the two looks
+  distinguishable only by hue. Paid green, Reconciliation Pending orange: the mockups' proposal, since the
+  app still has no colour for that status.
+- **Layout:** the line list scrolls (`max-h-56`) rather than pushing the footer off, because the footer is
+  where the reader is told what to do next. The mockup's "Show all 30 lines" collapse was dropped for the
+  scroll — one fewer state, and every line is reachable.
+- ⚠️ **READ-ONLY, AND THAT IS THE DESIGN, NOT AN OMISSION** (Q15). The module writes nothing and takes no
+  lock. Links come off in ONE place — Unreconcile on Bulk Import Transactions — because the verdict that
+  decides whether a line MAY come off lives there (`unreconcile._expense_verdict`); the footer says so and
+  links to the screen rather than leaving the reader to wonder.
+
+**Deliberately NOT extracted: `DetailPopovers.CardShell`.** It takes a required `to` / `linkLabel` and
+renders a two-column field grid; this card is a progress bar over a five-column table. Widening the shell
+to cover both would have made it a parameter bag serving two shapes — the four cards look alike because
+they share the TRIGGER and the popover chrome, which they do share.
+
+**Tests:** `api/approvals/test_expense_bank_lines` — 15 bench cases driven through the endpoint the card
+calls, on expenses linked by `link_rows_to_expense` exactly as the screen links them: a filled run lists
+every line with its five facts and adds up to the headline, oldest first; a part-linked expense reads
+Reconciliation Pending with what is left and no date; a Project Expense reads the same way; an expense no
+line has reached has nothing to open; a reversed line is neither listed nor counted; a payment, a missing
+expense and an unpermitted reader are each refused by name. The queue's `bank_line_count` is asserted in
+the SAME file — it is the OTHER half of "no slips, no trigger", and the card's own emptiness is never seen
+if that number is wrong — including that the join never duplicates a row. Frontend:
+`expenseBankLinesView.test.ts`, 9 vitest cases over the progress line and the tone map, including both
+clamps, the ₹5 boundary read through `LINK_TOLERANCE`, and the server-`remaining`-governs case.

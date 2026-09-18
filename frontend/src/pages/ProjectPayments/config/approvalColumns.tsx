@@ -25,6 +25,7 @@ import {
   ProjectDetailPopover,
   VendorDetailPopover,
 } from "../components/DetailPopovers";
+import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 
 import {
   APPROVAL_STATUS,
@@ -311,6 +312,31 @@ const REGISTRY: Record<
           >
             {body}
           </DocumentDetailPopover>
+        );
+      }
+      // An expense several bank lines settled opens its Bank lines card instead (#1303,
+      // ADR-0027 R5) — the same click-to-open shape a payment row already has, answering the
+      // question this row actually raises: why is it still Reconciliation Pending?
+      //
+      // ⚠️ THE HOVER IS NOT LOST, IT MOVES INSIDE — and it moves WHOLE. The card carries the same
+      // two things this hover shows, `against_full` with its line breaks and `comment_text`, so
+      // the bank details a third of expense descriptions carry are still one click away.
+      //
+      // ⚠️ GATED ON `bank_line_count`, NEVER ON THE STATUS. An expense no line has reached shows
+      // no trigger at all, so nobody opens a card to be told it is empty.
+      if (r.bank_line_count > 0) {
+        return (
+          <ExpenseBankLinesPopover
+            doctype={r.doctype}
+            name={r.name}
+            expenseType={r.expense_type}
+            description={r.against_full || r.against_primary}
+            comment={r.comment_text}
+            status={r.status}
+            lineCount={r.bank_line_count}
+          >
+            {body}
+          </ExpenseBankLinesPopover>
         );
       }
       // Everything trimmed off is one hover away — nothing is lost.
