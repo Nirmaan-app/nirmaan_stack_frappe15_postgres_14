@@ -8,6 +8,7 @@ import {
     settledBlockLabel,
     settledBlockSubLine,
     settledDirectionBlocks,
+    shortLedgerLabel,
     type SettledDirectionBlock,
 } from "./settledDirectionBlocks";
 
@@ -153,5 +154,24 @@ describe("settledBlockSubLine — the auto-matched clause and when it may be quo
         expect(
             settledBlockSubLine(paid(5, 500), { describesEverySettledRow: true })
         ).toBe("5 recorded");
+    });
+});
+
+describe("shortLedgerLabel — the abbreviated name beside the Settled figure", () => {
+    it("shortens the known books word by word", () => {
+        expect(shortLedgerLabel("Project Payments")).toBe("Proj. Pmts");
+        expect(shortLedgerLabel("Project Expenses")).toBe("Proj. Exp.");
+        expect(shortLedgerLabel("Non Project Expenses")).toBe("Non-Proj. Exp.");
+        expect(shortLedgerLabel("Project Inflows")).toBe("Proj. Inflows");
+        expect(shortLedgerLabel("Non Project Inflows")).toBe("Non-Proj. Inflows");
+    });
+
+    it("leaves a name it has no words for untouched", () => {
+        expect(shortLedgerLabel("Other")).toBe("Other");
+        expect(shortLedgerLabel("Vendor Refunds")).toBe("Vendor Refunds");
+    });
+
+    it("keeps both halves of a multi-ledger group", () => {
+        expect(shortLedgerLabel("Project Expenses|Project Payments")).toBe("Proj. Exp. + Proj. Pmts");
     });
 });

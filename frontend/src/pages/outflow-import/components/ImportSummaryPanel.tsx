@@ -45,6 +45,7 @@ import {
     settledBlockLabel,
     settledBlockSubLine,
     settledDirectionBlocks,
+    shortLedgerLabel,
 } from "../settledDirectionBlocks";
 import { ImportSelect } from "./ImportSelect";
 import { OutflowPeriodFilter } from "./OutflowPeriodFilter";
@@ -812,7 +813,9 @@ const DirectionBand = ({ heading, children }: { heading: string; children: React
             </span>
             <span className="h-px flex-1 bg-border" />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+        {/* The middle (Settled) card is wider so its ledger lines fit BESIDE its figure rather than
+            under it — see `Figure`. Literal track list, for the same Tailwind-scanner reason. */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1.9fr_1fr]">{children}</div>
     </div>
 );
 
@@ -827,6 +830,14 @@ const DirectionBand = ({ heading, children }: { heading: string; children: React
  * therefore grows them all, which is accepted — a fixed height, or padding on the others to
  * compensate, would be several lies to make one truth fit. Since B8b/B8c the row holds anywhere
  * from three tiles to six, depending on whether the period holds any receipts at all.
+ *
+ * ⚠️ SO THE BREAKDOWN SITS BESIDE THE FIGURE, NOT UNDER IT (owner ruling 2026-09-18, to give the
+ * table more height). Stacked, three ledger lines made every tile in the row ~60px taller.
+ *
+ * ⚠️ IT STAYS ON THE RIGHT AT EVERY WIDTH, AND THE TEXT SHRINKS INSTEAD (owner ruling, same day —
+ * the first cut wrapped the breakdown back under the figure on narrow screens, which gave the
+ * height back). Ledger names render through `shortLedgerLabel`, with the server's full name in each
+ * line's `title`; past that a name truncates with an ellipsis, never the amount beside it.
  */
 const Figure = ({
     label,
@@ -858,21 +869,23 @@ const Figure = ({
                   : tone === "amber"
                     ? "border-amber-200 bg-amber-50/50"
                     : ""
-        }`}
+        } grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3`}
     >
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-        <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
-        <div className="text-xs text-muted-foreground">{sub}</div>
+        <div className="shrink-0">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
+            <div className="text-xs text-muted-foreground">{sub}</div>
+        </div>
         {/* ⚠️ THE LEFT RULE IS WHAT MAKES THESE A BREAKDOWN RATHER THAN THREE MORE FIGURES. Without
             it the lines read as siblings of the tile — three further numbers on the panel — instead
-            of as the parts of the one directly above them. It is the only new decoration this block
+            of as the parts of the one beside them. It is the only new decoration this block
             gets, deliberately.
 
             ⚠️ ROUNDED RUPEES, NOT THE EXACT FORM. These are plain amounts; the exact
             `formatToIndianRupee` is reserved for DIFFERENCES on this screen. */}
         {breakdown && breakdown.length > 0 && (
             <div
-                className={`mt-2 space-y-0.5 border-l-2 pl-2 ${
+                className={`min-w-0 space-y-0.5 border-l-2 pl-2 ${
                     tone === "sky"
                         ? "border-sky-200 dark:border-sky-800"
                         : "border-emerald-200 dark:border-emerald-800"
@@ -881,10 +894,11 @@ const Figure = ({
                 {breakdown.map((entry) => (
                     <div
                         key={entry.ledger}
+                        title={entry.ledger}
                         className="flex items-center justify-between text-[11px] leading-tight"
                     >
-                        <span className="truncate">
-                            {entry.ledger}{" "}
+                        <span className="min-w-0 truncate">
+                            {shortLedgerLabel(entry.ledger)}{" "}
                             <span className="text-muted-foreground tabular-nums">{entry.rows}</span>
                         </span>
                         <span className="shrink-0 pl-2 tabular-nums">
