@@ -75,6 +75,12 @@ class TestApprovedInbox(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
+        # ⚠️ ROLL BACK FIRST. The planted rows were committed in setUpClass, so a rollback cannot lose
+        # them -- but if a test left the transaction ABORTED, every statement below is ignored and the
+        # planted rows leak into the live site, one pair per run. That happened: a stale fixture
+        # aborted the transaction and 25 `TEST-NPE-*` expenses and 4 `TEST-OFI-APP-PAY-*` payments
+        # accumulated at the settleable status, where other suites' candidate pools could see them.
+        frappe.db.rollback()
         frappe.db.delete(NON_PROJECT_EXPENSE, {"name": cls.planted})
         frappe.db.delete(PAYMENT, {"name": cls.planted_payment})
         frappe.db.commit()
@@ -122,37 +128,45 @@ class TestApprovedInbox(FrappeTestCase):
                 f"{row['name']} claims both an approval and a modification date",
             )
 
-    # --- asymmetry 2: Project Expenses.amount is a Data column ---------------------------------
+    # --- asymmetry 2 is GONE: Project Expenses.amount is Currency (numeric) since 16 Sep 2026 -----
 
-    def test_an_unreadable_amount_blanks_the_row_rather_than_the_page(self):
-        """⚠️ THE CAST IS THE HAZARD. `Project Expenses.amount` is Data, so a non-numeric value is
-        permitted and `CAST` on it fails the WHOLE statement -- taking down the page, not one row.
-        The guard makes it NULL instead. There is no junk in the live data today, so this plants
-        some: without the regex guard this test raises rather than fails."""
-        junk = f"TEST-PE-{frappe.generate_hash(length=10)}"
-        project = frappe.db.get_value("Projects", {}, "name")
-        frappe.db.sql(
-            """
-            INSERT INTO "tabProject Expenses"
-                (name, creation, modified, modified_by, owner, docstatus, idx,
-                 amount, status, description, projects)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s)
-            """,
-            (junk, "Administrator", "Administrator", "not a number", SETTLEABLE,
-             "TESTJUNKAMOUNT", project),
+    def test_an_unreadable_amount_can_no_longer_reach_the_ledger(self):
+        """INVERTED, not deleted. This used to plant `'not a number'` in `Project Expenses.amount`
+        (then a Data column) and pin that the reader blanked that one row instead of failing the page.
+        `a9d432c2` made the column numeric and `ledger_read` dropped its regex guard for exactly that
+        reason, so the hazard now lives -- and is pinned -- at the column: Postgres refuses the value.
+
+        ⚠️ THE SAVEPOINT IS LOAD-BEARING. The refused INSERT aborts the transaction; without the
+        rollback every later test in this module errors with "current transaction is aborted", and
+        `tearDownClass` used to leak the planted rows the same way."""
+        import psycopg2
+
+        self.assertEqual(
+            frappe.db.sql(
+                """SELECT data_type FROM information_schema.columns
+                   WHERE table_name = %s AND column_name = 'amount'""",
+                (f"tab{PROJECT_EXPENSE}",),
+            )[0][0],
+            "numeric",
         )
-        frappe.db.commit()
+        junk = f"TEST-PE-{frappe.generate_hash(length=10)}"
+        savepoint = "test_approved_junk_amount"
+        frappe.db.savepoint(savepoint)
         try:
-            page = list_approved_records(search="TESTJUNKAMOUNT", limit=10)
-            names = [r["name"] for r in page["rows"]]
-            self.assertIn(junk, names, "a record with an unreadable amount must still be listed")
-            row = next(r for r in page["rows"] if r["name"] == junk)
-            # ⚠️ `None`, NOT 0. A zero is a claim that the record costs nothing; an unreadable value
-            # is not that claim.
-            self.assertIsNone(row["amount"])
+            with self.assertRaises(psycopg2.DataError):
+                frappe.db.sql(
+                    """
+                    INSERT INTO "tabProject Expenses"
+                        (name, creation, modified, modified_by, owner, docstatus, idx,
+                         amount, status, description)
+                    VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+                    """,
+                    (junk, "Administrator", "Administrator", "not a number", SETTLEABLE,
+                     "TESTJUNKAMOUNT"),
+                )
         finally:
-            frappe.db.delete(PROJECT_EXPENSE, {"name": junk})
-            frappe.db.commit()
+            frappe.db.rollback(save_point=savepoint)
+        self.assertFalse(frappe.db.exists(PROJECT_EXPENSE, junk))
 
     # --- asymmetry 3: Non Project Expenses has no vendor and no project ------------------------
 
