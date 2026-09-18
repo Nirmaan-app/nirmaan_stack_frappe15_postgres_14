@@ -83,13 +83,13 @@ records that rung at the figure the bank actually moved. Anything in this repo s
 import does not touch amounts" is history from X1 on.
 
 Two guarantees make that safe to say, and both are structural rather than promised:
-  * THE WINDOW STILL GATES THE WRITE. `_lock_and_assert_settleable` /
+  * THE WINDOW STILL GATES THE WRITE. `link_lines_to_expense`'s fit check /
     `_lock_and_assert_payment_settleable` run FIRST and still refuse anything outside +-Rs 5. The
     rewrite corrects what is written; it never widens what may be written.
   * EVERY AMOUNT CHANGE IS AUDITED. All three doctypes carry `track_changes: 1`, and BOTH write
     paths now go through `doc.save(..., ignore_version=False)`, so each change lands in the Version
     log with its user and timestamp. ⚠️ THAT IS WHY THE EXPENSE PATH STOPPED USING
-    `frappe.db.set_value` -- see `settle_existing_expense`. `set_value` skips the document lifecycle
+    `frappe.db.set_value` -- see `_derive_status_and_save`. `set_value` skips the document lifecycle
     entirely, so an amount rewritten through it would be an unaudited edit to a financial figure.
 
     ⚠️ THE EXPLICIT `ignore_version=False` IS LOAD-BEARING AND WAS ADDED BECAUSE A TEST CAUGHT ITS
@@ -107,14 +107,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Callable
 
 import frappe
 
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
 from nirmaan_stack.services.vendor_refunds import document_project, money, refund_allocation_problem
 from nirmaan_stack.services.outflow_import.amounts import (
+    AMOUNT_TOLERANCE,
     amounts_match,
     rewrite_amount,
+    rupees as _rupees,
+    to_decimal,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
     APPROVED,
@@ -126,6 +130,14 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     VENDOR_REFUND_DOCTYPE as VENDOR_REFUND,
     is_expense_doctype,
     settleable_statuses,
+)
+from nirmaan_stack.services.outflow_import.expense_links import (
+    bulk_id_of,
+    derive_expense_status,
+    lines_fit,
+    load_expense_links,
+    one_line_fits,
+    remaining_balance,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.reference_guard import (
@@ -148,7 +160,7 @@ __all__ = [
     "DuplicateReferenceError",
     "InflowNotRecordableError",
     "SettleResult",
-    "settle_existing_expense",
+    "link_lines_to_expense",
     "settle_payment",
     "create_expense_from_row",
     "create_inflow_from_row",
@@ -457,16 +469,14 @@ def _not_settleable_message(name: str, status: str) -> str:
     return f"{name} is '{status}' and cannot be settled from a bank statement."
 
 
-def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -> Decimal:
-    """Re-read the target UNDER A ROW LOCK and re-assert everything the reviewer saw.
+def _lock_settleable_expense(doctype: str, name: str) -> Decimal:
+    """Lock the expense row `FOR UPDATE`, refuse any status the import may not settle, return its amount.
+
+    Read by `link_lines_to_expense`, the one expense settle (#1298; Decide's one line joined it at #1299).
 
     ⚠️ `for_update=True` WITHOUT `cache=True`. Frappe's `get_value` silently skips the lock when the
     value comes from cache (`frappe/database/database.py`), so a cached read would take no lock at
-    all and this whole guard would be decorative.
-
-    The reviewer's screen is a snapshot; between it and this call another accountant may have
-    settled the same expense. Re-asserting here, inside the lock, is the only place that can be
-    caught.
+    all and every guard built on this would be decorative.
     """
     current = frappe.db.get_value(
         doctype, name, ["status", "amount"], as_dict=True, for_update=True
@@ -487,37 +497,19 @@ def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -
             WrongStatusError,
             title="Not settleable",
         )
-
-    amount = normalize_amount(current.get("amount"))
-    # ⚠️ THE SAME WINDOW THE MATCHER USES, and it must stay the same: a pool wider than this guard
-    # offers a record the confirm then refuses, and a guard wider than the pool permits a
-    # settlement the screen never proposed. See `amounts.py`.
-    if not amounts_match(amount, bank_amount):
-        frappe.throw(
-            f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
-            f"{abs(amount - bank_amount)}. "
-            f"Settle it against the transfer that matches, or record a new expense.",
-            AmountMismatchError,
-            title="Amounts differ",
-        )
-    return amount
+    return normalize_amount(current.get("amount"))
 
 
-def settle_existing_expense(
-    row,
-    target_doctype: str,
-    target_name: str,
-    actor: str,
-    statement_file_url: str | None = None,
-) -> SettleResult:
-    """Mark an already-approved expense `Paid` from a bank row.
+def _derive_status_and_save(doc, amount) -> None:
+    """Read the expense's slips back, set Paid / Reconciliation Pending and the date, and save.
 
-    ⚠️ EXPENSES ONLY, still. `Project Payments` is in `SETTLEABLE_STATUSES` from V1 on, so this
-    guard tests `is_expense_doctype` rather than map membership -- the map answers "what status may
-    I settle this from", not "may THIS module settle it". V2 adds the payment path beside this one.
+    ⚠️ CALLED ONLY ONCE EVERY SLIP OF THIS SETTLE EXISTS (ADR-0027 write order). Every expense settle
+    -- the many-line link and Decide's one line, both `link_lines_to_expense` since #1299 -- ends here,
+    so the status is derived in one place from one aggregate. A save before the slip would read the
+    expense as unlinked and flip it back.
 
-    ⚠️ THIS WRITES THROUGH `doc.save()` AS OF X1. IT USED TO USE `frappe.db.set_value`, AND THE
-    SWITCH IS THE LOAD-BEARING PART OF THIS SLICE -- three consequences, in order of how badly each
+    ⚠️ THE EXPENSE SETTLE WRITES THROUGH `doc.save()` AS OF X1. IT USED TO USE `frappe.db.set_value`,
+    AND THE SWITCH WAS THE LOAD-BEARING PART OF THAT SLICE -- three consequences, in order of how badly each
     would bite:
 
     1. THE AMOUNT REWRITE IS AUDITED. `set_value` writes past the document lifecycle, so it fires
@@ -540,16 +532,50 @@ def settle_existing_expense(
        a commit inside the caller's savepoint makes the per-row rollback a silent no-op. The flag
        suppresses that ONE branch; the gap recomputation itself still runs, in our transaction. See
        both `_outflow_import_write` and the guard at the hook site.
+    """
+    verdict = derive_expense_status(amount, load_expense_links(doc.doctype, doc.name))
+    doc.status = verdict.status
+    doc.payment_date = verdict.payment_date
 
-    ⚠️ `payment_date` AND `payment_ref` ARE STILL ASSIGNED UNCONDITIONALLY, INCLUDING AS `None`,
-    which is exactly what the `set_value` dict did. In practice the field is always blank -- the
-    record is `Approved`, and both are written at settlement.
+    with _outflow_import_write():
+        doc.save(ignore_permissions=True, ignore_version=False)
 
-    This used to read as careless beside `settle_payment`'s guarded write, and was kept anyway. At
-    ADR-0020 B9 it turned out to be the RIGHT shape and `settle_payment` was brought into line with
-    it: that guard was the silent skip -- a row with no reference settled with a blank and said
-    nothing. All five write sites now assign the one resolved `settlement_reference`, explicitly
-    `None` when there is none.
+
+def link_lines_to_expense(
+    rows,
+    target_doctype: str,
+    target_name: str,
+    actor: str,
+    statement_file_url: str | None = None,
+    *,
+    record_link: Callable[[object, SettleResult], None],
+    one_line_from_decide: bool = False,
+) -> SettleResult:
+    """Link one or more bank lines to one expense, all or nothing (ADR-0027, #1298).
+
+    ⚠️ THE GUARD IS ONE-SIDED AGAINST WHAT IS LEFT (`expense_links.lines_fit`), NOT THE WINDOW
+    a 1:1 settle used to check. Lines short of the remainder are a part-fill and leave the
+    expense Reconciliation Pending; lines over it by more than ₹5 are refused, every one of them
+    (Q16). The expense is locked `FOR UPDATE` before the remainder is read, so a second accountant
+    linking to the same expense waits and then measures against a remainder that includes the first
+    one's lines.
+
+    ⚠️ `record_link(row, result)` INSERTS ONE SLIP PER LINE, BEFORE THE SAVE. `result.amount` is THAT
+    LINE's amount -- the redefined `target_amount` (ADR-0027): "the money that moved between this line
+    and this record" -- which is what keeps the linked total a plain SUM and each import row reading
+    Settled rather than Partially Allocated.
+
+    ⚠️ THE 1:1 EXTRAS APPLY ONLY TO A TRUE 1:1 SETTLE (Q13): one line, on an expense with no slips,
+    that fills it within ₹5. The line's reference is written and the amount is snapped to the bank
+    figure. A single line that only part-fills is the first go of a run and is treated as one. The
+    slip then carries the snapped (= bank) figure, as a 1:1 settle always has. On any other shape the
+    amount is never touched and an existing `payment_ref` is kept; a blank one receives the run's
+    bulk id (Q10), or stays blank when the lines do not share one.
+
+    ⚠️ `one_line_from_decide` IS `settle_row`'S ONE LINE (#1299, Q13 "one code path"). It adds exactly
+    one rule, `expense_links.one_line_fits`: on an expense with no lines yet the line must equal the
+    whole amount within ₹5, refused with the sentence a 1:1 settle has always given. Once the expense
+    has lines, the late line is measured against what is left like any other.
     """
     if not is_expense_doctype(target_doctype):
         frappe.throw(
@@ -557,33 +583,78 @@ def settle_existing_expense(
             WrongStatusError,
             title="Not an expense",
         )
+    rows = list(rows)
+    if not rows:
+        frappe.throw(
+            "Tick at least one bank line to link.", ExpenseSettlementError, title="Nothing ticked"
+        )
 
-    bank_amount = normalize_amount(getattr(row, "amount", 0))
-    amount = _lock_and_assert_settleable(target_doctype, target_name, bank_amount)
+    lines_total = sum((normalize_amount(getattr(r, "amount", 0)) for r in rows), Decimal("0"))
+    amount = _lock_settleable_expense(target_doctype, target_name)
+    before = load_expense_links(target_doctype, target_name)
+    remaining = remaining_balance(amount, before.linked_total)
+    # A line on an expense WITH lines fails `one_line_fits` exactly when it fails `lines_fit` below,
+    # and takes that refusal; only the fresh-expense half needs its own sentence.
+    if one_line_from_decide and not before.line_count and not one_line_fits(amount, before, lines_total):
+        frappe.throw(
+            f"{target_name} is for {amount} but {lines_total} left the bank, a difference of "
+            f"{abs(amount - lines_total)}. "
+            f"Settle it against the transfer that matches, or record a new expense.",
+            AmountMismatchError,
+            title="Amounts differ",
+        )
+    if not lines_fit(remaining, lines_total):
+        what = (
+            f"This line is for {_rupees(lines_total)}"
+            if len(rows) == 1
+            else f"These {len(rows)} lines total {_rupees(lines_total)}"
+        )
+        frappe.throw(
+            f"{what}, but {target_name} has only {_rupees(remaining)} left "
+            f"(₹{AMOUNT_TOLERANCE} leeway). Pick another expense, or raise its amount first.",
+            AmountMismatchError,
+            title="More than is left",
+        )
 
     doc = frappe.get_doc(target_doctype, target_name)
-    doc.status = _PAID
-    doc.payment_date = getattr(row, "added_on_date", None)
-    doc.payment_ref = _settlement_reference_of(row) or None
-    # payment_by exists ONLY on Project Expenses, and it is the finalising user -- deliberately NOT
-    # the statement's "Added by", which the gateway truncates to 15 characters (owner ruling).
+    # A true 1:1 settle: one line, no earlier slips, and that line FILLS the expense within ₹5. A single
+    # line that only part-fills is the first go of a run, so it keeps the run's reference rules.
+    one_to_one = before.line_count == 0 and len(rows) == 1 and amounts_match(amount, lines_total)
+    written = amount
+    if one_to_one:
+        doc.payment_ref = _settlement_reference_of(rows[0]) or None
+        exact = rewrite_amount(amount, lines_total)
+        if exact is not None:
+            doc.amount = format_amount_for(target_doctype, exact)
+            written = exact
+    elif not (doc.get("payment_ref") or "").strip():
+        doc.payment_ref = (
+            bulk_id_of(
+                f"{getattr(r, 'remarks', '') or ''} {_settlement_reference_of(r)}" for r in rows
+            )
+            or None
+        )
+    # payment_by exists ONLY on Project Expenses; the finalising user, as on the one-line settle.
     if target_doctype == PROJECT_EXPENSE:
         doc.payment_by = actor
-
-    # X1: the record takes the amount the bank actually moved. `format_amount_for` is what keeps
-    # `Project Expenses.amount` a bare numeric STRING and `Non Project Expenses.amount` a number --
-    # the two are not twins and writing one shape into the other is how the Data column stops being
-    # self-consistent.
-    written = amount
-    exact = rewrite_amount(amount, bank_amount)
-    if exact is not None:
-        doc.amount = format_amount_for(target_doctype, exact)
-        written = exact
-
     apply_statement_attachment(doc, statement_file_url)
 
-    with _outflow_import_write():
-        doc.save(ignore_permissions=True, ignore_version=False)
+    for row in rows:
+        record_link(
+            row,
+            SettleResult(
+                doctype=target_doctype,
+                name=target_name,
+                # ⚠️ ALWAYS THE LINE'S OWN AMOUNT. On a 1:1 fill the snapped record figure IS the bank
+                # figure, so nothing differs; on a single line that only part-fills a fresh expense,
+                # the record's figure would claim the whole expense was covered and read it Paid.
+                amount=normalize_amount(getattr(row, "amount", 0)),
+                created=False,
+                # Only the 1:1 shape can correct an amount, so only it reports what the record held.
+                original_amount=amount if one_to_one else None,
+            ),
+        )
+    _derive_status_and_save(doc, written)
 
     return SettleResult(
         doctype=target_doctype,

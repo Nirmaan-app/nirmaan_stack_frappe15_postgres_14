@@ -179,6 +179,11 @@ export const exportFileBase = (scope: string): string => {
             return "inflow-transfers-settled";
         case "skipped":
             return "outflow-skipped";
+        // The Skipped popup's direction tabs name their file by direction, like the page's tabs.
+        case "skipped_outflow":
+            return "outflow-skipped-outflow";
+        case "skipped_inflow":
+            return "inflow-skipped";
         default:
             return "outflow-transfers";
     }

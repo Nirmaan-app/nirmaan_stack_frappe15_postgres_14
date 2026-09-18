@@ -143,6 +143,24 @@ class TestStageBatch(unittest.TestCase):
             {r["skip_origin"] or None for r in rows if r["row_status"] != "Skipped"}, {None}
         )
 
+    def test_a_staged_skip_stores_its_kind_and_a_staged_line_does_not(self):
+        """Skip Type: every staged skip lands a kind beside its sentence; nothing else carries one."""
+        batch = self._stage()
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": batch.name},
+            fields=["row_status", "status_raw", "skip_kind"],
+        )
+        skipped = [r for r in rows if r["row_status"] == "Skipped"]
+        self.assertTrue(skipped)
+        self.assertNotIn(None, [r["skip_kind"] or None for r in skipped])
+        refused = [r for r in skipped if r["status_raw"] == "FAILED"]
+        self.assertTrue(refused)
+        self.assertEqual({r["skip_kind"] for r in refused}, {"Bank refused"})
+        self.assertEqual(
+            {r["skip_kind"] or None for r in rows if r["row_status"] != "Skipped"}, {None}
+        )
+
     def test_successful_rows_are_pending_not_mismatched(self):
         # At upload nothing has been matched, so "Mismatched" would be a finding about work that
         # has not happened. That is the whole reason derive_staged_row_outcome exists.
@@ -1019,6 +1037,27 @@ class TestStageBankStatement(unittest.TestCase):
                 "platform_cashfree",
                 "platform_cashfree",
                 "platform_cashfree",
+            ],
+        )
+
+    def test_each_excluded_line_stores_its_rule_s_skip_kind(self):
+        """Skip Type: one kind per rule, and the two ledger-transfer legs share one."""
+        excluded = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch.name, "row_status": "Skipped"},
+            fields=["skip_reason", "skip_kind"],
+        )
+        kinds = sorted(
+            r["skip_kind"] for r in excluded if "bank-statement rule" in (r["skip_reason"] or "")
+        )
+        self.assertEqual(
+            kinds,
+            [
+                "Bank internal transfer",
+                "Bank internal transfer",
+                "Cashfree wallet top-up",
+                "Cashfree wallet top-up",
+                "Cashfree wallet top-up",
             ],
         )
 

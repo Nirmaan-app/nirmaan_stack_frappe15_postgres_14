@@ -582,6 +582,8 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
                 "outcome_note": (outcome.note or None) if outcome.status != ROW_SKIPPED else None,
                 # System on a skip, NULL otherwise (#1273) -- read off the outcome, never decided here.
                 "skip_origin": outcome.skip_origin,
+                # What kind of skip, NULL otherwise -- set by the deriver beside the sentence.
+                "skip_kind": outcome.skip_kind,
             }
         )
         doc.insert(ignore_permissions=True)

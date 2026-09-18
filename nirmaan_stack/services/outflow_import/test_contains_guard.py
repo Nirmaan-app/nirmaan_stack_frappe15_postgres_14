@@ -75,6 +75,25 @@ def record(reference, amount, *, doctype=PAYMENT_DOCTYPE, name=None, on=ROW_DATE
     )
 
 
+def slip(reference, amount, *, doctype=NON_PROJECT_EXPENSE_DOCTYPE, name="NPE-RUN",
+         row="ROW-EARLIER", on=ROW_DATE.date(), description=""):
+    """One live `Settled` slip of a part-linked expense, as the pool hands it over (ADR-0027 R3).
+
+    `reference` is the SETTLED LINE's narration, `amount` that line's own money, and the identity is
+    still the expense -- which is what `import_row` being set changes about how it is judged.
+    """
+    return TargetRef(
+        doctype=doctype,
+        name=name,
+        amount=Decimal(str(amount)),
+        status="Reconciliation Pending",
+        reference=reference,
+        txn_date=on,
+        description=description,
+        import_row=row,
+    )
+
+
 def verdict(row, records, claims=()):
     group = pick_recorded_group(row, find_hits(row, records), claims)
     return derive_duplicate_guard_outcome(row, paid_duplicate=group), group
@@ -520,6 +539,74 @@ class TestAReferenceInsideAStoredOne(unittest.TestCase):
         self.assertFalse(reference_is_inside("", self.NARRATION))
         self.assertFalse(reference_is_inside("610415565123", ""))
         self.assertFalse(reference_is_inside("610415565123", None))
+
+
+class TestAPartLinkedExpensesOwnLines(unittest.TestCase):
+    """ADR-0027 R3: a line already linked to a Reconciliation Pending expense is already recorded.
+
+    Such an expense reaches the guard once PER LIVE SLIP, carrying that line's narration and that
+    line's money, so the comparison is line-against-its-own-slip rather than line-against-a-whole
+    salary run.
+    """
+
+    def test_a_reimported_line_is_skipped_on_its_own_slip(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-AGAIN")
+        rec = slip(IMPS, 12500)
+        outcome, group = verdict(row, [rec], [claim(rec, row="ROW-EARLIER", settled=True)])
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual([t.name for t in group.targets], ["NPE-RUN"])
+
+    def test_the_note_never_calls_a_part_linked_expense_paid(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-AGAIN")
+        rec = slip(IMPS, 12500, description="August salary run")
+        outcome, _ = verdict(row, [rec], [claim(rec, row="ROW-EARLIER", settled=True)])
+        self.assertIn("Already linked to", outcome.note)
+        self.assertIn("still being reconciled", outcome.note)
+        self.assertNotIn("as Paid", outcome.note)
+        self.assertIn("August salary run", outcome.note)
+
+    def test_the_line_is_measured_against_its_slip_not_against_the_whole_run(self):
+        """The expense is Rs 1,60,000; this line is Rs 12,500 and its slip says so."""
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-AGAIN")
+        outcome, _ = verdict(row, [slip(IMPS, 12500)], ())
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+
+    def test_another_lines_slip_of_the_same_run_does_not_block_this_one(self):
+        """Every slip of a run is claimed by its own line; blocking on that would make the whole
+        rule self-defeating -- no slip could ever justify the duplicate it exists to catch."""
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-AGAIN")
+        mine = slip(IMPS, 12500, row="ROW-EARLIER")
+        outcome, _ = verdict(
+            row,
+            [mine],
+            [claim(mine, row="ROW-EARLIER", settled=True), claim(mine, row="ROW-SIBLING", settled=True)],
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+
+    def test_an_unrelated_line_of_the_same_amount_is_not_blocked(self):
+        row = Row(
+            amount=Decimal("12500"),
+            remarks="MMT/IMPS/777000111222/OTHER PAYEE /SOMEONE/HDFC",
+            name="ROW-OTHER-TRANSFER",
+        )
+        outcome, group = verdict(row, [slip(IMPS, 12500)], ())
+        self.assertIsNone(group)
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+
+    def test_a_paid_record_is_still_blocked_by_another_lines_claim(self):
+        """The asymmetry is the whole point: only a slip is exempt from one-record-one-line."""
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-AGAIN")
+        rec = record("610415565123", 12500, name="PAY-1")
+        outcome, _ = verdict(row, [rec], [claim(rec, settled=True)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+
+    def test_a_group_mixing_a_paid_record_with_a_slip_keeps_the_paid_sentence(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-AGAIN")
+        outcome, _ = verdict(
+            row, [record("610415565123", 7500, name="PAY-1"), slip(IMPS, 5000)], ()
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("as Paid", outcome.note)
 
 
 class TestPurity(unittest.TestCase):

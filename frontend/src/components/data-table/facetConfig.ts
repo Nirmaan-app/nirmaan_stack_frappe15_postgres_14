@@ -23,7 +23,7 @@ import { Column } from "@tanstack/react-table";
  */
 
 /**
- * Sentinel for the "blank"/"not set" facet bucket (ADR-0004). It round-trips as an ordinary
+ * Sentinel for the "blank"/"not set" facet bucket (ADR-0026). It round-trips as an ordinary
  * facet value: the backend emits it as an option when `include_blank_bucket` is on, and
  * `_process_filters_for_query` recognises this exact string inside an `in` filter and rewrites
  * it to `is not set` (NULL or ''). That keeps the whole selection path — checkbox state, URL
@@ -58,7 +58,7 @@ export interface FacetDeclaration {
    */
   doctype?: string;
   /**
-   * Surface a "not set" bucket alongside the real values (ADR-0004). Every facet query
+   * Surface a "not set" bucket alongside the real values (ADR-0026). Every facet query
    * branch filters out NULL/'' , so an unset row is otherwise INVISIBLE to the facet and
    * "show me the ones with no value" is unexpressible.
    *

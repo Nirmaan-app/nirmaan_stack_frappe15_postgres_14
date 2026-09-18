@@ -77,7 +77,7 @@ interface ProjectEditTDSItemModalProps {
 }
 
 /**
- * Phase 2 (ADR-0003) edit modal for PICKED rows (tds_status !== "New").
+ * Phase 2 (ADR-0025) edit modal for PICKED rows (tds_status !== "New").
  *
  * Re-runs the group + make picker: fuzzy-search a TDS Item (group) over its name
  * AND member item codes/names (server-side via api/tds/picker.search_tds_items),

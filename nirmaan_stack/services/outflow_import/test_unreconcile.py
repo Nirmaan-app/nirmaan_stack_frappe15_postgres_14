@@ -25,10 +25,12 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNLINK_EXPENSE_LINE,
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_DELETE,
     WHAT_HAPPENS_DELETE_PROJECT_INFLOW,
     WHAT_HAPPENS_UNSPLIT,
+    ExpenseSlip,
     LegFacts,
     SplitChild,
     first_refusal,
@@ -396,6 +398,130 @@ class TestAnExistingExpense(unittest.TestCase):
             leg_verdict(expense(match_kind="Reversed", target_exists=False)).title,
             "Already reversed",
         )
+
+
+RUN_MATCHED = datetime(2026, 9, 17, 10, 0, 0)
+
+# One line of a 3-line run: a Paid ₹1,000 expense filled by 600 + 250 + 150. This leg is the 250.
+LINE_OF_A_RUN = expense(
+    target_doctype="Non Project Expenses",
+    leg_amount=250.0,
+    target_amount=1000.0,
+    target_reference="BULD75978325",
+    settlement_references=("UTR-THIS-LINE",),
+    matched_at=RUN_MATCHED,
+    other_slips=(
+        ExpenseSlip(amount=600.0, live=True),
+        ExpenseSlip(amount=150.0, live=True),
+    ),
+)
+
+
+def line_of_a_run(**changes) -> LegFacts:
+    return dataclasses.replace(LINE_OF_A_RUN, **changes)
+
+
+class TestOneLineOfAManyLineExpense(unittest.TestCase):
+    """#1300, ADR-0027 Q15/Q21: one line comes off an expense several lines settled.
+
+    ⚠️ NONE OF THE THREE "CHANGED ELSEWHERE" CHECKS APPLY. Linking never rewrote the amount or wrote this
+    line's reference, and the expense is only Paid once every line is in, so each check would refuse
+    every line but one.
+    """
+
+    def test_a_paid_expense_takes_one_line_off_and_goes_back_to_reconciliation_pending(self):
+        verdict = leg_verdict(LINE_OF_A_RUN)
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+        self.assertIsNone(verdict.reason)
+        self.assertEqual(
+            verdict.what_happens,
+            "Only this line comes off. EXP-1 goes back to Reconciliation Pending.",
+        )
+        self.assertEqual(verdict.stays_linked, Decimal("750"))
+        self.assertEqual(verdict.other_lines, 2)
+        self.assertEqual(verdict.expense_amount, Decimal("1000"))
+        self.assertFalse(verdict.stays_paid)
+
+    def test_no_amount_status_or_reference_check_refuses_it(self):
+        for label, change in (
+            ("amount is not the leg's", {"target_amount": 1200.0}),
+            ("status is Reconciliation Pending", {"target_status": "Reconciliation Pending"}),
+            ("reference is the run's, not the line's", {"target_reference": "SOMEONE-ELSE"}),
+        ):
+            with self.subTest(label):
+                self.assertEqual(leg_verdict(line_of_a_run(**change)).verdict, VERDICT_UNLINK_EXPENSE_LINE)
+
+    def test_the_last_live_line_of_a_run_still_comes_off(self):
+        """Every other line already reversed -- after this one was matched, so they shared the expense."""
+        later = RUN_MATCHED + timedelta(hours=1)
+        verdict = leg_verdict(
+            line_of_a_run(
+                target_status="Reconciliation Pending",
+                other_slips=(
+                    ExpenseSlip(amount=600.0, live=False, reversed_at=later),
+                    ExpenseSlip(amount=150.0, live=False, reversed_at=later),
+                ),
+            )
+        )
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+        self.assertEqual(verdict.stays_linked, Decimal("0"))
+        self.assertEqual(verdict.other_lines, 0)
+
+    def test_a_lone_line_that_only_part_fills_comes_off(self):
+        """The first go of a run: one line, nothing else yet, the expense still Reconciliation Pending."""
+        verdict = leg_verdict(line_of_a_run(target_status="Reconciliation Pending", other_slips=()))
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+
+    def test_a_tiny_line_leaving_the_rest_within_five_rupees_stays_paid(self):
+        verdict = leg_verdict(
+            line_of_a_run(
+                leg_amount=3.0,
+                other_slips=(ExpenseSlip(amount=997.0, live=True),),
+            )
+        )
+        self.assertTrue(verdict.stays_paid)
+        self.assertEqual(verdict.what_happens, "Only this line comes off. EXP-1 stays Paid.")
+
+    def test_a_created_expense_with_other_lines_is_never_deleted(self):
+        verdict = leg_verdict(line_of_a_run(created_by_import=True))
+        self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
+
+    def test_cashbook_already_reversed_and_not_found_still_come_first(self):
+        self.assertEqual(leg_verdict(line_of_a_run(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+        self.assertEqual(leg_verdict(line_of_a_run(match_kind="Reversed")).title, "Already reversed")
+        self.assertEqual(leg_verdict(line_of_a_run(target_exists=False)).title, "Not found")
+
+
+class TestAOneToOneExpenseKeepsTodaysVerdict(unittest.TestCase):
+    """#1300: an expense one line settled is still judged on the exact checks."""
+
+    def test_a_reversal_before_this_leg_was_matched_did_not_share_the_expense(self):
+        """Settled, undone, then settled again by a new line: still 1:1, so an edited amount refuses."""
+        earlier = RUN_MATCHED - timedelta(hours=1)
+        verdict = leg_verdict(
+            expense(
+                matched_at=RUN_MATCHED,
+                target_amount="450",
+                other_slips=(ExpenseSlip(amount=500.0, live=False, reversed_at=earlier),),
+            )
+        )
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertIn("Somebody has changed the record", verdict.reason)
+
+    def test_an_edited_amount_on_a_paid_one_to_one_expense_still_refuses(self):
+        for amount in ("450", "600"):
+            with self.subTest(amount=amount):
+                self.assertEqual(leg_verdict(expense(target_amount=amount)).verdict, VERDICT_REFUSED)
+
+    def test_an_unknown_reversal_time_does_not_count_as_sharing(self):
+        verdict = leg_verdict(
+            expense(
+                matched_at=RUN_MATCHED,
+                target_amount="450",
+                other_slips=(ExpenseSlip(amount=500.0, live=False, reversed_at=None),),
+            )
+        )
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
 
 
 MATCHED_AT = datetime(2026, 9, 15, 10, 0, 0)

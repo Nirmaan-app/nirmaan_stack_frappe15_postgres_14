@@ -20,7 +20,9 @@ and do not widen `matcher.match_by_reference`.
 THE RULES, IN THE ORDER A LINE MEETS THEM
 
   1. LEDGER BY DIRECTION. A withdrawal (Debit) is checked against Paid Project Payments, Paid
-     Project Expenses and Paid Non Project Expenses; a deposit (Credit) against every Project Inflow
+     Project Expenses and Paid Non Project Expenses -- and, since ADR-0027 R3, against
+     RECONCILIATION PENDING expenses that already have live `Settled` slips, one candidate per
+     slip; a deposit (Credit) against every Project Inflow
      and every Non Project Inflow (#1268 -- inflows have no status). Direction is never crossed. A line with NO direction is checked
      against nothing -- the parser leaves it blank only when it refuses to guess, and guessing here
      would be the crossing the ruling forbids.
@@ -42,7 +44,8 @@ THE RULES, IN THE ORDER A LINE MEETS THEM
      unclaimed hits first, so a genuine second payment recorded under the same reference still
      skips on its own record; only when nothing but a claimed record would agree is the line
      `Mismatched`, its group carrying `used_by` so the note names the record and where it was used.
-     A line's own claim never blocks it.
+     A line's own claim never blocks it, and a PER-SLIP candidate is never claimed at all
+     (`is_slip_candidate`; see `pick_recorded_group`).
 
      Why it exists: a counterparty's bank ACCOUNT NUMBER typed as a reference sits in every
      narration to that counterparty, so without this last month's record would silently hide next
@@ -80,6 +83,7 @@ __all__ = [
     "basis_entries",
     "encode_basis",
     "decode_basis",
+    "is_slip_candidate",
     "ledgers_for_direction",
     "match_surface",
     "line_surface",
@@ -150,6 +154,15 @@ class RecordedGroup:
     @property
     def total_amount(self) -> Decimal:
         return sum((Decimal(str(t.amount or 0)) for t in self.targets), Decimal("0"))
+
+
+def is_slip_candidate(target) -> bool:
+    """Does this candidate stand for ONE live `Settled` slip rather than a whole record? (R3)
+
+    True only for a part-linked expense's per-slip candidate, which carries the slip's line in
+    `TargetRef.import_row`. Read by attribute so a test's stand-in record needs no such field.
+    """
+    return bool(getattr(target, "import_row", "") or "")
 
 
 def ledgers_for_direction(direction: str | None) -> tuple[str, ...]:
@@ -255,6 +268,15 @@ def pick_recorded_group(
     returned carrying `used_by` -- the claims on its records -- which reads as `Mismatched`.
     An amount-off hit is unaffected: whether or not its record is used, it would not skip.
 
+    ⚠️ A SLIP CANDIDATE IS NEVER CLAIMED (ADR-0027 R3). A part-linked expense enters the pool once
+    per live `Settled` slip (`TargetRef.import_row`), matched on THAT LINE'S TRANSFER ID -- an
+    identity, not a shared reference. One-record-one-line exists because a stored reference (a
+    counterparty's account number) can sit in many unrelated narrations, so one record must not hide
+    a second genuine payment; a transfer id can hide nothing but the same transfer. Leaving slip
+    candidates claimable would also be self-defeating: every slip is claimed by its own line, so the
+    rule would block the duplicate skip it exists to make possible. The whole-record candidates --
+    every Paid record -- are untouched.
+
     ⚠️ AN AMOUNT-WINDOW SITE, listed in `amounts.py`. It picks with `amounts_match`, the same window
     `status._failed_or_already_paid` then judges the group with, so the pick and the verdict can
     never disagree.
@@ -267,14 +289,19 @@ def pick_recorded_group(
         if c.import_row != own:
             used.setdefault((c.doctype, c.name), []).append(c)
 
-    free = tuple(h for h in hits if _key(h) not in used)
+    def _claims_on(target) -> tuple[RecordClaim, ...]:
+        if is_slip_candidate(target):
+            return ()
+        return tuple(used.get(_key(target), ()))
+
+    free = tuple(h for h in hits if not _claims_on(h))
     if free and len(free) < len(hits):
         group = _pick(row, free)
         if _agrees(row, group):
             return group
 
     group = _pick(row, hits)
-    blocking = [c for t in group.targets for c in used.get(_key(t), ())]
+    blocking = [c for t in group.targets for c in _claims_on(t)]
     if blocking and _agrees(row, group):
         return RecordedGroup(targets=group.targets, used_by=tuple(sorted(set(blocking), key=_claim_order)))
     return group

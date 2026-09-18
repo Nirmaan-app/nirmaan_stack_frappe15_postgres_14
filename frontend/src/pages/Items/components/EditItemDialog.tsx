@@ -22,7 +22,7 @@ interface EditItemDialogProps {
     onOpenChange: (isOpen: boolean) => void;
     onItemUpdated: () => void;
     /**
-     * Show the ADR-0004 "Linked TDS Item" control. Admin + PMO Executive only —
+     * Show the ADR-0026 "Linked TDS Item" control. Admin + PMO Executive only —
      * the CALLER decides (it already knows the role), so this dialog stays a dumb
      * renderer. The server (`Items.validate` + `api/tds/linking.py`) is the real
      * boundary; this is UX.
@@ -72,7 +72,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
         [categoryList]
     );
 
-    // ── ADR-0004: Linked TDS Item ────────────────────────────────────────────
+    // ── ADR-0026: Linked TDS Item ────────────────────────────────────────────
     // The item's work package is DERIVED from the currently-selected category
     // (`Items.category -> Category.work_package`), NOT from the saved item — so
     // changing the category in this very dialog re-filters the group list live and
@@ -107,7 +107,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
         () => (tdsItemList || []).find((t) => t.name === originalTdsItem)?.tds_item_name || originalTdsItem,
         [tdsItemList, originalTdsItem]
     );
-    // Warn-and-confirm MOVE (ADR-0004): re-pointing an already-linked item takes it
+    // Warn-and-confirm MOVE (ADR-0026): re-pointing an already-linked item takes it
     // out of its current group. Surfaced inline rather than as a modal — the change
     // is not yet saved, so a blocking confirm here would be premature.
     const isReassignment = !!originalTdsItem && !!selectedTdsItem && selectedTdsItem !== originalTdsItem;

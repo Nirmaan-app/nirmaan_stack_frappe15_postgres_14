@@ -21,6 +21,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
     _guard_is_a_debit,
+    _load_settleable_row,
     create_expense,
     get_expense_types,
     settle_expense,
@@ -39,6 +40,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.expense_links import load_expense_links
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
@@ -694,8 +696,11 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.31)
 
+        # ⚠️ `_refresh_row_allocation`, NOT `_record_settlement` (#1296). The slip is now inserted
+        # BEFORE the expense save, so failing there would throw before anything was saved and this
+        # test would stop seeing a commit inside the save. The row refresh is the first step after.
         with patch(
-            "nirmaan_stack.api.outflow_import.expenses._record_settlement",
+            "nirmaan_stack.api.outflow_import.expenses._refresh_row_allocation",
             side_effect=RuntimeError("forced after the expense was saved"),
         ):
             with self.assertRaises(RuntimeError):
@@ -705,7 +710,7 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
             PROJECT_EXPENSE, expense, ["status", "amount"], as_dict=True
         )
         self.assertEqual(after.status, SETTLEABLE, "the settle committed inside its own savepoint")
-        self.assertEqual(Decimal(after.amount), Decimal(str(float(row["amount"]) - 0.31)))
+        self.assertEqual(Decimal(str(after.amount)), Decimal(str(float(row["amount"]) - 0.31)))
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
         self.assertNotEqual(
             frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
@@ -970,6 +975,163 @@ class TestTheStatementIsAttachedToWhatItSettled(SettlementFixture):
         self.assertEqual(
             frappe.db.get_value(PROJECT_EXPENSE, name, "payment_attachment"), self.STATEMENT
         )
+
+
+class TestOneSettlePathForExpenses(SettlementFixture):
+    """#1296 (ADR-0027 § Consequences): the prefactor for many lines settling one expense.
+
+    Nothing a user sees changes, so most of this pins that a 1:1 settle is exactly as before, plus
+    the three new seams: the write order, the linked-total aggregate, and the remaining-balance guard.
+    """
+
+    def _plant_live_slip(self, doctype, expense, amount):
+        """A live Settled slip from ANOTHER staged row, as a later multi-line link would leave."""
+        other = self._next_settleable_row()
+        match = frappe.new_doc(MATCH_DOCTYPE)
+        match.update(
+            {
+                "import_row": other["name"],
+                "import_batch": self.batch.name,
+                "transfer_id": frappe.db.get_value(ROW_DOCTYPE, other["name"], "transfer_id"),
+                "target_doctype": doctype,
+                "target_name": expense,
+                "target_amount": float(amount),
+                "match_kind": "Settled",
+                "match_basis": "Manual",
+                "matched_at": frappe.utils.now_datetime(),
+                "matched_by": "Administrator",
+            }
+        )
+        match.insert(ignore_permissions=True)
+        # Take the row out of the settleable pool so no later test picks it.
+        frappe.db.set_value(ROW_DOCTYPE, other["name"], "row_status", "Settled")
+        frappe.db.commit()
+        return match.name
+
+    def test_a_one_to_one_settle_writes_the_record_amount_as_target_amount(self):
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.4)
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        after = frappe.db.get_value(
+            PROJECT_EXPENSE, expense, ["status", "amount", "payment_ref", "payment_date"],
+            as_dict=True,
+        )
+        target_amount = frappe.db.get_value(
+            MATCH_DOCTYPE, {"import_row": row["name"]}, "target_amount"
+        )
+        self.assertEqual(after.status, "Paid")
+        # Snapped to the bank figure within Rs 5, as before.
+        self.assertEqual(Decimal(str(after.amount)), Decimal(str(row["amount"])))
+        self.assertEqual(Decimal(str(target_amount)), Decimal(str(after.amount)))
+        self.assertTrue(after.payment_ref)
+        self.assertIsNotNone(after.payment_date)
+
+    def test_the_slip_exists_before_the_expense_save_runs(self):
+        """⚠️ THE WRITE ORDER (ADR-0027). The server rules re-derive status from the slips on every
+        save, so a save that ran before its own slip existed would flip the import's Paid back."""
+        from frappe.model.document import Document
+
+        row = self._next_settleable_row()
+        expense = self._make_expense(NON_PROJECT_EXPENSE, row["amount"])
+        seen = []
+        original_save = Document.save
+
+        def spy(doc, *args, **kwargs):
+            if doc.doctype == NON_PROJECT_EXPENSE and doc.name == expense:
+                seen.append(
+                    frappe.db.count(
+                        MATCH_DOCTYPE,
+                        {"target_name": expense, "import_row": row["name"], "match_kind": "Settled"},
+                    )
+                )
+            return original_save(doc, *args, **kwargs)
+
+        with patch.object(Document, "save", autospec=True, side_effect=spy):
+            settle_expense(row["name"], NON_PROJECT_EXPENSE, expense)
+
+        self.assertEqual(seen, [1], "the expense was saved before its slip was inserted")
+        self.assertEqual(frappe.db.get_value(NON_PROJECT_EXPENSE, expense, "status"), "Paid")
+
+    def test_the_aggregate_sums_live_slips_and_ignores_reversed_ones(self):
+        row = self._next_settleable_row()
+        expense = self._make_expense(NON_PROJECT_EXPENSE, row["amount"])
+        settle_expense(row["name"], NON_PROJECT_EXPENSE, expense)
+        line_date = frappe.db.get_value(ROW_DOCTYPE, row["name"], "added_on").date()
+
+        links = load_expense_links(NON_PROJECT_EXPENSE, expense)
+        self.assertEqual(links.linked_total, Decimal(str(row["amount"])))
+        self.assertEqual(links.latest_line_date, line_date)
+
+        extra = self._plant_live_slip(NON_PROJECT_EXPENSE, expense, 250)
+        self.assertEqual(
+            load_expense_links(NON_PROJECT_EXPENSE, expense).linked_total,
+            Decimal(str(row["amount"])) + 250,
+        )
+        match = frappe.get_doc(MATCH_DOCTYPE, extra)
+        match.match_kind = "Reversed"
+        match.save(ignore_permissions=True)
+        self.assertEqual(
+            load_expense_links(NON_PROJECT_EXPENSE, expense).linked_total,
+            Decimal(str(row["amount"])),
+        )
+
+    def test_an_expense_with_no_slips_has_nothing_linked(self):
+        expense = self._make_expense(NON_PROJECT_EXPENSE, 700)
+        links = load_expense_links(NON_PROJECT_EXPENSE, expense)
+        self.assertEqual(links.linked_total, Decimal("0"))
+        self.assertIsNone(links.latest_line_date)
+
+    def test_the_guard_compares_the_line_with_the_REMAINING_balance(self):
+        """⚠️ INVERTED AT #1299. This pinned `_lock_and_assert_settleable`, a two-sided window against
+        what is left. Decide's one line now goes through `link_lines_to_expense` (ADR-0027 Q13), and on
+        an expense that already has a slip the line is measured ONE-SIDED against what is left: the
+        rest fits, and the whole amount is refused."""
+        from nirmaan_stack.services.outflow_import.settle import link_lines_to_expense
+
+        expense = self._make_expense(PROJECT_EXPENSE, 4000)
+        self._plant_live_slip(PROJECT_EXPENSE, expense, 1000)
+        refused_line = frappe._dict(name="not-a-row", amount=Decimal("4000"))
+        fitting_line = frappe._dict(name="not-a-row", amount=Decimal("3000"))
+
+        # The rest fits: no refusal. (No slip is written for it here, so the expense stays short.)
+        link_lines_to_expense(
+            [fitting_line],
+            PROJECT_EXPENSE,
+            expense,
+            "Administrator",
+            record_link=lambda line, result: None,
+            one_line_from_decide=True,
+        )
+
+        with self.assertRaises(AmountMismatchError):
+            link_lines_to_expense(
+                [refused_line],
+                PROJECT_EXPENSE,
+                expense,
+                "Administrator",
+                record_link=lambda line, result: None,
+                one_line_from_decide=True,
+            )
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), SETTLEABLE)
+        frappe.db.rollback()
+
+    def test_a_fresh_expense_still_needs_the_whole_amount_from_decide(self):
+        """⚠️ INVERTED AT #1299. This pinned `settle_existing_expense`'s leg shape (`expected_amount`,
+        `rewrite_amount_to_bank=False`), which #1296 built so a late line could settle part of an
+        expense. That job went to `link_lines_to_expense` instead (Q13, one code path) and the leg
+        shape was removed with its function. What survives is the 1:1 rule for an expense with no
+        lines: a line outside ₹5 of the whole amount is refused, and nothing is written."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 100)
+
+        with self.assertRaises(AmountMismatchError):
+            settle_expense(row["name"], PROJECT_EXPENSE, expense)
+        after = frappe.db.get_value(PROJECT_EXPENSE, expense, ["status", "amount"], as_dict=True)
+        self.assertEqual(after.status, SETTLEABLE)
+        self.assertEqual(Decimal(str(after.amount)), Decimal(str(float(row["amount"]) + 100)))
+        self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row["name"]}))
 
 
 class TestFormatAmountFor(unittest.TestCase):

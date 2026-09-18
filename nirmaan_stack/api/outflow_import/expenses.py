@@ -103,7 +103,7 @@ from nirmaan_stack.services.outflow_import.settle import (
     PROJECT_EXPENSE,
     ExpenseSettlementError,
     create_expense_from_row,
-    settle_existing_expense,
+    link_lines_to_expense,
     settle_payment,
     statement_attachment_field,
 )
@@ -304,15 +304,30 @@ def _settle_and_commit(
                 staged, target_name, actor, statement_file_url=statement_file_url
             )
             recompute_for_settled_payment(target_name)
+            _record_settlement(staged, doc, result, actor)
         else:
-            result = settle_existing_expense(
-                staged,
+            # ⚠️ THE ONE EXPENSE SETTLE, WITH ONE LINE (#1299, ADR-0027 Q13). A late line of a run
+            # part-fills or fills what is left; a fresh expense still settles 1:1 or is refused.
+            # `result` is THIS LINE's slip result, not the expense summary: the row note, the
+            # amount-correction disclosure and the response all describe what this line did.
+            slips = []
+
+            def record_link(line, settled):
+                # ⚠️ THE SLIP IS INSERTED INSIDE THE SETTLE, BEFORE THE EXPENSE SAVE (#1296,
+                # ADR-0027 write order) -- so the save sees its own slip.
+                slips.append(settled)
+                _record_settlement(staged, doc, settled, actor)
+
+            link_lines_to_expense(
+                [staged],
                 target_doctype,
                 target_name,
                 actor,
                 statement_file_url=statement_file_url,
+                record_link=record_link,
+                one_line_from_decide=True,
             )
-        _record_settlement(staged, doc, result, actor)
+            (result,) = slips
         # ⚠️ INSIDE THE SAVEPOINT. The status is derived from the legs, so it must be recomputed in
         # the same transaction that added one -- otherwise a rolled-back settle leaves a row
         # claiming money that was never written.
@@ -1162,7 +1177,7 @@ def _guard_is_a_debit(doc) -> None:
     construction rather than by two functions happening to make the same choice.
 
     ⚠️ THERE IS NO SERVICE TWIN ON THIS SIDE, AND THAT IS A STATEMENT OF FACT RATHER THAN A CLAIM OF
-    SYMMETRY. `settle_payment`, `settle_existing_expense` and `create_expense_from_row` take no
+    SYMMETRY. `settle_payment`, `link_lines_to_expense` and `create_expense_from_row` take no
     `direction` argument at all, so there is nothing in the service layer for the value to be
     re-checked against -- unlike the credit paths, where the direction chooses a SIGN and the
     service therefore has to see it.
@@ -1268,7 +1283,9 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "target_name": result.name,
             # `target_amount` means "how much of THIS TRANSFER went to this target". Since the import
             # records no tax (ADR-0021) every settle path writes the payment's own settled figure, so
-            # `result.amount` IS that share -- there is no withheld part to subtract. ⚠️ Do not
+            # `result.amount` IS that share -- there is no withheld part to subtract. On a slip of a
+            # many-line expense (ADR-0027, #1298) `settle.link_lines_to_expense` hands the LINE's own
+            # amount instead, so an expense's linked total is a plain SUM of its slips. ⚠️ Do not
             # reintroduce a net/gross split here: SR tax is withheld at approval by
             # `services/payment_tds.py`, which rewrites `amount` to the net figure before this runs.
             "target_amount": float(result.amount),

@@ -41,6 +41,7 @@
   "row_status",
   "skip_reason",
   "skip_origin",
+  "skip_kind",
   "outcome_note",
   "duplicate_basis",
   "decided_at",
@@ -253,11 +254,19 @@
    "label": "Skip Reason"
   },
   {
-   "description": "Who set this row aside (#1273). System = the software skipped it (upload staging or the match run: a failed transfer, a duplicate, an exclusion rule, money already recorded). Manual = a person skipped it with review.skip_row and typed skip_reason. Blank = the row is not Skipped. Only a Manual skip may ever be unskipped; a System skip stays skipped so the same money can never be recorded twice.",
+   "description": "Who set this row aside (#1273). System = the software skipped it (upload staging or the match run: a failed transfer, a duplicate, an exclusion rule, money already recorded). Manual = a person skipped it with review.skip_row and typed skip_reason. Blank = the row is not Skipped. Unskip is decided by skip_kind, not by this field (2026-09-17, ADR-0022 Amendment C).",
    "fieldname": "skip_origin",
    "fieldtype": "Select",
    "label": "Skip Origin",
    "options": "\nSystem\nManual",
+   "read_only": 1
+  },
+  {
+   "description": "What kind of skip this is -- the Skipped popup's Skip Type column and filter. Blank = the row is not Skipped. Set by the SAME branch that writes skip_reason / outcome_note (vocabulary: services/outflow_import/skip_kinds.py; writers: status.py derivers, cashbook.py plan, review.skip_row), never read back out of those sentences, so rewording a sentence cannot re-file a row. One kind per bank-exclusion rule. Rows skipped before this field existed were back-filled by patches/v3_0/backfill_outflow_skip_kind.py.",
+   "fieldname": "skip_kind",
+   "fieldtype": "Select",
+   "label": "Skip Kind",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand",
    "read_only": 1
   },
   {
@@ -332,7 +341,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-09-15 12:00:00.000000",
+ "modified": "2026-09-17 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

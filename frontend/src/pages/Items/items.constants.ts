@@ -20,7 +20,7 @@ export const ITEM_LIST_FIELDS_TO_FETCH: (keyof ItemsType | 'name')[] = [
 
 /**
  * The "not set" facet sentinel, re-exported under an Items-flavoured name for the
- * Linked TDS Item facet (ADR-0004). Deliberately an ALIAS, not a second literal —
+ * Linked TDS Item facet (ADR-0026). Deliberately an ALIAS, not a second literal —
  * the one definition lives in `facetConfig.ts` beside the `FacetDeclaration` that
  * turns the bucket on, and must stay byte-identical to `NOT_SET_FACET_VALUE` in
  * `nirmaan_stack/api/data_table/facets.py`.

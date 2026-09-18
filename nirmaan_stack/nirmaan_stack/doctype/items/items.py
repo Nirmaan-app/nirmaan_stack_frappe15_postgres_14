@@ -19,7 +19,7 @@ class Items(Document):
 		self._validate_linked_tds_item()
 
 	def _validate_linked_tds_item(self):
-		"""Hard-enforce the ADR-0004 work-package invariant on `linked_tds_item`.
+		"""Hard-enforce the ADR-0026 work-package invariant on `linked_tds_item`.
 
 		An item may only belong to a TDS group in its OWN work package. The item's
 		WP is derived `Items.category -> Category.work_package`; the group's is
@@ -160,7 +160,7 @@ class Items(Document):
 			""",
 			(self.name,),
 		)
-	# HISTORY (ADR-0004): `on_update` used to also sync item_name/category into
+	# HISTORY (ADR-0026): `on_update` used to also sync item_name/category into
 	# `TDS Repository` rows via a `tds_item_id` filter. The 3-level restructure had
 	# already removed those columns from the doctype JSON, but Frappe never dropped
 	# them from PostgreSQL — so the block kept running against orphan columns, and a
@@ -172,7 +172,7 @@ class Items(Document):
 
 
 def on_doctype_update():
-	# ADR-0004 made `Items.linked_tds_item` the SOLE membership store, so it is
+	# ADR-0026 made `Items.linked_tds_item` the SOLE membership store, so it is
 	# filtered by every membership read in the app -- members.get_tds_item_members
 	# / get_tds_member_index / get_group_category, tds_report._enrich_derived_cells,
 	# picker.search_tds_items, and the `members` display-mirror rebuild. Measured

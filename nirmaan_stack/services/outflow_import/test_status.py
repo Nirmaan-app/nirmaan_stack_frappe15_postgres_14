@@ -1940,12 +1940,23 @@ class TestPurity(unittest.TestCase):
         this test naming only `amounts` would have let the new dependency go unchecked, which is
         exactly the hole a transitive purity test exists to close. Any further sibling import must
         be added here in the same edit.
+
+        ⚠️ WIDENED AGAIN WITH THE FOURTH (#1301). `status.py` grew a `contains_guard` import so that
+        "is this candidate one slip of a part-linked expense?" has one definition; the guard's own
+        siblings (`amounts`, `ledgers`, `normalize`) are pure, and `normalize` is checked here too
+        rather than being reached only through it.
         """
         import inspect
 
-        from nirmaan_stack.services.outflow_import import amounts, ledgers
+        from nirmaan_stack.services.outflow_import import (
+            amounts,
+            contains_guard,
+            ledgers,
+            normalize,
+            skip_kinds,
+        )
 
-        for sibling in (amounts, ledgers):
+        for sibling in (amounts, contains_guard, ledgers, normalize, skip_kinds):
             for line in inspect.getsource(sibling).splitlines():
                 stripped = line.strip()
                 if stripped.startswith(("import ", "from ")):

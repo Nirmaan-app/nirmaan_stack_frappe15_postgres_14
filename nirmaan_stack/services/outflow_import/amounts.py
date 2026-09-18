@@ -47,12 +47,37 @@ NEITHER WINDOW IS THE DEFERRED Q11 TOLERANCE PASS: TDS is a deduction of THOUSAN
 amount), which neither can reach and neither may be stretched to reach. A TDS payment still arrives
 `Unmatched` and is settled by hand.
 
-⚠️ ONE OWNER, FIVE CALL SITES, AND THAT IS THE WHOLE POINT. The rule is applied by:
+⚠️ ONE OWNER, AND EVERY CALL SITE IS LISTED -- THAT IS THE WHOLE POINT. The rule is applied by:
   * `candidates.load_payments_by_amount`    -- the SQL pool query
   * `candidates.load_expense_targets`       -- the SQL pool query
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
-  * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
+  * `settle.settle_payment`                  -- the payment WRITE guard.
+  * `expense_links.one_line_fits` (#1299)    -- Decide's one-line expense rule, read by the picker's
+                                               `suggested` flag AND `settle_row`'s write: SETTLE
+                                               window against the whole amount while the expense has
+                                               no live slip, `lines_fit` against what is left once
+                                               it has.
+  * `expense_links.derive_expense_status` (#1296) -- SETTLE window, ONE-SIDED like
+                                               `allocation.is_fully_allocated`: an expense is Paid
+                                               once `amount - linked total <= AMOUNT_TOLERANCE`,
+                                               otherwise Reconciliation Pending (ADR-0027).
+  * `expense_links.lines_fit` (#1298)        -- the MANY-LINE write guard in
+                                               `settle.link_lines_to_expense`, ONE-SIDED: lines may
+                                               exceed what is left by at most AMOUNT_TOLERANCE.
+  * `unreconcile._is_many_line_expense` (#1300) -- SETTLE window, ONE-SIDED, and it DECIDES A VERDICT
+                                               rather than a write: a lone line short of the expense
+                                               by more than AMOUNT_TOLERANCE, on a Reconciliation
+                                               Pending expense, is a part-fill of a many-line run,
+                                               not a 1:1 settle.
+  * `unreconcile._unlink_line_verdict` (#1300) -- SETTLE window, the SAME one-sided reading
+                                               `expense_links.derive_expense_status` makes, and it
+                                               only SAYS what that function then writes: whether the
+                                               lines left behind still make the expense Paid. ⚠️ It
+                                               is a second reading, not a second owner -- the write
+                                               re-derives through `derive_expense_status`. Reading
+                                               that function here would make this pure module import
+                                               `frappe` (`expense_links` holds the aggregate too).
   * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_already_recorded_
                                                outcome`, reached through `_failed_or_already_paid`,
                                                shared with `derive_duplicate_guard_outcome` -- and,
@@ -166,6 +191,7 @@ __all__ = [
     "tolerance_bounds",
     "to_decimal",
     "rewrite_amount",
+    "rupees",
 ]
 
 # THE SETTLE WINDOW. Owner ruling 2026-08-07 (widened from Re 1 with tier 2; see the docstring).
@@ -249,3 +275,27 @@ def tolerance_bounds(
     amount = to_decimal(value)
     width = to_decimal(tolerance)
     return amount - width, amount + width
+
+
+def rupees(amount) -> str:
+    """`₹21,480` / `₹1,60,113.50` -- Indian grouping, paise only when there are any, for a refusal.
+
+    ⚠️ IT LIVES HERE, NOT IN THE MODULE THAT FIRST NEEDED IT. It was `settle._rupees` until #1302,
+    when the expense document rules needed the same shape for their own refusals -- and `settle.py`
+    imports `expense_links`, so the rules could not import it back without a cycle. `amounts.py` is
+    the pure leaf both sides already import, which makes it the one place a money figure in a
+    sentence can be spelled. A second copy is how two refusals about the same money end up printing
+    it differently.
+    """
+    value = to_decimal(amount).quantize(Decimal("0.01"))
+    sign = "-" if value < 0 else ""
+    whole, _, paise = f"{abs(value):.2f}".partition(".")
+    head, tail = whole[:-3], whole[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    if head:
+        groups.insert(0, head)
+    grouped = ",".join(groups + [tail]) if groups else tail
+    return f"{sign}₹{grouped}" + (f".{paise}" if paise != "00" else "")

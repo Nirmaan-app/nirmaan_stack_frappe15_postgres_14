@@ -21,8 +21,8 @@ Date: 2026-07-17
 > > Excel row** with the **same description**, **and** its parent satisfies the same test. Both, or
 > > neither. Everything else is an ordinary parsed row.
 >
-> Design of record with ten worked scenarios: `docs/boq/revised-boq-carry-amendment.html`.
-> Implementation waves: `docs/boq/HANDOFF-revised-boq-carry-amendment.md` §6.
+> Design of record with ten worked scenarios: `git show e6547258:docs/boq/revised-boq-carry-amendment.html` (removed from the tree).
+> Implementation waves: `git show e6547258:docs/boq/HANDOFF-revised-boq-carry-amendment.md` (removed from the tree) §6.
 
 > ### ⚠️ AMENDMENT G — 2026-07-30, owner-directed
 >

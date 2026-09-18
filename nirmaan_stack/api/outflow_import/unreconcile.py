@@ -72,6 +72,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.settle import (
+    _derive_status_and_save,
     _outflow_import_write,
     clear_statement_attachment,
 )
@@ -85,9 +86,11 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNLINK_EXPENSE_LINE,
     VERDICT_UNSPLIT_PAYMENT,
     WHOLE_LINE_ONLY_REFUSAL,
     WHOLE_LINE_ONLY_TITLE,
+    ExpenseSlip,
     LegFacts,
     LegVerdict,
     first_refusal,
@@ -126,6 +129,9 @@ class CarriedOut(NamedTuple):
     # Only a deleted record carries it: the record is gone by the time the clean-up reads anything.
     project: str | None = None
     deleted: bool = False
+    # One line off a many-line expense (#1300) whose other live lines include one from the same
+    # statement: the statement stays attached, so its `File` link row stays too.
+    statement_held_by_another_line: bool = False
 
 
 @frappe.whitelist()
@@ -184,6 +190,7 @@ def get_unreconcile_plan(row: str) -> dict:
                 "title": verdicts[leg.name].title,
                 "fix_at": verdicts[leg.name].fix_at,
                 **unsplit_fields(verdicts[leg.name]),
+                **expense_line_fields(verdicts[leg.name]),
             }
             for leg in legs
         ],
@@ -274,9 +281,22 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
                 "reversed_amount": float(leg.target_amount),
                 "amount_after": _amount_after(leg),
                 **unsplit_fields(verdict),
+                **expense_line_fields(verdict),
             }
             for leg, verdict in zip(requested, verdicts)
         ],
+    }
+
+
+def expense_line_fields(verdict: LegVerdict) -> dict:
+    """What the blue "Only this line comes off" line lists (#1300), for the plan and the response; blank
+    on every other verdict."""
+    line = verdict.verdict == VERDICT_UNLINK_EXPENSE_LINE
+    return {
+        "stays_linked": float(verdict.stays_linked) if line else None,
+        "other_lines": verdict.other_lines if line else None,
+        "expense_amount": float(verdict.expense_amount) if line else None,
+        "stays_paid": verdict.stays_paid if line else None,
     }
 
 
@@ -318,6 +338,9 @@ def _carry_out(
     if kind == VERDICT_REVERT_PAYMENT:
         _revert_payment(leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name)
+    if kind == VERDICT_UNLINK_EXPENSE_LINE:
+        held = _unlink_expense_line(leg, statement_file_url)
+        return CarriedOut(leg.target_doctype, leg.target_name, statement_held_by_another_line=held)
     if kind == VERDICT_REVERT_EXPENSE:
         _revert_expense(leg.target_doctype, leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name)
@@ -450,7 +473,68 @@ def _read_expense_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
         versions=(
             edits_of(leg.target_doctype, leg.target_name) if leg.created_by_import else ()
         ),
+        other_slips=_other_slips(leg),
     )
+
+
+def _other_slips(leg) -> tuple:
+    """Every OTHER slip on the leg's expense, live or Reversed (#1300): what tells a line of a many-line
+    expense from a 1:1 settle.
+
+    ⚠️ DELIBERATELY UNLOCKED, THE ONE FACT THAT IS. Each of these slips belongs to ANOTHER import line, and
+    this call holds only THIS line's lock: locking them would take a lock out of the row-then-legs-then-
+    targets order this module's docstring sets, and write no slip under its own line's lock. What the
+    fact is protected by instead is the EXPENSE lock, which `_read_expense_facts` takes `for_update`
+    immediately before -- and every writer of these slips (`settle.link_lines_to_expense`, this undo)
+    takes that same expense lock before it inserts or stamps one. So a slip cannot appear or be reversed
+    between this read and the verdict."""
+    return tuple(
+        ExpenseSlip(
+            amount=slip.target_amount,
+            live=slip.match_kind == MATCH_SETTLED,
+            reversed_at=slip.reversed_at,
+        )
+        for slip in frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={
+                "target_doctype": leg.target_doctype,
+                "target_name": leg.target_name,
+                "name": ["!=", leg.name],
+            },
+            fields=["target_amount", "match_kind", "reversed_at"],
+        )
+    )
+
+
+def _unlink_expense_line(leg, statement_file_url: str | None) -> bool:
+    """Take one line off a many-line expense (#1300, ADR-0027 Q15). Returns whether another live line
+    from the same statement keeps the statement attached.
+
+    ⚠️ THE LEG IS ALREADY STAMPED REVERSED, so the re-derive reads only the lines that stay: Reconciliation
+    Pending with no date when they fall short, else Paid on the latest one's date. The same
+    `_derive_status_and_save` every expense settle ends in.
+
+    ⚠️ THE AMOUNT, THE REFERENCE AND 'PAID BY' ARE NOT TOUCHED -- other lines still settle the expense,
+    and the reference is the run's, not this line's. The statement attachment comes off only when no
+    live line from the same import is left.
+    """
+    doc = frappe.get_doc(leg.target_doctype, leg.target_name)
+    held_by_another_line = bool(
+        frappe.db.exists(
+            MATCH_DOCTYPE,
+            {
+                "target_doctype": leg.target_doctype,
+                "target_name": leg.target_name,
+                "match_kind": MATCH_SETTLED,
+                "import_batch": leg.import_batch,
+            },
+        )
+    )
+    if not held_by_another_line:
+        clear_statement_attachment(doc, statement_file_url)
+    doc.flags.from_outflow_import = True
+    _derive_status_and_save(doc, doc.amount)
+    return held_by_another_line
 
 
 def _revert_expense(doctype: str, name: str, statement_file_url: str | None) -> None:

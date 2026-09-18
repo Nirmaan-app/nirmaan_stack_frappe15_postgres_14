@@ -45,7 +45,7 @@ def _enrich_derived_cells(items):
     Phase 2 rows hold the frozen TDS Item id in `tds_item_id`; a group spans
     several member categories, so Model No. is the joined member-category list,
     derived **live** from the master (informational, not the signed datasheet —
-    ADR-0003). The lookup is a single batched `get_all` over the member child
+    ADR-0025). The lookup is a single batched `get_all` over the member child
     rows (no N+1).
 
     Fallbacks:
@@ -78,7 +78,7 @@ def _enrich_derived_cells(items):
         valid_groups = set(existing)
 
         if valid_groups:
-            # ADR-0004: membership is N:1 owned by the Item, so a group's members
+            # ADR-0026: membership is N:1 owned by the Item, so a group's members
             # are `Items WHERE linked_tds_item = <group>`. This is the BATCHED
             # equivalent of `members.get_group_category` (which is per-group and
             # would be an N+1 here) — the two must stay semantically identical:

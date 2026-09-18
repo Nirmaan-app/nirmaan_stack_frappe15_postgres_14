@@ -6,7 +6,7 @@ a PO / DN / DC change could alter a project's pending-obligation set. The actual
 recompute lives in `reconcile.reconcile_project_action_items`; these handlers only
 RESOLVE the affected project and enqueue.
 
-Correctness / safety contract (docs/prd/project-action-items.md §2 invariant 6, §5):
+Correctness / safety contract (git show e6547258:docs/prd/project-action-items.md §2 invariant 6, §5):
   * NEVER breaks the host save. Every handler is wrapped so any failure is logged and
     swallowed — a missing/broken reconciler can never fail a PO/DN/DC save.
   * `enqueue_after_commit=True` is MANDATORY on the enqueue — otherwise the background

@@ -3,60 +3,49 @@
 // The Skipped popup's Unskip column and the notice an Unskip ends in (#1274, parent #1270, ADR-0022).
 // Pure: no React, no fetch. `SkippedRowsDialog` renders these; `unskipView.test.ts` pins them.
 
-import { NEVER_MATCHED_SOURCES, ROW_MATCHED, ROW_SKIPPED, SKIP_ORIGIN_MANUAL } from "./outflowImportStatus";
+import { NEVER_MATCHED_SOURCES, ROW_MATCHED, ROW_SKIPPED } from "./outflowImportStatus";
+import { BANK_RULE_SKIP_KINDS, UNSKIP_LOCKED_KINDS } from "./skipKinds";
 
 export const UNSKIP_BLOCK_NOT_SKIPPED = "This transfer is not skipped.";
 export const UNSKIP_BLOCK_CASHBOOK = "Cashbook rows can't be unskipped.";
-export const UNSKIP_BLOCK_BANK_REFUSED = "The bank never moved this money.";
-export const UNSKIP_BLOCK_EXCLUDED = "A bank rule excluded it.";
-export const UNSKIP_BLOCK_EARLIER_STATEMENT = "The same transfer is in an earlier statement.";
-export const UNSKIP_BLOCK_ALREADY_RECORDED = "This money is already recorded.";
-
-/**
- * Fragments of the sentences `status.py` writes when it skips a line at upload, which is how a system
- * skip's CAUSE is told apart on screen. `unskipView.test.ts` reads `status.py` and fails if one is
- * reworded there.
- */
-export const UNSKIP_SENTENCE_MARKERS = {
-    excluded: ["Excluded by bank-statement rule"],
-    earlierStatement: ["Already imported in batch", "This transfer appears earlier in the same statement"],
-} as const;
-
-/** Mirrors `parser.BANK_SUCCESS_STATUS`; `unskipView.test.ts` pins it. */
-export const BANK_SUCCESS_STATUS = "SUCCESS";
-
-const mentions = (text: string, markers: readonly string[]) => markers.some((m) => text.includes(m));
+export const UNSKIP_BLOCK_NO_KIND = "This transfer has no skip type, so it can't be unskipped.";
 
 /**
  * Why this Skipped line has NO live Unskip, as the sentence shown beside the disabled button -- or
  * `null` when it may be unskipped.
  *
- * ⚠️ CONVENIENCE ONLY. `skip_origin.unskip_refusal` is the boundary and re-checks Manual and Cashbook.
- * The finer causes below exist only so a disabled button explains itself in words (story 63); the
- * server never needs them, because it refuses every system skip the same way.
+ * ⚠️ KEYED ON SKIP KIND (owner, 2026-09-17, ADR-0022 Amendment C). It used to allow hand skips only and
+ * tell system skips apart by the WORDS of their sentence. Now: every kind comes back except the four in
+ * `UNSKIP_LOCKED_KINDS`, and never a Cashbook line (decision B1).
  *
- * ⚠️ PRECEDENCE: Cashbook, then a hand skip, then the bank's own verdict, then the words. A refused
- * transfer keeps its sentence only in `skip_reason`, which an old hand re-skip overwrote -- so
- * `status_raw` is read before any sentence. A blank `status_raw` counts as refused, as the Skipped
- * popup's Bank-refused filter counts it.
+ * ⚠️ CONVENIENCE ONLY. `skip_origin.unskip_refusal` is the boundary and re-checks all of it; the
+ * sentences are the server's, pinned by `skipKinds.test.ts`.
  */
 export const unskipBlockReason = (row: {
     row_status: string;
-    skip_origin?: string | null;
+    skip_kind?: string | null;
     source?: string | null;
-    status_raw?: string | null;
-    outcome_note?: string | null;
-    skip_reason?: string | null;
 }): string | null => {
     if (row.row_status !== ROW_SKIPPED) return UNSKIP_BLOCK_NOT_SKIPPED;
     if (NEVER_MATCHED_SOURCES.has((row.source ?? "").trim())) return UNSKIP_BLOCK_CASHBOOK;
-    if (row.skip_origin === SKIP_ORIGIN_MANUAL) return null;
-    if ((row.status_raw ?? "").trim().toUpperCase() !== BANK_SUCCESS_STATUS) return UNSKIP_BLOCK_BANK_REFUSED;
-    const words = `${row.outcome_note ?? ""} ${row.skip_reason ?? ""}`;
-    if (mentions(words, UNSKIP_SENTENCE_MARKERS.excluded)) return UNSKIP_BLOCK_EXCLUDED;
-    if (mentions(words, UNSKIP_SENTENCE_MARKERS.earlierStatement)) return UNSKIP_BLOCK_EARLIER_STATEMENT;
-    return UNSKIP_BLOCK_ALREADY_RECORDED;
+    const kind = (row.skip_kind ?? "").trim();
+    if (!kind) return UNSKIP_BLOCK_NO_KIND;
+    return UNSKIP_LOCKED_KINDS[kind] ?? null;
 };
+
+/**
+ * The warning the Unskip box shows before a bank-rule line goes back to work, or `null` for any other.
+ *
+ * ⚠️ THE ONE KIND UNSKIP CAN GENUINELY RE-OPEN AS A DUPLICATE (owner decision B1). The re-check skips a
+ * line whose money is still recorded again, but it does not re-apply bank rules -- so a Cashfree top-up
+ * comes back as work, and booking it would count money the Cashfree statement already holds.
+ */
+export const unskipWarning = (row: { skip_kind?: string | null }): string | null =>
+    BANK_RULE_SKIP_KINDS.has((row.skip_kind ?? "").trim())
+        ? `A bank rule read this line as money moving between our own accounts (${row.skip_kind}), not a ` +
+          "spend or a receipt. It comes back as open work -- check that its money is not already counted " +
+          "somewhere else before you record it."
+        : null;
 
 /** What `review.unskip_row` returns, as far as the notice reads it. */
 export interface UnskipResult {
@@ -92,7 +81,9 @@ export const unskipNotice = (result: UnskipResult): UnskipNotice => {
         return {
             tone: "warn",
             title: "Unskipped, then skipped again.",
-            body: `${noteBody ? `${noteBody} ` : ""}It can't be unskipped now.`,
+            // ⚠️ NOT "it can't be unskipped now" (owner, 2026-09-17): a recorded skip may be unskipped
+            // again -- the same re-check just skips it again while the money is still recorded.
+            body: noteBody,
         };
     }
     if (result.status === ROW_MATCHED && result.suggested_name) {

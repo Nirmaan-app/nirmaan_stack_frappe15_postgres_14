@@ -56,6 +56,7 @@ import {
     matcherCandidateLine,
     confirmFunnel,
     describeFrappeError,
+    settleBlockRemedy,
     settleBlockText,
     settleBlocker,
     previewCounts,
@@ -92,6 +93,7 @@ import {
     SCOPE_FOR_TAB,
     countDecided,
     decidedRows,
+    selectedMoneyOut,
     decisionLinkKeys,
     decisionOrigin,
     highlightSegments,
@@ -1028,6 +1030,8 @@ describe("inflow tab visibility (#1264)", () => {
         not_matched_inflow: inflow,
         settled_inflow: 0,
         skipped: 0,
+        skipped_outflow: 0,
+        skipped_inflow: 0,
     });
 
     it("shows the Inflow tabs when the chosen source can carry a credit", () => {
@@ -2167,6 +2171,38 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     });
 });
 
+describe("selectedMoneyOut -- the toolbar's money-out total for the ticked lines (#1297)", () => {
+    const rows = [
+        row({ name: "a", amount: 6240, direction: "Debit" }),
+        row({ name: "b", amount: 3870, direction: "Debit" }),
+        row({ name: "c", amount: 1905, direction: "Credit" }),
+        row({ name: "d", amount: 822, direction: undefined }),
+    ];
+
+    it("sums only the ticked lines", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "b"]))).toBe(10110);
+    });
+
+    it("leaves a money-in line out of the total", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "c"]))).toBe(6240);
+    });
+
+    // A blank direction is outflow, exactly as the tabs and the Amount cell's red file it --
+    // `isCreditRow` is the one test, so the total can never disagree with the colour on screen.
+    it("counts a blank-direction line as money out", () => {
+        expect(selectedMoneyOut(rows, new Set(["d"]))).toBe(822);
+    });
+
+    it("is zero with nothing ticked, or only a money-in line ticked", () => {
+        expect(selectedMoneyOut(rows, new Set())).toBe(0);
+        expect(selectedMoneyOut(rows, new Set(["c"]))).toBe(0);
+    });
+
+    it("ignores a ticked name that is not among the loaded rows", () => {
+        expect(selectedMoneyOut(rows, new Set(["a", "gone"]))).toBe(6240);
+    });
+});
+
 describe("links to the record a row settles — the app's own route (slice E3)", () => {
     const ORDER = "PO/123/25-26";
 
@@ -3023,6 +3059,28 @@ describe("settleBlocker", () => {
         expect(settleBlocker({ name: "P", amount: 90, suggested: false }, 100)!.difference).toBe(-10);
     });
 
+    it("a line too big for what a part-linked expense has left is measured against what is left (#1299)", () => {
+        const block = settleBlocker(
+            {
+                name: "toj650dsqd",
+                amount: 160113,
+                suggested: false,
+                target_doctype: "Non Project Expenses",
+                line_count: 25,
+                remaining: 10000,
+            },
+            12000
+        );
+        expect(block).toMatchObject({
+            reason: "more_than_left",
+            recordAmount: 10000,
+            bankAmount: 12000,
+            difference: -2000,
+        });
+        expect(settleBlockText(block)).toContain("more than this expense still has left to link");
+        expect(settleBlockRemedy(block)).toBe("Pick another expense, or raise its amount first.");
+    });
+
     it("does not block a record the server accepts", () => {
         expect(settleBlocker({ name: "PAY-1", amount: 86553, suggested: true }, 86553)).toBeNull();
     });
@@ -3137,6 +3195,12 @@ describe("settleBlockReason / settleBlockText — WHY this pick cannot be settle
                 "expense_exact_only"
             );
         }
+        // ⚠️ INVERTED AT #1299: the sentence used to say an expense "cannot be settled in parts",
+        // which "Link N to one expense" made untrue. It now names that route instead.
+        const text = settleBlockText(settleBlocker({ ...larger, target_doctype: "Non Project Expenses" }, 200000));
+        expect(text).not.toContain("cannot be settled in parts");
+        expect(text).toContain("Link");
+        expect(text).toContain("to one expense");
         // And the payment ledger is the other way round on both.
         const payment = { ...larger, target_doctype: "Project Payments" };
         expect(partialOffer(payment, 200000)).not.toBeNull();
@@ -3320,6 +3384,8 @@ describe("tabCountParts", () => {
         not_matched_inflow: 3,
         settled_inflow: 5,
         skipped: 47,
+        skipped_outflow: 45,
+        skipped_inflow: 2,
     };
     const zero = {
         "Pending match run": 0,
@@ -3394,14 +3460,19 @@ describe("tabCountParts", () => {
 
     // ⚠️ THE OWNER RULING, PINNED IN THE ONE PLACE THE TWO VOCABULARIES MEET. Skipped rows have a
     // scope so the dialog can ask for them by name; they must never acquire a tab.
-    it("no tab maps to the skipped scope", () => {
-        expect(Object.values(SCOPE_FOR_TAB)).not.toContain("skipped");
+    it("no tab maps to a skipped scope", () => {
+        for (const scope of ["skipped", "skipped_outflow", "skipped_inflow"]) {
+            expect(Object.values(SCOPE_FOR_TAB)).not.toContain(scope);
+        }
     });
 
     it("the tab strip never renders a skipped count", () => {
         for (const tab of OUTFLOW_TABS) {
             const parts = tabCountParts(tab.id, tabCounts, directionStatusCounts);
-            expect(parts.map((p) => p.count)).not.toContain(tabCounts.skipped);
+            const shown = parts.map((p) => p.count);
+            expect(shown).not.toContain(tabCounts.skipped);
+            expect(shown).not.toContain(tabCounts.skipped_outflow);
+            expect(shown).not.toContain(tabCounts.skipped_inflow);
         }
     });
 });
@@ -3692,47 +3763,73 @@ describe("orderLabel", () => {
     });
 });
 
-describe("serverQuery — the skipped split", () => {
-    // ⚠️ TWO CORRECT NUMBERS THAT DISAGREED. The summary chip counted 20 skipped, the `skipped`
-    // scope returns 47, and the difference is the 27 the bank refused — excluded from every summary
-    // FIGURE by owner ruling while still carrying `row_status` Skipped.
-    it("asks for neither half by default", () => {
-        expect(serverQuery({ scope: "skipped" }).failed).toBeUndefined();
-    });
-
-    it("asks for the refused half", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "failed" } }).failed).toBe(true);
-    });
-
-    it("asks for everything else", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "recorded" } }).failed).toBe(false);
-    });
-
-    // `false` and "absent" are different questions; sending one for the other would silently drop
-    // the 27 from a list that exists to hold them.
-    it("an empty choice is absent, never false", () => {
-        expect(serverQuery({ scope: "skipped", filters: { failed: "" } }).failed).toBeUndefined();
-    });
-
-    it("counts as an active filter so the clear control appears", () => {
-        expect(activeFilterCount({ failed: "failed" })).toBe(1);
-        expect(activeFilterCount({ failed: "" })).toBe(0);
-    });
-
-    // #1273: the fourth segment asks the server for hand skips, and says nothing about `failed`.
-    it("asks for the lines skipped by hand", () => {
-        const query = serverQuery({
-            scope: "skipped",
-            filters: { failed: model.SKIPPED_BY_HAND_FILTER },
-        });
-        expect(query.skip_origin).toBe("Manual");
-        expect(query.failed).toBeUndefined();
-    });
-
-    it("sends no origin for any other segment", () => {
-        for (const failed of ["", "failed", "recorded"]) {
-            expect(serverQuery({ scope: "skipped", filters: { failed } }).skip_origin).toBeUndefined();
+describe("serverQuery — the Skipped popup (Skip Type, 2026-09-17)", () => {
+    // ⚠️ INVERTED, NOT DELETED. The popup used to split `Skipped` with a `failed` pseudo-filter
+    // (All / On purpose / Bank refused / Skipped by hand). Skip Type and the direction tabs replaced it,
+    // so a stale `failed` value -- a state object left from before -- must send NOTHING.
+    it("never sends the retired failed / skip_origin split", () => {
+        for (const failed of ["", "failed", "recorded", "manual"]) {
+            const query = serverQuery({ scope: "skipped", filters: { failed } }) as unknown as Record<string, unknown>;
+            expect(query.failed).toBeUndefined();
+            expect(query.skip_origin).toBeUndefined();
         }
+        expect("SKIPPED_BY_HAND_FILTER" in model).toBe(false);
+        expect("SKIPPED_ON_PURPOSE_LABEL" in model).toBe(false);
+    });
+
+    it("sends a Skip Type tick as a server facet", () => {
+        const query = serverQuery({
+            scope: "skipped_outflow",
+            filters: { skip_kind: ["Bank refused", "Skipped by hand"] },
+        });
+        expect(query.scope).toBe("skipped_outflow");
+        expect(query.facets).toEqual({ skip_kind: ["Bank refused", "Skipped by hand"] });
+    });
+
+    it("the tabs are All, Inflow, Outflow, each its own scope", () => {
+        expect(model.SKIPPED_TABS).toEqual([
+            { scope: "skipped", label: "All" },
+            { scope: "skipped_inflow", label: "Inflow" },
+            { scope: "skipped_outflow", label: "Outflow" },
+        ]);
+    });
+});
+
+describe("the Skipped popup's columns", () => {
+    it("replaces Outcome with Skip Type, in the same place, and drops Status and Ledger", () => {
+        const ids = model.SKIPPED_COLUMNS.map((c) => c.id);
+        expect(ids).not.toContain("outcome");
+        // Owner, 2026-09-17: every row is Skipped and settles nothing, so these said nothing.
+        expect(ids).not.toContain("row_status");
+        expect(ids).not.toContain("settled_ledger");
+        const page = model.OUTFLOW_COLUMNS.map((c) => c.id);
+        expect(ids).toEqual(
+            page
+                .filter((id) => id !== "row_status" && id !== "settled_ledger")
+                .map((id) => (id === "outcome" ? "skip_kind" : id))
+        );
+        expect(model.SKIPPED_COLUMNS.find((c) => c.id === "skip_kind")).toMatchObject({
+            title: "Skip Type",
+            filter: "facet",
+        });
+    });
+
+    it("leaves the page's own columns without Skip Type", () => {
+        expect(model.OUTFLOW_COLUMNS.map((c) => c.id)).not.toContain("skip_kind");
+    });
+
+    it("exports Skip Type beside the full Outcome reason", () => {
+        const ids = model.SKIPPED_EXPORT_COLUMNS.map((c) => c.id);
+        expect(ids).toContain("outcome");
+        expect(ids.indexOf("skip_kind")).toBe(ids.indexOf("outcome") - 1);
+    });
+
+    it("reads the stored kind, never the sentence", () => {
+        const column = model.SKIP_TYPE_COLUMN;
+        expect(column.get({ skip_kind: "Bank refused", outcome_note: "Transfer did not succeed" } as any)).toBe(
+            "Bank refused"
+        );
+        expect(column.get({ outcome_note: "Already imported in batch X." } as any)).toBe("");
     });
 });
 
@@ -3887,7 +3984,10 @@ describe("the period column", () => {
         //
         // No unit test could see that, because each list was internally consistent. This one
         // compares them.
-        const funnelled = OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id);
+        // The Skipped popup's own list is included: its Skip Type funnel needs the same three lists.
+        const funnelled = [...OUTFLOW_COLUMNS, ...model.SKIPPED_COLUMNS]
+            .filter((c) => c.filter === "facet")
+            .map((c) => c.id);
         expect(funnelled.length).toBeGreaterThan(0);
         for (const id of funnelled) {
             if (DEAD_FUNNELS.has(id)) continue;
@@ -3900,7 +4000,9 @@ describe("the period column", () => {
         // dead weight, and `added_on` is the cautionary tale -- it sat here after P1 and was
         // harmless only because `serverQuery`'s loop happened to skip a non-array value.
         const funnelled = new Set(
-            OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id)
+            [...OUTFLOW_COLUMNS, ...model.SKIPPED_COLUMNS]
+                .filter((c) => c.filter === "facet")
+                .map((c) => c.id)
         );
         for (const id of SERVER_FACET_COLUMNS) {
             expect(funnelled.has(id)).toBe(true);

@@ -55,6 +55,14 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, alias_haystack
+from nirmaan_stack.services.outflow_import.skip_kinds import (
+    SKIP_KIND_ALREADY_IMPORTED,
+    SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_CASHBOOK_INTERNAL,
+    SKIP_KIND_NO_AMOUNT,
+    SKIP_KIND_OUTFLOW_RECORDED,
+    SKIP_KIND_REPEATED_IN_FILE,
+)
 
 __all__ = [
     "SPEND_ROW_KIND",
@@ -117,6 +125,9 @@ class PlannedRow:
     spent_by: str
     action: str
     reason: str = ""
+    skip_kind: str | None = None
+    """A `skip_kinds.SKIP_KINDS` member on a skip row, `None` on a create row -- chosen beside `reason` by
+    `_skip_reason`, so the stored kind never has to be read back out of the sentence."""
     ledger: str | None = None
     project: str | None = None
     project_name: str = ""
@@ -209,9 +220,9 @@ def plan_statement(
             beneficiary_name=(getattr(raw, "beneficiary_name", "") or "").strip(),
             spent_by=(getattr(raw, "added_by_raw", "") or "").strip(),
         )
-        skip = _skip_reason(raw, base["amount"], already, booked, seen)
+        skip, skip_kind = _skip_reason(raw, base["amount"], already, booked, seen)
         if skip:
-            planned.append(PlannedRow(action=ACTION_SKIP, reason=skip, **base))
+            planned.append(PlannedRow(action=ACTION_SKIP, reason=skip, skip_kind=skip_kind, **base))
             continue
 
         # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three
@@ -240,33 +251,39 @@ def _skip_reason(
     already: Mapping[tuple, tuple[PriorSighting, ...]],
     booked: Mapping[tuple, tuple[PriorSighting, ...]],
     seen: Mapping[tuple, int],
-) -> str:
+) -> tuple[str, str | None]:
+    """`(reason, skip_kind)` for a row to skip, `("", None)` for a row to create.
+
+    Each kind is the owner-confirmed `skip_kinds.SKIP_KINDS` label for that sentence: a wallet failure is
+    Bank refused, and an expense that already exists is Outflow Already Recorded (a Cashbook line is
+    always money out).
+    """
     if (getattr(raw, "row_kind", "") or "").strip() != SPEND_ROW_KIND:
-        return SKIP_NOT_A_SPEND
+        return SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL
     if not getattr(raw, "is_success", False):
-        return SKIP_NOT_SUCCESSFUL
+        return SKIP_NOT_SUCCESSFUL, SKIP_KIND_BANK_REFUSED
     # ⚠️ ZERO IS A SKIP, NOT AN ERROR. `settle.create_expense_from_row` THROWS on an amount of zero
     # or less, and it is right to -- but reaching it would fail one row's slot in a batch of a
     # hundred for something visible here, where it costs a sentence instead.
     if amount <= 0:
-        return SKIP_NO_AMOUNT
+        return SKIP_NO_AMOUNT, SKIP_KIND_NO_AMOUNT
 
     transfer_id = getattr(raw, "transfer_id", "") or ""
     added_on_date = _row_date(raw)
 
     batch = find_prior_sighting(already, transfer_id, amount, added_on_date)
     if batch:
-        return SKIP_ALREADY_IMPORTED.format(batch=batch)
+        return SKIP_ALREADY_IMPORTED.format(batch=batch), SKIP_KIND_ALREADY_IMPORTED
     # ⚠️ AFTER the batch test, deliberately. When an earlier batch created the expense BOTH are
     # true, and the batch is the answer a reader can act on -- it is a screen in this feature.
     record = find_prior_sighting(booked, transfer_id, amount, added_on_date)
     if record:
         # The label already reads "<ledger> <name>" -- composed by the caller, which is the layer
         # that knows which ledger it queried.
-        return SKIP_ALREADY_BOOKED.format(record=record)
+        return SKIP_ALREADY_BOOKED.format(record=record), SKIP_KIND_OUTFLOW_RECORDED
     if row_identity(transfer_id, amount, added_on_date) in seen:
-        return SKIP_REPEATED_IN_FILE
-    return ""
+        return SKIP_REPEATED_IN_FILE, SKIP_KIND_REPEATED_IN_FILE
+    return "", None
 
 
 def _row_date(raw):

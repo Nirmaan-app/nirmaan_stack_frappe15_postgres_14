@@ -134,6 +134,7 @@ import {
     type RecordSortColumn,
 } from "../recordPickerView";
 import { FanOutRecordTable } from "./FanOutRecordTable";
+import { decideAfterLinking, decideConfirmLabel, decideTickedAmount } from "../linkLinesView";
 import { SettleableRecordTable } from "./SettleableRecordTable";
 
 /**
@@ -473,7 +474,14 @@ export const DecisionDialog = ({
     // reports the actual `SettleableRecord`s it resolved its ticks to, which is what carries an
     // AMOUNT -- `linkTargets` is only ids. See `RecordPicker`.
     const bar: AllocationBar = useMemo(
-        () => allocationBar(row?.amount ?? 0, allocatedLegs, pickedRecords.map((r) => r.amount)),
+        // #1299: `decideTickedAmount`, so a part-linked expense adds what this line moves into it,
+        // not its whole amount.
+        () =>
+            allocationBar(
+                row?.amount ?? 0,
+                allocatedLegs,
+                pickedRecords.map((r) => decideTickedAmount(r, row?.amount ?? 0))
+            ),
         [row?.amount, allocatedLegs, pickedRecords]
     );
 
@@ -660,7 +668,12 @@ export const DecisionDialog = ({
             ? gate.balanceReason === "balance-unknown"
                 ? allocateButtonLabel({ ticks, complete: false })
                 : allocateButtonLabel({ ticks, complete: bar.complete })
-            : "Confirm → Paid";
+            : // ⚠️ #1299: a late line that only part-fills an expense leaves it Reconciliation
+              // Pending, so the label must not promise Paid. `decideConfirmLabel` keeps today's
+              // wording for everything that is not a part-linked expense.
+              isLinkDecision && effectiveMode === "normal"
+              ? decideConfirmLabel(picked, row.amount)
+              : "Confirm → Paid";
 
     /**
      * ⚠️ WHICH CARDS THIS ROW GETS IS MEMBERSHIP IN THE ONE PARTITION, NEVER A `direction` TEST
@@ -1032,10 +1045,13 @@ const AmountOutsideWindowDialog = ({
                     <AlertDialogDescription asChild>
                         <div className="space-y-3 text-sm">
                             <p>
-                                <span className="font-mono">{block?.recordName}</span> is for{" "}
+                                <span className="font-mono">{block?.recordName}</span>{" "}
+                                {/* #1299: a part-linked expense's figure is what is LEFT. */}
+                                {block?.reason === "more_than_left" ? "has only" : "is for"}{" "}
                                 <span className="font-medium tabular-nums">
                                     {formatToIndianRupee(block?.recordAmount ?? 0)}
                                 </span>
+                                {block?.reason === "more_than_left" ? " left to link" : ""}
                                 , but{" "}
                                 <span className="font-medium tabular-nums">
                                     {formatToIndianRupee(block?.bankAmount ?? 0)}
@@ -1992,6 +2008,7 @@ const RecordPicker = ({
                 <RecordVerdict
                     key={recordKey(record)}
                     record={record}
+                    row={row}
                     bankAmount={pickerBankAmount}
                     mode={mode}
                 />
@@ -2057,10 +2074,13 @@ const RecordPicker = ({
  */
 const RecordVerdict = ({
     record,
+    row,
     bankAmount,
     mode,
 }: {
     record: SettleableRecord;
+    /** The bank line, for the After linking bar on a part-linked expense (#1299). */
+    row: OutflowImportRow;
     bankAmount: number;
     /**
      * ⚠️ THE GAP SENTENCE IS MODE-SPECIFIC, AND THIS LINE RENDERS IN BOTH MODES (walk #1245).
@@ -2075,6 +2095,24 @@ const RecordVerdict = ({
     const settleable = record.suggested;
     // `document_name` is the ORDER this payment is against -- the app's own route (slice E3).
     const link = settlementLink(record.target_doctype, record.name, false, record.document_name);
+    // ⚠️ A PART-LINKED EXPENSE GETS THE AFTER LINKING BAR INSTEAD OF THE GAP SENTENCE (#1299). Its
+    // gap against the whole amount is not what decides anything; what is left is, and the bar says
+    // what the expense becomes. Built by `linkLinesView.afterLinking`, the link dialog's own words.
+    const after = decideAfterLinking(record, row);
+    if (after) {
+        return (
+            <div
+                className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-sm tabular-nums ${
+                    after.tone === "over"
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-muted-foreground/20 bg-muted/40"
+                }`}
+            >
+                <span className="font-medium">{after.summary}</span>
+                {after.detail && <span className="text-xs text-muted-foreground">{after.detail}</span>}
+            </div>
+        );
+    }
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
             <p

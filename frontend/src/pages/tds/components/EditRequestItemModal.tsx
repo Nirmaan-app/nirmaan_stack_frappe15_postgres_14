@@ -70,7 +70,7 @@ interface EditRequestItemModalProps {
 type GroupMode = "existing" | "new";
 
 /**
- * Phase 2 (ADR-0003 P2-3) edit modal for "New" REQUEST rows (tds_status === "New").
+ * Phase 2 (ADR-0025 P2-3) edit modal for "New" REQUEST rows (tds_status === "New").
  *
  * A request proposes a (group, make, datasheet). The group is EITHER an existing
  * TDS Item (chosen via the api/tds/picker fuzzy search) OR a brand-new group

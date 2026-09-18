@@ -9,7 +9,7 @@
 // Extracted/generalized from the inline EditEntryDialog formerly living in
 // TDSItemDetail.tsx so the master page, detail page, and peek dialogs share
 // one implementation. Design source of truth:
-//   nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md
+//   .claude/context/domain/tds/phase-1-plan.md
 
 import React, { useMemo, useState } from "react";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeFileUpload } from "frappe-react-sdk";

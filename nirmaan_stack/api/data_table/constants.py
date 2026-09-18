@@ -67,7 +67,7 @@ LINK_FIELD_MAP = {
     "created_by": {"doctype": "User", "label_field": "full_name"},
     "modified_by": {"doctype": "User", "label_field": "full_name"},
     "payment_by": {"doctype": "User", "label_field": "full_name"},
-    # ADR-0004. `TDS Items` has no title field (get_title_field() returns "name"),
+    # ADR-0026. `TDS Items` has no title field (get_title_field() returns "name"),
     # which facets.py deliberately treats as "unresolvable" — so without this entry
     # the Linked TDS Item facet renders raw TDS-ITEM-##### ids. Resolving it here
     # fixes EVERY surface at once (Items page + the TDS master's Items SKU tab)

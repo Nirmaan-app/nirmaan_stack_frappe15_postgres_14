@@ -38,6 +38,7 @@ from typing import Sequence
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
     require_outflow_undo_access,
@@ -49,6 +50,12 @@ from nirmaan_stack.services.outflow_import.matcher import (
     resolve_vendors,
 )
 from nirmaan_stack.services.outflow_import.amounts import amounts_match, rewrite_amount
+from nirmaan_stack.services.outflow_import.expense_links import (
+    ExpenseLinks,
+    linked_totals_join,
+    one_line_fits,
+    remaining_balance,
+)
 from nirmaan_stack.services.outflow_import.claims import (
     Claim,
     claim_note,
@@ -60,6 +67,7 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
     decode_basis,
     encode_basis,
     find_hits,
+    is_slip_candidate,
     pick_recorded_group,
     skip_basis,
 )
@@ -110,6 +118,7 @@ from nirmaan_stack.services.outflow_import.sources import (
     source_has_settlement_path,
     source_runs_the_matcher,
 )
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_HAND
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -570,7 +579,22 @@ def _recorded_money_group(row, batch: str, writing=()):
     ⚠️ NOR IS A RECORD THE CALL IS ABOUT TO WRITE (`writing`, `(doctype, name)` pairs). A Link target
     that is already Paid is refused by the settle itself, with `AlreadyPaidError` -- the distinct "somebody
     beat you to it" error a bulk confirm reads. Counting it here would replace that sentence with a
-    vaguer one; it opens no hole, because such a target is refused either way.
+    vaguer one; it opened no hole, because such a target was refused either way.
+
+    ⚠️ THAT LAST CLAUSE STOPPED BEING TRUE FOR A PART-LINKED EXPENSE (ADR-0027 R3), SO ITS OWN SLIPS
+    SURVIVE `writing`. A Reconciliation Pending expense with room is NOT refused by the settle -- room
+    is exactly what linking needs -- so muting the guard on the target would let an overlapping
+    statement link the same bank line to the same run twice, still fitting under the amount. Only
+    SLIP candidates are kept (`contains_guard.is_slip_candidate`): the whole-record candidate of a
+    `writing` target stays muted, so the Paid target keeps its `AlreadyPaidError` sentence. A slip of
+    a DIFFERENT line of the same run cannot refuse anything, because it is found by that line's own
+    narration, which this line does not carry.
+
+    A record THIS ROW already settled is still dropped outright, `writing` or not: an Allocate leg's
+    own slip is not a duplicate of itself. That drop is by `(doctype, name)`, so once this row holds
+    one slip on a run EVERY candidate of that run goes with it -- which is safe only because the
+    database's unique `(transfer_id, target_doctype, target_name)` constraint makes a second slip for
+    the same row and target impossible in the first place.
     """
     own = {
         (m["target_doctype"], m["target_name"])
@@ -579,10 +603,16 @@ def _recorded_money_group(row, batch: str, writing=()):
             filters={"import_row": row.name, "match_kind": MATCH_SETTLED},
             fields=["target_doctype", "target_name"],
         )
-    } | set(writing)
+    }
+    being_written = set(writing)
 
     def _not_own(records):
-        return tuple(r for r in records if (r.doctype, r.name) not in own)
+        return tuple(
+            r
+            for r in records
+            if (r.doctype, r.name) not in own
+            and ((r.doctype, r.name) not in being_written or is_slip_candidate(r))
+        )
 
     if source_has_settlement_path(_batch_source(batch)):
         pools = _paid_duplicate_pools([row.normalized_reference])
@@ -666,6 +696,8 @@ def _persist_row_outcome(
             # writer for BOTH the gateway loop and the ICICI contains-guard, so every skip either
             # makes lands System here. A frozen line never reaches it, so a hand skip keeps Manual.
             "skip_origin": outcome.skip_origin,
+            # The kind beside the origin, written on every run including as NULL, for the same reason.
+            "skip_kind": outcome.skip_kind,
             "resolved_vendor": _sole_vendor(result),
             "suggested_doctype": suggestion.doctype if suggestion else None,
             "suggested_name": suggestion.name if suggestion else None,
@@ -1352,6 +1384,7 @@ def skip_row(row: str, reason: str):
             {
                 "row_status": ROW_SKIPPED,
                 "skip_origin": SKIP_ORIGIN_MANUAL,
+                "skip_kind": SKIP_KIND_BY_HAND,
                 "skip_reason": reason,
                 "outcome_note": reason,
                 "decided_at": frappe.utils.now_datetime(),
@@ -1385,9 +1418,11 @@ def unskip_row(row: str, reason: str):
     three notices the Skipped popup shows ("needs a record", "matched X", "skipped again") are read
     from these -- plus the import's `batch_status`.
 
-    ⚠️ "SKIPS ARE FINAL" IS REVERSED FOR HAND SKIPS ONLY (`skip_origin.unskip_refusal`). A system skip
-    stays skipped: a duplicate, a refused transfer, an exclusion or a repeat of an earlier statement,
-    brought back, is the same money waiting to be recorded twice. So is a Cashbook line (Q16).
+    ⚠️ WHICH LINES MAY COME BACK IS DECIDED BY SKIP KIND (`skip_origin.unskip_refusal`, owner
+    2026-09-17, ADR-0022 Amendment C). Already imported, Repeated in same file, No amount and Bank
+    refused stay skipped, and so does every Cashbook line (Q16). Everything else -- a hand skip, money
+    already recorded, a bank-rule exclusion -- may come back, and the re-check below is what keeps that
+    safe: money still recorded is skipped again, as the same kind.
 
     ⚠️ THE RE-OPEN AND THE RE-CHECK ARE ONE TRANSACTION. The line goes back to `Pending match run`
     through the document layer (a Version row, the doctype tracks changes), then `match_line` runs on
@@ -1395,8 +1430,8 @@ def unskip_row(row: str, reason: str):
     stranded half-open with no outcome.
 
     ⚠️ WHAT IS CLEARED, AND WHY EACH ONE:
-      * `skip_origin`, `skip_reason` -- the line is no longer skipped. If the re-check skips it again,
-        `_persist_row_outcome` writes `System`, so it can never be unskipped into a duplicate.
+      * `skip_origin`, `skip_kind`, `skip_reason` -- the line is no longer skipped. If the re-check
+        skips it again, `_persist_row_outcome` writes `System` and the kind it found.
       * `outcome_note` -- the typed skip reason must not survive as the line's note; the re-check
         writes the real one.
       * `decided_at`, `decided_by`, `settlement_origin` -- nobody has decided the line any more.
@@ -1419,7 +1454,7 @@ def unskip_row(row: str, reason: str):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
-            ["name", "import_batch", "row_status", "skip_origin"],
+            ["name", "import_batch", "row_status", "skip_kind"],
             as_dict=True,
             for_update=True,
         )
@@ -1427,7 +1462,7 @@ def unskip_row(row: str, reason: str):
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
         refusal = unskip_refusal(
             row_status=current.row_status,
-            skip_origin=current.skip_origin,
+            skip_kind=current.skip_kind,
             source=_batch_source(current.import_batch),
         )
         if refusal:
@@ -1438,6 +1473,7 @@ def unskip_row(row: str, reason: str):
             {
                 "row_status": ROW_PENDING_MATCH,
                 "skip_origin": None,
+                "skip_kind": None,
                 "skip_reason": None,
                 "outcome_note": None,
                 "decided_at": None,
@@ -2053,7 +2089,9 @@ def _record_signals(record: dict) -> RecordSignals:
     return RecordSignals(
         doctype=record["target_doctype"],
         name=record["name"],
-        amount=normalize_amount(record.get("amount")),
+        # What is LEFT (#1299): the amount axis scores the figure the line is compared with. Equal to
+        # the whole amount on every record with nothing linked.
+        amount=normalize_amount(record.get("remaining", record.get("amount"))),
         settleable=bool(record.get("suggested")),
         vendor_name=record.get("vendor_name") or "",
         vendor_nickname=record.get("vendor_nickname") or "",
@@ -2152,6 +2190,12 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
                                  r.get("project_name") or r.get("project")) if p]
                 ),
                 "suggested": amounts_match(normalize_amount(r.get("amount")), bank_amount),
+                # ⚠️ PRESENT ON EVERY LEDGER, like `description` (#1299). A payment is never linked
+                # by many lines, so nothing is linked and all of it is left.
+                "linked_total": 0.0,
+                "line_count": 0,
+                "remaining": float(normalize_amount(r.get("amount"))),
+                "payment_ref": "",
             }
             for r in frappe.db.sql(sql, tuple(params), as_dict=True)
         ]
@@ -2182,21 +2226,24 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             else ""
         )
         sql = f"""
-            SELECT e.name, e.amount, e.status, e.description, e.type,
+            SELECT e.name, e.amount, e.status, e.description, e.type, e.payment_ref,
                    e.projects AS project, v.vendor_name,
                    v.vendor_nickname, v.vendor_contact_person_name,
-                   pr.project_name, e.modified
+                   pr.project_name, e.modified,
+                   COALESCE(l.linked_total, 0) AS linked_total, COALESCE(l.line_count, 0) AS line_count
             FROM "tabProject Expenses" e
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
+            {linked_totals_join(C.PROJECT_EXPENSE_DOCTYPE, "e")}
             WHERE e.status IN ({status_ph})
               AND e.amount IS NOT NULL
+              AND e.amount - COALESCE(l.linked_total, 0) > 0
               {where_search}
-            ORDER BY abs(e.amount - %s) ASC, e.modified DESC
+            ORDER BY abs(e.amount - COALESCE(l.linked_total, 0) - %s) ASC, e.modified DESC
             LIMIT %s
         """
     else:
-        search_cols = ["name", "description", "type"]
+        search_cols = ["e.name", "e.description", "e.type"]
         where_search = (
             " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols)
             + ")"
@@ -2208,15 +2255,18 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         # ranking's four axes, and that is a fact about the data rather than evidence about the
         # transfer: `similarity` treats a missing field as no signal, never as a penalty.
         sql = f"""
-            SELECT name, amount, status, description, type,
+            SELECT e.name, e.amount, e.status, e.description, e.type, e.payment_ref,
                    NULL AS project, NULL AS vendor_name,
                    NULL AS vendor_nickname, NULL AS vendor_contact_person_name,
-                   NULL AS project_name, modified
-            FROM "tabNon Project Expenses"
-            WHERE status IN ({status_ph})
-              AND amount IS NOT NULL
+                   NULL AS project_name, e.modified,
+                   COALESCE(l.linked_total, 0) AS linked_total, COALESCE(l.line_count, 0) AS line_count
+            FROM "tabNon Project Expenses" e
+            {linked_totals_join(C.NON_PROJECT_EXPENSE_DOCTYPE, "e")}
+            WHERE e.status IN ({status_ph})
+              AND e.amount IS NOT NULL
+              AND e.amount - COALESCE(l.linked_total, 0) > 0
               {where_search}
-            ORDER BY abs(amount - %s) ASC, modified DESC
+            ORDER BY abs(e.amount - COALESCE(l.linked_total, 0) - %s) ASC, e.modified DESC
             LIMIT %s
         """
 
@@ -2224,50 +2274,72 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
     if has_search:
         params.extend([needle] * len(search_cols))
     params.extend([float(bank_amount), limit])
-    return [
-        {
-            "target_doctype": target_doctype,
-            "name": r["name"],
-            "amount": float(normalize_amount(r.get("amount"))),
-            "vendor_name": r.get("vendor_name") or "",
-            "vendor_nickname": r.get("vendor_nickname") or "",
-            "contact_person": r.get("vendor_contact_person_name") or "",
-            "project": r.get("project") or "",
-            "project_name": r.get("project_name") or r.get("project") or "",
-            # Blank on both expense ledgers -- an expense has no parent order at all, which is also
-            # why neither can carry a deduction (slice TD, ruling R6).
-            "document_type": "",
-            # ⚠️ THIS IS THE EXPENSE **TYPE**, OVERLOADED ONTO A KEY THAT MEANS "the PO/SR this
-            # payment is against". It is KEPT rather than corrected in place because
-            # `recordPickerView.matchesText` puts `document_name` in its search haystack, so
-            # dropping it here would silently stop a reviewer finding an expense by typing its
-            # type -- a search that quietly narrows is worse than one that visibly breaks. The
-            # honest key sits beside it below; retiring this one is its own change, with the
-            # client's haystack moved in the same edit.
-            "document_name": r.get("type") or "",
-            # The two facts a reviewer picks an EXPENSE by, each under its own name and each its
-            # own field so the dropdown can lay them out rather than parse `detail` back apart.
-            # `detail` still joins them, capped at 120 chars -- which is precisely why they have to
-            # be emitted separately: a truncated join is a display string, not data.
-            "description": r.get("description") or "",
-            "expense_type": r.get("type") or "",
-            "approved_on": "",
-            "updated_on": str(r["modified"]) if r.get("modified") else "",
-            "detail": " · ".join(
-                [
-                    p
-                    for p in (
-                        r.get("type"),
-                        r.get("project_name") or r.get("project"),
-                        r.get("description"),
-                    )
-                    if p
-                ]
-            )[:120],
-            "suggested": amounts_match(normalize_amount(r.get("amount")), bank_amount),
-        }
-        for r in frappe.db.sql(sql, tuple(params), as_dict=True)
-    ]
+    # ⚠️ WHAT IS LEFT, NOT THE WHOLE AMOUNT (#1299, ADR-0027). The linked total is joined in SQL
+    # (`expense_links.linked_totals_join`), so an expense with nothing left is dropped and the rest are
+    # ordered by their REMAINING balance BEFORE the cap -- never trimmed afterwards. A fresh expense
+    # has nothing linked, so it is compared with its whole amount exactly as before.
+    records = []
+    for r in frappe.db.sql(sql, tuple(params), as_dict=True):
+        amount = normalize_amount(r.get("amount"))
+        links = ExpenseLinks(
+            linked_total=normalize_amount(r.get("linked_total")),
+            latest_line_date=None,
+            line_count=int(r.get("line_count") or 0),
+        )
+        records.append(_expense_record(target_doctype, r, amount, links, bank_amount))
+    return records
+
+
+def _expense_record(target_doctype: str, r: dict, amount, links: ExpenseLinks, bank_amount) -> dict:
+    """One expense row of the browse payload, in the shared record shape."""
+    return {
+        "target_doctype": target_doctype,
+        "name": r["name"],
+        "amount": float(amount),
+        "vendor_name": r.get("vendor_name") or "",
+        "vendor_nickname": r.get("vendor_nickname") or "",
+        "contact_person": r.get("vendor_contact_person_name") or "",
+        "project": r.get("project") or "",
+        "project_name": r.get("project_name") or r.get("project") or "",
+        # Blank on both expense ledgers -- an expense has no parent order at all, which is also
+        # why neither can carry a deduction (slice TD, ruling R6).
+        "document_type": "",
+        # ⚠️ THIS IS THE EXPENSE **TYPE**, OVERLOADED ONTO A KEY THAT MEANS "the PO/SR this
+        # payment is against". It is KEPT rather than corrected in place because
+        # `recordPickerView.matchesText` puts `document_name` in its search haystack, so
+        # dropping it here would silently stop a reviewer finding an expense by typing its
+        # type -- a search that quietly narrows is worse than one that visibly breaks. The
+        # honest key sits beside it below; retiring this one is its own change, with the
+        # client's haystack moved in the same edit.
+        "document_name": r.get("type") or "",
+        # The two facts a reviewer picks an EXPENSE by, each under its own name and each its
+        # own field so the dropdown can lay them out rather than parse `detail` back apart.
+        # `detail` still joins them, capped at 120 chars -- which is precisely why they have to
+        # be emitted separately: a truncated join is a display string, not data.
+        "description": r.get("description") or "",
+        "expense_type": r.get("type") or "",
+        "approved_on": "",
+        "updated_on": str(r["modified"]) if r.get("modified") else "",
+        "detail": " · ".join(
+            [
+                p
+                for p in (
+                    r.get("type"),
+                    r.get("project_name") or r.get("project"),
+                    r.get("description"),
+                )
+                if p
+            ]
+        )[:120],
+        # ⚠️ `expense_links.one_line_fits`, THE SAME RULE `settle_row` REFUSES BY: the whole amount
+        # while the expense has no lines, what is left once it has.
+        "suggested": one_line_fits(amount, links, bank_amount),
+        "linked_total": float(links.linked_total),
+        "line_count": links.line_count,
+        "remaining": float(remaining_balance(amount, links.linked_total)),
+        # The After linking bar says whether the reference is kept or gets the bulk id.
+        "payment_ref": r.get("payment_ref") or "",
+    }
 
 
 # --- the master table (slice X3) ----------------------------------------------------------------
@@ -2309,6 +2381,10 @@ SCOPE_MATCHED_OUTFLOW = "matched_outflow"
 SCOPE_NOT_MATCHED_INFLOW = "not_matched_inflow"
 SCOPE_SETTLED_INFLOW = "settled_inflow"
 SCOPE_SKIPPED = "skipped"
+# The Skipped popup's Outflow / Inflow tabs (2026-09-17): `skipped`, narrowed to one direction. Scopes,
+# so their counts ride `tab_counts` under the popup's own filters. Still no TAB on the page reaches them.
+SCOPE_SKIPPED_OUTFLOW = "skipped_outflow"
+SCOPE_SKIPPED_INFLOW = "skipped_inflow"
 
 # The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
 # the funnel, the tabs and the summary name a side identically.
@@ -2344,6 +2420,8 @@ _SCOPE_STATUSES = {
     # ⚠️ IT IS THE ONLY SCOPE THAT RETURNS THEM, and it returns nothing else. A scope that mixed
     # skipped rows into a working view would be the thing the ruling forbids, arrived at sideways.
     SCOPE_SKIPPED: (ROW_SKIPPED,),
+    SCOPE_SKIPPED_OUTFLOW: (ROW_SKIPPED,),
+    SCOPE_SKIPPED_INFLOW: (ROW_SKIPPED,),
 }
 
 # The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
@@ -2353,6 +2431,8 @@ _SCOPE_DIRECTION = {
     SCOPE_MATCHED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
     SCOPE_NOT_MATCHED_INFLOW: DIRECTION_INFLOW_LABEL,
     SCOPE_SETTLED_INFLOW: DIRECTION_INFLOW_LABEL,
+    SCOPE_SKIPPED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_SKIPPED_INFLOW: DIRECTION_INFLOW_LABEL,
 }
 
 # ⚠️ THE PRE-#1264 SCOPE IDS, KEPT AS ALIASES. A stale client (an open tab, a bookmark) still sends
@@ -2430,6 +2510,9 @@ _FACET_COLUMNS = {
     # staging by both sources, and `v3_0.backfill_outflow_row_source` fills the rows that predate
     # the field -- without which the funnel would draw itself over 1,043 blanks.
     "source": "r.source",
+    # The Skipped popup's Skip Type funnel (2026-09-17). A STORED column, written beside the reason
+    # sentence by every skip writer -- never an expression over that sentence, which gets reworded.
+    "skip_kind": "r.skip_kind",
     # ⚠️ THE FACET IS THE DERIVED TWO-VALUE LABEL, NOT THE RAW COLUMN -- and this entry REVERSES a
     # deliberate decision. `direction` shipped at B6 as a COLUMN ONLY, and the note beside it in
     # `get_outflow_rows`' SELECT list said in as many words that it was "deliberately NOT in
@@ -2584,6 +2667,9 @@ _SETTLED_NAME_SQL = (
     'FROM "tabOutflow Row Match" m '
     f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}')"
 )
+# ⚠️ ON A MANY-LINE EXPENSE EACH LINE EXPORTS ITS OWN AMOUNT, NOT THE EXPENSE'S (ADR-0027, #1298): the
+# slip's `target_amount` is that line's figure, so a run of 30 lines adds up to the one expense.
+#
 # ⚠️ `ROUND(..., 2)` (Task 6 review fix G) -- `target_amount` is a Currency column, and a bare
 # `::text` cast on Postgres numeric prints the FULL stored precision (`27504.310000000`), not the
 # two-decimal figure the pre-Task-6 export wrote as a float. Cosmetic in a spreadsheet, but
@@ -2668,7 +2754,7 @@ def get_outflow_rows(
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
                -- Who skipped it, and when (#1273): the Skipped popup's "Skipped by hand" line.
-               r.skip_origin, r.decided_by, r.decided_at,
+               r.skip_origin, r.skip_kind, r.decided_by, r.decided_at,
                -- The Outcome cell's "Confirm by hand" chip (#1280); the date beside it is read below.
                r.confirm_by_hand,
                -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
@@ -2724,6 +2810,9 @@ def get_outflow_rows(
     )[0]["n"]
 
     related = _related_records(rows)
+    # The document behind each SKIPPED row on this page, for the Skipped popup's Skip Type hover. Only
+    # Skipped rows are looked at, so the page's own tabs (which never hold one) pay nothing for it.
+    sources = skip_sources(rows, related)
     # #1266 (owner pick A): a settled row's own legs, so the Outcome cell links the record it
     # settled or CREATED. Until then this read sent `matches: []`, so a created Project Inflow,
     # Non-Project Inflow or expense was never linked from the screen.
@@ -2765,6 +2854,7 @@ def get_outflow_rows(
                 # The row's live settlement legs (#1266), the same shape `get_batch_rows` sends.
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
+                "skip_source": sources.get(row["name"]),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
                 "confirm_by_hand": bool(row.get("confirm_by_hand")),
                 # #1280: when the line was last unreconciled and which records came off then, so the
@@ -3214,7 +3304,7 @@ def export_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
-               r.skip_origin, r.decided_by, r.decided_at,
+               r.skip_origin, r.skip_kind, r.decided_by, r.decided_at,
                r.settlement_origin, r.source,
                {SETTLED_LEDGER_SQL}          AS settled_ledgers,
                {_SETTLED_NAME_SQL}           AS settled_target_names,

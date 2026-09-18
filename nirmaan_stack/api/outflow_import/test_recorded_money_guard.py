@@ -24,9 +24,11 @@ import json
 import os
 import unittest
 from datetime import datetime
+from decimal import Decimal
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
 from nirmaan_stack.api.outflow_import.expenses import (
     MoneyAlreadyRecordedError,
     RecordedMoneyNeedsConfirmationError,
@@ -40,6 +42,8 @@ from nirmaan_stack.api.outflow_import.test_settle_payment import (
     PartialSettlementFixture,
     PaymentSettlementFixture,
 )
+from nirmaan_stack.services.outflow_import.candidates import load_recorded_by_contains
+from nirmaan_stack.services.outflow_import.contains_guard import match_surface
 from nirmaan_stack.services.outflow_import.normalize import normalize_reference
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
 from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
@@ -88,7 +92,8 @@ class RecordedMoneyFixture(PaymentSettlementFixture):
 
     # --- arrange --------------------------------------------------------------------------------
 
-    def _line(self, *, source, amount, direction="Debit", reference=None, narration=""):
+    def _line(self, *, source, amount, direction="Debit", reference=None, narration="",
+              reference_id=""):
         """One staged line in its own batch of `source`, still `Mismatched` -- no match run."""
         batch = frappe.new_doc(BATCH_DOCTYPE)
         batch.update({"source": source, "status": "In Review", "source_file": self.ALLOC_STATEMENT})
@@ -108,6 +113,7 @@ class RecordedMoneyFixture(PaymentSettlementFixture):
                 "bank_reference_no": reference,
                 "normalized_reference": normalize_reference(reference),
                 "remarks": narration,
+                "reference_id": reference_id,
                 "added_on": LINE_DATE,
                 "status_raw": "SUCCESS",
                 "row_status": ROW_MISMATCHED,
@@ -134,6 +140,32 @@ class RecordedMoneyFixture(PaymentSettlementFixture):
         self.non_project_expenses.append(name)
         frappe.db.commit()
         return name
+
+    def _slip(self, row, expense, amount, *, kind="Settled"):
+        """One live `Settled` slip: the link an earlier import wrote between `row` and `expense`."""
+        staged = frappe.db.get_value(
+            ROW_DOCTYPE, row, ["import_batch", "transfer_id"], as_dict=True
+        )
+        match = frappe.new_doc(MATCH_DOCTYPE)
+        match.update(
+            {
+                "import_row": row,
+                "import_batch": staged.import_batch,
+                "transfer_id": staged.transfer_id,
+                "target_doctype": NON_PROJECT_EXPENSE,
+                "target_name": expense,
+                "target_amount": float(amount),
+                "match_kind": "Settled",
+                "match_basis": "Manual",
+            }
+        )
+        match.insert(ignore_permissions=True)
+        if kind != "Settled":
+            # The controller refuses `Reversed` as an INITIAL state -- a row here means money was
+            # written, and reversal is a later stamp. So stamp it, exactly as Unreconcile does.
+            frappe.db.set_value(MATCH_DOCTYPE, match.name, "match_kind", kind, update_modified=False)
+        frappe.db.commit()
+        return match.name
 
     @staticmethod
     def _narration():
@@ -381,6 +413,194 @@ class TestCreateExpenseRefusesRecordedMoney(RecordedMoneyFixture):
         summary = self._create(row)
 
         self.assertTrue(summary["settled"]["created"])
+
+
+class TestPartLinkedExpensesAreSeen(RecordedMoneyFixture):
+    """ADR-0027 R3: a line already linked to a Reconciliation Pending expense is already recorded.
+
+    A salary run is settled by many bank lines and the expense stays Reconciliation Pending until the
+    last of them arrives. Until #1301 the duplicate guards read Paid records only, so an overlapping
+    statement could bring one of those lines again and link the same money twice while it still fitted
+    under the amount. The comparison is line-against-ITS-OWN-SLIP, never against the whole run.
+    """
+
+    RUN_AMOUNT = "160000"
+    LINE_AMOUNT = "5000"
+
+    def _a_run_with_one_line_linked(self, narration, *, kind="Settled"):
+        """A part-linked expense and the earlier line that settled part of it."""
+        expense = self._non_project_expense(
+            amount=self.RUN_AMOUNT, status="Reconciliation Pending"
+        )
+        linked = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+        self._slip(linked, expense, self.LINE_AMOUNT, kind=kind)
+        return expense
+
+    def test_a_reimported_line_of_a_part_linked_run_cannot_be_linked_again(self):
+        narration = self._narration()
+        self._a_run_with_one_line_linked(narration)
+        again = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+        approved = self._non_project_expense(amount=self.LINE_AMOUNT, status=SETTLEABLE)
+
+        with self.assertRaises(MoneyAlreadyRecordedError) as caught:
+            settle_row(again, NON_PROJECT_EXPENSE, approved)
+
+        message = str(caught.exception)
+        # An expense is named by its description, not its hash id (`status._described_record`).
+        self.assertIn("Recorded-money guard test", message)
+        self.assertIn("Non Project Expense", message)
+        self.assertIn("still being reconciled", message)
+        self.assertNotIn("as Paid", message)
+        self._assert_nothing_written(again, approved=[(NON_PROJECT_EXPENSE, approved)])
+
+    def test_an_unrelated_line_of_the_same_amount_is_not_blocked(self):
+        self._a_run_with_one_line_linked(self._narration())
+        other = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=self._narration())
+        approved = self._non_project_expense(amount=self.LINE_AMOUNT, status=SETTLEABLE)
+
+        settle_row(other, NON_PROJECT_EXPENSE, approved)
+
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, other, "row_status"), ROW_SETTLED)
+
+    def test_a_reconciliation_pending_expense_with_no_lines_blocks_nothing(self):
+        """The widening is to expenses that HAVE live slips, not to the whole status."""
+        narration = self._narration()
+        self._non_project_expense(
+            amount=self.LINE_AMOUNT, status="Reconciliation Pending", payment_ref=narration
+        )
+        row = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+        approved = self._non_project_expense(amount=self.LINE_AMOUNT, status=SETTLEABLE)
+
+        settle_row(row, NON_PROJECT_EXPENSE, approved)
+
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_SETTLED)
+
+    def test_a_reversed_slip_is_not_a_link(self):
+        """Unreconcile put the line back; its money is no longer recorded anywhere."""
+        narration = self._narration()
+        self._a_run_with_one_line_linked(narration, kind="Reversed")
+        again = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+        approved = self._non_project_expense(amount=self.LINE_AMOUNT, status=SETTLEABLE)
+
+        settle_row(again, NON_PROJECT_EXPENSE, approved)
+
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, again, "row_status"), ROW_SETTLED)
+
+    def test_the_line_is_compared_with_its_own_slip_not_with_the_whole_run(self):
+        """A Rs 5,000 line against a Rs 1,60,000 expense is a duplicate, not a Rs 1,55,000
+        discrepancy -- which is what comparing it with the whole run would report."""
+        narration = self._narration()
+        self._a_run_with_one_line_linked(narration)
+        again = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+        approved = self._non_project_expense(amount=self.LINE_AMOUNT, status=SETTLEABLE)
+
+        with self.assertRaises(MoneyAlreadyRecordedError):
+            settle_row(again, NON_PROJECT_EXPENSE, approved)
+
+    def test_the_same_line_cannot_be_linked_to_the_same_run_twice(self):
+        """The case the widening exists for, and the one `writing` used to mute.
+
+        `link_rows_to_expense` tells the guard it is about to write the target, so that an
+        already-Paid target keeps its own "somebody beat you to it" sentence. A Reconciliation
+        Pending expense WITH ROOM is not refused by the settle at all, so without R3's exemption for
+        the target's own slips an overlapping statement could link the same money to the same run
+        again and still fit under the amount.
+        """
+        narration = self._narration()
+        run = self._a_run_with_one_line_linked(narration)
+        again = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+
+        with self.assertRaises(MoneyAlreadyRecordedError):
+            link_rows_to_expense(
+                rows=json.dumps([again]),
+                target_doctype=NON_PROJECT_EXPENSE,
+                target_name=run,
+            )
+
+        self._assert_nothing_written(again)
+        self.assertEqual(
+            frappe.db.count(MATCH_DOCTYPE, {"target_name": run, "match_kind": "Settled"}), 1
+        )
+
+    def test_one_hitting_slip_does_not_drag_its_whole_run_into_the_pool(self):
+        """A run has many slips; a line hits ONE of them, and only that one is a candidate.
+
+        The final join carries `import_row` for exactly this. Without it the pool returns every slip
+        of a hit expense, so `pick_recorded_group` is handed several rows of one record and may sum
+        two lines' money into one "already recorded" total.
+        """
+        mine, sibling = self._narration(), self._narration()
+        run = self._non_project_expense(amount="160000", status="Reconciliation Pending")
+        self._slip(self._line(source=ICICI, amount="5000", narration=mine), run, "5000")
+        self._slip(self._line(source=ICICI, amount="7000", narration=sibling), run, "7000")
+
+        asking = self._line(source=ICICI, amount="5000", narration=mine)
+        pool = [
+            t
+            for t in load_recorded_by_contains([frappe.get_doc(ROW_DOCTYPE, asking)])
+            if t.name == run
+        ]
+
+        self.assertEqual([t.amount for t in pool], [Decimal("5000")])
+
+    def test_a_paid_expense_still_reads_as_paid(self):
+        """Paid-record behaviour is unchanged by the widening."""
+        narration = self._narration()
+        self._non_project_expense(
+            amount=self.LINE_AMOUNT, status="Paid", payment_ref=narration
+        )
+        row = self._line(source=ICICI, amount=self.LINE_AMOUNT, narration=narration)
+        approved = self._non_project_expense(amount=self.LINE_AMOUNT, status=SETTLEABLE)
+
+        with self.assertRaises(MoneyAlreadyRecordedError) as caught:
+            settle_row(row, NON_PROJECT_EXPENSE, approved)
+        self.assertIn("as Paid", str(caught.exception))
+
+
+class TestTheSlipBranchMirrorsTheMatchSurface(RecordedMoneyFixture):
+    """The per-slip reference in SQL is a MIRROR of `contains_guard.match_surface` (#1301).
+
+    ⚠️ IT MAY NEVER BE NARROWER, for the reason `test_review.TestTheContainsQueryMirrorsThePureTokens`
+    gives about the tokeniser: a record the pure guard would hit but the query never returns is a
+    duplicate that silently arrives as work. `match_surface` has two branches -- the cheque column is
+    appended only when the narration carries no run of 6+ digits -- and both are driven here, against
+    the real tables, because the branch joins `Outflow Row Match` and `Outflow Import Row` by name.
+    """
+
+    def _slip_reference(self, *, narration, reference_id):
+        """What the pool hands the guard as this slip's reference, for a line that hits it."""
+        expense = self._non_project_expense(amount="160000", status="Reconciliation Pending")
+        linked = self._line(
+            source=ICICI, amount="5000", narration=narration, reference_id=reference_id
+        )
+        self._slip(linked, expense, "5000")
+        asking = self._line(
+            source=ICICI, amount="5000", narration=narration, reference_id=reference_id
+        )
+        staged = frappe.get_doc(ROW_DOCTYPE, asking)
+        pool = [
+            t
+            for t in load_recorded_by_contains([staged])
+            if t.name == expense and t.doctype == NON_PROJECT_EXPENSE
+        ]
+        self.assertEqual(len(pool), 1, "the slip must come back exactly once, not once per sibling")
+        return pool[0].reference
+
+    def test_a_narration_carrying_a_long_number_stands_alone(self):
+        narration = self._narration()
+        self.assertEqual(
+            self._slip_reference(narration=narration, reference_id="000734123"),
+            match_surface(narration, "000734123"),
+        )
+
+    def test_a_cheque_clearing_narration_takes_the_cheque_column(self):
+        """`CLG/SUMAN ELECTRIC UDYOGS P/HSB` has no run of 6+ digits; without the cheque number two
+        such lines for the same payee are the same text."""
+        narration = "CLG/TEST ELECTRIC UDYOGS P/HSB"
+        cheque = f"{frappe.generate_hash(length=4)}1234567"
+        reference = self._slip_reference(narration=narration, reference_id=cheque)
+        self.assertEqual(reference, match_surface(narration, cheque))
+        self.assertIn(cheque, reference)
 
 
 class TestTheScreenKnowsTheConfirmationError(unittest.TestCase):

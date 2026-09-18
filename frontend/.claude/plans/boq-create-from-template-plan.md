@@ -5,7 +5,7 @@
 below, which is now the authoritative execution plan. The original T1–T12 (further down) are retained as the
 baseline; A1 marks each as REPLACE / PRESERVE / REMOVE. **No code until this plan is reviewed.**
 **Decision record:** `docs/adr/0013-boq-create-from-template.md` (D1–D10 + **Amendment A1**).
-**Design of record:** `docs/boq/create-from-template-locked-design.html` (18 decisions; superseded by A1 on the
+**Design of record:** `git show e6547258:docs/boq/create-from-template-locked-design.html` (removed from the tree) (18 decisions; superseded by A1 on the
 store model).
 **Branch:** `feature/boq-create-from-template` off `develop` (local, not pushed).
 

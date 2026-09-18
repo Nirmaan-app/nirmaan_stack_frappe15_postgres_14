@@ -807,6 +807,47 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
 ];
 
+/**
+ * The Skipped popup's own column: WHAT KIND of skip a line is (owner-confirmed 2026-09-17).
+ *
+ * ⚠️ A FACET OVER A STORED FIELD (`Outflow Import Row.skip_kind`), never over the reason sentence --
+ * the sentence is written for a person and gets reworded. The cell still carries the full reason on
+ * hover, the record links and the "Skipped by hand" line, so nothing Outcome showed is lost.
+ */
+export const SKIP_TYPE_COLUMN: OutflowColumn = {
+    id: "skip_kind",
+    title: "Skip Type",
+    get: (r) => r.skip_kind ?? "",
+    filter: "facet",
+    width: "220px",
+};
+
+/**
+ * The popup's columns: the page's, with Outcome REPLACED by Skip Type (owner ruling). Outcome on a
+ * skipped line is a sentence cut off at 204px; the type is the fact a reader filters by.
+ *
+ * ⚠️ STATUS AND LEDGER ARE DROPPED TOO (owner, 2026-09-17). Every row here is `Skipped` and a skip
+ * settles nothing, so both columns said the same thing -- or nothing -- on every line. The CSV keeps
+ * them (`SKIPPED_EXPORT_COLUMNS`): a file is the full record.
+ *
+ * ⚠️ A SEPARATE LIST, NOT A HIDDEN COLUMN ON THE PAGE. The page's Columns menu walks
+ * `OUTFLOW_COLUMNS`, and no tab on the page ever shows a skipped line, so Skip Type there would be a
+ * column that is blank on every row it could reach.
+ */
+const NOT_IN_SKIPPED_POPUP: readonly string[] = ["row_status", "settled_ledger"];
+
+export const SKIPPED_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.filter(
+    (column) => !NOT_IN_SKIPPED_POPUP.includes(column.id)
+).map((column) => (column.id === "outcome" ? SKIP_TYPE_COLUMN : column));
+
+/**
+ * What the popup's CSV carries: every page column (Outcome included -- a file keeps the full reason,
+ * it costs no screen width) with Skip Type beside it.
+ */
+export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
+    column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
+);
+
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
 ).map((c) => c.id);
@@ -1256,6 +1297,8 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // ⚠️ `direction` LEFT THIS LIST WITH ITS COLUMN (owner, 2026-09-14). With no column there is
     // no funnel to tick, and the direction tabs scope by it instead. The server's
     // `_FACET_COLUMNS["direction"]` stays: the tab scopes and counts read the same expression.
+    // The Skipped popup's Skip Type (`SKIP_TYPE_COLUMN`). Only that popup draws its funnel.
+    "skip_kind",
 ];
 
 /**
@@ -1304,21 +1347,6 @@ export interface MasterTableState {
 
 export interface OutflowRowsQuery {
     scope: string;
-    /**
-     * Split `Skipped` into the two facts it hides: `true` = the bank refused it, `false` = it was
-     * skipped for any other reason, absent = both.
-     *
-     * ⚠️ IT EXISTS BECAUSE TWO CORRECT NUMBERS DISAGREED. The summary's Skipped chip reports 20 and
-     * the `skipped` scope returns 47, because a transfer the bank REFUSED is excluded from every
-     * figure the summary reports (owner ruling, option B) while still carrying `row_status`
-     * `Skipped`. Nothing could ask for one group or the other until this.
-     */
-    failed?: boolean;
-    /**
-     * `"Manual"` narrows the Skipped popup to lines a person skipped (#1273) -- the "Skipped by hand"
-     * segment. A server filter, so the page, its count and the export agree.
-     */
-    skip_origin?: typeof SKIP_ORIGIN_MANUAL;
     batch?: string;
     search?: string;
     facets?: Record<string, string[]>;
@@ -1389,16 +1417,10 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
         .join(" ");
     if (text && !search) query.search = text;
 
-    // ⚠️ A PSEUDO-COLUMN, handled here rather than in `_FACET_COLUMNS`, because the question is not
-    // "which values of a column" but "is this row on the excluded side of an owner ruling". The
-    // facet machinery answers with an IN list, which cannot express "anything that is not SUCCESS"
-    // without this screen learning the bank's whole vocabulary.
-    const bank = String(filters.failed ?? "").trim();
-    if (bank === "failed") query.failed = true;
-    if (bank === "recorded") query.failed = false;
-    // The fourth segment of the same control (#1273). Not a `failed` value: a hand skip is a
-    // successful transfer, and sending `failed` too would only restate that.
-    if (bank === SKIPPED_BY_HAND_FILTER) query.skip_origin = SKIP_ORIGIN_MANUAL;
+    // ⚠️ THE `failed` PSEUDO-FILTER IS GONE (owner, 2026-09-17). It drove the Skipped popup's
+    // All / On purpose / Bank refused / Skipped by hand segments, which the Skip Type facet and the
+    // popup's All / Inflow / Outflow tabs replaced. "Bank refused" and "Skipped by hand" are Skip
+    // Type values now; the server still accepts `failed` and `skip_origin`, nothing here sends them.
 
     const amount = filters.amount as RangeFilter | undefined;
     if (amount?.min != null) query.amount_min = amount.min;
@@ -1456,15 +1478,23 @@ export interface SummaryTile {
  *
  * ⚠️ NOT "already recorded as Paid by hand" -- that was false for most of the figure (#1252 browser
  * walk). It also holds a received Project Inflow, a line excluded as not spending, a line imported
- * before, and a line a person skipped. The row's Outcome says which. Shared by `summaryTiles`' hint
+ * before, and a line a person skipped. The row's Skip Type says which. Shared by `summaryTiles`' hint
  * and `SkippedRowsDialog`, so the two cannot drift apart again.
  */
 export const SKIPPED_ON_PURPOSE_PHRASE = "skipped on purpose";
-export const SKIPPED_ON_PURPOSE_LABEL = "On purpose";
 
-/** The Skipped popup's fourth segment (#1273): the `failed` pseudo-filter value, and its label. */
-export const SKIPPED_BY_HAND_FILTER = "manual";
+/** The "Skipped by hand · user · date" line's lead -- the same words as its Skip Type value. */
 export const SKIPPED_BY_HAND_LABEL = "Skipped by hand";
+
+/**
+ * The Skipped popup's tabs (owner, 2026-09-17): the whole `skipped` scope, then each direction.
+ * Each tab IS a server scope, so its count comes back in `tab_counts` under the popup's filters.
+ */
+export const SKIPPED_TABS: { scope: OutflowScope; label: string }[] = [
+    { scope: "skipped", label: "All" },
+    { scope: "skipped_inflow", label: "Inflow" },
+    { scope: "skipped_outflow", label: "Outflow" },
+];
 
 /**
  * The note a line's Outcome shows: for a line SKIPPED BY HAND the reason the person typed, otherwise the
@@ -2753,6 +2783,26 @@ export const decidedRows = (
 ): OutflowImportRow[] =>
     rows.filter((row) => selected.has(row.name) && isConfirmable(row, decisions.get(row.name)));
 
+/**
+ * The money that left the account across the ticked lines -- the toolbar's "₹X out" (#1297).
+ *
+ * ⚠️ MONEY-IN LINES ARE LEFT OUT, NOT SUBTRACTED. A credit is a different axis, not a negative
+ * debit, so netting it would state a figure that is neither what left nor what arrived. The test is
+ * `isCreditRow`, the same one the Amount cell's colour reads, so a blank direction counts as out
+ * here exactly as it renders red.
+ *
+ * It sums over the LOADED rows only, like `decidedRows`: a ticked name that is not on this page
+ * carries no amount this screen can see.
+ */
+export const selectedMoneyOut = (
+    rows: OutflowImportRow[],
+    selected: ReadonlySet<string>
+): number =>
+    rows.reduce(
+        (sum, row) => (selected.has(row.name) && !isCreditRow(row) ? sum + row.amount : sum),
+        0
+    );
+
 // --- where a settled or suggested record lives ---------------------------------------------------
 
 /**
@@ -3125,12 +3175,14 @@ export const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
  * `suggested === false`. Adding a reason must not change WHICH records are blocked, only what the
  * reviewer is told about them; the cross-pin against `partialOffer` below is what holds that.
  *
- * Four cases, and they are TOTAL over a blocked pick:
+ * Five cases, and they are TOTAL over a blocked pick:
  *
  *   `not_positive`       the record's amount, or the transfer's, is zero or negative
  *   `bank_paid_more`     the bank moved MORE than the record is for -- an overpayment
  *   `expense_exact_only` the record is larger, but it is an expense, which cannot be part-settled
  *   `record_larger`      the record is larger and IS a payment -- ordinarily the partial dialog
+ *   `more_than_left`     a part-linked expense has less left than the line (#1299); measured
+ *                        against the remainder, never the whole amount
  *
  * The last one reaches the dead-end branch only when `SHOW_PARTIAL_SETTLE` is off, and it has to
  * exist anyway: this function is total, and a silent fall-through would print nothing at all.
@@ -3139,7 +3191,8 @@ export type SettleBlockReason =
     | "not_positive"
     | "bank_paid_more"
     | "expense_exact_only"
-    | "record_larger";
+    | "record_larger"
+    | "more_than_left";
 
 export interface SettleBlock {
     kind: "amount_outside_window";
@@ -3187,17 +3240,54 @@ const settleBlockReason = (
     return "record_larger";
 };
 
+/**
+ * Whether a run of bank lines has already linked part of this record (#1299, ADR-0027).
+ *
+ * ⚠️ FAILS CLOSED TO "NOT PART-LINKED". An older payload with no `line_count` is a record exactly as
+ * before, so every existing amount cell, verdict and block keeps its old shape. Only an expense can
+ * be part-linked; a payment is never linked by many lines.
+ */
+export const isPartLinkedRecord = (
+    record: { target_doctype?: string; line_count?: number } | null | undefined
+): boolean =>
+    Boolean(record) &&
+    Boolean(record!.target_doctype) &&
+    record!.target_doctype !== PROJECT_PAYMENTS_DOCTYPE &&
+    Number(record!.line_count ?? 0) > 0;
+
 export const settleBlocker = (
     record:
-        | { name: string; amount: number; suggested?: boolean; target_doctype?: string }
+        | {
+              name: string;
+              amount: number;
+              suggested?: boolean;
+              target_doctype?: string;
+              line_count?: number;
+              remaining?: number;
+          }
         | null
         | undefined,
     bankAmount: number
 ): SettleBlock | null => {
     if (!record) return null;
     if (record.suggested !== false) return null;
-    const recordAmount = Number(record.amount);
     const bank = Number(bankAmount);
+    // ⚠️ A PART-LINKED EXPENSE IS MEASURED AGAINST WHAT IS LEFT (#1299). The server marks it
+    // unsettleable only when the line is over that by more than ₹5, so the gap the dialog prints is
+    // against the remainder -- the whole amount would state a difference nobody can act on.
+    if (isPartLinkedRecord(record) && record.remaining !== undefined) {
+        const remaining = Number(record.remaining);
+        return {
+            kind: "amount_outside_window",
+            reason: "more_than_left",
+            recordName: record.name,
+            recordAmount: remaining,
+            bankAmount: bank,
+            difference: remaining - bank,
+            targetDoctype: record.target_doctype,
+        };
+    }
+    const recordAmount = Number(record.amount);
     return {
         kind: "amount_outside_window",
         reason: settleBlockReason(record.target_doctype, recordAmount, bank),
@@ -3294,9 +3384,14 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
         case "bank_paid_more":
             return "The bank moved more than this record is for. An import only ever settles a record for the amount that actually left the bank, so it cannot record this transfer against a smaller record — the overpayment has to be sorted out on the record itself first.";
         case "expense_exact_only":
-            return "An expense can only be settled at its exact amount. It cannot be settled in parts or carried forward, because neither expense ledger has anywhere for a balance to go.";
+            // ⚠️ REWORDED AT #1299. "It cannot be settled in parts" stopped being true when many bank
+            // lines could link to one expense. From HERE the first line must still equal the whole
+            // expense; a run that pays it in parts is started from the grid.
+            return "From here, an expense with no bank lines linked yet can only be settled at its exact amount. If this line is one part of a run that pays it, tick the run's lines on the grid and use Link to one expense.";
         case "record_larger":
             return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
+        case "more_than_left":
+            return "This line is for more than this expense still has left to link, so linking it would pay the expense more than its amount.";
     }
 };
 
@@ -3329,6 +3424,7 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
 export const settleBlockRemedy = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     const splittable = !block.targetDoctype || block.targetDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    if (block.reason === "more_than_left") return "Pick another expense, or raise its amount first.";
     if (block.reason === "bank_paid_more" && splittable) {
         return `To settle it as one part of this transfer, choose '${SETTLE_MODE_LABEL.split}' on the row.`;
     }
@@ -3430,6 +3526,17 @@ export interface SettleableRecord {
      */
     similarity: number;
     similarity_reasons: string[];
+    /**
+     * What a run of bank lines has already linked to this record, and what is left (#1299, ADR-0027).
+     *
+     * ⚠️ OPTIONAL, AND ABSENT READS AS NOTHING LINKED -- see `isPartLinkedRecord`. Only an expense can
+     * be part-linked; the server sends 0 / 0 / the whole amount for a payment. `payment_ref` is the
+     * expense's stored reference, which the After linking bar reads to say whether it is kept.
+     */
+    linked_total?: number;
+    line_count?: number;
+    remaining?: number;
+    payment_ref?: string;
     /**
      * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
      * expense doctype has the field at all. The expense's last-changed timestamp is real and useful

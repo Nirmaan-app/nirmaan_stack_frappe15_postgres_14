@@ -561,7 +561,7 @@ class TestCommitOverlayCrossVersionSource(FrappeTestCase):
     sheet whose CURRENT committed version is 2 while its overlay layers still sit on the frozen v1
     carries ZERO of those layers today. If you are here because these tests failed, you have made
     the annotation layers follow rates cross-version -- that is an OWNER CALL, not a bug fix. Read
-    `docs/boq/HANDOFF-revised-boq-amendment-b-w3-w6.md` §5 W6 before deciding it is correct.
+    `git show e6547258:docs/boq/HANDOFF-revised-boq-amendment-b-w3-w6.md` (removed from the tree) §5 W6 before deciding it is correct.
 
     The fixture is deliberately symmetric so the version is provably the ONLY cause: rows 2 and 3
     are both MATCHED twins of the revision, they differ only in which committed version their

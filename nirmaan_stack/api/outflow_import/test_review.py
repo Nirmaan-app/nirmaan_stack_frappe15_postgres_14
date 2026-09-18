@@ -369,6 +369,25 @@ class TestMatchBatch(OutflowReviewFixture):
         self.assertEqual(origin("0003"), "System")
         self.assertFalse(origin("0004"))
 
+    def test_a_match_run_skip_stores_its_kind_and_a_match_does_not(self):
+        """Skip Type: the match run's one persister writes the kind beside the note, NULL otherwise."""
+        rows = self._rows_by_transfer_suffix()
+        kind = lambda suffix: frappe.db.get_value(ROW_DOCTYPE, rows[suffix]["name"], "skip_kind")
+        self.assertEqual(kind("0003"), "Outflow Already Recorded")
+        self.assertFalse(kind("0004"))
+
+    def test_an_already_recorded_skip_carries_the_record_behind_it(self):
+        """The Skipped popup's hover: the payment already on the books, with the facts to check."""
+        name = self._rows_by_transfer_suffix()["0003"]["name"]
+        row = next(
+            r for r in get_outflow_rows(scope="skipped", batch=self.batch.name, limit=200)["rows"]
+            if r["name"] == name
+        )
+        records = row["skip_source"]["records"]
+        self.assertEqual([(r["doctype"], r["name"]) for r in records], [("Project Payments", self.pay_already)])
+        self.assertEqual(records[0]["status"], "Paid")
+        self.assertGreater(records[0]["amount"], 0)
+
     def test_fan_out_matches_as_one_group(self):
         row = self._rows_by_transfer_suffix()["0004"]
         self.assertEqual(row["row_status"], "Matched")
@@ -4929,6 +4948,13 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         open_lines = [r["name"] for r in rows if r["row_status"] != ROW_SKIPPED]
         self.assertTrue(open_lines)
         self.assertEqual({origin[name] or None for name in open_lines}, {None})
+
+    def test_a_contains_guard_skip_stores_outflow_already_recorded(self):
+        """Skip Type on the ICICI path: money out already on the books."""
+        skipped = self._bank_rows()[_BANK_ALREADY_PAID]["name"]
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, skipped, "skip_kind"), "Outflow Already Recorded"
+        )
 
     def test_the_skip_sentence_is_the_SHARED_one_not_a_bank_specific_retype(self):
         row = self._bank_rows()[_BANK_ALREADY_PAID]

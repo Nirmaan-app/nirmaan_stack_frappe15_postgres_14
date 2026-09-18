@@ -8,7 +8,7 @@
 // A TDS Items doc groups multiple `Items` SKUs (via the "TDS Items Child
 // Table" child table). `TDS Repository` entries now link to a TDS Items doc
 // instead of holding a bare item id/name/category. Design source of truth:
-// `nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md` (section T3).
+// `.claude/context/domain/tds/phase-1-plan.md` (section T3).
 
 export interface TDSItemMember {
   name: string;

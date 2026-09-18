@@ -26,7 +26,7 @@ class TDSItems(Document):
 		"""Enforce unique (work_package, tds_item_name), CASE-INSENSITIVELY.
 
 		A TDS Item is uniquely identified by its Work Package + human label.
-		Membership is N:1 owned by the Item (`Items.linked_tds_item`, ADR-0004),
+		Membership is N:1 owned by the Item (`Items.linked_tds_item`, ADR-0026),
 		so a SKU belongs to exactly one group — only the
 		(work_package, tds_item_name) pair is constrained here.
 

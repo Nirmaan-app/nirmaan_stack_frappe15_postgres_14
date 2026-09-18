@@ -2,15 +2,15 @@ import frappe
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Why this module exists (Phase 2 — group-driven project consumption, ADR-0003;
-# amended by ADR-0004):
+# Why this module exists (Phase 2 — group-driven project consumption, ADR-0025;
+# amended by ADR-0026):
 #
 # A project consumes TDS by picking a **TDS Item (group) + Make**. The picker
 # fuzzy-matches the typed query against the group name (`TDS Items.
 # tds_item_name`). Member-SKU matching is ARCHIVED behind the default-off
 # `include_member_matches` flag — a stakeholder ruling, not a capability loss.
 #
-# ADR-0004 changed the member model underneath: membership is N:1 owned by the
+# ADR-0026 changed the member model underneath: membership is N:1 owned by the
 # Item (`Items.linked_tds_item`), so a member hit resolves to exactly ONE group
 # and the old M:N dedupe is unnecessary. Nothing here reads
 # `TDS Items Child Table` any more (retired as a writer, left dormant).
@@ -31,7 +31,7 @@ import frappe
 GROUP_DOCTYPE = "TDS Items"
 ENTRY_DOCTYPE = "TDS Repository"
 ITEMS_DOCTYPE = "Items"
-LINK_FIELD = "linked_tds_item"  # Items.linked_tds_item → TDS Items (ADR-0004)
+LINK_FIELD = "linked_tds_item"  # Items.linked_tds_item → TDS Items (ADR-0026)
 
 DEFAULT_LIMIT = 50
 
@@ -137,7 +137,7 @@ def search_tds_items(
 	limit: int = 50,
 	include_member_matches: bool = False,
 ):
-	"""Group-driven TDS picker search — GROUP NAME ONLY by default (ADR-0004).
+	"""Group-driven TDS picker search — GROUP NAME ONLY by default (ADR-0026).
 
 	Matches `query` (case-insensitive substring) against the TDS Items group name
 	(`tds_item_name`). Stakeholders asked for group-name-only search, so the
@@ -145,7 +145,7 @@ def search_tds_items(
 	`include_member_matches` — kept working (and ported to the N:1 model) so it
 	can be revived without re-deriving it, but no caller passes it today.
 
-	ADR-0004 also COLLAPSED the old member fan-out: membership is now N:1 (an item
+	ADR-0026 also COLLAPSED the old member fan-out: membership is now N:1 (an item
 	belongs to exactly ONE group via `Items.linked_tds_item`), so a member hit can
 	surface at most one parent group and the M:N dedupe that used to be necessary
 	is gone.
@@ -219,7 +219,7 @@ def search_tds_items(
 			"matched_member": None,
 		}
 
-	# ── 2. Member matches — ARCHIVED, opt-in only (ADR-0004) ───────────────────
+	# ── 2. Member matches — ARCHIVED, opt-in only (ADR-0026) ───────────────────
 	# Ported to N:1: members are `Items WHERE linked_tds_item IS SET`, so a hit
 	# resolves to its ONE group via the item's own `linked_tds_item` — no child
 	# table, and no M:N dedupe (an item cannot surface two parents any more).

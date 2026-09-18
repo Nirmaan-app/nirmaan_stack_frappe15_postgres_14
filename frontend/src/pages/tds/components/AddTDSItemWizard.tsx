@@ -46,7 +46,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 // SKUs under one reusable "TDS Item" (one datasheet often specs many catalog
 // items). This wizard authors ONLY a `TDS Item` doc — NOT a TDS Repository
 // entry (the datasheet/make entry is a separate "Add Entry" flow). Admin-only.
-// Design source of truth: nirmaan_stack/.claude/context/domain/tds/phase-1-plan.md (T5).
+// Design source of truth: .claude/context/domain/tds/phase-1-plan.md (T5).
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Mode = "Normal" | "Custom";
@@ -131,7 +131,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
     // we need here.
     const { wpOptions, itemOptionsForWP } = useTDSItemOptions({ selectedWP });
 
-    // ADR-0004: current linkage for every SKU in this Work Package, fetched ONCE
+    // ADR-0026: current linkage for every SKU in this Work Package, fetched ONCE
     // (batched, not per option) so each picker row can show whether adding it
     // would MOVE it out of another group. "No silent member theft" — this picker
     // does NOT filter out already-linked items (a SKU legitimately moves between
@@ -148,7 +148,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
 
     const linkageByItem = linkageData?.message || {};
 
-    // The ONE membership write path (ADR-0004). Same endpoint TDSItemDetail uses:
+    // The ONE membership write path (ADR-0026). Same endpoint TDSItemDetail uses:
     // it enforces the work-package invariant that `frappe.db.set_value` bypasses,
     // and reports partial outcomes — items REFUSED on a WP mismatch (`errors`) and
     // items MOVED out of another group (`reassigned`, which the amber picker
@@ -304,7 +304,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                 description: values.description || "",
             };
 
-            // NEVER send `members` here. ADR-0004 moved membership to
+            // NEVER send `members` here. ADR-0026 moved membership to
             // `Items.linked_tds_item`; the `TDS Items.members` child table is
             // retired as a writer and READ BY NOTHING, so a `members: [...]`
             // payload creates rows that are invisible to the whole product —

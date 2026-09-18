@@ -202,7 +202,7 @@ doc_events = {
     # `TDS Items` (owner decision 2026-08-04). `Items.linked_tds_item` stays the
     # source of truth and is what every read derives from; the child table is
     # rebuilt from it only so the Desk `Members` grid is not empty. The rationale,
-    # and why the ADR-0004 retirement of this same hook is being reversed, is in
+    # and why the ADR-0026 retirement of this same hook is being reversed, is in
     # `integrations/controllers/items.py`.
     "Items": {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",
@@ -314,7 +314,12 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.project_invoices.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
+    # `expense_bank_links` is the SAME controller on both expense doctypes (ADR-0027, #1302): the
+    # four rules that protect an expense settled by many bank lines. Inert until the expense has
+    # live `Outflow Row Match` slips. Its `on_trash` comes FIRST so a refused delete never mints a
+    # version row for a document that is still there.
     "Non Project Expenses": {
+        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
         # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
@@ -322,12 +327,16 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
-        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
         # the row must be GONE before the request it links to can be deleted.
         "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
     },
     "Project Expenses": {
+        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
@@ -337,7 +346,10 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.
-        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        ],
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the
         # row is gone (on_trash fires before the DB delete) — deleting a Paid
         # expense now correctly lowers the gap / releases a CEO Hold.

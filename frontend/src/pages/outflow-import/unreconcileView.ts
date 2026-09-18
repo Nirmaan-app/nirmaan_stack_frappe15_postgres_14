@@ -24,6 +24,8 @@ export const VERDICT_REVERT_EXPENSE = "revert_expense";
 export const VERDICT_DELETE_CREATED = "delete_created";
 /** A part payment's split is joined back, then the payment reverts (amber in the dialog, #1279). */
 export const VERDICT_UNSPLIT_PAYMENT = "unsplit_payment";
+/** One line comes off an expense several lines settle; the expense keeps its amount and reference (blue, #1300). */
+export const VERDICT_UNLINK_EXPENSE_LINE = "unlink_expense_line";
 export const VERDICT_REFUSED = "refused";
 
 /** Mirrors `unreconcile.WHAT_HAPPENS_UNSPLIT`: the amber line's lead-in. */
@@ -63,6 +65,12 @@ export interface UnreconcilePlanLeg {
     restored_amount?: number | null;
     /** Whether the PO's two payment terms join back into one (a Service Request payment has none). */
     joins_terms?: boolean;
+    /** `unlink_expense_line` only (#1300): what the other live lines add up to, how many there are, the
+     *  expense's own amount, and whether those lines still make it Paid. */
+    stays_linked?: number | null;
+    other_lines?: number | null;
+    expense_amount?: number | null;
+    stays_paid?: boolean | null;
 }
 
 export interface UnreconcilePlan {
@@ -94,6 +102,8 @@ export interface ReversedLeg {
     /** `unsplit_payment` only (#1279). */
     leftover?: string | null;
     restored_amount?: number | null;
+    /** `unlink_expense_line` only (#1300). */
+    stays_paid?: boolean | null;
 }
 
 /** What `unreconcile.unreconcile_row` returns. */
@@ -130,6 +140,32 @@ export const unsplitConsequences = (leg: UnreconcilePlanLeg): string[] => [
 ];
 
 /**
+ * The three consequences under "Only this line comes off." (#1300, mockup board 6), from the figures the
+ * server put on the leg. ⚠️ THE DATE LINE FOLLOWS `stays_paid`: the write re-derives the expense from the
+ * lines left, so it keeps a date only when those still fill it.
+ */
+export const expenseLineConsequences = (leg: UnreconcilePlanLeg): string[] => {
+    const others = leg.other_lines ?? 0;
+    return [
+        others > 0
+            ? `${formatToRoundedIndianRupee(leg.stays_linked ?? 0)} stays linked, across ${others} other ${
+                  others === 1 ? "line" : "lines"
+              }`
+            : "No other line stays linked",
+        leg.stays_paid
+            ? "The payment date becomes the latest remaining line's. The reference is kept."
+            : "The payment date is cleared. The reference is kept.",
+        "The amount is not changed",
+    ];
+};
+
+/** The figure beside a record: the leg's own amount, and "of" the expense's on a many-line expense (#1300). */
+export const legAmountLabel = (leg: UnreconcilePlanLeg): string =>
+    leg.verdict === VERDICT_UNLINK_EXPENSE_LINE && leg.expense_amount != null
+        ? `${formatToRoundedIndianRupee(leg.target_amount)} of ${formatToRoundedIndianRupee(leg.expense_amount)}`
+        : formatToRoundedIndianRupee(leg.target_amount);
+
+/**
  * The coloured "what happens" line beside one record.
  *
  * ⚠️ THE SENTENCE IS THE SERVER'S; a screen-side rewording would drift from the refusal the write
@@ -150,6 +186,14 @@ export const legOutcomeLine = (leg: UnreconcilePlanLeg): LegOutcomeLine => {
     }
     if (leg.verdict === VERDICT_UNSPLIT_PAYMENT) {
         return { tone: "split", lead: null, text: leg.what_happens ?? "", items: unsplitConsequences(leg) };
+    }
+    if (leg.verdict === VERDICT_UNLINK_EXPENSE_LINE) {
+        return {
+            tone: "back",
+            lead: null,
+            text: leg.what_happens ?? "",
+            items: expenseLineConsequences(leg),
+        };
     }
     return {
         tone: BACK_TO_APPROVED.has(leg.verdict)
@@ -213,8 +257,12 @@ export interface UnreconcileNotice {
 export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice => {
     const total = result.reversed.length;
     // An un-split payment goes back to the settleable status too (#1279); its split gets its own sentence below.
+    // A line off a many-line expense does too, unless the lines left still fill it (#1300).
     const reverted = result.reversed.filter(
-        (leg) => BACK_TO_APPROVED.has(leg.verdict) || leg.verdict === VERDICT_UNSPLIT_PAYMENT,
+        (leg) =>
+            BACK_TO_APPROVED.has(leg.verdict) ||
+            leg.verdict === VERDICT_UNSPLIT_PAYMENT ||
+            (leg.verdict === VERDICT_UNLINK_EXPENSE_LINE && !leg.stays_paid),
     ).length;
     const deleted = result.reversed.filter((leg) => leg.verdict === VERDICT_DELETE_CREATED).length;
     const wasDeleted = (count: number) => (count === 1 ? "was deleted" : "were deleted");
@@ -239,7 +287,11 @@ export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice 
     // growing back to the whole sanction is the point, and only a change on top of that is news.
     const expected = (leg: ReversedLeg) =>
         leg.verdict === VERDICT_UNSPLIT_PAYMENT ? (leg.restored_amount ?? leg.reversed_amount) : leg.reversed_amount;
+    // ⚠️ A LINE OFF A MANY-LINE EXPENSE IS NEVER A CHANGED AMOUNT (#1300): the leg carries ONE line's
+    // figure while the expense keeps its own, which the write never touches. Comparing the two would
+    // report every such undo as an amount somebody changed.
     const changed = result.reversed
+        .filter((leg) => leg.verdict !== VERDICT_UNLINK_EXPENSE_LINE)
         .filter((leg) => leg.amount_after !== null && !sameMoney(leg.amount_after, expected(leg)))
         .map(
             (leg) =>
