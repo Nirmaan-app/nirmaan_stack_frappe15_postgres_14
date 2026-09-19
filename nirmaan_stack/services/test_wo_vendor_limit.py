@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""Tests for `wo_vendor_limit.py` -- the Rs 15 lakh per-vendor, per-financial-year WO cap.
+"""Tests for `wo_vendor_limit.py` -- the Rs 15 lakh per-vendor, per-financial-year GST Hold rule.
 
 Run:  bench --site localhost run-tests --module nirmaan_stack.services.test_wo_vendor_limit
 """
@@ -20,20 +20,14 @@ class TestLimit(unittest.TestCase):
     def test_the_number_is_the_owners(self):
         self.assertEqual(WO_VENDOR_FY_LIMIT, 1_500_000.0)
 
-    def test_exactly_the_limit_is_allowed(self):
+    def test_exactly_the_limit_is_not_on_hold(self):
         self.assertFalse(exceeds_limit(1_500_000))
-        self.assertFalse(exceeds_limit(1_000_000, 500_000))
 
-    def test_one_rupee_over_is_refused(self):
+    def test_one_rupee_over_is_on_hold(self):
         self.assertTrue(exceeds_limit(1_500_001))
-        self.assertTrue(exceeds_limit(1_000_000, 500_001))
-
-    def test_the_new_wo_alone_can_push_over(self):
-        self.assertFalse(exceeds_limit(1_400_000))
-        self.assertTrue(exceeds_limit(1_400_000, 200_000))
 
     def test_blank_values_read_as_zero(self):
-        self.assertFalse(exceeds_limit(None, None))
+        self.assertFalse(exceeds_limit(None))
 
 
 class TestFinancialYear(unittest.TestCase):

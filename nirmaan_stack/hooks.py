@@ -429,6 +429,12 @@ scheduler_events = {
         "nirmaan_stack.tasks.ceo_hold_recheck.run_due_ceo_hold_rechecks",
 	],
 	"cron": {
+		# GST Hold (ADR-0028): every morning, ON for a Service / Material & Service vendor with no
+		# GST number whose GST-off WOs this FY total over Rs 15L. Never released here -- Admin only.
+		# Kept ahead of the 04:30 credit job, whose full vendor save would otherwise race this write.
+		"0 4 * * *": [
+			"nirmaan_stack.tasks.vendor_gst_hold.update_gst_holds"
+		],
 		"30 4 * * *": [
 			"nirmaan_stack.tasks.vendor_credit_update.update_all_vendor_credits",
 			# "nirmaan_stack.tasks.project_cashflow_hold_update.update_projects_cashflow_hold"
