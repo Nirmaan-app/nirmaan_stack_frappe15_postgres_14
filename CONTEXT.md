@@ -143,7 +143,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No).
 
-- **GST-off Work Order** — a Work Order whose *GST flag* is off (`gst = "false"`, labelled "GST Applicable" off on the approved WO page). A new Work Order starts GST-on; approval switches it off.
+- **GST-off Work Order** — a Work Order whose *GST flag* is off (`gst = "false"`, labelled "GST Applicable" off on the approved WO page). A new Work Order starts GST-on; approval sets it from the vendor's GST number — off when the vendor has none.
 
 - **Notional GST** — the GST a GST-off Work Order *would* have carried: 18% of its total. It is not owed, paid or invoiced anywhere — a what-if figure showing how much GST was never charged on work ordered without it. A GST-on Work Order has none (its GST is real and already inside its total). Only **Approved** Work Orders count — the same set as the Work Order side of "PO + WO Amount" — so a Work Order under amendment drops out of both until it is approved again. *Avoid*: GST payable, GST liability, missing GST.
 

@@ -107,7 +107,7 @@ export const SRAmendPage = () => {
                     />
                 );
             case "review":
-                return <ReviewStep form={form} />;
+                return <ReviewStep form={form} gstApplicable={srDoc?.gst === "true"} />;
             default:
                 return null;
         }
