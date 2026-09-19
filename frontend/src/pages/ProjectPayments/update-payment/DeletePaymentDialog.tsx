@@ -88,6 +88,10 @@ export const DeletePaymentDialog: React.FC<DeletePaymentDialogProps> = ({
                         {paymentToDelete.utr && <> (UTR: <TruncatedText text={paymentToDelete.utr} className="max-w-[16rem]" />)</>}
                         {" "}for an amount of <strong>{formatToIndianRupee(paymentToDelete.amount)}</strong>?
                         <br />
+                        {/* The server does this, not the dialog: Project Payments on_trash. */}
+                        {paymentToDelete.document_type === "Service Requests" && (
+                            <>Any TDS deducted on this payment is deleted with it.<br /></>
+                        )}
                         This action cannot be undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>

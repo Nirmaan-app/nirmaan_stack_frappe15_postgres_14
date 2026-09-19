@@ -96,3 +96,25 @@ frappe.publish_realtime(
 ```
 
 Frontend listens via Socket.IO in `SocketInitializer.tsx`
+
+---
+
+## Print Formats (PDF)
+
+### Landscape orientation (Frappe ≥ 15.115)
+Frappe commit `8744b8004d` (2026-04-22, "disable meta tag parsing in pdfkit") ignores every `<meta name="pdfkit-*">`
+tag, so `<meta name="pdfkit-orientation" content="Landscape"/>` no longer does anything and the PDF comes out portrait.
+wkhtmltopdf never honoured `@page { size: A4 landscape }` either. Set orientation in a `<style>` tag instead:
+
+```html
+<style>.print-format { orientation: Landscape; }</style>
+```
+
+- It must be a plain top-level `.print-format { … }` rule. A rule inside `@media print` or a selector like `.print-format p` is skipped.
+  `read_options_from_html` in `frappe/utils/pdf.py` reads only `orientation`, `margin-*`, `page-size`,
+  `page-width`/`page-height` and `header-spacing` from it.
+- From Python you can instead pass `frappe.get_print(..., as_pdf=True, pdf_options={"orientation": "Landscape"})`.
+- Landscape formats currently: `Overall Milestones Report` (the DPR "All Zones 14 Days" download) and
+  `LSProject Commission Report - Filled Task`.
+- `Print Format` is an unfiltered fixture. Edit in Desk, export fixtures, then commit `fixtures/print_format.json`.
+  A DB-only edit is reverted by the next `bench migrate`.

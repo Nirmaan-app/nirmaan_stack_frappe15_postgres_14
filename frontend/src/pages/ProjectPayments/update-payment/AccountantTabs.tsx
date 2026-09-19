@@ -17,7 +17,9 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 
 // --- Hooks & Utils ---
-import { useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { useFrappeUpdateDoc, useFrappeDeleteDoc } from 'frappe-react-sdk';
+import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { SETTLED_STATUSES } from '@/utils/settlement';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import {
@@ -30,6 +32,7 @@ import {
     ApprovalTab,
     TAB_COLUMNS,
     TAB_DEFAULT_SORT,
+    TYPE_LABEL,
 } from "../config/approvalsTable.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
 import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
@@ -111,6 +114,15 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // Pending tab, which is what actually settles the row.
     const { updateDoc } = useFrappeUpdateDoc();
     const refreshTabCounts = useRefreshApprovalCounts();
+
+    // Trash beside "Mark as Paid" (owner, 18 Sep — reverses the 15 Sep removal). Everyone who
+    // can open this tab gets it: Admin, Accountant, Accountant Lead. Each ledger deletes through
+    // the call it already used: a vendor payment through `update_payment_request` (what this tab
+    // and the PO / SR pages call), an expense through the `deleteDoc` the expense pages use.
+    const [deleteRow, setDeleteRow] = useState<ApprovalQueueRow | null>(null);
+    const { trigger: deletePayment, isMutating: deletingPayment } = useUpdatePaymentRequest();
+    const { deleteDoc, loading: deletingExpense } = useFrappeDeleteDoc();
+    const deleting = deletingPayment || deletingExpense;
 
 
     // --- State for Export Dialog ---
@@ -219,10 +231,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // figure would silently under-report the moment the fulfil path switches over.
         getAmountPaid: (docName) => getTotalAmountPaidForPO(docName, [...SETTLED_STATUSES]),
         onRecordPayment: (row) => setConfirmPaidRows([row]),
-        // Delete is deliberately NOT offered here (owner, 15 Sep). The registry renders
-        // the trash icon only when `onDelete` is supplied, so withholding it is the
-        // whole change — the dialog and its "delete" mode stay intact for any caller
-        // that wants them back.
+        onDelete: setDeleteRow,
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
         ),
@@ -408,6 +417,30 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         refreshTabCounts();
         await refetch();
     }, [confirmPaidRows, updateDoc, toast, refetch, table, refreshTabCounts]);
+
+    const handleConfirmDelete = useCallback(async () => {
+        if (!deleteRow) return;
+        try {
+            if (deleteRow.doctype === "Project Payments") {
+                await deletePayment({ action: "delete", name: deleteRow.name });
+            } else {
+                await deleteDoc(deleteRow.doctype, deleteRow.name);
+            }
+            toast({
+                title: "Deleted",
+                description: `${deleteRow.against_primary || deleteRow.name} was deleted.`,
+                variant: "success",
+            });
+            setDeleteRow(null);
+            // Same reason as after Mark as Paid: ticks are keyed by row index.
+            table.resetRowSelection();
+            invalidateSidebarCounts();
+            refreshTabCounts();
+            await refetch();
+        } catch (error) {
+            toast({ title: "Couldn't delete", description: getFrappeError(error), variant: "destructive" });
+        }
+    }, [deleteRow, deletePayment, deleteDoc, toast, table, refreshTabCounts, refetch]);
 
     const selectedRows = table.getSelectedRowModel().rows;
     const confirmPaidTotal = useMemo(
@@ -768,6 +801,52 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                     ? `Marking ${markingProgress}/${confirmPaidRows.length}…`
                                     : "Marking…")
                                 : "Yes, mark as Paid"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={!!deleteRow}
+                onOpenChange={(open) => { if (!open && !deleting) setDeleteRow(null); }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {`Are you sure you want to delete this ${deleteRow ? (TYPE_LABEL[deleteRow.source_type] ?? deleteRow.source_type) : "payment"}?`}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm">
+                                <p>It will be permanently deleted. This can't be undone.</p>
+                                {/* The server does this, not the page: the expense doctypes'
+                                    `after_delete` deletes the request (expense_request_status.py). */}
+                                {deleteRow && deleteRow.doctype !== "Project Payments" && (
+                                    <p>If it came from an Expense Request, that request is deleted too.</p>
+                                )}
+                                {deleteRow && (
+                                    <div className="rounded border bg-muted/40 p-2">
+                                        <div className="font-medium text-foreground">
+                                            {deleteRow.against_primary || deleteRow.name}
+                                        </div>
+                                        <div className="text-muted-foreground">
+                                            {formatToRoundedIndianRupee(deleteRow.amount)}
+                                            {deleteRow.vendor
+                                                ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}`
+                                                : ""}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleting}>No</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => { e.preventDefault(); handleConfirmDelete(); }}
+                            disabled={deleting}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {deleting ? "Deleting…" : "Yes, delete"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

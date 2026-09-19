@@ -226,9 +226,9 @@ export const getExpenseRequestColumns = ({
             size: 96,
             header: "Actions",
             enableSorting: false,
-            // `can_review` is computed by the SERVER per row (routed reviewer, and not the
-            // requester's own). Hiding the buttons is convenience only -- the endpoint
-            // refuses regardless.
+            // `can_review` is computed by the SERVER per row (routed reviewer, or Accountant /
+            // HR on a Project Manager's request, and not the requester's own). Hiding the
+            // buttons is convenience only -- the endpoint refuses regardless.
             cell: ({ row }) => {
                 const mayReview = canReview(row.original.name);
                 const mayEdit = canEdit(row.original.name);

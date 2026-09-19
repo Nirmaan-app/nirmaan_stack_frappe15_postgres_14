@@ -11,6 +11,8 @@ import {
     PRPackageRow,
     POTaskLinkRow,
     buildTaskPOMap,
+    buildTaskPOValueMap,
+    sumLinkedPOValue,
     attachLinkedPOs,
 } from "@/pages/projects/CriticalPOTasks/utils";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
@@ -41,6 +43,8 @@ const PR_PACKAGE_FIELDS = [
 
 const PO_TASK_LINK_FIELDS = [
     "name",
+    "total_amount",
+    "status",
     "`tabCritical PO Task Child Table`.critical_po_task as critical_po_task",
 ] as unknown as (keyof POTaskLinkRow)[];
 
@@ -71,9 +75,13 @@ export const useProjectPOTaskLinks = (projectId: string, enabled: boolean = true
     });
 
     const taskPOMap = useMemo(() => buildTaskPOMap(response.data), [response.data]);
+    const taskPOValueMap = useMemo(() => buildTaskPOValueMap(response.data), [response.data]);
+    const totalPOValue = useMemo(() => sumLinkedPOValue(response.data), [response.data]);
 
     return {
         taskPOMap,
+        taskPOValueMap,
+        totalPOValue,
         isLoading: response.isLoading,
         error: response.error,
         mutate: response.mutate,
@@ -143,8 +151,12 @@ export const useCriticalPOTasks = (projectId: string) => {
 
     const links = useProjectPOTaskLinks(projectId);
     const data = useMemo(
-        () => attachLinkedPOs(response.data, links.taskPOMap),
-        [response.data, links.taskPOMap]
+        () =>
+            attachLinkedPOs(response.data, links.taskPOMap)?.map((task) => ({
+                ...task,
+                linked_po_value: links.taskPOValueMap.get(task.name) ?? 0,
+            })),
+        [response.data, links.taskPOMap, links.taskPOValueMap]
     );
     const { mutate: mutateTasks } = response;
     const { mutate: mutateLinks } = links;
@@ -156,6 +168,7 @@ export const useCriticalPOTasks = (projectId: string) => {
     return {
         ...response,
         data,
+        totalPOValue: links.totalPOValue,
         mutate,
         isLoading: response.isLoading || links.isLoading,
         error: response.error ?? links.error,

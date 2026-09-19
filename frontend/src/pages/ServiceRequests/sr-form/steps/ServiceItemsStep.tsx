@@ -1,31 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { toast } from "@/components/ui/use-toast";
-import { CirclePlus, Trash2, AlertCircle, Search, Layers, ListChecks } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
+import { AlertCircle, Layers, ListChecks } from "lucide-react";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -36,17 +14,19 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import ReactSelect from "react-select";
+import { getSelectStyles } from "@/config/selectTheme";
 import { SRFormValues, ServiceItemType, createServiceItem } from "../schema";
 import { WOServiceItem } from "../hooks/useSRFormData";
-import { PLACEHOLDERS, VALIDATION_MESSAGES } from "../constants";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import { PackageOption, ServiceItemKind, groupItemsByPackage, orderPackageOptions } from "../utils";
+import { ApprovedServicesPicker } from "../components/ApprovedServicesPicker";
+import {
+    CustomServiceDraft,
+    CustomServiceForm,
+    EMPTY_CUSTOM_DRAFT,
+    isCustomDraftReady,
+} from "../components/CustomServiceForm";
+import { SelectedServiceItemsTable } from "../components/SelectedServiceItemsTable";
 
 interface CategoryOption {
     value: string;
@@ -56,23 +36,24 @@ interface CategoryOption {
 
 interface StepProps {
     form: UseFormReturn<SRFormValues>;
-    /** Categories that have ≥1 WO Service Item — drives the main "Select Package" picker */
+    /** Packages that have ≥1 WO Service Item (Approved and Custom both offered) */
     categories: CategoryOption[];
-    /** Categories with no rate-card items — only shown in the Add Custom Service dialog */
+    /** Packages with no rate-card items (Custom only) — same alphabetical picker list */
     emptyCategories: CategoryOption[];
     serviceItems: WOServiceItem[];
     isLoading?: boolean;
-    /** Allow negative quantity / rate / total. Set true only in amend flows. */
+    /** Allow a negative rate / total. Set true only in amend flows. */
     allowNegative?: boolean;
 }
 
 /**
  * ServiceItemsStep - Step 1 of SR Wizard
  *
- * Allows user to:
- * - Add service items with category, description, unit, and quantity
- * - Edit/delete items from the list
- * - Category is selected via dropdown (no grid selection)
+ * Pick a package, then a Service Type:
+ * - Approved Service: tick services from the package's rate card
+ * - Custom Service: type in a service that is not in the rate card
+ * Everything added, of either kind, lands in the one Selected Service Items
+ * table below, and the package resets for the next pick.
  */
 export const ServiceItemsStep: React.FC<StepProps> = ({
     form,
@@ -83,50 +64,32 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
     allowNegative = false,
 }) => {
     const [selectedCategory, setSelectedCategory] = useState<string>("");
+    const [serviceType, setServiceType] = useState<ServiceItemKind>("approved");
     const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
-    const [isCustomDialogOpen, setIsCustomDialogOpen] = useState(false);
-    const [currentItem, setCurrentItem] = useState({
-        category: "",
-        description: "",
-        uom: "",
-        quantity: 0,
-        rate: 0,
-    });
+    const [customDraft, setCustomDraft] = useState<CustomServiceDraft>(EMPTY_CUSTOM_DRAFT);
     const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
     const [deletePackageName, setDeletePackageName] = useState<string | null>(null);
 
     const items = form.watch("items") || [];
 
-    // Add Custom Service dialog: shows ALL categories (with items + empty),
-    // alphabetically. Main "Select Package" picker still uses `categories` only.
-    const allDialogCategories = useMemo<CategoryOption[]>(() => {
-        return [...categories, ...emptyCategories].sort((a, b) =>
-            a.label.localeCompare(b.label),
-        );
-    }, [categories, emptyCategories]);
+    const packageOptions = useMemo(
+        () => orderPackageOptions(categories, emptyCategories),
+        [categories, emptyCategories],
+    );
+    const selectedPackage = packageOptions.find((p) => p.value === selectedCategory);
 
-    // Filter service items for the selected category
-    const filteredStandardItems = useMemo(() => {
+    // Rate-card services of the selected package that are not added yet
+    const availableStandardItems = useMemo(() => {
         if (!selectedCategory || !serviceItems) return [];
-        // Get descriptions of items already added to avoid duplicates
         const addedDescriptions = new Set(items.map((i) => i.description));
         return serviceItems.filter(
             (item) => item.category_link === selectedCategory && !addedDescriptions.has(item.item_name)
         );
     }, [selectedCategory, serviceItems, items]);
 
-    // Handle standard item checkbox change
-    const handleCheckboxChange = (itemId: string) => {
-        const newChecked = new Set(checkedItems);
-        if (newChecked.has(itemId)) {
-            newChecked.delete(itemId);
-        } else {
-            newChecked.add(itemId);
-        }
-        setCheckedItems(newChecked);
-    };
+    const selectedGroups = useMemo(() => groupItemsByPackage(items), [items]);
 
-    // Memoize grouped errors for precise reporting
+    // Grouped validation errors for the summary under the table
     const groupedErrors = useMemo(() => {
         if (form.formState.submitCount === 0 || !form.formState.errors.items || !Array.isArray(form.formState.errors.items)) {
             return null;
@@ -158,19 +121,33 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
         return Object.keys(groups).length > 0 ? groups : null;
     }, [form.formState.errors.items, form.formState.submitCount]);
 
-    // Group all selected items for the table display
-    const groupedItemsByPackage = useMemo(() => {
-        const groups: Record<string, Array<{ originalIndex: number; data: typeof items[0] }>> = {};
-        items.forEach((item, index) => {
-            if (!groups[item.category]) {
-                groups[item.category] = [];
-            }
-            groups[item.category].push({ originalIndex: index, data: item });
-        });
-        return groups;
-    }, [items]);
+    const hasFieldError = (index: number, field: "quantity" | "rate") =>
+        form.formState.submitCount > 0 && !!(form.formState.errors.items as any)?.[index]?.[field];
 
-    // Add selected standard items
+    // Each pick starts on Approved; a package with no rate-card services can only take custom ones.
+    const handlePackageChange = (value: string) => {
+        const hasItems = packageOptions.find((p) => p.value === value)?.hasItems ?? false;
+        setServiceType(hasItems ? "approved" : "custom");
+        setSelectedCategory(value);
+        setCheckedItems(new Set());
+    };
+
+    // After an add the package resets, which hides the Service Type choice until the next pick.
+    const resetPackage = () => {
+        setSelectedCategory("");
+        setCheckedItems(new Set());
+    };
+
+    const handleToggleChecked = (itemName: string) => {
+        setCheckedItems((prev) => {
+            const next = new Set(prev);
+            if (next.has(itemName)) next.delete(itemName);
+            else next.add(itemName);
+            return next;
+        });
+    };
+
+    // Add ticked rate-card services, then reset the package.
     const handleAddStandardItems = () => {
         const selectedDocs = serviceItems.filter((item) => checkedItems.has(item.name));
 
@@ -186,72 +163,41 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
         );
 
         form.setValue("items", [...items, ...newItems]);
-        setCheckedItems(new Set());
-        setSelectedCategory("");
+        resetPackage();
         toast({
             title: "Items Added",
             description: `Added ${newItems.length} standard items to the list.`,
         });
     };
 
-    // Add manual custom item
+    // Add the typed custom service to the selected package, then reset the package.
     const handleAddCustomItem = () => {
-        const categoryToUse = currentItem.category || selectedCategory;
-
-        // Required-field guard
-        if (!categoryToUse || !currentItem.description || !currentItem.uom) return;
-        if (currentItem.quantity === 0 || currentItem.rate === 0) return;
-
-        // Quantity is never allowed to be negative.
-        if (currentItem.quantity < 0) {
-            toast({
-                title: "Invalid quantity",
-                description: "Quantity cannot be negative.",
-                variant: "destructive",
-            });
-            return;
-        }
-        // Rate may be negative only in amend mode.
-        if (!allowNegative && currentItem.rate < 0) {
-            toast({
-                title: "Invalid rate",
-                description: "Rate cannot be negative.",
-                variant: "destructive",
-            });
-            return;
-        }
+        if (!selectedCategory || !isCustomDraftReady(customDraft, allowNegative)) return;
 
         const newItem = createServiceItem(
-            categoryToUse,
-            currentItem.description,
-            currentItem.uom,
-            currentItem.quantity,
-            currentItem.rate,
+            selectedCategory,
+            customDraft.description.trim(),
+            customDraft.uom.trim(),
+            customDraft.quantity,
+            customDraft.rate,
             undefined, // standard_rate undefined → marks this as a custom item
         );
 
         form.setValue("items", [...items, newItem]);
-        setCurrentItem({ category: "", description: "", uom: "", quantity: 0, rate: 0 });
-        setSelectedCategory("");
-        setIsCustomDialogOpen(false);
+        setCustomDraft(EMPTY_CUSTOM_DRAFT);
+        resetPackage();
     };
 
-
-    // Delete item
     const handleDeleteItem = () => {
         if (!deleteItemId) return;
-
-        const updatedItems = items.filter((item) => item.id !== deleteItemId);
-        form.setValue("items", updatedItems);
+        form.setValue("items", items.filter((item) => item.id !== deleteItemId));
         setDeleteItemId(null);
     };
 
-    // Delete package (all items in category)
+    // Delete package (all items in category, approved and custom)
     const handleDeletePackage = () => {
         if (!deletePackageName) return;
-
-        const updatedItems = items.filter((item) => item.category !== deletePackageName);
-        form.setValue("items", updatedItems);
+        form.setValue("items", items.filter((item) => item.category !== deletePackageName));
         setDeletePackageName(null);
         toast({
             title: "Package Removed",
@@ -259,159 +205,112 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
         });
     };
 
-    // Update specific field of an item
-    const updateItemField = (index: number, field: keyof ServiceItemType, value: any) => {
+    const updateItemField = (index: number, field: keyof ServiceItemType, value: ServiceItemType[keyof ServiceItemType]) => {
         const updatedItems = [...items];
         updatedItems[index] = { ...updatedItems[index], [field]: value };
         form.setValue("items", updatedItems);
     };
 
+    const approvedDisabled = !selectedPackage?.hasItems;
+    const packageLabel = selectedPackage?.label ?? selectedCategory;
+
+    const typeOptions: Array<{ kind: ServiceItemKind; title: string; subtitle: string; disabled: boolean }> = [
+        {
+            kind: "approved",
+            title: "List of Approved Services",
+            subtitle: approvedDisabled
+                ? "No rate-card services in this package"
+                : `From rate card · ${availableStandardItems.length} available`,
+            disabled: approvedDisabled,
+        },
+        { kind: "custom", title: "Custom Service", subtitle: "Not in the rate card", disabled: false },
+    ];
+
     return (
         <div className="space-y-6">
-            {/* Category Selection */}
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-end justify-between border-b pb-6">
-                <div className="w-full md:w-1/2 space-y-2">
-                    <Label htmlFor="category" className="text-sm font-semibold flex items-center gap-2">
-                        <Layers className="h-4 w-4 text-primary" />
-                        Select Package <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                        value={selectedCategory}
-                        onValueChange={(val) => {
-                            setSelectedCategory(val);
-                            setCheckedItems(new Set());
-                        }}
-                        disabled={isLoading}
-                    >
-                        <SelectTrigger id="category" className="h-10 bg-white shadow-sm border-slate-200">
-                            <SelectValue placeholder="Select package" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {categories?.map((cat) => (
-                                <SelectItem key={cat.value} value={cat.value}>
-                                    {cat.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                            setIsCustomDialogOpen(true);
-                        }}
-                        className="h-10 bg-white border-primary/20 hover:bg-primary/5 text-primary gap-2"
-                    >
-                        <CirclePlus className="h-4 w-4" />
-                        Add Custom Service
-                    </Button>
-                </div>
+            {/* Package Selection */}
+            <div className="w-full md:w-1/2 space-y-2">
+                <Label htmlFor="category" className="text-sm font-semibold flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-primary" />
+                    Select Package <span className="text-red-500">*</span>
+                </Label>
+                <ReactSelect<PackageOption>
+                    inputId="category"
+                    value={selectedPackage ?? null}
+                    options={packageOptions}
+                    onChange={(opt) => (opt ? handlePackageChange(opt.value) : resetPackage())}
+                    placeholder="Search or select package"
+                    noOptionsMessage={() => "No matching package"}
+                    isClearable
+                    isLoading={isLoading}
+                    isDisabled={isLoading}
+                    styles={getSelectStyles<PackageOption>()}
+                    classNamePrefix="react-select"
+                />
             </div>
 
-            {/* Standard Items Selection Area */}
+            {/* Service Type + its input area — shown once a package is picked */}
             {selectedCategory && (
-                <div className="space-y-3 animate-in fade-in duration-300">
-                    <div className="flex items-center justify-between">
-                        <Label className="text-sm font-medium flex items-center gap-2">
-                            <ListChecks className="h-4 w-4 text-primary" />
-                            Revision Items From Package
+                <div className="space-y-5">
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold">
+                            Service Type <span className="text-red-500">*</span>
                         </Label>
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2 px-2 py-1 bg-slate-100 rounded border border-slate-200">
-                                <Checkbox
-                                    id="select-all"
-                                    checked={checkedItems.size === filteredStandardItems.length && filteredStandardItems.length > 0}
-                                    onCheckedChange={(checked) => {
-                                        if (checked) {
-                                            setCheckedItems(new Set(filteredStandardItems.map(i => i.name)));
-                                        } else {
-                                            setCheckedItems(new Set());
-                                        }
-                                    }}
-                                />
-                                <Label htmlFor="select-all" className="text-[10px] font-bold text-slate-500 cursor-pointer uppercase">
-                                    {checkedItems.size === filteredStandardItems.length ? "Deselect All" : "Select All"}
-                                </Label>
-                            </div>
-                            <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground uppercase tracking-wider">
-                                {checkedItems.size} Selected / {filteredStandardItems.length} Items Available
-                            </Badge>
-                        </div>
+                        <RadioGroup
+                            value={serviceType}
+                            onValueChange={(v) => setServiceType(v as ServiceItemKind)}
+                            className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                        >
+                            {typeOptions.map((opt) => {
+                                const checked = serviceType === opt.kind;
+                                const radioId = `service-type-${opt.kind}`;
+                                return (
+                                    <Label
+                                        key={opt.kind}
+                                        htmlFor={radioId}
+                                        className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${opt.disabled
+                                            ? "cursor-not-allowed opacity-60 border-slate-200 bg-slate-50"
+                                            : checked
+                                                ? "cursor-pointer border-primary/40 bg-primary/5"
+                                                : "cursor-pointer border-slate-200 bg-white hover:border-slate-300"
+                                            }`}
+                                    >
+                                        <RadioGroupItem id={radioId} value={opt.kind} disabled={opt.disabled} className="mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-semibold text-slate-900">{opt.title}</div>
+                                            <div className="text-xs font-normal text-muted-foreground mt-0.5">{opt.subtitle}</div>
+                                        </div>
+                                    </Label>
+                                );
+                            })}
+                        </RadioGroup>
                     </div>
 
-                    {filteredStandardItems.length > 0 ? (
-                        <Card className="border-slate-200 shadow-none bg-slate-50/50">
-                            <CardContent className="p-0">
-                                <ScrollArea className="h-[240px] px-4 py-2">
-                                    <div className="space-y-1">
-                                        {filteredStandardItems.map((item) => (
-                                            <div
-                                                key={item.name}
-                                                className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer group ${checkedItems.has(item.name)
-                                                    ? "bg-primary/5 border-primary/20 shadow-sm"
-                                                    : "bg-white border-transparent hover:border-slate-200"
-                                                    }`}
-                                                onClick={() => handleCheckboxChange(item.name)}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <Checkbox
-                                                        checked={checkedItems.has(item.name)}
-                                                        onCheckedChange={() => handleCheckboxChange(item.name)}
-                                                        id={`item-${item.name}`}
-                                                        className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                                    />
-                                                    <div className="space-y-0.5">
-                                                        <Label
-                                                            htmlFor={`item-${item.name}`}
-                                                            className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors"
-                                                        >
-                                                            {item.item_name}
-                                                        </Label>
-                                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                                            <span className="flex items-center gap-1">
-                                                                <span className="text-[10px] opacity-70">UNIT:</span> {item.unit || "--"}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-sm font-semibold text-slate-900">
-                                                        {item.rate ? formatToIndianRupee(item.rate) : "N/A"}
-                                                    </div>
-                                                    <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">Std Rate</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </ScrollArea>
-                                <div className="p-3 bg-white border-t rounded-b-lg flex justify-end">
-                                    <Button
-                                        size="sm"
-                                        disabled={checkedItems.size === 0}
-                                        onClick={handleAddStandardItems}
-                                        className="gap-2 shadow-sm"
-                                    >
-                                        <CirclePlus className="h-4 w-4" />
-                                        Add Selected Items ({checkedItems.size})
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
+                    {serviceType === "approved" && !approvedDisabled ? (
+                        <ApprovedServicesPicker
+                            packageLabel={packageLabel}
+                            items={availableStandardItems}
+                            checked={checkedItems}
+                            onToggle={handleToggleChecked}
+                            onToggleAll={(checkAll) =>
+                                setCheckedItems(checkAll ? new Set(availableStandardItems.map((i) => i.name)) : new Set())
+                            }
+                            onAdd={handleAddStandardItems}
+                        />
                     ) : (
-                        <div className="border border-dashed rounded-lg p-12 text-center bg-white">
-                            <Search className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                            <p className="text-sm text-slate-400">No standard items found in this category.</p>
-                            <p className="text-xs text-slate-400 mt-1">Use "Add Custom Service" for non-standard items.</p>
-                        </div>
+                        <CustomServiceForm
+                            packageLabel={packageLabel}
+                            draft={customDraft}
+                            onChange={setCustomDraft}
+                            onAdd={handleAddCustomItem}
+                            allowNegative={allowNegative}
+                        />
                     )}
                 </div>
             )}
 
-            {/* Items Table Section */}
-            <div className="space-y-3 pt-4">
+            {/* Selected Service Items — one list for both service types */}
+            <div className="space-y-3 pt-2">
                 <div className="flex items-center justify-between border-b pb-2">
                     <Label className="text-sm font-semibold flex items-center gap-2">
                         <ListChecks className="h-4 w-4 text-primary" />
@@ -421,361 +320,54 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                         {items.length} item{items.length !== 1 ? "s" : ""}
                     </span>
                 </div>
-
-                {items.length > 0 ? (
-                    <div className="border rounded-xl overflow-hidden shadow-sm bg-white border-slate-200">
-                        <Table>
-                            <TableHeader>
-                                <TableRow className="bg-slate-50/80 border-b border-slate-100 uppercase tracking-tighter">
-                                    <TableHead className="w-[45%] text-[10px] font-bold tracking-wider text-slate-500 py-3 px-4">Service Item & Specs</TableHead>
-                                    <TableHead className="w-[10%] text-[10px] font-bold tracking-wider text-slate-500 text-center py-3">Unit</TableHead>
-                                    <TableHead className="w-[10%] text-[10px] font-bold tracking-wider text-slate-500 text-center py-3">Qty</TableHead>
-                                    <TableHead className="w-[12%] text-[10px] font-bold tracking-wider text-slate-500 text-center py-3">Std Rate</TableHead>
-                                    <TableHead className="w-[15%] text-[10px] font-bold tracking-wider text-slate-500 text-center py-3">Rate</TableHead>
-                                    <TableHead className="w-[8%] text-[10px] font-bold tracking-wider text-slate-500 text-center py-3 px-4">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {Object.entries(groupedItemsByPackage).map(([pkg, pkgItems]) => (
-                                    <React.Fragment key={pkg}>
-                                        {/* Package Separator Row - Only shown if more than one package exists or it's a multi-package view */}
-                                        {Object.keys(groupedItemsByPackage).length > 0 && (
-                                            <TableRow className="bg-slate-50/50 border-y border-slate-100/50">
-                                                <TableCell colSpan={6} className="py-2 px-4 shadow-sm group/pkg">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-2.5">
-                                                            <div className="bg-primary/10 text-primary p-1.5 rounded-md shadow-sm border border-primary/20">
-                                                                <Layers className="h-3.5 w-3.5" />
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-sm font-bold text-slate-800 tracking-tight">
-                                                                    {pkg}
-                                                                </span>
-                                                                <Badge variant="secondary" className="text-[10px] font-semibold text-slate-500 py-0 h-4.5 bg-slate-100 border-none shadow-none">
-                                                                    {pkgItems.length} {pkgItems.length === 1 ? "Item" : "Items"}
-                                                                </Badge>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setDeletePackageName(pkg);
-                                                                    }}
-                                                                >
-                                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
-
-                                        {/* Item Rows */}
-                                        {pkgItems.map(({ originalIndex: index, data: item }, pkgIdx) => {
-                                            // No `standard_rate` ⇒ custom item (added via the dialog or saved without a rate-card match).
-                                            // Description / UoM are inline-editable ONLY for custom items, in any mode.
-                                            const isCustom = item.standard_rate === undefined || item.standard_rate === null;
-                                            const canEditLine = isCustom;
-                                            return (
-                                            <TableRow key={item.id} className="hover:bg-slate-50/30 border-b border-slate-50 last:border-0 last:bg-transparent group/row">
-                                                <TableCell className="text-sm py-2.5 px-4 transition-colors">
-                                                    {canEditLine ? (
-                                                        <div className="flex flex-col gap-1 ml-1">
-                                                            <Textarea
-                                                                value={item.description}
-                                                                onChange={(e) => updateItemField(index, "description", e.target.value)}
-                                                                className="min-h-[56px] text-sm font-medium border-slate-200 resize-y"
-                                                                placeholder="Service description"
-                                                            />
-                                                            {isCustom && (
-                                                                <span className="text-[10px] uppercase tracking-wider text-primary/70 font-bold">Custom</span>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex flex-col gap-0.5 ml-1">
-                                                            <span className="font-semibold text-slate-900 leading-tight transition-colors">
-                                                                {item.description.split('\n')[0]}
-                                                            </span>
-                                                            {item.description.includes('\n') && (
-                                                                <span className="text-xs text-slate-500 line-clamp-2 leading-relaxed italic opacity-80">
-                                                                    {item.description.split('\n').slice(1).join('\n')}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-sm text-center py-2.5">
-                                                    {canEditLine ? (
-                                                        <Input
-                                                            value={item.uom}
-                                                            onChange={(e) => updateItemField(index, "uom", e.target.value)}
-                                                            className="h-9 text-center text-xs bg-white border-slate-200 max-w-[80px] mx-auto"
-                                                            placeholder="Unit"
-                                                        />
-                                                    ) : (
-                                                        <Badge variant="outline" className="text-[11px] text-slate-500 font-normal border-slate-200 bg-white/50">
-                                                            {item.uom}
-                                                        </Badge>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-sm p-1 py-2.5 text-center">
-                                                    <div className="max-w-[70px] mx-auto">
-                                                        <Input
-                                                            type="number"
-                                                            min={0}
-                                                            value={item.quantity || ""}
-                                                            onChange={(e) => {
-                                                                const v = parseFloat(e.target.value);
-                                                                updateItemField(index, "quantity", isNaN(v) || v < 0 ? 0 : v);
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "-" || e.key === "e") e.preventDefault();
-                                                            }}
-                                                            className={`h-9 text-center text-xs bg-white transition-all shadow-none ${form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[index]?.quantity
-                                                                ? "border-red-500 ring-1 ring-red-500/10"
-                                                                : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
-                                                                }`}
-                                                            placeholder="0"
-                                                            step="any"
-                                                        />
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-sm text-center py-2.5">
-                                                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-50/80 px-2 py-1.5 rounded border border-slate-100">
-                                                        {item.standard_rate !== undefined && item.standard_rate !== null
-                                                            ? formatToIndianRupee(item.standard_rate)
-                                                            : "N/A"}
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell className="text-sm p-1 py-2.5">
-                                                    <div className="relative group/rate max-w-[100px] mx-auto">
-                                                        <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-medium tracking-tighter ${form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[index]?.rate ? "text-red-400" : "text-slate-400"
-                                                            }`}>₹</span>
-                                                        <Input
-                                                            type="number"
-                                                            value={item.rate || ""}
-                                                            onChange={(e) => updateItemField(index, "rate", parseFloat(e.target.value) || 0)}
-                                                            className={`h-9 pl-5 text-center text-xs bg-white font-semibold transition-all shadow-none ${form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[index]?.rate
-                                                                ? "border-red-500 ring-1 ring-red-500/10"
-                                                                : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
-                                                                }`}
-                                                            placeholder="0.00"
-                                                            step="any"
-                                                        />
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-center py-2.5 px-4">
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                            onClick={() => setDeleteItemId(item.id)}
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                            );
-                                        })}
-                                    </React.Fragment>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </div>
-                ) : (
-                    <div className="border border-dashed rounded-xl p-12 text-center bg-slate-50/50">
-                        <AlertCircle className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-                        <p className="text-sm font-medium text-slate-500">
-                            {VALIDATION_MESSAGES.itemsRequired}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-2 max-w-[200px] mx-auto">
-                            Pick a category above to select standard items or add a custom service.
-                        </p>
-                    </div>
-                )}
-
-                {/* Detailed Validation Summary (Grouped by Package) */}
-                {groupedErrors && (
-                    <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
-                        <div className="flex items-start gap-3">
-                            <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-                            <div className="space-y-3 w-full">
-                                <div>
-                                    <p className="text-sm font-bold text-red-800">Required fields missing in the following items:</p>
-                                    <p className="text-[10px] text-red-600/80 font-medium">Please enter the negotiated rates and quantities for each highlighted row.</p>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {Object.entries(groupedErrors).map(([pkg, errItems]) => (
-                                        <div key={pkg} className="bg-white/50 border border-red-100 rounded p-2 space-y-1.5">
-                                            <div className="flex items-center gap-1.5 border-b border-red-100 pb-1 mb-1">
-                                                <Layers className="h-3 w-3 text-red-400" />
-                                                <span className="text-[10px] font-bold text-red-900 uppercase tracking-tight">{pkg}</span>
-                                            </div>
-                                            <ul className="space-y-1">
-                                                {errItems.map((item, idx) => (
-                                                    <li key={idx} className="flex items-start justify-between gap-2 text-[11px]">
-                                                        <span className="text-red-700 font-medium line-clamp-1 flex-1">• {item.name}</span>
-                                                        <div className="flex gap-1 shrink-0">
-                                                            {item.errs.map(type => (
-                                                                <span key={type} className="bg-red-100 text-[9px] text-red-600 px-1 rounded font-bold uppercase">
-                                                                    {type}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <SelectedServiceItemsTable
+                    groups={selectedGroups}
+                    onUpdate={updateItemField}
+                    onDeleteItem={setDeleteItemId}
+                    onDeletePackage={setDeletePackageName}
+                    hasError={hasFieldError}
+                />
             </div>
 
-            {/* Custom Item Dialog */}
-            <Dialog open={isCustomDialogOpen} onOpenChange={setIsCustomDialogOpen}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <CirclePlus className="h-5 w-5 text-primary" />
-                            Add Custom Service
-                        </DialogTitle>
-                        <DialogDescription>
-                            Enter details for a service not found in the Rate Card.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="item-category" className="text-sm font-semibold flex items-center gap-2">
-                                <Layers className="h-4 w-4 text-primary" />
-                                Select Package <span className="text-red-500">*</span>
-                            </Label>
-                            <Select
-                                value={currentItem.category}
-                                onValueChange={(val) => setCurrentItem(prev => ({ ...prev, category: val }))}
-                            >
-                                <SelectTrigger id="item-category" className="h-10 bg-white shadow-sm border-slate-200">
-                                    <SelectValue placeholder="Select package" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {allDialogCategories.map((cat) => (
-                                        <SelectItem key={cat.value} value={cat.value}>
-                                            {cat.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div>
-                            <Label htmlFor="uom" className="text-sm font-medium">
-                                Unit of Measure <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                                id="uom"
-                                type="text"
-                                placeholder="e.g., Sq.ft, Nos, Job"
-                                value={currentItem.uom}
-                                onChange={(e) => setCurrentItem({ ...currentItem, uom: e.target.value })}
-                                className="h-10 border-slate-200"
-                            />
-                        </div>
-
-                        <div>
-                            <Label htmlFor="description" className="text-sm font-medium">
-                                Service Description <span className="text-red-500">*</span>
-                            </Label>
-                            <Textarea
-                                id="description"
-                                placeholder="Describe the service required..."
-                                value={currentItem.description}
-                                onChange={(e) => setCurrentItem({ ...currentItem, description: e.target.value })}
-                                className="min-h-[100px] border-slate-200 resize-none"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="quantity" className="text-sm font-medium">
-                                    Estimated Quantity <span className="text-red-500">*</span>
-                                </Label>
-                                <Input
-                                    id="quantity"
-                                    type="number"
-                                    placeholder="Enter quantity"
-                                    min={0}
-                                    value={currentItem.quantity || ""}
-                                    onChange={(e) => setCurrentItem({ ...currentItem, quantity: parseFloat(e.target.value) || 0 })}
-                                    className={`h-10 ${currentItem.quantity < 0 ? "border-red-500 focus-visible:ring-red-500" : "border-slate-200"}`}
-                                    step="any"
-                                    onKeyDown={(e) => {
-                                        if (e.key === "e" || e.key === "-") {
-                                            e.preventDefault();
-                                        }
-                                    }}
-                                />
-                                {currentItem.quantity < 0 && (
-                                    <p className="text-[11px] text-red-600">Quantity cannot be negative.</p>
-                                )}
+            {/* Detailed Validation Summary (Grouped by Package) */}
+            {groupedErrors && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                        <div className="space-y-3 w-full">
+                            <div>
+                                <p className="text-sm font-bold text-red-800">Required fields missing in the following items:</p>
+                                <p className="text-[10px] text-red-600/80 font-medium">Please enter the negotiated rates and quantities for each highlighted row.</p>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="rate" className="text-sm font-medium">
-                                    Rate <span className="text-red-500">*</span>
-                                </Label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
-                                    <Input
-                                        id="rate"
-                                        type="number"
-                                        placeholder="0.00"
-                                        value={currentItem.rate || ""}
-                                        onChange={(e) => setCurrentItem({ ...currentItem, rate: parseFloat(e.target.value) || 0 })}
-                                        className={`h-10 pl-7 font-semibold ${!allowNegative && currentItem.rate < 0 ? "border-red-500 focus-visible:ring-red-500" : "border-slate-200"}`}
-                                        step="any"
-                                        onKeyDown={(e) => {
-                                            if (e.key === "e") {
-                                                e.preventDefault();
-                                            }
-                                        }}
-                                    />
-                                </div>
-                                {!allowNegative && currentItem.rate < 0 && (
-                                    <p className="text-[11px] text-red-600">Rate cannot be negative.</p>
-                                )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {Object.entries(groupedErrors).map(([pkg, errItems]) => (
+                                    <div key={pkg} className="bg-white/50 border border-red-100 rounded p-2 space-y-1.5">
+                                        <div className="flex items-center gap-1.5 border-b border-red-100 pb-1 mb-1">
+                                            <Layers className="h-3 w-3 text-red-400" />
+                                            <span className="text-[10px] font-bold text-red-900 uppercase tracking-tight">{pkg}</span>
+                                        </div>
+                                        <ul className="space-y-1">
+                                            {errItems.map((item, idx) => (
+                                                <li key={idx} className="flex items-start justify-between gap-2 text-[11px]">
+                                                    <span className="text-red-700 font-medium line-clamp-1 flex-1">• {item.name}</span>
+                                                    <div className="flex gap-1 shrink-0">
+                                                        {item.errs.map(type => (
+                                                            <span key={type} className="bg-red-100 text-[9px] text-red-600 px-1 rounded font-bold uppercase">
+                                                                {type}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsCustomDialogOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleAddCustomItem}
-                            disabled={
-                                !currentItem.category ||
-                                !currentItem.description ||
-                                !currentItem.uom ||
-                                currentItem.quantity === 0 ||
-                                currentItem.rate === 0 ||
-                                currentItem.quantity < 0 ||
-                                (!allowNegative && currentItem.rate < 0)
-                            }
-                        >
-                            Add to List
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
+                </div>
+            )}
 
             {/* Delete Confirmation Dialog */}
             <AlertDialog open={!!deleteItemId} onOpenChange={() => setDeleteItemId(null)}>

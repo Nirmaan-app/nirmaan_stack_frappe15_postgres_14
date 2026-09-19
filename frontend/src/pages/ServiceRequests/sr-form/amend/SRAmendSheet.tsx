@@ -109,7 +109,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
     /* ─────────────────────────────────────────────────────────
        DATA HOOK
        ───────────────────────────────────────────────────────── */
-    const { initialFormValues, categories, emptyCategories, serviceItems, vendors, isLoading, hasError } =
+    const { srDoc, initialFormValues, categories, emptyCategories, serviceItems, vendors, isLoading, hasError } =
         useSRAmendData(srId);
 
     /* ─────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                     />
                 );
             case "review":
-                return <ReviewStep form={form} />;
+                return <ReviewStep form={form} gstApplicable={srDoc?.gst === "true"} />;
             default:
                 return null;
         }

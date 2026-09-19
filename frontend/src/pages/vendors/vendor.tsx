@@ -15,6 +15,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
 import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
+import { VendorGstHoldCard } from "./components/VendorGstHoldCard";
 
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
 const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
@@ -242,6 +243,8 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     </Button>)
                 }
             </div>
+
+            <VendorGstHoldCard vendor={vendor} mutateVendor={mutateVendor} onEditVendor={toggleEditSheet} />
 
             <div className="flex flex-wrap gap-1 overflow-x-auto border-b border-border">
                 {menuItems.map((it) => (

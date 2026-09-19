@@ -62,11 +62,11 @@ def create_expense_request(
 	guard_request_form(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
-	# submission block). Both surfaces WARN and neither stops anyone: the create dialog calls
-	# `similar.check_new_request` while the form is being filled, and the review dialog shows
-	# the same finding to the approver. A duplicate is genuinely hard to tell from a legitimate
-	# repeat, so the judgement belongs to a human at both ends -- and a refusal the requester
-	# disagrees with has nowhere to go.
+	# submission block). The review dialog shows the approver same-type, same-amount expenses
+	# (`similar.get_similar`) and stops nothing. A duplicate is genuinely hard to tell from a
+	# legitimate repeat, so the judgement belongs to a human -- and a refusal the requester
+	# disagrees with has nowhere to go. (The create-dialog warning went with the per-type
+	# duplicate rules, removed 2026-09-19.)
 
 	# A format field carrying `maps_to` names a REAL column on the request -- the answer is
 	# promoted rather than left only in `source_data`, so it is queryable, referentially

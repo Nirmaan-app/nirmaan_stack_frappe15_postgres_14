@@ -13,6 +13,20 @@ class ServiceRequests(Document):
 		prefix = "SR-"
 		self.name = f"{prefix}{project_id}-{getseries(prefix, 6)}"
 
+	def validate(self):
+		self.set_gst_from_vendor_on_approval()
+
+	def set_gst_from_vendor_on_approval(self):
+		"""First approval (Vendor Selected -> Approved) sets GST Applicable from the vendor: ON when
+		the vendor has a GST number, OFF when it doesn't (owner, 19/09/2026). Amendment approval
+		leaves it alone, and the "GST Applicable?" switch on the approved WO can still change it.
+		`on_update` recomputes `total_amount` on this same transition, so the 18% follows."""
+		old_doc = self.get_doc_before_save()
+		if not (old_doc and old_doc.status == "Vendor Selected" and self.status == "Approved"):
+			return
+		vendor_gst = frappe.db.get_value("Vendors", self.vendor, "vendor_gst") if self.vendor else None
+		self.gst = "true" if (vendor_gst or "").strip() else "false"
+
 	def on_update(self):
 		old_doc = self.get_doc_before_save()
 		if not old_doc:

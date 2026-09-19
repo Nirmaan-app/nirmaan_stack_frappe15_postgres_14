@@ -7,6 +7,7 @@ import {
   AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -43,7 +44,8 @@ import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { TruncatedText } from "@/components/common/TruncatedText";
-import { VendorRefundsButton } from "@/components/vendor-refunds/VendorRefundsButton";
+import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
+import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -83,6 +85,10 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   const [deleteFlagged, setDeleteFlagged] = useState<ProjectPayments | null>(null);
   const [warning, setWarning] = useState("");
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
+
+  // Refunds against this PO sit in the payments table as their own rows (badge "Vendor Refund").
+  const { refunds } = useVendorRefunds({ documentType: "Procurement Orders", documentName: PO?.name ?? "" });
+  const transactionRows = useMemo(() => mergePaymentsAndRefunds(poPayments, refunds), [poPayments, refunds]);
 
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
   const toggleNewPaymentDialog = useCallback(() => {
@@ -181,7 +187,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
           <p className="text-xl max-sm:text-lg text-red-600">
             Transaction Details
           </p>
-          <VendorRefundsButton documentType="Procurement Orders" documentName={PO?.name} />
           {/* {!accountsPage && !estimatesViewing && !summaryPage && (
             <>
               <Tooltip>
@@ -316,16 +321,10 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(poPayments || [])?.length > 0 ? (
-              poPayments
-                ?.sort((a, b) => {
-                  // Sort by payment_date in descending order
-                  // Entries without payment_date go to the end
-                  const dateA = a.payment_date ? new Date(a.payment_date).getTime() : 0;
-                  const dateB = b.payment_date ? new Date(b.payment_date).getTime() : 0;
-                  return dateB - dateA;
-                })
-                ?.map((payment) => {
+            {transactionRows.length > 0 ? (
+              transactionRows.map((row) => {
+                if (row.kind === "refund") return <VendorRefundTableRow key={row.name} refund={row.refund} />;
+                const payment = row.payment;
                 return (
                   <TableRow key={payment?.name}>
                     <TableCell>
@@ -350,6 +349,8 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                         <Badge variant="outline" className="border-amber-500 text-amber-600">
                           Approved
                         </Badge>
+                      ) : payment?.status === "Reconciliation Pending" ? (
+                        <ReconciliationPendingBadge />
                       ) : payment?.status === "Paid" ? (
                         <Badge variant="green">Paid</Badge>
                       ) : payment?.status === "Rejected" ? (
@@ -373,7 +374,8 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : ("--")}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
-                      {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
+                      {/* Approved: Admin only (owner, 18 Sep) — as on the SR page. Paid: never. */}
+                      {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !estimatesViewing && !summaryPage &&
                         role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
                         (payment?.status !== "CEO Pending" || role === "Nirmaan Admin Profile") &&
                         <Button

@@ -10,6 +10,7 @@ from nirmaan_stack.services.approval_tiers import (
     TIER_AUTO_APPROVE_BELOW,
     is_auto_approved,
 )
+from nirmaan_stack.services import cheque_payments
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
@@ -35,7 +36,9 @@ def create_payment_request_for_service(data: str) -> str:
         data (json str) = {
             "doctype" : "Procurement Orders" | "Service Requests",
             "docname": "<PO/000/00000/25-26>",
-            "amount" : 12345.67
+            "amount" : 12345.67,
+            "mode_of_payment": "Online" | "Cheque",           # optional, Online when absent
+            "cheque_no": "...", "cheque_date": "YYYY-MM-DD"    # required for a cheque
         }
     Returns: JSON string { "name": "<PAY-00042-087>" }
     """
@@ -59,12 +62,15 @@ def create_payment_request_for_service(data: str) -> str:
     from nirmaan_stack.services.finance import (
         get_source_document_financials,        # returns grand_total, grand_total_excl_gst
         get_total_paid,   # returns sum of approved+paid Project Payments
-        get_total_pending # returns sum of Requested (pending) Payments
+        get_total_pending, # returns sum of Requested (pending) Payments
+        get_total_reconciliation_pending,
     )
     totals = get_source_document_financials(src)
     paid         = get_total_paid(src)
     pending      = get_total_pending(src)
-    available    = totals.get("payable_total") - paid - pending
+    available    = (
+        totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
+    )
     print(f"paid: {paid}, pending: {pending}, available: {available}, grand: {totals}")
 
     if amount > (available + 10):
@@ -85,6 +91,7 @@ def create_payment_request_for_service(data: str) -> str:
         "vendor"        : src.vendor,
         "amount"        : round(amount),
         "status"        : "Approved" if auto_approve else "Requested",
+        **_mode_fields(payload),
     })
     if auto_approve:
         pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
@@ -98,10 +105,25 @@ def create_payment_request_for_service(data: str) -> str:
 
     frappe.db.commit()
 
+    # An auto-approved cheque goes straight on to Reconciliation Pending, in its own
+    # transaction now that the approval (and its TDS) is on disk.
+    if auto_approve and cheque_payments.is_cheque(pay):
+        _move_cheque_to_reconciliation(pay.name)
+
     return frappe.as_json({"name": pay.name})
 
 @frappe.whitelist()
-def create_project_payment(doctype: str, docname: str, vendor: str, amount: float, project: str, ptname: str):
+def create_project_payment(
+    doctype: str,
+    docname: str,
+    vendor: str,
+    amount: float,
+    project: str,
+    ptname: str,
+    mode_of_payment: str | None = None,
+    cheque_no: str | None = None,
+    cheque_date: str | None = None,
+):
     """
     Creates a new "Project Payments" doc AND updates the source PO Payment Term row
     to establish the link. This is the primary function called by the frontend.
@@ -152,13 +174,16 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
         from nirmaan_stack.services.finance import (
             get_source_document_financials,
             get_total_paid,
-            get_total_pending
+            get_total_pending,
+            get_total_reconciliation_pending,
         )
         src = frappe.get_doc(doctype, docname)
         totals = get_source_document_financials(src)
         paid = get_total_paid(src)
         pending = get_total_pending(src)
-        available = totals.get("payable_total") - paid - pending
+        available = (
+            totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
+        )
 
         if amount > (available + 10):
             frappe.throw(_(
@@ -176,6 +201,11 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
             "vendor": vendor,
             "amount": round(amount, 2),
             "status": "Approved" if auto_approve else "Requested",
+            **_mode_fields({
+                "mode_of_payment": mode_of_payment,
+                "cheque_no": cheque_no,
+                "cheque_date": cheque_date,
+            }),
         })
         if auto_approve:
             pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
@@ -200,6 +230,13 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
                 "project_payment": pay.name
             }
         )
+
+        # --- Step 5b: an auto-approved cheque goes on to Reconciliation Pending ---
+        # AFTER the term row is written, so the move's own save carries the term to
+        # Reconciliation Pending too (the line above would otherwise put it back to Approved).
+        if auto_approve and cheque_payments.is_cheque(pay):
+            frappe.db.commit()
+            _move_cheque_to_reconciliation(pay.name)
 
         # --- Step 6: Return success ---
         return {
@@ -252,6 +289,12 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
         if requested >= current_amount:
             wants_partial = False
 
+    if wants_partial and cheque_payments.is_cheque(frappe.get_doc("Project Payments", payment_id)):
+        frappe.throw(_(
+            "A cheque payment can't be part-approved: the cheque is written for the full amount. "
+            "Approve it in full or reject it."
+        ))
+
     if wants_partial:
         from nirmaan_stack.services.payment_split import split_and_approve
 
@@ -281,6 +324,11 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
     pay.status = "Approved"
     pay.ceo_approval_date = nowdate()
     pay.save()
+
+    if cheque_payments.is_cheque(pay):
+        frappe.db.commit()
+        if _move_cheque_to_reconciliation(pay.name):
+            return {"status": "success", "message": _("Cheque payment approved and moved to Reconciliation Pending.")}
 
     return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
 
@@ -328,6 +376,51 @@ def _post_split_side_effects(result: dict) -> None:
                 title=f"Payment Split Comment Error ({name})",
                 message=frappe.get_traceback(),
             )
+
+
+def _mode_fields(source: dict) -> dict:
+    """The Mode of Payment fields off a request. The doctype's own validate checks them."""
+    mode = (source.get("mode_of_payment") or "").strip() or cheque_payments.MODE_ONLINE
+    if mode not in (cheque_payments.MODE_ONLINE, cheque_payments.MODE_CHEQUE):
+        frappe.throw(_("Mode of Payment must be Online or Cheque."))
+    if mode != cheque_payments.MODE_CHEQUE:
+        return {"mode_of_payment": mode}
+    return {
+        "mode_of_payment": mode,
+        "cheque_no": (source.get("cheque_no") or "").strip(),
+        "cheque_date": source.get("cheque_date") or None,
+    }
+
+
+def _move_cheque_to_reconciliation(payment_name: str) -> bool:
+    """Move an Approved cheque payment on to Reconciliation Pending, in its OWN transaction.
+
+    ⚠️ CALL IT ONLY AFTER THE APPROVAL HAS BEEN COMMITTED. It commits or rolls back by itself, so
+    a failure here can never take the approval with it, and it NEVER raises: a payment it could
+    not move stays at `Approved`, in "Payment need to paid", where the accountant's "Mark as Paid"
+    makes the same move. The rule itself is `services/cheque_payments.move_to_reconciliation`.
+    """
+    try:
+        moved = cheque_payments.move_to_reconciliation(payment_name)
+        frappe.db.commit()
+        return moved
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(
+            title=f"Cheque payment not moved to Reconciliation Pending ({payment_name})",
+            message=frappe.get_traceback(),
+        )
+        return False
+
+
+@frappe.whitelist()
+def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
+    """The single L1 approve writes `Approved` from the browser (`updateDoc`), so it has no server
+    step of its own to finish a cheque in -- the browser calls this right after. It does nothing
+    for an online payment or one not at `Approved`, so a repeated or stray call is harmless.
+    """
+    frappe.has_permission("Project Payments", "write", doc=payment_id, throw=True)
+    return {"moved": _move_cheque_to_reconciliation(payment_id)}
 
 
 @frappe.whitelist()

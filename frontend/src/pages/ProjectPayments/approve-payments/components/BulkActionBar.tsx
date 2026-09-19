@@ -171,6 +171,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
           open={!!dialogAction}
           onOpenChange={(open) => !open && closeDialog()}
           action={dialogAction}
+          mode={mode}
           payments={selectedPayments}
           isLoading={loading}
           onConfirm={handleConfirm}

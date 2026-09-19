@@ -24,7 +24,9 @@ import {
     MoreVertical,
     ChevronDown,
     CheckCircle2,
+    IndianRupee,
 } from "lucide-react";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 // DataTable imports
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -139,6 +141,8 @@ const TaskMobileCard: React.FC<TaskMobileCardProps> = ({ task, projectId, mutate
 
 interface CriticalPOTasksListProps {
     tasks: CriticalPOTask[];
+    /** Total value incl. GST of all linked POs, each PO counted once */
+    totalPOValue?: number;
     projectId: string;
     mutate: () => Promise<any>;
     onManageSetup?: () => void;
@@ -147,6 +151,7 @@ interface CriticalPOTasksListProps {
 
 export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
     tasks,
+    totalPOValue = 0,
     projectId,
     mutate,
     onManageSetup,
@@ -386,6 +391,17 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
                                         </span>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Total PO Value */}
+                            <div className="pl-6 border-l border-gray-200">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <IndianRupee className="h-4 w-4 text-gray-400" />
+                                    <span className="text-sm text-gray-500">Total PO Value (incl. GST)</span>
+                                </div>
+                                <span className="text-2xl font-bold text-gray-900 tabular-nums">
+                                    {formatToRoundedIndianRupee(totalPOValue)}
+                                </span>
                             </div>
 
                             {/* Status Breakdown */}

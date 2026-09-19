@@ -19,6 +19,14 @@ const safeParseFloat = (value: string | number | undefined | null, defaultValue 
   return defaultValue;
 };
 
+// Item-level DC/MIR lists carry this item's qty in each document (summed when a doc lists the item twice).
+// Pushes a copy so the shared docInfo (also used by PO-level lists) stays qty-free.
+const addItemDoc = (list: DeliveryDocumentInfo[], docInfo: DeliveryDocumentInfo, qty: number) => {
+  const existing = list.find(d => d.name === docInfo.name);
+  if (existing) existing.quantity = (existing.quantity || 0) + qty;
+  else list.push({ ...docInfo, quantity: qty });
+};
+
 export function useMaterialUsageData(projectId: string, projectPayments?: ProjectPayments[]) {
   const {
     data: po_item_data,
@@ -142,15 +150,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           const entry = itemMap.get(itemKey)!;
           if (isDC) {
             entry.dcQty += item.quantity || 0;
-            // Only add the doc reference if not already present
-            if (!entry.dcs.find(d => d.name === doc.name)) {
-              entry.dcs.push(docInfo);
-            }
+            addItemDoc(entry.dcs, docInfo, item.quantity || 0);
           } else {
             entry.mirQty += item.quantity || 0;
-            if (!entry.mirs.find(d => d.name === doc.name)) {
-              entry.mirs.push(docInfo);
-            }
+            addItemDoc(entry.mirs, docInfo, item.quantity || 0);
           }
         }
       }
@@ -406,10 +409,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         const entry = poItemDeliveryMap.get(key)!;
         if (isDC) {
           entry.dcQty += item.quantity || 0;
-          if (!entry.dcs.find(d => d.name === doc.name)) entry.dcs.push(docInfo);
+          addItemDoc(entry.dcs, docInfo, item.quantity || 0);
         } else {
           entry.mirQty += item.quantity || 0;
-          if (!entry.mirs.find(d => d.name === doc.name)) entry.mirs.push(docInfo);
+          addItemDoc(entry.mirs, docInfo, item.quantity || 0);
         }
       }
     }

@@ -452,9 +452,15 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   deliberately not rewritten:** `PO Adjustment Items.expense_type` and
   `Outflow Import Row.suggested_expense_type`. A type-name search across those will not find the
   renamed type's history.
-  **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: every
-  `duplicates.RULES` key + `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a
-  rename would silently switch off that duplicate warning / the bank-import fallback.
+  **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: today
+  only `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a rename would silently
+  switch off the bank-import fallback.
+  **⚠️ NO PER-TYPE DUPLICATE RULES (owner ruling 2026-09-19).** The `duplicates.RULES` table (6
+  types, matched on person/building + overlapping dates) was REMOVED with its create-dialog
+  warning and the review dialog's "Already requested for this period" box: it keyed on the type's
+  NAME, so it blocked renaming those types, and the owner did not want static rules. The approver
+  still sees `similar.get_similar`'s same-type + same-amount count over the last 60 days. Do not
+  bring back a name-keyed rule table.
   **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
   migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
   name.

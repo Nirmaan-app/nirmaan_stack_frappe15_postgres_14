@@ -107,6 +107,10 @@ export interface ApprovalQueueRow {
    */
   document_name: string;
   document_type: string;
+  /** A payment's Mode of Payment; blank on an expense (and on a payment from before the field). */
+  mode_of_payment: string;
+  cheque_no: string;
+  cheque_date: string | null;
 }
 
 /**
@@ -269,6 +273,7 @@ export const APPROVAL_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "project", label: "Project", placeholder: "Search by Project ID..." },
   { value: "raised_by", label: "Raised by", placeholder: "Search by requester..." },
   { value: "utr_ref", label: "UTR / Ref", placeholder: "Search by UTR or payment reference..." },
+  { value: "cheque_no", label: "Cheque No", placeholder: "Search by cheque number..." },
   { value: "name", label: "Record ID", placeholder: "Search by record ID..." },
 ];
 

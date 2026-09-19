@@ -12,6 +12,9 @@ export interface CriticalPOTask {
   /** POs linked to this task through `Critical PO Task Child Table` rows on the PO. Attached client-side by
    *  useProjectPOTaskLinks -- not a DocType field. */
   linked_pos?: string[];
+  /** Sum of the linked POs' Total Amount (inc. Tax), Merged/Inactive/Cancelled POs excluded. Attached
+   *  client-side by useCriticalPOTasks -- not a DocType field. */
+  linked_po_value?: number;
   revised_date?: string;
   remarks?: string;
   creation?: string;

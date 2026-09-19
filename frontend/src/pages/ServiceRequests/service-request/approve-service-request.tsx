@@ -116,7 +116,7 @@ export const ApproveServiceRequest: React.FC = () => {
             setIsLoading("approveSR")
             await updateDoc("Service Requests", id, {
                 status: "Approved",
-                gst: "false",
+                // `gst` is set by the server from the vendor's GST number on this transition.
                 project_gst: projectDoc?.project_gst || "",
             })
 
@@ -271,6 +271,8 @@ export const ApproveServiceRequest: React.FC = () => {
                 <ServiceItemsAccordion
                     items={serviceOrderData}
                     defaultExpanded={true}
+                    // Approval sets GST from the vendor's GST number (server-side), so show what it will set.
+                    gstApplicable={!!serviceVendor?.vendor_gst?.trim()}
                 />
             )}
 

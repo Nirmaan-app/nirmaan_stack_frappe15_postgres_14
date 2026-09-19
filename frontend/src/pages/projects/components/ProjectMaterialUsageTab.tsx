@@ -43,6 +43,7 @@ export interface DeliveryDocumentInfo {
   itemCount: number;
   poNumber: string;
   isStub: boolean;        // true when document has no items mapped yet
+  quantity?: number;      // this item's qty in the document — set only on item-level lists
 }
 
 // Data structure for PO-Wise view rows

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   countLabel,
+  forwardedToCeoNote,
   selectionBreakdown,
   selectionNoun,
   summarizeSelection,
@@ -86,5 +87,27 @@ describe("selectionBreakdown", () => {
 
   it("is empty when there is nothing to say", () => {
     expect(selectionBreakdown(summarizeSelection([]), 0)).toBe("");
+  });
+});
+
+describe("forwardedToCeoNote", () => {
+  const po = { source: "Vendor Payment", source_type: "PO Payment" } as const;
+  const wo = { source: "Vendor Payment", source_type: "SR Payment" } as const;
+  const pe = { source: "Project Expense", source_type: "Project Expense" } as const;
+
+  it("says nothing when nothing is forwarded", () => {
+    expect(forwardedToCeoNote([], "₹50,000", 0)).toBe("");
+  });
+
+  it("counts every ledger, not only work orders (owner, 2026-09-19)", () => {
+    expect(forwardedToCeoNote([po, po, wo, pe], "₹50,000", 1)).toBe(
+      "4 requests above ₹50,000 go to the CEO next: 2 PO payments, 1 work order payment, 1 project expense." +
+        " TDS on 1 work order payment is taken at CEO approval."
+    );
+  });
+
+  it("names a single kind directly and mentions TDS only when there is some", () => {
+    expect(forwardedToCeoNote([po, po], "₹50,000", 0)).toBe("2 PO payments above ₹50,000 go to the CEO next.");
+    expect(forwardedToCeoNote([pe], "₹50,000", 0)).toBe("1 project expense above ₹50,000 goes to the CEO next.");
   });
 });

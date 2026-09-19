@@ -4,6 +4,58 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-09-19: Project Payments — Mode of Payment (Online / Cheque)
+
+**Summary:** A Project Payment is requested as **Online** or **Cheque** (cheque no + date captured). A cheque
+is approved exactly like an online payment — it passes THROUGH *Approved*, so Work Order TDS is withheld
+and the amount netted as today — and is then moved straight to *Reconciliation Pending* (no Mark as Done).
+Same amount bands: < ₹15k auto, ₹15k–50k L1, > ₹50k L1 + CEO. One cheque may cover several payments.
+Owner rulings in `CONTEXT.md` § Expense workflow & settlement (Mode of Payment, Cheque payment).
+
+### What was built
+
+- **Schema (`project_payments.json`):** `mode_of_payment` (Select Online/Cheque, default Online,
+  `set_only_once`), `cheque_no`, `cheque_date`. Existing rows read Online (the column default fills them).
+- **`services/cheque_payments.py`** (new): `is_cheque`, `has_no_tds_to_wait_for`,
+  `move_to_reconciliation` — retries `record_deduction` (idempotent) before leaving *Approved*, then saves
+  the status. Called AFTER the approval is committed, via `project_payments._move_cheque_to_reconciliation`
+  (own transaction, never raises; a failed move leaves the payment at *Approved*, where Mark as Paid
+  finishes it): both create endpoints (auto-approve), `ceo_approve_payment`, the new whitelisted
+  `move_cheque_payment_to_reconciliation` (the browser's single L1 approve), and bulk approve.
+- **Bulk approve (`bulk_actions.py`):** a PO cheque moves INSIDE its approval group (nested savepoint,
+  `_move_cheque_in_group`) so the group's one PO save writes the term; WO cheques move after the
+  post-commit TDS phase. Measured on 100 rows (half cheques): PO saves unchanged at 25 (a separate move
+  had doubled them to 50, 2.2s → 4.0s); final cost ≈ +550 queries / +20 commits / +0.3–0.9s.
+- **Doctype validate:** a cheque needs its number and date, a positive amount, and keeps its amount while
+  *Requested* / *CEO Pending*. The number is NOT unique (owner: one cheque, many payments).
+- **`reference_guard.cheque_siblings_of`:** payments on the same cheque may share a reference at
+  reconciliation (manual fulfil and bank import alike). See `domain/outflow-import.md` (2026-09-19).
+- **Request cap:** `finance.get_total_reconciliation_pending` — the create endpoints (and the WO page)
+  now count *Reconciliation Pending* as already requested; before, that money could be requested twice.
+- **Approval queue (`get_approval_queue.py`):** projects `mode_of_payment`, `cheque_no`, `cheque_date`
+  (blank on expenses, positional in both UNION branches); `cheque_no` is searchable.
+- **Notifications:** no "Payment Ready to Fulfil" for a cheque (it never stays in that tab).
+
+### Verification
+
+- `api/payments/test_cheque_payments.py` — 20 tests: every approval route (auto, L1 single + endpoint,
+  CEO, bulk lead, bulk PO in-group with one PO save), failed-move fallbacks, amount lock, no part-approve,
+  mode lock, validation, shared cheque number, reference sharing (and its limits), the request cap.
+- Before/after benchmark of bulk approve (git-HEAD code loaded in-process vs working tree), 10/50/100
+  rows, lead + CEO: correctness identical (0 problems); 101/200 refused with 0 writes.
+- Browser (Chrome DevTools), dummy PO + WO: request from WO page and PO terms, L1 single + bulk, CEO
+  single + bulk (as the CEO user), queue tabs, reconcile without receipt → Paid, PO/WO totals.
+- Known unrelated failures: `test_bulk_tds.test_lead_bulk_approve_records_nothing` (pre-dates this; the
+  15k/50k tiers finish ₹38,550 at L1), and suites tripping over the leftover `TEST-OFI-PAY-ce5a57e1444c`.
+- Backfill: none needed on localhost (0 blank modes); prod gets the column default on migrate.
+
+### Open
+
+Bounced cheques; the "Record Paid Entry" paths have no mode; the bulk-approve summary notification still
+says "now in 'Approved'" for cheque rows.
+
+---
+
 ## 2026-09-11: Notional GST on Work Orders raised with GST off
 
 **Summary:** New derived figure "Notional GST" = 18% of Approved WOs with `gst != "true"` (the GST never

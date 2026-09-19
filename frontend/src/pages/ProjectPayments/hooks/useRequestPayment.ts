@@ -1,5 +1,6 @@
 import useSWRMutation from "swr/mutation";
 import { useFrappePostCall } from "frappe-react-sdk";
+import type { PaymentModeArgs } from "../paymentMode";
 
 const API_PATH =
   "nirmaan_stack.api.payments.project_payments.create_payment_request_for_service";
@@ -14,7 +15,7 @@ export type PaymentRequestArgs = {
   doctype: "Procurement Orders" | "Service Requests";
   docname: string;
   amount: number;
-};
+} & Partial<PaymentModeArgs>;
 
 /* ---------- SWR mutation hook ----------------------------------- */
 export const useRequestPayment = () => {

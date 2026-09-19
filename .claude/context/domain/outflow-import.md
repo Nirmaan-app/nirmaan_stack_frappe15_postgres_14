@@ -5722,17 +5722,20 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   shared `ItemsHoverCard` (book icon, items) and a details popover (`RefundDocumentDetails`, figures from
   the list row, link to `/project-payments/<order>`) -- one `RefundDocumentIcons` component, on the list
   row AND the Selected line; both stop the click so they never tick the row.
-- **Where refunds are READ:** a "View Refunds" button on the right of the PO's and the WO's Transaction
-  Details header (the PO's accordion reads "Payment Details / Refunds";
-  `components/vendor-refunds/VendorRefundsButton`, a dialog of that order's refunds via
-  `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`) and a **Vendor
+- **Where refunds are READ:** as their own rows in the PO's and the WO's Transaction Details table,
+  beside the payments, sorted in by payment date: teal-tinted row, a **Refund** tag under the amount,
+  status **Received** (no voucher, no delete; `components/vendor-refunds/VendorRefundTableRow` +
+  `mergePaymentsAndRefunds`, fed by
+  `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`; this replaced the
+  old "View Refunds" button + dialog) and a **Vendor
   Refunds** tab on the vendor page (`pages/vendors/components/VendorRefundsTab`, the shared server data
   table on the doctype -- search, Type / PO-WO / Project facets, date filter, export; Misc. Expense
   included). ⚠️ The doctype's **READ DocPerms mirror `Project Payments`' read roles** (write stays with the
   accountants), and both reads are permission-aware, so a project-scoped user sees only their projects'
   refunds -- plus Misc. Expense refunds saved with no project, exactly as a blank link passes user
   permissions anywhere.
-- **The UTR opens the attachment** (`components/vendor-refunds/RefundAttachmentLink`, both reads). An
+- **The UTR opens the attachment** on the vendor page's tab only (`components/vendor-refunds/RefundAttachmentLink`;
+  the PO / WO Transaction Details rows show the UTR as plain text, like the payment rows). An
   imported refund's attachment is the bank statement `.xlsx`, which a browser can only download, so a
   `.xlsx` / `.csv` opens IN-APP: `api/vendor_refunds/attachment_preview.get_refund_attachment_preview(refund)`
   (read-permission on the refund; reads the bytes server-side because the storage URL is cross-origin;
@@ -6078,3 +6081,26 @@ the SAME file — it is the OTHER half of "no slips, no trigger", and the card's
 if that number is wrong — including that the join never duplicates a row. Frontend:
 `expenseBankLinesView.test.ts`, 9 vitest cases over the progress line and the tone map, including both
 clamps, the ₹5 boundary read through `LINK_TOLERANCE`, and the server-`remaining`-governs case.
+
+## 2026-09-19 — payments on one cheque share their reference (the reference guard's second sibling set)
+
+A Project Payment can now be a **cheque**, and one cheque may cover several payments (owner). It clears as
+ONE bank line, so every payment on it carries the same reference — the cheque number (the manual
+reconcile pre-fills it) or the clearing line's UTR. Before this, the second such payment was refused
+"Bank reference … is already recorded on payment …".
+
+- **`reference_guard.cheque_siblings_of(target)`** — the other payments with the target's `cheque_no`,
+  and only when the target is itself `mode_of_payment = Cheque`. `assert_reference_is_free` unions it with
+  the transfer siblings. It is computed INSIDE the guard from the target, never passed by a caller, so the
+  import (`settle._assert_reference_is_free`) and the manual fulfil (`project_payments._fulfil_payment`)
+  cannot disagree — the "two call sites must move together" rule holds by construction.
+- **Scope, and why it is safe:** the same shape as the transfer set. A holder of the reference that is NOT
+  on the same cheque still blocks; an online payment has no cheque siblings, so its rule is unchanged.
+  The pure `reference_is_blocked` is untouched.
+- **Where a cheque sits for the import:** a cheque payment reaches *Reconciliation Pending* as soon as it
+  is approved (`services/cheque_payments.move_to_reconciliation`), so it is already settle-able by a bank
+  line; no Mark as Done is involved.
+- Tests: `api/payments/test_cheque_payments.py` (payments on one cheque both reconcile against its number;
+  another payment holding the reference still blocks a cheque; online keeps the strict rule);
+  `services/outflow_import/test_reference_guard.py` unchanged and green.
+

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { forecastTds, forecastTdsTotals, isCompanyBorneWorkOrder, isDeductible } from "./tdsForecast";
+import {
+	forecastTds,
+	forecastTdsTotals,
+	isCompanyBorneWorkOrder,
+	isDeductible,
+	withholdsOnApproval,
+} from "./tdsForecast";
 
 const SR = "Service Requests";
 const PO = "Procurement Orders";
@@ -149,5 +155,23 @@ describe("company-borne Work Orders (Miscellaneous / Transportation only)", () =
 			gross: 1600,
 			net: 1584,
 		});
+	});
+});
+
+describe("withholdsOnApproval", () => {
+	it("the CEO's click always withholds", () => {
+		expect(withholdsOnApproval("ceo", 60000)).toBe(true);
+		expect(withholdsOnApproval("ceo", 20000)).toBe(true);
+	});
+
+	it("an L1 click withholds when it finishes the approval (15,000-50,000)", () => {
+		expect(withholdsOnApproval("lead", 15000)).toBe(true);
+		expect(withholdsOnApproval("lead", 38550)).toBe(true);
+		expect(withholdsOnApproval("lead", 50000)).toBe(true);
+	});
+
+	it("an L1 click above 50,000 only forwards to the CEO and withholds nothing yet", () => {
+		expect(withholdsOnApproval("lead", 50000.01)).toBe(false);
+		expect(withholdsOnApproval("lead", 60000)).toBe(false);
 	});
 });

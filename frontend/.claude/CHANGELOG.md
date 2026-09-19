@@ -4,6 +4,31 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-09-19 — Mode of Payment (Online / Cheque) on Project Payment requests and approvals
+
+Backend, rules and verification: `../../.claude/CHANGELOG.md` (same date); terms in root `CONTEXT.md`.
+
+### What changed
+
+- **Request dialogs** (PO/WO page `RequestPaymentDialog`, PO terms `POPaymentTermsCard`, Credits
+  `components/dialogs/RequestPaymentDialog`): one shared `components/PaymentModeFields` — Online/Cheque,
+  cheque no + date (required for a cheque), and "Cheque amount for this payment: ₹X — after ₹Y TDS" from
+  `tdsForecast`. Pure rules in `paymentMode.ts` (+ `paymentMode.test.ts`).
+- **Approve dialogs:** single — a "Mode of Payment" band row (Cheque amber / Online blue) then Cheque No /
+  Cheque Date rows; no CEO part-approve on a cheque. Bulk — one-line Mode box with circle count badges
+  (`paymentModeSummary`), an amber cheque line per row, and a CEO-forward note that counts EVERY ledger
+  above ₹50k (`bulkSelectionSummary.forwardedToCeoNote`). The single L1 approve calls
+  `move_cheque_payment_to_reconciliation` after `updateDoc`.
+- **TDS wording:** `tdsForecast.withholdsOnApproval(mode, amount)` — the one answer to "does this click take
+  TDS" (CEO always; L1 when it finishes, 15k–50k). Drives both dialogs.
+- **Reconcile:** `UpdatePaymentDialog` pre-fills UTR with the cheque no and offers "Continue without
+  receipt" for cheques only; the queue's UTR / Ref column shows "Cheque <no>" until reconciled.
+- **Badges:** `components/ReconciliationPendingBadge` (light-yellow, two lines) on the PO page Transaction
+  Details and Payment Terms (a term at Reconciliation Pending used to render nothing).
+- **WO page cap:** `OPEN_REQUEST_STATUSES` counts Reconciliation Pending as already requested.
+
+---
+
 ## 2026-09-11 — Notional GST on the Projects list, WO Summary and Cash Sheet
 
 Commits `1b67d01b` (feature) and `b8dd426a` (Projects list column widths) on `bug/po-dc`. Rule, owner

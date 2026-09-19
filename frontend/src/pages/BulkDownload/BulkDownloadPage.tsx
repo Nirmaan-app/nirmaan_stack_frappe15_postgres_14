@@ -26,16 +26,14 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         step,
         docType,
         selectedIds,
-        toggleId,
         selectAll,
-        deselectAll,
         selectMultipleCriticalTaskPOs,
         goToStep2,
         goBack,
         resetToTypeSelection,
         downloadedCount,
         downloadedLabel,
-        // Data arrays
+        // Data arrays (each step's full eligible list -- the step's table does the filtering)
         poList,
         posLoading,
         woList,
@@ -46,17 +44,10 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         mirItems,
         poDeliveryDocsLoading,
         criticalTasks,
-
-        // Filters & Derived State
-        vendorOptions,
-        commonVendorFilter,
-        toggleVendor,
-        commonDateFilter,
-        setCommonDateFilter,
-        clearFilters,
+        projectInvoiceItems,
+        projectInvoicesLoading,
         withRate,
         setWithRate,
-        poStatuses,
 
         // General
         itemCounts,
@@ -69,37 +60,15 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         progress,
         progressMessage,
         showProgress,
-        setShowProgress,
         handleDownload,
-        completedBatches,
-        finalMergeToken,
-        triggerDownload,
         stopProgress,
-
-        // New properties
-        filteredPoList,
-        filteredWoList,
-        filteredDnList,
-        filteredInvoiceItemsBase,
-        filteredPoDeliveryDocItems,
-        projectInvoiceItems,
-        projectInvoicesLoading,
-        customerOptions,
-        commonCustomerFilter,
-        toggleCustomer,
-        searchQuery,
-        setSearchQuery,
-        statusFilter,
-        toggleStatus,
     } = useBulkDownloadWizard(projectId, projectName);
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
 
     const sharedProps = {
         selectedIds,
-        onToggle: toggleId,
         onSelectAll: selectAll,
-        onDeselectAll: deselectAll,
         onBack: goBack,
         onDownload: handleDownload,
         loading,
@@ -163,29 +132,13 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
 
                     {step === 2 && docType === "PO" && (
                         <POSteps
-                            selectedIds={selectedIds}
-                            onToggle={toggleId}
-                            onBack={goBack}
-                            onDownload={handleDownload}
-                            loading={loading}
+                            {...sharedProps}
                             items={poList}
-                            filteredItems={filteredPoList}
                             isLoading={posLoading}
                             withRate={withRate}
                             onWithRateChange={setWithRate}
-                            vendorOptions={vendorOptions}
-                            poVendorFilter={commonVendorFilter}
-                            onToggleVendor={toggleVendor}
-                            poDateFilter={commonDateFilter}
-                            setPoDateFilter={setCommonDateFilter}
-                            onClearPoFilters={clearFilters}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
-                            poStatuses={poStatuses}
-                            searchQuery={searchQuery}
-                            setSearchQuery={setSearchQuery}
-                            statusFilter={statusFilter}
-                            toggleStatus={toggleStatus}
                         />
                     )}
 
@@ -193,18 +146,9 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                         <WOSteps
                             {...sharedProps}
                             items={woList}
-                            filteredItems={filteredWoList}
                             isLoading={wosLoading}
                             withRate={withRate}
                             onWithRateChange={setWithRate}
-                            vendorOptions={vendorOptions}
-                            vendorFilter={commonVendorFilter}
-                            onToggleVendor={toggleVendor}
-                            dateFilter={commonDateFilter}
-                            onDateFilter={setCommonDateFilter}
-                            onClearFilters={clearFilters}
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -215,80 +159,28 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             isLoading={invoicesLoading}
                             invoiceSubType={invoiceSubType}
                             onInvoiceSubTypeChange={setInvoiceSubType}
-                            vendorOptions={vendorOptions}
-                            vendorFilter={commonVendorFilter}
-                            onToggleVendor={toggleVendor}
-                            dateFilter={commonDateFilter}
-                            onDateFilter={setCommonDateFilter}
-                            onClearFilters={clearFilters}
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
                         />
                     )}
 
                     {step === 2 && docType === "DC" && (
-                        <DCSteps
-                            {...sharedProps}
-                            items={dcItems}
-                            isLoading={poDeliveryDocsLoading}
-                            vendorOptions={vendorOptions}
-                            vendorFilter={commonVendorFilter}
-                            onToggleVendor={toggleVendor}
-                            dateFilter={commonDateFilter}
-                            onDateFilter={setCommonDateFilter}
-                            onClearFilters={clearFilters}
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
-                        />
+                        <DCSteps {...sharedProps} items={dcItems} isLoading={poDeliveryDocsLoading} />
                     )}
 
                     {step === 2 && docType === "MIR" && (
-                        <MIRSteps
-                            {...sharedProps}
-                            items={mirItems}
-                            isLoading={poDeliveryDocsLoading}
-                            vendorOptions={vendorOptions}
-                            vendorFilter={commonVendorFilter}
-                            onToggleVendor={toggleVendor}
-                            dateFilter={commonDateFilter}
-                            onDateFilter={setCommonDateFilter}
-                            onClearFilters={clearFilters}
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
-                        />
+                        <MIRSteps {...sharedProps} items={mirItems} isLoading={poDeliveryDocsLoading} />
                     )}
 
                     {step === 2 && docType === "ClientInvoice" && (
-                        <ClientInvoiceSteps
-                            {...sharedProps}
-                            items={projectInvoiceItems}
-                            isLoading={projectInvoicesLoading}
-                            customerOptions={customerOptions}
-                            customerFilter={commonCustomerFilter}
-                            onToggleCustomer={toggleCustomer}
-                            dateFilter={commonDateFilter}
-                            onDateFilter={setCommonDateFilter}
-                            onClearFilters={clearFilters}
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
-                        />
+                        <ClientInvoiceSteps {...sharedProps} items={projectInvoiceItems} isLoading={projectInvoicesLoading} />
                     )}
 
                     {step === 2 && docType === "DN" && (
                         <DNSteps
                             {...sharedProps}
-                            items={filteredDnList}
+                            items={dnList}
                             isLoading={posLoading}
-                            vendorOptions={vendorOptions}
-                            poVendorFilter={commonVendorFilter}
-                            onToggleVendor={toggleVendor}
-                            poDateFilter={commonDateFilter}
-                            setPoDateFilter={setCommonDateFilter}
-                            onClearPoFilters={clearFilters}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
-                            searchQuery={searchQuery}
-                            setSearchQuery={setSearchQuery}
                         />
                     )}
 

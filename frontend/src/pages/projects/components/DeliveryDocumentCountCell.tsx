@@ -25,6 +25,8 @@ export const DeliveryDocumentCountCell = ({ type, documents, count }: DeliveryDo
   const hoverBg = isDC ? "hover:bg-amber-50" : "hover:bg-blue-50";
   const ringColor = isDC ? "focus:ring-amber-500" : "focus:ring-blue-500";
   const iconColor = isDC ? "text-amber-600" : "text-blue-600";
+  // Qty is per-item; PO-level lists span several items/units, so they carry none.
+  const showQty = documents.some(d => d.quantity !== undefined);
 
   if (count === 0) {
     return <Badge variant="outline" className="text-gray-400">0</Badge>;
@@ -47,7 +49,7 @@ export const DeliveryDocumentCountCell = ({ type, documents, count }: DeliveryDo
           {count}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] max-h-[60vh] overflow-auto p-0" align="start">
+      <PopoverContent className={`${showQty ? "w-[480px]" : "w-[420px]"} max-h-[60vh] overflow-auto p-0`} align="start">
         <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
           <h4 className="font-semibold text-sm flex items-center gap-1.5">
             <Icon className={`w-4 h-4 ${iconColor}`} />
@@ -69,6 +71,7 @@ export const DeliveryDocumentCountCell = ({ type, documents, count }: DeliveryDo
               <TableRow>
                 <TableHead className="text-xs">Ref No</TableHead>
                 <TableHead className="text-xs">Date</TableHead>
+                {showQty && <TableHead className="text-xs text-right">Qty</TableHead>}
                 <TableHead className="text-xs text-center">Signed</TableHead>
                 <TableHead className="text-xs text-right">Action</TableHead>
               </TableRow>
@@ -89,6 +92,11 @@ export const DeliveryDocumentCountCell = ({ type, documents, count }: DeliveryDo
                   <TableCell className="text-sm text-gray-600 py-2">
                     {doc.dcDate ? formatDate(doc.dcDate) : '-'}
                   </TableCell>
+                  {showQty && (
+                    <TableCell className="text-right py-2 font-mono text-sm text-gray-700">
+                      {doc.quantity !== undefined ? doc.quantity.toFixed(2) : '-'}
+                    </TableCell>
+                  )}
                   <TableCell className="text-center py-2">
                     {doc.isSignedByClient ? (
                       <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">Signed</Badge>
