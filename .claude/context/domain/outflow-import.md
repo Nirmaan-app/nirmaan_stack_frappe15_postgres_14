@@ -6081,3 +6081,26 @@ the SAME file — it is the OTHER half of "no slips, no trigger", and the card's
 if that number is wrong — including that the join never duplicates a row. Frontend:
 `expenseBankLinesView.test.ts`, 9 vitest cases over the progress line and the tone map, including both
 clamps, the ₹5 boundary read through `LINK_TOLERANCE`, and the server-`remaining`-governs case.
+
+## 2026-09-19 — payments on one cheque share their reference (the reference guard's second sibling set)
+
+A Project Payment can now be a **cheque**, and one cheque may cover several payments (owner). It clears as
+ONE bank line, so every payment on it carries the same reference — the cheque number (the manual
+reconcile pre-fills it) or the clearing line's UTR. Before this, the second such payment was refused
+"Bank reference … is already recorded on payment …".
+
+- **`reference_guard.cheque_siblings_of(target)`** — the other payments with the target's `cheque_no`,
+  and only when the target is itself `mode_of_payment = Cheque`. `assert_reference_is_free` unions it with
+  the transfer siblings. It is computed INSIDE the guard from the target, never passed by a caller, so the
+  import (`settle._assert_reference_is_free`) and the manual fulfil (`project_payments._fulfil_payment`)
+  cannot disagree — the "two call sites must move together" rule holds by construction.
+- **Scope, and why it is safe:** the same shape as the transfer set. A holder of the reference that is NOT
+  on the same cheque still blocks; an online payment has no cheque siblings, so its rule is unchanged.
+  The pure `reference_is_blocked` is untouched.
+- **Where a cheque sits for the import:** a cheque payment reaches *Reconciliation Pending* as soon as it
+  is approved (`services/cheque_payments.move_to_reconciliation`), so it is already settle-able by a bank
+  line; no Mark as Done is involved.
+- Tests: `api/payments/test_cheque_payments.py` (payments on one cheque both reconcile against its number;
+  another payment holding the reference still blocks a cheque; online keeps the strict rule);
+  `services/outflow_import/test_reference_guard.py` unchanged and green.
+

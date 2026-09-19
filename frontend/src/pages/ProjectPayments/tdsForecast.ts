@@ -17,6 +17,7 @@
  * 2026-09-10): the figure matters at the moment of deciding, not while scanning a list.
  */
 
+import { statusAfterL1 } from "@/utils/approvalTiers";
 import { parseNumber } from "@/utils/parseNumber";
 import { safeJsonParse } from "@/utils/safeJsonParse";
 
@@ -121,6 +122,22 @@ export const forecastTds = (
 
 	return { ratePct: rate, tds, net: companyBorne ? gross : round2(gross - tds) };
 };
+
+/**
+ * Does THIS approval click withhold the tax, or only forward the payment?
+ *
+ * Tax is withheld when an approval lands the payment at `Approved` (`payment_tds.
+ * is_approval_from_an_earlier_step`). The CEO's click always does. An L1 click does only when it
+ * FINISHES the approval -- the 15,000-50,000 band (`statusAfterL1`); above 50,000 it forwards to
+ * the CEO and nothing is withheld yet.
+ *
+ * ⚠️ This used to be "CEO mode only", written before L1 could finish an approval, so the L1
+ * dialogs told the approver the tax came later on exactly the payments where their click took it.
+ */
+export const withholdsOnApproval = (
+	mode: "lead" | "ceo",
+	amount: number | string | undefined | null
+): boolean => mode === "ceo" || statusAfterL1(amount) === "Approved";
 
 export interface TdsTotals {
 	/** How many of the payments will actually be deducted from. */

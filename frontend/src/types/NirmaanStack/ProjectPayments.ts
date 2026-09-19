@@ -26,6 +26,12 @@ export interface ProjectPayments{
 	voucher_attachment?: string
 	/**	Amount : Data	*/
 	amount: number
+	/**	Mode of Payment : Select - Online / Cheque (set once, at the request). Blank reads as Online. */
+	mode_of_payment?: "Online" | "Cheque" | ""
+	/**	Cheque No : Data — a cheque only; one cheque may cover several payments, so it is not unique */
+	cheque_no?: string
+	/**	Cheque Date : Date — a cheque only */
+	cheque_date?: string
 	/**
 	 * Payment TDS : Link - Payment TDS Deduction (read-only)
 	 *

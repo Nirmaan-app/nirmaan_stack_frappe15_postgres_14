@@ -555,11 +555,17 @@ const REGISTRY: Record<
     accessorKey: "utr_ref",
     header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" />,
     size: 150,
+    // A cheque has no UTR until it is reconciled, so until then its number stands in, labelled.
     cell: ({ row }) =>
       row.original.utr_ref
         ? <TruncatedText text={row.original.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
-        : <Blank />,
-    meta: { exportHeaderName: "UTR / Ref", exportValue: (r: ApprovalQueueRow) => r.utr_ref },
+        : row.original.cheque_no
+          ? <TruncatedText text={`Cheque ${row.original.cheque_no}`} className="max-w-[9rem] font-mono text-[11px]" />
+          : <Blank />,
+    meta: {
+      exportHeaderName: "UTR / Ref",
+      exportValue: (r: ApprovalQueueRow) => r.utr_ref || (r.cheque_no ? `Cheque ${r.cheque_no}` : ""),
+    },
   }),
 
   proof: () => ({

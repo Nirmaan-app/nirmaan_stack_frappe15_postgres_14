@@ -60,6 +60,13 @@ import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { TruncatedText } from "@/components/common/TruncatedText";
 
+// Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
+// neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
+// came back as requestable while it waited for reconciliation, and a cheque payment waits there
+// from the moment it is approved. The server's cap counts it the same way
+// (`finance.get_total_reconciliation_pending`).
+const OPEN_REQUEST_STATUSES = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"];
+
 // const { Sider, Content } = Layout;
 
 interface ApprovedSRProps {
@@ -255,7 +262,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
 
-    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
+    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => OPEN_REQUEST_STATUSES.includes(i?.status))), [projectPayments]);
 
     // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
     // part of what was requested -- so the Request Payment cap counts each payment GROSS.
@@ -272,7 +279,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
         return {
             paid: getAmountPaid + tdsFor(["Paid"]),
-            pending: amountPending + tdsFor(["Requested", "CEO Pending", "Approved"]),
+            pending: amountPending + tdsFor(OPEN_REQUEST_STATUSES),
         };
     }, [projectPayments, tdsByPayment, getAmountPaid, amountPending, companyBorneTds]);
 
