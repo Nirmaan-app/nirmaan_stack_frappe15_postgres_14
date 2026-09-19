@@ -1,8 +1,6 @@
 import { useState, useContext, useCallback, useMemo, useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig, useFrappeGetDocList } from "frappe-react-sdk";
-import { DateFilterValue } from "@/components/ui/standalone-date-filter";
-import { subDays, subMonths, subYears, startOfWeek, startOfMonth, startOfQuarter, startOfYear, isAfter, isBefore, isEqual, isWithinInterval } from "date-fns";
 import { useUserData } from "@/hooks/useUserData";
 import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
@@ -22,6 +20,7 @@ export interface POItem {
     vendor?: string;
     status?: string;
     amount?: number;
+    total_amount?: number;
     creation?: string;
     latest_delivery_date?: string;
 }
@@ -47,6 +46,7 @@ export interface WOItem {
     vendor?: string;
     vendor_name?: string;
     status?: string;
+    total_amount?: number;
     creation?: string;
 }
 export interface NirmaanAttachmentStub {
@@ -75,12 +75,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const [downloadedLabel, setDownloadedLabel] = useState("");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [withRate, setWithRate] = useState(true);
-    const [invoiceSubType, setInvoiceSubType] = useState<InvoiceSubType>("All Invoices");
-    const [commonVendorFilter, setCommonVendorFilter] = useState<string[]>([]);
-    const [commonCustomerFilter, setCommonCustomerFilter] = useState<string[]>([]);
-    const [commonDateFilter, setCommonDateFilter] = useState<DateFilterValue | undefined>();
-    const [searchQuery, setSearchQuery] = useState("");
-    const [statusFilter, setStatusFilter] = useState<string[]>([]);
+    const [invoiceSubType, setInvoiceSubTypeState] = useState<InvoiceSubType>("All Invoices");
 
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -98,30 +93,10 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         return () => { offAllListeners(); };
     }, [offAllListeners]);
 
-    const toggleVendor = useCallback((v: string) => {
-        setCommonVendorFilter((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
-    }, []);
-
-    const toggleCustomer = useCallback((c: string) => {
-        setCommonCustomerFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
-    }, []);
-
-    const toggleStatus = useCallback((s: string) => {
-        setStatusFilter((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
-    }, []);
-
-    const clearFilters = useCallback(() => {
-        setCommonVendorFilter([]);
-        setCommonCustomerFilter([]);
-        setCommonDateFilter(undefined);
-        setSearchQuery("");
-        setStatusFilter([]);
-    }, []);
-
     const { data: poList = [], isLoading: posLoading } = useFrappeGetDocList<POItem>(
         "Procurement Orders",
         {
-            fields: ["name", "vendor_name", "vendor", "status", "amount", "creation", "latest_delivery_date"],
+            fields: ["name", "vendor_name", "vendor", "status", "amount", "total_amount", "creation", "latest_delivery_date"],
             filters: [["project", "=", projectId], ["status", "not in", ["Merged", "Inactive", "Cancelled"]]],
             limit: 0,
             orderBy: { field: "creation", order: "asc" },
@@ -132,7 +107,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: woList = [], isLoading: wosLoading } = useFrappeGetDocList<WOItem>(
         "Service Requests",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "status", "creation"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "status", "total_amount", "creation"],
             filters: [["project", "=", projectId], ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabService Requests`.creation", order: "asc" },
@@ -143,7 +118,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: vendorInvoices = [], isLoading: invoicesLoading } = useFrappeGetDocList<VendorInvoice>(
         "Vendor Invoices",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "document_type", "document_name", "invoice_no", "invoice_date", "invoice_attachment"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment"],
             filters: [["project", "=", projectId], ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabVendor Invoices`.creation", order: "asc" },
@@ -161,7 +136,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: poDeliveryDocs = [], isLoading: poDeliveryDocsLoading } = useFrappeGetDocList<PODeliveryDocuments>(
         "PO Delivery Documents",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "parent_docname", "procurement_order", "creation", "nirmaan_attachment", "dc_date"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "parent_docname", "procurement_order", "creation", "nirmaan_attachment", "dc_date", "reference_number", "dc_reference"],
             filters: [
                 ["project", "=", projectId],
                 ["parent_doctype", "=", "Procurement Orders"],
@@ -202,165 +177,38 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     );
     const criticalTasksLoading = criticalTasksListLoading || criticalLinksLoading;
 
-    const allVendorOptions = useMemo(() => {
-        const map = new Map<string, string>();
-        poList.forEach(p => p.vendor && map.set(p.vendor, p.vendor_name || p.vendor));
-        woList.forEach(w => w.vendor && map.set(w.vendor, w.vendor_name || w.vendor));
-        vendorInvoices.forEach(v => v.vendor && map.set(v.vendor, v.vendor_name || v.vendor));
-        poDeliveryDocs.forEach(d => d.vendor && map.set(d.vendor, d.vendor_name || d.vendor));
-        return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
-    }, [poList, woList, vendorInvoices, poDeliveryDocs]);
-
-    const activeVendorOptions = useMemo(() => {
-        if (!docType) return allVendorOptions;
-        const avail = new Set<string>();
-        if (docType === "PO" || docType === "DN") poList.forEach(p => avail.add(p.vendor!));
-        if (docType === "WO") woList.forEach(w => avail.add(w.vendor!));
-        if (docType === "Invoice") vendorInvoices.forEach(v => avail.add(v.vendor!));
-        if (docType === "DC" || docType === "MIR") poDeliveryDocs.forEach(d => avail.add(d.vendor!));
-        if (docType === "ClientInvoice") return [];
-        return allVendorOptions.filter(o => avail.has(o.value));
-    }, [docType, allVendorOptions, poList, woList, vendorInvoices, poDeliveryDocs]);
-
-    const isDateMatchingFilter = (dateStr: string, filter: DateFilterValue | undefined): boolean => {
-        if (!filter || !filter.value) return true;
-        const d = new Date(dateStr.split(" ")[0]); d.setHours(0, 0, 0, 0);
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const { operator, value } = filter;
-        if (operator === "Between" && Array.isArray(value)) {
-            const start = new Date(value[0]); start.setHours(0, 0, 0, 0);
-            const end = new Date(value[1]); end.setHours(23, 59, 59, 999);
-            return isWithinInterval(d, { start, end });
-        }
-        if (operator === "<=") return isBefore(d, new Date(value as string)) || isEqual(d, new Date(value as string));
-        if (operator === ">=") return isAfter(d, new Date(value as string)) || isEqual(d, new Date(value as string));
-        if (operator === "Is") return d.getTime() === new Date(value as string).getTime();
-        if (operator === "Timespan") {
-            switch (value) {
-                case "today": return d.getTime() === today.getTime();
-                case "yesterday": return d.getTime() === subDays(today, 1).getTime();
-                case "last 7 days": return isWithinInterval(d, { start: subDays(today, 7), end: today });
-                case "this month": return isWithinInterval(d, { start: startOfMonth(today), end: today });
-                default: return true;
-            }
-        }
-        return true;
-    };
-
-    const filteredPoList = useMemo(() => {
-        let l = poList;
-        if (commonVendorFilter.length) l = l.filter(p => commonVendorFilter.includes(p.vendor!));
-        if (commonDateFilter) l = l.filter(p => p.creation && isDateMatchingFilter(p.creation, commonDateFilter));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            l = l.filter(p => p.name.toLowerCase().includes(q) || (p.vendor_name && p.vendor_name.toLowerCase().includes(q)) || (p.vendor && p.vendor.toLowerCase().includes(q)));
-        }
-        return l;
-    }, [poList, commonVendorFilter, commonDateFilter, searchQuery]);
-
-    const filteredDnList = useMemo(() => {
-        let l = poList.filter(p => ["Delivered", "Partially Delivered"].includes(p.status!));
-        if (commonVendorFilter.length) l = l.filter(p => commonVendorFilter.includes(p.vendor!));
-        if (commonDateFilter) l = l.filter(p => isDateMatchingFilter(p.latest_delivery_date || p.creation!, commonDateFilter));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            l = l.filter(p => p.name.toLowerCase().includes(q) || (p.vendor_name && p.vendor_name.toLowerCase().includes(q)) || (p.vendor && p.vendor.toLowerCase().includes(q)));
-        }
-        return l;
-    }, [poList, commonVendorFilter, commonDateFilter, searchQuery]);
-
-    const filteredWoList = useMemo(() => {
-        let l = woList;
-        if (commonVendorFilter.length) l = l.filter(w => commonVendorFilter.includes(w.vendor!));
-        if (commonDateFilter) l = l.filter(w => w.creation && isDateMatchingFilter(w.creation, commonDateFilter));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            l = l.filter(w => w.name.toLowerCase().includes(q) || (w.vendor_name && w.vendor_name.toLowerCase().includes(q)) || (w.vendor && w.vendor.toLowerCase().includes(q)));
-        }
-        return l;
-    }, [woList, commonVendorFilter, commonDateFilter, searchQuery]);
-
-    const filteredInvoiceItemsBase = useMemo(() => {
-        let l = vendorInvoices.filter(v => !!v.invoice_attachment);
-        if (commonVendorFilter.length) l = l.filter(v => commonVendorFilter.includes(v.vendor!));
-        if (commonDateFilter) l = l.filter(v => isDateMatchingFilter(v.invoice_date || v.creation!, commonDateFilter));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            l = l.filter(v => v.name.toLowerCase().includes(q) || v.invoice_no?.toLowerCase().includes(q) || (v.vendor_name && v.vendor_name.toLowerCase().includes(q)) || (v.vendor && v.vendor.toLowerCase().includes(q)));
-        }
-        return l;
-    }, [vendorInvoices, commonVendorFilter, commonDateFilter, searchQuery]);
+    // Every step filters inside its own selection table (facet + date column filters), so the hook
+    // hands each step its full ELIGIBLE list: DN = POs that have deliveries; the attachment types =
+    // rows that actually carry a file to merge.
+    const dnList = useMemo(() => poList.filter(p => ["Delivered", "Partially Delivered"].includes(p.status!)), [poList]);
+    const invoiceItems = useMemo(() => vendorInvoices.filter(v => !!v.invoice_attachment), [vendorInvoices]);
+    const dcItems = useMemo(() => poDeliveryDocs.filter(d => d.type === "Delivery Challan" && !!d.nirmaan_attachment), [poDeliveryDocs]);
+    const mirItems = useMemo(() => poDeliveryDocs.filter(d => d.type === "Material Inspection Report" && !!d.nirmaan_attachment), [poDeliveryDocs]);
+    const projectInvoiceItems = useMemo(() => projectInvoices.filter(p => !!p.attachment), [projectInvoices]);
 
     const filteredInvoiceItems = useCallback((sub: InvoiceSubType) => {
-        if (sub === "PO Invoices") return filteredInvoiceItemsBase.filter(i => i.document_type === "Procurement Orders");
-        if (sub === "WO Invoices") return filteredInvoiceItemsBase.filter(i => i.document_type === "Service Requests");
-        return filteredInvoiceItemsBase;
-    }, [filteredInvoiceItemsBase]);
-
-    const filteredPoDeliveryDocItems = useMemo(() => {
-        let l = poDeliveryDocs.filter(d => !!d.nirmaan_attachment);
-        if (commonVendorFilter.length) l = l.filter(d => commonVendorFilter.includes(d.vendor!));
-        if (commonDateFilter) l = l.filter(d => isDateMatchingFilter(d.dc_date || d.creation!, commonDateFilter));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            l = l.filter(d => {
-                const poId = d.parent_docname || d.procurement_order;
-                return d.name.toLowerCase().includes(q)
-                    || (poId && poId.toLowerCase().includes(q))
-                    || (d.vendor_name && d.vendor_name.toLowerCase().includes(q))
-                    || (d.vendor && d.vendor.toLowerCase().includes(q));
-            });
-        }
-        return l;
-    }, [poDeliveryDocs, commonVendorFilter, commonDateFilter, searchQuery]);
-
-    const dcItems = useMemo(() => filteredPoDeliveryDocItems.filter(d => d.type === "Delivery Challan"), [filteredPoDeliveryDocItems]);
-    const mirItems = useMemo(() => filteredPoDeliveryDocItems.filter(d => d.type === "Material Inspection Report"), [filteredPoDeliveryDocItems]);
-
-    const customerOptions = useMemo(() => {
-        const map = new Map<string, string>();
-        projectInvoices.forEach(p => p.customer && map.set(p.customer, p.company_name || p.customer));
-        return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
-    }, [projectInvoices]);
-
-    const filteredProjectInvoices = useMemo(() => {
-        let l = projectInvoices.filter(p => !!p.attachment);
-        if (commonCustomerFilter.length) l = l.filter(p => commonCustomerFilter.includes(p.customer!));
-        if (commonDateFilter) l = l.filter(p => isDateMatchingFilter(p.invoice_date || p.creation!, commonDateFilter));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            l = l.filter(p =>
-                p.name.toLowerCase().includes(q)
-                || (p.invoice_no && p.invoice_no.toLowerCase().includes(q))
-                || (p.company_name && p.company_name.toLowerCase().includes(q))
-                || (p.customer && p.customer.toLowerCase().includes(q))
-            );
-        }
-        return l;
-    }, [projectInvoices, commonCustomerFilter, commonDateFilter, searchQuery]);
+        if (sub === "PO Invoices") return invoiceItems.filter(i => i.document_type === "Procurement Orders");
+        if (sub === "WO Invoices") return invoiceItems.filter(i => i.document_type === "Service Requests");
+        return invoiceItems;
+    }, [invoiceItems]);
 
     const itemCounts = useMemo(() => ({
-        PO: poList.length, WO: woList.length, Invoice: vendorInvoices.filter(v => v.invoice_attachment).length,
-        DC: poDeliveryDocs.filter(d => d.type === "Delivery Challan" && d.nirmaan_attachment).length,
-        MIR: poDeliveryDocs.filter(d => d.type === "Material Inspection Report" && d.nirmaan_attachment).length,
-        DN: poList.filter(p => ["Delivered", "Partially Delivered"].includes(p.status!)).length,
-        ClientInvoice: projectInvoices.filter(p => !!p.attachment).length,
-    }), [poList, woList, vendorInvoices, poDeliveryDocs, projectInvoices]);
+        PO: poList.length, WO: woList.length, Invoice: invoiceItems.length,
+        DC: dcItems.length, MIR: mirItems.length, DN: dnList.length,
+        ClientInvoice: projectInvoiceItems.length,
+    }), [poList, woList, invoiceItems, dcItems, mirItems, dnList, projectInvoiceItems]);
 
-    const poStatuses = useMemo(() => Array.from(new Set(poList.map(p => p.status!).filter(Boolean))).sort(), [poList]);
+    const goToStep2 = useCallback((t: BulkDocType) => { setDocType(t); setSelectedIds([]); setStep(2); }, []);
+    const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); }, []);
+    const resetToTypeSelection = useCallback(() => { offAllListeners(); setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); }, [offAllListeners]);
 
-    const goToStep2 = useCallback((t: BulkDocType) => { clearFilters(); setDocType(t); setSelectedIds([]); setStep(2); }, [clearFilters]);
-    const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); clearFilters(); }, [clearFilters]);
-    const resetToTypeSelection = useCallback(() => { offAllListeners(); setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); clearFilters(); }, [clearFilters, offAllListeners]);
+    // Switching invoice type swaps the list under the table, so the selection goes with it -- a
+    // download must never carry an invoice the current type hides.
+    const setInvoiceSubType = useCallback((t: InvoiceSubType) => { setInvoiceSubTypeState(t); setSelectedIds([]); }, []);
 
     const toggleId = useCallback((id: string) => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]), []);
     const selectAll = useCallback((ids: string[]) => setSelectedIds(ids), []);
     const deselectAll = useCallback(() => setSelectedIds([]), []);
-
-    // Selection Reset Effect (Option B): Reset selection when filters change
-    useEffect(() => {
-        setSelectedIds([]);
-    }, [commonVendorFilter, commonCustomerFilter, commonDateFilter, searchQuery, statusFilter]);
 
     const selectMultipleCriticalTaskPOs = useCallback((taskNames: string[]) => {
         const all = new Set<string>();
@@ -421,18 +269,18 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
                     break;
                 case "Invoice":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
-                    formData.append("attachment_names", JSON.stringify(filteredInvoiceItemsBase.filter(i => selectedIds.includes(i.name)).map(i => i.invoice_attachment!)));
+                    formData.append("attachment_names", JSON.stringify(filteredInvoiceItems(invoiceSubType).filter(i => selectedIds.includes(i.name)).map(i => i.invoice_attachment!)));
                     formData.append("doc_type", invoiceSubType);
                     break;
                 case "DC":
                 case "MIR":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
-                    formData.append("attachment_names", JSON.stringify(filteredPoDeliveryDocItems.filter(d => selectedIds.includes(d.name)).map(d => d.nirmaan_attachment!)));
+                    formData.append("attachment_names", JSON.stringify((docType === "DC" ? dcItems : mirItems).filter(d => selectedIds.includes(d.name)).map(d => d.nirmaan_attachment!)));
                     formData.append("doc_type", docType);
                     break;
                 case "ClientInvoice":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
-                    formData.append("attachment_names", JSON.stringify(filteredProjectInvoices.filter(p => selectedIds.includes(p.name)).map(p => p.attachment!)));
+                    formData.append("attachment_names", JSON.stringify(projectInvoiceItems.filter(p => selectedIds.includes(p.name)).map(p => p.attachment!)));
                     formData.append("doc_type", "Client Invoices");
                     break;
             }
@@ -460,29 +308,14 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     return {
         step, docType, selectedIds, toggleId, selectAll, deselectAll, selectMultipleCriticalTaskPOs, goToStep2, goBack, resetToTypeSelection,
-        downloadedCount, downloadedLabel, poList: filteredPoList, posLoading, woList: filteredWoList, wosLoading, dnList: filteredDnList,
-        invoiceItems: filteredInvoiceItemsBase, invoicesLoading, dcItems, mirItems, poDeliveryDocsLoading, criticalTasks, criticalTasksLoading,
-        vendorOptions: activeVendorOptions, commonVendorFilter, toggleVendor, commonDateFilter, setCommonDateFilter, clearFilters,
-        withRate, setWithRate, poStatuses, itemCounts, invoiceSubType, setInvoiceSubType, filteredInvoiceItems,
+        downloadedCount, downloadedLabel, poList, posLoading, woList, wosLoading, dnList,
+        invoicesLoading, dcItems, mirItems, poDeliveryDocsLoading, criticalTasks, criticalTasksLoading,
+        withRate, setWithRate, itemCounts, invoiceSubType, setInvoiceSubType, filteredInvoiceItems,
         loading, progress, progressMessage, showProgress, setShowProgress, handleDownload,
         downloadToken,
         triggerDownload,
         stopProgress,
-
-        // Filtered Lists for UI summaries
-        filteredPoList,
-        filteredWoList,
-        filteredDnList,
-        filteredInvoiceItemsBase,
-        filteredPoDeliveryDocItems,
-        projectInvoiceItems: filteredProjectInvoices,
+        projectInvoiceItems,
         projectInvoicesLoading,
-        customerOptions,
-        commonCustomerFilter,
-        toggleCustomer,
-        searchQuery,
-        setSearchQuery,
-        statusFilter,
-        toggleStatus,
     };
 };
