@@ -115,16 +115,62 @@ def _notify_accountants_payment_ready(doc):
         frappe.publish_realtime(event="payment:ceo_approved", message=message, user=user.get('name'))
 
 
+def _notify_ceo_payment_awaiting(doc, how_it_arrived: str):
+    """Tell the CEO a payment is waiting at their gate: after an L1 approval, or created there
+    because an L1 approver raised it (owner, 2026-09-21). One helper, so both read the same."""
+    ceo_user = _get_ceo_user()
+    if not ceo_user:
+        print(f"CEO user {CEO_AUTHORIZED_USER} not found or disabled — skipping CEO notification.")
+        return
+    project = frappe.get_doc("Projects", doc.project)
+    if ceo_user.get("push_notification") == "true":
+        notification_title = f"Payment Awaiting CEO Approval — {project.project_name}"
+        notification_body = f"Hi {ceo_user.get('full_name')}, a payment for PO:{doc.document_name} {how_it_arrived}"
+        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=CEO%20Pending"
+        PrNotification(ceo_user, notification_title, notification_body, click_action_url)
+
+    message = {
+        "title": _("Payment Awaiting CEO Approval"),
+        "description": _(f"Payment for PO: {doc.document_name} is awaiting CEO approval."),
+        "project": doc.project, "sender": frappe.session.user, "docname": doc.name
+    }
+    new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+    new_notification_doc.update({
+        "recipient": ceo_user.get('name'), "recipient_role": ceo_user.get('role_profile'),
+        "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
+        "title": message["title"], "description": message["description"],
+        "document": 'Project Payments', "docname": doc.name, "project": doc.project,
+        "seen": "false", "type": "info", "event_id": "payment:approved",
+        "action_url": "project-payments?tab=CEO%20Pending"
+    })
+    new_notification_doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    message["notificationId"] = new_notification_doc.name
+    frappe.publish_realtime(event="payment:approved", message=message, user=ceo_user.get('name'))
+
+
 def _notify_admins_auto_approved(doc):
     """Informational 'record' note to admins that a small payment auto-approved.
 
     In-app Nirmaan Notification + realtime only (no FCM push) — admins have no
     action to take, this is purely for visibility/audit.
     """
+    # Born Approved for one of two reasons: the auto band (`auto_approved`), or because the person
+    # who raised it already holds the approval it needed (owner, 2026-09-21).
+    if doc.get("auto_approved"):
+        title = _("Payment Auto-Approved")
+        description = _(f"Payment {doc.name} ({doc.document_name}) was auto-approved (amount below threshold).")
+    else:
+        title = _("Payment Approved at Request")
+        description = _(
+            f"Payment {doc.name} ({doc.document_name}) was approved at request: "
+            f"{get_user_name(frappe.session.user)} raised it and holds the approval it needed."
+        )
     for user in get_admin_users() or []:
         message = {
-            "title": _("Payment Auto-Approved"),
-            "description": _(f"Payment {doc.name} ({doc.document_name}) was auto-approved (amount below threshold)."),
+            "title": title,
+            "description": description,
             "project": doc.project, "sender": frappe.session.user, "docname": doc.name
         }
         new_notification_doc = frappe.new_doc('Nirmaan Notifications')
@@ -188,6 +234,16 @@ def after_insert(doc, method):
     if doc.status == "Approved":
         _notify_accountants_payment_ready(doc)
         _notify_admins_auto_approved(doc)
+        return
+
+    # Born at CEO Pending: an L1 approver raised it, so L1 is already cleared (owner,
+    # 2026-09-21). It is waiting for the CEO, not for an L1 approver -- say so to the CEO.
+    if doc.status == "CEO Pending":
+        _notify_ceo_payment_awaiting(
+            doc,
+            f"was raised by {get_user_name(frappe.session.user)}, who holds L1, "
+            "so it has come straight to you for approval.",
+        )
         return
 
     admin_users = get_admin_users()
@@ -316,39 +372,9 @@ def on_update(doc, method):
         if doc.flags.get("bulk_approval"):
             # Bulk endpoint emits one summary notification covering all payments.
             return
-        ceo_user = _get_ceo_user()
-        project = frappe.get_doc("Projects", doc.project)
-        if ceo_user:
-            if ceo_user.get("push_notification") == "true":
-                notification_title = f"Payment Awaiting CEO Approval — {project.project_name}"
-                notification_body = (
-                    f"Hi {ceo_user.get('full_name')}, a payment for PO:{doc.document_name} has been approved by the project lead "
-                    "and is awaiting your final review."
-                )
-                click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=CEO%20Pending"
-                PrNotification(ceo_user, notification_title, notification_body, click_action_url)
-
-            message = {
-                "title": _("Payment Awaiting CEO Approval"),
-                "description": _(f"Payment for PO: {doc.document_name} is awaiting CEO approval."),
-                "project": doc.project, "sender": frappe.session.user, "docname": doc.name
-            }
-            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-            new_notification_doc.update({
-                "recipient": ceo_user.get('name'), "recipient_role": ceo_user.get('role_profile'),
-                "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
-                "title": message["title"], "description": message["description"],
-                "document": 'Project Payments', "docname": doc.name, "project": doc.project,
-                "seen": "false", "type": "info", "event_id": "payment:approved",
-                "action_url": "project-payments?tab=CEO%20Pending"
-            })
-            new_notification_doc.insert(ignore_permissions=True)
-            frappe.db.commit()
-
-            message["notificationId"] = new_notification_doc.name
-            frappe.publish_realtime(event="payment:approved", message=message, user=ceo_user.get('name'))
-        else:
-            print(f"CEO user {CEO_AUTHORIZED_USER} not found or disabled — skipping CEO notification.")
+        _notify_ceo_payment_awaiting(
+            doc, "has been approved by the project lead and is awaiting your final review."
+        )
 
     elif old_doc.status == 'CEO Pending' and doc.status == 'Approved':
         # CEO has approved → notify accountants that the payment is ready to fulfil.

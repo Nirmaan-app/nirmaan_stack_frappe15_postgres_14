@@ -6,9 +6,13 @@ from frappe.model.document import Document
 from frappe.utils import flt, nowdate, getdate, today
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.approval_tiers import (
     TIER_AUTO_APPROVE_BELOW,
+    TIER_L2_ABOVE,
+    initial_status_for_raiser,
     is_auto_approved,
+    steps_cleared_by_raiser,
 )
 from nirmaan_stack.services import cheque_payments
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
@@ -26,6 +30,33 @@ ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 # The constant is KEPT only because the auto-approve COMMENT below quotes it and
 # `services/payment_split.py` references it by name; nothing routes on it any more.
 PAYMENT_AUTO_APPROVAL_THRESHOLD = 10001.0
+
+def _route_new_payment(amount):
+    """`(status, l1_cleared, ceo_cleared)` for a payment the SESSION USER is raising.
+
+    ⚠️ A step the raiser already holds is not asked of them again (owner, 2026-09-21): an L1
+    approver's payment is born past L1, the CEO's past both -- `approval_tiers` owns the rule,
+    `approval_raiser` knows who holds what. The auto band is unchanged. Both creation endpoints
+    route through here so they cannot disagree.
+    """
+    level = raiser_level(frappe.session.user)
+    status = initial_status_for_raiser(amount, TIER_L2_ABOVE, level)
+    l1_cleared, ceo_cleared = steps_cleared_by_raiser(amount, TIER_L2_ABOVE, level)
+    return status, l1_cleared, ceo_cleared
+
+
+def _stamp_raiser_approval(pay, l1_cleared: bool, ceo_cleared: bool) -> None:
+    """Date the steps the raiser stood in for, like a person's approval -- NOT `auto_approved`."""
+    if l1_cleared:
+        pay.approval_date = nowdate()
+    if ceo_cleared:
+        pay.ceo_approval_date = nowdate()
+
+
+def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
+    pay.add_comment("Comment", _("Approved at request: raised by {0}, who holds {1}.").format(
+        frappe.utils.get_fullname(frappe.session.user), _("L1 and CEO approval") if ceo_cleared else _("L1 approval")))
+
 
 @frappe.whitelist()
 def create_payment_request_for_service(data: str) -> str:
@@ -82,6 +113,7 @@ def create_payment_request_for_service(data: str) -> str:
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
     auto_approve = is_auto_approved(amount)
+    status, l1_cleared, ceo_cleared = _route_new_payment(amount)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -90,24 +122,29 @@ def create_payment_request_for_service(data: str) -> str:
         "project"       : src.project,
         "vendor"        : src.vendor,
         "amount"        : round(amount),
-        "status"        : "Approved" if auto_approve else "Requested",
+        "status"        : status,
         **_mode_fields(payload),
     })
     if auto_approve:
         pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
         pay.approval_date = nowdate()
         pay.ceo_approval_date = nowdate()
+    else:
+        _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
     pay.insert()
 
     if auto_approve:
         pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
             frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
+    elif l1_cleared:
+        _comment_raiser_approval(pay, ceo_cleared)
 
     frappe.db.commit()
 
-    # An auto-approved cheque goes straight on to Reconciliation Pending, in its own
-    # transaction now that the approval (and its TDS) is on disk.
-    if auto_approve and cheque_payments.is_cheque(pay):
+    # A cheque born Approved (the auto band, or a raiser who holds the approval) goes straight
+    # on to Reconciliation Pending, in its own transaction now that the approval (and its TDS)
+    # is on disk.
+    if status == "Approved" and cheque_payments.is_cheque(pay):
         _move_cheque_to_reconciliation(pay.name)
 
     return frappe.as_json({"name": pay.name})
@@ -192,6 +229,7 @@ def create_project_payment(
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
         auto_approve = is_auto_approved(amount)
+        status, l1_cleared, ceo_cleared = _route_new_payment(amount)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({
@@ -200,7 +238,7 @@ def create_project_payment(
             "project": project,
             "vendor": vendor,
             "amount": round(amount, 2),
-            "status": "Approved" if auto_approve else "Requested",
+            "status": status,
             **_mode_fields({
                 "mode_of_payment": mode_of_payment,
                 "cheque_no": cheque_no,
@@ -211,6 +249,8 @@ def create_project_payment(
             pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
             pay.approval_date = nowdate()
             pay.ceo_approval_date = nowdate()   # both gates cleared by the rule
+        else:
+            _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
 
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).
@@ -219,6 +259,8 @@ def create_project_payment(
         if auto_approve:
             pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
                 frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
+        elif l1_cleared:
+            _comment_raiser_approval(pay, ceo_cleared)
 
         # --- Step 5: Update the PO Payment Term row, mirroring the payment status ---
         # This establishes the bidirectional relationship.
@@ -226,15 +268,15 @@ def create_project_payment(
             "PO Payment Terms",
             ptname,
             {
-                "term_status": "Approved" if auto_approve else "Requested",
+                "term_status": status,
                 "project_payment": pay.name
             }
         )
 
-        # --- Step 5b: an auto-approved cheque goes on to Reconciliation Pending ---
+        # --- Step 5b: a cheque born Approved goes on to Reconciliation Pending ---
         # AFTER the term row is written, so the move's own save carries the term to
         # Reconciliation Pending too (the line above would otherwise put it back to Approved).
-        if auto_approve and cheque_payments.is_cheque(pay):
+        if status == "Approved" and cheque_payments.is_cheque(pay):
             frappe.db.commit()
             _move_cheque_to_reconciliation(pay.name)
 

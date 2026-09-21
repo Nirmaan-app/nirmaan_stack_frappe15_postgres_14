@@ -16,6 +16,9 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
+import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
+import { useUserData } from "@/hooks/useUserData";
 import { useVendorTdsRates } from "../hooks/useVendorTdsRates";
 import {
   EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
@@ -36,6 +39,10 @@ interface Props {
 }
 export default function RequestPaymentDialog(p:Props){
   const { requestPaymentDialog:open, toggleRequestPaymentDialog:toggle } = useDialogStore();
+
+  /* Where the payment will land when the raiser already holds an approval (owner, 2026-09-21).
+     The server decides; this only says so before the request is made. */
+  const { role, user_id } = useUserData();
 
   /* CEO Hold guard */
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
@@ -185,6 +192,10 @@ export default function RequestPaymentDialog(p:Props){
       <p className="mt-2 text-center font-semibold">
         Requesting: <span className="text-primary">{formatToIndianRupee(amount)}</span>
       </p>
+      {(() => {
+        const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));
+        return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
+      })()}
 
       {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
       <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}

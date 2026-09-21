@@ -1,5 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { PaymentSummaryBlock, usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
+import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -725,6 +727,8 @@ const RequestPaymentDialog = ({
     isOpen ? "Procurement Orders" : null,
     isOpen ? poName : null
   );
+  // Where the payment will land when the raiser already holds an approval (owner, 2026-09-21).
+  const { role: raiserRole, user_id: raiserId } = useUserData();
   // A fresh choice for every request: the dialog stays mounted between terms.
   useEffect(() => {
     if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
@@ -760,6 +764,10 @@ const RequestPaymentDialog = ({
         </div>
         <div className="mb-4 space-y-2">
           <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={Number(term.amount)} />
+          {(() => {
+            const note = raiserLandingNote(Number(term.amount), TIER_L2_ABOVE, raiserLevelOf(raiserRole, raiserId, CEO_AUTHORIZED_USER));
+            return note ? <p className="text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
+          })()}
         </div>
         <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
         <div className="flex justify-end gap-3 mt-4">
