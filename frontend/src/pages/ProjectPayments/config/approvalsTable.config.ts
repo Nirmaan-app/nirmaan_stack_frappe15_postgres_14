@@ -149,9 +149,10 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // "Payment Done / Reconciliation Done" — no `select`. `actions` holds ONLY the expense
   // Edit pencil (owner, 2026-09-21); a Paid PO / WO payment has none (the 17 Sep removal of
   // the payment pencil stands). The screen drops the column for roles that cannot edit.
+  // `reconciled_on` was removed from the table (owner, 2026-09-21); it stays in the CSV export.
   [PP_TABS.PAYMENTS_DONE]: [
     "actions", "source", "against", "vendor", "project", "amount", "paid_on",
-    "utr_ref", "proof", "reconciled_on", "payment_by",
+    "utr_ref", "proof", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
   // only ones where it varies. No bulk action is valid across a mixed selection;
