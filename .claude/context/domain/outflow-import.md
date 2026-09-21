@@ -5318,6 +5318,20 @@ card to show. On mobile it takes its own full-width row under the 30-day grid, f
 - an inflow line, a settled line, a skipped line and a transfer that failed at the bank each counted
   **0**, as deltas.
 
+## 2026-09-21 — Total Unreconciled Inflow (the #1286 twin)
+
+The card also reports **Total Unreconciled Inflow**: bank money that has ARRIVED and still owes a
+decision — Bulk Import's unfiltered *Still open / Received*. **Same one call, no new query:**
+`unmatched_outflow_totals()` now also returns `received_amount` / `received_rows`, read off the SAME
+`derive_import_summary` (`open_received_value` / `open_received_rows`). The deriver's own invariant
+`open_paid + open_received == open` keeps the two halves disjoint. Payload keys
+`total_unreconciled_inflow_amount` / `_count`, set inside the SAME `try` as the outflow pair (a Bulk
+Import failure zeroes both, never the whole card). Screen: under a rule at the foot of the **Inflow
+(30 Days)** column — ALL TIME, never summed into the 30-day inflow figures; on mobile the violet row
+became two boxes, Inflow | Outflow. Tests (+3 in `test_payment_dashboard_stats.py`, 14 OK): equality
+with `open_received_*` over a mixed fixture; an open Credit line moves inflow by its amount and
+outflow by 0; a settled Credit line counts 0.
+
 Suite: 11 OK. `test_review` 321 OK (unchanged). Frontend `tsc --noEmit` — the same three pre-existing
 errors in `PaymentSummaryCards.tsx` before and after, none new. Vitest 3,878 OK (one unrelated
 `writeOffControl.test.ts` 5 s timeout under full-suite load; passes alone).

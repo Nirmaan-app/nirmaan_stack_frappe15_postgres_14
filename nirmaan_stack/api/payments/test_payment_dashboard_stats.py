@@ -284,3 +284,74 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
         after_amount, after_count = self._figure()
         self.assertEqual(after_count - before_count, 0)
         self.assertAlmostEqual(after_amount - before_amount, 0, places=2)
+
+    # ------------------------------------------------------------------ the inflow twin
+
+    def _inflow_figure(self):
+        stats = get_payment_dashboard_stats()
+        return (
+            stats["total_unreconciled_inflow_amount"],
+            stats["total_unreconciled_inflow_count"],
+        )
+
+    def test_inflow_equals_bulk_imports_unfiltered_still_open_received(self):
+        """Total Unreconciled Inflow is Bulk Import's unfiltered *Still open / Received* --
+        the same equality the outflow figure carries, on the other side of the direction axis."""
+        cashfree = self._batch("Cashfree")
+        icici = self._batch("ICICI Bank Statement")
+
+        self._row(icici, ROW_PENDING_MATCH, DIRECTION_CREDIT, 1100)
+        self._row(icici, ROW_MATCHED, DIRECTION_CREDIT, 2200)
+        self._row(icici, ROW_SETTLED, DIRECTION_CREDIT, 3300)
+        self._row(icici, ROW_SKIPPED, DIRECTION_CREDIT, 4400)
+        self._row(icici, ROW_ERROR, DIRECTION_CREDIT, 5500, status_raw="FAILED")
+        self._row(cashfree, ROW_MATCHED, DIRECTION_DEBIT, 6600)
+
+        amount, count = self._inflow_figure()
+        totals = get_outflow_summary()["totals"]
+
+        self.assertAlmostEqual(amount, float(totals["open_received_value"]), places=2)
+        self.assertEqual(count, totals["open_received_rows"])
+
+    def test_an_open_inflow_line_counts_as_inflow_only(self):
+        """An open Credit line moves the inflow figure by exactly its amount and leaves the
+        outflow figure alone -- the two are the halves of one open population, never overlapping."""
+        batch = self._batch("ICICI Bank Statement")
+        in_amount, in_count = self._inflow_figure()
+        out_amount, out_count = self._figure()
+        self._row(batch, ROW_PENDING_MATCH, DIRECTION_CREDIT, 2468)
+        in_amount2, in_count2 = self._inflow_figure()
+        out_amount2, out_count2 = self._figure()
+        self.assertEqual(in_count2 - in_count, 1)
+        self.assertAlmostEqual(in_amount2 - in_amount, 2468, places=2)
+        self.assertEqual(out_count2 - out_count, 0)
+        self.assertAlmostEqual(out_amount2 - out_amount, 0, places=2)
+
+    def test_a_settled_inflow_line_is_not_counted(self):
+        batch = self._batch("ICICI Bank Statement")
+        before_amount, before_count = self._inflow_figure()
+        self._row(batch, ROW_SETTLED, DIRECTION_CREDIT, 1357)
+        after_amount, after_count = self._inflow_figure()
+        self.assertEqual(after_count - before_count, 0)
+        self.assertAlmostEqual(after_amount - before_amount, 0, places=2)
+
+    # ------------------------------------------------------------------ all time, both sides
+
+    def test_both_figures_are_all_time_not_30_days(self):
+        """A line dated far outside any 30-day window still counts, on BOTH sides. The two figures
+        sit inside columns headed "(30 Days)", so a later date filter would look natural there --
+        this pins that they are all time."""
+        batch = self._batch("ICICI Bank Statement")
+        old = frappe.utils.add_days(frappe.utils.nowdate(), -400)
+        in_amount, in_count = self._inflow_figure()
+        out_amount, out_count = self._figure()
+        for direction, amount in ((DIRECTION_CREDIT, 1111), (DIRECTION_DEBIT, 2222)):
+            name = self._row(batch, ROW_PENDING_MATCH, direction, amount)
+            frappe.db.set_value(ROW_DOCTYPE, name, "added_on", old, update_modified=False)
+        frappe.db.commit()
+        in_amount2, in_count2 = self._inflow_figure()
+        out_amount2, out_count2 = self._figure()
+        self.assertEqual(in_count2 - in_count, 1)
+        self.assertAlmostEqual(in_amount2 - in_amount, 1111, places=2)
+        self.assertEqual(out_count2 - out_count, 1)
+        self.assertAlmostEqual(out_amount2 - out_amount, 2222, places=2)

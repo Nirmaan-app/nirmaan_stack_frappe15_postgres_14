@@ -101,6 +101,13 @@ def get_payment_dashboard_stats():
         # A second query written here to the same specification is exactly how they would.
         'total_unreconciled_outflow_amount': 0.0,
         'total_unreconciled_outflow_count': 0,
+
+        # --- Total Unreconciled Inflow ---
+        # The inflow twin of the figure above: bank money that has ARRIVED and still owes
+        # somebody a decision in Bulk Import (its "Still open / Received"). Same source call,
+        # same all-time scope, same rule -- never folded into the 30-day inflow figures.
+        'total_unreconciled_inflow_amount': 0.0,
+        'total_unreconciled_inflow_count': 0,
     }
 
     try:
@@ -293,9 +300,11 @@ def get_payment_dashboard_stats():
             unmatched_outflow = unmatched_outflow_totals()
             stats['total_unreconciled_outflow_amount'] = unmatched_outflow['amount']
             stats['total_unreconciled_outflow_count'] = unmatched_outflow['rows']
+            stats['total_unreconciled_inflow_amount'] = unmatched_outflow['received_amount']
+            stats['total_unreconciled_inflow_count'] = unmatched_outflow['received_rows']
         except Exception as unmatched_error:
             frappe.log_error(
-                f"Total Unreconciled Outflow unavailable: {unmatched_error}",
+                f"Total Unreconciled Outflow / Inflow unavailable: {unmatched_error}",
                 "Payment Stats API - unmatched outflow",
             )
 
