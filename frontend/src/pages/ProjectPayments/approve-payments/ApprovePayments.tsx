@@ -893,6 +893,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // Tax comes off at the transition INTO `Approved`: always the CEO's click, and the L1
           // click when it finishes the approval (15,000-50,000).
           withholdsTdsNow={withholdsOnApproval(isCEOMode ? "ceo" : "lead", selectedPayment.amount)}
+          stage={isCEOMode ? "ceo" : "lead"}
         />
       )}
     </div>

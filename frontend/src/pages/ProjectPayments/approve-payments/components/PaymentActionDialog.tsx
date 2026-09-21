@@ -20,6 +20,8 @@ import { forecastTds } from '../../tdsForecast';
 import { isChequePayment } from '../../paymentMode';
 import { formatDate } from '@/utils/FormatDate';
 import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
+import { ExpenseApprovalDetails } from './ExpenseApprovalDetails';
+import type { ApprovalStage } from '../expenseApprovalDetail';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -46,6 +48,8 @@ interface PaymentActionDialogProps {
      * that does nothing of the sort is how somebody concludes their click deducted it.
      */
     withholdsTdsNow?: boolean;
+    /** Which approval this is -- the expense details block says where the click lands it. */
+    stage?: ApprovalStage;
 }
 
 export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
@@ -58,6 +62,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     isLoading,
     allowPartial = false,
     withholdsTdsNow = false,
+    stage = "lead",
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
     const rateFor = useVendorTdsRate();
@@ -76,6 +81,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     // carries a blank one. `doctype` rides every queue row (`ApprovalQueueRow`).
     const ledger = (paymentData as { doctype?: string } | null)?.doctype;
     const showMode = !ledger || ledger === "Project Payments";
+    const isExpense = !showMode;
     // Where this PO / WO's money already stands (owner, 2026-09-21). A payment row only -- an
     // expense has no parent order, so the hook stays idle and the block renders nothing.
     const { summary, isLoading: summaryLoading } = usePaymentSummary(
@@ -83,8 +89,10 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
         showMode && isOpen ? paymentData?.document_name : null,
         paymentData?.name
     );
+    // A PAYMENT only: an expense has no parent to split against, and the CEO's expense approve
+    // writes the full amount whatever the box says -- so the box must not be offered there.
     const isPartialApprove =
-        allowPartial && !isCheque && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
+        allowPartial && !isExpense && !isCheque && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
 
     // Reset amount input when payment data changes or dialog opens/closes
     useEffect(() => {
@@ -136,6 +144,17 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const renderTitle = () => {
         if (!paymentData) return null;
 
+        if (isExpense) {
+            // No vendor and no PO / WO number on an expense -- the old sentence read
+            // "... to the vendor for #?". The details block below names everything.
+            return (
+                <>
+                    {type === DIALOG_ACTION_TYPES.REJECT ? "Reject" : "Approve"} this expense of{' '}
+                    <span className="font-semibold text-primary">{formatToRoundedIndianRupee(paymentData.amount)}</span>?
+                </>
+            );
+        }
+
         if (isPartialApprove) {
             // The amount is editable here, so the title must NOT assert it — the figure being
             // approved is whatever is in the box, and it is shown next to the box.
@@ -165,7 +184,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+            <AlertDialogContent className={`${isExpense ? "sm:max-w-lg" : "sm:max-w-md"} max-h-[90vh] overflow-y-auto`}>
                 <AlertDialogHeader>
                     <AlertDialogTitle className="text-center sm:text-left">
                         {renderTitle()}
@@ -175,7 +194,16 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                 {paymentData && showMode && (
                     <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={requestedAmount} />
                 )}
-                {paymentData && type === DIALOG_ACTION_TYPES.APPROVE && (
+                {paymentData && isExpense && ledger && (
+                    <ExpenseApprovalDetails
+                        doctype={ledger}
+                        name={paymentData.name}
+                        isOpen={isOpen}
+                        stage={stage}
+                        approving={type === DIALOG_ACTION_TYPES.APPROVE}
+                    />
+                )}
+                {paymentData && showMode && type === DIALOG_ACTION_TYPES.APPROVE && (
                     <div className="rounded-md border divide-y text-sm">
                         {/* Requested — the figure the payment was raised for. */}
                         <div className="flex items-baseline justify-between px-3 py-2">
