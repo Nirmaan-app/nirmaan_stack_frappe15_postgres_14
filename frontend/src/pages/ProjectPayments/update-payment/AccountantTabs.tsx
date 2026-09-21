@@ -67,6 +67,8 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
 import { countLabel, summarizeSelection } from "../bulkSelectionSummary"
 import { IndianRupee } from "lucide-react"
+import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
+import { canEditQueueRow, canWorkQueueRows } from "../config/queueRowActions"
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -123,6 +125,11 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { trigger: deletePayment, isMutating: deletingPayment } = useUpdatePaymentRequest();
     const { deleteDoc, loading: deletingExpense } = useFrappeDeleteDoc();
     const deleting = deletingPayment || deletingExpense;
+
+    // The expense Edit pencil beside Mark as Paid (owner, 2026-09-21) -- `queueRowActions`.
+    const canWork = canWorkQueueRows(role);
+    const [editRow, setEditRow] = useState<ApprovalQueueRow | null>(null);
+    const closeEdit = useCallback(() => setEditRow(null), []);
 
 
     // --- State for Export Dialog ---
@@ -232,6 +239,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         getAmountPaid: (docName) => getTotalAmountPaidForPO(docName, [...SETTLED_STATUSES]),
         onRecordPayment: (row) => setConfirmPaidRows([row]),
         onDelete: setDeleteRow,
+        onEdit: canWork ? setEditRow : undefined,
+        canEdit: (row) => canEditQueueRow(row, role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
         ),
@@ -240,7 +249,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         ),
     }), [
         tab, projectLabelMap, vendorLabelMap, userLabelMap, getTotalAmount, getDeliveredAmount,
-        getTotalAmountPaidForPO, notifications, handleNewPaymentSeen,
+        getTotalAmountPaidForPO, notifications, handleNewPaymentSeen, canWork, role,
     ]);
 
     const columns = useMemo(
@@ -805,6 +814,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <QueueRowEditDialog
+                row={editRow}
+                onClose={closeEdit}
+                onSaved={() => { refetch(); refreshTabCounts(); }}
+            />
 
             <AlertDialog
                 open={!!deleteRow}

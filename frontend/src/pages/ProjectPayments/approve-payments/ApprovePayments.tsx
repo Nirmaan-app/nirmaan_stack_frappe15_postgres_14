@@ -17,6 +17,8 @@ import { useToast } from "@/components/ui/use-toast";
 
 // --- Dialog Component ---
 import { PaymentActionDialog } from "./components/PaymentActionDialog";
+import { QueueRowEditDialog } from "../components/QueueRowEditDialog";
+import { canEditQueueRow, canWorkQueueRows } from "../config/queueRowActions";
 import { BulkActionBar } from "./components/BulkActionBar";
 import { SelectionBlockedNotice } from "./components/SelectionBlockedNotice";
 
@@ -118,6 +120,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     DIALOG_ACTION_TYPES.APPROVE
   );
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
+
+  // The expense Edit pencil (owner, 2026-09-21) -- `queueRowActions`. Independent of `readOnly`:
+  // an Accountant cannot approve here but may still correct a waiting expense.
+  const canWork = canWorkQueueRows(role);
+  const [editRow, setEditRow] = useState<ApprovalQueueRow | null>(null);
+  const closeEdit = useCallback(() => setEditRow(null), []);
 
   // --- CEO Hold Guard ---
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(selectedPayment?.project);
@@ -445,6 +453,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       onReject: readOnly
         ? undefined
         : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.REJECT),
+      onEdit: canWork ? setEditRow : undefined,
+      canEdit: (row) => canEditQueueRow(row, role),
     }),
     [
       activeTab,
@@ -460,6 +470,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       handleNewPaymentSeen,
       openDialog,
       readOnly,
+      canWork,
+      role,
     ]
   );
 
@@ -857,6 +869,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           }
         />
       )}
+
+      <QueueRowEditDialog
+        row={editRow}
+        onClose={closeEdit}
+        onSaved={() => { refetch(); refreshTabCounts(); }}
+      />
 
       {!readOnly && selectedPayment && (
         <PaymentActionDialog

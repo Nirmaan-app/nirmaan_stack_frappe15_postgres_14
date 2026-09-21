@@ -16,7 +16,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { CircleCheck, CircleX, IndianRupee, Paperclip, Pencil, Trash2 } from "lucide-react";
+import { CircleCheck, CircleX, IndianRupee, Paperclip, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
@@ -69,12 +69,14 @@ export interface ApprovalColumnCtx {
   onRecordPayment?: (row: ApprovalQueueRow) => void;
   onMarkReconciled?: (row: ApprovalQueueRow) => void;
   /**
-   * Admin edit on a settled payment (EditFulfilledPaymentDialog). The column
-   * matrix says the Paid tab carries no actions — but this one EXISTS on the live
-   * screen, so it is preserved rather than silently dropped. Absent => no column
-   * content, which is what the matrix describes.
+   * The expense Edit pencil (owner, 2026-09-21). It renders on a row only when `canEdit` says so
+   * — ONE rule for every tab, `queueRowActions.canEditQueueRow`. A PO / WO payment never gets it.
    */
   onEdit?: (row: ApprovalQueueRow) => void;
+  canEdit?: (row: ApprovalQueueRow) => boolean;
+  /** "Revert to Approved" on a Reconciliation Pending payment — `queueRowActions.canRevertQueueRow`. */
+  onRevert?: (row: ApprovalQueueRow) => void;
+  canRevert?: (row: ApprovalQueueRow) => boolean;
   /**
    * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise) and opens
    * a dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
@@ -167,24 +169,33 @@ const REGISTRY: Record<
     enableSorting: false,
     size:
       // 148: measured — the button itself is 136px and the cell needs 144. 180 with the
-      // trash icon beside it (removed 15 Sep, restored 18 Sep).
-      ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148)
-        : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? 160
+      // trash icon beside it (removed 15 Sep, restored 18 Sep). Each icon added on a row
+      // (the expense pencil, the payment revert) takes 32 more.
+      (ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148)
+        : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? (ctx.onRevert ? 192 : 160)
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
         : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
-        : 72,
+        : 72) + (ctx.onEdit && ctx.tab !== PP_TABS.PAYMENTS_DONE ? 32 : 0),
     cell: ({ row }) => {
       const r = row.original;
+      // The expense pencil, on any tab, for exactly the rows `canEdit` admits.
+      const edit = ctx.onEdit && ctx.canEdit?.(r) ? (
+        <Button variant="ghost" size="icon" aria-label="Edit" title="Edit"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          onClick={() => ctx.onEdit?.(r)}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+      ) : null;
+      const none = <span className="text-muted-foreground">--</span>;
 
-      if (ctx.tab === PP_TABS.PAYMENTS_DONE) {
-        if (!ctx.onEdit) return null;
-        return (
-          <Button variant="ghost" size="icon" aria-label="Edit payment"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => ctx.onEdit?.(r)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-        );
+      // Settled and mixed-status tabs: nothing to approve or settle here, so the pencil is the
+      // whole cell. ⚠️ These MUST stay above the Approve / Reject fall-through below.
+      if (
+        ctx.tab === PP_TABS.PAYMENTS_DONE
+        || ctx.tab === PP_TABS.PAYMENTS_PENDING
+        || ctx.tab === PP_TABS.ALL_PAYMENTS
+      ) {
+        return edit ?? none;
       }
 
       if (ctx.tab === PP_TABS.NEW_PAYMENTS) {
@@ -199,6 +210,7 @@ const REGISTRY: Record<
               <IndianRupee className="mr-1 h-3.5 w-3.5" />
               Mark as Paid
             </Button>
+            {edit}
             {ctx.onDelete && (
               <Button variant="ghost" size="icon" aria-label="Delete"
                 className="h-7 w-7 text-destructive hover:text-destructive/80"
@@ -213,41 +225,63 @@ const REGISTRY: Record<
       // ⚠️ MUST stay above the Approve / Reject fall-through below, or this view-only tab
       // would render approval buttons on every row.
       if (ctx.tab === PP_TABS.PAYMENT_BY_ME) {
-        if (!ctx.onDelete || r.status !== APPROVAL_STATUS.REJECTED) {
-          return <span className="text-muted-foreground">--</span>;
-        }
+        const canDelete = !!ctx.onDelete && r.status === APPROVAL_STATUS.REJECTED;
+        if (!edit && !canDelete) return none;
         return (
-          <Button variant="ghost" size="icon" aria-label="Delete"
-            className="h-7 w-7 text-destructive hover:text-destructive/80"
-            onClick={() => ctx.onDelete?.(r)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {edit}
+            {canDelete && (
+              <Button variant="ghost" size="icon" aria-label="Delete"
+                className="h-7 w-7 text-destructive hover:text-destructive/80"
+                onClick={() => ctx.onDelete?.(r)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         );
       }
 
       if (ctx.tab === PP_TABS.RECONCILIATION_PENDING) {
         return (
-          <Button size="sm" variant="outline"
-            className="h-7 border-primary text-primary"
-            onClick={() => ctx.onMarkReconciled?.(r)}>
-            Mark Reconciled
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline"
+              className="h-7 border-primary text-primary"
+              onClick={() => ctx.onMarkReconciled?.(r)}>
+              Mark Reconciled
+            </Button>
+            {ctx.onRevert && ctx.canRevert?.(r) && (
+              <Button variant="ghost" size="icon" aria-label="Revert to Approved"
+                title="Revert to Approved"
+                className="h-7 w-7 text-amber-600 hover:text-amber-700"
+                onClick={() => ctx.onRevert?.(r)}>
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            )}
+            {edit}
+          </div>
         );
       }
 
-      // Approve / Reject — the circled icons the screen has always used.
+      // Approve / Reject — the circled icons the screen has always used. A read-only viewer
+      // (no `onApprove`) gets only the pencil, not two buttons that do nothing.
       return (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" aria-label="Approve"
-            className="h-7 w-7 text-green-600 hover:text-green-700"
-            onClick={() => ctx.onApprove?.(r)}>
-            <CircleCheck className="h-5 w-5" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Reject"
-            className="h-7 w-7 text-destructive hover:text-destructive/80"
-            onClick={() => ctx.onReject?.(r)}>
-            <CircleX className="h-5 w-5" />
-          </Button>
+          {ctx.onApprove && (
+            <Button variant="ghost" size="icon" aria-label="Approve"
+              className="h-7 w-7 text-green-600 hover:text-green-700"
+              onClick={() => ctx.onApprove?.(r)}>
+              <CircleCheck className="h-5 w-5" />
+            </Button>
+          )}
+          {ctx.onReject && (
+            <Button variant="ghost" size="icon" aria-label="Reject"
+              className="h-7 w-7 text-destructive hover:text-destructive/80"
+              onClick={() => ctx.onReject?.(r)}>
+              <CircleX className="h-5 w-5" />
+            </Button>
+          )}
+          {edit}
+          {!ctx.onApprove && !ctx.onReject && !edit && none}
         </div>
       );
     },

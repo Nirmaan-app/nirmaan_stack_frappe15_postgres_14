@@ -95,6 +95,15 @@ INVOICE_APPROVAL_PROFILES = (
     ACCOUNTANT_LEAD_PROFILE,
 )
 
+# Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
+# payment back to Approved, and edit a project / non-project expense on the queue's tabs.
+#
+# The revert endpoint (`api/payments/revert_to_approved.py`) is the ENFORCEMENT boundary for the
+# revert; the expense edits go through the doctype's own permissions. Mirrored client-side by
+# `QUEUE_EDIT_PROFILES` in `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` --
+# keep the two lists in sync.
+PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
 # Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
 #

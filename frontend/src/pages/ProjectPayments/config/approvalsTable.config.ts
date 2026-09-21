@@ -146,27 +146,29 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "actions", "source", "against", "vendor", "project",
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
-  // "Payment Done / Reconciliation Done" — no `select`, no `actions`: there is
-  // nothing left to do to a settled row. The admin Edit pencil that used to sit
-  // here was removed by owner request (2026-09-17).
+  // "Payment Done / Reconciliation Done" — no `select`. `actions` holds ONLY the expense
+  // Edit pencil (owner, 2026-09-21); a Paid PO / WO payment has none (the 17 Sep removal of
+  // the payment pencil stands). The screen drops the column for roles that cannot edit.
   [PP_TABS.PAYMENTS_DONE]: [
-    "source", "against", "vendor", "project", "amount", "paid_on",
+    "actions", "source", "against", "vendor", "project", "amount", "paid_on",
     "utr_ref", "proof", "reconciled_on", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
-  // only ones where it varies. No bulk action is valid across a mixed selection.
+  // only ones where it varies. No bulk action is valid across a mixed selection;
+  // `actions` is the expense Edit pencil alone, like the Paid tab.
   [PP_TABS.PAYMENTS_PENDING]: [
-    "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "project", "amount", "status",
     "requested_on", "raised_by",
   ],
   [PP_TABS.ALL_PAYMENTS]: [
-    "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "project", "amount", "status",
     "requested_on", "raised_by",
   ],
-  // "Payment By Me" — `actions` holds ONLY a Delete, on REJECTED rows only, "--" on the rest
-  // (owner, 17 Sep 2026). Its dialog deletes an expense after a confirm; for a PO / SR payment
-  // it links to the PO / SR page, whose own payment table does the delete. No `raised_by` for most users, since every
-  // row is their own; an Admin sees EVERY row here, and AllPayments appends `raised_by`.
+  // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
+  // the expense Edit pencil (2026-09-21); "--" otherwise. Its dialog deletes an expense after a
+  // confirm; for a PO / SR payment it links to the PO / SR page, whose own payment table does the
+  // delete. No `raised_by` for most users, since every row is their own; an Admin sees EVERY row
+  // here, and AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
     "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
   ],
