@@ -10,9 +10,9 @@
  *   Project / Non-Project  edit in Requested, CEO Pending, Approved, Reconciliation Pending and
  *   expense                Paid — on a Paid row Amount, Payment Date and Payment Ref are read-only
  *
- * ⚠️ THE PAID-EXPENSE LOCK IS THIS SCREEN'S ONLY. The server deliberately does not enforce it
- * (the owner still corrects Paid expenses in Desk) — see `services/paid_record_lock.py`. A Paid
- * PAYMENT is locked on the server too, which is why payments get no pencil at all.
+ * ⚠️ EVERY PAID LOCK IS THIS SCREEN'S ONLY (owner, 2026-09-21). The server enforces none of it —
+ * the owner still corrects Paid records in Desk. A PO / WO payment gets no pencil at all, so it
+ * cannot be edited from the app in any status.
  */
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 

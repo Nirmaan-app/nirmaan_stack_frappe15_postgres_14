@@ -9,7 +9,6 @@ from frappe.model.naming import getseries
 
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.paid_record_lock import guard_paid_record
 
 # A cheque's amount is fixed on paper, so it may not move while the payment is still being
 # approved -- no L1 amount edit, no CEO part-approval. Past approval it is left alone: the TDS
@@ -26,8 +25,6 @@ class ProjectPayments(Document):
 
 	def validate(self):
 		self._validate_cheque()
-		# A Paid payment's money fields are fixed (owner, 2026-09-21) -- services/paid_record_lock.
-		guard_paid_record(self)
 
 	def _validate_cheque(self):
 		"""A cheque carries its number and date, and keeps its amount.
