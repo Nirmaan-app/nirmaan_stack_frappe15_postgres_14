@@ -166,8 +166,9 @@ BILLING_PROFILES = (
     BILLING_LEAD_PROFILE,
 )
 
-# May delete a DC / MIR (`PO Delivery Documents`) off a PO -- admin, procurement
-# (they file them) and billing (they catch the wrong/duplicate ones).
+# May delete a DC / MIR (`PO Delivery Documents`), whether filed against a PO or
+# an ITM -- admin, PMO, procurement (they file them) and billing (they catch the
+# wrong/duplicate ones).
 #
 # This is the ENFORCEMENT boundary. It has to be, because every write endpoint in
 # `api/po_delivery_documentss.py` saves with `flags.ignore_permissions = True`,
@@ -176,7 +177,9 @@ BILLING_PROFILES = (
 #
 # Mirrored client-side by `frontend/src/constants/roles.ts::PDD_DELETE_PROFILES`,
 # which only decides whether the trash icon renders. Keep the two in sync.
-PDD_DELETE_PROFILES = (ADMIN_PROFILE,) + PROCUREMENT_PROFILES + BILLING_PROFILES
+PDD_DELETE_PROFILES = (
+    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES + BILLING_PROFILES
+)
 
 
 def can_delete_delivery_document(user: str) -> bool:

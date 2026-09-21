@@ -106,13 +106,14 @@ export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 
 /**
- * May delete a DC / MIR off a PO — admin, procurement (they file them) and
- * billing (they catch the bad ones). Mirrored server-side by
+ * May delete a DC / MIR (PO or ITM) — admin, PMO, procurement (they file them)
+ * and billing (they catch the bad ones). Mirrored server-side by
  * `role_profiles.PDD_DELETE_PROFILES`, which is the ENFORCEMENT boundary;
  * this constant only decides whether the trash icon renders.
  */
 export const PDD_DELETE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
   ...BILLING_PROFILES,
 ];

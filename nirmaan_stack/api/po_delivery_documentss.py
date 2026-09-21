@@ -190,6 +190,7 @@ def _enrich_delivery_docs(docs):
 _PDD_FIELDS = [
     "name",
     "creation",
+    "owner",
     "modified_by",
     "parent_doctype",
     "parent_docname",
@@ -385,7 +386,7 @@ def delete_po_delivery_documents(document_name):
     """
     Delete a DC / MIR (`PO Delivery Documents`) together with its attachment.
 
-    Role-gated to admin + procurement + billing via
+    Role-gated to admin + PMO + procurement + billing via
     `role_profiles.can_delete_delivery_document`. That gate is the ONLY thing
     standing here: every write in this module saves with
     `flags.ignore_permissions = True`, so the doctype's permission rows never
