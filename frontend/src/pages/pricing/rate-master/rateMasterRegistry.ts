@@ -48,4 +48,18 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // the line behind would offer a category whose config no longer resolves.
     ],
   },
+  // HVAC (slice 1b, 2026-09-21): its OWN asset file (`rate_master_hvac_all_vN.json`) with its OWN
+  // version number -- each discipline is versioned, minted, merged and loaded on its own (owner ruling
+  // R-a as amended 2026-09-21; the HVAC series starts at v1). Categories are added here as they are
+  // built. `hvac_adp` is DATA-ONLY this slice (items + attributes, `pipelines: {}`), so it is NOT
+  // eligible for pricing or extraction -- the Rate Master page shows it, no pricing screen does.
+  // ⚠️ AFTER Electrical, deliberately: `RATE_MASTER_DISCIPLINES[0]` is read as the default discipline
+  // by the Rate Master page and the calculator tests, and must stay Electrical.
+  {
+    discipline: "HVAC",
+    label: "HVAC",
+    categories: [
+      { category_id: "hvac_adp", label: "ADP (Air Distribution Products)" },
+    ],
+  },
 ];

@@ -149,7 +149,9 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     expect(RATE_MASTER_CONFIG_TARGETS).toEqual(
       RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id }))),
     );
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(12);
+    // 12 Electrical + 1 HVAC (`hvac_adp`, slice 1b 2026-09-21): the targets flatten EVERY registry
+    // discipline, so the HVAC entry moves this by exactly one. Re-pinned under owner ruling R-a.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(13);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }

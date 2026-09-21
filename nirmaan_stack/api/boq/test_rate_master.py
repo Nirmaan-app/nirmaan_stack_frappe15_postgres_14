@@ -10050,3 +10050,375 @@ class TestValidationGaps(FrappeTestCase):
                         "the loader must validate before it deactivates")
         api_src = open(rate_master.__file__, "r", encoding="utf-8").read()
         self.assertNotIn("\ndef _validate_config(", api_src, "no second copy of the predicate in api/")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 1b (2026-09-21) -- THE HVAC ASSET (ADP ITEMS, v1, ITS OWN SERIES) + HVAC IN THE RATE MASTER
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# OWNER AMENDMENT (2026-09-21, "yes we should do it"): each discipline keeps its OWN version number; only
+# the file that changed is minted, merged and loaded. The HVAC series therefore starts at v1 and NO
+# Electrical asset file is created or modified by this slice (CURRENT_EALL_ASSET above is untouched).
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v1.json"
+
+
+def _mint_gate_module():
+    """scripts/mint_completeness_check.py, loaded BY PATH (it is a script, not a package). Only its PURE
+    helpers are used here (`item_kinds`, `kind_overlap`): no git, no bench context, no I/O."""
+    import importlib.util
+    path = os.path.abspath(os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "scripts",
+                                        "mint_completeness_check.py"))
+    spec = importlib.util.spec_from_file_location("mint_completeness_check", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _electrical_active_checksum():
+    """sha256 over the ACTIVE Electrical rows' CONTENT (never `name` -- freeze-and-supersede regenerates
+    it), sorted by a total key, per the CLAUDE.md rule for a stability guard."""
+    import hashlib
+    items = frappe.get_all("BoQ Rate Master Item", filters={"discipline": "Electrical", "active": 1},
+                           fields=["kind", "item_uid", "brand", "unit", "attributes", "rates"])
+    cfgs = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "Electrical", "active": 1},
+                          fields=["category_id", "config"])
+    rows = sorted(json.dumps([i["kind"], i["item_uid"], i["brand"], i["unit"], _obj(i["attributes"]),
+                              _obj(i["rates"])], sort_keys=True) for i in items)
+    rows += sorted(json.dumps([c["category_id"], _obj(c["config"])], sort_keys=True) for c in cfgs)
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest(), len(items), len(cfgs)
+
+
+class TestHvacAssetSlice1b(FrappeTestCase):
+    """SLICE 1b -- the first HVAC asset, versioned ON ITS OWN (owner amendment 2026-09-21). Owner rulings
+    R-a..R-f (quoted in the slice prompt and in the untracked mint script `_mint_hvac_v1_tmp.py`).
+    Plain-English coverage:
+
+      test_h01  the HVAC asset LOADS through the unchanged loader: 95 `hvac_adp_item` items, ONE
+                `hvac_adp` config, provenance (`ADP`, sheet row), 95 distinct uids, the sheet's units.
+      test_h02  PRICING RULE PIN (R-c, not yet built): for every one of the 87 items that carries a cost,
+                ROUNDUP(cost x (1 + markup), 0) equals the owner's sheet BoQ figure, SUPPLY and INSTALL --
+                the three R-e rows against the owner's new costs (7685/1600, 5075/1120, 8700/1280);
+                NEGATIVE: the eight R-f derived items carry markups and NO cost at all.
+      test_h03  ELECTRICAL UNTOUCHED: the load leaves every active Electrical item and config
+                byte-identical (counts AND a content checksum) -- the scoped supersede keys on the
+                payload's discipline; NEGATIVE: not one Electrical kind appears among the loaded rows.
+      test_h04  THE KIND CONVENTION: every HVAC kind is `hvac_`-prefixed and DISJOINT from every
+                Electrical kind (the mint gate's `kind_overlap`); NEGATIVE: an HVAC item wearing an
+                Electrical kind name (`cable`) is caught by that same function.
+      test_h05  THE CSV ROUND TRIP: the column space carries the FOUR rate columns and the 14 attributes,
+                no header classifies as a conflict, the export has 95 rows, and re-importing that export
+                UNCHANGED plans zero changes; NEGATIVE: a header that is both an attribute id and a rate
+                key is an error.
+      test_h06  NOT ELIGIBLE FOR PRICING: `pipelines: {}` fails `extraction.config_is_eligible` AND the
+                frontend `isEligibleConfig` (source-pinned), so no panel and no extraction run sees ADP;
+                the validator ACCEPTS the config as stored; NEGATIVE: one pipeline makes it eligible, one
+                unknown def key makes the validator refuse it.
+      test_h07  OWN SERIES (amendment): HVAC is v1 and the Electrical current asset is UNMOVED (no newer
+                Electrical file exists in the data dir), the version lives ONLY in the filename (no
+                `version` key, no "v1" text inside), the mint gate resolves each series' latest file
+                INDEPENDENTLY, no rate key shares a name with an attribute; NEGATIVE: the resolver DOES
+                surface a newer Electrical file when one is listed, so the "unmoved" pin is not vacuous."""
+
+    DERIVED_ROWS = {81, 82, 83, 84, 85, 86, 89, 91}   # R-f: sheet formulas preserved, no own cost
+    RATE_KEYS = {"cost_supply", "cost_install", "supply_markup", "install_markup"}
+    ATTR_IDS = {"family", "damper", "insulated", "neck_mm", "face_w_mm", "face_h_mm", "depth_mm", "dia_mm",
+                "slot_count", "torque_nm", "ul", "panel_ratio", "thickness_mm", "variant"}
+    # (sheet row, unit) -> (BoQ supply, BoQ install) exactly as the owner's ADP tab computes them with
+    # =ROUNDUP(F*(1+D),0) / =ROUNDUP(G*(1+E),0); rows 34 / 38 / 94 use the R-e costs. Row 80 is the
+    # canvas connection split three ways (R-d 3). Row 9's install cell on the sheet holds the stray text
+    # "would " (a save on 2026-09-21 15:52 overwrote the formula); its value here is the rule's own 800.
+    EXPECTED_BOQ = {
+        (2, "SQM"): (7830, 1920),
+        (3, "SQM"): (10005, 1920),
+        (4, "SQM"): (12325, 1920),
+        (5, "SQM"): (20880, 1920),
+        (6, "SQM"): (14138, 1920),
+        (7, "SQM"): (12470, 1920),
+        (8, "SQM"): (21750, 1920),
+        (9, "Nos"): (26100, 800),
+        (10, "Nos"): (23925, 800),
+        (11, "Nos"): (21460, 800),
+        (12, "Nos"): (15660, 800),
+        (13, "Nos"): (13050, 800),
+        (14, "Nos"): (9570, 800),
+        (15, "Nos"): (8410, 800),
+        (16, "Nos"): (20300, 800),
+        (17, "Nos"): (16791, 800),
+        (18, "Nos"): (12905, 800),
+        (19, "SQM"): (4829, 880),
+        (20, "SQM"): (9628, 2800),
+        (21, "SQM"): (10730, 2800),
+        (22, "SQM"): (5510, 880),
+        (23, "SQM"): (7250, 2800),
+        (24, "SQM"): (8918, 2800),
+        (25, "Rmt"): (1465, 352),
+        (26, "Rmt"): (1160, 352),
+        (27, "Rmt"): (2204, 352),
+        (28, "Rmt"): (1682, 352),
+        (29, "SQM"): (12992, 2864),
+        (30, "Nos"): (1972, 576),
+        (31, "Nos"): (2248, 576),
+        (32, "Nos"): (2523, 576),
+        (33, "Nos"): (2755, 576),
+        (34, "SQM"): (7685, 1600),
+        (35, "Nos"): (1532, 400),
+        (36, "Nos"): (1668, 400),
+        (37, "Nos"): (1813, 400),
+        (38, "SQM"): (5075, 1120),
+        (39, "Nos"): (1603, 400),
+        (40, "Nos"): (1450, 400),
+        (41, "Nos"): (1378, 400),
+        (42, "Nos"): (1276, 400),
+        (43, "Nos"): (1059, 400),
+        (44, "Nos"): (1044, 400),
+        (45, "Nos"): (1015, 400),
+        (46, "Nos"): (986, 400),
+        (47, "Nos"): (334, 0),
+        (48, "Nos"): (725, 0),
+        (49, "Nos"): (1015, 0),
+        (50, "Nos"): (1305, 0),
+        (51, "Nos"): (1595, 0),
+        (52, "Nos"): (1885, 0),
+        (53, "RMT"): (160, 0),
+        (54, "RMT"): (450, 0),
+        (55, "RMT"): (595, 0),
+        (56, "RMT"): (740, 0),
+        (57, "RMT"): (885, 0),
+        (58, "RMT"): (1030, 0),
+        (59, "RMT"): (131, 0),
+        (60, "RMT"): (174, 0),
+        (61, "RMT"): (218, 0),
+        (62, "RMT"): (261, 0),
+        (63, "RMT"): (305, 0),
+        (64, "RMT"): (348, 0),
+        (65, "Nos"): (551, 176),
+        (66, "Nos"): (653, 176),
+        (67, "SQM"): (6888, 1600),
+        (68, "SQM"): (5220, 800),
+        (69, "SQM"): (6235, 2880),
+        (70, "SQM"): (4785, 640),
+        (71, "SQM"): (5655, 640),
+        (72, "SQM"): (18343, 1920),
+        (73, "SQM"): (13775, 1920),
+        (74, "Nos"): (189, 64),
+        (75, "Nos"): (211, 64),
+        (76, "Nos"): (232, 64),
+        (77, "Nos"): (254, 64),
+        (78, "Nos"): (276, 64),
+        (79, "Nos"): (298, 64),
+        (80, "NOS"): (1450, 1280),
+        (80, "RMT"): (1450, 1280),
+        (80, "SQM"): (1450, 1280),
+        (87, "SQM"): (2320, 800),
+        (88, "SQM"): (1276, 0),
+        (90, "SQM"): (1784, 0),
+        (92, "Nos"): (3045, 640),
+        (93, "Nos"): (3698, 640),
+        (94, "Nos"): (8700, 1280),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.hvac = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _load_hvac(self, disc):
+        payload = copy.deepcopy(self.hvac)
+        payload["discipline"] = disc
+        return loader.load_rate_master(payload=payload)
+
+    @staticmethod
+    def _roundup0(x):
+        import math
+        return math.ceil(x - 1e-9)
+
+    # -- h01 ----------------------------------------------------------------------------------------
+    def test_h01_the_hvac_asset_loads_95_adp_items_and_one_config(self):
+        disc = self._new_disc()
+        r = self._load_hvac(disc)
+        self.assertEqual(r["items_total"], 95)
+        self.assertEqual(r["items_by_kind"], {"hvac_adp_item": 95})
+        self.assertEqual(r["configs_loaded"], 1)
+        self.assertEqual(r["category_ids"], ["hvac_adp"])
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 1)
+        rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
+                              fields=["kind", "unit", "source_sheet", "source_row", "item_uid", "import_batch"])
+        self.assertEqual({x["source_sheet"] for x in rows}, {"ADP"})
+        self.assertEqual(len({x["item_uid"] for x in rows}), 95)
+        self.assertEqual(len({x["import_batch"] for x in rows}), 1)
+        self.assertTrue(all(2 <= x["source_row"] <= 94 for x in rows))
+        # the sheet's own units, verbatim; row 80 contributes SQM / RMT / NOS (R-d 3)
+        self.assertEqual({x["unit"] for x in rows}, {"SQM", "Nos", "Rmt", "RMT", "NOS"})
+        self.assertEqual(sum(1 for x in rows if x["source_row"] == 80), 3)
+        cfg = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": disc, "active": 1}, "config"))
+        self.assertEqual(cfg["item_kinds"], ["hvac_adp_item"])
+        self.assertEqual({d["id"] for d in cfg["attribute_definitions"]}, self.ATTR_IDS)
+
+    # -- h02 ----------------------------------------------------------------------------------------
+    def test_h02_roundup_of_cost_times_markup_reproduces_every_sheet_boq_figure(self):
+        items = self.hvac["items"]
+        priced = [i for i in items if "cost_supply" in i["rates"]]
+        derived = [i for i in items if "cost_supply" not in i["rates"]]
+        self.assertEqual(len(priced), 87)
+        self.assertEqual(len(derived), 8)
+        seen = set()
+        for i in priced:
+            key = (i["source"]["row"], i["unit"])
+            self.assertIn(key, self.EXPECTED_BOQ, key)
+            rt = i["rates"]
+            self.assertEqual(set(rt), self.RATE_KEYS)
+            got = (self._roundup0(rt["cost_supply"] * (1 + rt["supply_markup"])),
+                   self._roundup0(rt["cost_install"] * (1 + rt["install_markup"])))
+            self.assertEqual(got, self.EXPECTED_BOQ[key], key)
+            seen.add(key)
+        self.assertEqual(seen, set(self.EXPECTED_BOQ))
+        # R-e, spelled out: the owner's new costs on the three rows that had none
+        by_row = {(i["source"]["row"], i["unit"]): i["rates"] for i in priced}
+        self.assertEqual(by_row[(34, "SQM")]["cost_supply"], 5300.0)
+        self.assertEqual(by_row[(34, "SQM")]["cost_install"], 1000.0)
+        self.assertEqual(by_row[(38, "SQM")]["cost_supply"], 3500.0)
+        self.assertEqual(by_row[(38, "SQM")]["cost_install"], 700.0)
+        self.assertEqual(by_row[(94, "Nos")]["cost_supply"], 6000.0)
+        self.assertEqual(by_row[(94, "Nos")]["cost_install"], 800.0)
+        self.assertEqual(self.EXPECTED_BOQ[(34, "SQM")], (7685, 1600))
+        self.assertEqual(self.EXPECTED_BOQ[(38, "SQM")], (5075, 1120))
+        self.assertEqual(self.EXPECTED_BOQ[(94, "Nos")], (8700, 1280))
+        # NEGATIVE (R-f): the derived items carry the two markups and NOTHING else
+        self.assertEqual({i["source"]["row"] for i in derived}, self.DERIVED_ROWS)
+        for i in derived:
+            self.assertEqual(set(i["rates"]), {"supply_markup", "install_markup"}, i["source"])
+
+    # -- h03 ----------------------------------------------------------------------------------------
+    def test_h03_loading_the_hvac_asset_leaves_active_electrical_byte_identical(self):
+        before, n_items, n_cfgs = _electrical_active_checksum()
+        # the live catalogue is the CURRENT Electrical asset: the same counts as the file
+        self.assertEqual(n_items, len(self.eall["items"]))
+        self.assertEqual(n_cfgs, len(self.eall["category_configs"]))
+        disc = self._new_disc()
+        self._load_hvac(disc)
+        after, n_items2, n_cfgs2 = _electrical_active_checksum()
+        self.assertEqual((n_items2, n_cfgs2), (n_items, n_cfgs))
+        self.assertEqual(after, before, "an HVAC load changed the active Electrical content")
+        # NEGATIVE: nothing Electrical-shaped rode in under the HVAC discipline
+        e_kinds = {i["kind"] for i in self.eall["items"]}
+        loaded_kinds = {x["kind"] for x in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc},
+                                                          fields=["kind"])}
+        self.assertEqual(loaded_kinds & e_kinds, set())
+
+    # -- h04 ----------------------------------------------------------------------------------------
+    def test_h04_hvac_kinds_are_prefixed_and_disjoint_and_a_collision_is_caught(self):
+        gate = _mint_gate_module()
+        h_kinds = gate.item_kinds(self.hvac)
+        e_kinds = gate.item_kinds(self.eall)
+        self.assertEqual(h_kinds, {"hvac_adp_item"})
+        self.assertTrue(all(k.startswith("hvac_") for k in h_kinds))
+        self.assertEqual(gate.kind_overlap(self.eall, self.hvac), set())
+        self.assertIn("cable", e_kinds)  # the collision the negative half plants must be a REAL Electrical kind
+        # NEGATIVE: one HVAC item wearing an Electrical kind is reported by name
+        doctored = copy.deepcopy(self.hvac)
+        doctored["items"][0]["kind"] = "cable"
+        self.assertEqual(gate.kind_overlap(self.eall, doctored), {"cable"})
+
+    # -- h05 ----------------------------------------------------------------------------------------
+    def test_h05_csv_round_trip_columns_and_a_zero_change_reimport(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        disc = self._new_disc()
+        self._load_hvac(disc)
+        attr_ids, rate_keys, attr_types, kind_cat = csv_importer.column_spaces(disc)
+        self.assertEqual(rate_keys, self.RATE_KEYS)
+        self.assertTrue(self.ATTR_IDS <= attr_ids, self.ATTR_IDS - attr_ids)
+        self.assertEqual(kind_cat, {"hvac_adp_item": "hvac_adp"})
+        text, headers, n = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(n, 95)
+        for col in self.RATE_KEYS | self.ATTR_IDS:
+            self.assertIn(col, headers, col)
+        spec, errors = csv_importer.classify_columns(headers, attr_ids, rate_keys)
+        self.assertEqual(errors, [], errors)
+        # the exported file, re-imported UNCHANGED, plans zero changes (the C4 cert, in code)
+        plan = csv_importer.build_plan(disc, text.encode("utf-8"))
+        self.assertEqual(plan["errors"], [], plan["errors"][:3])
+        self.assertEqual(plan["counts"]["unchanged"], 95)
+        self.assertEqual(plan["counts"]["items_added"], 0)
+        self.assertEqual(plan["counts"]["rates_changed"], 0)
+        # NEGATIVE: a header that is BOTH an attribute id and a rate key is a conflict, not a column
+        _spec2, errors2 = csv_importer.classify_columns(headers, attr_ids | {"cost_supply"}, rate_keys)
+        self.assertTrue(errors2, "a rate key shadowed by an attribute id must be refused")
+
+    # -- h06 ----------------------------------------------------------------------------------------
+    def test_h06_adp_is_data_only_not_eligible_and_the_validator_accepts_it(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        cfg = loader._loaded_config(self.hvac["category_configs"][0], "HVAC", self.hvac.get("goldens") or {})
+        self.assertEqual(cfg["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(cfg))
+        config_validation._validate_config(cfg)  # the loader's import gate: must not raise
+        # the FRONTEND predicate reads the same fact: non-empty pipelines are required
+        helper_path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", "pages",
+                                   "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        src = open(os.path.abspath(helper_path), "r", encoding="utf-8").read()
+        body = src[src.index("export function isEligibleConfig("):]
+        body = body[:body.index("\n}")]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        # NEGATIVE 1: one pipeline would make it eligible -- the emptiness IS the gate
+        with_pipe = copy.deepcopy(cfg)
+        with_pipe["pipelines"] = {"p": {"output": ["supply"], "steps": [{"step": "match_master_row",
+                                                                         "params": {"kind": "hvac_adp_item"}}]}}
+        self.assertTrue(extraction.config_is_eligible(with_pipe))
+        # NEGATIVE 2: the validator is live on this config -- an unknown definition key is refused
+        bad = copy.deepcopy(cfg)
+        bad["attribute_definitions"][0]["not_a_key"] = 1
+        with self.assertRaises(frappe.ValidationError):
+            config_validation._validate_config(bad)
+
+    # -- h07 ----------------------------------------------------------------------------------------
+    def test_h07_hvac_v1_stands_alone_electrical_unmoved_version_only_in_the_filename(self):
+        gate = _mint_gate_module()
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v1.json")
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        names = sorted(os.listdir(data_dir))
+        # each series resolved on its own: HVAC holds exactly its first version; Electrical's latest file
+        # IS the pinned current asset -- this slice created no Electrical file at any newer N
+        self.assertEqual([n for n in names if gate.HVAC_RE.match(n)], [CURRENT_HVAC_ASSET])
+        self.assertEqual(gate.latest_in("HVAC", names), CURRENT_HVAC_ASSET)
+        self.assertEqual(gate.latest_in("Electrical", names), CURRENT_EALL_ASSET)
+        self.assertEqual(gate.latest_asset("HVAC"), CURRENT_HVAC_ASSET)
+        self.assertEqual(gate.latest_asset("Electrical"), CURRENT_EALL_ASSET)
+        # the version lives ONLY in the filename: no key, no text
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            raw = fh.read()
+        self.assertNotIn("version", self.hvac)
+        self.assertNotIn("v1", raw)
+        self.assertEqual(self.hvac["discipline"], "HVAC")
+        attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
+        rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
+        self.assertEqual(attr_ids & rate_keys, set())
+        self.assertEqual(rate_keys, self.RATE_KEYS)
+        # NEGATIVE: the resolver is live -- a newer Electrical file, if one were listed, WOULD be surfaced
+        # (so the "unmoved" pin above can fail), and it never crosses series
+        self.assertEqual(gate.latest_in("Electrical", names + ["rate_master_electrical_all_v64.json"]),
+                         "rate_master_electrical_all_v64.json")
+        self.assertEqual(gate.latest_in("HVAC", names + ["rate_master_electrical_all_v64.json"]),
+                         CURRENT_HVAC_ASSET)
+        self.assertIsNone(gate.latest_in("HVAC", [n for n in names if not gate.HVAC_RE.match(n)]))
