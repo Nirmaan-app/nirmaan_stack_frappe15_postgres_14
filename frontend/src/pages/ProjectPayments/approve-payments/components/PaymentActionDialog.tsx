@@ -19,6 +19,7 @@ import { useCompanyBorneTds, useVendorTdsRate } from '../../hooks/useVendorTdsRa
 import { forecastTds } from '../../tdsForecast';
 import { isChequePayment } from '../../paymentMode';
 import { formatDate } from '@/utils/FormatDate';
+import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -75,6 +76,13 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     // carries a blank one. `doctype` rides every queue row (`ApprovalQueueRow`).
     const ledger = (paymentData as { doctype?: string } | null)?.doctype;
     const showMode = !ledger || ledger === "Project Payments";
+    // Where this PO / WO's money already stands (owner, 2026-09-21). A payment row only -- an
+    // expense has no parent order, so the hook stays idle and the block renders nothing.
+    const { summary, isLoading: summaryLoading } = usePaymentSummary(
+        showMode && isOpen ? paymentData?.document_type : null,
+        showMode && isOpen ? paymentData?.document_name : null,
+        paymentData?.name
+    );
     const isPartialApprove =
         allowPartial && !isCheque && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
 
@@ -157,13 +165,16 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialogContent className="sm:max-w-md">
+            <AlertDialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
                     <AlertDialogTitle className="text-center sm:text-left">
                         {renderTitle()}
                     </AlertDialogTitle>
                 </AlertDialogHeader>
 
+                {paymentData && showMode && (
+                    <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={requestedAmount} />
+                )}
                 {paymentData && type === DIALOG_ACTION_TYPES.APPROVE && (
                     <div className="rounded-md border divide-y text-sm">
                         {/* Requested — the figure the payment was raised for. */}

@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { PaymentSummaryBlock, usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
 import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -715,8 +716,15 @@ const RequestPaymentDialog = ({
   onConfirm,
   isLoading,
   isLocked,
+  poName,
 }) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
+  // The server still enforces the balance on submit; this block only shows it.
+  const { summary, isLoading: summaryLoading } = usePaymentSummary(
+    isOpen ? "Procurement Orders" : null,
+    isOpen ? poName : null
+  );
   // A fresh choice for every request: the dialog stays mounted between terms.
   useEffect(() => {
     if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
@@ -749,6 +757,9 @@ const RequestPaymentDialog = ({
               {formatToIndianRupee(Number(term.amount))}
             </div>
           </div>
+        </div>
+        <div className="mb-4 space-y-2">
+          <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={Number(term.amount)} />
         </div>
         <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
         <div className="flex justify-end gap-3 mt-4">
@@ -1277,6 +1288,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         onConfirm={handleConfirmRequestPayment}
         isLoading={CreatePPApiLoading}
         isLocked={isLocked}
+        poName={PO?.name}
       />
     </>
   );
