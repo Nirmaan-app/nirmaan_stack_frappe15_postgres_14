@@ -36,6 +36,7 @@ Plain-English coverage (positive AND negative):
 import copy
 import json
 import os
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -471,3 +472,397 @@ class TestSpecReader(FrappeTestCase):
         _t, headers, _n = csv_exporter.build_category_csv(disc, "hvac_adp")
         self.assertIn("family", headers)
         self.assertIn("item_name", headers)
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1d -- SUGGEST THE BEST MATCH, THE USER CONFIRMS (owner T-a / T-b). Plain-English coverage:
+    #   t12  EXACT FIRST: every v2 item still reads exactly and the suggester is NEVER invoked for it
+    #        (pinned by counting calls); forced on the 95 correct texts it yields the same family or none.
+    #   t13  the owner's named suggestions: "Grille" -> linear grille with the detail's damper; "Louver"
+    #        -> intake louvre; "Motorised" VCD -> motorised; "Fire Damper UL" -> fire damper, UL.
+    #   t14  NEVER INVENTED: "Frobnicator" -> none; an AMBIGUOUS word (one edit from two family words)
+    #        -> none; a recognised family whose REQUIRED size is unreadable -> none, the size never made up.
+    #   t15  the E2 self-consistency sweep: each family word of each sheet name misspelt two ways -- never
+    #        suggested as a DIFFERENT family.
+    #   t16  the flag shape: confirmed = text + suggested keys + status + who + when; the fingerprint is
+    #        stable for the same inputs and moves when the attributes move.
+    #   t17  CSV: the preview shows the suggestion (or why none) and plans not_understood; an ACCEPT
+    #        applies the suggestion as CONFIRMED with user + time, a REJECT as not_understood; NEGATIVE:
+    #        an accept with the wrong fingerprint is refused, an accept for a row with no suggestion is
+    #        refused -- nothing written either time.
+    #   t18  RE-UPLOAD: an unchanged confirmed row is not asked again and keeps its status; a changed
+    #        detail gets a fresh exact read; a changed detail that must be ASKED about is shown in full
+    #        (major) while an exact-reading change stays a smaller change.
+    #   t19  MANUAL create / edit: needs_confirmation with NOTHING written; accept -> confirmed; reject ->
+    #        flagged; NEGATIVE: wrong fingerprint refused; an exact-reading text asks nothing.
+    #   t20  ELECTRICAL / no key: decisions are inert -- an Electrical apply with an empty / absent
+    #        decisions map is the same no-op; the legacy create path ignores spec_decision.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    def _hvac_csv(self, disc, rows):
+        """A Mode A HVAC file with the 1c header and the given new rows: (name, detail, unit) tuples."""
+        hdr = ["item_uid", "kind", "brand", "unit", "item_name", "item_detail", "cost_install", "cost_supply",
+               "install_markup", "supply_markup", "source_sheet", "source_row"]
+        out = [",".join(hdr)]
+        for name, detail, unit in rows:
+            out.append(",".join(["", "hvac_adp_item", "", unit, name, detail, "100", "1000", "0.6", "0.45", "", ""]))
+        return "\r\n".join(out) + "\r\n"
+
+    # -- t12 ----------------------------------------------------------------------------------------
+    def test_t12_exact_first_the_95_never_take_the_suggestion_path(self):
+        calls = []
+        real = spec_reader.suggest_spec
+
+        def counting(*a, **k):
+            calls.append(a)
+            return real(*a, **k)
+
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        with patch.object(spec_reader, "suggest_spec", counting):
+            # the import path: an untouched round trip of all 95 rows -- exact reads only
+            text, _h, _n = csv_exporter.build_category_csv(disc, "hvac_adp")
+            plan = csv_importer.build_plan(disc, text)
+            self.assertEqual(plan["errors"], [])
+            self.assertEqual(plan["counts"]["unchanged"], 95)
+            # and a re-read of every text through the manual resolver
+            for it in self.v2["items"]:
+                n, d = spec_reader.text_of(it["attributes"])
+                attrs, spec_out, ask = rate_master._resolve_spec_write("hvac_adp", n, d, it["unit"], None, None)
+                self.assertIsNone(ask)
+                self.assertEqual(spec_out["status"], "ok")
+                self.assertEqual({k: v for k, v in attrs.items() if k not in spec_reader.TEXT_ATTRS},
+                                 {k: v for k, v in it["attributes"].items() if k not in spec_reader.TEXT_ATTRS})
+        self.assertEqual(calls, [], "the suggester must never run for a text the exact read accepts")
+        # FORCED on the 95 correct texts (never happens in the product): same family or none, never another
+        for it in self.v2["items"]:
+            n, d = spec_reader.text_of(it["attributes"])
+            s, _why = spec_reader.suggest_spec("hvac_adp", n, d, it["unit"])
+            if s is not None:
+                self.assertEqual(s["attributes"]["family"], it["attributes"]["family"], (n, d))
+
+    # -- t13 ----------------------------------------------------------------------------------------
+    def test_t13_the_owners_named_suggestions(self):
+        def sug(name, detail):
+            _d, reason = spec_reader.read_spec("hvac_adp", name, detail, "Nos")
+            self.assertIsNotNone(reason, (name, detail))          # the exact read refuses first
+            s, why = spec_reader.suggest_spec("hvac_adp", name, detail, "Nos")
+            self.assertIsNotNone(s, (name, detail, why))
+            return s
+        s = sug("Grille", "Linear grille without damper")
+        self.assertEqual(s["attributes"], {"family": "linear grille", "damper": "without"})
+        s = sug("Grille", "linear grille with damper")
+        self.assertEqual(s["attributes"], {"family": "linear grille", "damper": "with"})
+        s = sug("Grille", "Intake Louver")
+        self.assertEqual(s["attributes"], {"family": "intake louvre"})
+        s = sug("Volume control Damper (VCD)", "Motorised")
+        self.assertEqual(s["attributes"], {"family": "VCD", "variant": "motorised"})
+        self.assertIn('"Motorised" is read as "Motorized"', s["notes"])
+        s = sug("Fire Damper UL", "with sleeve")
+        self.assertEqual(s["attributes"], {"family": "fire damper", "variant": "UL", "ul": "yes"})
+        # a one-letter slip in a family word
+        s = sug("Round Difuser with damper", "250 mm dia")
+        self.assertEqual(s["attributes"], {"family": "round diffuser", "damper": "with", "dia_mm": 250.0})
+        self.assertIn("'difuser' is read as 'diffuser'", s["notes"])
+        self.assertEqual(s["fingerprint"], spec_reader.suggestion_fingerprint(
+            "Round Difuser with damper", "250 mm dia", "Nos", s["attributes"]))
+
+    # -- t14 ----------------------------------------------------------------------------------------
+    def test_t14_never_invented_unknown_ambiguous_and_unreadable_size(self):
+        s, why = spec_reader.suggest_spec("hvac_adp", "Frobnicator", "nonsense wording", "Nos")
+        self.assertIsNone(s); self.assertIn("no close match to a known wording", why)
+        # 'sround' is one edit from BOTH 'round' and 'sound' -> ambiguous, no suggestion
+        self.assertEqual(spec_reader._edit_distance("sround", "round"), 1)
+        self.assertEqual(spec_reader._edit_distance("sround", "sound"), 1)
+        s, why = spec_reader.suggest_spec("hvac_adp", "Sround diffuser with damper", "250 mm dia", "Nos")
+        self.assertIsNone(s); self.assertIn("ambiguous", why); self.assertIn("'round'", why); self.assertIn("'sound'", why)
+        # a recognised family whose REQUIRED size cannot be read: the size is never invented
+        s, why = spec_reader.suggest_spec("hvac_adp", "Round Difuser with damper", "no size given", "Nos")
+        self.assertIsNone(s); self.assertIn("no diameter found", why)
+        s, why = spec_reader.suggest_spec("hvac_adp", "Acces Door", "big", "Nos")
+        self.assertIsNone(s); self.assertIn("no size found", why)
+        # short words are never corrected (four letters): 'dict valve' is not a disc valve
+        s, why = spec_reader.suggest_spec("hvac_adp", "Dict Valve", "150 mm dia", "Nos")
+        self.assertIsNone(s)
+        # a reader-less category raises, never passes through
+        with self.assertRaises(KeyError):
+            spec_reader.suggest_spec("no_such_category", "x", "y")
+
+    # -- t15 ----------------------------------------------------------------------------------------
+    def test_t15_self_consistency_sweep_no_cross_family_suggestion(self):
+        def misspell(word):
+            m = len(word) // 2
+            return [word[:m] + word[m + 1:], word[:m] + ("q" if word[m] != "q" else "z") + word[m + 1:]]
+        seen = set()
+        variants = same = none = 0
+        cross = []
+        for it in self.v2["items"]:
+            name, detail = spec_reader.text_of(it["attributes"])
+            key = (name, detail, it["unit"])
+            if key in seen:
+                continue
+            seen.add(key)
+            fam = it["attributes"]["family"]
+            for w in [w for w in name.lower().split() if w.isalpha() and w in spec_reader.FAMILY_WORDS]:
+                for bad in misspell(w):
+                    bad_name = " ".join(bad if x.lower() == w else x for x in name.split())
+                    variants += 1
+                    d2, r2 = spec_reader.read_spec("hvac_adp", bad_name, detail, it["unit"])
+                    if r2 is None:
+                        if d2["family"] != fam:
+                            cross.append((bad_name, d2["family"], fam))
+                        else:
+                            same += 1
+                        continue
+                    s2, _why = spec_reader.suggest_spec("hvac_adp", bad_name, detail, it["unit"])
+                    if s2 is None:
+                        none += 1
+                    elif s2["attributes"]["family"] == fam:
+                        same += 1
+                    else:
+                        cross.append((bad_name, s2["attributes"]["family"], fam))
+        self.assertEqual(cross, [], cross)
+        self.assertGreater(variants, 300)
+        self.assertGreater(same, none)
+        # the only family-word pair one edit apart is round / sound -- and both ARE family words, so
+        # neither is ever rewritten into the other
+        fw = sorted(spec_reader.FAMILY_WORDS)
+        pairs = [(a, b) for i, a in enumerate(fw) for b in fw[i + 1:] if spec_reader._edit_distance(a, b) <= 1]
+        self.assertEqual(pairs, [("round", "sound")])
+
+    # -- t16 ----------------------------------------------------------------------------------------
+    def test_t16_the_confirmed_shape_and_a_stable_fingerprint(self):
+        c = spec_reader.confirmed_attributes("Grille", "Linear grille without damper",
+                                             {"family": "linear grille", "damper": "without"}, "who@x", "2026-09-21T20:00:00")
+        self.assertEqual(c, {"item_name": "Grille", "item_detail": "Linear grille without damper",
+                             "family": "linear grille", "damper": "without",
+                             "spec_status": "confirmed", "spec_confirmed_by": "who@x", "spec_confirmed_at": "2026-09-21T20:00:00"})
+        self.assertTrue(spec_reader.is_confirmed(c))
+        self.assertFalse(spec_reader.is_not_understood(c))
+        self.assertEqual(set(spec_reader.RESERVED_ATTRS), {"spec_status", "spec_note", "spec_confirmed_by", "spec_confirmed_at"})
+        a = spec_reader.suggestion_fingerprint("Grille", "x", "Nos", {"family": "linear grille", "damper": "without"})
+        b = spec_reader.suggestion_fingerprint("Grille", "x", "Nos", {"family": "linear grille", "damper": "without"})
+        c2 = spec_reader.suggestion_fingerprint("Grille", "x", "Nos", {"family": "linear grille", "damper": "with"})
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c2)
+        self.assertEqual(spec_reader.suggestion_label({"family": "linear grille", "damper": "without"}),
+                         "family = linear grille, damper = without")
+
+    # -- t17 ----------------------------------------------------------------------------------------
+    def test_t17_csv_preview_shows_apply_confirms_only_an_accept_and_verifies_it(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        text = self._hvac_csv(disc, [("Grille", "Linear grille without damper", "Nos"),
+                                     ("Fire Damper UL", "with sleeve", "SQM"),
+                                     ("Frobnicator", "nonsense wording", "Nos")])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(plan["errors"], [])
+        by_row = {c["row"]: c for c in plan["changes"]}
+        self.assertEqual(sorted(by_row), [1, 2, 3])
+        for r in (1, 2):
+            self.assertEqual(by_row[r]["spec"]["status"], "not_understood")     # the preview plans as today
+            self.assertIsNotNone(by_row[r]["spec"]["suggestion"])
+            self.assertIsNone(by_row[r]["spec"]["decision"])
+        self.assertEqual(by_row[1]["spec"]["suggestion"]["attributes"], {"family": "linear grille", "damper": "without"})
+        self.assertEqual(by_row[2]["spec"]["suggestion"]["attributes"], {"family": "fire damper", "variant": "UL", "ul": "yes"})
+        self.assertIsNone(by_row[3]["spec"]["suggestion"])
+        self.assertIn("no close match to a known wording", by_row[3]["spec"]["no_suggestion_reason"])
+        self.assertIn("suggestion", csv_importer.public_plan(plan)["changes"][0]["spec"])
+        fp1 = by_row[1]["spec"]["suggestion"]["fingerprint"]
+        fp2 = by_row[2]["spec"]["suggestion"]["fingerprint"]
+        # NEGATIVE 1: an accept with the WRONG fingerprint is refused, nothing written
+        before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"1": "accept"},
+                                    accepted_fingerprints={"1": "deadbeef"})
+        # NEGATIVE 2: an accept for a row with NO suggestion is refused, nothing written
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"3": "accept"},
+                                    accepted_fingerprints={"3": "x"})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before)
+        # accept row 1, reject row 2, say nothing about row 3
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"],
+                                      decisions={"1": "accept", "2": "reject"}, accepted_fingerprints={"1": fp1})
+        frappe.db.commit()
+        self.assertEqual(res["items_added"], 3)
+        rows = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": res["batch"]}, fields=["attributes"])
+        by_name = {}
+        for r in rows:
+            a = rate_master._parse_json(r["attributes"], {})
+            by_name[a["item_name"]] = a
+        g = by_name["Grille"]
+        self.assertEqual(g["spec_status"], "confirmed")
+        self.assertEqual(g["family"], "linear grille"); self.assertEqual(g["damper"], "without")
+        self.assertEqual(g["spec_confirmed_by"], frappe.session.user)
+        self.assertTrue(g["spec_confirmed_at"].startswith("20"))
+        self.assertNotIn("spec_note", g)
+        f = by_name["Fire Damper UL"]
+        self.assertEqual(f["spec_status"], "not_understood"); self.assertNotIn("family", f)
+        x = by_name["Frobnicator"]
+        self.assertEqual(x["spec_status"], "not_understood")
+        # the applied plan echoes the decisions and the confirmed status
+        applied = {c["row"]: c["spec"] for c in res["plan"]["changes"]}
+        self.assertEqual(applied[1]["status"], "confirmed"); self.assertEqual(applied[1]["decision"], "accept")
+        self.assertEqual(applied[2]["decision"], "reject")
+        self.assertEqual(fp2, by_row[2]["spec"]["suggestion"]["fingerprint"])
+
+    # -- t18 ----------------------------------------------------------------------------------------
+    def test_t18_reupload_keeps_a_confirmed_row_and_rereads_a_changed_one(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        text = self._hvac_csv(disc, [("Grille", "Linear grille without damper", "Nos")])
+        plan = csv_importer.build_plan(disc, text)
+        fp = plan["changes"][0]["spec"]["suggestion"]["fingerprint"]
+        csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"1": "accept"}, accepted_fingerprints={"1": fp})
+        frappe.db.commit()
+        # the same wording again, via the catalog's own export: no change, not asked again, status kept
+        export, _h, _n = csv_exporter.build_category_csv(disc, "hvac_adp")
+        plan2 = csv_importer.build_plan(disc, export)
+        self.assertEqual(plan2["errors"], []); self.assertEqual(plan2["changes"], [])
+        self.assertEqual(plan2["counts"]["unchanged"], 96)
+        row = [r for r in frappe.get_all(ITEM, filters={"discipline": disc, "active": 1}, fields=["attributes"])
+               if rate_master._parse_json(r["attributes"], {}).get("item_name") == "Grille"]
+        self.assertEqual(rate_master._parse_json(row[0]["attributes"], {})["spec_status"], "confirmed")
+        # a changed detail: a fresh exact read -> this one reads exactly ('grill' is the sheet's word)
+        lines = export.lstrip("﻿").split("\r\n")
+        hdr = lines[0].split(","); ci = hdr.index("item_detail"); ni = hdr.index("item_name")
+        body = []
+        for ln in lines[1:]:
+            if not ln:
+                continue
+            cells = ln.split(",")
+            if cells[ni] == "Grille":
+                cells[ni] = "Grill"; cells[ci] = "Linear grille with damper"
+            body.append(",".join(cells))
+        plan3 = csv_importer.build_plan(disc, "\r\n".join([lines[0]] + body))
+        self.assertEqual(len(plan3["changes"]), 1)
+        sp = plan3["changes"][0]["spec"]
+        self.assertEqual(sp["status"], "ok")                          # exact read, no suggestion needed
+        self.assertNotIn("suggestion", sp)
+        self.assertEqual(sp["read"], {"family": "linear grille", "damper": "with"})
+        self.assertFalse(plan3["changes"][0]["major"])                # NEGATIVE: an exact-reading wording change
+        #                                                             #   is still a "smaller change"
+        # a changed detail on the still-misspelt name: asked again -- and SHOWN IN FULL (major), because
+        # the question box renders only in the expanded group and "Accept all shown" acts on it (found
+        # live at the 1d cert: it was a collapsed "smaller change" with an invisible question)
+        body4 = []
+        for ln in lines[1:]:
+            if not ln:
+                continue
+            cells = ln.split(",")
+            if cells[ni] == "Grille":
+                cells[ci] = "Linear grille with damper"
+            body4.append(",".join(cells))
+        plan4 = csv_importer.build_plan(disc, "\r\n".join([lines[0]] + body4))
+        self.assertEqual(len(plan4["changes"]), 1)
+        c4 = plan4["changes"][0]
+        self.assertEqual(c4["spec"]["status"], "not_understood")
+        self.assertEqual(c4["spec"]["suggestion"]["attributes"], {"family": "linear grille", "damper": "with"})
+        self.assertTrue(c4["major"], "a row with a question to answer must be shown in full")
+        # the verdict names BOTH halves of the text, though only the detail changed (the preview quotes it)
+        self.assertEqual(c4["spec"]["text"], {"item_name": "Grille", "item_detail": "Linear grille with damper"})
+        self.assertFalse(any(f["space"] == "rate" for f in c4["fields"]))   # major came from the spec, not a rate
+        # the fresh read DROPS the confirmed trio (the new payload is the exact-read shape)
+        self.assertNotIn("spec_status", plan3["changes"][0]["_payload"]["attributes"])
+
+    # -- t19 ----------------------------------------------------------------------------------------
+    def test_t19_manual_create_and_edit_ask_first_then_confirm_or_flag(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        # 1. an exact-reading text asks nothing
+        res = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "250 mm dia"}),
+                                                  rates=json.dumps({}))
+        self.assertTrue(res["ok"]); self.assertEqual(res["spec"]["status"], "ok")
+        # 2. a misspelt text: needs confirmation, NOTHING inserted
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                  rates=json.dumps({"cost_supply": 1.0}))
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_confirmation"])
+        self.assertIn("Couldn't read 'Round Difuser with damper / 300 mm dia' exactly. Best match:", ask["question"])
+        self.assertEqual(ask["suggestion"]["attributes"], {"family": "round diffuser", "damper": "with", "dia_mm": 300.0})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before + 1)
+        # NEGATIVE: the wrong fingerprint is refused; an accept with no suggestion is refused
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                rates=json.dumps({}), spec_decision="accept", spec_fingerprint="nope")
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                attributes=json.dumps({"item_name": "Frobnicator", "item_detail": "x"}),
+                                                rates=json.dumps({}), spec_decision="accept", spec_fingerprint="x")
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before + 1)
+        # 3. accept -> confirmed with who + when
+        ok = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                 attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                 rates=json.dumps({"cost_supply": 1.0}),
+                                                 spec_decision="accept", spec_fingerprint=ask["suggestion"]["fingerprint"])
+        self.assertTrue(ok["ok"]); self.assertEqual(ok["spec"]["status"], "confirmed")
+        a = ok["item"]["attributes"]
+        self.assertEqual((a["family"], a["dia_mm"], a["spec_status"], a["spec_confirmed_by"]),
+                         ("round diffuser", 300.0, "confirmed", frappe.session.user))
+        name = ok["item"]["name"]
+        # 4. reject -> flagged
+        rej = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Grille", "item_detail": "Intake Louver"}),
+                                                  rates=json.dumps({}), spec_decision="reject")
+        self.assertTrue(rej["ok"]); self.assertEqual(rej["spec"]["status"], "not_understood")
+        self.assertTrue(spec_reader.is_not_understood(rej["item"]["attributes"]))
+        # 5. a text with NO suggestion is stored flagged without asking (owner T-b 4)
+        flat = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                   attributes=json.dumps({"item_name": "Frobnicator", "item_detail": "x"}), rates=json.dumps({}))
+        self.assertTrue(flat["ok"]); self.assertEqual(flat["spec"]["status"], "not_understood")
+        self.assertIn("no close match to a known wording", flat["spec"]["no_suggestion_reason"])
+        # 6. EDIT: a changed detail on the still-misspelt name asks first, nothing written; then accept
+        stored_before = rate_master._parse_json(frappe.db.get_value(ITEM, name, "attributes"), {})
+        ask2 = rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"item_detail": "350 mm dia"}),
+                                                   rates_patch=json.dumps({"cost_supply": 2.0}))
+        self.assertTrue(ask2["needs_confirmation"])
+        self.assertEqual(rate_master._parse_json(frappe.db.get_value(ITEM, name, "attributes"), {}), stored_before)
+        self.assertEqual(rate_master._parse_json(frappe.db.get_value(ITEM, name, "rates"), {})["cost_supply"], 1.0)
+        self.assertEqual(ask2["suggestion"]["attributes"]["dia_mm"], 350.0)
+        # NEGATIVE: the wrong fingerprint is refused on the edit path too, nothing written
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"item_detail": "350 mm dia"}),
+                                                spec_decision="accept", spec_fingerprint="nope")
+        self.assertEqual(rate_master._parse_json(frappe.db.get_value(ITEM, name, "attributes"), {}), stored_before)
+        ok2 = rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"item_detail": "350 mm dia"}),
+                                                  rates_patch=json.dumps({"cost_supply": 2.0}),
+                                                  spec_decision="accept", spec_fingerprint=ask2["suggestion"]["fingerprint"])
+        self.assertEqual(ok2["spec"]["status"], "confirmed")
+        self.assertEqual(ok2["item"]["attributes"]["dia_mm"], 350.0)
+        self.assertEqual(ok2["item"]["rates"]["cost_supply"], 2.0)
+        # 7. an edit whose REQUIRED size is unreadable has no suggestion: stored flagged, no question asked
+        #    ('dai' is a three-letter word, below the correction floor; a size is never invented)
+        flag2 = rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"item_detail": "350 mm dai"}))
+        self.assertTrue(flag2["ok"]); self.assertEqual(flag2["spec"]["status"], "not_understood")
+        self.assertIsNone(flag2["spec"]["suggestion"])
+        self.assertIn("no diameter found", flag2["spec"]["no_suggestion_reason"])
+        # 8. an edit to exact wording reads exactly and drops the flag / confirmed keys
+        ok3 = rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps(
+            {"item_name": "Round Diffuser with damper", "item_detail": "350 mm dia"}))
+        self.assertEqual(ok3["spec"]["status"], "ok")
+        self.assertNotIn("spec_status", ok3["item"]["attributes"])
+        self.assertNotIn("spec_confirmed_by", ok3["item"]["attributes"])
+
+    # -- t20 ----------------------------------------------------------------------------------------
+    def test_t20_electrical_and_no_key_categories_ignore_decisions(self):
+        e = _asset(ELECTRICAL_ASSET)
+        disc = self._new_disc()
+        self._load(e, disc)
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        plan_a = csv_importer.build_plan(disc, text)
+        plan_b = csv_importer.build_plan(disc, text, decisions={})
+        plan_c = csv_importer.build_plan(disc, text, decisions={"1": "accept"})   # no spec row -> inert
+        for p in (plan_a, plan_b, plan_c):
+            self.assertEqual(p["errors"], []); self.assertEqual(p["changes"], [])
+        self.assertEqual(plan_a["digest"], plan_b["digest"]); self.assertEqual(plan_a["digest"], plan_c["digest"])
+        self.assertEqual(csv_importer.apply_plan(disc, text)["applied"], 0)
+        self.assertEqual(csv_importer.apply_plan(disc, text, decisions={"1": "accept"}, accepted_fingerprints={"1": "x"})["applied"], 0)
+        # the legacy create path never reaches the resolver: spec_decision is inert there
+        res = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+                                                  attributes=json.dumps({"material": "copper", "insulation": "armoured", "core": 3.0, "thickness_sqmm": 2.5}),
+                                                  rates=json.dumps({"list_price_per_mtr": 10.0}), spec_decision="accept", spec_fingerprint="x")
+        self.assertTrue(res["ok"]); self.assertNotIn("spec", res)
+        self.assertEqual(res["item"]["attributes"]["material"], "COPPER")
+        self.assertEqual(spec_reader.spec_categories(disc), {})

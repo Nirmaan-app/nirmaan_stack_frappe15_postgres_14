@@ -46,8 +46,14 @@ TEXT_ATTRS = ("item_name", "item_detail")
 SPEC_STATUS_ATTR = "spec_status"
 SPEC_NOTE_ATTR = "spec_note"
 NOT_UNDERSTOOD = "not_understood"
+# SLICE 1d (owner T-a / T-b): the THIRD status. A spec the exact read could not understand, for which the
+# SUGGESTER offered a best match and A USER CONFIRMED it. "read" stays the ABSENCE of a status (1c, unchanged);
+# "not_understood" is unchanged. A confirmed item records WHO and WHEN in two more reserved keys.
+CONFIRMED = "confirmed"
+SPEC_CONFIRMED_BY_ATTR = "spec_confirmed_by"
+SPEC_CONFIRMED_AT_ATTR = "spec_confirmed_at"
 # The reserved keys the reader OWNS on an opted-in item: never a CSV column, never hand-edited.
-RESERVED_ATTRS = (SPEC_STATUS_ATTR, SPEC_NOTE_ATTR)
+RESERVED_ATTRS = (SPEC_STATUS_ATTR, SPEC_NOTE_ATTR, SPEC_CONFIRMED_BY_ATTR, SPEC_CONFIRMED_AT_ATTR)
 
 # The 25 ADP families, in the v1 config's order (this list IS the `family` def's values list).
 ADP_FAMILIES = [
@@ -336,3 +342,188 @@ def spec_categories(discipline):
             for k in csv_exporter._config_kinds(cfg):
                 out.setdefault(k, c["category_id"])
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 1d -- THE SUGGESTER: when the exact read fails, offer the best match; A USER CONFIRMS IT.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# Owner T-a: "instead of refusing can we take confirmation from user with the best mapping and then
+# proceed". Owner T-b ("1d confirmed"): exact read first, unchanged; if it fails, the best match with
+# FIXED RULES, not AI -- spelling tolerance and known synonyms -- then the exact rules re-run on the
+# corrected text; ONE suggestion or none; none when no family is close enough, when two candidates
+# are equally close, or when a required size cannot be read (a size is NEVER invented). Standing
+# (1c, S-c 2): a spec is never GUESSED -- a suggestion a user confirms is not a guess; a suggestion
+# applied WITHOUT confirmation would be, so nothing here writes anything.
+#
+# THE TOLERANCE, in plain words: a word of FIVE or more letters that is not itself a family word may be
+# corrected to a family word that is ONE letter away (one letter added, dropped or changed -- not two,
+# not a swap of two letters), and ONLY when exactly one family word is that close. Shorter words
+# ("with", "duct", "slot", "disc", "ball", "oval") are never corrected, because at four letters a
+# one-letter change reaches too many real words. The SYNONYM TABLE below is applied first, word-bounded,
+# case-insensitive; it is the list of spellings the owner named plus the sheet's own hyphen / spacing
+# variants. A whole-name synonym ("Fire Damper UL") maps to a family name AND a detail marker.
+# PROVEN (test + the sweep in the slice record): over the 95 sheet names, each family word misspelt by
+# one letter two ways, and over the correct names, no name is ever suggested as a DIFFERENT family.
+
+SUGGEST_MAX_EDITS = 1
+SUGGEST_MIN_WORD_LEN = 5
+
+# (pattern, replacement, plain words) -- applied to name AND detail, in this order.
+SYNONYMS = (
+    (r"\bgrilles?\b", "grill", '"Grille" / "Grilles" is read as "Grill"'),
+    (r"\blouvres?\b", "louver", '"Louvre" / "Louvres" is read as "Louver"'),
+    (r"\bmotorised\b", "motorized", '"Motorised" is read as "Motorized"'),
+    (r"\beyeball\b", "eye ball", '"Eyeball" is read as "Eye ball"'),
+    (r"\bz\s*piece\b", "z-piece", '"Z piece" / "Zpiece" is read as "Z-piece"'),
+    (r"\bback\s*-\s*draft\b", "back draft", '"Back-draft" is read as "Back draft"'),
+)
+# A whole NAME that stands for a family plus a detail marker: (family name, text prepended to the detail).
+NAME_SYNONYMS = {
+    "fire damper ul": ("fire damper", "UL 555"),      # T-b (2): "Fire Damper UL" -> fire damper, UL variant
+}
+# The family words the exact rules key on (name AND detail), five letters or more. A word outside this
+# set is never a correction target, so a slip can only ever move TOWARDS a family word.
+FAMILY_WORDS = frozenset({
+    "volume", "control", "damper", "actuator", "panel", "grill", "diffuser", "round", "butterfly",
+    "flexible", "valve", "collar", "sound", "attenuator", "double", "plenum", "floor", "spigot",
+    "canvas", "piece", "pressure", "access", "linear", "curved", "intake", "louver", "sleeve",
+    "motorized", "without", "draft", "rectangular",
+})
+
+
+def _edit_distance(a, b, cap=SUGGEST_MAX_EDITS):
+    """Plain Levenshtein (add / drop / change one letter; a swap counts two), capped: returns cap + 1 as
+    soon as the distance must exceed `cap`, so the sweep stays cheap."""
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        best = i
+        for j, cb in enumerate(b, 1):
+            v = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+            cur.append(v)
+            best = min(best, v)
+        if best > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+def _normalise(text):
+    """Lower-case, one space between words, punctuation kept (sizes like 'NECK: 375X375' must survive)."""
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _apply_synonyms(text, notes):
+    out = text
+    for pat, rep, words in SYNONYMS:
+        new = re.sub(pat, rep, out)
+        if new != out:
+            notes.append(words)
+            out = new
+    return out
+
+
+def _correct_words(text, notes):
+    """Correct each alphabetic word of >= SUGGEST_MIN_WORD_LEN letters to the ONE family word within
+    SUGGEST_MAX_EDITS; a word with two equally close family words is AMBIGUOUS and stops the whole
+    suggestion (returns None)."""
+    def fix(m):
+        w = m.group(0)
+        if w in FAMILY_WORDS:
+            return w
+        near = sorted(f for f in FAMILY_WORDS if _edit_distance(w, f) <= SUGGEST_MAX_EDITS)
+        if not near:
+            return w
+        if len(near) > 1:
+            raise _Ambiguous("'%s' could be %s" % (w, " or ".join("'%s'" % f for f in near)))
+        notes.append("'%s' is read as '%s'" % (w, near[0]))
+        return near[0]
+    return re.sub(r"[a-z]{%d,}" % SUGGEST_MIN_WORD_LEN, fix, text)
+
+
+class _Ambiguous(Exception):
+    pass
+
+
+def correct_spec_text(item_name, item_detail):
+    """(corrected_name, corrected_detail, notes) -- synonyms, then the whole-name table, then one-letter
+    word corrections, on BOTH texts. Raises _Ambiguous when a word has two equally close family words.
+    PURE."""
+    notes = []
+    name = _apply_synonyms(_normalise(item_name), notes)
+    detail = _apply_synonyms(_normalise(item_detail), notes)
+    if name in NAME_SYNONYMS:
+        fam, marker = NAME_SYNONYMS[name]
+        notes.append("'%s' is read as '%s' with '%s'" % (name, fam, marker))
+        name = fam
+        detail = (marker + " " + detail).strip()
+    name = _correct_words(name, notes)
+    detail = _correct_words(detail, notes)
+    return name, detail, notes
+
+
+def suggestion_fingerprint(item_name, item_detail, unit, derived):
+    """What the APPLY re-verifies: the text the suggestion was made for and the attributes it would store.
+    A suggestion re-derived at apply time that does not reproduce this fingerprint is refused."""
+    import hashlib
+    import json
+
+    blob = json.dumps([item_name, item_detail, unit, derived], sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+
+
+def suggest_spec(category_id, item_name, item_detail, unit=None):
+    """ONE suggestion or None, for a spec the EXACT read refused.
+
+    Returns (suggestion, reason). `suggestion` is
+      {"attributes": <derived>, "corrected_name", "corrected_detail", "notes": [plain words], "fingerprint"}
+    and `reason` is None; or (None, why) -- no family close enough, an ambiguous word, or a family
+    recognised whose required size cannot be read (the exact rules' own refusal, verbatim).
+    NEVER called by the exact path: the caller runs `read_spec` first and only comes here on a refusal.
+    PURE, deterministic, no AI, no network."""
+    reader = READERS.get(category_id)
+    if reader is None:
+        raise KeyError("no spec reader is registered for category '%s'" % category_id)
+    try:
+        name, detail, notes = correct_spec_text(item_name, item_detail)
+    except _Ambiguous as exc:
+        return None, "ambiguous: %s -- no suggestion." % exc
+    if (name, detail) == (_normalise(item_name), _normalise(item_detail)):
+        # nothing to correct: no spelling slip and no synonym applies, so there is no better reading to
+        # offer -- the exact read's own refusal (unknown family, or an unreadable size) stands as is.
+        return None, "no close match to a known wording in '%s' -- no suggestion." % ((item_name or "").strip(),)
+    try:
+        derived = reader(name, detail, unit)
+    except SpecNotUnderstood as exc:
+        # the corrected text names a family but still refuses -- typically a REQUIRED size that is not
+        # there. A size is never invented: no suggestion, the exact rule's own words as the reason.
+        return None, "after reading %s: %s -- no suggestion." % ("; ".join(notes), exc)
+    return {
+        "attributes": derived,
+        "corrected_name": name,
+        "corrected_detail": detail,
+        "notes": notes,
+        "fingerprint": suggestion_fingerprint(item_name, item_detail, unit, derived),
+    }, None
+
+
+def confirmed_attributes(item_name, item_detail, derived, user, when):
+    """THE STORED SHAPE of a CONFIRMED item: the text keys, the suggested derived keys, and the status
+    trio -- the ONE builder every write path (CSV apply, manual add, manual edit) goes through."""
+    out = {"item_name": item_name, "item_detail": item_detail}
+    out.update(derived)
+    out[SPEC_STATUS_ATTR] = CONFIRMED
+    out[SPEC_CONFIRMED_BY_ATTR] = user
+    out[SPEC_CONFIRMED_AT_ATTR] = when
+    return out
+
+
+def is_confirmed(attributes):
+    return (attributes or {}).get(SPEC_STATUS_ATTR) == CONFIRMED
+
+
+def suggestion_label(derived):
+    """The best match in words, for the question: 'family = linear grille, damper = without'."""
+    return ", ".join("%s = %s" % (k, v) for k, v in (derived or {}).items()) or "(family only)"

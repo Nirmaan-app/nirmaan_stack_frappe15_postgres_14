@@ -34,9 +34,18 @@ export interface UploadField {
  * absent on every other row. The dialog renders it, never recomputes it.
  */
 export interface UploadSpec {
-  status: "ok" | "not_understood";
+  status: "ok" | "not_understood" | "confirmed";
   reason: string | null;
   read: Record<string, string | number>;
+  /** SLICE 1d: the text the verdict is about -- BOTH halves, even when only one changed. */
+  text?: { item_name: string; item_detail: string };
+  /**
+   * SLICE 1d: when the exact read refused -- the server's best match (deterministic rules), or null
+   * with `no_suggestion_reason`. `decision` echoes what the client sent on an apply; absent on a preview.
+   */
+  suggestion?: { attributes: Record<string, string | number>; label: string; notes: string[]; fingerprint: string } | null;
+  no_suggestion_reason?: string | null;
+  decision?: "accept" | "reject" | null;
 }
 
 export interface UploadChange {
@@ -196,7 +205,8 @@ export const UPLOAD_COPY = {
   /** ⚠️ THE SAFETY PROPERTY, said out loud. It is the reason a partial file is safe to upload. */
   absentHint: "Items that are not in this file are left untouched.",
   expandedHint:
-    "Shown in full: every new item, and every rate change of 10% or more in either direction.",
+    "Shown in full: every new item, every rate change of 10% or more in either direction, and every row " +
+    "the spec reader must ask about or flags.",
   collapsedLabel: (n: number) => `${n} smaller change${n === 1 ? "" : "s"}`,
   noOp: "This file matches the catalog exactly. There is nothing to apply.",
   errorsTitle: (n: number) => `${n} problem${n === 1 ? "" : "s"} — nothing will be applied`,

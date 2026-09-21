@@ -343,16 +343,27 @@ def _cell(value):
     return csv_exporter._cell(value)
 
 
-def build_plan(discipline, raw):
+def _now_iso():
+    return frappe.utils.now_datetime().replace(microsecond=0).isoformat()
+
+
+def build_plan(discipline, raw, decisions=None):
     """READ-ONLY. The whole decision, computed from the file and the live catalog.
 
     Returns {discipline, mode, encoding, row_count, columns, counts, errors, changes, digest}.
     Never writes, never commits, never throws on file content -- a file we cannot read comes back
     as `errors`, because a preview that raises tells the user less than a preview that explains.
+
+    SLICE 1d: `decisions` = {"<data row number>": "accept" | "reject"} -- the user's answers to the
+    per-row question the preview asked for a spec the exact read refused. ABSENT (the preview) means
+    every such row is planned as not_understood, exactly as 1c; "accept" plans the SUGGESTED attributes
+    with spec_status "confirmed" (who + when); "reject" is not_understood. An accept for a row that has
+    no suggestion is a row ERROR, never a silent no-op.
     """
     discipline = (discipline or "").strip()
     if not discipline:
         frappe.throw("discipline is required to read a rate-master CSV.")
+    decisions = {str(k): v for k, v in (decisions or {}).items()}
 
     text, encoding = decode_csv_bytes(raw)
     headers, data_rows = parse_csv_text(text)
@@ -488,10 +499,43 @@ def build_plan(discipline, raw):
                 spec_info = {
                     "status": spec_reader.NOT_UNDERSTOOD if reason else "ok",
                     "reason": reason,
+                    # SLICE 1d: the text the verdict is about, so the preview can quote BOTH halves on an
+                    # existing item too (only the CHANGED half is in `fields`; found live at the cert).
+                    "text": {"item_name": new_name, "item_detail": new_detail},
                     "read": {k: v for k, v in attributes.items()
                              if k not in spec_reader.TEXT_ATTRS and k not in spec_reader.RESERVED_ATTRS},
                 }
-            # else: text and unit unchanged -> the stored attributes stand, untouched
+                if reason:
+                    # ══════════════════════════════════════════════════════════════════════════
+                    # SLICE 1d -- the exact read refused: offer the BEST MATCH, store it only on an
+                    # explicit ACCEPT (owner T-a / T-b). The preview (no decisions) shows the suggestion
+                    # or why there is none and plans the row as not_understood, exactly as 1c; the apply
+                    # re-derives the suggestion and checks its fingerprint against the one the preview
+                    # showed (apply_plan). "reject" / undecided -> not_understood.
+                    # ══════════════════════════════════════════════════════════════════════════
+                    sugg, why = spec_reader.suggest_spec(spec_cat, new_name, new_detail, new_unit)
+                    decision = decisions.get(str(rownum))
+                    spec_info["suggestion"] = ({
+                        "attributes": sugg["attributes"],
+                        "label": spec_reader.suggestion_label(sugg["attributes"]),
+                        "notes": sugg["notes"],
+                        "fingerprint": sugg["fingerprint"],
+                    } if sugg else None)
+                    spec_info["no_suggestion_reason"] = None if sugg else why
+                    spec_info["decision"] = decision
+                    if decision == "accept":
+                        if not sugg:
+                            row_errors.append(
+                                "Row %d was accepted, but it has no suggestion to accept -- %s" % (rownum, why))
+                        else:
+                            attributes = spec_reader.confirmed_attributes(
+                                new_name, new_detail, sugg["attributes"], frappe.session.user, _now_iso())
+                            spec_info["status"] = spec_reader.CONFIRMED
+                            spec_info["read"] = dict(sugg["attributes"])
+                    elif decision not in (None, "reject"):
+                        row_errors.append("Row %d: decision '%s' is neither accept nor reject." % (rownum, decision))
+            # else: text and unit unchanged -> the stored attributes stand, untouched (a CONFIRMED row is
+            # therefore never asked again while its wording stands -- E5)
         else:
             for name, idx in spec["attributes"].items():
                 raw_text = cell(cells, idx)
@@ -587,6 +631,14 @@ def build_plan(discipline, raw):
             # SLICE 1c: what the reader understood from the new / changed text, or why it could not.
             # PUBLIC (no underscore) -- this is the preview's U2 line.
             change["spec"] = spec_info
+            # SLICE 1d: a row the reader must ASK about (a suggestion awaiting an answer) or FLAGS is
+            # shown in full, whatever its rate movement -- the question box and the red reason render
+            # only inside the expanded group, and "Accept all shown" acts on every suggestion in the
+            # plan, so a collapsed question would be accepted unseen. Found live: a changed wording on
+            # an EXISTING item is otherwise a "smaller change". An exact-reading wording change stays
+            # where the rate rule puts it. The expansion rule lives HERE (owner-ruled), never client-side.
+            if spec_info.get("status") != "ok":
+                change["major"] = True
         plan["changes"].append(change)
         if stored is None:
             plan["counts"]["items_added"] += 1
@@ -741,7 +793,7 @@ def _digest(discipline, plan):
 # ── apply ───────────────────────────────────────────────────────────────────────────────
 
 
-def apply_plan(discipline, raw, expected_digest=None):
+def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_fingerprints=None):
     """ALL-OR-NOTHING. Writes a snapshot, then supersedes and inserts. Does NOT commit.
 
     THE TRANSACTIONAL GUARANTEE IS POSTGRES', not a hand-rolled one: every statement below runs in
@@ -768,6 +820,7 @@ def apply_plan(discipline, raw, expected_digest=None):
     # calls it, and the preview must keep working while frozen (owner ruling R3) -- previewing a
     # file is how you find out what the deploy will do.
     freeze.guard_not_frozen()
+    # The DECISION-FREE plan is what the preview showed: its digest is the one the client holds.
     plan = build_plan(discipline, raw)
     if plan["errors"]:
         first = plan["errors"][0]
@@ -784,6 +837,33 @@ def apply_plan(discipline, raw, expected_digest=None):
             "what would happen. Preview the file again and re-confirm.",
             title="Preview out of date",
         )
+    if decisions:
+        # SLICE 1d: re-plan WITH the user's answers, then verify every ACCEPT against the fingerprint the
+        # preview showed -- the suggestion is RE-DERIVED here, never trusted from the client, and an accept
+        # whose suggestion differs (or that names a row with no suggestion) is refused before any write.
+        plan = build_plan(discipline, raw, decisions)
+        if plan["errors"]:
+            first = plan["errors"][0]
+            frappe.throw(
+                "This file has %d problem(s) and NOTHING has been applied. First: %s%s"
+                % (len(plan["errors"]),
+                   ("Row %d -- " % first["row"]) if first.get("row") else "",
+                   first["message"]),
+                title="Upload refused",
+            )
+        fps = {str(k): v for k, v in (accepted_fingerprints or {}).items()}
+        for c in plan["changes"]:
+            sp = c.get("spec") or {}
+            if sp.get("decision") != "accept":
+                continue
+            shown = fps.get(str(c["row"]))
+            actual = (sp.get("suggestion") or {}).get("fingerprint")
+            if not shown or not actual or shown != actual:
+                frappe.throw(
+                    "Row %d: the suggestion is not the one that was previewed (or no fingerprint was sent), "
+                    "so it cannot be applied. Preview the file again and re-confirm." % c["row"],
+                    title="Suggestion out of date",
+                )
 
     if not plan["changes"]:
         return {"applied": 0, "items_added": 0, "items_replaced": 0, "snapshot": None,

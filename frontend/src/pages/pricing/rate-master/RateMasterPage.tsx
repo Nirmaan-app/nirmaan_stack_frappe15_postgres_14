@@ -32,6 +32,10 @@ import {
 import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
 import type { UploadPlan, UploadResult } from "./rateMasterUpload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
+import {
+  applyCsvPayload, createItemPayload, saveItemPayload,
+  type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
+} from "./rateMasterSpec";
 
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
 const CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_category_config";
@@ -150,24 +154,23 @@ export function RateMasterPage() {
     },
     [callSaveParam, configName, mutateConfig]
   );
+  // SLICE 1d (owner ruling, the ONE permitted edit to these two wrappers): they RETURN the endpoint's
+  // reply -- so a "needs confirmation" answer with the server's best match can reach the form -- and
+  // FORWARD an optional spec_decision / spec_fingerprint. With those absent the request payload is
+  // byte-identical to before (`saveItemPayload` / `createItemPayload` are pinned by test for that).
   const onSaveItem = useCallback(
-    async (name: string, patch: { rates_patch?: Record<string, number | null>; attributes_patch?: Record<string, string | number> }) => {
-      await callSaveItem({
-        name,
-        rates_patch: patch.rates_patch ? JSON.stringify(patch.rates_patch) : undefined,
-        attributes_patch: patch.attributes_patch ? JSON.stringify(patch.attributes_patch) : undefined,
-      });
+    async (name: string, patch: SaveItemPatch): Promise<SpecConfirmationReply | undefined> => {
+      const res = await callSaveItem(saveItemPayload(name, patch));
       await mutateItems();
+      return (res as { message?: SpecConfirmationReply } | undefined)?.message;
     },
     [callSaveItem, mutateItems]
   );
   const onCreateItem = useCallback(
-    async (payload: { kind: string; brand?: string; unit?: string; attributes: Record<string, string | number>; rates: Record<string, number | null> }) => {
-      await callCreateItem({
-        discipline: disciplineId, kind: payload.kind, brand: payload.brand, unit: payload.unit,
-        attributes: JSON.stringify(payload.attributes), rates: JSON.stringify(payload.rates),
-      });
+    async (payload: CreateItemPayload): Promise<SpecConfirmationReply | undefined> => {
+      const res = await callCreateItem(createItemPayload(disciplineId, payload));
       await mutateItems();
+      return (res as { message?: SpecConfirmationReply } | undefined)?.message;
     },
     [callCreateItem, disciplineId, mutateItems]
   );
@@ -213,14 +216,19 @@ export function RateMasterPage() {
     [callPreviewCsv, disciplineId]
   );
   const onApplyCsv = useCallback(
-    async (contentBase64: string, expectedDigest: string) => {
-      const res = await callApplyCsv({
-        discipline: disciplineId,
-        content_base64: contentBase64,
-        // The preview's fingerprint. The server re-derives the plan and REFUSES when the catalog
-        // moved underneath -- what the user confirmed is then no longer what would happen.
-        expected_digest: expectedDigest,
-      });
+    async (
+      contentBase64: string,
+      expectedDigest: string,
+      // SLICE 1d (owner ruling, the ONE permitted edit here): the user's per-row Accept / Reject answers
+      // and the fingerprints of the accepted suggestions, BOTH OPTIONAL -- absent, the payload is
+      // byte-identical to before (`applyCsvPayload` is pinned by test for that). The server re-derives
+      // every suggestion and refuses an accept whose fingerprint is not the one the preview showed.
+      decisions?: Record<number, SpecDecision>,
+      acceptedFingerprints?: Record<number, string>,
+    ) => {
+      // `expected_digest` is the preview's fingerprint. The server re-derives the plan and REFUSES when
+      // the catalog moved underneath -- what the user confirmed is then no longer what would happen.
+      const res = await callApplyCsv(applyCsvPayload(disciplineId, contentBase64, expectedDigest, decisions, acceptedFingerprints));
       return (res as { message: UploadResult }).message;
     },
     [callApplyCsv, disciplineId]

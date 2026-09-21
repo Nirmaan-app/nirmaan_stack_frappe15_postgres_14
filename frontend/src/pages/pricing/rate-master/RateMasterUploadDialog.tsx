@@ -23,7 +23,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import { cn } from "@/lib/utils";
 import { downloadErrorMessage } from "./rateMasterDownload";
-import { specLine } from "./rateMasterSpec";
+import {
+  SPEC_CONFIRM_COPY, acceptedFingerprints, rowsWithSuggestion, specLine, specQuestion, type SpecDecision,
+} from "./rateMasterSpec";
 import {
   UPLOAD_COPY,
   canApply,
@@ -48,13 +50,35 @@ interface Props {
   // user to a wall. Previewing a frozen catalog's file remains possible via the endpoint.
   frozen?: boolean;
   onPreview: (contentBase64: string) => Promise<UploadPlan>;
-  /** Applies the previewed file. The digest is what refuses a plan the catalog has outgrown. */
-  onApply: (contentBase64: string, expectedDigest: string) => Promise<UploadResult>;
+  /**
+   * Applies the previewed file. The digest is what refuses a plan the catalog has outgrown.
+   * SLICE 1d: the user's per-row Accept / Reject answers and the accepted suggestions' fingerprints ride
+   * along (both optional; the server re-derives each suggestion and refuses a stale accept).
+   */
+  onApply: (
+    contentBase64: string,
+    expectedDigest: string,
+    decisions?: Record<number, SpecDecision>,
+    acceptedFingerprints?: Record<number, string>,
+  ) => Promise<UploadResult>;
   /** Fired after a successful apply so the caller can refetch the item list. */
   onApplied?: () => void;
 }
 
-function ChangeRow({ change }: { change: UploadChange }) {
+/** The row's own text, from the fields the plan carries, for the question. */
+function rowText(change: UploadChange, column: string): string {
+  const f = change.fields.find((x) => x.column === column);
+  return f ? f.new : "";
+}
+
+function ChangeRow({
+  change, decision, onDecide,
+}: {
+  change: UploadChange;
+  decision?: SpecDecision;
+  onDecide?: (row: number, d: SpecDecision) => void;
+}) {
+  const suggestion = change.spec?.suggestion ?? null;
   return (
     <div className="rounded border px-2 py-1.5">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -99,6 +123,40 @@ function ChangeRow({ change }: { change: UploadChange }) {
             {specLine(change.spec)}
           </div>
         ) : null}
+        {change.spec && change.spec.status === "not_understood" && !suggestion && change.spec.no_suggestion_reason ? (
+          // SLICE 1d: the exact read refused AND the suggester found no reasonable match -- say why.
+          <div className="mt-0.5 text-[11px] text-muted-foreground" data-testid="upload-no-suggestion">
+            {SPEC_CONFIRM_COPY.noMatch} {change.spec.no_suggestion_reason}
+          </div>
+        ) : null}
+        {suggestion ? (
+          // SLICE 1d (owner T-b 3): the QUESTION, per row, with Accept / Reject. Nothing is stored until the
+          // apply, and the apply stores the suggestion ONLY for an accepted row.
+          <div
+            className="mt-1 rounded border border-amber-500/40 bg-amber-50 p-1.5 text-[11px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+            data-testid="upload-suggestion"
+          >
+            <div>{specQuestion(change.spec?.text?.item_name ?? rowText(change, "item_name"), change.spec?.text?.item_detail ?? rowText(change, "item_detail"), suggestion)}</div>
+            {suggestion.notes.length ? (
+              <div className="mt-0.5 text-[10px] opacity-80">{Array.from(new Set(suggestion.notes)).join("; ")}</div>
+            ) : null}
+            <div className="mt-1 flex items-center gap-1.5">
+              <Button
+                size="sm" variant={decision === "accept" ? "default" : "outline"} className="h-6 px-2 text-[11px]"
+                onClick={() => onDecide?.(change.row, "accept")} aria-label={`Accept suggestion row ${change.row}`}
+              >
+                {SPEC_CONFIRM_COPY.accept}
+              </Button>
+              <Button
+                size="sm" variant={decision === "reject" ? "destructive" : "outline"} className="h-6 px-2 text-[11px]"
+                onClick={() => onDecide?.(change.row, "reject")} aria-label={`Reject suggestion row ${change.row}`}
+              >
+                {SPEC_CONFIRM_COPY.reject}
+              </Button>
+              {decision ? <span className="text-[10px]">{SPEC_CONFIRM_COPY.decided(decision)}</span> : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -113,6 +171,8 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
   const [result, setResult] = useState<UploadResult | null>(null);
   const [fileName, setFileName] = useState("");
   const [showCollapsed, setShowCollapsed] = useState(false);
+  // SLICE 1d: the user's per-row answers to the suggestion question, by plan row. Cleared with the plan.
+  const [decisions, setDecisions] = useState<Record<number, SpecDecision>>({});
   // The file's bytes are held so APPLY sends exactly what was PREVIEWED -- re-reading the file on
   // confirm would let a file changed on disk in between be applied against the wrong preview.
   const b64Ref = useRef<string>("");
@@ -122,9 +182,13 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
     setResult(null);
     setErr(null);
     setShowCollapsed(false);
+    setDecisions({});
     b64Ref.current = "";
     setFileName("");
     if (inputRef.current) inputRef.current.value = "";
+  }, []);
+  const decide = useCallback((row: number, d: SpecDecision) => {
+    setDecisions((p) => ({ ...p, [row]: d }));
   }, []);
 
   const onChoose = useCallback(
@@ -135,6 +199,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
       setResult(null);
       setPlan(null);
       setShowCollapsed(false);
+      setDecisions({});
       setFileName(file.name);
       try {
         const b64 = await fileToBase64(file);
@@ -158,7 +223,11 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
     setBusy("apply");
     setErr(null);
     try {
-      setResult(await onApply(b64Ref.current, plan.digest));
+      // SLICE 1d: only rows with a decision travel; an undecided row stays "won't price" as before.
+      const fps = acceptedFingerprints(plan, decisions);
+      setResult(await onApply(b64Ref.current, plan.digest,
+        Object.keys(decisions).length ? decisions : undefined,
+        Object.keys(fps).length ? fps : undefined));
       setPlan(null);
       onApplied?.();
     } catch (e) {
@@ -166,9 +235,17 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
     } finally {
       setBusy(null);
     }
-  }, [onApply, onApplied, plan]);
+  }, [onApply, onApplied, plan, decisions]);
 
   const { expanded, collapsed } = splitChanges(plan?.changes ?? []);
+  const suggestable = rowsWithSuggestion(plan);
+  const acceptAllShown = useCallback(() => {
+    setDecisions((p) => {
+      const next = { ...p };
+      for (const row of suggestable) next[row] = "accept";
+      return next;
+    });
+  }, [suggestable]);
 
   return (
     <div className="space-y-1">
@@ -266,13 +343,23 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                 <p className="text-xs text-muted-foreground">{UPLOAD_COPY.noOp}</p>
               )}
 
+              {suggestable.length > 0 && (
+                // SLICE 1d (owner T-b 3): "Accept all shown" accepts every row that HAS a suggestion.
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-7" onClick={acceptAllShown} data-testid="accept-all-shown">
+                    {SPEC_CONFIRM_COPY.acceptAll} ({suggestable.length})
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">{SPEC_CONFIRM_COPY.acceptAllHint}</span>
+                </div>
+              )}
+
               {expanded.length > 0 && (
                 <div className="space-y-1">
                   <div className="text-xs font-medium">Shown in full ({expanded.length})</div>
                   <p className="text-[11px] text-muted-foreground">{UPLOAD_COPY.expandedHint}</p>
                   <div className="space-y-1">
                     {expanded.map((c) => (
-                      <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} />
+                      <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} decision={decisions[c.row]} onDecide={decide} />
                     ))}
                   </div>
                 </div>
@@ -295,7 +382,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                   {showCollapsed ? (
                     <div className="space-y-1">
                       {collapsed.map((c) => (
-                        <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} />
+                        <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} decision={decisions[c.row]} onDecide={decide} />
                       ))}
                     </div>
                   ) : (

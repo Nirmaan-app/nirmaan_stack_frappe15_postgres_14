@@ -17,8 +17,22 @@ import {
   specLine,
   specNotUnderstoodReason,
   splitSpecColumns,
+  SPEC_CONFIRMED,
+  SPEC_CONFIRMED_AT_ATTR,
+  SPEC_CONFIRMED_BY_ATTR,
+  SPEC_CONFIRM_COPY,
+  acceptedFingerprints,
+  applyCsvPayload,
+  confirmedTag,
+  createItemPayload,
+  rowsWithSuggestion,
+  saveItemPayload,
+  specConfirmedInfo,
+  specQuestion,
+  specVerdict,
 } from "./rateMasterSpec";
 import type { AttributeDefinition } from "./rateMasterTypes";
+import { UPLOAD_COPY, type UploadChange, type UploadPlan } from "./rateMasterUpload";
 
 const defs: AttributeDefinition[] = [
   { id: "item_name", label: "Item", type: "choice", selector: false, panel: false },
@@ -96,5 +110,97 @@ describe("SPEC_COPY -- the owner's words", () => {
   it("labels derived attributes 'read from spec' and flagged items 'won't price: spec not understood'", () => {
     expect(SPEC_COPY.readFromSpec).toBe("read from spec");
     expect(SPEC_COPY.wontPrice).toBe("won't price: spec not understood");
+  });
+});
+
+
+const change = (row: number, spec?: UploadChange["spec"]): UploadChange =>
+  ({ row, kind: "add", item_uid: null, name: null, label: `r${row}`, major: true, fields: [], spec }) as UploadChange;
+const sugg = (fp: string) => ({ attributes: { family: "linear grille", damper: "without" }, label: "family = linear grille, damper = without", notes: [], fingerprint: fp });
+
+describe("specVerdict / specConfirmedInfo / confirmedTag -- the third status", () => {
+  it("reads confirmed with who and when; not_understood and plain read stay distinct", () => {
+    const confirmed = { attributes: { item_name: "Grille", [SPEC_STATUS_ATTR]: SPEC_CONFIRMED, [SPEC_CONFIRMED_BY_ATTR]: "admins@nirmaan.app", [SPEC_CONFIRMED_AT_ATTR]: "2026-09-21T20:15:00" } };
+    expect(specVerdict(confirmed)).toBe("confirmed");
+    expect(specConfirmedInfo(confirmed)).toEqual({ by: "admins@nirmaan.app", at: "2026-09-21T20:15:00" });
+    expect(specVerdict({ attributes: { [SPEC_STATUS_ATTR]: SPEC_NOT_UNDERSTOOD } })).toBe("not_understood");
+    expect(specVerdict({ attributes: { family: "VCD" } })).toBe("read");
+    expect(specConfirmedInfo({ attributes: { [SPEC_STATUS_ATTR]: SPEC_NOT_UNDERSTOOD } })).toBeNull();
+    expect(specConfirmedInfo(null)).toBeNull();
+  });
+  it("NEGATIVE: a confirmed item is never reported as not understood, and vice versa", () => {
+    const confirmed = { attributes: { [SPEC_STATUS_ATTR]: SPEC_CONFIRMED, [SPEC_CONFIRMED_BY_ATTR]: "x", [SPEC_CONFIRMED_AT_ATTR]: "2026-09-21" } };
+    expect(specNotUnderstoodReason(confirmed)).toBeNull();
+    expect(specVerdict({ attributes: { [SPEC_STATUS_ATTR]: "something-else" } })).toBe("read");
+  });
+  it("words the amber tag as 'confirmed by <user>, <dd-MMM-yyyy>' and keeps a blank date out", () => {
+    expect(confirmedTag("admins@nirmaan.app", "2026-09-21T20:15:00")).toBe("confirmed by admins@nirmaan.app, 21-Sep-2026");
+    expect(confirmedTag("admins@nirmaan.app", "")).toBe("confirmed by admins@nirmaan.app");
+    expect(SPEC_CONFIRM_COPY.confirmedPrefix).toBe("confirmed by");
+  });
+});
+
+describe("specQuestion -- the owner's exact wording", () => {
+  it("asks 'Couldn't read ... exactly. Best match: .... Accept?'", () => {
+    expect(specQuestion("Grille", "Linear grille without damper", sugg("f")))
+      .toBe("Couldn't read 'Grille / Linear grille without damper' exactly. Best match: family = linear grille, damper = without. Accept?");
+    expect(specQuestion("Grille", "", sugg("f"))).toBe("Couldn't read 'Grille' exactly. Best match: family = linear grille, damper = without. Accept?");
+  });
+});
+
+describe("rowsWithSuggestion / acceptedFingerprints -- Accept all shown, and what the apply sends", () => {
+  const plan = { changes: [
+    change(1, { status: "not_understood", reason: "r", read: {}, suggestion: sugg("fp1"), decision: null }),
+    change(2, { status: "not_understood", reason: "r", read: {}, suggestion: null, no_suggestion_reason: "no family", decision: null }),
+    change(3, { status: "ok", reason: null, read: { family: "VCD" } }),
+    change(4, { status: "not_understood", reason: "r", read: {}, suggestion: sugg("fp4"), decision: null }),
+  ] } as unknown as UploadPlan;
+  it("names exactly the rows that HAVE a suggestion", () => {
+    expect(rowsWithSuggestion(plan)).toEqual([1, 4]);
+    expect(rowsWithSuggestion(null)).toEqual([]);
+  });
+  it("sends a fingerprint for an ACCEPTED row with a suggestion only -- never for a reject or a row without one", () => {
+    expect(acceptedFingerprints(plan, { 1: "accept", 2: "accept", 3: "accept", 4: "reject" })).toEqual({ 1: "fp1" });
+    expect(acceptedFingerprints(plan, {})).toEqual({});
+  });
+});
+
+describe("the request payloads -- byte-identical to before when nothing optional is present (owner condition)", () => {
+  it("applyCsvPayload: absent decisions -> exactly {discipline, content_base64, expected_digest}", () => {
+    const p = applyCsvPayload("Electrical", "QUJD", "digest1");
+    expect(JSON.stringify(p)).toBe(JSON.stringify({ discipline: "Electrical", content_base64: "QUJD", expected_digest: "digest1" }));
+    expect(Object.keys(p)).toEqual(["discipline", "content_base64", "expected_digest"]);
+    // empty maps count as absent, so an HVAC apply with no answers is byte-identical too
+    expect(JSON.stringify(applyCsvPayload("HVAC", "QUJD", "d", {}, {}))).toBe(JSON.stringify(applyCsvPayload("HVAC", "QUJD", "d")));
+  });
+  it("applyCsvPayload: present decisions add exactly two JSON-string fields", () => {
+    const p = applyCsvPayload("HVAC", "QUJD", "d", { 1: "accept", 2: "reject" }, { 1: "fp1" });
+    expect(p.decisions).toBe(JSON.stringify({ 1: "accept", 2: "reject" }));
+    expect(p.accepted_fingerprints).toBe(JSON.stringify({ 1: "fp1" }));
+    expect(Object.keys(p)).toEqual(["discipline", "content_base64", "expected_digest", "decisions", "accepted_fingerprints"]);
+  });
+  it("createItemPayload: absent decision -> exactly the pre-slice six fields, same order, same stringification", () => {
+    const p = createItemPayload("Electrical", { kind: "cable", brand: "Polycab", unit: "Mtr", attributes: { material: "COPPER" }, rates: { list_price_per_mtr: 10 } });
+    expect(JSON.stringify(p)).toBe(JSON.stringify({
+      discipline: "Electrical", kind: "cable", brand: "Polycab", unit: "Mtr",
+      attributes: JSON.stringify({ material: "COPPER" }), rates: JSON.stringify({ list_price_per_mtr: 10 }),
+    }));
+    const q = createItemPayload("HVAC", { kind: "hvac_adp_item", unit: "Nos", attributes: { item_name: "Grille" }, rates: {}, spec_decision: "accept", spec_fingerprint: "fp" });
+    expect(q.spec_decision).toBe("accept"); expect(q.spec_fingerprint).toBe("fp");
+    expect(Object.keys(q).slice(-2)).toEqual(["spec_decision", "spec_fingerprint"]);
+  });
+  it("saveItemPayload: absent decision -> exactly {name, rates_patch, attributes_patch} with undefined where unset", () => {
+    const p = saveItemPayload("RMI-1", { rates_patch: { x: 1 } });
+    expect(JSON.stringify(p)).toBe(JSON.stringify({ name: "RMI-1", rates_patch: JSON.stringify({ x: 1 }), attributes_patch: undefined }));
+    expect(Object.keys(p)).toEqual(["name", "rates_patch", "attributes_patch"]);
+    const q = saveItemPayload("RMI-1", { attributes_patch: { item_detail: "x" }, spec_decision: "reject" });
+    expect(q.spec_decision).toBe("reject"); expect("spec_fingerprint" in q).toBe(false);
+  });
+});
+
+describe("the shown-in-full hint names the spec rows (the server promotes them to major)", () => {
+  it("says a row the reader must ask about or flags is shown in full", () => {
+    expect(UPLOAD_COPY.expandedHint).toContain("ask about or flags");
+    expect(UPLOAD_COPY.expandedHint).toContain("10%");
   });
 });

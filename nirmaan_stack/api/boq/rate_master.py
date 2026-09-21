@@ -1205,11 +1205,72 @@ def update_rate_config_param(
 
 
 @frappe.whitelist(methods=["POST"])
-def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
+def _resolve_spec_write(spec_cat, item_name, item_detail, unit, spec_decision, spec_fingerprint):
+    """SLICE 1d -- THE ONE resolver both manual endpoints use for an opted-in kind.
+
+    Returns (attributes, spec_out, ask). `ask` is None when the write may proceed; otherwise it is the
+    NEEDS-CONFIRMATION reply the endpoint returns INSTEAD of writing: the exact read refused, the
+    suggester has a best match, and no decision was sent. With `spec_decision`:
+      "accept"  -> the suggestion is RE-DERIVED here and its fingerprint must equal `spec_fingerprint`
+                   (what the form was shown), else refused; stored as CONFIRMED (who + when);
+      "reject"  -> not_understood, exactly as 1c;
+      anything else -> refused.
+    A spec with NO suggestion never asks: it is stored not_understood (owner T-b 4)."""
+    attributes, reason = spec_reader.attributes_for(spec_cat, item_name, item_detail, unit)
+    spec_out = {"status": spec_reader.NOT_UNDERSTOOD if reason else "ok", "reason": reason}
+    if not reason:
+        return attributes, spec_out, None
+    sugg, why = spec_reader.suggest_spec(spec_cat, item_name, item_detail, unit)
+    suggestion = ({
+        "attributes": sugg["attributes"],
+        "label": spec_reader.suggestion_label(sugg["attributes"]),
+        "notes": sugg["notes"],
+        "fingerprint": sugg["fingerprint"],
+    } if sugg else None)
+    spec_out["suggestion"] = suggestion
+    spec_out["no_suggestion_reason"] = None if sugg else why
+    if spec_decision is None:
+        if suggestion is None:
+            return attributes, spec_out, None          # nothing to ask: flagged, as today
+        text = " / ".join(t for t in (item_name.strip(), item_detail.strip()) if t)
+        return None, spec_out, {
+            "ok": False,
+            "needs_confirmation": True,
+            "question": "Couldn't read '%s' exactly. Best match: %s. Accept?" % (text, suggestion["label"]),
+            "suggestion": suggestion,
+            "no_suggestion_reason": None,
+        }
+    if spec_decision == "reject":
+        spec_out["decision"] = "reject"
+        return attributes, spec_out, None
+    if spec_decision != "accept":
+        frappe.throw("spec_decision must be 'accept' or 'reject'.", title="Invalid value")
+    if suggestion is None:
+        frappe.throw("There is no suggestion to accept for this spec -- %s" % why, title="Nothing to accept")
+    if not spec_fingerprint or spec_fingerprint != suggestion["fingerprint"]:
+        frappe.throw(
+            "The suggestion is not the one that was shown (or no fingerprint was sent), so it cannot be "
+            "accepted. Re-open the entry and answer again.",
+            title="Suggestion out of date",
+        )
+    confirmed = spec_reader.confirmed_attributes(
+        item_name, item_detail, sugg["attributes"], frappe.session.user,
+        frappe.utils.now_datetime().replace(microsecond=0).isoformat(),
+    )
+    spec_out.update({"status": spec_reader.CONFIRMED, "reason": None, "decision": "accept"})
+    return confirmed, spec_out, None
+
+
+@frappe.whitelist(methods=["POST"])
+def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
+                            spec_decision=None, spec_fingerprint=None):
     """ADMIN-ONLY: merge a rates_patch and/or attributes_patch onto an item's existing JSON dicts.
     Rate values numeric-or-null; attribute keys validated against the discipline's active config
     attribute-definitions where determinable, and material/insulation canonicalised to UPPERCASE.
-    Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item"""
+    Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item
+    SLICE 1d: for an opted-in kind whose changed text the exact read refuses, returns
+    {ok: False, needs_confirmation: True, question, suggestion} WITHOUT writing until the caller answers
+    with spec_decision (+ spec_fingerprint on accept); see _resolve_spec_write."""
     _require_rate_admin()  # BEFORE resolution/write
     freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
@@ -1255,8 +1316,10 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
         if not new_name.strip():
             frappe.throw("item_name is required -- the attributes are read from it.", title="Missing field: item_name")
         if (new_name, new_detail) != (old_name, old_detail):
-            attributes, reason = spec_reader.attributes_for(spec_cat, new_name, new_detail, doc.unit)
-            spec_out = {"status": spec_reader.NOT_UNDERSTOOD if reason else "ok", "reason": reason}
+            attributes, spec_out, ask = _resolve_spec_write(
+                spec_cat, new_name, new_detail, doc.unit, spec_decision, spec_fingerprint)
+            if ask is not None:
+                return ask            # NOTHING written -- the form asks first (owner T-b 6)
     elif attributes_patch:
         known = _active_config_attr_ids(doc.discipline)
         merged = dict(attributes)
@@ -1293,7 +1356,8 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
 
 @frappe.whitelist(methods=["POST"])
 def create_rate_master_item(
-    discipline=None, kind=None, brand=None, unit=None, attributes=None, rates=None
+    discipline=None, kind=None, brand=None, unit=None, attributes=None, rates=None,
+    spec_decision=None, spec_fingerprint=None,
 ):
     """ADMIN-ONLY: insert a new ACTIVE item row with MANUAL provenance (import_batch='manual-'+hash,
     source_sheet='Manual entry', source_row=0). Attribute keys validated against the discipline's
@@ -1332,8 +1396,10 @@ def create_rate_master_item(
         item_detail = str(attributes.get("item_detail") or "")
         if not item_name.strip():
             frappe.throw("item_name is required -- the attributes are read from it.", title="Missing field: item_name")
-        attrs, reason = spec_reader.attributes_for(spec_cat, item_name, item_detail, unit)
-        spec_out = {"status": spec_reader.NOT_UNDERSTOOD if reason else "ok", "reason": reason}
+        attrs, spec_out, ask = _resolve_spec_write(
+            spec_cat, item_name, item_detail, unit, spec_decision, spec_fingerprint)
+        if ask is not None:
+            return ask                # NOTHING inserted -- the form asks first (owner T-b 6)
     else:
         known = _active_config_attr_ids(discipline)
         if known is not None:
@@ -1620,7 +1686,7 @@ def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None)
 
 @frappe.whitelist(methods=["POST"])
 def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
-                          expected_digest=None):
+                          expected_digest=None, decisions=None, accepted_fingerprints=None):
     """ADMIN-ONLY: apply an already-previewed CSV. ALL-OR-NOTHING.
 
     A SNAPSHOT of the pre-upload catalog is written FIRST, in the SAME transaction, via
@@ -1643,8 +1709,18 @@ def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
 
     from nirmaan_stack.services.boq_rate_master import csv_importer
 
+    # SLICE 1d: the user's per-row Accept / Reject answers + the accepted suggestions' fingerprints, both
+    # OPTIONAL. Absent -> exactly the 1c apply. Present -> apply_plan re-plans with them and refuses an
+    # accept whose re-derived suggestion is not the one previewed.
+    decisions = _parse_json(decisions, None)
+    accepted_fingerprints = _parse_json(accepted_fingerprints, None)
+    if decisions is not None and not isinstance(decisions, dict):
+        frappe.throw("decisions must be an object of row -> accept | reject.", title="Invalid value")
+    if accepted_fingerprints is not None and not isinstance(accepted_fingerprints, dict):
+        frappe.throw("accepted_fingerprints must be an object of row -> fingerprint.", title="Invalid value")
     result = csv_importer.apply_plan(
-        discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest
+        discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest,
+        decisions=decisions or None, accepted_fingerprints=accepted_fingerprints or None,
     )
     frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
     result["plan"] = csv_importer.public_plan(result["plan"])

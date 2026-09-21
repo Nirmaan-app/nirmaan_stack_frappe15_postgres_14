@@ -31,7 +31,11 @@ import {
   isDropdownAttributeType,
   isNumericAttributeType,
 } from "./rateMasterStructure";
-import { SPEC_COPY, isSpecDrivenConfig, specNotUnderstoodReason, splitSpecColumns } from "./rateMasterSpec";
+import {
+  SPEC_COPY, SPEC_CONFIRM_COPY, confirmedTag, isSpecDrivenConfig, specConfirmedInfo, specNotUnderstoodReason,
+  specQuestion, splitSpecColumns,
+  type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
+} from "./rateMasterSpec";
 
 /**
  * THE THIRD COERCION SITE. What an edited / newly-entered attribute value is STORED as on a master
@@ -79,14 +83,11 @@ interface Props {
   // is the action the freeze exists to protect, and both buttons live in the same dashed panel as
   // the upload, so this distinction is easy to lose and must not be.
   frozen?: boolean;
-  onSaveItem?: (
-    name: string,
-    patch: { rates_patch?: Record<string, number | null>; attributes_patch?: Record<string, string | number> },
-  ) => Promise<void>;
-  onCreateItem?: (payload: {
-    kind: string; brand?: string; unit?: string;
-    attributes: Record<string, string | number>; rates: Record<string, number | null>;
-  }) => Promise<void>;
+  // SLICE 1d: both return the endpoint's reply -- for an opted-in kind whose text the exact read refused
+  // and the suggester matched, the server writes NOTHING and answers `needs_confirmation` with the best
+  // match; the form then asks Accept / Reject and re-calls with `spec_decision` (+ the fingerprint).
+  onSaveItem?: (name: string, patch: SaveItemPatch) => Promise<SpecConfirmationReply | undefined | void>;
+  onCreateItem?: (payload: CreateItemPayload) => Promise<SpecConfirmationReply | undefined | void>;
   onDeactivateItem?: (name: string) => Promise<void>;
   // SLICE 5: the two download surfaces. The page owns the SDK calls and hands these down, exactly
   // as it already does for save/create/deactivate -- the viewer stays free of frappe-react-sdk.
@@ -96,7 +97,11 @@ interface Props {
   // SLICE 6: the upload half of the round trip. Withheld (not disabled) for a non-admin, like
   // every other write affordance here; the endpoints re-gate server-side, which is the boundary.
   onPreviewCsv?: (contentBase64: string) => Promise<UploadPlan>;
-  onApplyCsv?: (contentBase64: string, expectedDigest: string) => Promise<UploadResult>;
+  onApplyCsv?: (
+    contentBase64: string, expectedDigest: string,
+    // SLICE 1d: the per-row Accept / Reject answers and the accepted suggestions' fingerprints, both optional.
+    decisions?: Record<number, SpecDecision>, acceptedFingerprints?: Record<number, string>,
+  ) => Promise<UploadResult>;
   onUploadApplied?: () => void;
 }
 
@@ -141,6 +146,8 @@ export function RateMasterDataViewer({
   const [draftRates, setDraftRates] = useState<Record<string, string>>({});
   const [rowSaving, setRowSaving] = useState(false);
   const [rowErr, setRowErr] = useState<string | null>(null);
+  // SLICE 1d: an edit the exact read refused, awaiting the user's Accept / Reject of the server's best match.
+  const [rowAsk, setRowAsk] = useState<{ name: string; patch: SaveItemPatch; reply: SpecConfirmationReply } | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<{ name: string; label: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -351,6 +358,7 @@ export function RateMasterDataViewer({
   const cancelEdit = () => {
     setEditingRow(null);
     setRowErr(null);
+    setRowAsk(null);
   };
   const saveEdit = async (it: RateMasterItem) => {
     if (!onSaveItem || !it.name) return;
@@ -386,19 +394,36 @@ export function RateMasterDataViewer({
       cancelEdit();
       return;
     }
+    const patch: SaveItemPatch = {
+      rates_patch: Object.keys(rates_patch).length ? rates_patch : undefined,
+      attributes_patch: Object.keys(attributes_patch).length ? attributes_patch : undefined,
+    };
+    await sendSave(it.name, patch);
+  };
+  // SLICE 1d: the ONE sender for a row save. A `needs_confirmation` reply keeps the row in edit mode and
+  // shows the question; the answer re-sends the SAME patch with spec_decision (+ fingerprint on accept).
+  const sendSave = async (name: string, patch: SaveItemPatch) => {
+    if (!onSaveItem) return;
     setRowSaving(true);
     setRowErr(null);
     try {
-      await onSaveItem(it.name, {
-        rates_patch: Object.keys(rates_patch).length ? rates_patch : undefined,
-        attributes_patch: Object.keys(attributes_patch).length ? attributes_patch : undefined,
-      });
+      const reply = await onSaveItem(name, patch);
+      if (reply && reply.needs_confirmation) {
+        setRowAsk({ name, patch, reply });
+        return;
+      }
+      setRowAsk(null);
       setEditingRow(null);
     } catch (e) {
       setRowErr((e as { message?: string })?.message ?? "Save failed");
     } finally {
       setRowSaving(false);
     }
+  };
+  const answerRowAsk = async (d: SpecDecision) => {
+    if (!rowAsk) return;
+    const fp = rowAsk.reply.suggestion?.fingerprint;
+    await sendSave(rowAsk.name, { ...rowAsk.patch, spec_decision: d, spec_fingerprint: d === "accept" ? fp : undefined });
   };
   const doDeactivate = async () => {
     if (!onDeactivateItem || !confirmDeactivate) return;
@@ -658,7 +683,30 @@ export function RateMasterDataViewer({
                 ))}
                 {specMode && (
                   <TableCell className="whitespace-normal" data-testid="spec-cell">
-                    {specNotUnderstoodReason(r.it) ? (
+                    {editing && rowAsk && rowAsk.name === r.it.name && rowAsk.reply.suggestion ? (
+                      // SLICE 1d (owner T-b 6): the edit's text was not read exactly -- ask before saving.
+                      <div className="max-w-[18rem] rounded border border-amber-500/40 bg-amber-50 p-1.5 text-[10px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" data-testid="row-spec-question">
+                        <div>{specQuestion(
+                          String(rowAsk.patch.attributes_patch?.item_name ?? r.it.attributes?.item_name ?? ""),
+                          String(rowAsk.patch.attributes_patch?.item_detail ?? r.it.attributes?.item_detail ?? ""),
+                          rowAsk.reply.suggestion,
+                        )}</div>
+                        <div className="mt-1 flex gap-1">
+                          <Button size="sm" className="h-6 px-2 text-[10px]" disabled={rowSaving} onClick={() => void answerRowAsk("accept")} aria-label="Accept suggestion">{SPEC_CONFIRM_COPY.accept}</Button>
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" disabled={rowSaving} onClick={() => void answerRowAsk("reject")} aria-label="Reject suggestion">{SPEC_CONFIRM_COPY.reject}</Button>
+                        </div>
+                      </div>
+                    ) : specConfirmedInfo(r.it) ? (
+                      // SLICE 1d (owner T-b 5): a CONFIRMED item -- amber, who and when, distinct from the grey
+                      // "read from spec" and the red "won't price".
+                      <Badge
+                        className="h-auto whitespace-normal border-amber-500/50 bg-amber-100 px-1 py-0.5 text-[10px] font-normal leading-tight text-amber-900 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-200"
+                        variant="outline"
+                        data-testid="spec-confirmed"
+                      >
+                        {confirmedTag(specConfirmedInfo(r.it)!.by, specConfirmedInfo(r.it)!.at)}
+                      </Badge>
+                    ) : specNotUnderstoodReason(r.it) ? (
                       <div>
                         <Badge variant="destructive" className="h-4 px-1 text-[10px] leading-none">{SPEC_COPY.wontPrice}</Badge>
                         <div className="mt-0.5 max-w-[16rem] text-[10px] text-destructive">{specNotUnderstoodReason(r.it)}</div>
@@ -789,10 +837,7 @@ function AddItemDialog({
   // cannot understand. No brand, no attribute inputs: there is no back door.
   specMode?: boolean;
   textDefs?: AttributeDefinition[];
-  onCreate: (payload: {
-    kind: string; brand?: string; unit?: string;
-    attributes: Record<string, string | number>; rates: Record<string, number | null>;
-  }) => Promise<void>;
+  onCreate: (payload: CreateItemPayload) => Promise<SpecConfirmationReply | undefined | void>;
 }) {
   const attrDefs = useMemo(() => config.attribute_definitions.filter((d) => d.id !== "brand"), [config]);
   const brandDef = useMemo(() => config.attribute_definitions.find((d) => d.id === "brand"), [config]);
@@ -803,8 +848,36 @@ function AddItemDialog({
   const [rates, setRates] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // SLICE 1d: the server's "needs confirmation" reply for THIS entry -- the form asks before anything is saved.
+  const [ask, setAsk] = useState<{ payload: CreateItemPayload; reply: SpecConfirmationReply } | null>(null);
+
+  const send = async (payload: CreateItemPayload) => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const reply = await onCreate(payload);
+      if (reply && reply.needs_confirmation) {
+        setAsk({ payload, reply });
+        return;
+      }
+      setAsk(null);
+      onOpenChange(false);
+      setAttrs({});
+      setRates({});
+    } catch (e) {
+      setErr((e as { message?: string })?.message ?? "Create failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const answerAsk = async (d: SpecDecision) => {
+    if (!ask) return;
+    const fp = ask.reply.suggestion?.fingerprint;
+    await send({ ...ask.payload, spec_decision: d, spec_fingerprint: d === "accept" ? fp : undefined });
+  };
 
   const submit = async () => {
+    setAsk(null);
     const attributes: Record<string, string | number> = {};
     if (specMode) {
       for (const d of textDefs ?? []) attributes[d.id] = attrs[d.id] ?? "";
@@ -830,18 +903,7 @@ function AddItemDialog({
       }
       rateOut[k] = n;
     }
-    setSaving(true);
-    setErr(null);
-    try {
-      await onCreate({ kind, brand: specMode ? undefined : (brand || undefined), unit: unit || undefined, attributes, rates: rateOut });
-      onOpenChange(false);
-      setAttrs({});
-      setRates({});
-    } catch (e) {
-      setErr((e as { message?: string })?.message ?? "Create failed");
-    } finally {
-      setSaving(false);
-    }
+    await send({ kind, brand: specMode ? undefined : (brand || undefined), unit: unit || undefined, attributes, rates: rateOut });
   };
 
   return (
@@ -929,9 +991,23 @@ function AddItemDialog({
           ))}
         </div>
         {err && <p className="text-xs text-destructive">{err}</p>}
+        {ask && ask.reply.suggestion ? (
+          // SLICE 1d (owner T-b 6): the entry was not read exactly -- the same question the upload asks,
+          // answered BEFORE anything is saved. Reject saves it flagged; Accept saves it confirmed.
+          <div className="rounded border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" data-testid="add-spec-question">
+            <div>{specQuestion(String(ask.payload.attributes.item_name ?? ""), String(ask.payload.attributes.item_detail ?? ""), ask.reply.suggestion)}</div>
+            {ask.reply.suggestion.notes.length ? (
+              <div className="mt-0.5 text-[11px] opacity-80">{Array.from(new Set(ask.reply.suggestion.notes)).join("; ")}</div>
+            ) : null}
+            <div className="mt-1.5 flex gap-2">
+              <Button size="sm" className="h-7" disabled={saving} onClick={() => void answerAsk("accept")} aria-label="Accept suggestion">{SPEC_CONFIRM_COPY.accept}</Button>
+              <Button size="sm" variant="outline" className="h-7" disabled={saving} onClick={() => void answerAsk("reject")} aria-label="Reject suggestion">{SPEC_CONFIRM_COPY.reject}</Button>
+            </div>
+          </div>
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={() => void submit()} disabled={saving || !kind}>Add item</Button>
+          <Button onClick={() => void submit()} disabled={saving || !kind || !!ask}>Add item</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
