@@ -83,7 +83,7 @@ _EXPENSE_AMOUNT = 'COALESCE(e."amount", 0)::numeric'
 # is what keeps that safe.
 SORTABLE = {
     "name", "source", "source_type", "status", "amount", "against_primary", "vendor", "project",
-    "raised_by", "creation", "approved_on", "paid_on", "utr_ref", "payment_by",
+    "raised_by", "creation", "modified", "approved_on", "paid_on", "utr_ref", "payment_by",
     "expense_type", "doctype",
 }
 
@@ -140,6 +140,8 @@ def _payments_select():
             COALESCE(p."project", '')::text AS project,
             p."owner"                       AS raised_by,
             p."creation"                    AS creation,
+            -- ⚠️ POSITIONAL: sits right after `creation` in `_expense_select` too.
+            p."modified"                    AS modified,
             p."approval_date"               AS approved_on,
             p."payment_date"                AS paid_on,
             COALESCE(p."utr", '')::text     AS utr_ref,
@@ -201,6 +203,7 @@ def _expense_select(table, source, project_col):
             {project_expr}                  AS project,
             e."owner"                       AS raised_by,
             e."creation"                    AS creation,
+            e."modified"                    AS modified,
             e."approval_date"               AS approved_on,
             e."payment_date"                AS paid_on,
             COALESCE(e."payment_ref", '')::text AS utr_ref,

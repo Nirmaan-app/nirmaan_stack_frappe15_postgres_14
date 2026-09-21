@@ -192,9 +192,13 @@ export const TAB_ALLOWS_SELECTION: Record<ApprovalTab, boolean> = {
 /**
  * Every tab opens NEWEST-FIRST (owner, 2026-09-16).
  *
- * ⚠️ THE FIELDS ARE UNCHANGED AND ARE PER TAB ON PURPOSE — each tab sorts on the
- * date of its OWN step (`approved_on` on the pay queue, `paid_on` on the two
- * settled ones), not on `creation`. Only the DIRECTION moved.
+ * ⚠️ THE FIELDS ARE PER TAB ON PURPOSE — the pay queue sorts on `approved_on` and
+ * the two settled tabs on `paid_on`, the date of their OWN step.
+ *
+ * Payment Pending Approval, Payment Pending CEO Approval, Payments Pending and
+ * Payment Raised By Me sort on `modified` (owner, 2026-09-21), so a row that was
+ * just edited rises to the top. `modified` is exposed by the union in
+ * get_approval_queue.py and allowlisted in its SORTABLE set.
  *
  * The three work queues used to open OLDEST-first, to surface the rows that had
  * been waiting longest. The owner reversed that: the rows people act on are the
@@ -202,15 +206,15 @@ export const TAB_ALLOWS_SELECTION: Record<ApprovalTab, boolean> = {
  * behind a backlog that is worked from its own filters instead.
  */
 export const TAB_DEFAULT_SORT: Record<ApprovalTab, string> = {
-  [PP_TABS.APPROVE_PAYMENTS]: "creation desc",
-  [PP_TABS.CEO_PENDING]: "creation desc",
+  [PP_TABS.APPROVE_PAYMENTS]: "modified desc",
+  [PP_TABS.CEO_PENDING]: "modified desc",
   [PP_TABS.NEW_PAYMENTS]: "approved_on desc",
   [PP_TABS.RECONCILIATION_PENDING]: "paid_on desc",
   [PP_TABS.PAYMENTS_DONE]: "paid_on desc",
-  [PP_TABS.PAYMENTS_PENDING]: "creation desc",
+  [PP_TABS.PAYMENTS_PENDING]: "modified desc",
   [PP_TABS.ALL_PAYMENTS]: "creation desc",
   [PP_TABS.PO_WISE]: "creation desc",
-  [PP_TABS.PAYMENT_BY_ME]: "creation desc",
+  [PP_TABS.PAYMENT_BY_ME]: "modified desc",
 };
 
 /**
