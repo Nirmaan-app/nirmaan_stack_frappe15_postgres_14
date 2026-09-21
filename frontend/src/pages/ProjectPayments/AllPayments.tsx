@@ -1,7 +1,6 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDocTypeEventListener, useFrappeDeleteDoc, useFrappePostCall } from "frappe-react-sdk";
-import { useNavigate } from "react-router-dom";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -48,6 +47,7 @@ import { buildPaymentsUrlSyncKey, getProjectPaymentsStaticFilters } from "./conf
 import { PP_ACCOUNTANT_ROLES, PP_TABS } from "./config/ppTabs.constants";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { QueueRowEditDialog } from "./components/QueueRowEditDialog";
+import { useUpdatePaymentRequest } from "./hooks/useUpdatePaymentRequests";
 import { canEditQueueRow, canRevertQueueRow, canWorkQueueRows } from "./config/queueRowActions";
 import { useUserData } from "@/hooks/useUserData";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -153,25 +153,15 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const { toast } = useToast();
 
     // --- "Payment By Me" delete (Rejected rows only; the column shows "--" otherwise) ---
-    // The Trash icon opens ONE dialog, which branches on the ledger (owner, 17 Sep 2026):
-    //   expense           -> "are you sure?" -> the same `deleteDoc` the expense pages use
-    //   PO / SR payment   -> NOT deleted here; the dialog links to its PO / SR page, whose
-    //                        payment table already deletes a Rejected payment
-    const navigate = useNavigate();
+    // Deletes IN PLACE for all three ledgers (owner, 2026-09-21 -- it used to send a PO / WO
+    // payment off to its PO / WO page), exactly as "Payment need to paid" does: a PO / WO payment
+    // through `update_payment_request` (whose `on_trash` puts the PO payment term back to Created),
+    // an expense through the `deleteDoc` the expense pages use.
     const [deleteRow, setDeleteRow] = useState<ApprovalQueueRow | null>(null);
-    const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
+    const { deleteDoc, loading: deletingExpense } = useFrappeDeleteDoc();
+    const { trigger: deletePayment, isMutating: deletingPayment } = useUpdatePaymentRequest();
+    const deleting = deletingExpense || deletingPayment;
     const deleteIsPayment = deleteRow?.doctype === "Project Payments";
-    const deleteParentLabel = deleteRow?.document_type === "Service Requests" ? "SR" : "PO";
-    const openDeleteParent = useCallback(() => {
-        if (!deleteRow?.document_name) return;
-        const id = deleteRow.document_name.replace(/\//g, "&=");
-        setDeleteRow(null);
-        // `Dispatched PO`, not the page's `Approved PO` default: that one shows a "Heads Up"
-        // screen instead of the PO for any PO already past `PO Approved`.
-        navigate(deleteRow.document_type === "Service Requests"
-            ? `/service-requests/${id}?tab=approved-sr`
-            : `/purchase-orders/${id}?tab=Dispatched PO`);
-    }, [deleteRow, navigate]);
 
     // --- Expense Edit pencil + payment "Revert to Approved" (owner, 2026-09-21) ---
     // Who may press either is ONE rule, `queueRowActions`; the old admin payment-edit pencil
@@ -459,10 +449,14 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const handleConfirmDelete = useCallback(async () => {
         if (!deleteRow) return;
         try {
-            await deleteDoc(deleteRow.doctype, deleteRow.name);
+            if (deleteRow.doctype === "Project Payments") {
+                await deletePayment({ action: "delete", name: deleteRow.name });
+            } else {
+                await deleteDoc(deleteRow.doctype, deleteRow.name);
+            }
             toast({
                 title: "Deleted",
-                description: `Expense ${deleteRow.against_primary || deleteRow.name} was deleted.`,
+                description: `${deleteRow.against_primary || deleteRow.name} was deleted.`,
                 variant: "success",
             });
             setDeleteRow(null);
@@ -471,7 +465,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         } catch (error) {
             toast({ title: "Couldn't delete", description: getFrappeError(error), variant: "destructive" });
         }
-    }, [deleteRow, deleteDoc, toast, refetch, refreshTabCounts]);
+    }, [deleteRow, deleteDoc, deletePayment, toast, refetch, refreshTabCounts]);
 
     // "Revert to Approved": the server re-checks the status, the role and any bank-line match
     // (`api/payments/revert_to_approved.py`); this only asks and reports.
@@ -589,17 +583,18 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>
-                            {deleteIsPayment
-                                ? `Delete this payment from its ${deleteParentLabel}`
-                                : `Are you sure you want to delete this ${deleteRow ? (TYPE_LABEL[deleteRow.source_type] ?? deleteRow.source_type) : "expense"}?`}
+                            {`Are you sure you want to delete this ${deleteRow ? (TYPE_LABEL[deleteRow.source_type] ?? deleteRow.source_type) : "payment"}?`}
                         </AlertDialogTitle>
                         <AlertDialogDescription asChild>
                             <div className="space-y-2 text-sm">
-                                <p>
-                                    {deleteIsPayment
-                                        ? `A ${deleteParentLabel} payment is deleted from the ${deleteParentLabel} page. Open ${deleteRow?.document_name} and delete it from its payments.`
-                                        : "It will be permanently deleted. This can't be undone."}
-                                </p>
+                                <p>It will be permanently deleted. This can't be undone.</p>
+                                {deleteIsPayment ? (
+                                    <p>Its payment term on {deleteRow?.document_name} can be requested again.</p>
+                                ) : (
+                                    // The server does this, not the page: the expense doctypes'
+                                    // `after_delete` deletes the request (expense_request_status.py).
+                                    <p>If it came from an Expense Request, that request is deleted too.</p>
+                                )}
                                 {deleteRow && (
                                     <div className="rounded border bg-muted/40 p-2">
                                         <div className="font-medium text-foreground">
@@ -620,25 +615,14 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        {deleteIsPayment ? (
-                            <>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={openDeleteParent} disabled={!deleteRow?.document_name}>
-                                    Go to {deleteRow?.document_name || deleteParentLabel}
-                                </AlertDialogAction>
-                            </>
-                        ) : (
-                            <>
-                                <AlertDialogCancel disabled={deleting}>No</AlertDialogCancel>
-                                <AlertDialogAction
-                                    onClick={(e) => { e.preventDefault(); handleConfirmDelete(); }}
-                                    disabled={deleting}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                >
-                                    {deleting ? "Deleting…" : "Yes, delete"}
-                                </AlertDialogAction>
-                            </>
-                        )}
+                        <AlertDialogCancel disabled={deleting}>No</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => { e.preventDefault(); handleConfirmDelete(); }}
+                            disabled={deleting}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {deleting ? "Deleting…" : "Yes, delete"}
+                        </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

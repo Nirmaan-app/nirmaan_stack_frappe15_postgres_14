@@ -78,10 +78,10 @@ export interface ApprovalColumnCtx {
   onRevert?: (row: ApprovalQueueRow) => void;
   canRevert?: (row: ApprovalQueueRow) => boolean;
   /**
-   * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise) and opens
-   * a dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
-   * PO / SR page, whose payment table deletes it. On "Payment need to paid" it sits beside
-   * Mark as Paid on every row, and deletes any of the three ledgers in place.
+   * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise); on
+   * "Payment need to paid" it sits beside Mark as Paid on every row. Both delete any of the three
+   * ledgers IN PLACE (owner, 2026-09-21 — "Payment By Me" used to send a PO / SR payment to its
+   * PO / SR page instead).
    */
   onDelete?: (row: ApprovalQueueRow) => void;
 }

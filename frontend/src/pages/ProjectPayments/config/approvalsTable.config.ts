@@ -165,10 +165,10 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
-  // the expense Edit pencil (2026-09-21); "--" otherwise. Its dialog deletes an expense after a
-  // confirm; for a PO / SR payment it links to the PO / SR page, whose own payment table does the
-  // delete. No `raised_by` for most users, since every row is their own; an Admin sees EVERY row
-  // here, and AllPayments appends `raised_by`.
+  // the expense Edit pencil (2026-09-21); "--" otherwise. The Delete removes all three ledgers in
+  // place after a confirm (2026-09-21 — a PO / SR payment used to be sent to its PO / SR page).
+  // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
+  // AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
     "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
   ],
