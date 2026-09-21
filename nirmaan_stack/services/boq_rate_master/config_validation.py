@@ -122,6 +122,13 @@ _KNOWN_CONFIG_KEYS = {
     # IMPORT, by name -- before, it imported cleanly and only broke later, at the editor. Same trap the
     # EA-2 pass-through keys document; the fix is still "register the key here", just earlier.
     "rules",
+    # SLICE 1c (2026-09-21, owner S-a..S-c): `attributes_from_spec: true` opts a category in to the SPEC
+    # READER -- item_name + item_detail are the source of truth and every other attribute is READ from
+    # them (services/boq_rate_master/spec_reader.py); the CSV omits the derived columns, the screen shows
+    # them read-only, and the manual add/edit form runs the same reader. Pass-through here (allowlist
+    # only, like item_kinds): the consumers branch on `spec_reader.spec_categories`, which reads the key
+    # as `is True`, so a category WITHOUT it -- every Electrical category -- is byte-identical to before.
+    "attributes_from_spec",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 

@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import { cn } from "@/lib/utils";
 import { downloadErrorMessage } from "./rateMasterDownload";
+import { specLine } from "./rateMasterSpec";
 import {
   UPLOAD_COPY,
   canApply,
@@ -85,6 +86,19 @@ function ChangeRow({ change }: { change: UploadChange }) {
             ) : null}
           </div>
         ))}
+        {change.spec ? (
+          // SLICE 1c (U2): for a new / changed row of a spec-driven category -- what the reader
+          // understood, or exactly why it could not. Server-computed; rendered verbatim.
+          <div
+            className={cn(
+              "mt-1 text-[11px]",
+              change.spec.status === "not_understood" ? "font-medium text-destructive" : "text-muted-foreground",
+            )}
+            data-testid="upload-spec-line"
+          >
+            {specLine(change.spec)}
+          </div>
+        ) : null}
       </div>
     </div>
   );

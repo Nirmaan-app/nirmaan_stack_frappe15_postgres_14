@@ -31,6 +31,7 @@ import {
   isDropdownAttributeType,
   isNumericAttributeType,
 } from "./rateMasterStructure";
+import { SPEC_COPY, isSpecDrivenConfig, specNotUnderstoodReason, splitSpecColumns } from "./rateMasterSpec";
 
 /**
  * THE THIRD COERCION SITE. What an edited / newly-entered attribute value is STORED as on a master
@@ -162,10 +163,18 @@ export function RateMasterDataViewer({
   const showKindCol = categoryKinds.length > 1;
 
   // Attribute columns = every definition EXCEPT brand (brand is its own named column).
+  // SLICE 1c: a SPEC-DRIVEN category (`attributes_from_spec: true`) splits them into the TEXT columns
+  // (item_name, item_detail -- editable, rendered FIRST) and the DERIVED columns (read-only, greyed,
+  // "read from spec"). Any other category takes the branch that was here, unchanged.
+  const specMode = isSpecDrivenConfig(config);
+  const specCols = useMemo(() => splitSpecColumns(config.attribute_definitions), [config]);
+  const textCols = useMemo(() => (specMode ? specCols.text : []), [specMode, specCols]);
   const attrCols = useMemo(
-    () => config.attribute_definitions.filter((d) => d.id !== "brand"),
-    [config]
+    () => (specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand")),
+    [config, specMode, specCols]
   );
+  // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
+  const editableAttrCols = specMode ? textCols : attrCols;
 
   // Rate columns = union of rate keys across THIS CATEGORY's items, in first-seen order.
   const rateCols = useMemo(() => {
@@ -205,6 +214,10 @@ export function RateMasterDataViewer({
   const columns = useMemo(
     () => [
       ...(showKindCol ? [{ key: "kind", get: (it: RateMasterItem) => it.kind }] : []),
+      ...textCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
+      ...(specMode
+        ? [{ key: "spec", get: (it: RateMasterItem) => specNotUnderstoodReason(it) ?? SPEC_COPY.readFromSpec }]
+        : []),
       { key: "brand", get: (it: RateMasterItem) => it.brand },
       ...attrCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
       ...rateCols.map((k) => ({ key: `rate:${k}`, get: (it: RateMasterItem) => it.rates?.[k] })),
@@ -212,7 +225,7 @@ export function RateMasterDataViewer({
       { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
       { key: "source_row", get: (it: RateMasterItem) => it.source_row },
     ],
-    [showKindCol, attrCols, rateCols],
+    [showKindCol, specMode, textCols, attrCols, rateCols],
   );
   const distinctByColumn = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -247,6 +260,8 @@ export function RateMasterDataViewer({
     return scopedItems.map((it) => {
       const cells: string[] = [
         cellText(it.kind),
+        ...textCols.map((d) => cellText(it.attributes?.[d.id])),
+        ...(specMode ? [specNotUnderstoodReason(it) ?? SPEC_COPY.readFromSpec] : []),
         cellText(it.brand),
         ...attrCols.map((d) => cellText(it.attributes?.[d.id])),
         ...rateCols.map((k) => cellText(it.rates?.[k])),
@@ -256,7 +271,7 @@ export function RateMasterDataViewer({
       ];
       return { it, cells, haystack: cells.join("  ") };
     });
-  }, [scopedItems, attrCols, rateCols]);
+  }, [scopedItems, specMode, textCols, attrCols, rateCols]);
 
   const filtered = useMemo(() => {
     const filterEntries = Object.entries(columnFilters);
@@ -326,7 +341,7 @@ export function RateMasterDataViewer({
   const beginEdit = (it: RateMasterItem) => {
     setRowErr(null);
     const a: Record<string, string> = {};
-    for (const d of attrCols) a[d.id] = cellText(it.attributes?.[d.id]);
+    for (const d of editableAttrCols) a[d.id] = cellText(it.attributes?.[d.id]);
     const rr: Record<string, string> = {};
     for (const k of rateCols) rr[k] = cellText(it.rates?.[k]);
     setDraftAttrs(a);
@@ -357,13 +372,15 @@ export function RateMasterDataViewer({
       }
     }
     const attributes_patch: Record<string, string | number> = {};
-    for (const d of attrCols) {
+    // SLICE 1c: in spec mode ONLY the two text columns can be patched (editableAttrCols); the server
+    // re-reads the derived attributes from them and refuses any other key -- no back door.
+    for (const d of editableAttrCols) {
       const raw = draftAttrs[d.id] ?? "";
       const orig = cellText(it.attributes?.[d.id]);
       if (raw === orig) continue;
       // NUMERIC-typed attributes (number AND number_choice) are stored numeric; choice/text stay
       // as-is (the server canonicalises). See coerceAttributeForStorage -- the third coercion site.
-      attributes_patch[d.id] = coerceAttributeForStorage(d, raw);
+      attributes_patch[d.id] = specMode ? raw : coerceAttributeForStorage(d, raw);
     }
     if (Object.keys(rates_patch).length === 0 && Object.keys(attributes_patch).length === 0) {
       cancelEdit();
@@ -393,9 +410,12 @@ export function RateMasterDataViewer({
   };
 
   // A column header = its label + a per-column faceted filter (funnel -> search + checkbox list).
-  const hdr = (colKey: string, label: string, rightAlign = false) => (
+  const hdr = (colKey: string, label: string, rightAlign = false, tag?: string) => (
     <div className={cn("flex items-center gap-1", rightAlign && "justify-end")}>
       <span>{label}</span>
+      {tag ? (
+        <span className="rounded bg-muted px-1 text-[9px] font-normal uppercase tracking-wide text-muted-foreground">{tag}</span>
+      ) : null}
       <ColumnFilter
         label={label}
         values={distinctByColumn[colKey] ?? []}
@@ -534,6 +554,10 @@ export function RateMasterDataViewer({
 
       {downloadPanel}
 
+      {specMode && (
+        <p className="text-[11px] text-muted-foreground" data-testid="spec-hint">{SPEC_COPY.hint}</p>
+      )}
+
       {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar).
           EA-2 rider 3: force the sticky header's top:0 with a scoped rule -- the Tailwind `top-0`
           utility is overridden to `top:auto` here (a global table reset from Ant Design), which
@@ -550,9 +574,17 @@ export function RateMasterDataViewer({
                   never ghosts. */}
               {canEdit && <TableHead className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>}
               {showKindCol && <TableHead className="sticky top-0 z-20 bg-background">{hdr("kind", "kind")}</TableHead>}
+              {/* SLICE 1c (U3): the text pair FIRST, then the spec verdict, then brand, then the derived
+                  attributes each tagged "read from spec". Absent entirely for a non-spec category. */}
+              {textCols.map((d) => (
+                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
+              ))}
+              {specMode && <TableHead className="sticky top-0 z-20 bg-background">{hdr("spec", SPEC_COPY.specColumn)}</TableHead>}
               <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>
               {attrCols.map((d) => (
-                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
+                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">
+                  {hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
+                </TableHead>
               ))}
               {rateCols.map((k) => (
                 <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
@@ -594,7 +626,12 @@ export function RateMasterDataViewer({
                             size="icon" variant="ghost" className="h-7 w-7 text-destructive" aria-label="Deactivate row"
                             disabled={writeBlocked}
                             title={writeBlocked ? FREEZE_BLOCKED_MESSAGE : undefined}
-                            onClick={() => setConfirmDeactivate({ name: r.it.name ?? "", label: `${r.it.kind} ${cellText(r.it.attributes?.material)}` })}
+                            onClick={() => setConfirmDeactivate({
+                              name: r.it.name ?? "",
+                              label: specMode
+                                ? `${cellText(r.it.attributes?.item_name)} ${cellText(r.it.attributes?.item_detail)}`.trim()
+                                : `${r.it.kind} ${cellText(r.it.attributes?.material)}`,
+                            })}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -604,10 +641,41 @@ export function RateMasterDataViewer({
                   </TableCell>
                 )}
                 {showKindCol && <TableCell>{r.it.kind}</TableCell>}
+                {textCols.map((d) => (
+                  <TableCell key={d.id} className="max-w-[20rem] whitespace-normal">
+                    {editing ? (
+                      <Input
+                        className="h-7 w-56 text-xs"
+                        value={draftAttrs[d.id] ?? ""}
+                        disabled={rowSaving}
+                        onChange={(e) => setDraftAttrs((p) => ({ ...p, [d.id]: e.target.value }))}
+                        aria-label={`${d.label} value`}
+                      />
+                    ) : (
+                      cellText(r.it.attributes?.[d.id])
+                    )}
+                  </TableCell>
+                ))}
+                {specMode && (
+                  <TableCell className="whitespace-normal" data-testid="spec-cell">
+                    {specNotUnderstoodReason(r.it) ? (
+                      <div>
+                        <Badge variant="destructive" className="h-4 px-1 text-[10px] leading-none">{SPEC_COPY.wontPrice}</Badge>
+                        <div className="mt-0.5 max-w-[16rem] text-[10px] text-destructive">{specNotUnderstoodReason(r.it)}</div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">{SPEC_COPY.readFromSpec}</span>
+                    )}
+                  </TableCell>
+                )}
                 <TableCell>{r.it.brand}</TableCell>
                 {attrCols.map((d) => (
-                  <TableCell key={d.id}>
-                    {editing ? (
+                  <TableCell
+                    key={d.id}
+                    className={specMode ? "bg-muted/40 text-muted-foreground" : undefined}
+                    title={specMode ? SPEC_COPY.readFromSpec : undefined}
+                  >
+                    {editing && !specMode ? (
                       <Input
                         className="h-7 w-28 text-xs"
                         value={draftAttrs[d.id] ?? ""}
@@ -646,7 +714,7 @@ export function RateMasterDataViewer({
             })}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3} className="text-center text-muted-foreground">
+                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + textCols.length + (specMode ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3} className="text-center text-muted-foreground">
                   No rows match.
                 </TableCell>
               </TableRow>
@@ -696,6 +764,8 @@ export function RateMasterDataViewer({
           config={config}
           rateCols={rateCols}
           kinds={kinds}
+          specMode={specMode}
+          textDefs={textCols}
           onCreate={onCreateItem}
         />
       )}
@@ -707,13 +777,18 @@ export function RateMasterDataViewer({
 // keys. Attribute choices come from each definition's stored values; numbers + rates are free inputs.
 // Manual provenance ("Manual entry", batch manual-...) is stamped server-side.
 function AddItemDialog({
-  open, onOpenChange, config, rateCols, kinds, onCreate,
+  open, onOpenChange, config, rateCols, kinds, specMode, textDefs, onCreate,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   config: RateCategoryConfig;
   rateCols: string[];
   kinds: string[];
+  // SLICE 1c: a spec-driven category -- the form takes Item + Item detail + unit + the numbers, and
+  // NOTHING else; the server runs the reader on save (the same one the upload uses) and flags what it
+  // cannot understand. No brand, no attribute inputs: there is no back door.
+  specMode?: boolean;
+  textDefs?: AttributeDefinition[];
   onCreate: (payload: {
     kind: string; brand?: string; unit?: string;
     attributes: Record<string, string | number>; rates: Record<string, number | null>;
@@ -731,10 +806,18 @@ function AddItemDialog({
 
   const submit = async () => {
     const attributes: Record<string, string | number> = {};
-    for (const d of attrDefs) {
-      const raw = attrs[d.id];
-      if (raw === undefined || raw === "") continue;
-      attributes[d.id] = coerceAttributeForStorage(d, raw);
+    if (specMode) {
+      for (const d of textDefs ?? []) attributes[d.id] = attrs[d.id] ?? "";
+      if (!String(attributes.item_name ?? "").trim()) {
+        setErr(`${SPEC_COPY.itemLabel} is required.`);
+        return;
+      }
+    } else {
+      for (const d of attrDefs) {
+        const raw = attrs[d.id];
+        if (raw === undefined || raw === "") continue;
+        attributes[d.id] = coerceAttributeForStorage(d, raw);
+      }
     }
     const rateOut: Record<string, number | null> = {};
     for (const k of rateCols) {
@@ -750,7 +833,7 @@ function AddItemDialog({
     setSaving(true);
     setErr(null);
     try {
-      await onCreate({ kind, brand: brand || undefined, unit: unit || undefined, attributes, rates: rateOut });
+      await onCreate({ kind, brand: specMode ? undefined : (brand || undefined), unit: unit || undefined, attributes, rates: rateOut });
       onOpenChange(false);
       setAttrs({});
       setRates({});
@@ -784,15 +867,31 @@ function AddItemDialog({
               </Select>
             )}
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">brand</span>
-            <Input className="h-8" value={brand} onChange={(e) => setBrand(e.target.value)} />
-          </label>
+          {!specMode && (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">brand</span>
+              <Input className="h-8" value={brand} onChange={(e) => setBrand(e.target.value)} />
+            </label>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">unit</span>
             <Input className="h-8" value={unit} onChange={(e) => setUnit(e.target.value)} />
           </label>
-          {attrDefs.map((d) => (
+          {specMode && (textDefs ?? []).map((d) => (
+            <label key={d.id} className="col-span-2 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">{d.label}</span>
+              <Input
+                className="h-8"
+                value={attrs[d.id] ?? ""}
+                onChange={(e) => setAttrs((p) => ({ ...p, [d.id]: e.target.value }))}
+                aria-label={`${d.label} value`}
+              />
+            </label>
+          ))}
+          {specMode && (
+            <p className="col-span-2 text-[11px] text-muted-foreground">{SPEC_COPY.addHint}</p>
+          )}
+          {!specMode && attrDefs.map((d) => (
             <label key={d.id} className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{d.label}</span>
               {/* a DROPDOWN type with a static list gets a Select; a number_choice whose domain is

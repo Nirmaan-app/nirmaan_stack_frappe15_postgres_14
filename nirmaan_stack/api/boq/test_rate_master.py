@@ -10058,7 +10058,10 @@ class TestValidationGaps(FrappeTestCase):
 # OWNER AMENDMENT (2026-09-21, "yes we should do it"): each discipline keeps its OWN version number; only
 # the file that changed is minted, merged and loaded. The HVAC series therefore starts at v1 and NO
 # Electrical asset file is created or modified by this slice (CURRENT_EALL_ASSET above is untouched).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v1.json"
+# SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
+# spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
+# on disk byte-identical to its committed form (pinned in h07).
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v2.json"
 
 
 def _mint_gate_module():
@@ -10104,17 +10107,19 @@ class TestHvacAssetSlice1b(FrappeTestCase):
       test_h04  THE KIND CONVENTION: every HVAC kind is `hvac_`-prefixed and DISJOINT from every
                 Electrical kind (the mint gate's `kind_overlap`); NEGATIVE: an HVAC item wearing an
                 Electrical kind name (`cable`) is caught by that same function.
-      test_h05  THE CSV ROUND TRIP: the column space carries the FOUR rate columns and the 14 attributes,
-                no header classifies as a conflict, the export has 95 rows, and re-importing that export
-                UNCHANGED plans zero changes; NEGATIVE: a header that is both an attribute id and a rate
-                key is an error.
+      test_h05  THE CSV ROUND TRIP: the column space carries the FOUR rate columns and the 14 attributes;
+                the HVAC file carries the rates and the two TEXT columns and NONE of the derived ids (slice 1c,
+                S-b), no header classifies as a conflict, the export has 95 rows, and re-importing that
+                export UNCHANGED plans zero changes; NEGATIVE: a header that is both an attribute id and a
+                rate key is an error.
       test_h06  NOT ELIGIBLE FOR PRICING: `pipelines: {}` fails `extraction.config_is_eligible` AND the
                 frontend `isEligibleConfig` (source-pinned), so no panel and no extraction run sees ADP;
                 the validator ACCEPTS the config as stored; NEGATIVE: one pipeline makes it eligible, one
                 unknown def key makes the validator refuse it.
-      test_h07  OWN SERIES (amendment): HVAC is v1 and the Electrical current asset is UNMOVED (no newer
+      test_h07  OWN SERIES (amendment; slice 1c ruling): the HVAC series is exactly v1 + v2 with v2 current and
+                v1 byte-identical to its committed form, the Electrical current asset is UNMOVED (no newer
                 Electrical file exists in the data dir), the version lives ONLY in the filename (no
-                `version` key, no "v1" text inside), the mint gate resolves each series' latest file
+                `version` key, no "v1" / "v2" text inside), the mint gate resolves each series' latest file
                 INDEPENDENTLY, no rate key shares a name with an attribute; NEGATIVE: the resolver DOES
                 surface a newer Electrical file when one is listed, so the "unmoved" pin is not vacuous."""
 
@@ -10274,7 +10279,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual(sum(1 for x in rows if x["source_row"] == 80), 3)
         cfg = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": disc, "active": 1}, "config"))
         self.assertEqual(cfg["item_kinds"], ["hvac_adp_item"])
-        self.assertEqual({d["id"] for d in cfg["attribute_definitions"]}, self.ATTR_IDS)
+        # slice 1c (owner ruling, inverting the 1b pin): the config declares the 14 derived ids PLUS the two
+        # text definitions item_name / item_detail (D1, S-a), and the two text defs come FIRST
+        self.assertEqual({d["id"] for d in cfg["attribute_definitions"]}, self.ATTR_IDS | {"item_name", "item_detail"})
+        self.assertEqual([d["id"] for d in cfg["attribute_definitions"]][:2], ["item_name", "item_detail"])
 
     # -- h02 ----------------------------------------------------------------------------------------
     def test_h02_roundup_of_cost_times_markup_reproduces_every_sheet_boq_figure(self):
@@ -10305,10 +10313,17 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual(self.EXPECTED_BOQ[(34, "SQM")], (7685, 1600))
         self.assertEqual(self.EXPECTED_BOQ[(38, "SQM")], (5075, 1120))
         self.assertEqual(self.EXPECTED_BOQ[(94, "Nos")], (8700, 1280))
-        # NEGATIVE (R-f): the derived items carry the two markups and NOTHING else
+        # NEGATIVE (R-f, as amended by S-d -- owner ruling, slice 1c): the eight derived items carry NO
+        # cost_supply; rows 89 and 91 carry the sheet's typed cost_install 0; the other six carry no
+        # cost_install at all -- markups only.
         self.assertEqual({i["source"]["row"] for i in derived}, self.DERIVED_ROWS)
         for i in derived:
-            self.assertEqual(set(i["rates"]), {"supply_markup", "install_markup"}, i["source"])
+            self.assertNotIn("cost_supply", i["rates"], i["source"])
+            if i["source"]["row"] in (89, 91):
+                self.assertEqual(set(i["rates"]), {"supply_markup", "install_markup", "cost_install"}, i["source"])
+                self.assertEqual(i["rates"]["cost_install"], 0.0, i["source"])
+            else:
+                self.assertEqual(set(i["rates"]), {"supply_markup", "install_markup"}, i["source"])
 
     # -- h03 ----------------------------------------------------------------------------------------
     def test_h03_loading_the_hvac_asset_leaves_active_electrical_byte_identical(self):
@@ -10352,8 +10367,12 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual(kind_cat, {"hvac_adp_item": "hvac_adp"})
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(n, 95)
-        for col in self.RATE_KEYS | self.ATTR_IDS:
+        # slice 1c (owner ruling S-b, inverting the 1b pin): the HVAC CSV carries the FOUR rate columns and the
+        # TWO text columns, and NONE of the 14 derived ids -- those are read from the text, never a column
+        for col in self.RATE_KEYS | {"item_name", "item_detail"}:
             self.assertIn(col, headers, col)
+        for col in self.ATTR_IDS:
+            self.assertNotIn(col, headers, col)
         spec, errors = csv_importer.classify_columns(headers, attr_ids, rate_keys)
         self.assertEqual(errors, [], errors)
         # the exported file, re-imported UNCHANGED, plans zero changes (the C4 cert, in code)
@@ -10392,15 +10411,26 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_v1_stands_alone_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_and_v2_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v1.json")
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v2.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
-        # each series resolved on its own: HVAC holds exactly its first version; Electrical's latest file
-        # IS the pinned current asset -- this slice created no Electrical file at any newer N
-        self.assertEqual([n for n in names if gate.HVAC_RE.match(n)], [CURRENT_HVAC_ASSET])
+        # each series resolved on its own (owner ruling, slice 1c, INVERTING the 1b first-version pin): the HVAC
+        # series lists EXACTLY v1 and v2, the latest is the current asset, and v1 is BYTE-IDENTICAL to its
+        # committed form -- a superseded version is history, never edited; Electrical's latest file IS the
+        # pinned current asset -- no slice created an Electrical file at any newer N
+        self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
+                         ["rate_master_hvac_all_v1.json", CURRENT_HVAC_ASSET])
+        import subprocess
+        repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
+        committed_v1 = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", repo, "show",
+             "HEAD:nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v1.json"],
+            capture_output=True, check=True).stdout
+        with open(_asset_path("rate_master_hvac_all_v1.json"), "rb") as fh:
+            self.assertEqual(fh.read(), committed_v1, "v1 must stay byte-identical to its committed form")
         self.assertEqual(gate.latest_in("HVAC", names), CURRENT_HVAC_ASSET)
         self.assertEqual(gate.latest_in("Electrical", names), CURRENT_EALL_ASSET)
         self.assertEqual(gate.latest_asset("HVAC"), CURRENT_HVAC_ASSET)
@@ -10410,6 +10440,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             raw = fh.read()
         self.assertNotIn("version", self.hvac)
         self.assertNotIn("v1", raw)
+        self.assertNotIn("v2", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}

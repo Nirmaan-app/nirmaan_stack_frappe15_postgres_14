@@ -151,6 +151,7 @@ from frappe.utils.background_jobs import get_job_status  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
 from nirmaan_stack.services.boq_rate_master import freeze  # noqa: E402  (deployment freeze guard)
+from nirmaan_stack.services.boq_rate_master import spec_reader  # noqa: E402  (slice 1c: item text -> attributes)
 from nirmaan_stack.api.boq.wizard import pricing  # noqa: E402  (D8 gate reuse; import UP api->api)
 
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"
@@ -1234,7 +1235,29 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
                 rates[k] = None  # numeric-OR-NULL
             else:
                 rates[k] = _finite_number(v, f"rates.{k}")
-    if attributes_patch:
+    # SLICE 1c: an item of an opted-in category (`attributes_from_spec`) takes its attributes from its
+    # item_name / item_detail through the SAME reader the CSV upload uses -- no back door (S-c 3). Only
+    # the two text keys may be patched; a changed text is re-read, an unchanged one leaves the stored
+    # attributes exactly as they are. A category without the key takes the legacy branch, byte-identical.
+    spec_cat = spec_reader.spec_categories(doc.discipline).get(doc.kind)
+    spec_out = None
+    if attributes_patch and spec_cat:
+        bad = sorted(set(attributes_patch) - set(spec_reader.TEXT_ATTRS))
+        if bad:
+            frappe.throw(
+                f"The attributes of {spec_cat} are read from Item and Item detail and cannot be edited "
+                f"by hand: {', '.join(bad)}. Change the text instead.",
+                title="Read from spec",
+            )
+        old_name, old_detail = spec_reader.text_of(attributes)
+        new_name = str(attributes_patch.get("item_name", old_name) or "")
+        new_detail = str(attributes_patch.get("item_detail", old_detail) or "")
+        if not new_name.strip():
+            frappe.throw("item_name is required -- the attributes are read from it.", title="Missing field: item_name")
+        if (new_name, new_detail) != (old_name, old_detail):
+            attributes, reason = spec_reader.attributes_for(spec_cat, new_name, new_detail, doc.unit)
+            spec_out = {"status": spec_reader.NOT_UNDERSTOOD if reason else "ok", "reason": reason}
+    elif attributes_patch:
         known = _active_config_attr_ids(doc.discipline)
         merged = dict(attributes)
         for k, v in attributes_patch.items():
@@ -1250,7 +1273,7 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
     doc.attributes = json.dumps(attributes)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
     frappe.db.commit()
-    return {
+    out = {
         "ok": True,
         "item": {
             "name": doc.name,
@@ -1263,6 +1286,9 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
             "active": doc.active,
         },
     }
+    if spec_out is not None:
+        out["spec"] = spec_out
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1286,18 +1312,38 @@ def create_rate_master_item(
         frappe.throw("attributes must be an object.", title="Invalid value")
     if not isinstance(rates, dict):
         frappe.throw("rates must be an object.", title="Invalid value")
-    known = _active_config_attr_ids(discipline)
-    if known is not None:
-        for k in attributes:
-            if k not in known:
-                frappe.throw(
-                    f"Unknown attribute '{k}' for discipline '{discipline}'.",
-                    title="Invalid attribute",
-                )
     clean_rates = {}
     for k, v in rates.items():
         clean_rates[k] = None if v is None else _finite_number(v, f"rates.{k}")
-    attrs = loader._canonicalize_attributes(attributes)  # material/insulation -> UPPERCASE
+    # SLICE 1c: an opted-in category (`attributes_from_spec`) -- the caller supplies item_name /
+    # item_detail and NOTHING else; the reader derives the rest (or flags the row). Same reader, same
+    # flag behaviour as the CSV upload (S-c 3). Any other category: the legacy path, byte-identical.
+    spec_cat = spec_reader.spec_categories(discipline).get(kind.strip())
+    spec_out = None
+    if spec_cat:
+        bad = sorted(set(attributes) - set(spec_reader.TEXT_ATTRS))
+        if bad:
+            frappe.throw(
+                f"The attributes of {spec_cat} are read from Item and Item detail and cannot be typed in: "
+                f"{', '.join(bad)}.",
+                title="Read from spec",
+            )
+        item_name = str(attributes.get("item_name") or "")
+        item_detail = str(attributes.get("item_detail") or "")
+        if not item_name.strip():
+            frappe.throw("item_name is required -- the attributes are read from it.", title="Missing field: item_name")
+        attrs, reason = spec_reader.attributes_for(spec_cat, item_name, item_detail, unit)
+        spec_out = {"status": spec_reader.NOT_UNDERSTOOD if reason else "ok", "reason": reason}
+    else:
+        known = _active_config_attr_ids(discipline)
+        if known is not None:
+            for k in attributes:
+                if k not in known:
+                    frappe.throw(
+                        f"Unknown attribute '{k}' for discipline '{discipline}'.",
+                        title="Invalid attribute",
+                    )
+        attrs = loader._canonicalize_attributes(attributes)  # material/insulation -> UPPERCASE
 
     doc = frappe.get_doc(
         {
@@ -1316,7 +1362,7 @@ def create_rate_master_item(
     )
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
-    return {
+    out = {
         "ok": True,
         "item": {
             "name": doc.name,
@@ -1332,6 +1378,9 @@ def create_rate_master_item(
             "active": doc.active,
         },
     }
+    if spec_out is not None:
+        out["spec"] = spec_out
+    return out
 
 
 @frappe.whitelist(methods=["POST"])

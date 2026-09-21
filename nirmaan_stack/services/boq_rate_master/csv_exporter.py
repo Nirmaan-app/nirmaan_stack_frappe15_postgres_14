@@ -46,6 +46,8 @@ import json
 
 import frappe
 
+from nirmaan_stack.services.boq_rate_master import spec_reader
+
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
 
@@ -115,6 +117,38 @@ def _keys_for(items):
     return sorted(attrs), sorted(rates)
 
 
+# ── SLICE 1c: a category whose attributes are READ FROM THE SPEC (owner S-b) ────────────────────
+# "we should not show the derived attribute columns in the csv to avoid confusion. they will be hidden
+# from the user and the spec reader will make modifications based on the item and spec."
+#
+# For an opted-in category (`attributes_from_spec: true`, resolved through `spec_reader.spec_categories`)
+# the file carries the TWO TEXT columns -- `item_name`, `item_detail`, in that order, right after the
+# lead identity columns -- and NO derived attribute column and NO reserved flag column. The rates follow
+# as before. A discipline with no opted-in category (Electrical) takes none of these branches, so its
+# files are byte-identical to before: the two functions below compute `spec_kinds` and, when it is
+# empty, fall through to exactly the code that was here.
+TEXT_COLUMNS = spec_reader.TEXT_ATTRS
+
+
+def _spec_kinds(discipline):
+    """The kinds whose category opts in. Empty for Electrical."""
+    return set(spec_reader.spec_categories(discipline))
+
+
+def _split_keys(items, spec_kinds):
+    """(attrs, rates, has_spec_rows): attribute keys observed on NON-spec rows only (a spec row's
+    derived keys are never a column), rate keys observed on every row."""
+    attrs, rates = set(), set()
+    has_spec = False
+    for it in items:
+        rates.update(it["rates"].keys())
+        if it["kind"] in spec_kinds:
+            has_spec = True
+        else:
+            attrs.update(it["attributes"].keys())
+    return sorted(attrs), sorted(rates), has_spec
+
+
 def _cell(value):
     """A value, as stored. None -> empty. Everything else str()'d WITHOUT reformatting: a float
     stays `2.0`, a string keeps its spacing. The csv writer handles quoting for commas/quotes."""
@@ -147,16 +181,23 @@ def build_category_csv(discipline, category_id):
 
     kinds = set(cat_kinds[category_id])
     rows_in = [it for it in items if it["kind"] in kinds]
-    attrs, rates = _keys_for(rows_in)
 
-    if not attrs and not rates:
-        # No items (or a kind-less category): fall back to the config's declared attribute ids so the
-        # file is still a template a user can add rows to.
-        cfg = frappe.db.get_value(CONFIG_DOCTYPE,
-                                  {"discipline": discipline, "category_id": category_id, "active": 1},
-                                  "config")
-        defs = _parsed(cfg, {}).get("attribute_definitions") or []
-        attrs = sorted({d["id"] for d in defs if isinstance(d, dict) and d.get("id")})
+    spec_kinds = _spec_kinds(discipline)
+    if kinds and kinds <= spec_kinds:
+        # SLICE 1c -- an opted-in category: text columns, rates, nothing derived. A category with no
+        # items still gets the two text columns, so the template is usable.
+        _attrs_unused, rates = _keys_for(rows_in)
+        attrs = list(TEXT_COLUMNS)
+    else:
+        attrs, rates = _keys_for(rows_in)
+        if not attrs and not rates:
+            # No items (or a kind-less category): fall back to the config's declared attribute ids so
+            # the file is still a template a user can add rows to.
+            cfg = frappe.db.get_value(CONFIG_DOCTYPE,
+                                      {"discipline": discipline, "category_id": category_id, "active": 1},
+                                      "config")
+            defs = _parsed(cfg, {}).get("attribute_definitions") or []
+            attrs = sorted({d["id"] for d in defs if isinstance(d, dict) and d.get("id")})
 
     headers = list(LEAD_COLUMNS) + attrs + rates + list(TAIL_COLUMNS)
     rows = []
@@ -174,15 +215,28 @@ def build_all_categories_csv(discipline):
     """MODE B -- every category in one file, with a `category` column and the UNION of every
     category's attribute and rate keys. Sparse by construction."""
     items, kind_cat, _cat_kinds = _load(discipline)
-    attrs, rates = _keys_for(items)
+    spec_kinds = _spec_kinds(discipline)
+    if spec_kinds:
+        # SLICE 1c -- the union takes its attribute keys from NON-spec rows only; the two text columns
+        # are added (before the other attributes) when any spec row is in the file; a spec row's cell
+        # in every other attribute column is BLANK, even where a key name is shared, because its
+        # derived values are never a column.
+        other_attrs, rates, has_spec = _split_keys(items, spec_kinds)
+        attrs = (list(TEXT_COLUMNS) if has_spec else []) + [a for a in other_attrs if a not in TEXT_COLUMNS]
+    else:
+        attrs, rates = _keys_for(items)
     headers = ([LEAD_COLUMNS[0], CATEGORY_COLUMN] + list(LEAD_COLUMNS[1:])
                + attrs + rates + list(TAIL_COLUMNS))
     rows = []
     for it in items:
+        if it["kind"] in spec_kinds:
+            attr_cells = [_cell(it["attributes"].get(a)) if a in TEXT_COLUMNS else "" for a in attrs]
+        else:
+            attr_cells = [_cell(it["attributes"].get(a)) for a in attrs]
         rows.append(
             [_cell(it["item_uid"]), _cell(kind_cat.get(it["kind"], "")),
              _cell(it["kind"]), _cell(it["brand"]), _cell(it["unit"])]
-            + [_cell(it["attributes"].get(a)) for a in attrs]
+            + attr_cells
             + [_cell(it["rates"].get(r)) for r in rates]
             + [_cell(it["source_sheet"]), _cell(it["source_row"])]
         )

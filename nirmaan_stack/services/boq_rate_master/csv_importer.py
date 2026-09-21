@@ -83,7 +83,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader
+from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader, spec_reader
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -176,6 +176,25 @@ def column_spaces(discipline):
         attr_ids.update(attrs.keys())
         rate_keys.update(rates.keys())
     return attr_ids, rate_keys, attr_types, kind_cat
+
+
+def _spec_owned_columns(discipline, spec_cats):
+    """SLICE 1c: {category_id: the attribute ids the SPEC READER owns} for every opted-in category --
+    its declared definitions minus the two text keys, plus the two reserved flag keys. A NON-blank
+    cell in one of these columns on an opted-in row is refused (S-c 3: no back door); a blank one is
+    ignored, never a clearing. Empty for a discipline with no opted-in category."""
+    owned = {}
+    if not spec_cats:
+        return owned
+    wanted = set(spec_cats.values())
+    for c in frappe.get_all(CONFIG_DOCTYPE,
+                            filters={"discipline": discipline, "active": 1},
+                            fields=["category_id", "config"]):
+        if c["category_id"] not in wanted:
+            continue
+        cfg = c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+        owned[c["category_id"]] = set(spec_reader.derived_attr_ids(cfg)) | set(spec_reader.RESERVED_ATTRS)
+    return owned
 
 
 def classify_columns(headers, attr_ids, rate_keys):
@@ -339,6 +358,10 @@ def build_plan(discipline, raw):
     headers, data_rows = parse_csv_text(text)
     attr_ids, rate_keys, attr_types, kind_cat = column_spaces(discipline)
     spec, errors = classify_columns(headers, attr_ids, rate_keys)
+    # SLICE 1c: the opted-in categories ({kind: category_id}; {} for Electrical) and the columns the
+    # reader owns for each. Resolved ONCE per plan, never per row.
+    spec_cats = spec_reader.spec_categories(discipline)
+    spec_owned = _spec_owned_columns(discipline, spec_cats)
 
     active = frappe.get_all(
         ITEM_DOCTYPE,
@@ -424,25 +447,71 @@ def build_plan(discipline, raw):
             attributes = dict(stored["attributes"])
             rates = dict(stored["rates"])
 
-        for name, idx in spec["attributes"].items():
-            raw_text = cell(cells, idx)
-            # ⚠️ EXACTLY empty counts as blank here -- a whitespace-only cell is stored verbatim and
-            # therefore SHOWS as a change. That asymmetry with rates (which strip before parsing) is
-            # deliberate: whitespace cannot alter a number, but it can alter a catalog match key,
-            # so the one place it could do damage is the one place it must stay visible.
-            if raw_text == "":
-                # blank cell -- "empty or absent"
-                if stored is not None and name in attributes and not _blankish(attributes[name]):
-                    attributes.pop(name)           # a real value was cleared
-                elif stored is None:
-                    attributes.pop(name, None)     # a new row declares only what it has
-                # already empty-or-absent -> leave EXACTLY as stored (no spurious change)
-                continue
-            value, err = coerce_attribute(raw_text, attr_types.get(name))
-            if err:
-                row_errors.append("%s: %s" % (name, err))
-            else:
-                attributes[name] = value
+        spec_cat = spec_cats.get(kind) if kind else None
+        spec_info = None
+        if spec_cat:
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 1c -- an opted-in category: ITEM NAME + ITEM DETAIL ARE THE SOURCE OF TRUTH.
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # Missing derived columns are EXPECTED (the export omits them). A NON-blank cell in a
+            # derived (or reserved flag) column is refused by name -- attributes are never hand-edited
+            # (S-c 3). A new row, or a row whose item_name / item_detail / unit changed, is READ by the
+            # spec reader; an unchanged row keeps its attributes EXACTLY as stored. The preview carries
+            # what the reader understood, or why it could not, and the apply writes exactly that
+            # (the payload rides the plan). A not-understood spec is NOT an error: the row is saved
+            # with the flag (D4) and shown as "won't price: spec not understood".
+            owned = spec_owned.get(spec_cat, set())
+            for name, idx in spec["attributes"].items():
+                if name in spec_reader.TEXT_ATTRS:
+                    continue
+                if name in owned and (cell(cells, idx) or "") != "":
+                    row_errors.append(
+                        "%s: the attributes of %s are read from Item and Item detail and cannot be typed "
+                        "in -- leave this column blank (or remove it) and change the text instead."
+                        % (name, spec_cat))
+            old_name, old_detail = spec_reader.text_of(stored["attributes"]) if stored else ("", "")
+            ni = spec["attributes"].get("item_name")
+            di = spec["attributes"].get("item_detail")
+            new_name = cell(cells, ni) if ni is not None else old_name
+            new_detail = cell(cells, di) if di is not None else old_detail
+            new_unit = (_opt(cell(cells, spec["fixed"]["unit"])) if "unit" in spec["fixed"]
+                        else (stored["unit"] if stored else None))
+            text_changed = stored is None or (new_name, new_detail, new_unit) != (old_name, old_detail, stored["unit"])
+            if stored is None and not (new_name or "").strip():
+                row_errors.append(
+                    "item_name is required for a new %s row -- its attributes are read from it." % spec_cat)
+            elif text_changed and not spec_reader.has_reader(spec_cat):
+                row_errors.append(
+                    "category %s declares attributes_from_spec but no spec reader exists for it." % spec_cat)
+            elif text_changed:
+                attributes, reason = spec_reader.attributes_for(spec_cat, new_name, new_detail, new_unit)
+                spec_info = {
+                    "status": spec_reader.NOT_UNDERSTOOD if reason else "ok",
+                    "reason": reason,
+                    "read": {k: v for k, v in attributes.items()
+                             if k not in spec_reader.TEXT_ATTRS and k not in spec_reader.RESERVED_ATTRS},
+                }
+            # else: text and unit unchanged -> the stored attributes stand, untouched
+        else:
+            for name, idx in spec["attributes"].items():
+                raw_text = cell(cells, idx)
+                # ⚠️ EXACTLY empty counts as blank here -- a whitespace-only cell is stored verbatim and
+                # therefore SHOWS as a change. That asymmetry with rates (which strip before parsing) is
+                # deliberate: whitespace cannot alter a number, but it can alter a catalog match key,
+                # so the one place it could do damage is the one place it must stay visible.
+                if raw_text == "":
+                    # blank cell -- "empty or absent"
+                    if stored is not None and name in attributes and not _blankish(attributes[name]):
+                        attributes.pop(name)           # a real value was cleared
+                    elif stored is None:
+                        attributes.pop(name, None)     # a new row declares only what it has
+                    # already empty-or-absent -> leave EXACTLY as stored (no spurious change)
+                    continue
+                value, err = coerce_attribute(raw_text, attr_types.get(name))
+                if err:
+                    row_errors.append("%s: %s" % (name, err))
+                else:
+                    attributes[name] = value
 
         for name, idx in spec["rates"].items():
             raw_text = cell(cells, idx)
@@ -514,6 +583,10 @@ def build_plan(discipline, raw):
             # readers. The preview endpoint strips it before the client sees it (see `public_plan`).
             "_payload": new_payload,
         }
+        if spec_info is not None:
+            # SLICE 1c: what the reader understood from the new / changed text, or why it could not.
+            # PUBLIC (no underscore) -- this is the preview's U2 line.
+            change["spec"] = spec_info
         plan["changes"].append(change)
         if stored is None:
             plan["counts"]["items_added"] += 1
@@ -582,7 +655,7 @@ def _label(payload):
     """A human handle for a row in the preview -- the catalog `item` when there is one, else the
     kind plus whatever attributes it carries. Never a document name; the user has never seen one."""
     attrs = payload.get("attributes") or {}
-    for key in ("item", "description", "type", "size", "rating"):
+    for key in ("item_name", "item", "description", "type", "size", "rating"):
         v = attrs.get(key)
         if isinstance(v, str) and v.strip():
             return "%s / %s" % (payload.get("kind") or "?", v.strip()[:90])

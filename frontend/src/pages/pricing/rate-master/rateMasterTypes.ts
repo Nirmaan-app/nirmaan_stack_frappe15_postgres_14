@@ -732,6 +732,13 @@ export interface RateCategoryConfig {
    * EVERY category (never composite-gated) and rendered read-only on the Derivation tab. The index
    * signature below already round-tripped this key; the explicit field is for type safety only. */
   rules?: RateCategoryRule[];
+  /**
+   * SLICE 1c -- the SPEC READER opt-in. `true` means item_name + item_detail are the source of truth:
+   * the server derives every other attribute from them (services/boq_rate_master/spec_reader.py), the
+   * CSV omits the derived columns, the Data Viewer shows them read-only ("read from spec") and the
+   * add/edit form sends the text only. Read as `=== true` on both sides; absent => unchanged.
+   */
+  attributes_from_spec?: boolean;
   [k: string]: unknown;
 }
 

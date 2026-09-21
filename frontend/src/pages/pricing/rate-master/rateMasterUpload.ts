@@ -28,6 +28,17 @@ export interface UploadField {
   major?: boolean;
 }
 
+/**
+ * SLICE 1c -- what the SPEC READER made of a new or changed row of an opted-in category: the derived
+ * attributes it read, or the exact reason it could not. Server-computed (`csv_importer.build_plan`);
+ * absent on every other row. The dialog renders it, never recomputes it.
+ */
+export interface UploadSpec {
+  status: "ok" | "not_understood";
+  reason: string | null;
+  read: Record<string, string | number>;
+}
+
 export interface UploadChange {
   row: number;
   kind: "add" | "update";
@@ -36,6 +47,7 @@ export interface UploadChange {
   label: string;
   major: boolean;
   fields: UploadField[];
+  spec?: UploadSpec;
 }
 
 export interface UploadError {
