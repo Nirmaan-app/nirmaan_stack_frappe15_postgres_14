@@ -595,6 +595,21 @@ configs, 569 pass; the one refusal (v12 `point_wiring.switch_item`, a `choice` w
 retired asset. **A test that loads a historical asset through the loader is in the gate's blast radius**
 (six did, on v12) -- repair the fixture in memory and pin the untouched file as REFUSED; never add a `validate=False`.
 
+**⚠️ EVERY HVAC RATE-MASTER ITEM KIND IS PREFIXED `hvac_`, AND AN ITEM KIND IS NEVER SHARED ACROSS DISCIPLINES
+(owner-locked).** The interpreter's `matchMasterRow` filters items by KIND and attributes, never by discipline, so
+one kind name used by two disciplines lets one discipline's rows into the other's matches with nothing on screen
+saying so. The mint gate's `--latest` mode proves the latest files of every series disjoint, and
+`test_rate_master` pins the prefix and the disjointness; a new HVAC category adds kinds under the prefix, never a
+bare or Electrical-shaped name.
+
+**⚠️ EACH DISCIPLINE'S ASSET IS VERSIONED, MINTED, MERGED AND LOADED ON ITS OWN; ONLY THE DISCIPLINE THAT CHANGED
+MOVES (owner ruling).** The HVAC series is `rate_master_hvac_all_v<N>.json` with its OWN N, unrelated to
+Electrical's; a change to one discipline never mints, copies, edits or re-pins the other's asset file, and the
+handover names both versions in one line. The mint gate walks each series' history INDEPENDENTLY and, for a FIRST
+version, reports the removal check as NOT APPLICABLE rather than passed (a first file has no predecessor to lose
+atoms against; what it checks instead is the discipline stamp, the contents, and the kind disjointness). Snapshot
+versions were already per discipline (`write_snapshot` counts within the discipline) and are unrelated to N.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

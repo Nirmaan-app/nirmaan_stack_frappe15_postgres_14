@@ -38903,3 +38903,155 @@ boq_rate_master/loader.py` (`_loaded_config`, `_validate_loaded_config`, both lo
 record, root `CLAUDE.md` (one durable rule). Out of scope and untouched: every config and asset, `patches.txt`,
 `ratePipelineInterpreter.ts` and every frontend file, `extraction.py` and the prompt; the modified
 `.claude/settings.local.json` and the root untracked files are declared noise, not staged.
+
+## HVAC RATE MASTER, SLICE 1b -- the HVAC asset v1 (ADP items) and HVAC in the Rate Master (2026-09-21) -- SHIPPED
+
+Owner rulings applied (quoted in the slice prompt): **R-a** a separate HVAC asset file; **R-b** cost + markup;
+**R-c** per-SKU markups, the four rate keys `cost_supply` / `cost_install` / `supply_markup` / `install_markup`,
+pricing NOT built this slice (the rule to be built later: BoQ = ROUNDUP(cost x (1 + markup), 0), per side);
+**R-d** (1) "9/10 NM" is torque 10, (2) "1:10 /12" is panel ratio 12, (3) canvas row 80 is THREE items
+SQM / RMT / NOS, (4) eyeball + jet is ONE family, (6) row 33 "1200MM X300MM" is a FACE size and neck is NA,
+(9) TDF flange / fusible link not modelled; **R-e** row 34 = 5300/1000, row 38 = 3500/700, row 94 = 6000/800
+(the second cost pair confirmed as row 38, "yes"); **R-f** the derived rows 81-86, 89, 91 are loaded WITHOUT their
+own cost, markups only; **U5** approved ("ok"): the eight derived items show a blank cost on the Rate Master until a
+later slice.
+
+**THE AMENDMENT (owner, mid-slice, verbatim "yes we should do it"):** *each discipline keeps its OWN version number;
+only the file that changed is minted, merged and loaded; the handover records both versions in one line.* It
+REPLACED the "same version number, minted as one set" rule the slice was started under. Consequences: the HVAC
+asset is **`rate_master_hvac_all_v1.json`**, NO Electrical asset file is created or modified, `CURRENT_EALL_ASSET`
+stays at v63, the mint gate walks the HVAC history INDEPENDENTLY, and the kind-disjointness check compares the
+LATEST Electrical file with the LATEST HVAC file. **Handover line: Electrical v63 / HVAC v1.**
+
+### WHAT WAS UNDONE (the slice had been built under the set rule before the amendment arrived; no commit existed)
+- `rate_master_electrical_all_v64.json` (my own uncommitted byte copy of v63): DELETED. No existing Electrical
+  asset file was touched at any point (v63 is byte-identical to HEAD).
+- `rate_master_hvac_all_v64.json`: RENAMED to `rate_master_hvac_all_v1.json`; content byte-identical
+  (sha256 `c96a0b1c4e85edc176677cd082aa0aac02274a3d3a3f425545d29ed35b81a763` before and after). The file carries
+  NO `version` key and no "v64" / "v1" text inside -- the version lives only in the filename (checked: 0 matches).
+- `CURRENT_EALL_ASSET` and the `TestIncludesModulesGate` pin on it: RESTORED to the HEAD lines (v63). The test-file
+  diff is now insertions only.
+- The temporary UNTRACKED mint script was retargeted (`_mint_hvac_v1_tmp.py`: writes v1 only, no Electrical
+  output) and re-run: it regenerates the identical v1 bytes.
+- The database: HVAC RELOADED from the v1 file through the unchanged loader with `replace=True` (HVAC scope only).
+  Electrical before and after: 1,367 active items / 12 configs / 15,040 rows in all, content checksum
+  `77a70755e65b3e093021736625197363e804232b78b6ac191d7ff236615bf0db` identical. HVAC: batch
+  `rmbulk-e4258908c5ba` (95 rows, the v64-named load) superseded to inactive, live batch **`rmbulk-3c62f20c2cd6`**
+  (95 active items, 1 config; 190 HVAC rows in all). The HVAC export is byte-identical to the v1 file; the
+  Electrical export is semantically identical to the v63 file.
+
+### THE ASSET (v1)
+95 items, ONE kind `hvac_adp_item`, ONE config `hvac_adp` ("ADP (Air Distribution Products)", 14 attribute
+definitions, `pipelines: {}`, `discipline` stamped). Attributes (only the applicable keys are stored, the
+`db_switchgear_item` convention): family, damper, insulated, neck_mm, face_w_mm, face_h_mm, depth_mm, dia_mm,
+slot_count, torque_nm, ul, panel_ratio, thickness_mm, variant. 25 families; 87 priced items + 8 derived.
+`item_uid = "rmi-" + sha1(kind|ADP|row|unit)[:12]`; items ordered by (kind, item_uid); `brand` None;
+`source = {"sheet": "ADP", "row": <sheet row>}`. Units as the sheet writes them: SQM, Nos, Rmt, RMT, NOS.
+
+**The derived rows, exact sheet formulas (recorded, NOT applied -- R-f):**
+- rows 81-86 (canvas-connection sizes, per side): supply `=(2*(W+H)*300/10^6)*F$87`, install
+  `=(2*(W+H)*300/10^6)*G$87` with (W,H) = (200,200), (250,250), (300,300), (350,350), (650,250), (500,250);
+- row 89: `=ROUNDUP((F88*2*(750*150+150*350+750*350))/10^6+150,0)`;
+  row 91: `=ROUNDUP((F90*2*(750*150+150*350+750*350))/10^6+150,0)` (supply only).
+
+### NOT ELIGIBLE, BY CONSTRUCTION
+`pipelines: {}` fails `extraction.config_is_eligible` AND the frontend `isEligibleConfig`, so no pricing panel and
+no extraction run ever sees ADP (U4). The validator ACCEPTS the config as stored. The frontend registry lists HVAC
+AFTER Electrical (`RATE_MASTER_DISCIPLINES[0]` must stay Electrical); `RATE_MASTER_CONFIG_TARGETS` moves by
+exactly one (12 to 13) -- the ONLY pre-existing assertion changed in this slice.
+
+### THE MINT GATE ON A FIRST VERSION (`scripts/mint_completeness_check.py --latest`)
+Per series: find the latest file on disk (`latest_in` / `latest_asset`, PURE, never crossing series), walk THAT
+file's git history independently, and prove the latest files' item kinds disjoint (`kind_overlap`). For a FIRST
+version (one file in the series) there is no predecessor, so the removal check ("no atoms disappeared") is
+reported **NOT APPLICABLE -- not passed**; what IS checked and printed: the file parses, its discipline stamp
+equals the series name (a mismatch fails), items / configs / kinds, the commit count (UNCOMMITTED is named, not
+hidden), and the disjointness against the latest Electrical file (fewer than two series present also FAILS).
+Measured: Electrical latest `v63` (47 files, 1 commit, single-commit walk), HVAC latest `v1` (1 file, 1 commit
+after the feat commit), kinds Electrical x HVAC **DISJOINT**, LATEST RESULT PASS. Self-test T1-T5 ALL PASS,
+constants untouched. The set-era `--set N` mode was removed before commit.
+
+### SNAPSHOTS ARE PER DISCIPLINE (finding, confirmed live)
+`exporter.write_snapshot` numbers `max(version) WHERE discipline = %s` + 1. Before this slice only Electrical
+had snapshots (max 22). The cert's HVAC asset download (C3b) banked **HVAC snapshot version 1**
+(`BRMS-26-00880`), independent of Electrical; the Electrical download (C7b) banked Electrical 23. The snapshot
+counter is unrelated to the asset file's N in either series.
+
+### TESTS (`TestHvacAssetSlice1b`, h01-h07; module 378 before, 385 after, OK)
+h01 loads 95 / 1 with provenance and the sheet's units, row 80 three times; h02 ROUNDUP(cost x (1+markup)) equals
+every sheet BoQ figure for the 87 priced items on both sides (R-e rows 7685/1600, 5075/1120, 8700/1280), NEGATIVE:
+the eight derived items carry markups and no cost; h03 an HVAC load leaves the active Electrical content
+byte-identical (counts + checksum), NEGATIVE: no Electrical kind among the loaded rows; h04 every HVAC kind is
+`hvac_`-prefixed and disjoint via the gate's own `kind_overlap`, NEGATIVE: an item wearing `cable` is reported;
+h05 the CSV column space carries the four rate columns and the 14 attributes, the export has 95 rows, re-importing
+it plans zero changes, NEGATIVE: an attribute/rate name clash is a conflict; h06 not eligible on both sides, the
+validator accepts, NEGATIVE: one pipeline makes it eligible and one unknown def key is refused; **h07 (rewritten
+under the amendment)** HVAC is v1 and the Electrical current asset is UNMOVED (no newer Electrical file exists in
+the data dir), `latest_in` / `latest_asset` resolve each series independently, no `version` key and no "v1" text in
+the file, no rate key shares a name with an attribute, NEGATIVE: the resolver DOES surface a newer Electrical file
+when one is listed and never returns it for HVAC.
+
+**Vacuity (each: doctor, expected tests red, restore, hash verified):** V1 drop one item: h01 red (94 != 95);
+V2 one cost 5400 to 5401: h02 red ((7832, 1920) != (7830, 1920)); V3 one kind `cable`: h03 + h04 red; V4 def id
+`family` renamed `cost_supply`: h05 + h07 red; V5 one pipeline: h06 red; V6 (set era, one extra byte on the
+Electrical copy: h07 red) is RETIRED with the copy; **V7** a `version: 1` key inserted into the v1 file: h07 red
+("version unexpectedly found"), file restored to the identical sha.
+
+### COUNTS (measured in-session)
+Backend module: 378 OK (baseline) / 385 OK (after, and again 385 OK after the amendment edits). Vitest:
+Test Files 85 passed / 1 failed (86); Tests 3,409 passed / 1 failed (3,410) on all three runs (baseline, after,
+after-amendment); the one failure is the known pre-existing
+`src/pages/POAdjustment/writeOffControl.test.ts > the three admin predicates stay in step > mirrors the sibling
+admin predicates`. tsc: 3,229 errors repo-wide before and after, 0 in the two touched files (before measured via a
+path-scoped stash of the two files, popped afterwards). In-container `yarn build`: EXIT 0 (177 s); tracked tree
+unchanged by the build.
+
+### THE CERT (live, :8080, de-staled; bundle marker `hvac_adp` x2 in the served registry module)
+- **C1** Discipline picker shows Electrical and HVAC; Electrical unchanged (12 categories, 1,367 items, 13 kinds).
+- **C2** (re-run after the reload) HVAC / ADP, batch `rmbulk-3c62f20c2cd6`, 95 items, 14 attribute columns + the
+  four rate columns; blank cost on exactly rows 81-86, 89, 91; 95 rows with both markups; row 80 in RMT / SQM /
+  NOS; row 34 at 5300 / 1000 / 0.45 / 0.6.
+- **C3** HVAC "All categories" CSV: 25 columns, 95 rows, kind `hvac_adp_item` only, 8 blank `cost_supply`.
+- **C3b** HVAC "Asset file" download `rate_master_hvac_v1.json`: discipline HVAC, 95 items, 1 config,
+  BYTE-IDENTICAL to the repo v1 file; wrote HVAC snapshot version 1.
+- **C4** re-uploading that CSV: "95 rows read, 0 rates changed, 0 items added, 95 rows unchanged, 0 errors. This
+  file matches the catalog exactly." Cancelled -- NOT applied (synthetic-only rule; nothing written).
+- **C5** Electrical pricing page BOQ-26-00224 / ELECTRICAL, badge signature per row. The table has 354 rows
+  (max data-index 353). BEFORE the slice: 353 rows captured, 199 badged, {"1,1": 76, "used,1": 4, "used,used": 119},
+  hash 26622cc0e464f329. AFTER (complete capture, twice, once before and once after the v1 reload):
+  354 rows, 200 badged, {"1,1": 77, "used,1": 4, "used,used": 119}, hash dc65e546c85d002a. Removing exactly row 264
+  from the after-set reproduces the before hash, so the 353 rows both captures saw are identical and the
+  before-capture was one row short. **Row 264** is a 38 px single-line Item ("32 A DP 10 KA MCB ('C' / 'D'
+  CURVE)", data-index 216) with the badge "1 rate suggestion(s)" on both rate cells -- signature "1,1" in every
+  complete capture. **Why it was missing (capture artifact, virtualised rendering):** the collector records only
+  the rows present in the DOM when it is called after each wheel step; a row that is not in the rendered window at
+  any collect instant is never seen. The same collector and the same 5-tick stride produced 353 rows in one run,
+  345 rows in the first pass of another (nine rows recovered by scrolling back) and 354 in a later run, on data
+  proven unchanged: no Electrical rate-suggestion run or event and no `BoQ Cell Pricing` row for this sheet was
+  modified since 2026-09-08 / 2026-09-03 / 2026-09-04 respectively, and the HVAC load never touched an Electrical
+  row (checksum). The 3-tick sweep logs every rendered window range and shows every consecutive window
+  overlapping -- coverage complete by construction, 354 rows. Verdict: the badge count per Electrical row is
+  unchanged; the one-row difference was in the capture, not the page.
+- **C7** Electrical "All categories" CSV: 49 columns, 1,367 rows, 13 kinds, no HVAC column.
+- **C7b** Electrical "Asset file" download (`rate_master_electrical_v23`): 1,367 items, 12 configs, 13 kinds, no
+  `hvac_` kind, semantically identical to the repo v63 file; wrote Electrical snapshot 23.
+
+### ANOMALIES (disclosed)
+The owner sheet's row 9 install BoQ cell holds the stray text "would " (a save at 15:52 overwrote the formula);
+the test uses the rule's own 800. The two asset downloads WRITE snapshot rows (HVAC 1, Electrical 23) -- a
+consequence of the requested cert steps, not of the slice. Site data was cleared for the de-stale with cookies
+kept (session preserved; no credentials handled). `bench run-tests` exits 0 on a failing single-test run (the
+FAILED line is the signal). Radix tabs and select items ignore synthetic clicks; the cert drove them by element ref
+and pointer events. The screenshot scale drifted between captures once (a click landed on the Pipelines tab); no
+state was changed by it.
+
+### FILES
+`nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v1.json` (NEW), `scripts/mint_completeness_check.py`
+(HVAC pattern, `latest_in` / `latest_asset` / `do_latest`, `--latest`), `nirmaan_stack/api/boq/test_rate_master.py`
+(`TestHvacAssetSlice1b`, insertions only), `frontend/src/pages/pricing/rate-master/rateMasterRegistry.ts` (HVAC after
+Electrical), `frontend/src/pages/pricing/pricingCalculator.test.ts` (12 to 13), this record, root `CLAUDE.md` (two
+durable rules). Untouched and out of scope: every Electrical asset file, `patches.txt`, the loader, exporter, CSV
+importer/exporter, `config_validation.py`, `extraction.py`, every pricing / interpreter / panel file, every doctype
+JSON; the modified `.claude/settings.local.json` and the root untracked files are declared noise, not staged; the
+untracked `_mint_hvac_v1_tmp.py` is a temporary build tool, never committed. Feat commit `1ed3c7d6`; this record's
+commit follows it. NOT pushed.
