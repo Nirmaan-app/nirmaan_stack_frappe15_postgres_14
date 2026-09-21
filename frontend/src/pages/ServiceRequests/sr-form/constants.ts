@@ -47,7 +47,7 @@ export const SR_SECTION_TITLES: Record<SRSectionKey, string> = {
  * Section descriptions for display
  */
 export const SR_SECTION_DESCRIPTIONS: Record<SRSectionKey, string> = {
-    items: "Select a category and add the services you need",
+    items: "Select a package, then choose approved services or enter a custom one",
     vendor: "Choose a vendor and set rates for each service item",
     review: "Review the service request details before submission",
 };

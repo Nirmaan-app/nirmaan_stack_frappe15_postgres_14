@@ -41,6 +41,8 @@ export interface ProjectPaymentUpdateFields {
         document_type : string;
         amount        : number;
         status        : string;
+        /** A cheque payment's number: the reference its reconciliation starts from. */
+        cheque_no    ?: string;
     }
 
 /* ---------- exported dialog --------------------------------------- */
@@ -89,7 +91,8 @@ export default function UpdatePaymentRequestDialog({
      dialog the next time the user clicks Pay. */
   useEffect(() => {
     if (open && mode === "fulfil") {
-      setUtr(""); setPD(""); setFile(null);
+      // A cheque reconciles against its own number, so it starts there; still editable.
+      setUtr(payment.cheque_no || ""); setPD(""); setFile(null);
       setAutofilledFields(new Set());
       setUploadedFileUrl(null);
       setIsAutofilling(false);
@@ -97,7 +100,7 @@ export default function UpdatePaymentRequestDialog({
       setVendorMismatch(null);
       setStage("upload");
     }
-  }, [open, mode, payment.name]);
+  }, [open, mode, payment.name, payment.cheque_no]);
 
   const { trigger, isMutating } = useUpdatePaymentRequest();
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
@@ -318,6 +321,12 @@ export default function UpdatePaymentRequestDialog({
                   <p className="text-[11px] text-center text-muted-foreground">
                     Supported: PDF, PNG, JPG · max 5 MB
                   </p>
+                  {payment.cheque_no && (
+                    <p className="text-xs text-center text-muted-foreground">
+                      Cheque {payment.cheque_no}: upload the bank statement if you have one, or continue
+                      without a receipt and reconcile against the cheque number.
+                    </p>
+                  )}
                 </>
               ) : (
                 <div className="flex flex-col items-center gap-3 py-6">
@@ -333,10 +342,17 @@ export default function UpdatePaymentRequestDialog({
                 </div>
               )}
               {!isAutofilling && (
-                <div className="flex justify-end items-center pt-3 border-t">
+                <div className="flex justify-end items-center gap-2 pt-3 border-t">
                   <AlertDialogCancel asChild>
                     <Button variant="outline" size="sm">Cancel</Button>
                   </AlertDialogCancel>
+                  {/* A cleared cheque often has no bank receipt to upload. Its number is the
+                      reference, already in the UTR box, so let the accountant go straight on. */}
+                  {payment.cheque_no && (
+                    <Button size="sm" onClick={() => setStage("form")}>
+                      Continue without receipt
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

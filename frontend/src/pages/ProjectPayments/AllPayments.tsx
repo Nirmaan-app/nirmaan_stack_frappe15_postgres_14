@@ -328,6 +328,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 document_type: row.document_type,
                 amount: row.amount,
                 status: row.status,
+                cheque_no: row.cheque_no || undefined,
             });
             togglePaymentDialog();
             return;

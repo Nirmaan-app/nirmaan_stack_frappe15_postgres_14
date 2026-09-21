@@ -161,3 +161,27 @@ def get_total_pending(src):
     # if result and result[0] and result[0][0] is not None:
     #     return flt(result[0][0])
     # return 0.0
+
+
+def get_total_reconciliation_pending(src):
+    """
+    Total of this document's 'Reconciliation Pending' payments: money that has left the bank
+    but is not yet reconciled, so neither `get_total_paid` nor `get_total_pending` counts it.
+
+    ⚠️ FOR THE REQUEST CAP ONLY -- never add it to either of those two. A money figure counts
+    `Paid` alone (owner, 2026-09-16), and `Reconciliation Pending` in the pending sum would count
+    spent money as still owed. But a cap that ignores it lets the same balance be requested again
+    while a payment sits there -- and a cheque payment lands there the moment it is approved.
+    """
+    total = frappe.get_all(
+        "Project Payments",
+        filters=[
+            ["status", "=", "Reconciliation Pending"],
+            ["document_type", "=", src.doctype],
+            ["document_name", "=", src.name]
+        ],
+        fields=["sum(CAST(amount as numeric)) as total"]
+    )
+    if total and total[0] and total[0].total is not None:
+        return flt(total[0].total)
+    return 0.0

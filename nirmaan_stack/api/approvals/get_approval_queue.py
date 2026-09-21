@@ -83,7 +83,7 @@ _EXPENSE_AMOUNT = 'COALESCE(e."amount", 0)::numeric'
 # is what keeps that safe.
 SORTABLE = {
     "name", "source", "source_type", "status", "amount", "against_primary", "vendor", "project",
-    "raised_by", "creation", "approved_on", "paid_on", "utr_ref", "payment_by",
+    "raised_by", "creation", "modified", "approved_on", "paid_on", "utr_ref", "payment_by",
     "expense_type", "doctype",
 }
 
@@ -94,7 +94,7 @@ DATE_FIELDS = {"creation", "approved_on", "paid_on"}
 FILTERABLE = SORTABLE | {"doctype"}
 SEARCHABLE = {
     "name", "against_primary", "against_secondary", "vendor", "project",
-    "raised_by", "utr_ref",
+    "raised_by", "utr_ref", "cheque_no",
 }
 
 _OPERATORS = {
@@ -140,6 +140,8 @@ def _payments_select():
             COALESCE(p."project", '')::text AS project,
             p."owner"                       AS raised_by,
             p."creation"                    AS creation,
+            -- ⚠️ POSITIONAL: sits right after `creation` in `_expense_select` too.
+            p."modified"                    AS modified,
             p."approval_date"               AS approved_on,
             p."payment_date"                AS paid_on,
             COALESCE(p."utr", '')::text     AS utr_ref,
@@ -162,7 +164,12 @@ def _payments_select():
             -- Expenses only (ADR-0027): a payment is settled by exactly one bank
             -- line and has no Bank lines card, so this is honestly zero rather
             -- than a count nothing on a payment row would ever render.
-            0                               AS bank_line_count
+            0                               AS bank_line_count,
+            -- Mode of Payment (2026-09-19). ⚠️ POSITIONAL, like every column here: the
+            -- same three sit at the same place in `_expense_select`, blank there.
+            COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
+            COALESCE(p."cheque_no", '')::text AS cheque_no,
+            p."cheque_date"                 AS cheque_date
         FROM "tabProject Payments" p
     """.format(src=SOURCE_VENDOR_PAYMENT, po=TYPE_PO_PAYMENT, sr=TYPE_SR_PAYMENT)
 
@@ -196,6 +203,7 @@ def _expense_select(table, source, project_col):
             {project_expr}                  AS project,
             e."owner"                       AS raised_by,
             e."creation"                    AS creation,
+            e."modified"                    AS modified,
             e."approval_date"               AS approved_on,
             e."payment_date"                AS paid_on,
             COALESCE(e."payment_ref", '')::text AS utr_ref,
@@ -218,7 +226,11 @@ def _expense_select(table, source, project_col):
             -- (`expense_links.linked_totals_join`), never a count written here: a
             -- second definition of "live slip" could offer a card on an expense
             -- whose links had all been reversed.
-            COALESCE(l."line_count", 0)     AS bank_line_count
+            COALESCE(l."line_count", 0)     AS bank_line_count,
+            -- A payment's Mode of Payment; an expense has none.
+            ''::text                        AS mode_of_payment,
+            ''::text                        AS cheque_no,
+            NULL::date                      AS cheque_date
         FROM "{table}" e
         {linked_join}
     """

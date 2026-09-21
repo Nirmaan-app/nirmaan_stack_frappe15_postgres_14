@@ -262,6 +262,13 @@ interface PaymentStats {
      */
     total_unreconciled_outflow_amount: number;
     total_unreconciled_outflow_count: number;
+    /**
+     * Total Unreconciled Inflow — the inflow twin of the figure above: bank money that has ARRIVED
+     * and still owes somebody a decision in Bulk Import (its unfiltered "Still open / Received").
+     * Same rules: ALL TIME, a server pass-through, never summed with the 30-day inflow figures.
+     */
+    total_unreconciled_inflow_amount: number;
+    total_unreconciled_inflow_count: number;
 }
 
 const formatToRoundedIndianRupee = (value: number) =>
@@ -472,6 +479,8 @@ const RecentActivityTile: React.FC<{
     // Total Unreconciled Outflow (#1286) — ALL TIME, not 30 days. See `PaymentStats`.
     unreconciledOutflowAmount: number;
     unreconciledOutflowCount: number;
+    unreconciledInflowAmount: number;
+    unreconciledInflowCount: number;
 }> = ({
     l1TodayAmount, l1TodayCount,
     ceoTodayAmount, ceoTodayCount,
@@ -486,6 +495,7 @@ const RecentActivityTile: React.FC<{
     projectOutflowAmount, projectOutflowCount,
     nonProjectOutflowAmount, nonProjectOutflowCount,
     unreconciledOutflowAmount, unreconciledOutflowCount,
+    unreconciledInflowAmount, unreconciledInflowCount,
 }) => (
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
             <div className="w-1 shrink-0 bg-emerald-500 dark:bg-emerald-600" />
@@ -532,6 +542,11 @@ const RecentActivityTile: React.FC<{
                             <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Inflow (30 Days)</div>
                             <BreakdownRow tone="emerald" label="Project" labelLong="Project Inflow" amount={inflowAmount} count={inflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
                             <BreakdownRow tone="blue" label="Non-Project" labelLong="Non-Project Inflow" amount={nonProjectInflowAmount} count={nonProjectInflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
+                            {/* ⚠️ ALL TIME, NOT 30 DAYS — the inflow twin of Total Unreconciled
+                                Outflow, below a rule for the same reason. Same number as Bulk
+                                Import's unfiltered "Still open / Received". */}
+                            <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+                            <BreakdownRow tone="violet" label="Total Unreconciled Inflow" amount={unreconciledInflowAmount} count={unreconciledInflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
                         </div>
                         {/* OUTFLOW */}
                         <div className="space-y-1 sm:pl-4">
@@ -734,7 +749,14 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                     {/* Total Unreconciled Outflow (#1286) — ALL TIME, so it gets its own full-width
                         row rather than a fourth cell in the 30-day grid above. Its count rides
                         beside the amount: the backlog's size is half of what the figure says. */}
-                    <div className="mt-2">
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div className="bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
+                            <span className="text-[9px] font-medium text-violet-600 dark:text-violet-400 uppercase block">Total Unreconciled Inflow</span>
+                            <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_unreconciled_inflow_amount)}
+                                <span className="text-[10px] font-semibold ml-1">({stats.total_unreconciled_inflow_count})</span>
+                            </span>
+                        </div>
                         <div className="bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
                             <span className="text-[9px] font-medium text-violet-600 dark:text-violet-400 uppercase block">Total Unreconciled Outflow</span>
                             <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
@@ -803,6 +825,8 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 nonProjectOutflowCount={stats.total_non_project_expense_30_days_count}
                                 unreconciledOutflowAmount={stats.total_unreconciled_outflow_amount}
                                 unreconciledOutflowCount={stats.total_unreconciled_outflow_count}
+                                unreconciledInflowAmount={stats.total_unreconciled_inflow_amount}
+                                unreconciledInflowCount={stats.total_unreconciled_inflow_count}
                             />
                         </div>
                     </div>

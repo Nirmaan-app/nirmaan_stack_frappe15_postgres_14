@@ -12,8 +12,10 @@ import frappe
 
 from nirmaan_stack.api.expense_requests.access import (
 	ADMIN_PROFILE,
+	PM_REQUEST_REVIEWERS,
 	caller_role_profile,
 	can_request_type,
+	reviews_pm_request,
 )
 from nirmaan_stack.api.expense_requests.convert import (
 	applicable_format,
@@ -67,6 +69,17 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		limit_page_length=limit,
 	)
 
+	# Requesters' profiles, read once for the page -- only an Accountant / HR caller needs
+	# them, to find the Project Manager rows they may review.
+	requester_profiles = {}
+	if profile in PM_REQUEST_REVIEWERS and rows:
+		requester_profiles = dict(frappe.get_all(
+			"Nirmaan Users",
+			filters={"name": ["in", list({r["owner"] for r in rows})]},
+			fields=["name", "role_profile"],
+			as_list=True,
+		))
+
 	# One read of the formats for the whole page, rather than one per row.
 	formats = {
 		f["name"]: f
@@ -84,9 +97,13 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# permission. The two answers are disjoint for a routed REVIEWER -- one who could also
 		# edit could rewrite an amount and then approve it -- but NOT for an Admin, who holds
 		# both by owner ruling. See the amendment note in `update`.
+		# Must say what `access.guard_reviewer` says, or the button appears on a row the
+		# endpoint then refuses.
 		r["can_edit"] = can_edit(r, user)
 		r["can_review"] = profile == ADMIN_PROFILE or (
-			profile == r["reviewer_role"] and r["owner"] != user
+			r["owner"] != user
+			and (profile == r["reviewer_role"]
+			     or reviews_pm_request(profile, requester_profiles.get(r["owner"])))
 		)
 		# The answers, labelled, for the approval screen. Built by the SAME walk that writes
 		# the ledger description, so what a reviewer approves and what lands on the expense

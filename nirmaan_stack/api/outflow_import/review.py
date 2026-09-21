@@ -4079,7 +4079,9 @@ def unmatched_outflow_totals() -> dict:
     """Bulk Import's *Still open / Paid out*, over EVERY import, source and date (#1286).
 
     The Payments screen's summary card reports this as **Total Unreconciled Outflow**: bank money
-    that has left the account and still owes somebody a decision.
+    that has left the account and still owes somebody a decision. The same call also returns the
+    *Still open / Received* side (`received_amount` / `received_rows`), which the card reports as
+    **Total Unreconciled Inflow** -- same population rule, same one query, opposite direction.
 
     ⚠️ IT IS THE SAME QUERY AND THE SAME DERIVER THE IMPORT SCREEN USES, WITH NO FILTERS. That is
     the whole requirement: the card and Bulk Import must agree, and two screens agree by sharing
@@ -4108,6 +4110,11 @@ def unmatched_outflow_totals() -> dict:
     return {
         "amount": float(summary["open_paid_value"]),
         "rows": int(summary["open_paid_rows"]),
+        # The inflow twin: Bulk Import's *Still open / Received*. Read off the SAME derived
+        # summary, never a second query -- `open_paid + open_received == open` is the deriver's
+        # own invariant, so the two card figures cannot drift from the panel or from each other.
+        "received_amount": float(summary["open_received_value"]),
+        "received_rows": int(summary["open_received_rows"]),
     }
 
 

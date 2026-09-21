@@ -275,7 +275,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 **A doctype's `track_changes` flag may be turned ON the same way** (that one key, reviewed, committed, migrate afterwards) when an audit needs Version rows. Used on `Outflow Row Match`, so a reversed match record keeps its own history beside the payment it reverted. It adds no column. A save that must leave the Version row passes `ignore_version=False` explicitly: Frappe defaults it to `frappe.flags.in_test`, so without it the audit goes untested.
 
-**A single new field may be ADDED the same way, when the owner rules it** (one field entry + its `field_order` line, reviewed, committed, migrate afterwards). Used for `Outflow Import Row.skip_kind` (a read-only Select): its options are pinned to `services/outflow_import/skip_kinds.SKIP_KINDS` by test, so the JSON and the code cannot drift.
+**A single new field may be ADDED the same way, when the owner rules it** (one field entry + its `field_order` line, reviewed, committed, migrate afterwards). Used for `Outflow Import Row.skip_kind` (a read-only Select): its options are pinned to `services/outflow_import/skip_kinds.SKIP_KINDS` by test, so the JSON and the code cannot drift. Also used for `Project Payments.mode_of_payment` (Select Online/Cheque, `set_only_once`) + `cheque_no` + `cheque_date` (owner, 2026-09-19): three fields for one ruling, the mode read through `services/cheque_payments.is_cheque`. Also used for `Vendors.gst_hold` (a Check, owner 2026-09-19, ADR-0028): written by `tasks/vendor_gst_hold`, `api/vendor/gst_hold`, and by hand (editable; no backend role guard — access is controlled by which UI gets the control, owner ruling).
 
 ---
 

@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import type { PaymentModeArgs } from "@/pages/ProjectPayments/paymentMode";
 import {
   useReactTable,
   getCoreRowModel,
@@ -291,7 +292,7 @@ export const useCredits = () => {
     setTermToRequest(term);
   }, []);
 
-  const handleConfirmRequestPayment = useCallback(async () => {
+  const handleConfirmRequestPayment = useCallback(async (mode?: PaymentModeArgs) => {
     if (!termToRequest) return;
 
     if (isCEOHold) {
@@ -307,6 +308,7 @@ export const useCredits = () => {
         vendor: termToRequest.vendor,  // Use vendor ID, not vendor_name
         amount: termToRequest.amount,
         ptname: termToRequest.ptname,
+        ...mode,
       });
 
       if (result && result.message && result.message.status === 200) {

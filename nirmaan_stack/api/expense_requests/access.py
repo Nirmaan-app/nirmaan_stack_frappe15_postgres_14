@@ -19,6 +19,18 @@ from nirmaan_stack.services.expense_request_routing import (
 )
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
+PM_PROFILE = "Nirmaan Project Manager Profile"
+
+# Who ELSE may review a request a Project Manager raised (owner, 2026-09-19). Additive: Admin
+# still reviews every request. Keyed on the REQUESTER's profile, not the expense type, and
+# read at review time like the rest of routing -- a PM who changes role takes their pending
+# requests out of this queue.
+PM_REQUEST_REVIEWERS = frozenset({
+	"Nirmaan Accountant Profile",
+	"Nirmaan Accountant Lead Profile",
+	"Nirmaan HR Executive Profile",
+	"Nirmaan HR Lead Profile",
+})
 
 PENDING = "Pending Approval"
 APPROVED = "Approved"
@@ -85,6 +97,15 @@ def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
 		)
 
 
+def reviews_pm_request(profile: str | None, requester_profile: str | None) -> bool:
+	"""Is this an Accountant / HR caller looking at a request a Project Manager raised?
+
+	The ONE statement of the rule: `guard_reviewer` and `get_my_expense_requests` (which
+	hands `can_review` to the table) both ask it, so the button and the endpoint agree.
+	"""
+	return profile in PM_REQUEST_REVIEWERS and requester_profile == PM_PROFILE
+
+
 def guard_reviewer(req) -> None:
 	"""May the caller decide this request?
 
@@ -94,6 +115,9 @@ def guard_reviewer(req) -> None:
 	messages:
 	  * wrong role  — the request is routed to somebody else;
 	  * own request — self-review, which is the entire reason the feature exists.
+
+	A caller passes the role check as the type's routed reviewer (always Admin today), or
+	as Accountant / HR on a request a Project Manager raised -- see `reviews_pm_request`.
 
 	An Admin passes both. They are the configured fallback reviewer for every unrouted
 	category, so blocking Admin self-review would strand any request an Admin raised with
@@ -106,7 +130,7 @@ def guard_reviewer(req) -> None:
 		return
 
 	expected = reviewer_role_for_type(req.type)
-	if profile != expected:
+	if profile != expected and not reviews_pm_request(profile, caller_role_profile(req.owner)):
 		frappe.throw(
 			f"Expense requests of type '{req.type}' are reviewed by {expected}.",
 			frappe.PermissionError,
@@ -149,13 +173,19 @@ def get_permission_query_conditions(user: str | None = None) -> str:
 	if profile == ADMIN_PROFILE:
 		return ""
 
-	own = f'"tabExpense Request".owner = {frappe.db.escape(user)}'
+	clauses = [f'"tabExpense Request".owner = {frappe.db.escape(user)}']
 
 	reviewed = types_reviewed_by(profile) if profile else ()
-	if not reviewed:
-		# No routed types: the caller sees only what they raised. A profile-less user (no
-		# `Nirmaan Users` row) lands here too, which is the safe direction.
-		return own
+	if reviewed:
+		types = ", ".join(frappe.db.escape(t) for t in reviewed)
+		clauses.append(f'"tabExpense Request".type IN ({types})')
 
-	types = ", ".join(frappe.db.escape(t) for t in reviewed)
-	return f'({own} OR "tabExpense Request".type IN ({types}))'
+	if profile in PM_REQUEST_REVIEWERS:
+		clauses.append(
+			'"tabExpense Request".owner IN (SELECT name FROM "tabNirmaan Users" '
+			f"WHERE role_profile = {frappe.db.escape(PM_PROFILE)})"
+		)
+
+	# Nothing routed: the caller sees only what they raised. A profile-less user (no
+	# `Nirmaan Users` row) lands here too, which is the safe direction.
+	return f"({' OR '.join(clauses)})" if len(clauses) > 1 else clauses[0]

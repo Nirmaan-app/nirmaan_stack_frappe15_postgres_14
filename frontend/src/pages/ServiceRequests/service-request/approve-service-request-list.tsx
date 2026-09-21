@@ -64,6 +64,7 @@ import {
   ServiceRequests,
 } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { Vendors } from "@/types/NirmaanStack/Vendors";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -118,6 +119,22 @@ export const ApproveSelectSR: React.FC = () => {
     error: vendorsError,
   } = useVendorsList({ vendorTypes: ["Service", "Material & Service"] });
 
+  // Approval sets a WO's GST from its vendor's GST number (server-side), so "Est. Value" adds the
+  // 18% only when the vendor has one -- the total the WO will actually carry once approved.
+  const {
+    data: vendorGstRows,
+    isLoading: vendorGstLoading,
+    error: vendorGstError,
+  } = useFrappeGetDocList<Vendors>(
+    "Vendors",
+    {
+      fields: ["name", "vendor_gst"],
+      filters: [["vendor_type", "in", ["Service", "Material & Service"]]],
+      limit: 10000,
+    },
+    "approve_wo_vendors_with_gst"
+  );
+
   const {
     data: userList,
     isLoading: userListLoading,
@@ -152,6 +169,21 @@ export const ApproveSelectSR: React.FC = () => {
       );
     }),
     [vendorsList]
+  );
+
+  // A blank / whitespace GST number counts as none, as on the server.
+  const vendorsWithGst = useMemo(
+    () => new Set((vendorGstRows ?? []).filter((v) => v.vendor_gst?.trim()).map((v) => v.name)),
+    [vendorGstRows]
+  );
+
+  // Pre-GST WO value, plus 18% only for a vendor with a GST number.
+  const getEstValue = useCallback(
+    (sr: ServiceRequests): number => {
+      const preGst = getTotalAmount(sr.name, "Service Requests")?.total ?? 0;
+      return sr.vendor && vendorsWithGst.has(sr.vendor) ? preGst * 1.18 : preGst;
+    },
+    [getTotalAmount, vendorsWithGst]
   );
 
   // --- Notification Handling ---
@@ -395,7 +427,7 @@ export const ApproveSelectSR: React.FC = () => {
           return (
             <div className="pr-2">
               <p className="font-medium leading-tight">
-                {formatToRoundedIndianRupee(totals?.totalWithTax)}
+                {formatToRoundedIndianRupee(getEstValue(row.original))}
               </p>
               {diff !== null && diff !== undefined && (
                 <p
@@ -417,9 +449,7 @@ export const ApproveSelectSR: React.FC = () => {
         meta: {
           exportHeaderName: "Est. Value",
           exportValue: (row: ServiceRequests) => {
-            return formatForReport(
-              getTotalAmount(row.name, "Service Requests")?.totalWithTax
-            );
+            return formatForReport(getEstValue(row));
           },
         },
       },
@@ -469,6 +499,7 @@ export const ApproveSelectSR: React.FC = () => {
       handleNewSRSeen,
       getVendorName,
       getTotalAmount,
+      getEstValue,
     ]
   );
 
@@ -503,8 +534,8 @@ export const ApproveSelectSR: React.FC = () => {
   });
 
   // --- Combined Loading & Error States ---
-  const isLoading = projectsLoading || vendorsLoading || userListLoading;
-  const combinedError = projectsError || vendorsError || userError || listError;
+  const isLoading = projectsLoading || vendorsLoading || vendorGstLoading || userListLoading;
+  const combinedError = projectsError || vendorsError || vendorGstError || userError || listError;
 
   // --- CEO Hold Row Highlighting ---
   const getRowClassName = useCallback(
@@ -542,7 +573,7 @@ export const ApproveSelectSR: React.FC = () => {
       }
       await updateDoc("Service Requests", actionRow.name, {
         status: "Approved",
-        gst: "false",
+        // `gst` is set by the server from the vendor's GST number on this transition.
         project_gst: projectGst,
       });
       toast({

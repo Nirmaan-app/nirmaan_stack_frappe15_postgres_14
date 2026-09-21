@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 // Wraps a column header with a small info icon that reveals a definition tooltip on hover.
 // The icon is a sibling of the sort trigger so clicks don't toggle sort.
-const HeaderWithInfo: React.FC<{
+export const HeaderWithInfo: React.FC<{
   tooltip: string;
   children: React.ReactNode;
 }> = ({ tooltip, children }) => (

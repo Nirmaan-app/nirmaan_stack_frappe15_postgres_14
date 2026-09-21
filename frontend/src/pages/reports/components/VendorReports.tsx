@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 import { DataTable } from "@/components/data-table/new-data-table";
-import { VendorCalculatedFields, useVendorLedgerCalculations } from "../hooks/useVendorLedgerCalculations";
+import { VendorCalculatedFields, getCurrentFinancialYear, useVendorLedgerCalculations } from "../hooks/useVendorLedgerCalculations";
 import { VendorReportRow, getVendorColumns } from "./columns/vendorColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -38,7 +38,7 @@ type VendorSearchField = "vendor_name" | "name" | "vendor_type";
 // every token must appear in the field, case-insensitively.
 const SEARCH_TOKEN_SEPARATOR = /[\s\-_/()]+/;
 
-const EMPTY_TOTALS: VendorCalculatedFields = { totalPO: 0, totalSR: 0, totalInvoiced: 0, totalPaid: 0, balance: 0 };
+const EMPTY_TOTALS: VendorCalculatedFields = { totalPO: 0, totalSR: 0, totalInvoiced: 0, totalPaid: 0, currentFYPaid: 0, balance: 0 };
 
 export default function VendorReports() {
   // 1. Manage date range state, initialized from URL or with a default
@@ -165,6 +165,7 @@ export default function VendorReports() {
       total_sr: formatForReport(vendor.totalSR),
       total_invoiced: formatForReport(vendor.totalInvoiced),
       total_paid: formatForReport(vendor.totalPaid),
+      current_fy_paid: formatForReport(vendor.currentFYPaid),
       balance: formatForReport(vendor.balance),
     }));
 
@@ -172,10 +173,11 @@ export default function VendorReports() {
     const exportColumns: ColumnDef<any, any>[] = [
       { header: "Vendor Name", accessorKey: "vendor_name" },
       { header: "Type", accessorKey: "vendor_type" },
-      { header: "Total PO Value", accessorKey: "total_po" },
-      { header: "Total SR Value", accessorKey: "total_sr" },
-      { header: "Total Invoiced", accessorKey: "total_invoiced" },
+      { header: "Total PO Value (incl. GST)", accessorKey: "total_po" },
+      { header: "Total WO Value (incl. GST)", accessorKey: "total_sr" },
+      { header: "Total Invoiced (incl. GST)", accessorKey: "total_invoiced" },
       { header: "Total Paid", accessorKey: "total_paid" },
+      { header: `Current FY Paid (${getCurrentFinancialYear().label})`, accessorKey: "current_fy_paid" },
       { header: "Balance Payable", accessorKey: "balance" },
     ];
 

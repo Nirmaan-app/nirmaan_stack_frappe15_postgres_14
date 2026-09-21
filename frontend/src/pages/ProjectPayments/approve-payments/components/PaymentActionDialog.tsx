@@ -17,6 +17,8 @@ import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
 import { useCompanyBorneTds, useVendorTdsRate } from '../../hooks/useVendorTdsRates';
 import { forecastTds } from '../../tdsForecast';
+import { isChequePayment } from '../../paymentMode';
+import { formatDate } from '@/utils/FormatDate';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -66,8 +68,15 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     // a negative-rate amendment) cannot be split, and showing the amount box on one leaves the
     // Confirm button permanently disabled. Unsplittable => the plain full-approve confirmation,
     // byte-identical to the pre-partial-approval behaviour.
+    // A cheque is written for its full amount, so it is approved in full or rejected -- never
+    // split (the server refuses it too).
+    const isCheque = isChequePayment(paymentData);
+    // The queue holds three ledgers and only a Project Payment has a Mode of Payment; an expense row
+    // carries a blank one. `doctype` rides every queue row (`ApprovalQueueRow`).
+    const ledger = (paymentData as { doctype?: string } | null)?.doctype;
+    const showMode = !ledger || ledger === "Project Payments";
     const isPartialApprove =
-        allowPartial && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
+        allowPartial && !isCheque && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
 
     // Reset amount input when payment data changes or dialog opens/closes
     useEffect(() => {
@@ -165,6 +174,37 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                             </span>
                         </div>
 
+                        {/* Mode of Payment -- a header row in the "Vendor receives" band, then the
+                            cheque's own rows, plain like "Requested". Online is the header alone. */}
+                        {showMode && (
+                            <div className="flex items-baseline justify-between bg-muted/40 px-3 py-2">
+                                <span className="font-semibold">Mode of Payment</span>
+                                <span
+                                    className={`font-semibold ${
+                                        isCheque
+                                            ? "text-amber-700 dark:text-amber-400"
+                                            : "text-sky-700 dark:text-sky-400"
+                                    }`}
+                                >
+                                    {isCheque ? "Cheque" : "Online"}
+                                </span>
+                            </div>
+                        )}
+                        {showMode && isCheque && (
+                            <>
+                                <div className="flex items-baseline justify-between px-3 py-2">
+                                    <span className="text-muted-foreground">Cheque No</span>
+                                    <span className="font-medium tabular-nums">{paymentData.cheque_no}</span>
+                                </div>
+                                <div className="flex items-baseline justify-between px-3 py-2">
+                                    <span className="text-muted-foreground">Cheque Date</span>
+                                    <span className="font-medium tabular-nums">
+                                        {paymentData.cheque_date ? formatDate(paymentData.cheque_date) : "--"}
+                                    </span>
+                                </div>
+                            </>
+                        )}
+
                         {isPartialApprove && (
                             <div className="px-3 py-2">
                                 <div className="flex items-center justify-between gap-3">
@@ -233,6 +273,12 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                             </>
                         )}
                     </div>
+                )}
+
+                {showMode && isCheque && type === DIALOG_ACTION_TYPES.APPROVE && (
+                    <p className="text-xs text-muted-foreground">
+                        Approved in full only. Once fully approved it goes straight to Reconciliation Pending.
+                    </p>
                 )}
 
                 {tds && (

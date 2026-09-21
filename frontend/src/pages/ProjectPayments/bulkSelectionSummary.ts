@@ -75,3 +75,37 @@ export const selectionBreakdown = (mix: SelectionMix, poSrCount: number): string
   }
   return parts.join(" · ");
 };
+
+/**
+ * The line under a LEAD bulk approve naming what goes to the CEO next instead of finishing.
+ * `""` when nothing does. Every ledger counts -- PO payments, work order payments and both expense
+ * ledgers all forward above the CEO line (owner, 2026-09-19) -- and only the work order part has
+ * tax, so TDS is mentioned for those alone. `tdsCount` is how many of the forwarded rows carry a
+ * TDS forecast (`forecastTdsTotals(...).count`); `ceoLine` is the formatted line, e.g. "₹50,000".
+ */
+export const forwardedToCeoNote = (
+  rows: readonly Pick<ApprovalQueueRow, "source" | "source_type">[],
+  ceoLine: string,
+  tdsCount: number
+): string => {
+  if (rows.length === 0) return "";
+  const plural = (n: number, noun: string) => `${n} ${noun}${n !== 1 ? "s" : ""}`;
+  const count = (pred: (r: (typeof rows)[number]) => boolean) => rows.filter(pred).length;
+  const parts = [
+    [count((r) => r.source_type === "PO Payment"), "PO payment"],
+    [count((r) => r.source_type === "SR Payment"), "work order payment"],
+    [count((r) => r.source === "Vendor Payment" && r.source_type !== "PO Payment" && r.source_type !== "SR Payment"), "payment"],
+    [count((r) => r.source === "Project Expense"), "project expense"],
+    [count((r) => r.source === "Non-Project"), "non-project expense"],
+  ]
+    .filter(([n]) => (n as number) > 0)
+    .map(([n, noun]) => plural(n as number, noun as string));
+
+  const verb = rows.length === 1 ? "goes" : "go";
+  const head =
+    parts.length === 1
+      ? `${parts[0]} above ${ceoLine} ${verb} to the CEO next.`
+      : `${countLabel(summarizeSelection(rows), rows.length)} above ${ceoLine} ${verb} to the CEO next: ${parts.join(", ")}.`;
+  const tds = tdsCount > 0 ? ` TDS on ${plural(tdsCount, "work order payment")} is taken at CEO approval.` : "";
+  return head + tds;
+};

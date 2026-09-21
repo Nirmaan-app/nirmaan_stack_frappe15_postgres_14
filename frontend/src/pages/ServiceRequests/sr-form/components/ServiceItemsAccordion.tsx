@@ -55,6 +55,8 @@ export interface ServiceItemsAccordionProps {
     defaultExpanded?: boolean;
     /** Optional className for additional styling */
     className?: string;
+    /** Whether the 18% GST is added to the totals; when false the GST lines are hidden */
+    gstApplicable: boolean;
 }
 
 const GST_RATE = 0.18; // 18% GST
@@ -134,6 +136,7 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
     showVendorCard = false,
     defaultExpanded = false,
     className = "",
+    gstApplicable,
 }) => {
     // Group items by category
     const groupedItems = useMemo(() => groupItemsByCategory(items), [items]);
@@ -141,7 +144,7 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
 
     // Calculate totals
     const totalAmount = useMemo(() => calculateTotal(items), [items]);
-    const gstAmount = totalAmount * GST_RATE;
+    const gstAmount = gstApplicable ? totalAmount * GST_RATE : 0;
     const grandTotal = totalAmount + gstAmount;
 
     // Standard-rate totals (only for items that carry a positive standard_rate)
@@ -539,27 +542,38 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                                 </div>
                             );
                         })()}
-                        <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">
-                                Subtotal (excl. GST):
-                            </span>
-                            <span className="font-medium">
-                                {formatToIndianRupee(totalAmount)}
-                            </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">GST (18%):</span>
-                            <span className="font-medium">
-                                {formatToIndianRupee(gstAmount)}
-                            </span>
-                        </div>
+                        {gstApplicable && (
+                            <>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">
+                                        Subtotal (excl. GST):
+                                    </span>
+                                    <span className="font-medium">
+                                        {formatToIndianRupee(totalAmount)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">GST (18%):</span>
+                                    <span className="font-medium">
+                                        {formatToIndianRupee(gstAmount)}
+                                    </span>
+                                </div>
+                            </>
+                        )}
                         <div className="border-t pt-3">
                             <div className="flex justify-between">
-                                <span className="font-semibold">Grand Total (incl. GST):</span>
+                                <span className="font-semibold">
+                                    {gstApplicable ? "Grand Total (incl. GST):" : "Grand Total:"}
+                                </span>
                                 <span className="font-bold text-lg text-primary">
                                     {formatToIndianRupee(grandTotal)}
                                 </span>
                             </div>
+                            {!gstApplicable && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    GST not added — vendor has no GST number.
+                                </p>
+                            )}
                         </div>
                     </div>
                 </CardContent>

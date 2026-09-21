@@ -53,6 +53,8 @@ import {
 } from "../config/approvalsTable.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
+import { isChequePayment } from "../paymentMode";
+import { withholdsOnApproval } from "../tdsForecast";
 import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
 import { useApprovalFacets } from "../config/useApprovalFacets";
 import { CompanyBorneTdsContext, useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
@@ -604,6 +606,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const { call: ceoApproveCall, loading: ceoApproveLoading } = useFrappePostCall(
     "nirmaan_stack.api.payments.project_payments.ceo_approve_payment"
   );
+  const { call: moveChequeCall, loading: moveChequeLoading } = useFrappePostCall(
+    "nirmaan_stack.api.payments.project_payments.move_cheque_payment_to_reconciliation"
+  );
   const handlePaymentUpdate = useCallback(
     async (
       actionType: DialogActionType,
@@ -690,6 +695,22 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
               ? { payment_details: JSON.stringify(payment_details) }
               : {}),
           });
+
+          // A cheque skips "Payment need to paid". The approval above has just been saved, TDS
+          // included, so the server can now move it on to Reconciliation Pending. The approval
+          // stands whatever happens here: a cheque that is not moved stays Approved, where
+          // "Mark as Paid" finishes it.
+          if (isPaymentRow && newStatus === PAYMENT_STATUS.APPROVED && isChequePayment(row)) {
+            let moved = false;
+            try {
+              moved = Boolean((await moveChequeCall({ payment_id: selectedPayment.name }))?.message?.moved);
+            } catch (moveError) {
+              console.error("Cheque payment was approved but not moved on:", moveError);
+            }
+            successMessage = moved
+              ? "Cheque payment approved and moved to Reconciliation Pending."
+              : "Payment approved, but the cheque could not be moved on. Mark it as paid from \"Payment need to paid\".";
+          }
         }
         refetch();
         closeDialog();
@@ -714,7 +735,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
+    [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.
@@ -847,12 +868,13 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading || ceoApproveLoading}
+          isLoading={updateLoading || ceoApproveLoading || moveChequeLoading}
           // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
           // full approve — two split points would let one payment fragment twice on its way up.
           allowPartial={isCEOMode}
-          // Tax comes off at the transition INTO `Approved`, which is the CEO's click.
-          withholdsTdsNow={isCEOMode}
+          // Tax comes off at the transition INTO `Approved`: always the CEO's click, and the L1
+          // click when it finishes the approval (15,000-50,000).
+          withholdsTdsNow={withholdsOnApproval(isCEOMode ? "ceo" : "lead", selectedPayment.amount)}
         />
       )}
     </div>

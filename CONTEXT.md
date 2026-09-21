@@ -74,11 +74,15 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   - **Requested** — entered, awaiting approval; not yet sanctioned and no cash has gone out.
   - **CEO Pending** — approved by the team and waiting for the CEO, who may approve it in full or approve part of it and leave the balance here.
   - **Approved** — sanctioned to spend, but the money has **not** yet left. A staging state, not settled spend.
-  - **Reconciliation Pending** — an Accountant has pressed **Mark as Done**: the money has gone out of the bank, and the record is now waiting to be matched against the bank line that paid it. An Expense also waits here while the bank lines linked to it so far — its **linked total** — add up to less than its amount, which is how a run that left the bank as many transfers settles one Expense; it becomes *Paid* only once the linked total reaches the amount. Still not settled spend — the money is gone but nothing has proved it yet.
+  - **Reconciliation Pending** — an Accountant has pressed **Mark as Done** (or it is a **Cheque payment**, which arrives here on its own the moment it is approved): the money has gone out of the bank, and the record is now waiting to be matched against the bank line that paid it. An Expense also waits here while the bank lines linked to it so far — its **linked total** — add up to less than its amount, which is how a run that left the bank as many transfers settles one Expense; it becomes *Paid* only once the linked total reaches the amount. Still not settled spend — the money is gone but nothing has proved it yet.
   - **Paid** — the cash has gone out **and** every bank line that paid it has been matched to it — one line for most records, and for an Expense as many as the run took — or somebody marked it reconciled by hand. The **final** state and the **only** one that counts as real spend.
   - **Rejected** — refused. It counts toward nothing, and re-approving it from here withholds Work Order tax as a first approval does.
 
 - **Mark as Done** — the Accountant's action that moves a record from *Approved* to *Reconciliation Pending*, meaning "the money has left the bank". It is the step that makes a record visible to Bulk Import: from 2026-09-16 the import settles a record only from *Reconciliation Pending*, never from *Approved*. A record still sitting at *Approved* cannot be matched to a bank line, and the import says so by name — "mark it as done first" — rather than refusing without explanation. *Avoid*: marking it paid, settling it. (2026-09-16, #1289.)
+
+- **Mode of Payment** — how a Project Payment is paid: **Online** or **Cheque**. Chosen when the payment is requested and fixed from then on. Every payment raised before 2026-09-19 is Online. *Avoid*: payment type (that is the PO payment term's own field — Advance, Credit, …).
+
+- **Cheque payment** — a Project Payment requested with a cheque's number and date. The cheque is already written, so there is nothing for an Accountant to pay: it is approved exactly like an online payment — it passes **through** *Approved*, so a Work Order's tax is withheld and its amount netted as usual — and is then moved straight to *Reconciliation Pending* without a **Mark as Done**. It is written for the amount **after** tax, so the payment and the cheque agree. **One cheque may cover several payments**: they share its number, and at reconciliation they may all carry the same reference. It is approved in full or rejected, never part-approved or re-amounted, and it is cleared by reconciling against the cheque number — no bank receipt is needed. (Owner, 2026-09-19.)
 
 - **Settled spend (outflow)** — expense money that has actually left, i.e. an Expense at status *Paid*. **Only** *Paid* Expenses are included in any financial rollup — project outflow, the cashflow gap / CEO-Hold, project Financials totals, the Outflow reports, and the 30-day payment dashboard. *Requested* and *Approved* Expenses are commitments, not settled spend, and are excluded from every such number.
 
@@ -139,7 +143,19 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No).
 
+- **GST-off Work Order** — a Work Order whose *GST flag* is off (`gst = "false"`, labelled "GST Applicable" off on the approved WO page). A new Work Order starts GST-on; approval sets it from the vendor's GST number — off when the vendor has none.
+
 - **Notional GST** — the GST a GST-off Work Order *would* have carried: 18% of its total. It is not owed, paid or invoiced anywhere — a what-if figure showing how much GST was never charged on work ordered without it. A GST-on Work Order has none (its GST is real and already inside its total). Only **Approved** Work Orders count — the same set as the Work Order side of "PO + WO Amount" — so a Work Order under amendment drops out of both until it is approved again. *Avoid*: GST payable, GST liability, missing GST.
+
+## Vendor holds
+
+Two separate holds sit on a Vendor. They share the word "hold" and nothing else — never merge them in UI copy, code or reports.
+
+- **Vendor Hold** — the *credit* hold: `vendor_status` = On-Hold when the vendor's available credit is used up. Blocks dispatch and payments on "PO Approved" POs. Set by the daily credit job; cleared automatically when credit frees up.
+
+- **GST Hold** — the *GST* hold: the `gst_hold` checkbox. The daily job turns it ON for a Service or Material & Service vendor with **no GST number** whose **GST-off Work Orders** created this financial year (not Rejected) total **more than ₹15,00,000**, summed on their Work Order total. A vendor on GST Hold **cannot get a new Work Order**; its existing Work Orders carry on. The job only ever turns it ON — it stays ON when the total drops, when the vendor gets a GST number and into the next financial year. Only *Remove GST Hold* (Admin) takes it off. A change by hand on the field switches no Work Order; an untick on a vendor that still qualifies is put back ON the next morning. *Avoid*: "vendor on hold" for this — that phrase means Vendor Hold. ([ADR-0028](docs/adr/0028-gst-hold.md).)
+
+- **Remove GST Hold** — the Admin action on the Vendor page. It switches the vendor's GST-off Work Orders of this financial year to GST-on (each total gains 18%, so a paid one shows a new balance due) and then clears GST Hold. A Work Order not in Approved status is skipped and stays GST-off.
 
 ## Module residence
 

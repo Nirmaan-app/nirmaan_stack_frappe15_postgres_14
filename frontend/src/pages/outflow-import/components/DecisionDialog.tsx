@@ -136,6 +136,12 @@ import {
 import { FanOutRecordTable } from "./FanOutRecordTable";
 import { decideAfterLinking, decideConfirmLabel, decideTickedAmount } from "../linkLinesView";
 import { SettleableRecordTable } from "./SettleableRecordTable";
+import { ColumnFilterPopover } from "./RecordColumnHeader";
+import {
+    filterRefundDocuments,
+    refundDocumentFacets,
+    refundDocumentFiltersActive,
+} from "../refundDocumentView";
 
 /**
  * One SETTLED leg already on this transfer (Task 7, ADR-0020 fan-out). Read straight off the
@@ -241,7 +247,9 @@ const CREATE_NON_PROJECT_INFLOW_TARGET: { id: DecisionTarget; label: string; hin
 const CREATE_VENDOR_REFUND_TARGET: { id: DecisionTarget; label: string; hint: string } = {
     id: "vendorRefund",
     label: "Create a vendor refund",
-    hint: "money a vendor paid back — one vendor refund per PO, WO or misc. expense it is against",
+    // Misc. Expense is hidden from the form for now (owner, 2026-09-18) -- restore "PO, WO or misc.
+    // expense" with it.
+    hint: "money a vendor paid back — one vendor refund per PO or WO it is against",
 };
 
 interface Props {
@@ -2543,6 +2551,14 @@ const NewNonProjectInflowForm = ({
     );
 };
 
+/**
+ * The "Refund against" choices the form offers. Misc. Expense is hidden for now (owner, 2026-09-18);
+ * it stays in the model and the server, so restoring it is rendering `REFUND_AGAINST_OPTIONS` again.
+ */
+const OFFERED_REFUND_AGAINST = REFUND_AGAINST_OPTIONS.filter(
+    (option) => option.value !== REFUND_MISC_EXPENSE
+);
+
 /** One row of a refund document list, as `inflows.get_vendor_refund_documents` sends it. */
 interface RefundDocument {
     name: string;
@@ -2614,23 +2630,25 @@ const NewVendorRefundForm = ({
         "outflow-vendor-refund-vendors"
     );
 
-    const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<{
-        name: string;
-        project_name: string;
-        status?: string;
-    }>(
-        "Projects",
-        {
-            fields: ["name", "project_name", "status"],
-            filters: [
-                ["tendering_status", "=", "Won"],
-                ["status", "!=", "Completed"],
-            ],
-            limit: 0,
-            orderBy: { field: "project_name", order: "asc" },
-        },
-        "outflow-vendor-refund-projects"
-    );
+    // The Project picker is hidden for now (owner, 2026-09-18): the lists always span the vendor's
+    // projects, narrowed by the Project filter in their header. Restore this fetch with the picker.
+    // const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<{
+    //     name: string;
+    //     project_name: string;
+    //     status?: string;
+    // }>(
+    //     "Projects",
+    //     {
+    //         fields: ["name", "project_name", "status"],
+    //         filters: [
+    //             ["tendering_status", "=", "Won"],
+    //             ["status", "!=", "Completed"],
+    //         ],
+    //         limit: 0,
+    //         orderBy: { field: "project_name", order: "asc" },
+    //     },
+    //     "outflow-vendor-refund-projects"
+    // );
 
     // The vendor alone is enough: no project means the vendor's documents on every project.
     const ready = Boolean(form.vendor);
@@ -2692,6 +2710,7 @@ const NewVendorRefundForm = ({
                         </p>
                     )}
                 </div>
+                {/* Hidden for now (owner, 2026-09-18) -- see the projects fetch above.
                 <div className="space-y-1.5">
                     <Label className="text-xs">
                         Project <span className="font-normal text-muted-foreground">(optional)</span>
@@ -2709,106 +2728,113 @@ const NewVendorRefundForm = ({
                         }))}
                     />
                 </div>
+                */}
             </div>
 
-            <div className="space-y-1.5">
-                <Label className="text-xs">Refund against</Label>
-                <div role="group" aria-label="Refund against" className="flex flex-wrap gap-2">
-                    {REFUND_AGAINST_OPTIONS.map((option) => {
-                        const isMisc = option.value === REFUND_MISC_EXPENSE;
-                        const count = isMisc
-                            ? undefined
-                            : documents?.[option.value as RefundDocumentType]?.length;
-                        const ticked = isMisc ? 0 : tickedIn(option.value as RefundDocumentType);
-                        const checked = isRefundAgainst(form, option.value);
-                        return (
-                            <label
-                                key={option.value}
-                                className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                                    checked
-                                        ? "border-primary bg-primary/5"
-                                        : "border-muted-foreground/20 hover:bg-muted/50"
-                                }`}
-                            >
-                                <input
-                                    type="checkbox"
-                                    className="h-3.5 w-3.5 accent-primary"
-                                    checked={checked}
-                                    onChange={() => update(toggleRefundAgainst(form, option.value))}
-                                />
-                                {option.label}
-                                {count !== undefined && (
-                                    <span className="text-xs text-muted-foreground">({count})</span>
-                                )}
-                                {ticked > 0 && (
-                                    <span className="rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
-                                        {ticked} ticked
-                                    </span>
-                                )}
-                                {isMisc && checked && (
-                                    <span className="text-xs text-muted-foreground">takes the rest</span>
-                                )}
-                            </label>
-                        );
-                    })}
-                </div>
-            </div>
+            {/* Nothing below means anything until the vendor is known: the lists are theirs. */}
+            {ready && (
+                <>
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Refund against</Label>
+                        <div role="group" aria-label="Refund against" className="flex flex-wrap gap-2">
+                            {OFFERED_REFUND_AGAINST.map((option) => {
+                                const isMisc = option.value === REFUND_MISC_EXPENSE;
+                                const count = isMisc
+                                    ? undefined
+                                    : documents?.[option.value as RefundDocumentType]?.length;
+                                const ticked = isMisc ? 0 : tickedIn(option.value as RefundDocumentType);
+                                const checked = isRefundAgainst(form, option.value);
+                                return (
+                                    <label
+                                        key={option.value}
+                                        className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                                            checked
+                                                ? "border-primary bg-primary/5"
+                                                : "border-muted-foreground/20 hover:bg-muted/50"
+                                        }`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            className="h-3.5 w-3.5 accent-primary"
+                                            checked={checked}
+                                            onChange={() => update(toggleRefundAgainst(form, option.value))}
+                                        />
+                                        {option.label}
+                                        {count !== undefined && (
+                                            <span className="text-xs text-muted-foreground">({count})</span>
+                                        )}
+                                        {ticked > 0 && (
+                                            <span className="rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+                                                {ticked} ticked
+                                            </span>
+                                        )}
+                                        {isMisc && checked && (
+                                            <span className="text-xs text-muted-foreground">takes the rest</span>
+                                        )}
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    </div>
 
-            {REFUND_DOCUMENT_TYPES.filter((type) => isRefundAgainst(form, type.doctype)).map((type) => (
-                <RefundDocumentList
-                    key={type.doctype}
-                    documentType={type.doctype}
-                    documents={documents?.[type.doctype] ?? []}
-                    loading={ready && documentsLoading}
-                    ready={ready}
-                    allProjects={!form.project}
-                    isTicked={(name) =>
-                        allocations.some((a) => a.documentType === type.doctype && a.documentName === name)
-                    }
-                    onToggle={(document) =>
-                        update(
-                            toggleRefundAllocation(
-                                form,
-                                {
-                                    documentType: type.doctype,
-                                    documentName: document.name,
-                                    label: document.name,
-                                    project: document.project ?? null,
-                                    paid: document.paid,
-                                    refundable: document.refundable,
-                                },
-                                row.amount
+                    {REFUND_DOCUMENT_TYPES.filter((type) => isRefundAgainst(form, type.doctype)).map((type) => (
+                        <RefundDocumentList
+                            // A new vendor (or project) is a new list: its header filters start clear.
+                            key={`${type.doctype}|${form.vendor}|${form.project ?? ""}`}
+                            documentType={type.doctype}
+                            documents={documents?.[type.doctype] ?? []}
+                            loading={ready && documentsLoading}
+                            ready={ready}
+                            allProjects={!form.project}
+                            isTicked={(name) =>
+                                allocations.some((a) => a.documentType === type.doctype && a.documentName === name)
+                            }
+                            onToggle={(document) =>
+                                update(
+                                    toggleRefundAllocation(
+                                        form,
+                                        {
+                                            documentType: type.doctype,
+                                            documentName: document.name,
+                                            label: document.name,
+                                            project: document.project ?? null,
+                                            paid: document.paid,
+                                            refundable: document.refundable,
+                                        },
+                                        row.amount
+                                    )
+                                )
+                            }
+                        />
+                    ))}
+
+                    <RefundSelection
+                        allocations={allocations}
+                        documentFor={(allocation) =>
+                            documentByKey.get(`${allocation.documentType}|${allocation.documentName}`)
+                        }
+                        miscAmount={miscAmount}
+                        miscDescription={form.miscDescription ?? ""}
+                        onMiscDescription={(miscDescription) => update({ ...form, miscDescription })}
+                        onRemoveMisc={() => update(toggleRefundAgainst(form, REFUND_MISC_EXPENSE))}
+                        refundAmount={row.amount}
+                        allocated={allocated}
+                        remaining={remaining}
+                        problem={problem}
+                        onAmount={(allocation, amount) =>
+                            update(
+                                setRefundAllocationAmount(
+                                    form,
+                                    allocation.documentType,
+                                    allocation.documentName,
+                                    amount
+                                )
                             )
-                        )
-                    }
-                />
-            ))}
-
-            <RefundSelection
-                allocations={allocations}
-                documentFor={(allocation) =>
-                    documentByKey.get(`${allocation.documentType}|${allocation.documentName}`)
-                }
-                miscAmount={miscAmount}
-                miscDescription={form.miscDescription ?? ""}
-                onMiscDescription={(miscDescription) => update({ ...form, miscDescription })}
-                onRemoveMisc={() => update(toggleRefundAgainst(form, REFUND_MISC_EXPENSE))}
-                refundAmount={row.amount}
-                allocated={allocated}
-                remaining={remaining}
-                problem={problem}
-                onAmount={(allocation, amount) =>
-                    update(
-                        setRefundAllocationAmount(
-                            form,
-                            allocation.documentType,
-                            allocation.documentName,
-                            amount
-                        )
-                    )
-                }
-                onRemove={(allocation) => update(toggleRefundAllocation(form, allocation, row.amount))}
-            />
+                        }
+                        onRemove={(allocation) => update(toggleRefundAllocation(form, allocation, row.amount))}
+                    />
+                </>
+            )}
         </div>
     );
 };
@@ -2839,6 +2865,27 @@ const RefundDocumentList = ({
 }) => {
     const label = REFUND_DOCUMENT_TYPES.find((type) => type.doctype === documentType)?.label;
 
+    // The header filters (`refundDocumentView`). Local: they only hide rows, never ticks.
+    const [search, setSearch] = useState("");
+    const [projectFilter, setProjectFilter] = useState<ReadonlySet<string>>(() => new Set());
+    const [statusFilter, setStatusFilter] = useState<ReadonlySet<string>>(() => new Set());
+    const facets = useMemo(() => refundDocumentFacets(documents), [documents]);
+    const filters = useMemo(
+        () => ({
+            search,
+            // A hidden Project column must not keep filtering unseen.
+            projects: allProjects ? projectFilter : new Set<string>(),
+            statuses: statusFilter,
+        }),
+        [search, allProjects, projectFilter, statusFilter]
+    );
+    const shown = useMemo(() => filterRefundDocuments(documents, filters), [documents, filters]);
+    const clearFilters = () => {
+        setSearch("");
+        setProjectFilter(new Set());
+        setStatusFilter(new Set());
+    };
+
     if (!ready) {
         return (
             <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
@@ -2868,15 +2915,71 @@ const RefundDocumentList = ({
                 <thead className="sticky top-0 bg-muted/60 text-xs text-muted-foreground">
                     <tr>
                         <th className="w-8 px-2 py-1.5" />
-                        <th className="px-2 py-1.5 text-left font-medium">{label}</th>
-                        {allProjects && <th className="px-2 py-1.5 text-left font-medium">Project</th>}
-                        <th className="px-2 py-1.5 text-left font-medium">Status</th>
+                        <th className="px-2 py-1 text-left font-medium">
+                            <div className="flex items-center gap-2">
+                                <span className="shrink-0">{label}</span>
+                                <Input
+                                    aria-label={`Search ${label}`}
+                                    className="h-6 max-w-[180px] bg-background px-2 text-xs font-normal"
+                                    placeholder={`Search ${label}…`}
+                                    value={search}
+                                    onChange={(event) => setSearch(event.target.value)}
+                                />
+                            </div>
+                        </th>
+                        {allProjects && (
+                            <th className="px-2 py-1.5 text-left font-medium">
+                                <div className="flex items-center gap-1">
+                                    Project
+                                    <ColumnFilterPopover
+                                        title="Project"
+                                        filter={{
+                                            kind: "facet",
+                                            options: facets.projects,
+                                            selected: projectFilter,
+                                            onChange: setProjectFilter,
+                                        }}
+                                    />
+                                </div>
+                            </th>
+                        )}
+                        <th className="px-2 py-1.5 text-left font-medium">
+                            <div className="flex items-center gap-1">
+                                Status
+                                <ColumnFilterPopover
+                                    title="Status"
+                                    filter={{
+                                        kind: "facet",
+                                        options: facets.statuses,
+                                        selected: statusFilter,
+                                        onChange: setStatusFilter,
+                                    }}
+                                />
+                            </div>
+                        </th>
                         <th className="px-2 py-1.5 text-right font-medium">Total</th>
                         <th className="px-2 py-1.5 text-right font-medium">Paid</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {documents.map((document) => {
+                    {!shown.length && refundDocumentFiltersActive(filters) && (
+                        <tr className="border-t">
+                            <td
+                                colSpan={allProjects ? 6 : 5}
+                                className="px-3 py-2 text-xs text-muted-foreground"
+                            >
+                                No {label} matches these filters.{" "}
+                                <button
+                                    type="button"
+                                    className="text-primary hover:underline"
+                                    onClick={clearFilters}
+                                >
+                                    Clear filters
+                                </button>
+                            </td>
+                        </tr>
+                    )}
+                    {shown.map((document) => {
                         const ticked = isTicked(document.name);
                         return (
                             <tr
@@ -3098,7 +3201,7 @@ const RefundSelection = ({
             </div>
             {lineCount === 0 ? (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
-                    Tick the POs or WOs this refund is against, or Misc. Expense for the rest.
+                    Tick the POs or WOs this refund is against.
                 </p>
             ) : (
                 <ul className="divide-y">

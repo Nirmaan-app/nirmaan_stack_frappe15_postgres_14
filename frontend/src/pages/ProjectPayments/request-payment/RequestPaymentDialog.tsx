@@ -14,6 +14,12 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { PaymentModeFields } from "../components/PaymentModeFields";
+import { useVendorTdsRates } from "../hooks/useVendorTdsRates";
+import {
+  EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
+} from "../paymentMode";
+import { forecastTds } from "../tdsForecast";
 
 interface Props {
   totalIncGST : number;
@@ -38,6 +44,7 @@ export default function RequestPaymentDialog(p:Props){
   const [custom,setCustom] = useState("");
   const [perc,setPerc]     = useState("");
   const [warn,setWarn]     = useState("");
+  const [payMode,setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
 
   /* A GST Work Order can only be requested up to its base amount (ex-GST) --
      every option below (Full, %, Due, the balance cap) is measured against it. */
@@ -62,6 +69,17 @@ export default function RequestPaymentDialog(p:Props){
     else setWarn("");
   },[amount,max,baseOnly]);
 
+  /* A cheque is written for the figure AFTER TDS, so the dialog says what that is. Fetched only
+     while a cheque is being requested: the dialog is mounted on every PO / WO page. */
+  const isCheque = payMode.mode === PAYMENT_MODE_CHEQUE;
+  const tdsRows = useMemo(
+    () => (open && isCheque ? [{ vendor: p.vendor, document_type: p.docType, document_name: p.docName }] : []),
+    [open, isCheque, p.vendor, p.docType, p.docName]
+  );
+  const { rateFor, companyBorneFor, isLoading: tdsLoading } = useVendorTdsRates(tdsRows);
+  const companyBorne = companyBorneFor(p.docName);
+  const tds = forecastTds(p.docType, amount, rateFor(p.vendor), companyBorne);
+
   const { trigger, isMutating, error } = useRequestPayment();
 
   const submit = async ()=>{
@@ -70,8 +88,8 @@ export default function RequestPaymentDialog(p:Props){
       return;
     }
     try{
-      await trigger({doctype:p.docType, docname:p.docName, amount});
-      toggle(); setCustom(""); setPerc("");
+      await trigger({doctype:p.docType, docname:p.docName, amount, ...paymentModeArgs(payMode)});
+      toggle(); setCustom(""); setPerc(""); setPayMode(EMPTY_PAYMENT_MODE);
       toast({title:"Success",description:"Payment request created",variant:"success"});
       p.onSuccess?.();
     }catch(e:any){
@@ -150,13 +168,17 @@ export default function RequestPaymentDialog(p:Props){
         Requesting: <span className="text-primary">{formatToIndianRupee(amount)}</span>
       </p>
 
+      {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
+      <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}
+                         tds={tds} companyBorne={companyBorne} />
+
       <div className="mt-3 flex gap-2 justify-center">
         {isMutating
           ? <TailSpin color="red" height={40} width={40}/>
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount===0 || !!warn}
+                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode)}
                       onClick={submit}>Confirm</Button>
             </>}
       </div>

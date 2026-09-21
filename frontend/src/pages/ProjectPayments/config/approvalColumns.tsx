@@ -76,9 +76,10 @@ export interface ApprovalColumnCtx {
    */
   onEdit?: (row: ApprovalQueueRow) => void;
   /**
-   * The Trash icon on "Payment By Me", shown on REJECTED rows only ("--" otherwise). It opens a
-   * dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
-   * PO / SR page, whose payment table deletes it.
+   * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise) and opens
+   * a dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
+   * PO / SR page, whose payment table deletes it. On "Payment need to paid" it sits beside
+   * Mark as Paid on every row, and deletes any of the three ledgers in place.
    */
   onDelete?: (row: ApprovalQueueRow) => void;
 }
@@ -165,9 +166,9 @@ const REGISTRY: Record<
     header: "Actions",
     enableSorting: false,
     size:
-      // 148: measured — the button itself is 136px and the cell needs 144. Was 172
-      // while a trash icon sat beside it; that icon is no longer offered on this tab.
-      ctx.tab === PP_TABS.NEW_PAYMENTS ? 148
+      // 148: measured — the button itself is 136px and the cell needs 144. 180 with the
+      // trash icon beside it (removed 15 Sep, restored 18 Sep).
+      ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148)
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? 160
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
         : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
@@ -554,11 +555,17 @@ const REGISTRY: Record<
     accessorKey: "utr_ref",
     header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" />,
     size: 150,
+    // A cheque has no UTR until it is reconciled, so until then its number stands in, labelled.
     cell: ({ row }) =>
       row.original.utr_ref
         ? <TruncatedText text={row.original.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
-        : <Blank />,
-    meta: { exportHeaderName: "UTR / Ref", exportValue: (r: ApprovalQueueRow) => r.utr_ref },
+        : row.original.cheque_no
+          ? <TruncatedText text={`Cheque ${row.original.cheque_no}`} className="max-w-[9rem] font-mono text-[11px]" />
+          : <Blank />,
+    meta: {
+      exportHeaderName: "UTR / Ref",
+      exportValue: (r: ApprovalQueueRow) => r.utr_ref || (r.cheque_no ? `Cheque ${r.cheque_no}` : ""),
+    },
   }),
 
   proof: () => ({
@@ -639,9 +646,11 @@ const REGISTRY: Record<
     enableSorting: false,
     cell: ({ row }) => {
       if (!row.original.project || !ctx.getProjectCashflowGap) return <div className="pr-2 text-right"><Blank /></div>;
+      const gap = ctx.getProjectCashflowGap(row.original.project);
+      // Same colour rule as the Projects list: a positive gap (outflow beats inflow) is red.
       return (
-        <div className="pr-2 text-right tabular-nums">
-          {formatToApproxLakhs(ctx.getProjectCashflowGap(row.original.project))}
+        <div className={`pr-2 text-right tabular-nums ${gap > 0 ? "text-red-600" : "text-green-600"}`}>
+          {formatToApproxLakhs(gap)}
         </div>
       );
     },

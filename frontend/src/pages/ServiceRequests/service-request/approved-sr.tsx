@@ -46,7 +46,8 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
 import { useUserData } from "@/hooks/useUserData";
-import { VendorRefundsButton } from "@/components/vendor-refunds/VendorRefundsButton";
+import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
+import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
@@ -58,6 +59,13 @@ import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/Dele
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { TruncatedText } from "@/components/common/TruncatedText";
+
+// Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
+// neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
+// came back as requestable while it waited for reconciliation, and a cheque payment waits there
+// from the moment it is approved. The server's cap counts it the same way
+// (`finance.get_total_reconciliation_pending`).
+const OPEN_REQUEST_STATUSES = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"];
 
 // const { Sider, Content } = Layout;
 
@@ -219,6 +227,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         limit: 100
     })
 
+    // Refunds against this WO sit in the payments table as their own rows (badge "Vendor Refund").
+    const { refunds } = useVendorRefunds({ documentType: "Service Requests", documentName: id ?? "" });
+    const transactionRows = useMemo(() => mergePaymentsAndRefunds(projectPayments, refunds), [projectPayments, refunds]);
+
     // Fetch vendor invoices for this SR
     const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
         fields: ["name"],
@@ -250,7 +262,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
 
-    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
+    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => OPEN_REQUEST_STATUSES.includes(i?.status))), [projectPayments]);
 
     // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
     // part of what was requested -- so the Request Payment cap counts each payment GROSS.
@@ -267,7 +279,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
         return {
             paid: getAmountPaid + tdsFor(["Paid"]),
-            pending: amountPending + tdsFor(["Requested", "CEO Pending", "Approved"]),
+            pending: amountPending + tdsFor(OPEN_REQUEST_STATUSES),
         };
     }, [projectPayments, tdsByPayment, getAmountPaid, amountPending, companyBorneTds]);
 
@@ -608,7 +620,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <p>Transaction Details</p>
 
                             <div className="flex items-center gap-2">
-                                <VendorRefundsButton documentType="Service Requests" documentName={orderData?.name} />
                                 {!accountsPage && !summaryPage && (
                                     <>
                                         <Button
@@ -750,8 +761,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {(projectPayments || []).length > 0 ? (
-                                    projectPayments?.map((payment) => {
+                                {transactionRows.length > 0 ? (
+                                    transactionRows.map((row) => {
+                                        if (row.kind === "refund") {
+                                            return <VendorRefundTableRow key={row.name} refund={row.refund} tdsColumn className="font-semibold" />;
+                                        }
+                                        const payment = row.payment;
                                         const tds = tdsByPayment[payment?.name];
                                         return (
                                             <TableRow key={payment?.name}>
@@ -787,7 +802,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {/* ----------------------------------------------- */}
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                    {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
+                                                    {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
+                                                        Deleting the payment also deletes its Payment TDS Deduction (server on_trash). */}
+                                                    {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !summaryPage &&
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"

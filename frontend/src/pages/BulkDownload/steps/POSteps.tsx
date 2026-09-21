@@ -1,6 +1,5 @@
 /**
- * POSteps — handles PO rate option + unified filter bar + All POs / Critical POs tabs
- * Pixel-perfect v2: matches screenshot with search, icon filter buttons, selection bar, bordered cards.
+ * POSteps — PO rate option + All POs table (facet / date filters) / Critical POs tabs
  */
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,66 +9,40 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Download, Loader2, AlertTriangle, Link2, CheckSquare, Square } from "lucide-react";
-import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
-import { FilterBar } from "../FilterBar";
+import { BulkSelectTable } from "./BulkSelectTable";
+import { poColumns } from "./bulkTableColumns";
 import { POItem, CriticalPOTask } from "../useBulkDownloadWizard";
-import { DateFilterValue } from "@/components/ui/standalone-date-filter";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useUserData } from "@/hooks/useUserData";
 
 interface POStepsProps {
     items: POItem[];
     isLoading: boolean;
     selectedIds: string[];
-    onToggle: (id: string) => void;
+    onSelectAll: (ids: string[]) => void;
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
     withRate: boolean;
     onWithRateChange: (v: boolean) => void;
-    // Filters
-    vendorOptions: { value: string; label: string }[];
-    poVendorFilter: string[];
-    onToggleVendor: (v: string) => void;
-    poDateFilter?: DateFilterValue;
-    setPoDateFilter: (val?: DateFilterValue) => void;
-    onClearPoFilters: () => void;
-    // Status
-    poStatuses: string[];
     // Critical tasks
+    criticalTasks: CriticalPOTask[];
     onSelectMultipleCriticalTaskPOs: (taskNames: string[]) => void;
-    // Uplifted Search
-    searchQuery: string;
-    setSearchQuery: (q: string) => void;
-    filteredItems: POItem[];
-    statusFilter: string[];
-    toggleStatus: (s: string) => void;
 }
+
+const TAB_TRIGGER_CLASS = "px-4 h-8 text-xs font-bold rounded-lg transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500";
 
 export const POSteps = ({
     items,
     isLoading,
     selectedIds,
-    onToggle,
+    onSelectAll,
     onBack,
     onDownload,
     loading,
     withRate,
     onWithRateChange,
-    vendorOptions,
-    poVendorFilter,
-    onToggleVendor,
-    poDateFilter,
-    setPoDateFilter,
-    onClearPoFilters,
-    poStatuses,
     criticalTasks,
     onSelectMultipleCriticalTaskPOs,
-    searchQuery,
-    setSearchQuery,
-    filteredItems,
-    statusFilter,
-    toggleStatus,
 }: POStepsProps) => {
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
@@ -104,42 +77,6 @@ export const POSteps = ({
         onSelectMultipleCriticalTaskPOs([]);
     };
 
-    // Apply status filter on top of items (others already vendor+date+search filtered by hook)
-    const finalizedItems = useMemo(() => {
-        let list = filteredItems;
-        if (statusFilter.length > 0) {
-            list = list.filter((po) => po.status && statusFilter.includes(po.status));
-        }
-        return list;
-    }, [filteredItems, statusFilter]);
-
-    const poBaseItems: BaseItem[] = finalizedItems.map((po) => ({
-        name: po.name,
-        subtitle: po.vendor_name || po.vendor || "—",
-        rightLabel: po.amount != null ? formatToRoundedIndianRupee(po.amount) : undefined,
-        status: po.status,
-        dateStr: formatCreationDate(po.creation),
-    }));
-
-    // Select All / Deselect All for current filtered view
-    const allFilteredSelected = finalizedItems.length > 0 && finalizedItems.every((i) => selectedIds.includes(i.name));
-    const handleSelectAll = () => {
-        const idsToAdd = finalizedItems.map((i) => i.name).filter((id) => !selectedIds.includes(id));
-        if (idsToAdd.length > 0) {
-            // We need to add to existing selection, so use onToggle for each
-            idsToAdd.forEach((id) => onToggle(id));
-        }
-    };
-    const handleDeselectAll = () => {
-        finalizedItems.filter((i) => selectedIds.includes(i.name)).forEach((i) => onToggle(i.name));
-    };
-
-    const handleClearAllFilters = () => {
-        onClearPoFilters();
-        setStatusFilter(null);
-        setSearchQuery("");
-    };
-
     return (
         <div className="flex flex-col gap-4">
             {/* Header */}
@@ -164,110 +101,39 @@ export const POSteps = ({
                 </div>
             </div>
 
-            {/* Tabs wrapper */}
             <Tabs value={activeTab} onValueChange={(val) => {
                 setActiveTab(val);
                 if (val === "all") deselectAllCritical();
             }}>
-                {/* FilterBar + Selection Bar (only on "all" tab) */}
-                {activeTab === "all" && (
-                    <FilterBar
-                        searchQuery={searchQuery}
-                        onSearchChange={setSearchQuery}
-                        searchPlaceholder="Search by PO ID"
-                        vendorOptions={vendorOptions}
-                        vendorFilter={poVendorFilter}
-                        onToggleVendor={onToggleVendor}
-                        dateFilter={poDateFilter}
-                        onDateFilter={setPoDateFilter}
-                        statusOptions={poStatuses}
-                        statusFilter={statusFilter}
-                        onToggleStatus={toggleStatus}
-                        onClearFilters={handleClearAllFilters}
-                        selectedCount={finalizedItems.filter((i) => selectedIds.includes(i.name)).length}
-                        totalCount={finalizedItems.length}
-                        allSelected={allFilteredSelected}
-                        onSelectAll={handleSelectAll}
-                        onDeselectAll={handleDeselectAll}
-                        tabSlot={
-                            <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
-                                <TabsTrigger 
-                                    value="all" 
-                                    className="px-4 h-8 text-xs font-bold rounded-lg transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
-                                >
-                                    All POs
-                                    <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none rounded-md ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-slate-200/50 text-slate-500"}`}>
-                                        {finalizedItems.length}
-                                    </Badge>
-                                </TabsTrigger>
-                                <TabsTrigger 
-                                    value="critical" 
-                                    className="px-4 h-8 text-xs font-bold rounded-lg transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
-                                >
-                                    Critical POs
-                                    {tasksWithPOs.length > 0 && (
-                                        <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none rounded-md ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-slate-200/50 text-slate-500"}`}>
-                                            {tasksWithPOs.length}
-                                        </Badge>
-                                    )}
-                                </TabsTrigger>
-                            </TabsList>
-                        }
-                    />
-                )}
-
-                {/* Critical tab header — show tabs when on critical tab */}
-                {activeTab === "critical" && (
-                    <div className="flex items-center justify-between py-1.5 mb-2">
-                        <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
-                            <TabsTrigger 
-                                value="all" 
-                                className="px-4 h-8 text-xs font-bold rounded-lg transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
-                            >
-                                All POs
-                                <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none rounded-md ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-slate-200/50 text-slate-500"}`}>
-                                    {finalizedItems.length}
-                                </Badge>
-                            </TabsTrigger>
-                            <TabsTrigger 
-                                value="critical" 
-                                className="px-4 h-8 text-xs font-bold rounded-lg transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
-                            >
-                                Critical POs
-                                {tasksWithPOs.length > 0 && (
-                                    <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none rounded-md ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-slate-200/50 text-slate-500"}`}>
-                                        {tasksWithPOs.length}
-                                    </Badge>
-                                )}
-                            </TabsTrigger>
-                        </TabsList>
-
-                        <div className="flex items-center gap-4 pr-1">
-                            <p className="text-sm text-slate-500 font-medium whitespace-nowrap">
-                            {finalizedItems.filter((i) => selectedIds.includes(i.name)).length}/{finalizedItems.length} Selected
-                            </p>
-                            <Button variant="ghost" size="sm" className="h-9 px-3 border border-gray-200 rounded-lg bg-white shadow-sm gap-2.5 text-sm font-semibold text-gray-700"
-                                onClick={allFilteredSelected ? handleDeselectAll : handleSelectAll}>
-                                <Checkbox 
-                                    checked={allFilteredSelected} 
-                                    onCheckedChange={allFilteredSelected ? handleDeselectAll : handleSelectAll}
-                                    className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 pointer-events-none"
-                                />
-                                Select All
-                            </Button>
-                        </div>
-                    </div>
-                )}
+                <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100 mb-3">
+                    <TabsTrigger value="all" className={TAB_TRIGGER_CLASS}>
+                        All POs
+                        <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none rounded-md ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-slate-200/50 text-slate-500"}`}>
+                            {items.length}
+                        </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="critical" className={TAB_TRIGGER_CLASS}>
+                        Critical POs
+                        {tasksWithPOs.length > 0 && (
+                            <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none rounded-md ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-slate-200/50 text-slate-500"}`}>
+                                {tasksWithPOs.length}
+                            </Badge>
+                        )}
+                    </TabsTrigger>
+                </TabsList>
 
                 {/* All POs tab */}
                 <TabsContent value="all" className="mt-0">
-                    <BaseItemList
-                        items={poBaseItems}
+                    <BulkSelectTable
+                        data={items}
+                        columns={poColumns}
                         isLoading={isLoading}
                         selectedIds={selectedIds}
-                        onToggle={onToggle}
-                        emptyMessage="No POs match current filters"
-                        onClearFilters={handleClearAllFilters}
+                        onSelectedIdsChange={onSelectAll}
+                        facetColumns={{ vendor: "Vendor", status: "Status" }}
+                        dateFilterColumns={["creation"]}
+                        searchPlaceholder="Search by PO ID or Vendor"
+                        emptyMessage="No POs found for this project."
                     />
                 </TabsContent>
 
@@ -284,7 +150,7 @@ export const POSteps = ({
                                 <p className="text-xs text-muted-foreground">
                                     {selectedCriticalTasks.length === 0
                                         ? "Select tasks — their linked POs will be queued."
-                                        : `${selectedCriticalTasks.length} task${selectedCriticalTasks.length !== 1 ? "s" : ""} selected`}
+                                        : `${selectedCriticalTasks.length} task${selectedCriticalTasks.length !== 1 ? "s" : ""} selected · ${selectedIds.length} PO${selectedIds.length !== 1 ? "s" : ""}`}
                                 </p>
                                 <Button variant="outline" size="sm" className="h-7 text-xs"
                                     onClick={selectedCriticalTasks.length === tasksWithPOs.length ? deselectAllCritical : selectAllCritical}>

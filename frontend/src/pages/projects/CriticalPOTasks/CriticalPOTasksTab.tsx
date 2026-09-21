@@ -47,6 +47,7 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
   // Fetch all Critical PO Tasks for this project
   const {
     data: tasks,
+    totalPOValue,
     isLoading,
     error,
     mutate,
@@ -100,6 +101,7 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
 
           <CriticalPOTasksList
             tasks={tasks}
+            totalPOValue={totalPOValue}
             projectId={projectId}
             mutate={mutate}
             onManageSetup={canManageSetup ? () => setManageSetupOpen(true) : undefined}

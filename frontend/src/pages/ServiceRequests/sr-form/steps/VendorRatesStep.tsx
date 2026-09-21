@@ -21,7 +21,7 @@ import { SRFormValues, calculateTotal, VendorRefType } from "../schema";
 import { PLACEHOLDERS, VALIDATION_MESSAGES } from "../constants";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getSelectStyles } from "@/config/selectTheme";
-import { VendorFYLimitState, fyLabel, rupees } from "../hooks/useVendorFYLimit";
+import { GST_HOLD_BLOCKED_MESSAGE, VendorGstHoldState, amountOverLimit, fyLabel, rupees } from "@/hooks/useVendorGstHold";
 
 interface VendorOptionInput {
     value: string;
@@ -36,8 +36,8 @@ interface StepProps {
     form: UseFormReturn<SRFormValues>;
     vendors: VendorOptionInput[];
     isLoading?: boolean;
-    /** New-WO wizard only; the amend flow omits it (the limit applies at creation). */
-    vendorLimit?: VendorFYLimitState;
+    /** New-WO wizard only; the amend flow omits it (GST Hold blocks creation only). */
+    vendorGstHold?: VendorGstHoldState;
 }
 
 interface VendorOption {
@@ -60,7 +60,7 @@ export const VendorRatesStep: React.FC<StepProps> = ({
     form,
     vendors,
     isLoading,
-    vendorLimit,
+    vendorGstHold,
 }) => {
     const [isVendorSheetOpen, setIsVendorSheetOpen] = useState(false);
     const items = form.watch("items") || [];
@@ -242,39 +242,47 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                 </Card>
             )}
 
-            {/* Vendor Financial-Year WO Limit */}
-            {selectedVendor && vendorLimit?.isChecking && (
+            {/* Vendor GST Hold (ADR-0028) — shown only for a vendor on hold */}
+            {selectedVendor && vendorGstHold?.isChecking && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5 -mt-3">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Checking this vendor's Work Order total for the financial year...
+                    Checking this vendor's GST Hold...
                 </p>
             )}
-            {selectedVendor && vendorLimit?.isOverLimit && vendorLimit.summary && (
+            {selectedVendor && vendorGstHold?.isOnGstHold && vendorGstHold.summary && (
                 <div
                     role="alert"
                     className="flex items-start gap-3 rounded-lg p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800"
                 >
                     <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <div className="space-y-2 min-w-0">
+                    <div className="space-y-2 min-w-0 flex-1">
                         <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                            Vendor Work Order limit reached
+                            {GST_HOLD_BLOCKED_MESSAGE}
                         </p>
-                        <div className="text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
-                            <p>
-                                Work Orders (GST off) in {fyLabel(vendorLimit.summary)}:{" "}
-                                <span className="font-semibold">{rupees(vendorLimit.summary.total)}</span>
-                                {" "}({vendorLimit.summary.wo_count} {vendorLimit.summary.wo_count === 1 ? "Work Order" : "Work Orders"})
-                            </p>
-                            {vendorLimit.projectedTotal !== vendorLimit.summary.total && (
-                                <p>
-                                    With this Work Order:{" "}
-                                    <span className="font-semibold">{rupees(vendorLimit.projectedTotal)}</span>
-                                </p>
+                        <p className="text-xs text-amber-800 dark:text-amber-200">
+                            GST-off Work Orders in {fyLabel(vendorGstHold.summary)}:{" "}
+                            <span className="font-semibold">{rupees(vendorGstHold.summary.total)}</span>
+                            {amountOverLimit(vendorGstHold.summary) > 0 && (
+                                <>
+                                    {" · "}
+                                    <span className="font-semibold">{rupees(amountOverLimit(vendorGstHold.summary))}</span>
+                                    {" over "}{rupees(vendorGstHold.summary.limit)}
+                                </>
                             )}
-                            <p>
-                                Limit: <span className="font-semibold">{rupees(vendorLimit.summary.limit)}</span>
-                            </p>
-                        </div>
+                        </p>
+                        {vendorGstHold.summary.work_orders.length > 0 && (
+                            <ul className="max-h-40 overflow-y-auto text-xs text-amber-800 dark:text-amber-200 divide-y divide-amber-200 dark:divide-amber-900">
+                                {vendorGstHold.summary.work_orders.map((wo) => (
+                                    <li key={wo.name} className="flex justify-between gap-3 py-1">
+                                        <span className="truncate">
+                                            {wo.name}
+                                            {wo.project_name && <span className="text-amber-700/80 dark:text-amber-300/80"> · {wo.project_name}</span>}
+                                        </span>
+                                        <span className="shrink-0 font-medium">{rupees(wo.total_amount)}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 </div>
             )}

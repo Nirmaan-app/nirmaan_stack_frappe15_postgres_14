@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useCompanyBorneTds, useVendorTdsRate } from "../../hooks/useVendorTdsRates";
-import { forecastTdsTotals } from "../../tdsForecast";
+import { forecastTdsTotals, withholdsOnApproval } from "../../tdsForecast";
 import { parseNumber } from "@/utils/parseNumber";
 // Same superset row as BulkActionBar — every field this dialog reads is carried
 // under its payment name, so only the type widened.
@@ -27,16 +27,23 @@ import {
 } from "../../config/approvalsTable.config";
 import {
   countLabel,
+  forwardedToCeoNote,
   selectionBreakdown,
   summarizeSelection,
 } from "../../bulkSelectionSummary";
+import { statusAfterL1, TIER_L2_ABOVE, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
+import { isExpenseRow } from "../hooks/useBulkApprovalActions";
+import { isChequePayment, paymentModeSummary } from "../../paymentMode";
+import { formatDate } from "@/utils/FormatDate";
 
-import { BulkAction } from "../hooks/useBulkPaymentActions";
+import { BulkAction, BulkMode } from "../hooks/useBulkPaymentActions";
 
 interface BulkConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   action: BulkAction;
+  /** Which gate is approving: decides which rows this click actually withholds tax on. */
+  mode: BulkMode;
   payments: ApprovalQueueRow[];
   isLoading: boolean;
   onConfirm: (rejectionReason?: string) => void;
@@ -71,10 +78,43 @@ const SourceChip = ({ source }: { source: ApprovalQueueRow["source"] }) => (
   </span>
 );
 
+const MODE_TONE = {
+  online: {
+    text: "text-sky-700 dark:text-sky-400",
+    badge: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900",
+  },
+  cheque: {
+    text: "text-amber-700 dark:text-amber-400",
+    badge: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900",
+  },
+} as const;
+
+/** `Online (99) ₹1,00,86,803` -- the count in a circle badge, the same shape as the group badges below. */
+const ModeTallyChip = ({
+  label,
+  tally,
+  tone,
+}: {
+  label: string;
+  tally: { count: number; total: number };
+  tone: keyof typeof MODE_TONE;
+}) => (
+  <span className="inline-flex items-center gap-1 whitespace-nowrap">
+    <span className={`font-medium ${MODE_TONE[tone].text}`}>{label}</span>
+    <span
+      className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full border px-1 text-[10px] font-semibold leading-none tabular-nums ${MODE_TONE[tone].badge}`}
+    >
+      {tally.count}
+    </span>
+    <span className="font-medium tabular-nums">{formatToRoundedIndianRupee(tally.total)}</span>
+  </span>
+);
+
 export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
   open,
   onOpenChange,
   action,
+  mode,
   payments,
   isLoading,
   onConfirm,
@@ -163,10 +203,31 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
   const rateFor = useVendorTdsRate();
   // Miscellaneous / Transportation-only Work Orders keep their payment whole; the tax is paid on top.
   const companyBorneFor = useCompanyBorneTds();
-  const tdsTotals = useMemo(
-    () => forecastTdsTotals(payments, (p) => rateFor(p.vendor), (p) => companyBorneFor(p.document_name)),
-    [payments, rateFor, companyBorneFor]
-  );
+  //
+  // ⚠️ ONLY THE ROWS THIS CLICK FINISHES. An L1 approval above 50,000 only forwards the payment to
+  // the CEO and withholds nothing yet; counting it here overstated the tax and understated what
+  // the vendors receive. Forwarded rows -- of every ledger -- get their own note below.
+  const { tdsTotals, forwardedNote } = useMemo(() => {
+    const finishes = payments.filter((p) => withholdsOnApproval(mode, p.amount));
+    const totals = (rows: ApprovalQueueRow[]) =>
+      forecastTdsTotals(rows, (p) => rateFor(p.vendor), (p) => companyBorneFor(p.document_name));
+    // What this L1 click FORWARDS to the CEO instead of finishing -- every ledger, each on its own
+    // CEO line, exactly as the bulk endpoints route them. The CEO's own click forwards nothing.
+    const forwards =
+      mode === "ceo"
+        ? []
+        : payments.filter(
+            (p) => statusAfterL1(p.amount, isExpenseRow(p) ? TIER_L2_ABOVE_EXPENSES : undefined) === "CEO Pending"
+          );
+    const note = forwardedToCeoNote(
+      forwards,
+      formatToRoundedIndianRupee(TIER_L2_ABOVE),
+      totals(forwards).count
+    );
+    return { tdsTotals: totals(finishes), forwardedNote: note };
+  }, [payments, mode, rateFor, companyBorneFor]);
+
+  const modes = useMemo(() => paymentModeSummary(payments), [payments]);
 
   const count = payments.length;
   const isReject = action === "reject";
@@ -206,6 +267,28 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               {breakdown && ` · ${breakdown}`}
             </span>
           </div>
+          {!isReject && modes.online.count + modes.cheque.count > 0 && (
+            <div className="mt-1.5 rounded border bg-muted/40 px-2 py-1.5 text-[11px] leading-snug">
+              {/* One line: the heading, then each mode as "Name (count) amount", the count in a
+                  circle badge in the mode's colour. The note appears only when a cheque is in. */}
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <span className="font-semibold">Mode of Payment</span>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {modes.online.count > 0 && (
+                    <ModeTallyChip label="Online" tally={modes.online} tone="online" />
+                  )}
+                  {modes.cheque.count > 0 && (
+                    <ModeTallyChip label="Cheque" tally={modes.cheque} tone="cheque" />
+                  )}
+                </span>
+              </div>
+              {modes.cheque.count > 0 && (
+                <div className="mt-0.5 text-muted-foreground">
+                  Cheques go to Reconciliation Pending once approved.
+                </div>
+              )}
+            </div>
+          )}
           {!isReject && tdsTotals.count > 0 && (
             <div className="mt-1.5 rounded border bg-muted/40 px-2 py-1.5 text-[11px] leading-snug">
               <div className="flex items-baseline justify-between gap-2">
@@ -239,6 +322,9 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
                 </span>
               </div>
             </div>
+          )}
+          {!isReject && forwardedNote && (
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{forwardedNote}</p>
           )}
           {!isReject && (
             <p className="text-[11px] leading-snug text-amber-700 mt-1.5">
@@ -418,6 +504,12 @@ const BulkRowLine: React.FC<BulkRowLineProps> = ({ row, vendorLabelFor }) => {
             title={secondary}
           >
             {secondary}
+          </div>
+        )}
+        {isPayment && isChequePayment(row) && (
+          <div className="truncate pl-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+            Cheque {row.cheque_no}
+            {row.cheque_date && ` · ${formatDate(row.cheque_date)}`}
           </div>
         )}
       </div>
