@@ -166,3 +166,4 @@ nirmaan_stack.patches.v3_0.recompute_icici_gross_outflow
 nirmaan_stack.patches.v3_0.split_vendor_gst_pan #v1
 nirmaan_stack.patches.v3_0.backfill_outflow_skip_kind
 nirmaan_stack.patches.v3_0.fix_revision_and_additional_charges_billing_status
+nirmaan_stack.patches.v3_0.rebuild_vendor_categories_from_orders

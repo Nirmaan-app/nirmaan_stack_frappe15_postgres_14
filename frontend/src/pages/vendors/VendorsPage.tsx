@@ -197,7 +197,14 @@ export default function VendorsPage() {
         },
         size: 250,
         enableSorting: false,
+        enableColumnFilter: true,
         meta: {
+          // JSON field: the backend lists the names inside `categories` and filters
+          // vendors holding ANY ticked one (data_table/facets.py + utils.py).
+          facet: {
+            field: "vendor_category",
+            title: "Category",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Categories",
           exportValue: (row: VendorsType) =>
             row.vendor_category?.categories?.join(", ") || "",

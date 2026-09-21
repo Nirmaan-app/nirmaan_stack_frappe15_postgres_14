@@ -429,6 +429,12 @@ scheduler_events = {
         "nirmaan_stack.tasks.ceo_hold_recheck.run_due_ceo_hold_rechecks",
 	],
 	"cron": {
+		# Vendor categories: POs + WOs touched since yesterday ADD their categories to the vendor.
+		# Kept ahead of 04:00 / 04:30 -- it writes without moving `modified`, so the credit job's
+		# full vendor save would silently put a mid-run write back.
+		"30 3 * * *": [
+			"nirmaan_stack.tasks.vendor_category_sync.sync_daily"
+		],
 		# GST Hold (ADR-0028): every morning, ON for a Service / Material & Service vendor with no
 		# GST number whose GST-off WOs this FY total over Rs 15L. Never released here -- Admin only.
 		# Kept ahead of the 04:30 credit job, whose full vendor save would otherwise race this write.

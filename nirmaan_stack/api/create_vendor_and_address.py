@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from typing import List, Dict, Union
+from typing import Dict, Union
 
 @frappe.whitelist()
 def create_vendor_and_address(
@@ -12,10 +12,6 @@ def create_vendor_and_address(
     # field in this payload must be admitted here too.
     values: Dict[str, Union[str, int, float, None]],
     vendorType: str,
-    category_json: List[str],
-    service_categories: List[str],
-    dynamicCategories: List[str],
-    renderCategorySelection: bool,
     service: bool,
 ) -> Dict[str, Union[int, str]]:
     """
@@ -25,11 +21,11 @@ def create_vendor_and_address(
         values (Dict[str, Union[str, int, float, None]]): A dictionary mapping field
             names to values. Mostly strings; `tds_deduction_percentage` is numeric.
         vendorType (str): Vendor Type : Service | Material | Material & Service.
-        category_json (List[str]): A list of selected item names.
-        service_categories (List[str]): A list of default service categories.
-        dynamicCategories (List[str]): A list of dynamically added categories.
-        renderCategorySelection (bool): A flag indicating if category selection is rendered.
         service (bool): A flag indicating if the vendor is a service vendor.
+
+    A new vendor starts with NO categories: `tasks/vendor_category_sync.py` fills them in from the
+    vendor's POs and Work Orders (owner, 21/09/2026). A stale client still sending the old category
+    arguments is harmless -- Frappe drops arguments this function does not declare.
 
     Returns:
         Dict[str, Union[int, str]]: A dictionary containing the result of the operation.
@@ -84,18 +80,8 @@ def create_vendor_and_address(
         vendorDoc.credit_limit = 50000
         vendorDoc.available_credit = 50000
 
-        if vendorType == "Service":
-            vendorDoc.vendor_category = {"categories": service_categories}
-        elif vendorType == "Material":
-            if not renderCategorySelection and dynamicCategories:
-                vendorDoc.vendor_category = {"categories": dynamicCategories}
-            else:
-                vendorDoc.vendor_category = {"categories": category_json}
-        else:
-            if not renderCategorySelection and dynamicCategories:
-                vendorDoc.vendor_category = {"categories": dynamicCategories + service_categories}
-            else:
-                vendorDoc.vendor_category = {"categories": category_json + service_categories}
+        # Never None: the Vendors after_insert hook reads vendor_category["categories"].
+        vendorDoc.vendor_category = {"categories": []}
 
         vendorDoc.insert(ignore_permissions=True)
         frappe.db.commit()
