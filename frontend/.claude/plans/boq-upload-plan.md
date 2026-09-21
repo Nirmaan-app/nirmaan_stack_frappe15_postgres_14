@@ -39262,3 +39262,211 @@ temporary tool: `_mint_hvac_v2_tmp.py` (never committed). Untouched: `patches.tx
 pricing / interpreter / panel file, every doctype JSON. `test_rate_master.py`: the four 1b pins h01 / h02 / h05 /
 h07 inverted under the owner's rulings (above). Feat commit `6fc9fa3b`; this record's commit follows it. NOT pushed;
 the owner pushes 1b and 1c together.
+
+## HVAC RATE MASTER, SLICE 1d -- the SPEC READER suggests the best match; the USER confirms (2026-09-21) -- SHIPPED
+
+Owner rulings (quoted): **T-a** "instead of refusing cane we take confirmation from user with thebest mapping and
+then proceed"; **T-b** "1d confirmed": the exact read runs first and is unchanged; only when it refuses does the
+reader offer ONE best match, found by FIXED RULES (never AI) -- spelling tolerance ("Grille" / "Grill",
+"Louver" / "Louvre", "Motorised" / "Motorized") and synonyms ("Fire Damper UL" -> fire damper, UL variant); the
+preview asks per row *"Couldn't read '...' exactly. Best match: .... Accept?"* with Accept / Reject and an
+"Accept all shown"; a rejected row, or one with no match, is stored flagged "won't price: spec not understood";
+a confirmed mapping is REMEMBERED and shown on the Rate Master in amber as "confirmed by <user>, <date>"; a
+re-upload of the same wording is not asked again; changed wording triggers a fresh read; the manual add / edit
+form asks the same question on save. Standing (1c S-c 2) kept: a spec is never GUESSED -- a suggestion a user
+confirms is not a guess; a suggestion applied WITHOUT confirmation would be, so nothing suggests-and-writes.
+**Scope ruling (owner, mid-slice):** `RateMasterPage.tsx` added for EXACTLY two edits -- (1) `onApplyCsv`
+forwards two OPTIONAL fields (`decisions`, `acceptedFingerprints`); (2) `onCreateItem` / `onSaveItem` return
+`res.message` and forward OPTIONAL `spec_decision` / `spec_fingerprint` -- under the conditions: payloads
+byte-identical when the optionals are absent (proven by test), Electrical CSV apply + manual create / edit
+unchanged, `res.message` return changes no existing caller (callers named below), no other edit to that file.
+
+### THE SUGGESTER (`services/boq_rate_master/spec_reader.py`, PURE, deterministic, no AI)
+`suggest_spec(category_id, item_name, item_detail, unit)` is called ONLY after `read_spec` refused. Steps, in
+order: (1) normalise (lower-case, one space; punctuation kept so sizes survive); (2) the SYNONYM table,
+word-bounded, name AND detail; (3) the whole-name table; (4) one-letter correction of each alphabetic word of
+FIVE or more letters to the ONE family word within one edit (add / drop / change; a swap of two letters is two
+edits and is NOT tolerated); a word one edit from TWO family words is AMBIGUOUS and stops the whole suggestion;
+(5) the unchanged exact rules re-run on the corrected text. Result: ONE suggestion `{attributes,
+corrected_name, corrected_detail, notes (plain words), fingerprint}` or `(None, why)`. NONE when: the corrected
+text equals the original ("no close match to a known wording"); a word is ambiguous; the corrected text names a
+family whose REQUIRED size cannot be read (the exact rule's own refusal, verbatim -- a size is never invented).
+`fingerprint = sha256(name | detail | unit | derived)[:24]` -- what the user saw is what gets stored, or the
+accept is refused. `confirmed_attributes(name, detail, derived, user, when)` = the 1c shape + `spec_status =
+"confirmed"` + `spec_confirmed_by` + `spec_confirmed_at`; the reserved keys are now four (`RESERVED_ATTRS`).
+
+**THE TOLERANCE + SYNONYM TABLE, in plain words:**
+
+| Written | Read as | Kind |
+|---|---|---|
+| Grille / Grilles | Grill | synonym (owner-named) |
+| Louvre / Louvres | Louver | synonym (owner-named) |
+| Motorised | Motorized | synonym (owner-named) |
+| Eyeball | Eye ball | synonym (the sheet's own spacing) |
+| Z piece / Zpiece | Z-piece | synonym (the sheet's own hyphen) |
+| Back-draft | Back draft | synonym (the sheet's own hyphen) |
+| Fire Damper UL (whole name) | fire damper, detail marked "UL 555" | whole-name synonym (owner-named) |
+| any word of 5+ letters, one letter off ONE family word (e.g. Difuser, Acces, Dampr) | that family word | spelling tolerance |
+| a word of 4 letters or fewer (with, duct, slot, disc, ball, oval, dai) | never corrected | floor |
+| a word one letter from TWO family words (e.g. "sround": round / sound) | no suggestion (ambiguous) | guard |
+| a slip of two letters, or two letters swapped | no suggestion | limit |
+
+Family words (the only correction targets, 31): volume, control, damper, actuator, panel, grill, diffuser, round,
+butterfly, flexible, valve, collar, sound, attenuator, double, plenum, floor, spigot, canvas, piece, pressure,
+access, linear, curved, intake, louver, sleeve, motorized, without, draft, rectangular. The only pair of them
+one edit apart is round / sound, and both ARE family words, so neither is ever rewritten into the other (pinned).
+
+**THE E2 SELF-CONSISTENCY SWEEP (test t15 + `sweep_1d.py`):** the 95 sheet texts read exactly and the suggester
+is never invoked for them (call-counted); forced on the 95 CORRECT texts it yields the same family or none (1
+same / 94 none); each family word of each name misspelt two ways (a dropped middle letter, a changed middle
+letter) -> 366 variants: 339 suggested as the SAME family, 27 no suggestion, **0 cross-family**.
+
+### AS BUILT
+- **`csv_importer.build_plan(discipline, raw, decisions=None)`** -- in the spec branch, when the exact read
+  refuses, the plan row's `spec` carries `suggestion` (`{attributes, label, notes, fingerprint}` or null),
+  `no_suggestion_reason`, `decision`. An `accept` decision applies `confirmed_attributes(...)` with
+  `frappe.session.user` + now (status `confirmed`); `reject` / no decision plans `not_understood` as in 1c; an
+  accept for a row with NO suggestion is a ROW ERROR (the plan cannot apply). The DIGEST is decision-free (the
+  same file digests the same whatever is answered). **`apply_plan(..., decisions, accepted_fingerprints)`**: the
+  decision-free plan is checked as before (errors, digest), then re-planned WITH the decisions; each accepted
+  row's fingerprint must equal the previewed suggestion's fingerprint or the whole apply throws "Suggestion out
+  of date" -- nothing written.
+- **`api/boq/rate_master.py`** -- `_resolve_spec_write(spec_cat, name, detail, unit, spec_decision,
+  spec_fingerprint) -> (attributes, spec_out, ask)`: exact read; on refusal compute the suggestion; with NO
+  decision and a suggestion, return `ask = {ok: False, needs_confirmation: True, question, suggestion,
+  no_suggestion_reason}` and the endpoint returns it WITHOUT writing; `reject` -> flagged; `accept` -> verify the
+  fingerprint (throws "Suggestion out of date" / "Nothing to accept" / "Invalid value") -> confirmed with user +
+  time; no suggestion and no decision -> flagged as in 1c (nothing to ask). `create_rate_master_item` and
+  `update_rate_master_item` gain OPTIONAL `spec_decision` / `spec_fingerprint`; `apply_rate_master_csv` gains
+  OPTIONAL `decisions` / `accepted_fingerprints` (JSON dicts). A category without the spec key never reaches
+  the resolver; the legacy path is unchanged (t20).
+- **Frontend** -- `rateMasterSpec.ts`: `SPEC_CONFIRMED` + the two key names, `SpecDecision`, `SpecSuggestion`,
+  `SpecConfirmationReply`, `SPEC_CONFIRM_COPY` (Accept / Reject / "Accept all shown" / "confirmed by"),
+  `specVerdict` (read | confirmed | not_understood), `specConfirmedInfo`, `confirmedTag` (dd-MMM-yyyy via
+  `formatDate`), `specQuestion` (the owner's wording), `rowsWithSuggestion`, `acceptedFingerprints`, and the
+  three PAYLOAD BUILDERS `applyCsvPayload` / `createItemPayload` / `saveItemPayload` (optional keys added only
+  when present -- the A8 proof). `RateMasterUploadDialog.tsx`: per-row amber question box with Accept / Reject,
+  the no-suggestion reason line, "Accept all shown (N)", decisions cleared on reset; the apply sends decisions +
+  fingerprints only when any exist. `RateMasterDataViewer.tsx`: the grid's spec cell shows the amber
+  "confirmed by X, date" badge (third state beside red flagged / grey read); the inline edit and the Add dialog
+  handle a `needs_confirmation` reply by staying open, showing the question with Accept / Reject, and re-sending
+  with the decision (+ fingerprint on accept). `RateMasterPage.tsx`: the two ruled edits + one import line.
+  Callers of the three page wrappers (A2): `RateMasterDataViewer.tsx` only (AddItemDialog submit -> `onCreate`;
+  `saveEdit` -> `onSaveItem`; the upload dialog's `onApply` via the viewer's prop) -- grep of `src/` finds no
+  other reader of their return value.
+
+### TESTS
+`api/boq/test_spec_reader.py` 11 -> 20 (t12-t20): t12 EXACT FIRST -- the 95 never take the suggestion path
+(call-counted through the import round trip AND the manual resolver), forced on correct text = same family or
+none; t13 the owner's named suggestions (Grille -> linear grille with the detail's damper; Louver -> intake
+louvre; Motorised VCD; Fire Damper UL -> fire damper / UL / ul=yes; Difuser -> diffuser with the note and a
+matching fingerprint); t14 NEVER INVENTED (Frobnicator none; "sround" ambiguous naming both words; required
+size unreadable none; four-letter words never corrected); t15 the sweep (0 cross-family, >300 variants, the
+round/sound pair pin); t16 the confirmed shape + a stable / moving fingerprint; t17 CSV preview shows the
+suggestion or why none, accept -> confirmed with user + time, reject -> flagged, NEGATIVE wrong fingerprint and
+accept-without-suggestion both refused with nothing written; t18 re-upload of an unchanged confirmed row plans
+"unchanged" and is not asked; a changed detail gets a fresh exact read; t19 manual create / edit: asks with
+NOTHING written, accept -> confirmed, reject -> flagged, no-suggestion text stored flagged without asking,
+NEGATIVE wrong fingerprint refused on both paths, an unreadable size on edit stored flagged (no question), an
+edit to exact wording drops the flag / confirmed keys; t20 ELECTRICAL / no key: decisions inert, digests equal,
+apply a no-op, the legacy create path ignores `spec_decision`. `test_rate_master.py` UNCHANGED, 385 OK.
+`rateMasterSpec.test.ts` 12 -> 22: the third status, the NEGATIVE cross-state pins, the amber tag wording, the
+question wording, rows-with-suggestion / accepted-fingerprints (never a reject, never a no-suggestion row), and
+the three payload builders BYTE-IDENTICAL to the pre-slice literals when nothing optional is present (empty
+maps count as absent) and adding exactly the named keys when present.
+
+### VACUITY (each break -> the named tests red -> restored, sha256 verified)
+Ten breaks, each restored and sha256-verified (a Docker Desktop crash interrupted the first pass after V1; V2-V10 re-run
+after the restart). V1 spelling correction off (`SUGGEST_MAX_EDITS` 1 -> 0): t13, t14, t15, t19 red. V2 synonym table
+emptied: t13 red. V3 the no-change guard removed (a suggestion offered for unchanged text): t14, t17, t19 red. V4
+`confirmed_attributes` drops WHO: t16 red, t17 + t19 error. V5 CSV apply fingerprint check disabled: t17 red. V6 CSV
+plan accepts an accept-without-suggestion silently: t17 error. V7 manual endpoints fingerprint check disabled: t19 red.
+V8 manual endpoints never ask (write straight through): t19 red. V9 `applyCsvPayload` always sends the two keys: the
+byte-identical payload pin red. V10 `specVerdict` never says confirmed: the third-status pin red. The two mechanisms
+added AFTER the cert findings (spec rows promoted to `major`; `spec.text` on the plan) are pinned in t18 and were
+proven by the live re-run rather than a break (the pre-fix screen IS the red run: a collapsed question, a
+detail-only quote).
+
+### THE CERT
+Live :8080 after a full process restart (Docker Desktop crashed mid-slice and was restarted by the owner; web, worker,
+socketio and vite hand-started, the last with `.vite` removed; web + worker restarted by PID twice more for the two
+importer edits; vite killed by PID and restarted once more because its bind-mount watcher served STALE copies of two
+edited modules -- verified by curl of the plain URLs before and after). Bundle markers on the plain URLs:
+`specConfirmedInfo` 1 (spec.ts) / 3 (viewer), `acceptedFingerprints` 1, `applyCsvPayload` 1 (spec.ts) / 2 (page),
+`accept-all-shown` 1, `ask about or flags` 1, `spec?.text?.item_name` 1.
+- **D1** HVAC / ADP (95 items, 0 badges); `cert1d_D1.csv` (Grille / Linear grille without damper; Fire Damper UL / with
+  sleeve; Frobnicator / nonsense wording): "3 rows read, 3 items added, 0 errors", **Accept all shown (2)**, two amber
+  question boxes with the owner's wording and the plain-words note, one "No reasonable match: no close match to a known
+  wording in 'Frobnicator' -- no suggestion." (The FIRST attempt showed the pre-fix reason "after reading : ..." --
+  the web server had imported `spec_reader` during vacuity V3's broken window; restarted, re-run, correct.)
+- **D2** Accept row 1 ("Will be stored as confirmed."), Reject row 2 ("Rejected: stays flagged."), apply: "Applied 3
+  row(s): 0 replaced, 3 added. Snapshot v4". Screen 98 items; Grille row amber "confirmed by admins@nirmaan.app,
+  22-Sept-2026" with linear grille / without; Fire Damper UL and Frobnicator red-flagged. DB: the Grille row carries
+  `spec_status: confirmed`, `spec_confirmed_by: admins@nirmaan.app`, `spec_confirmed_at: 2026-09-22T01:09:50`; the
+  other two carry `not_understood` + the 1c note and no derived key.
+- **D3** the catalog's own 98-row export re-uploaded: "98 rows read, 98 rows unchanged, 0 errors. This file matches
+  the catalog exactly." -- 0 questions, no Accept-all button; cancelled. **D3b** the same file with the confirmed
+  row's detail changed to "Linear grille with damper": a FRESH read -- confirmed -> not_understood with the
+  suggestion (damper = with), asked again. **FOUND HERE:** the row was a collapsed "1 smaller change" (an existing
+  item, no rate movement) so its question box did NOT render while "Accept all shown (1)" would have accepted it,
+  and the question quoted only the changed half ("Couldn't read 'Linear grille with damper'"). Fixed on the server
+  (spec rows are `major`; `spec.text` carries both halves), pinned in t18, web restarted, vite de-staled, re-run:
+  "Shown in full (1)", no smaller-changes group, the box present, "Couldn't read 'Grille / Linear grille with damper'
+  exactly. Best match: family = linear grille, damper = with. Accept?", the new hint line. Cancelled (not applied).
+- **D4** `cert1d_D4_pair.csv` (Grille / Intake Louver; Round Difuser with damper / 250 mm dia): both asked; **Accept
+  all shown (2)** -> both "Will be stored as confirmed."; apply: "Applied 2 row(s): 0 replaced, 2 added. Snapshot v5".
+  Screen 100 items, THREE amber badges; intake louvre and round diffuser / with / 250 read. (The first apply attempt
+  returned 500 -- `psycopg2.errors.SerializationFailure: could not serialize access due to concurrent update` on the
+  item naming-series lock at 19:58:44, while the live-DB `test_rate_master` suite was still inserting items (it ended
+  19:59:44). Nothing written -- 98 items, snapshot still 4 -- repeated after the suite ended.)
+- **D5** manual Add: `Round Difuser without damper` / `200 mm dia` / Nos / 100 / 1000 / 0.6 / 0.45 -> the dialog stays
+  open with the question ("...Best match: family = round diffuser, damper = without, dia_mm = 200.0. Accept?",
+  "'difuser' is read as 'diffuser'"), Add disabled, still 100 items (one create call, nothing written); Accept ->
+  second create call, 101 items, the row amber-confirmed with round diffuser / without / 200, source "Manual entry".
+- **D6** manual Add of an exact-reading text `Round Diffuser with damper` / `275 mm dia`: NO question, ONE create
+  call, 102 items, "read from spec", 4 badges unchanged. **D6b** inline edit of the D5 row's detail to `300 mm dia`
+  (name still misspelt): the row stays in edit mode with the in-row question (nothing written, the grid still 200);
+  Accept -> second update call, the row confirmed with 300.
+- **D7** all seven synthetic rows deactivated by the normal route (trash icon + the "Deactivate this rate row?"
+  confirm, one each): screen 95 items, 0 badges, 0 flagged. DB: 95 active HVAC, all `rmbulk-0c5525ac8670` / ADP,
+  0 flagged, 0 confirmed, 0 rows carrying a confirmed key, active uids == v2; the CSV-upload synthetic rows RETAINED
+  INACTIVE with their statuses (freeze-and-supersede; the two manual rows likewise, under source "Manual entry");
+  HVAC snapshots now 5; Electrical 1,367 / 12 / 15,040, checksum `77a70755e65b3e093021736625197363e804232b78b6ac191d7ff236615bf0db`
+  unchanged.
+- **D8** Electrical screen: 19 columns, 588 rows, no badge / greyed / spec / hint -- the same header list read before
+  the slice, item for item; the Electrical Mode A wiring_cabling CSV built by the same exporter function the download
+  calls is BYTE-IDENTICAL to the same-day pre-slice download (`sha256 a1f8ea79...b27d4`, 60,514 bytes); the "All
+  categories" CSV is 223,363 bytes / 49 columns / 1,367 rows, the 1c figures.
+
+### ANOMALIES (disclosed)
+(1) Docker Desktop crashed during the first vacuity pass (V1 done; V2-V10 recorded "not red" only because the daemon
+was gone -- all restores were hash-verified; re-run clean after the owner restarted Docker). (2) The web server
+imported `spec_reader` during vacuity V3's broken window (the Electrical page load happened mid-run), so the first D1
+preview showed the pre-fix no-suggestion reason; restarted and re-run. Rule kept: no browser traffic while a break is
+on disk. (3) The D4 apply collided with the live-DB `test_rate_master` suite (SerializationFailure on the naming
+series); nothing written; repeated after the suite. Rule kept: no browser WRITE while a live-DB suite runs. (4) The
+page reloaded twice around the web restart (`registerType: "autoUpdate"` PWA plus the auth provider's recovery);
+one preview was lost and redone, no write involved. (5) vite served stale copies of two edited modules until killed by
+PID and restarted (the bind-mount watcher class). (6) The amber tag renders the month as "Sept" in Chrome
+(`Intl` en-GB) while `formatDate` under node gives "Sep" -- the app's shared formatter, not this slice's; the vitest pin
+uses the node form. (7) `residence_check.py` reports F2 207 -> 224 and F5 116 -> 119, IDENTICAL on a clean HEAD
+worktree -- pre-existing drift (this diff adds 0 `JSON.parse`, 0 `updateDoc`); the baseline is out of scope and was
+not touched. (8) A t19 fixture of my own was wrong ("350 mm dai": a three-letter word is below the floor and the
+size is required, so no suggestion is the DESIGN) -- rewritten, and the wording of the no-change reason improved
+from "no family is close enough" to "no close match to a known wording" because the family may be fine and the size
+the problem; three pins moved with it. (9) The HVAC snapshot count rose from 3 to 5 (the two applies); the rate master
+suite was run three times (385 OK each) because two importer edits landed after the first run.
+
+### FILES
+MODIFIED `nirmaan_stack/services/boq_rate_master/spec_reader.py` (the suggester block + `RESERVED_ATTRS`),
+`csv_importer.py` (decisions, fingerprints, `major` promotion, `spec.text`), `nirmaan_stack/api/boq/rate_master.py`
+(`_resolve_spec_write`, the three endpoints' optional params), `nirmaan_stack/api/boq/test_spec_reader.py` (11 -> 20),
+`frontend/src/pages/pricing/rate-master/rateMasterSpec.ts` + `rateMasterSpec.test.ts` (12 -> 23), `rateMasterUpload.ts`
+(`UploadSpec` + the hint), `RateMasterUploadDialog.tsx`, `RateMasterDataViewer.tsx`, `RateMasterPage.tsx` (the two ruled
+edits + one import line); this record; root `CLAUDE.md` (one durable rule). Untouched: `patches.txt`,
+`.claude/settings.local.json` (declared noise, left as found), every asset file, the loader, the exporter,
+`config_validation.py`, `extraction.py`, every pricing / interpreter / panel file, every doctype JSON, `test_rate_master.py`
+(385 OK, unchanged). Final counts: `test_spec_reader` Ran 20 OK; `test_rate_master` Ran 385 OK (three runs); vitest 3432 passed / 1 failed (3433) (baseline
+3421 passed / 1 failed, the known writeOffControl); tsc 3229 errors total before and after, 0 in the touched files;
+build clean (`Done in 184.83s`, 198 precache entries). Feat commit `c6a95440`; this record's commit follows it. NOT pushed; the owner pushes 1b, 1c and 1d
+together.

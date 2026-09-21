@@ -621,6 +621,17 @@ reader. A category without the key is byte-identical to before (`spec_categories
 the fix for a wrong attribute is always the text or the reader's rules, never the cell. A flagged item must never
 match in pricing (carried to the pricing slice).
 
+**⚠️ A SPEC SUGGESTION IS STORED ONLY AFTER A USER CONFIRMS IT; A CONFIRMED ITEM RECORDS WHO AND WHEN (owner-locked,
+T-a / T-b).** When the exact read refuses, `spec_reader.suggest_spec` offers ONE best match by FIXED RULES -- the synonym
+table, a one-letter correction of a word of five or more letters to a UNIQUE family word, the exact rules re-run --
+never AI, never a size invented, none when a word is ambiguous. Nothing writes a suggestion on its own: the CSV apply
+and the manual create / edit endpoints store it only with an explicit `accept` whose fingerprint matches the one that
+was previewed ("Suggestion out of date" otherwise), as `spec_status = "confirmed"` plus `spec_confirmed_by` /
+`spec_confirmed_at`; a reject, or no match, stays flagged exactly as before. A confirmed row re-uploaded with the same
+wording is not asked again; changed wording is a fresh read. A plan row the reader must ask about or flags is `major`
+(shown in full) -- the question box renders only in the expanded group and "Accept all shown" acts on every
+suggestion, so a collapsed question would be accepted unseen; the expansion rule stays on the server.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
