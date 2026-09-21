@@ -646,9 +646,11 @@ const REGISTRY: Record<
     enableSorting: false,
     cell: ({ row }) => {
       if (!row.original.project || !ctx.getProjectCashflowGap) return <div className="pr-2 text-right"><Blank /></div>;
+      const gap = ctx.getProjectCashflowGap(row.original.project);
+      // Same colour rule as the Projects list: a positive gap (outflow beats inflow) is red.
       return (
-        <div className="pr-2 text-right tabular-nums">
-          {formatToApproxLakhs(ctx.getProjectCashflowGap(row.original.project))}
+        <div className={`pr-2 text-right tabular-nums ${gap > 0 ? "text-red-600" : "text-green-600"}`}>
+          {formatToApproxLakhs(gap)}
         </div>
       );
     },
