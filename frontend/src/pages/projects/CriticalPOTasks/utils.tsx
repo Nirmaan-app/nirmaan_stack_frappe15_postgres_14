@@ -2,6 +2,7 @@
 // Utility functions for Critical PO Tasks
 
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
+import { parseNumber } from "@/utils/parseNumber";
 
 /**
  * Status styling configuration for Critical PO Tasks
@@ -219,7 +220,41 @@ export interface POTaskLinkRow {
     /** Procurement Orders name */
     name: string;
     critical_po_task: string;
+    /** PO `total_amount` -- Total Amount (inc. Tax) */
+    total_amount?: number;
+    status?: string;
 }
+
+/** POs that no longer carry their own value: a Merged PO's items live on the PO it merged into, which
+ *  stays linked to the same task, so counting both would double the task's value. */
+const DEAD_PO_STATUSES = new Set(["Merged", "Inactive", "Cancelled"]);
+
+/** Fold the link rows into task → total PO value incl. GST, skipping dead POs. */
+export const buildTaskPOValueMap = (rows: POTaskLinkRow[] | undefined): Map<string, number> => {
+    const map = new Map<string, number>();
+    const seen = new Set<string>();
+    rows?.forEach((row) => {
+        if (!row?.name || !row.critical_po_task || DEAD_PO_STATUSES.has(row.status ?? "")) return;
+        const key = `${row.critical_po_task} ${row.name}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        map.set(row.critical_po_task, (map.get(row.critical_po_task) ?? 0) + parseNumber(row.total_amount));
+    });
+    return map;
+};
+
+/** Total value incl. GST of every PO linked to any task, each PO counted ONCE -- a PO linked to two
+ *  tasks shows in both tasks' values, so summing the per-task map would double it. */
+export const sumLinkedPOValue = (rows: POTaskLinkRow[] | undefined): number => {
+    const poValue = new Map<string, number>();
+    rows?.forEach((row) => {
+        if (!row?.name || !row.critical_po_task || DEAD_PO_STATUSES.has(row.status ?? "")) return;
+        poValue.set(row.name, parseNumber(row.total_amount));
+    });
+    let total = 0;
+    poValue.forEach((value) => (total += value));
+    return total;
+};
 
 /** Fold the link rows into task → PO names, each list sorted by PO name. */
 export const buildTaskPOMap = (rows: POTaskLinkRow[] | undefined): Map<string, string[]> => {

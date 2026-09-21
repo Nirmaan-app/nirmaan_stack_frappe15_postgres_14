@@ -35,6 +35,12 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 
 interface ReviewStepProps {
     form: UseFormReturn<SRFormValues>;
+    /**
+     * Whether the 18% GST is added. The amend flow passes the Work Order's own `gst` flag (amendment
+     * approval never changes it). When omitted (new WO) it follows the selected vendor's GST number,
+     * the same rule approval applies server-side (`ServiceRequests.set_gst_from_vendor_on_approval`).
+     */
+    gstApplicable?: boolean;
 }
 
 const GST_RATE = 0.18; // 18% GST
@@ -50,6 +56,7 @@ const GST_RATE = 0.18; // 18% GST
  */
 export const ReviewStep: React.FC<ReviewStepProps> = ({
     form,
+    gstApplicable: gstApplicableProp,
 }) => {
     const items = form.watch("items") || [];
     const vendor = form.watch("vendor");
@@ -62,8 +69,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
     const uniqueCategories = useMemo(() => getUniqueCategories(items), [items]);
 
     // Calculate totals
+    const gstApplicable = gstApplicableProp ?? !!vendor?.gst?.trim();
+    const noGstReason = gstApplicableProp === undefined ? "vendor has no GST number" : "this Work Order is GST-off";
     const totalAmount = calculateTotal(items);
-    const gstAmount = totalAmount * GST_RATE;
+    const gstAmount = gstApplicable ? totalAmount * GST_RATE : 0;
     const grandTotal = totalAmount + gstAmount;
 
     // Calculate category subtotals
@@ -248,21 +257,32 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                 </CardHeader>
                 <CardContent className="py-4 px-4">
                     <div className="space-y-3">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Subtotal (excl. GST):</span>
-                            <span className="font-medium">{formatToIndianRupee(totalAmount)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">GST (18%):</span>
-                            <span className="font-medium">{formatToIndianRupee(gstAmount)}</span>
-                        </div>
-                        <div className="border-t pt-3">
+                        {gstApplicable && (
+                            <>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Subtotal (excl. GST):</span>
+                                    <span className="font-medium">{formatToIndianRupee(totalAmount)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">GST (18%):</span>
+                                    <span className="font-medium">{formatToIndianRupee(gstAmount)}</span>
+                                </div>
+                            </>
+                        )}
+                        <div className={gstApplicable ? "border-t pt-3" : undefined}>
                             <div className="flex justify-between">
-                                <span className="font-semibold">Grand Total (incl. GST):</span>
+                                <span className="font-semibold">
+                                    {gstApplicable ? "Grand Total (incl. GST):" : "Grand Total:"}
+                                </span>
                                 <span className="font-bold text-xl text-primary">
                                     {formatToIndianRupee(grandTotal)}
                                 </span>
                             </div>
+                            {!gstApplicable && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    GST not added — {noGstReason}.
+                                </p>
+                            )}
                         </div>
                     </div>
                 </CardContent>

@@ -12,12 +12,21 @@ import { Send } from "lucide-react";
 import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms"; // Use the row type
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
+import { useEffect, useState } from "react";
+import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
+import {
+  EMPTY_PAYMENT_MODE,
+  isPaymentModeComplete,
+  paymentModeArgs,
+  PaymentModeArgs,
+  PaymentModeValue,
+} from "@/pages/ProjectPayments/paymentMode";
 
 interface RequestPaymentDialogProps {
   isOpen: boolean;
   onClose: () => void;
   term: PoPaymentTermRow | null;
-  onConfirm: () => void;
+  onConfirm: (mode: PaymentModeArgs) => void;
   isLoading: boolean;
 }
 
@@ -30,6 +39,11 @@ export const RequestPaymentDialog = ({
 }: RequestPaymentDialogProps) => {
   const { data: lockData } = usePOLockCheck(term?.name);
   const isLocked = lockData?.is_locked || false;
+  const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  // A fresh choice for every request: the dialog stays mounted between terms.
+  useEffect(() => {
+    if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
+  }, [isOpen]);
 
   if (!isOpen || !term) return null;
 
@@ -61,14 +75,15 @@ export const RequestPaymentDialog = ({
             </div>
           </div>
         </div>
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
-            onClick={onConfirm}
-            disabled={isLoading || isLocked}
+            onClick={() => onConfirm(paymentModeArgs(payMode))}
+            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />

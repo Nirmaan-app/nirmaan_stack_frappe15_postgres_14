@@ -28,6 +28,7 @@
   "bank_branch",
   "vendor_credit_section",
   "vendor_status",
+  "gst_hold",
   "credit_limit",
   "column_break_credit",
   "credit_used",
@@ -130,6 +131,13 @@
    "in_list_view": 1,
    "label": "Vendor Status",
    "options": "Active\nOn-Hold"
+  },
+  {
+   "default": "0",
+   "description": "Turned ON by the daily job when this vendor has no GST number, is a Service or Material & Service vendor, and its GST-off Work Orders in the current financial year total more than Rs 15,00,000. The job never turns it OFF: only an Admin removes it (Remove GST Hold on the Vendor page). Not the same as Vendor Status On-Hold (credit).",
+   "fieldname": "gst_hold",
+   "fieldtype": "Check",
+   "label": "GST Hold"
   },
   {
    "default": "50000",
@@ -253,7 +261,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-17 11:33:16.000000",
+ "modified": "2026-09-19 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

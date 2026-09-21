@@ -43,6 +43,19 @@ deliberately NOT routed through it**: an insert has no previous status, so the p
 which is right for a transition and would be wrong for an insert. `after_insert` calls
 `record_deduction_if_eligible` directly.
 
+**Cheque payments pass THROUGH `Approved` (owner ruling 2026-09-19).** A Project Payment requested
+as a cheque (`mode_of_payment = "Cheque"`) is approved exactly like an online one — it lands on
+`Approved`, so every row of the table above applies unchanged — and only then does
+`services/cheque_payments.move_to_reconciliation` move it on to `Reconciliation Pending` (the same
+write as the accountant's Mark as Paid, which is not an approval). ⚠️ The move must run AFTER the
+deduction: bulk approve deducts post-commit, so the move is an explicit call after
+`_record_bulk_deductions` (and at the end of each single route), never a hook inside the save. A
+**PO** cheque has no tax to wait for (`DEDUCTIBLE_PARENTS` is SR-only), so bulk approve moves it INSIDE its
+approval group and the group's one PO save writes the term (`cheque_payments.has_no_tds_to_wait_for`);
+widening TDS to Procurement Orders sends those back through the after-TDS path automatically.
+`move_to_reconciliation` retries `record_deduction` (idempotent) before leaving `Approved`, because nothing can record a
+deduction once the payment has left it. The cheque is written for the NET figure (after TDS).
+
 **Unchanged by this:** the bulk-approval exemption (`bulk_actions._record_bulk_deductions` deducts
 post-commit, and bulk approve is itself an earlier-step approval), the `from_adjustment` exemption, and
 tax already withheld — nothing here removes or restates an existing deduction.

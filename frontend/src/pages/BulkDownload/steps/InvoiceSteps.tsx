@@ -1,35 +1,22 @@
 /**
- * InvoiceSteps — sub-type selector (All / PO Invoices / WO Invoices) + item list with search + select all
+ * InvoiceSteps — sub-type selector (All / PO Invoices / WO Invoices) + invoice table with facet / date filters
  */
-import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
-import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
-import { InvoiceSubType } from "../useBulkDownloadWizard";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
-import { FilterBar } from "../FilterBar";
-import { DateFilterValue } from "@/components/ui/standalone-date-filter";
+import { BulkSelectTable } from "./BulkSelectTable";
+import { invoiceColumns } from "./bulkTableColumns";
+import { InvoiceSubType, VendorInvoice } from "../useBulkDownloadWizard";
 
 interface InvoiceStepsProps {
     items: VendorInvoice[];
     isLoading: boolean;
     selectedIds: string[];
-    onToggle: (id: string) => void;
     onSelectAll: (ids: string[]) => void;
-    onDeselectAll: () => void;
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
     invoiceSubType: InvoiceSubType;
     onInvoiceSubTypeChange: (v: InvoiceSubType) => void;
-    vendorOptions: { value: string; label: string }[];
-    vendorFilter: string[];
-    onToggleVendor: (v: string) => void;
-    dateFilter?: DateFilterValue;
-    onDateFilter: (v?: DateFilterValue) => void;
-    onClearFilters: () => void;
-    searchQuery: string;
-    onSearchChange: (q: string) => void;
 }
 
 const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[] = [
@@ -39,38 +26,9 @@ const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[]
 ];
 
 export const InvoiceSteps = ({
-    items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
+    items, isLoading, selectedIds, onSelectAll,
     onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange,
-    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
-    searchQuery, onSearchChange
 }: InvoiceStepsProps) => {
-
-    const filteredItems = useMemo(() => {
-        if (!searchQuery.trim()) return items;
-        const q = searchQuery.toLowerCase();
-        return items.filter(
-            (vi) =>
-                (vi.invoice_no && vi.invoice_no.toLowerCase().includes(q)) ||
-                vi.name.toLowerCase().includes(q) ||
-                (vi.vendor_name && vi.vendor_name.toLowerCase().includes(q)) ||
-                (vi.vendor && vi.vendor.toLowerCase().includes(q))
-        );
-    }, [items, searchQuery]);
-
-    const baseItems: BaseItem[] = filteredItems.map((vi) => ({
-        name: vi.name,
-        subtitle: vi.vendor_name || vi.vendor || "—",
-        rightLabel: vi.invoice_no,
-        dateStr: vi.invoice_date ? formatCreationDate(`${vi.invoice_date} 00:00:00`) : undefined,
-        status: invoiceSubType === "All Invoices" 
-            ? (vi.document_type === "Procurement Orders" ? "PO Invoice" : vi.document_type === "Service Requests" ? "WO Invoice" : vi.document_type)
-            : undefined,
-    }));
-
-    const allSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
-    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
-    const handleDeselectAll = () => onDeselectAll();
-
     return (
         <div className="flex flex-col gap-4">
             <div>
@@ -107,29 +65,18 @@ export const InvoiceSteps = ({
                 </div>
             </div>
 
-            <FilterBar
-                searchQuery={searchQuery}
-                onSearchChange={onSearchChange}
-                searchPlaceholder="Search by Invoice NO"
-                vendorOptions={vendorOptions}
-                vendorFilter={vendorFilter}
-                onToggleVendor={onToggleVendor}
-                dateFilter={dateFilter}
-                onDateFilter={onDateFilter}
-                onClearFilters={onClearFilters}
-                selectedCount={items.filter((i) => selectedIds.includes(i.name)).length}
-                totalCount={items.length}
-                allSelected={allSelected}
-                onSelectAll={handleSelectAll}
-                onDeselectAll={handleDeselectAll}
-            />
-
-            <BaseItemList
-                items={baseItems}
+            {/* Keyed by type: a new type is a new list, so its filters start clean. */}
+            <BulkSelectTable
+                key={invoiceSubType}
+                data={items}
+                columns={invoiceColumns}
                 isLoading={isLoading}
                 selectedIds={selectedIds}
-                onToggle={onToggle}
-                emptyMessage={`No ${invoiceSubType} found for this project.`}
+                onSelectedIdsChange={onSelectAll}
+                facetColumns={{ vendor: "Vendor", type: "Type" }}
+                dateFilterColumns={["invoice_date"]}
+                searchPlaceholder="Search by Invoice No, Vendor or PO / WO"
+                emptyMessage={`No ${invoiceSubType} with attachments found for this project.`}
             />
 
             <div className="flex items-center justify-between pt-2">

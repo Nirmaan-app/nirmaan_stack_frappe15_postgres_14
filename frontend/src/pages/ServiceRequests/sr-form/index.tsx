@@ -24,7 +24,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useSRFormData } from "./hooks/useSRFormData";
-import { useVendorFYLimit, vendorFYLimitBlockedMessage } from "./hooks/useVendorFYLimit";
+import { GST_HOLD_BLOCKED_MESSAGE, useVendorGstHold } from "@/hooks/useVendorGstHold";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // Schema & Constants
@@ -35,7 +35,6 @@ import {
     validateStep1,
     validateStep2,
     ValidationResult,
-    calculateTotal,
 } from "./schema";
 import {
     SR_WIZARD_STEPS,
@@ -107,12 +106,11 @@ export const SRFormWizard = () => {
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
 
     /* ─────────────────────────────────────────────────────────
-       VENDOR FINANCIAL-YEAR WO LIMIT
+       VENDOR GST HOLD (ADR-0028)
        Blocks Next (vendor step) and Submit; the server refuses the insert too.
        ───────────────────────────────────────────────────────── */
     const watchedVendor = form.watch("vendor");
-    const watchedItems = form.watch("items");
-    const vendorFYLimit = useVendorFYLimit(watchedVendor?.id, calculateTotal(watchedItems || []));
+    const vendorGstHold = useVendorGstHold(watchedVendor?.id);
 
     /* ─────────────────────────────────────────────────────────
        DATA FETCHING
@@ -209,8 +207,13 @@ export const SRFormWizard = () => {
             case "vendor": {
                 const step2 = validateStep2(currentFormValues);
                 if (!step2.success) return step2;
-                if (vendorFYLimit.isChecking || vendorFYLimit.isOverLimit) {
-                    return { success: false, error: vendorFYLimitBlockedMessage(vendorFYLimit) };
+                if (vendorGstHold.isChecking || vendorGstHold.isOnGstHold) {
+                    return {
+                        success: false,
+                        error: vendorGstHold.isChecking
+                            ? "Checking this vendor's GST Hold. Please wait a moment."
+                            : GST_HOLD_BLOCKED_MESSAGE,
+                    };
                 }
                 return step2;
             }
@@ -241,7 +244,7 @@ export const SRFormWizard = () => {
             default:
                 return { success: true };
         }
-    }, [currentStep, getValues, vendorFYLimit]);
+    }, [currentStep, getValues, vendorGstHold]);
 
     /* ─────────────────────────────────────────────────────────
        NAVIGATION HANDLERS
@@ -297,11 +300,13 @@ export const SRFormWizard = () => {
             return;
         }
 
-        // Vendor financial-year WO limit guard
-        if (vendorFYLimit.isChecking || vendorFYLimit.isOverLimit) {
+        // Vendor GST Hold guard
+        if (vendorGstHold.isChecking || vendorGstHold.isOnGstHold) {
             toast({
-                title: vendorFYLimit.isChecking ? "Please wait" : "Vendor Work Order Limit Reached",
-                description: vendorFYLimitBlockedMessage(vendorFYLimit),
+                title: vendorGstHold.isChecking ? "Please wait" : "Vendor on GST Hold",
+                description: vendorGstHold.isChecking
+                    ? "Checking this vendor's GST Hold. Please wait a moment."
+                    : GST_HOLD_BLOCKED_MESSAGE,
                 variant: "destructive",
             });
             return;
@@ -404,7 +409,7 @@ export const SRFormWizard = () => {
                 variant: "destructive",
             });
         }
-    }, [getValues, createDoc, userData?.user_id, navigate, isCEOHold, showBlockedToast, vendorFYLimit]);
+    }, [getValues, createDoc, userData?.user_id, navigate, isCEOHold, showBlockedToast, vendorGstHold]);
 
     /* ─────────────────────────────────────────────────────────
        RENDER CURRENT STEP
@@ -435,7 +440,7 @@ export const SRFormWizard = () => {
                         form={form}
                         vendors={vendors}
                         isLoading={dataLoading}
-                        vendorLimit={vendorFYLimit}
+                        vendorGstHold={vendorGstHold}
                     />
                 );
             case "review":
@@ -651,7 +656,7 @@ export const SRFormWizard = () => {
                 ) : (
                     <Button
                         onClick={handleNext}
-                        disabled={currentSection === "vendor" && (vendorFYLimit.isChecking || vendorFYLimit.isOverLimit)}
+                        disabled={currentSection === "vendor" && (vendorGstHold.isChecking || vendorGstHold.isOnGstHold)}
                         className="gap-2"
                     >
                         Next

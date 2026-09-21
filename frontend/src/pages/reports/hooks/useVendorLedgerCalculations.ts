@@ -6,7 +6,7 @@ import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { parseNumber } from '@/utils/parseNumber';
-import { isWithinInterval, parseISO, isBefore } from 'date-fns';
+import { isWithinInterval, parseISO, isBefore, endOfDay } from 'date-fns';
 import { Vendors } from '@/types/NirmaanStack/Vendors'; 
 
 
@@ -22,8 +22,19 @@ export interface VendorCalculatedFields {
     totalSR: number; // Will now be total for the period
     totalInvoiced: number; // Will now be total for the period
     totalPaid: number; // Will now be total for the period
+    currentFYPaid: number; // Paid in the current financial year, whatever the period
     balance: number; // Will be the CUMULATIVE balance up to endDate
 }
+
+// The Indian financial year (1 Apr - 31 Mar) that `today` falls in, e.g. "FY 26-27".
+export const getCurrentFinancialYear = (today: Date = new Date()) => {
+    const startYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+    return {
+        start: new Date(startYear, 3, 1),
+        end: endOfDay(new Date(startYear + 1, 2, 31)),
+        label: `FY ${String(startYear % 100).padStart(2, "0")}-${String((startYear + 1) % 100).padStart(2, "0")}`,
+    };
+};
 
 // 2. The hook's return type (no change)
 export interface UseVendorLedgerCalculationsResult {
@@ -93,6 +104,8 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     // --- KEY CHANGE: Calculate flag once in the hook scope ---
     const shouldFilterByPeriod = useMemo(() => startDate && endDate, [startDate, endDate]);
     // ---------------------------------------------------
+
+    const currentFY = useMemo(() => getCurrentFinancialYear(), []);
 
     // Group Vendor Invoices by vendor
     const invoicesByVendor = useMemo(() =>
@@ -184,6 +197,13 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
                 return shouldInclude ? sum + parseNumber(p.amount) : sum;
             }, 0);
 
+            // currentFYPaid: payments dated in the current financial year. Ignores the period.
+            const currentFYPaid = relatedPayments.reduce((sum: number, p: ProjectPayments) => {
+                return isDateInPeriod(p.payment_date || p.creation, currentFY.start, currentFY.end)
+                    ? sum + parseNumber(p.amount)
+                    : sum;
+            }, 0);
+
 
             // --- CUMULATIVE BALANCE CALCULATION ---
             // This sums up ALL historical transactions from 2025-04-01 onwards using Vendor Invoices
@@ -240,10 +260,10 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
             // The running balance up to the end date
             const balance = openingBalance + (cumulativeInvoiced - cumulativePaid);
 
-            return { totalPO, totalSR, totalInvoiced, totalPaid, balance };
+            return { totalPO, totalSR, totalInvoiced, totalPaid, currentFYPaid, balance };
         },
         // Dependencies now include the dates, so this function is re-created when they change.
-        [posByVendor, srsByVendor, paymentsByVendor, invoicesByVendor, vendorsMap, isLoadingVendors, isLoadingPOs, isLoadingSRs, isLoadingPayments, isLoadingInvoices, startDate, endDate, shouldFilterByPeriod]
+        [posByVendor, srsByVendor, paymentsByVendor, invoicesByVendor, vendorsMap, isLoadingVendors, isLoadingPOs, isLoadingSRs, isLoadingPayments, isLoadingInvoices, startDate, endDate, shouldFilterByPeriod, currentFY]
     );
 
     const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments || isLoadingInvoices;

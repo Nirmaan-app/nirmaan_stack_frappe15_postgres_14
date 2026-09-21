@@ -13,7 +13,7 @@
 import React, { useEffect, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
-import { AlertTriangle, ArrowRight, Paperclip } from "lucide-react";
+import { ArrowRight, Paperclip } from "lucide-react";
 
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -32,24 +32,9 @@ import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
 
 export type ReviewAction = "approve" | "reject";
 
-interface SimilarEntry {
-    name: string;
-    amount: number;
-    status: string;
-    period_from?: string | null;
-    period_to?: string | null;
-    context?: string;
-    overlaps?: boolean;
-}
+/** Same-type, same-amount expenses of the last 60 days. The per-type "same person, overlapping
+ *  dates" warning was removed with its rules (owner, 2026-09-19). */
 interface SimilarResponse {
-    /** ⚠️ `history` is returned by the endpoint but DELIBERATELY NOT RENDERED (owner,
-     *  2026-08-20). The per-person strip is parked until the shape of a spend summary is
-     *  decided — see the separate plan. The overlapping warning stays: it is the only thing
-     *  that can still surface a duplicate pair raised BEFORE the submission guard existed. */
-    subject: string;
-    has_period_check: boolean;
-    overlapping: SimilarEntry[];
-    history: SimilarEntry[];
     nearby: { doctype: string; name: string; amount: number; status: string; on: string }[];
 }
 
@@ -63,22 +48,6 @@ interface Props {
     onOpenChange: (open: boolean) => void;
     onDone: () => void;
 }
-
-/** One line of the history strip: a period, an amount, an id, a state. */
-const HistoryLine: React.FC<{ e: SimilarEntry }> = ({ e }) => (
-    <div className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1 text-sm ${
-        e.overlaps ? "font-medium text-amber-800 dark:text-amber-300" : ""}`}>
-        <span className="tabular-nums">
-            {e.period_from ? formatDate(e.period_from) : "—"}
-            {e.period_to && e.period_to !== e.period_from && ` – ${formatDate(e.period_to)}`}
-        </span>
-        <span className="tabular-nums">{formatToRoundedIndianRupee(e.amount)}</span>
-        <span className="text-muted-foreground">{e.name}</span>
-        <span className="text-muted-foreground">{e.status}</span>
-        {e.context && <span className="text-xs text-muted-foreground">{e.context}</span>}
-        {e.overlaps && <span className="text-xs">&larr; overlaps this request</span>}
-    </div>
-);
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
     <div className="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-0.5 py-1 text-sm">
@@ -204,21 +173,10 @@ export const ReviewActionDialog: React.FC<Props> = ({
                     </div>
                 )}
 
-                {(similar?.overlapping?.length ?? 0) > 0 && (
-                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/30">
-                        <p className="flex items-center gap-1.5 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                            Already requested for this period
-                        </p>
-                        {similar!.overlapping.map((e) => <HistoryLine key={e.name} e={e} />)}
-                    </div>
-                )}
-
                 {(similar?.nearby?.length ?? 0) > 0 && (
                     <p className="text-xs text-muted-foreground">
                         {similar!.nearby.length} expense{similar!.nearby.length > 1 ? "s" : ""} of
-                        this type and amount recorded in the last 60 days
-                        {similar!.has_period_check ? "" : " — this type declares no period, so the dates are not compared"}.
+                        this type and amount recorded in the last 60 days.
                     </p>
                 )}
 

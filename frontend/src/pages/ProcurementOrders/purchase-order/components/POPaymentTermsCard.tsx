@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +55,14 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
+import {
+  EMPTY_PAYMENT_MODE,
+  isPaymentModeComplete,
+  paymentModeArgs,
+  PaymentModeArgs,
+  PaymentModeValue,
+} from "@/pages/ProjectPayments/paymentMode";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
 
@@ -707,6 +716,12 @@ const RequestPaymentDialog = ({
   isLoading,
   isLocked,
 }) => {
+  const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  // A fresh choice for every request: the dialog stays mounted between terms.
+  useEffect(() => {
+    if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
+  }, [isOpen]);
+
   if (!isOpen || !term) return null;
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -735,14 +750,15 @@ const RequestPaymentDialog = ({
             </div>
           </div>
         </div>
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
-            onClick={onConfirm}
-            disabled={isLoading || isLocked}
+            onClick={() => onConfirm(paymentModeArgs(payMode))}
+            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />
@@ -813,6 +829,7 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
             Approved
           </Badge>
         )}
+        {term?.term_status === "Reconciliation Pending" && <ReconciliationPendingBadge />}
         {term?.term_status === "Paid" && (
           <div className="flex items-center justify-end text-green-600">
             <CheckCircle2 className="h-5 w-5 mr-2" />
@@ -1004,7 +1021,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     setTermToRequest(term);
   };
 
-  const handleConfirmRequestPayment = async () => {
+  const handleConfirmRequestPayment = async (mode?: PaymentModeArgs) => {
     if (isCEOHold) {
       showBlockedToast();
       return;
@@ -1029,6 +1046,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         vendor: PO.vendor,
         amount: termToRequest.amount,
         ptname: termToRequest.name,
+        ...mode,
       });
       // console.log("message", result);
       if (result && result.message && result.message.status === 200) {

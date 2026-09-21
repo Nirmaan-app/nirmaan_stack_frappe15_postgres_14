@@ -50,6 +50,8 @@ export interface Vendors{
 	bank_branch?: string
 	/**	Vendor Status : Select	*/
 	vendor_status?: "Active" | "On-Hold"
+	/**	GST Hold : Check — set by the daily job when GST-off WOs this FY total > ₹15L; only an Admin removes it. NOT vendor_status On-Hold.	*/
+	gst_hold?: 0 | 1
 	/**	Credit Limit : Currency	*/
 	credit_limit?: number
 	/**	Credit Used : Currency	*/

@@ -7,6 +7,7 @@ from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheque_payments import is_cheque
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -71,6 +72,12 @@ def _notify_accountants_payment_ready(doc):
     auto-approval path (after_insert). Project-scoped via get_allowed_accountants,
     so it works for both Procurement Orders and Service Requests payments.
     """
+    if is_cheque(doc):
+        # A cheque is already written: it moves straight on to Reconciliation Pending
+        # (services/cheque_payments), so there is nothing to fulfil and the link would
+        # point at a tab the payment never stays in.
+        return
+
     accountants = get_allowed_accountants(doc)
     if not accountants:
         print("No accountants found with push notifications enabled.")

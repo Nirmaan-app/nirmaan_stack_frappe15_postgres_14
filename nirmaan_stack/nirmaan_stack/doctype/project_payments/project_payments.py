@@ -7,12 +7,63 @@ from frappe.utils import flt
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
+from nirmaan_stack.services import settlement
+from nirmaan_stack.services.cheque_payments import is_cheque
+
+# A cheque's amount is fixed on paper, so it may not move while the payment is still being
+# approved -- no L1 amount edit, no CEO part-approval. Past approval it is left alone: the TDS
+# netting writes the amount with `db_set` (no validate), and the bank import owns what happens at
+# reconciliation.
+CHEQUE_AMOUNT_LOCKED_WHILE = (settlement.STATUS_REQUESTED, settlement.STATUS_CEO_PENDING)
+
 
 class ProjectPayments(Document):
 	def autoname(self):
 		project = self.project.split("-")[-1]
 		prefix = f"PAY-{project}-"
 		self.name = f"{prefix}{getseries(prefix, 3)}"
+
+	def validate(self):
+		self._validate_cheque()
+
+	def _validate_cheque(self):
+		"""A cheque carries its number and date, and keeps its amount.
+
+		`mode_of_payment` itself is `set_only_once` in the doctype, so Frappe refuses any change
+		to it after creation (owner, 2026-09-19).
+
+		⚠️ ONE CHEQUE MAY COVER SEVERAL PAYMENTS (owner, 2026-09-19, reversing the same day's
+		"one number, one live payment" ruling), so the number is deliberately NOT unique. The
+		payments on one cheque also share its reference at reconciliation -- see
+		`reference_guard.cheque_siblings_of`.
+		"""
+		if not is_cheque(self):
+			# An online payment has no cheque. A number left on it would still block the
+			# duplicate check below for a real cheque carrying the same number.
+			self.cheque_no = None
+			self.cheque_date = None
+			return
+
+		self.cheque_no = (self.cheque_no or "").strip()
+		if not self.cheque_no or not self.cheque_date:
+			frappe.throw(_("Cheque No and Cheque Date are required for a cheque payment."))
+
+		if flt(self.amount) <= 0:
+			frappe.throw(_("A cheque payment must be for an amount greater than zero."))
+
+		before = self.get_doc_before_save()
+		if (
+			before
+			and (before.status or "").strip() in CHEQUE_AMOUNT_LOCKED_WHILE
+			and flt(before.amount) != flt(self.amount)
+		):
+			frappe.throw(
+				_(
+					"A cheque payment's amount can't be changed: the cheque is written for {0}. "
+					"Reject it and request a new one instead."
+				).format(frappe.format_value(before.amount, "Currency")),
+				title=_("Cheque Amount Is Fixed"),
+			)
 
 	def before_insert(self):
 		"""

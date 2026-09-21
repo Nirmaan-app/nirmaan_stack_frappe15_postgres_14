@@ -28,7 +28,7 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
     get_admin_users,
     get_allowed_accountants,
 )
-from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services import cheque_payments, payment_tds, settlement
 from nirmaan_stack.services.approval_tiers import STATUS_CEO_PENDING, status_after_l1
 
 MAX_BATCH_SIZE = 100
@@ -338,6 +338,22 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
         if settled_now:
             tds_recorded, tds_failed = _record_bulk_deductions(settled_now)
 
+            # Work Order cheques go on to Reconciliation Pending -- AFTER the deduction phase
+            # above, never inside the save loop: that phase only taxes rows still sitting at
+            # `Approved`, so a cheque moved any earlier would keep its gross amount with no
+            # deduction. (PO cheques have no tax to wait for and already moved inside their
+            # group; one whose in-group move failed is still `Approved` and is retried here.)
+            # Each move is its own transaction; one that fails stays at `Approved`, where "Mark
+            # as Paid" finishes it.
+            from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
+
+            for pid in frappe.get_all(
+                "Project Payments",
+                filters={"name": ["in", settled_now], "mode_of_payment": cheque_payments.MODE_CHEQUE},
+                pluck="name",
+            ):
+                _move_cheque_to_reconciliation(pid)
+
     # Best-effort: rejection-reason comments. A failure here does not unwind the
     # approvals — the comment is purely auditing.
     if action == "reject" and rejection_reason and pending_comments:
@@ -480,6 +496,18 @@ def _process_group(
             if sync_outcome == "updated":
                 po_dirty = True
 
+            # A PO cheque moves on to Reconciliation Pending right here, so the group's one PO
+            # save below writes its final term status. A Work Order cheque waits for the
+            # post-commit deduction phase in `_bulk_action` (see `_move_cheque_in_group`).
+            if (
+                action == "approve"
+                and target_status == payment_tds.APPROVED
+                and cheque_payments.is_cheque(pay)
+                and cheque_payments.has_no_tds_to_wait_for(pay)
+                and _move_cheque_in_group(pid, po_doc) == "updated"
+            ):
+                po_dirty = True
+
             local_succeeded.append(pid)
             if action == "reject":
                 local_rejection_pids.append(pid)
@@ -532,6 +560,42 @@ def _sync_po_term_in_memory(po_doc, payment_name: str, new_status: str) -> str:
                 return "updated"
             return "noop"
     return "orphan"
+
+
+def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
+    """Move a just-approved cheque on to Reconciliation Pending INSIDE its approval group.
+
+    Only for a parent that withholds no tax (`cheque_payments.has_no_tds_to_wait_for`); a Work
+    Order cheque waits for the post-commit deduction phase. The PO term goes to Reconciliation
+    Pending in memory, so the group's ONE PO save writes it -- a separate move re-saved the whole
+    PO per cheque (measured on 100 rows: 25 -> 50 PO saves, 2.2s -> 4.0s).
+
+    Returns the term sync outcome (`"updated"` means the PO needs its save), or None when nothing
+    moved.
+
+    ⚠️ ITS OWN SAVEPOINT, AND A FAILED MOVE IS NOT A FAILED APPROVAL. The approval is already saved
+    in this group; a move that fails rolls back to here, the payment stays `Approved`, and the
+    post-commit pass in `_bulk_action` retries it ("Mark as Paid" is the manual fallback). Nothing in
+    this save commits -- no notification branch fires on Approved -> Reconciliation Pending -- so
+    the savepoint stays valid.
+    """
+    savepoint = f"bulk_chq_{frappe.generate_hash(length=12)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        moved = cheque_payments.move_to_reconciliation(payment_name, sync_po_term=False)
+    except Exception:
+        frappe.db.rollback(save_point=savepoint)
+        frappe.log_error(
+            title=f"Bulk cheque move failed ({payment_name})",
+            message=frappe.get_traceback(),
+        )
+        return None
+    frappe.db.release_savepoint(savepoint)
+    if not moved:
+        return None
+    if po_doc is None:
+        return "noop"
+    return _sync_po_term_in_memory(po_doc, payment_name, settlement.STATUS_RECONCILIATION_PENDING)
 
 
 def _add_rejection_comments(payment_ids: list[str], rejection_reason: str):

@@ -94,7 +94,7 @@ DATE_FIELDS = {"creation", "approved_on", "paid_on"}
 FILTERABLE = SORTABLE | {"doctype"}
 SEARCHABLE = {
     "name", "against_primary", "against_secondary", "vendor", "project",
-    "raised_by", "utr_ref",
+    "raised_by", "utr_ref", "cheque_no",
 }
 
 _OPERATORS = {
@@ -162,7 +162,12 @@ def _payments_select():
             -- Expenses only (ADR-0027): a payment is settled by exactly one bank
             -- line and has no Bank lines card, so this is honestly zero rather
             -- than a count nothing on a payment row would ever render.
-            0                               AS bank_line_count
+            0                               AS bank_line_count,
+            -- Mode of Payment (2026-09-19). ⚠️ POSITIONAL, like every column here: the
+            -- same three sit at the same place in `_expense_select`, blank there.
+            COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
+            COALESCE(p."cheque_no", '')::text AS cheque_no,
+            p."cheque_date"                 AS cheque_date
         FROM "tabProject Payments" p
     """.format(src=SOURCE_VENDOR_PAYMENT, po=TYPE_PO_PAYMENT, sr=TYPE_SR_PAYMENT)
 
@@ -218,7 +223,11 @@ def _expense_select(table, source, project_col):
             -- (`expense_links.linked_totals_join`), never a count written here: a
             -- second definition of "live slip" could offer a card on an expense
             -- whose links had all been reversed.
-            COALESCE(l."line_count", 0)     AS bank_line_count
+            COALESCE(l."line_count", 0)     AS bank_line_count,
+            -- A payment's Mode of Payment; an expense has none.
+            ''::text                        AS mode_of_payment,
+            ''::text                        AS cheque_no,
+            NULL::date                      AS cheque_date
         FROM "{table}" e
         {linked_join}
     """

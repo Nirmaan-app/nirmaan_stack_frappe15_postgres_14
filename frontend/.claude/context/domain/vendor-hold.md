@@ -6,6 +6,11 @@ Vendor Hold is a vendor-level status that **blocks dispatch and payment operatio
 
 Unlike CEO Hold (project-scoped, blocks ALL operations), Vendor Hold is vendor-scoped and only blocks pre-dispatch financial operations on newly approved POs.
 
+> **Not GST Hold.** A vendor also carries a separate `gst_hold` checkbox — set when its GST-off Work
+> Orders this financial year exceed ₹15L, and blocking only the creation of a new Work Order. Different
+> field, job, hook (`useVendorGstHold`) and card (`VendorGstHoldCard`). Never read one as the other. See
+> root `CONTEXT.md` § Vendor holds and `docs/adr/0028-gst-hold.md`.
+
 ---
 
 ## Vendor Status Values

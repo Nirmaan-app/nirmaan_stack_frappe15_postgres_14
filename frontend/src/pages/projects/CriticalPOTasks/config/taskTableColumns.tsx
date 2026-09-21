@@ -15,6 +15,7 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { Link } from "react-router-dom";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
     getCriticalPOStatusStyle,
     formatDeadlineShort,
@@ -329,6 +330,38 @@ export const getTaskTableColumns = (
                     if (linkedPOs.length === 0) return "";
                     return linkedPOs.map(po => `• ${extractPOId(po)}`).join("\n");
                 }
+            },
+        },
+        // Total value of the linked POs, incl. GST
+        {
+            id: "linked_po_value",
+            accessorFn: (row: CriticalPOTask) => row.linked_po_value ?? 0,
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={
+                        <span className="leading-tight">
+                            PO Value
+                            <br />
+                            (incl. GST)
+                        </span>
+                    }
+                />
+            ),
+            cell: ({ row }) => {
+                const value = row.original.linked_po_value ?? 0;
+                return (
+                    <span className={`text-xs ${value ? "font-medium text-gray-900" : "text-gray-400"}`}>
+                        {value ? formatToRoundedIndianRupee(value) : "--"}
+                    </span>
+                );
+            },
+            size: 120,
+            minSize: 100,
+            maxSize: 140,
+            meta: {
+                exportHeaderName: "Total PO Value (incl. GST)",
+                exportValue: (row: CriticalPOTask) => Math.ceil(row.linked_po_value ?? 0),
             },
         },
         // Actions column (conditionally rendered based on canEdit)

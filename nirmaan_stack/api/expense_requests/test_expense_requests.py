@@ -253,9 +253,10 @@ class TestExpenseRequests(FrappeTestCase):
 		                 "Pending Approval")
 
 	def test_unrouted_role_cannot_approve(self):
-		# HR reviews nothing -- every request routes to Admin.
+		# A fellow PM reviews nothing -- every request routes to Admin, and PM is not one of
+		# the profiles that may also review a PM's request.
 		res = self._raise_as(PM_USER)
-		frappe.set_user(HR_USER)
+		frappe.set_user(PM2_USER)
 		with self.assertRaises(frappe.PermissionError):
 			approve_expense_request(res["name"])
 		frappe.set_user("Administrator")
@@ -265,7 +266,7 @@ class TestExpenseRequests(FrappeTestCase):
 		routes to Admin like every other, and a non-Admin can neither approve nor be offered it.
 		The category itself is still derived for display."""
 		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
-		frappe.set_user(HR_USER)
+		frappe.set_user(PM2_USER)
 		with self.assertRaises(frappe.PermissionError):
 			approve_expense_request(res["name"])
 		rows = get_my_expense_requests()["requests"]
@@ -274,6 +275,51 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(row["reviewer_role"], routing.DEFAULT_REVIEWER_ROLE)
 		self.assertFalse(row["can_review"])
 		self.assertEqual(row["request_category"], HOTEL_CATEGORY)
+
+	# --- Accountant / HR on a Project Manager's request (owner, 2026-09-19) ----
+
+	def _row_as(self, user, name):
+		frappe.set_user(user)
+		try:
+			return next(r for r in get_my_expense_requests()["requests"] if r["name"] == name)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_accountant_and_hr_may_approve_a_pm_request(self):
+		for reviewer in (ACC_USER, HR_USER, HRL_USER):
+			with self.subTest(reviewer=reviewer):
+				res = self._raise_as(PM_USER)
+				row = self._row_as(reviewer, res["name"])
+				self.assertTrue(row["can_review"])
+				# Review, not a pencil: only the requester or an Admin edits.
+				self.assertFalse(row["can_edit"])
+
+				frappe.set_user(reviewer)
+				out = approve_expense_request(res["name"])
+				frappe.set_user("Administrator")
+				self.assertEqual(out["status"], "Approved")
+				self.assertTrue(out["created_expense"])
+				self.assertEqual(
+					frappe.db.get_value("Expense Request", res["name"], "reviewed_by"), reviewer)
+
+	def test_accountant_may_reject_a_pm_request(self):
+		res = self._raise_as(PM_USER)
+		frappe.set_user(ACC_USER)
+		out = reject_expense_request(res["name"], comment="Bill missing")
+		frappe.set_user("Administrator")
+		self.assertEqual(out["status"], "Rejected")
+
+	def test_accountant_cannot_review_a_request_a_pm_did_not_raise(self):
+		res = self._raise_as("Administrator")
+		self.addCleanup(frappe.delete_doc, "Expense Request", res["name"],
+		                force=True, ignore_permissions=True)
+		self.assertFalse(self._row_as(ACC_USER, res["name"])["can_review"])
+		frappe.set_user(ACC_USER)
+		with self.assertRaises(frappe.PermissionError):
+			approve_expense_request(res["name"])
+		frappe.set_user("Administrator")
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "status"),
+		                 "Pending Approval")
 
 	def test_a_refused_approval_mutates_nothing(self):
 		res = self._raise_as(PM_USER)
@@ -814,167 +860,6 @@ class TestExpenseRequests(FrappeTestCase):
 		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
 			source_data={"responses": {"detail": {"what": "cement", "supplier": "  "}}})
 		self.assertFalse(frappe.db.get_value("Expense Request", res["name"], "vendor"))
-
-	# --- duplicate detection -------------------------------------------------
-
-	def _travel(self, user, traveller, depart):
-		return self._raise_as(user, source_data={
-			"responses": {"detail": {"traveller_name": traveller, "depart_date": depart}}})
-
-	def _travel_direct(self, traveller, depart):
-		"""Insert a request BYPASSING the endpoint, so a duplicate pair can exist to display.
-
-		The submission guard refuses the second one, which is the point of it -- but the
-		reviewer's panel must still render a pair raised before the guard existed.
-		"""
-		# ⚠️ INSERT AS THE TEST USER -- `"owner": PM_USER` ON THE DOC DOES NOT WORK. Frappe
-		# STAMPS `owner` from `frappe.session.user` during insert and silently discards the
-		# field, so the earlier form left ADMINISTRATOR-owned rows that `tearDownClass`
-		# (which cleans by ownership) could never find. They survived every run and
-		# accumulated into the live site -- two per run, indistinguishable in the UI from a
-		# real pending request. `set_user` is the only form that actually sets the owner.
-		frappe.set_user(PM_USER)
-		try:
-			doc = frappe.new_doc("Expense Request")
-			doc.update({
-				"type": NON_PROJECT_TYPE, "amount": 4300, "status": "Pending Approval",
-				"source_data": json.dumps({
-					"responses": {"detail": {"traveller_name": traveller,
-					                         "depart_date": depart}}}),
-			})
-			doc.insert(ignore_permissions=True)
-			frappe.db.commit()
-		finally:
-			frappe.set_user("Administrator")
-
-		# Pinned, not assumed: the discard above is SILENT, so nothing else in this suite
-		# would go red if it came back -- the only symptom is junk in the live database.
-		self.assertEqual(doc.owner, PM_USER,
-		                 "row must be owned by a test user or tearDownClass cannot reclaim it")
-		return doc
-
-	def test_overlap_is_a_shared_day_not_an_equal_range(self):
-		"""1--31 Aug against 15 Aug--14 Sep is still a double payment for the shared days."""
-		from nirmaan_stack.api.expense_requests.duplicates import overlaps
-		from frappe.utils import getdate as d
-		aug = (d("2026-08-01"), d("2026-08-31"))
-		self.assertTrue(overlaps(aug, (d("2026-08-15"), d("2026-09-14"))))   # partial
-		self.assertTrue(overlaps(aug, aug))                                   # identical
-		self.assertTrue(overlaps(aug, (d("2026-08-31"), d("2026-09-30"))))   # one shared day
-		self.assertFalse(overlaps(aug, (d("2026-09-01"), d("2026-09-30"))))  # adjacent
-		# An unknown period is NOT an overlap -- absence is not evidence, and this decides
-		# a refusal.
-		self.assertFalse(overlaps(aug, (None, None)))
-
-	def test_subject_ignores_spacing_and_case_but_never_spelling(self):
-		from nirmaan_stack.api.expense_requests.duplicates import normalise, subject_of
-		rule = {"match_on": ["a"]}
-		self.assertEqual(normalise("  Sri Sai   Annapoorana PG "), "sri sai annapoorana pg")
-		self.assertEqual(subject_of({"a": "Shahbaj Khan"}, rule),
-		                 subject_of({"a": " shahbaj  KHAN "}, rule))
-		# Two DIFFERENT spellings of one building stay different -- that is a judgement,
-		# not a normalisation, which is why the property is shown and never matched.
-		self.assertNotEqual(subject_of({"a": "Sri Sai Annapoorana PG"}, rule),
-		                    subject_of({"a": "Sri Sai"}, rule))
-		# A blank subject can never match: two unnamed requests are not the same person.
-		self.assertIsNone(subject_of({"a": "  "}, rule))
-		self.assertIsNone(subject_of({}, rule))
-
-	def _check(self, expense_type, answers, exclude=None):
-		from nirmaan_stack.api.expense_requests.similar import check_new_request
-		return check_new_request(expense_type, json.dumps({"responses": {"detail": answers}}),
-		                         exclude=exclude)
-
-	def test_a_request_being_edited_is_not_its_own_duplicate(self):
-		"""The edit dialog re-sends the SAVED answers, so without an exclusion the warning
-		names the very request open inside it -- which reads as the check being broken and
-		teaches the requester to dismiss a real finding."""
-		mine = self._travel(PM_USER, "Zeb Traveller", "2026-09-01")
-		answers = {"traveller_name": "Zeb Traveller", "depart_date": "2026-09-01"}
-
-		# Unexcluded -- the create dialog's question -- still finds it.
-		self.assertIn(mine["name"],
-		              [h["name"] for h in self._check(NON_PROJECT_TYPE, answers)["overlapping"]])
-		# Excluded -- the edit dialog's question -- does not.
-		self.assertNotIn(
-			mine["name"],
-			[h["name"] for h in self._check(NON_PROJECT_TYPE, answers,
-			                                exclude=mine["name"])["overlapping"]])
-
-		# And the exclusion is NARROW: a real duplicate raised by somebody else survives it.
-		other = self._travel(PM2_USER, "Zeb Traveller", "2026-09-01")
-		self.assertIn(
-			other["name"],
-			[h["name"] for h in self._check(NON_PROJECT_TYPE, answers,
-			                                exclude=mine["name"])["overlapping"]])
-
-	def test_a_duplicate_is_WARNED_ABOUT_and_never_refused(self):
-		"""Owner ruling 2026-08-20, REVERSING the submission block.
-
-		A duplicate cannot be told from a legitimate repeat with certainty, so the judgement
-		belongs to a human -- and a refusal the requester disagrees with has nowhere to go.
-		"""
-		first = self._travel(PM_USER, "Asha Traveller", "2026-09-01")
-		warned = self._check(NON_PROJECT_TYPE,
-		                     {"traveller_name": "Asha Traveller", "depart_date": "2026-09-01"})
-		self.assertEqual([h["name"] for h in warned["overlapping"]], [first["name"]])
-		self.assertEqual(warned["subject"], "Asha Traveller")
-		# ...and the second one still goes through.
-		second = self._travel(PM_USER, "Asha Traveller", "2026-09-01")
-		self.assertTrue(frappe.db.exists("Expense Request", second["name"]))
-
-	def test_the_warning_fires_on_an_overlap_not_only_an_exact_match(self):
-		"""Hotel: 18--19 Aug against 19--20 Aug shares a night."""
-		frappe.set_user(PM_USER)
-		first = create_expense_request(expense_type="Hotel Expenses", amount=3000, source_data={
-			"responses": {"detail": {"guest_name": "Ivy Guest",
-			                         "check_in": "2026-09-18", "check_out": "2026-09-19"}}})
-		frappe.set_user("Administrator")
-		warned = self._check("Hotel Expenses", {"guest_name": "Ivy Guest",
-		                                        "check_in": "2026-09-19", "check_out": "2026-09-20"})
-		self.assertEqual([h["name"] for h in warned["overlapping"]], [first["name"]])
-
-	def test_a_later_trip_raises_no_warning(self):
-		"""The monthly-recurring case: same subject, different period, must stay SILENT."""
-		self._travel(PM_USER, "Bela Traveller", "2026-09-02")
-		self.assertEqual(self._check(NON_PROJECT_TYPE, {
-			"traveller_name": "Bela Traveller", "depart_date": "2026-10-02"})["overlapping"], [])
-
-	def test_a_different_person_raises_no_warning(self):
-		self._travel(PM_USER, "Chandra Traveller", "2026-09-03")
-		self.assertEqual(self._check(NON_PROJECT_TYPE, {
-			"traveller_name": "Divya Traveller", "depart_date": "2026-09-03"})["overlapping"], [])
-
-	def test_a_rejected_request_raises_no_warning(self):
-		"""It never became money, so it cannot be double-paid."""
-		first = self._travel(PM_USER, "Esha Traveller", "2026-09-04")
-		reject_expense_request(first["name"], "not needed")
-		self.assertEqual(self._check(NON_PROJECT_TYPE, {
-			"traveller_name": "Esha Traveller", "depart_date": "2026-09-04"})["overlapping"], [])
-
-	def test_a_type_with_no_rule_is_never_warned_about(self):
-		"""34 of 40 types have no answers to compare -- a guess would nag on real work."""
-		self._raise_as(PM_USER, expense_type=BOTH_TYPE)
-		self.assertEqual(self._check(BOTH_TYPE, {"description": "x"})["overlapping"], [])
-
-	def test_an_unanswered_form_is_never_warned_about(self):
-		"""No subject and no period means nothing to compare -- a half-filled form never nags."""
-		self._travel(PM_USER, "", "")
-		self.assertEqual(self._check(NON_PROJECT_TYPE,
-		                             {"traveller_name": "", "depart_date": ""})["overlapping"], [])
-
-	def test_the_reviewer_panel_shows_an_existing_pair(self):
-		"""`get_similar` is DISPLAY -- it must still render a pair raised before the guard."""
-		from nirmaan_stack.api.expense_requests.similar import get_similar
-		# A subject unique to THIS run: the assertion is about the pair just created, and
-		# must not depend on the table being empty.
-		who = f"Farah Traveller {frappe.generate_hash(length=6)}"
-		first = self._travel_direct(who, "2026-09-05")
-		second = self._travel_direct(who, "2026-09-05")
-		res = get_similar(second.name)
-		self.assertEqual([e["name"] for e in res["overlapping"]], [first.name])
-		self.assertEqual(res["subject"], who)
-		self.assertTrue(res["has_period_check"])
 
 	# --- read visibility -----------------------------------------------------
 

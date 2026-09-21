@@ -192,13 +192,13 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 def names_referenced_in_code() -> set[str]:
 	"""Expense Type names the code looks up BY NAME, which a rename would silently orphan.
 
-	Read from their owners rather than listed here, so adding a duplicate rule or changing
-	the bank-import fallback updates this guard with no second edit.
+	Read from their owners rather than listed here, so changing the bank-import fallback
+	updates this guard with no second edit. (The per-type duplicate rules that used to be named
+	here were removed 2026-09-19.)
 	"""
-	from nirmaan_stack.api.expense_requests.duplicates import RULES
 	from nirmaan_stack.services.outflow_import.cashbook import FALLBACK_EXPENSE_TYPE
 
-	return set(RULES) | {FALLBACK_EXPENSE_TYPE}
+	return {FALLBACK_EXPENSE_TYPE}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -214,7 +214,7 @@ def rename_expense_type(name: str, new_name: str):
 	and `Outflow Import Row.suggested_expense_type`.
 
 	⚠️ REFUSED for a name the code looks up by name (`names_referenced_in_code`): renaming one
-	would silently switch off its duplicate warning or the bank-import fallback.
+	would silently switch off the bank-import fallback.
 
 	⚠️ The `Expense Type` FIXTURE is keyed by name and re-imported on every migrate, so the
 	fixture must be updated too or the next migrate re-creates the old name as a second type.
@@ -232,8 +232,8 @@ def rename_expense_type(name: str, new_name: str):
 		frappe.throw(f"'{new}' already exists.", title="Duplicate")
 	if old in names_referenced_in_code():
 		frappe.throw(
-			f"'{old}' is used by name in the code (duplicate warnings or the bank-import "
-			"fallback), so it cannot be renamed from the app.",
+			f"'{old}' is used by name in the code (the bank-import fallback), so it cannot be "
+			"renamed from the app.",
 			title="Cannot rename this type",
 		)
 
