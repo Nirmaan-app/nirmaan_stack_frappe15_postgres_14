@@ -38949,7 +38949,7 @@ slot_count, torque_nm, ul, panel_ratio, thickness_mm, variant. 25 families; 87 p
 `source = {"sheet": "ADP", "row": <sheet row>}`. Units as the sheet writes them: SQM, Nos, Rmt, RMT, NOS.
 
 **The derived rows, exact sheet formulas (recorded, NOT applied -- R-f):**
-- rows 81-86 (canvas-connection sizes, per side): supply `=(2*(W+H)*300/10^6)*F$87`, install
+- rows 81-86 (cross-talk sizes, per side): supply `=(2*(W+H)*300/10^6)*F$87`, install
   `=(2*(W+H)*300/10^6)*G$87` with (W,H) = (200,200), (250,250), (300,300), (350,350), (650,250), (500,250);
 - row 89: `=ROUNDUP((F88*2*(750*150+150*350+750*350))/10^6+150,0)`;
   row 91: `=ROUNDUP((F90*2*(750*150+150*350+750*350))/10^6+150,0)` (supply only).
@@ -39055,3 +39055,210 @@ importer/exporter, `config_validation.py`, `extraction.py`, every pricing / inte
 JSON; the modified `.claude/settings.local.json` and the root untracked files are declared noise, not staged; the
 untracked `_mint_hvac_v1_tmp.py` is a temporary build tool, never committed. Feat commit `1ed3c7d6`; this record's
 commit follows it. NOT pushed.
+
+## HVAC RATE MASTER, SLICE 1c -- the SPEC READER: item name + item detail are the source of truth (2026-09-21) -- SHIPPED
+
+Owner rulings (quoted): **S-a** keep the sheet's own wording AND keep attributes for matching ("Both -- your text
+for people, attributes for matching"; "ok. I agree."); **S-b** spec reader on upload, derived attribute columns
+hidden from the CSV ("they will be hidden from the user and the spec reader will make modifications based on the
+item and spec"); **S-c** "agree on 1c": (1) the reader reproduces today's 95 items EXACTLY incl. the slice 1a
+rulings, any difference shown never smoothed; (2) a spec the reader cannot understand is never guessed -- the
+preview says why, the item is saved with a clear "won't price: spec not understood" mark; (3) the Rate Master
+shows the attributes READ-ONLY, greyed, "read from spec", and the manual add/edit form uses the same reader --
+no back door; **S-d** rows 89 and 91 store `cost_install` 0, the sheet's typed 0 ("yes"); **S-e** each discipline
+is versioned on its own -- this slice mints **HVAC v2 only**. Handover line: **Electrical v63 / HVAC v2.**
+
+### PREMISES VERIFIED, CORRECTIONS
+- Tips: local `8ee454ba`, origin `13ed360c`, two ahead, as stated. Owner sheet unchanged since the 1b copy
+  (same mtime 15:52:13); read from the scratchpad copy.
+- The "attributes that are never model questions and never pricing inputs" mechanism EXISTS as three def flags:
+  `selector: false` (not asked of the model AND removed from the Derivation configurator), `panel: false`
+  (hidden from the pricing panel), `extract: false` (withheld from the prompt only). **Used: `selector: false` +
+  `panel: false`** on both text defs. There is NO free-text def type (choice / number / number_choice only); the
+  FREE-TEXT IDIOM already in Electrical is `choice` + `values_from` (the LMS `description` def), and the two text
+  defs follow it.
+- Undeclared attribute keys on items are an ESTABLISHED shape: Electrical items carry `family`, `device`, `curve`,
+  `location`, `pricing_mode` declared by no config. The D4 flag rides the same way (below) -- no schema change.
+- **The dev web server does NOT reload on host edits** although it runs werkzeug's reloader (two `frappe serve`
+  processes): the Windows bind mount delivers no change notifications (the same reason vite needs a manual
+  restart). The first C2 download came back with the OLD exporter (serving child started 06:10 UTC, exporter
+  edited 12:20 UTC). Web + worker were restarted by PID from the `sites/` directory (`docker exec -d`, cwd
+  `sites/`, else `apps.txt Not Found`); the browser session SURVIVED -- no CSRF break this time.
+- The prompt's STOP list ("any existing test assertion would have to change") COLLIDES with D9: 1b's
+  `test_h07` pins "the HVAC series holds exactly its first version" (`[HVAC files] == [CURRENT_HVAC_ASSET]`,
+  `latest_asset("HVAC") == v1`), so the mere EXISTENCE of `rate_master_hvac_all_v2.json` turns it red. Nothing
+  else in the module moved. Reported and STOPPED twice; the owner ruled (Option 1, then a standing authority
+  for tests failing SOLELY as a mechanical consequence of S-a / S-b / S-d / D1 / D9): four 1b pins INVERTED,
+  never deleted -- `CURRENT_HVAC_ASSET` -> v2; h07 (series exactly [v1, v2], latest v2, v1 byte-identical to
+  `git show HEAD:...v1.json`, negative half kept, no "v2" text); h02's negative half (no `cost_supply` on the
+  eight; rows 89 / 91 `cost_install` 0; the other six none); h01 (definition ids == the 14 derived + the two text
+  defs, text first); h05 (the HVAC CSV carries the four rates + the two text columns and NONE of the 14 derived
+  ids; the zero-change re-import half unchanged). Final: `test_rate_master` Ran 385 OK, `test_spec_reader` Ran 11 OK.
+
+### THE READER (`services/boq_rate_master/spec_reader.py`, PURE, no AI, no fuzzy match)
+`read_adp_spec(item_name, item_detail, unit)` -> attributes or `SpecNotUnderstood(reason)`; `read_spec(category_id,
+...)` -> `(derived, None) | ({}, reason)`; `attributes_for(...)` -> THE ONE STORED SHAPE: `{item_name, item_detail,
+**derived}` when understood, `{item_name, item_detail, spec_status: "not_understood", spec_note: <reason>}` when not.
+`READERS = {"hvac_adp": read_adp_spec}`; a category opted in without a reader is refused loudly at plan time.
+Rules, family by family (the slice 1a `attrs_for` table, every assertion turned into a named refusal): VCD (name
+starts "volume control damper"; detail exactly GI Rectangular / GI Oval / Motorized -> variant); fire damper (name
+exactly; detail motorised / UL 555 / with sleeve / without sleeve -> variant + ul); actuator (name starts "fire
+damper actuator"; UL from the name; torque from a leading "<n> NM"; **"9/10 NM" is 10, R-d 1**); control panel
+(**the exact "1:10 /12" is 12, R-d 2**; else "1:N" is N); grill (linear / curved with damper flag, intake louver,
+door grill); slot diffuser (damper from the name, "<n> slot" optional); square diffuser (name starts "diffuser
+with/without"; NECK: WxW -> neck, must be square; OUTER: WxH -> face; **a bare W x H is a FACE size, neck NA,
+R-d 6**; no size accepted -- the sheet has such rows); round diffuser, butterfly damper, flexible duct (un- ->
+without), disc valve, spigot, **jet / eyeball ("eye ball", one family, R-d 4)** -- "<n> mm dia" REQUIRED; back
+draft -> NRD; collar damper, sound attenuator, canvas -> family only; double skin plenum "<n> mm" REQUIRED; MS floor
+grill damper from the detail; Z-piece -> cross-talk, W x H optional; low pressure plenum -> mixing box / LP plenum,
+insulated from the name, W X H X D optional; access door W x H REQUIRED; anything else -> "no known ADP family".
+**Optional sizes are optional because the sheet itself omits them** (measured: square diffuser 9 items in three
+key-sets incl. `damper` alone; slot diffuser, cross-talk, plenum likewise); required ones are present on every
+v1 item of their family. `unit` is accepted but no ADP rule reads it (the canvas row is three ITEMS, R-d 3).
+**REPRODUCTION: 95 of 95 v1 items, zero differences** (host run over the sheet text; pinned by `test_t01` over the
+committed v2 text vs the committed v1 attributes).
+
+### AS BUILT (D1-D9)
+- **D1 text fields:** `item_name` / `item_detail` in every item's `attributes`, VERBATIM from the sheet (row 80's
+  three items share its text); declared FIRST in `hvac_adp`'s definitions as `choice` + `values_from` +
+  `selector:false` + `panel:false`.
+- **D3 opt-in:** top-level config key **`attributes_from_spec: true`**, registered in
+  `config_validation._KNOWN_CONFIG_KEYS` (allowlist only). Consumers branch on `spec_reader.spec_categories
+  (discipline)` = `{kind: category_id}`, which reads the key as `is True` and is `{}` for Electrical -- every
+  legacy path is byte-identical when it is empty (pinned).
+- **D4 flag without a schema change:** `spec_status` / `spec_note` are two RESERVED KEYS inside the existing
+  `attributes` JSON (the undeclared-key shape Electrical already uses); derived keys are ABSENT on a flagged
+  item. **CARRY FOR SLICE 5:** an item with `spec_status = "not_understood"` must NEVER match in pricing
+  (`matchMasterRow` filters by kind + attributes today) -- not built, hvac_adp has no pipelines.
+- **D5 export (`csv_exporter`):** Mode A for an opted-in category = `LEAD + item_name, item_detail + rates + TAIL`;
+  Mode B = the union takes attribute keys from NON-spec rows only, the text pair first when any spec row is
+  present, a spec row's cell in every other attribute column BLANK even where a key name is shared. Both fall
+  through to the pre-slice code when `spec_kinds` is empty. **HVAC Mode A header, exact:**
+  `item_uid,kind,brand,unit,item_name,item_detail,cost_install,cost_supply,install_markup,supply_markup,source_sheet,source_row`
+  (Mode B inserts `category` after `item_uid`). **Electrical Mode B header, exact and byte-identical to the
+  pre-slice download** (49 columns): `item_uid,category,kind,brand,unit,amp_a,colour,conduit_type,core,curve,
+  description,device,enclosure,face_mm,family,insulation,item,location,material,modules,pole,pricing_mode,rating,
+  size_mm,thickness_mm,thickness_sqmm,tray_type,type,width_mm,boq_install,boq_supply,cover_only_list,
+  gland_band1_list,gland_band2_list,install_base,install_base_per_mtr,install_per_module,install_rate,list_price,
+  list_price_per_mtr,lug_list,rate,shell_rate,supply_base,supply_per_module,with_cover_list,without_cover_list,
+  source_sheet,source_row`.
+- **D6 import (`csv_importer.build_plan`):** for an opted-in row: missing derived columns EXPECTED; a NON-blank
+  cell in a derived or reserved column is REFUSED by name ("...read from Item and Item detail and cannot be typed
+  in -- leave this column blank (or remove it) and change the text instead"); blank ones never clear anything;
+  text from the file when the column is present, else as stored; a NEW row or a row whose item_name / item_detail
+  / unit changed is READ (`attributes_for`), an unchanged row keeps its attributes exactly; a new row without
+  item_name is refused; a NOT-understood spec is NOT an error -- planned, applied flagged. The change carries a
+  PUBLIC `spec: {status, reason, read}`; `apply_plan` writes the plan's own payload (unchanged mechanism).
+- **D7 manual add / edit (`create_rate_master_item` / `update_rate_master_item`):** for an opted-in kind the
+  attributes / patch may carry ONLY the two text keys (anything else -> ValidationError "Read from spec"),
+  item_name required, the reader runs on create and on a CHANGED text; an unchanged text with a rate patch leaves
+  the attributes untouched; the response carries `spec: {status, reason}`. Other kinds: the legacy branch,
+  byte-identical.
+- **D8 screen (`RateMasterDataViewer`, `rateMasterSpec.ts`):** in spec mode the columns are `[actions] Item, Item
+  detail, spec, brand, <14 derived, each header tagged READ FROM SPEC, cells greyed + titled, NEVER an input>,
+  rates, unit, source`; the `spec` cell reads "read from spec" or a red `won't price: spec not understood` badge +
+  the reason; a hint line under the controls; edit mode exposes inputs for the text pair + rates only
+  (`editableAttrCols`); the Add form takes kind / unit / Item / Item detail / numbers -- no brand, no attribute
+  inputs. The upload dialog renders `specLine(change.spec)` per new/changed row (U2). All pure helpers in
+  `rateMasterSpec.ts` (`isSpecDrivenConfig` = `=== true`, `splitSpecColumns`, `specNotUnderstoodReason`,
+  `specLine`, `SPEC_COPY`).
+- **D9 v2 asset:** `rate_master_hvac_all_v2.json` minted THROUGH THE READER (`_mint_hvac_v2_tmp.py`, untracked):
+  95 items, item_uids IDENTICAL to v1 in order (asserted per item), derived == v1 (95/95 asserted), text added,
+  rows 89 / 91 `cost_install` 0.0 (S-d; `cost_supply` still absent, R-f stands), config +2 text defs +
+  `attributes_from_spec` + notes. sha256 `6b7d4f30ded7e8f0289fba578d9e82bbd1f2bda13da55bf270de0c1ba38c6755`.
+  **Loaded** with the unchanged loader, HVAC scope: Electrical BEFORE = AFTER = 1,367 active / 12 configs /
+  15,040 rows, checksum `77a70755e65b3e093021736625197363e804232b78b6ac191d7ff236615bf0db`; HVAC batch
+  `rmbulk-3c62f20c2cd6` (v1) superseded to inactive, live **`rmbulk-0c5525ac8670`**, 95 active, 285 rows in all;
+  HVAC export BYTE-IDENTICAL to the v2 file; Electrical export semantically identical to v63. **Mint gate:**
+  v1 -> v2 "No atoms disappeared", PASS; `--latest`: HVAC latest v2 (UNCOMMITTED noted), kinds Electrical x HVAC
+  DISJOINT, PASS.
+
+### TESTS
+`api/boq/test_spec_reader.py` (NEW, 11, all green on the first run): t01 reproduction 95/95; t02 the 1a rulings
+by name (9/10 -> 10, 1:10 /12 -> 12, row 33 face size no neck, eyeball + jet one family, canvas three units one
+text); t03 NEVER A GUESS -- twelve not-understood cases each with its reason substring, `{}` derived, flag shape,
+plus a reader-less category RAISES; t04 the one stored shape + determinism; t05 HVAC CSV Mode A / B headers exact,
+95 rows, rows 89 / 91 `0.0`, no derived / reserved column; t06 ELECTRICAL UNCHANGED -- no config carries the key,
+`spec_categories` is `{}`, three Mode A headers + the Mode B header equal the pre-slice construction recomputed
+from the same rows, 1,367 items, an Electrical round trip still a no-op; t07 import -- untouched re-upload zero
+changes, a new text-only row read (`spec.read == {family, damper, neck_mm}`), applied and stored with derived
+keys, a changed detail re-read (neck 375 -> 450 in the diff), an unchanged row keeps its attributes with the
+derived columns present-but-blank, an unreadable row planned and saved FLAGGED, NEGATIVE: a typed derived value
+refused by name, a nameless new row refused; t08 manual add / edit through the reader, NEGATIVE: derived key
+refused on create and on edit, unchanged text leaves attributes, unreadable text flagged, blank name refused;
+t09 v1 -> v2 identity (uids, kind / unit / brand / source, attributes = text + v1, rates identical except the two
+S-d zeros; loaded rows agree; the asset export of the loaded v2 is 95 items with text); t10 the v2 config
+validates, text defs `selector:false` + `panel:false` first, NEGATIVE: the key as a string does NOT opt in, an
+unregistered key still refused; t11 a category WITHOUT the key keeps the legacy create path and the legacy
+exporter branch. `rateMasterSpec.test.ts` (NEW, 12): the `=== true` predicate incl. string / null negatives,
+`splitSpecColumns` order + brand exclusion, `specNotUnderstoodReason` positive / blank-note / negatives,
+`specLine` read / family-only / not-understood (no "=" in the verdict line), the owner's two labels.
+**Vacuity (each: break, expected red, restore, sha256 verified):** V1 reader 9/10 -> 9: t01 + t02 red; V2
+`is True` loosened: t10 red; V3 exporter branch disabled: t05 red; V4 hand-typed refusal removed: t07 red;
+V5 update endpoint's derived-key refusal removed: t08 red; V6 allowlist entry removed: the loader REFUSES the v2
+asset at import ("Unknown top-level config key(s): attributes_from_spec ... Nothing was written") so the module
+errors out -- red; V7 frontend `=== true` loosened: the negative pin red (1 of 12). V6's restore anchor was
+non-unique and the driver stopped after the run; the line was restored by hand and the diff re-checked (exactly
+the seven intended lines).
+**Counts (measured):** backend `test_rate_master` BEFORE 385 ran (1 failure = `test_rmf_14`, an ARTIFACT: it
+`inspect.getsource`s live endpoints and I edited the API module during the run, shifting line numbers; the same
+test passes alone on the edited code and passed on this commit at the end of 1b), AFTER 385 ran, 1 failure =
+`test_h07` (the contradiction above); `test_spec_reader` 11 OK twice. Vitest BEFORE 3,409 passed / 1 failed
+(3,410), AFTER 3,421 / 1 (3,422), the one failure the known
+`POAdjustment/writeOffControl.test.ts > mirrors the sibling admin predicates`. tsc 3,229 errors before and after,
+0 in the touched files. In-container `yarn build` EXIT 0 (169 s), no tracked file changed by it.
+
+### THE CERT (live :8080; vite killed by PID incl. a surviving node child, `.vite` removed, restarted; bundle
+markers on the plain URL: `isSpecDrivenConfig` 1, `specNotUnderstoodReason` 5, `specLine` 2)
+- **C1** HVAC / ADP, batch `rmbulk-0c5525ac8670`, 95 items; columns Item, Item detail, spec, brand, then 14
+  derived headers tagged READ FROM SPEC; 1,330 greyed cells (95 x 14); the hint line; edit mode: inputs for
+  Item, Item detail and the four rates ONLY, 0 inputs in the 14 derived cells.
+- **C2** (after the web restart) HVAC Mode A CSV: the exact header above, 95 rows, rows 89 / 91 `0.0`, no derived
+  column. (The first attempt, before the restart, still carried the derived columns -- the stale-server finding.)
+- **C3** re-upload unchanged: "95 rows read, 0 rates changed, 0 items added, 95 rows unchanged, 0 errors. This
+  file matches the catalog exactly." Cancelled, not applied.
+- **C4** synthetic new SKU by CSV (`Diffuser with damper` / `NECK: 375X375` / Nos / 150 / 1200 / 0.6 / 0.45):
+  preview line "Read from spec: family = square diffuser, damper = with, neck_mm = 375"; applied (HVAC snapshot
+  2); screen: 96 items, the row with square diffuser / with / 375 greyed, spec "read from spec".
+- **C5** synthetic unreadable SKU (`Frobnicator` / `nonsense wording`): preview "won't price: spec not
+  understood -- no known ADP family matches item 'Frobnicator'."; applied (HVAC snapshot 3); screen: the red
+  badge + the reason, no derived values, 97 items.
+- **C6** manual edit of the C4 row's detail to `NECK: 450X450`: saved through the reader, Neck shows 450, family
+  / damper unchanged, no derived input offered.
+- **C7** both synthetic rows deactivated by the normal route (confirm dialog each): screen 95 items, 0 flagged;
+  DB: 95 active HVAC, all `rmbulk-0c5525ac8670` / source ADP, 0 flagged, active uids == v2, the two synthetic
+  rows RETAINED INACTIVE (freeze-and-supersede never deletes -- "zero residual" among active rows); Electrical
+  1,367 / 12 / 15,040, checksum unchanged.
+- **C8** Electrical screen unchanged (19 columns, no tag / greyed / spec / hint, 588 rows); "All categories"
+  CSV BYTE-IDENTICAL to the pre-slice same-day download (223,363 bytes, 49 columns, 1,367 rows); a Mode A
+  wiring_cabling CSV also taken (legacy header, 588 rows). **Asset download: the endpoint answered 200 twice
+  (Electrical snapshots 24 and 25 banked) but NO FILE LANDED in Downloads** -- most likely Chrome's
+  multiple-automatic-download block on a tab that had already downloaded several files; not retried (each
+  export evicts the oldest snapshot beyond ten). Server-side the export is unchanged (exporter module untouched;
+  `export_asset_text("Electrical")` semantically identical to v63, 1,367 / 12) and the same-day pre-slice asset
+  download (v23) shows the usual counts.
+
+### ANOMALIES (disclosed)
+`test_rmf_14` failed once in the BEFORE run because I edited `rate_master.py` while it ran (getsource line shift)
+-- my doing, re-verified green alone. The exporter change was invisible to the browser until a manual web
+restart (bind-mount reloader gap); web + worker restarted by PID. A stray `rate_master_hvac_hvac_adp.csv`
+download at 17:21 (stale-ref click during the picker struggle, read-only) and an Electrical wiring_cabling
+Mode A download at 18:17 (the picker had not switched) -- both read-only. Two silent Electrical asset exports
+(snapshots 24, 25; two oldest evicted by the keep-10 prune) with no file landing. HVAC snapshots 2 and 3
+written by the two synthetic applies. Screenshots on the 95 x 26 table timed out repeatedly; the cert used
+DOM reads plus screenshots on lighter states. Radix select / tabs need pointer events or refs, not synthetic
+clicks; `docker exec` needs `-d` and cwd `sites/` to start bench processes that survive.
+
+### FILES
+NEW `nirmaan_stack/services/boq_rate_master/spec_reader.py`, `nirmaan_stack/api/boq/test_spec_reader.py`,
+`nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v2.json`,
+`frontend/src/pages/pricing/rate-master/rateMasterSpec.ts` + `rateMasterSpec.test.ts`; MODIFIED
+`csv_exporter.py`, `csv_importer.py`, `config_validation.py` (allowlist only), `api/boq/rate_master.py` (the
+two manual endpoints + one import), `rateMasterTypes.ts` (one optional key), `rateMasterUpload.ts` (`UploadSpec`
++ `spec?`), `RateMasterUploadDialog.tsx` (the spec line, U2), `RateMasterDataViewer.tsx` (grid + add / edit
+form); this record (+ the 1b correction "cross-talk sizes"); root `CLAUDE.md` (one durable rule). Untracked
+temporary tool: `_mint_hvac_v2_tmp.py` (never committed). Untouched: `patches.txt`, every Electrical asset,
+`rate_master_hvac_all_v1.json`, the loader, the exporter's asset / snapshot code, `extraction.py`, every
+pricing / interpreter / panel file, every doctype JSON. `test_rate_master.py`: the four 1b pins h01 / h02 / h05 /
+h07 inverted under the owner's rulings (above). Feat commit `6fc9fa3b`; this record's commit follows it. NOT pushed;
+the owner pushes 1b and 1c together.

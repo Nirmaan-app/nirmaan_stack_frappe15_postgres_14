@@ -610,6 +610,17 @@ version, reports the removal check as NOT APPLICABLE rather than passed (a first
 atoms against; what it checks instead is the discipline stamp, the contents, and the kind disjointness). Snapshot
 versions were already per discipline (`write_snapshot` counts within the discipline) and are unrelated to N.
 
+**⚠️ FOR A CATEGORY THAT DECLARES SPEC-DERIVED ATTRIBUTES, ITEM NAME AND ITEM DETAIL ARE THE SOURCE OF TRUTH;
+ATTRIBUTES ARE NEVER HAND-EDITED (owner-locked).** A category opts in with the config key
+`attributes_from_spec: true`; its items carry `item_name` / `item_detail` verbatim and every other attribute is
+READ from them by the deterministic `services/boq_rate_master/spec_reader.py` -- no AI, no fuzzy match, a spec
+either fits a rule or is stored flagged (`spec_status` / `spec_note` inside the attributes JSON) with the exact
+reason, never guessed. The CSV omits the derived columns and a typed derived value is refused; the screen shows
+them read-only ("read from spec"); the manual add / edit endpoints accept the two text keys only and run the SAME
+reader. A category without the key is byte-identical to before (`spec_categories` is empty for Electrical), so
+the fix for a wrong attribute is always the text or the reader's rules, never the cell. A flagged item must never
+match in pricing (carried to the pricing slice).
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
