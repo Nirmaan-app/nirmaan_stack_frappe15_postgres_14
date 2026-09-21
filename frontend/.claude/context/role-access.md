@@ -22,7 +22,7 @@ This document contains detailed page-level role access control mappings for the 
 
 **Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
-- **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments or edit fulfilled payments
+- **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments. (Editing a fulfilled payment no longer exists for anyone — see *Payments queue — edit & revert* below.)
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
 - **New-item creation in the PR flow** *(2026-07-04 access review)*: PMO is treated like a Project Manager — in `new_items="false"` categories they can only **request** an item (ephemeral `REQ-…`), not create a master Item. The Admin/PMO category-restriction bypass was removed (Admin still bypasses). Does not affect the Items master table (PMO already could not create there; only edit).
 
@@ -316,7 +316,7 @@ Roles that don't require `has_project === "true"`:
 
 **Design Tracker specific:** Design Lead can edit structure; Design Executive can only edit assigned tasks; Project Manager is view-only.
 
-**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject or edit fulfilled payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. PMO further **cannot approve POs / Sent Back POs / PO Revisions / WOs / Amended WOs**, **cannot settle payments** (Mark as Paid, Mark Reconciled, Record Paid Entry), **cannot request PO payments or edit PO payment terms**, and **cannot approve/reject vendor invoices** — *2026-09-17 access review*. In all other areas, PMO mirrors Admin.
+**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. PMO further **cannot approve POs / Sent Back POs / PO Revisions / WOs / Amended WOs**, **cannot settle payments** (Mark as Paid, Mark Reconciled, Record Paid Entry), **cannot request PO payments or edit PO payment terms**, and **cannot approve/reject vendor invoices** — *2026-09-17 access review*. In all other areas, PMO mirrors Admin.
 
 **TDS History deletion** *(2026-08-05)*: the Actions column in `TdsHistoryTable` is gated by TWO predicates, because they answer different questions — `canManageTDS` (Admin **or** PMO) decides who sees the COLUMN, `canDeleteRow(item)` decides which rows get a button. PMO deletes rows whose `tds_status` is **Pending or Rejected**; an Approved row is part of the signed submittal record and stays Admin-only. So a PMO sees the column with buttons on eligible rows and `--` on the rest, rather than icons that fail on click. `New` is NOT PMO-deletable (the status list is taken literally; no rows currently carry it). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
 
@@ -330,3 +330,20 @@ Approval tabs are visible to all roles with sidebar access, but non-approvers se
 |------|---------------|-----------------|----------------------|
 | TDS Approval | Admin, Project Lead | PMO, Project Manager, others | See Pending tab, no row click, no actions, info banner |
 | Project Payments | Admin | PMO, Accountant, PL, Proc Exec, others | See Approve Payments tab, no action buttons, info banner |
+
+---
+
+## Payments queue — edit & revert (2026-09-21)
+
+One rule, `pages/ProjectPayments/config/queueRowActions.ts`, used by every queue tab and by the project /
+customer Financials tables. Frontend gating; the revert endpoint re-checks the role server-side
+(`services/role_profiles.PAYMENT_SETTLE_PROFILES`).
+
+| Action | Rows | Admin | Accountant | Accountant Lead | Everyone else |
+|---|---|:--:|:--:|:--:|:--:|
+| Edit (pencil) | Project / Non-Project expense, any status except Rejected | Y | Y | Y | - |
+| Revert to Approved | Project Payment at Reconciliation Pending | Y | Y | Y | - |
+| Edit | PO / WO payment, any status | - | - | - | - |
+
+On a **Paid** expense the edit dialogs keep Amount, Payment Date and Payment Ref read-only. That is a screen
+rule only: the server locks nothing on a Paid record (owner, 2026-09-21), so Desk edits still go through.
