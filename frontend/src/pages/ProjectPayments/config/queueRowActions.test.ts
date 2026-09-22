@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   canEditQueueRow,
+  canHoldQueueRow,
   canRevertQueueRow,
   canWorkQueueRows,
+  isHeldQueueRow,
   isPaidExpense,
   QUEUE_EDIT_PROFILES,
 } from "./queueRowActions";
@@ -79,5 +81,35 @@ describe("isPaidExpense", () => {
     expect(isPaidExpense(" Paid ")).toBe(true);
     expect(isPaidExpense("Reconciliation Pending")).toBe(false);
     expect(isPaidExpense(undefined)).toBe(false);
+  });
+});
+
+describe("canHoldQueueRow — an Approved PO / WO payment, for the three settle roles only", () => {
+  for (const role of QUEUE_EDIT_PROFILES) {
+    for (const ledger of LEDGERS) {
+      for (const status of STATUSES) {
+        const expected = ledger === "Project Payments" && status === "Approved";
+        it(`${role} · ${ledger} · ${status}`, () => {
+          expect(canHoldQueueRow(row(ledger, status), role)).toBe(expected);
+        });
+      }
+    }
+  }
+  for (const role of OTHER_ROLES) {
+    it(`never for ${String(role)}`, () => {
+      expect(canHoldQueueRow(row("Project Payments", "Approved"), role)).toBe(false);
+    });
+  }
+  it("reads a padded status", () => {
+    expect(canHoldQueueRow(row("Project Payments", " Approved "), "Nirmaan Accountant Profile")).toBe(true);
+  });
+});
+
+describe("isHeldQueueRow", () => {
+  it("is 1 only", () => {
+    expect(isHeldQueueRow({ on_hold: 1 })).toBe(true);
+    expect(isHeldQueueRow({ on_hold: 0 })).toBe(false);
+    expect(isHeldQueueRow({ on_hold: undefined as any })).toBe(false);
+    expect(isHeldQueueRow({ on_hold: null as any })).toBe(false);
   });
 });

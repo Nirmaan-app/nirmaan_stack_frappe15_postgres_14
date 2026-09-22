@@ -16,8 +16,9 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { CircleCheck, CircleX, IndianRupee, Paperclip, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { CircleCheck, CirclePause, CirclePlay, CircleX, IndianRupee, Paperclip, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import {
@@ -38,6 +39,7 @@ import {
   TYPE_LABEL,
 } from "./approvalsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
+import { isHeldQueueRow } from "./queueRowActions";
 
 export interface ApprovalColumnCtx {
   tab: ApprovalTab;
@@ -77,6 +79,12 @@ export interface ApprovalColumnCtx {
   /** "Revert to Approved" on a Reconciliation Pending payment — `queueRowActions.canRevertQueueRow`. */
   onRevert?: (row: ApprovalQueueRow) => void;
   canRevert?: (row: ApprovalQueueRow) => boolean;
+  /**
+   * Hold / release a PO / WO payment on "Payment need to paid" (owner, 2026-09-22) —
+   * `queueRowActions.canHoldQueueRow`. A held row shows "On Hold" where Mark as Paid sits.
+   */
+  onToggleHold?: (row: ApprovalQueueRow) => void;
+  canHold?: (row: ApprovalQueueRow) => boolean;
   /**
    * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise); on
    * "Payment need to paid" it sits beside Mark as Paid on every row. Both delete any of the three
@@ -171,7 +179,7 @@ const REGISTRY: Record<
       // 148: measured — the button itself is 136px and the cell needs 144. 180 with the
       // trash icon beside it (removed 15 Sep, restored 18 Sep). Each icon added on a row
       // (the expense pencil, the payment revert) takes 32 more.
-      (ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148)
+      (ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148) + (ctx.onToggleHold ? 32 : 0)
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? (ctx.onRevert ? 192 : 160)
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
         : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
@@ -203,13 +211,42 @@ const REGISTRY: Record<
         // ⚠️ THE LABEL IS NOT THE STATUS: it does NOT write `Paid`. It states that the
         // money went out, moving the row to Reconciliation Pending; the UTR / date /
         // proof are captured later on that tab, which is what actually settles it.
+        //
+        // A HELD payment shows "On Hold" in that slot instead: the server refuses to move it
+        // out of Approved, so a live button there would only ever fail.
+        const held = isHeldQueueRow(r);
         return (
           <div className="flex items-center gap-2">
-            <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
-              onClick={() => ctx.onRecordPayment?.(r)}>
-              <IndianRupee className="mr-1 h-3.5 w-3.5" />
-              Mark as Paid
-            </Button>
+            {held ? (
+              <span title="On hold. Release the hold to mark it as paid."
+                className="inline-flex h-7 w-[136px] items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-100 text-xs font-medium text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300">
+                <CirclePause className="h-3.5 w-3.5" />
+                On Hold
+              </span>
+            ) : (
+              <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
+                onClick={() => ctx.onRecordPayment?.(r)}>
+                <IndianRupee className="mr-1 h-3.5 w-3.5" />
+                Mark as Paid
+              </Button>
+            )}
+            {ctx.onToggleHold && ctx.canHold?.(r) && (
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon"
+                      aria-label={held ? "Release hold" : "Hold payment"}
+                      className={held
+                        ? "h-7 w-7 text-green-700 hover:text-green-800"
+                        : "h-7 w-7 text-orange-600 hover:text-orange-700"}
+                      onClick={() => ctx.onToggleHold?.(r)}>
+                      {held ? <CirclePlay className="h-4 w-4" /> : <CirclePause className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{held ? "Release hold" : "Hold payment"}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             {edit}
             {ctx.onDelete && (
               <Button variant="ghost" size="icon" aria-label="Delete"

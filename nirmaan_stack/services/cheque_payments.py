@@ -69,6 +69,10 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	pay = frappe.get_doc("Project Payments", payment_name)
 	if not is_cheque(pay) or (pay.status or "").strip() != settlement.STATUS_APPROVED:
 		return False
+	# A held payment stays at Approved (`services/payment_hold.py`, whose `validate_hold` would
+	# refuse the save anyway) -- returning here keeps a stray call from logging an error.
+	if pay.get("on_hold"):
+		return False
 
 	if payment_tds.is_deductible(pay):
 		payment_tds.record_deduction(pay)

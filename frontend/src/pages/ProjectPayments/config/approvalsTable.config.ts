@@ -111,6 +111,11 @@ export interface ApprovalQueueRow {
   mode_of_payment: string;
   cheque_no: string;
   cheque_date: string | null;
+  /**
+   * 1 while a PO / WO payment is held from payment (`services/payment_hold.py`); always 0 on an
+   * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.
+   */
+  on_hold: number;
 }
 
 /**

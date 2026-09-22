@@ -97,6 +97,7 @@ INVOICE_APPROVAL_PROFILES = (
 
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
+# Also hold / release an Approved payment (owner, 2026-09-22; `services/payment_hold.py`).
 #
 # The revert endpoint (`api/payments/revert_to_approved.py`) is the ENFORCEMENT boundary for the
 # revert; the expense edits go through the doctype's own permissions. Mirrored client-side by

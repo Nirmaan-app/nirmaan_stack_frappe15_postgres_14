@@ -58,6 +58,20 @@ export const canRevertQueueRow = (row: QueueRowLike, role?: string | null): bool
   row.doctype === "Project Payments" &&
   statusOf(row) === APPROVAL_STATUS.RECONCILIATION_PENDING;
 
+/**
+ * Hold / release an Approved PO / WO payment (owner, 2026-09-22) — the same three roles do both,
+ * and any of them may release a hold another placed. Expenses cannot be held. The server's
+ * `services/payment_hold.validate_hold` is the boundary; this only decides whether the icon renders.
+ */
+export const canHoldQueueRow = (row: QueueRowLike, role?: string | null): boolean =>
+  canWorkQueueRows(role) &&
+  row.doctype === "Project Payments" &&
+  statusOf(row) === APPROVAL_STATUS.APPROVED;
+
+/** Is this payment held? It stays Approved but cannot be marked as paid or ticked. */
+export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean =>
+  Number(row.on_hold) === 1;
+
 /** Is this expense Paid, so its money fields render read-only in the edit dialog? */
 export const isPaidExpense = (status?: string | null): boolean =>
   (status || "").trim() === APPROVAL_STATUS.PAID;

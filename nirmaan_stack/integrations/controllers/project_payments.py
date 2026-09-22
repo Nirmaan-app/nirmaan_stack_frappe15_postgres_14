@@ -8,6 +8,7 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.payment_hold import validate_hold
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -197,9 +198,13 @@ def validate(doc, method):
     Defense-in-depth backstop: refuse to create a Project Payment against a
     Tendering project stub. Guard only NEW docs so edits to existing/legacy
     payments are never blocked.
+
+    Also the payment hold: a held payment cannot leave Approved, and only the
+    settle roles may change the flag (`services/payment_hold.py`).
     """
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
+    validate_hold(doc)
 
 
 def after_insert(doc, method):

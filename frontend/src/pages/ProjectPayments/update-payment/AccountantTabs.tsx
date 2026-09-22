@@ -17,7 +17,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 
 // --- Hooks & Utils ---
-import { useFrappeUpdateDoc, useFrappeDeleteDoc } from 'frappe-react-sdk';
+import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { SETTLED_STATUSES } from '@/utils/settlement';
@@ -68,7 +68,8 @@ import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
 import { countLabel, summarizeSelection } from "../bulkSelectionSummary"
 import { IndianRupee } from "lucide-react"
 import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
-import { canEditQueueRow, canWorkQueueRows } from "../config/queueRowActions"
+import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
+import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -130,6 +131,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const canWork = canWorkQueueRows(role);
     const [editRow, setEditRow] = useState<ApprovalQueueRow | null>(null);
     const closeEdit = useCallback(() => setEditRow(null), []);
+
+    // Hold / release a PO / WO payment (owner, 2026-09-22) -- same three roles as `canWork`.
+    // The row whose confirmation is open; whether it holds or releases is read off the row.
+    const [holdRow, setHoldRow] = useState<ApprovalQueueRow | null>(null);
+    const { call: setPaymentHold, loading: savingHold } = useFrappePostCall(
+        "nirmaan_stack.api.payments.payment_hold.set_payment_hold"
+    );
 
 
     // --- State for Export Dialog ---
@@ -241,6 +249,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         onDelete: setDeleteRow,
         onEdit: canWork ? setEditRow : undefined,
         canEdit: (row) => canEditQueueRow(row, role),
+        onToggleHold: canWork ? setHoldRow : undefined,
+        canHold: (row) => canHoldQueueRow(row, role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
         ),
@@ -276,8 +286,11 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — expenses, and
     // vendors with no bank details — because the ticks also drive bulk Mark as Paid. The
     // bank-transfer CSV filters the unpayable ones back out (see exportSelectedToCSV).
+    //
+    // A HELD payment cannot be ticked: the ticks drive bulk Mark as Paid AND the bank payout
+    // file, and a held payment must reach neither. `PaymentHoldNotice` says why.
     const canPaymentRowBeSelected = useCallback(
-        (_row: Row<ApprovalQueueRow>): boolean => tab === "New Payments",
+        (row: Row<ApprovalQueueRow>): boolean => tab === "New Payments" && !isHeldQueueRow(row.original),
         [tab]
     );
 
@@ -299,6 +312,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {
+            // A payment hold first: on this tab it is the one that blocks Mark as Paid.
+            if (isHeldQueueRow(row.original)) {
+                return PAYMENT_HOLD_ROW_CLASSES;
+            }
             const projectId = row.original.project;
             if (projectId && ceoHoldProjectIds.has(projectId)) {
                 return CEO_HOLD_ROW_CLASSES;
@@ -450,6 +467,37 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             toast({ title: "Couldn't delete", description: getFrappeError(error), variant: "destructive" });
         }
     }, [deleteRow, deletePayment, deleteDoc, toast, table, refreshTabCounts, refetch]);
+
+    const handleConfirmHold = useCallback(async () => {
+        if (!holdRow) return;
+        const hold = !isHeldQueueRow(holdRow);
+        const label = holdRow.against_primary || holdRow.name;
+        try {
+            await setPaymentHold({ name: holdRow.name, hold });
+            toast({
+                title: hold ? "Payment on hold" : "Hold released",
+                description: hold
+                    ? `${label} can't be marked as paid until the hold is released.`
+                    : `${label} can be marked as paid again.`,
+                variant: "success",
+            });
+            setHoldRow(null);
+            // A newly held row loses its checkbox, so a tick on it must not survive.
+            table.resetRowSelection();
+            await refetch();
+        } catch (error) {
+            toast({
+                title: hold ? "Couldn't hold the payment" : "Couldn't release the hold",
+                description: getFrappeError(error),
+                variant: "destructive",
+            });
+        }
+    }, [holdRow, setPaymentHold, toast, table, refetch]);
+
+    const heldRowsOnPage = useMemo(
+        () => (tab === "New Payments" ? (data ?? []).filter(isHeldQueueRow).length : 0),
+        [tab, data]
+    );
 
     const selectedRows = table.getSelectedRowModel().rows;
     const confirmPaidTotal = useMemo(
@@ -637,8 +685,14 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
+                    // The hold notice rides the summary slot, so it sits directly above the table.
                     summaryCard={
-                        canViewPaymentSummary(role, user_id) ? <PaymentSummaryCards totalCount={totalCount} /> : null
+                        canViewPaymentSummary(role, user_id) || heldRowsOnPage > 0 ? (
+                            <div className="space-y-2">
+                                {canViewPaymentSummary(role, user_id) && <PaymentSummaryCards totalCount={totalCount} />}
+                                <PaymentHoldNotice heldRowsOnPage={heldRowsOnPage} />
+                            </div>
+                        ) : null
                     }
                     // globalFilterValue={globalFilter}
                     // onGlobalFilterChange={setGlobalFilter}
@@ -810,6 +864,55 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                     ? `Marking ${markingProgress}/${confirmPaidRows.length}…`
                                     : "Marking…")
                                 : "Yes, mark as Paid"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={!!holdRow}
+                onOpenChange={(open) => { if (!open && !savingHold) setHoldRow(null); }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {holdRow && isHeldQueueRow(holdRow) ? "Release this hold?" : "Put this payment on hold?"}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm">
+                                <p>
+                                    {holdRow && isHeldQueueRow(holdRow)
+                                        ? "It can be marked as paid again, and ticked for the bank file."
+                                        : "It stays approved, but it can't be marked as paid or ticked for the bank file until an Admin, Accountant or Accountant Lead releases it."}
+                                </p>
+                                {holdRow && (
+                                    <div className="rounded border bg-muted/40 p-2">
+                                        <div className="font-medium text-foreground">
+                                            {holdRow.against_primary || holdRow.name}
+                                        </div>
+                                        <div className="text-muted-foreground">
+                                            {formatToRoundedIndianRupee(holdRow.amount)}
+                                            {holdRow.vendor
+                                                ? ` · ${vendorLabelMap.get(holdRow.vendor) || holdRow.vendor}`
+                                                : ""}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={savingHold}>No</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => { e.preventDefault(); handleConfirmHold(); }}
+                            disabled={savingHold}
+                            className={holdRow && isHeldQueueRow(holdRow)
+                                ? "bg-green-600 hover:bg-green-700"
+                                : "bg-orange-600 hover:bg-orange-700"}
+                        >
+                            {savingHold
+                                ? "Saving…"
+                                : holdRow && isHeldQueueRow(holdRow) ? "Yes, release" : "Yes, hold"}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

@@ -169,7 +169,9 @@ def _payments_select():
             -- same three sit at the same place in `_expense_select`, blank there.
             COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
             COALESCE(p."cheque_no", '')::text AS cheque_no,
-            p."cheque_date"                 AS cheque_date
+            p."cheque_date"                 AS cheque_date,
+            -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
+            COALESCE(p."on_hold", 0)        AS on_hold
         FROM "tabProject Payments" p
     """.format(src=SOURCE_VENDOR_PAYMENT, po=TYPE_PO_PAYMENT, sr=TYPE_SR_PAYMENT)
 
@@ -230,7 +232,9 @@ def _expense_select(table, source, project_col):
             -- A payment's Mode of Payment; an expense has none.
             ''::text                        AS mode_of_payment,
             ''::text                        AS cheque_no,
-            NULL::date                      AS cheque_date
+            NULL::date                      AS cheque_date,
+            -- Only a PO / WO payment can be held.
+            0                               AS on_hold
         FROM "{table}" e
         {linked_join}
     """
