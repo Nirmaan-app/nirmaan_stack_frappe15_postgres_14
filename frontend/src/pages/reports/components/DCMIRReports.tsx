@@ -299,6 +299,10 @@ export default function DCMIRReports({ projectId, forcedReportType, parentDoctyp
                     onExport={handleCustomExport}
                     exportFileName={exportFileName}
                     showRowSelection={false}
+                    // Rows are far taller than the virtualizer's 45px estimate (Items list,
+                    // Critical PO tags); the mismatch makes rows jump in a scroll-anchoring
+                    // loop. The table is paginated, so rendering every row is cheap.
+                    enableVirtualization={false}
                 />
             )}
         </div>
