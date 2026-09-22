@@ -88,7 +88,16 @@ export const RecordColumnHeader = ({ title, column, sort, onSort, filter, align 
                 }
                 className="inline-flex items-center gap-1 rounded text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
-                {title}
+                {/* A "A / B" title breaks after the slash, so a narrow column's header reads as
+                    two tidy lines ("Vendor /" over "Description") instead of wrapping anywhere. */}
+                <span className={cn("flex flex-col leading-tight", align === "right" ? "text-right" : "text-left")}>
+                    {title.split(" / ").map((part, i, parts) => (
+                        <span key={part}>
+                            {part}
+                            {i < parts.length - 1 ? " /" : ""}
+                        </span>
+                    ))}
+                </span>
                 {sorted === "asc" ? (
                     <ArrowUp className="h-3 w-3 shrink-0 text-blue-600 dark:text-blue-400" />
                 ) : sorted === "desc" ? (

@@ -20,7 +20,12 @@ import { formatDate } from "@/utils/FormatDate";
 // ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
 // leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
 // NOT flip this to satisfy some other convenience; check for a cycle again before you do.
-import { AMOUNT_TOLERANCE, SETTLE_MODE_LABEL, type SettleMode } from "./allocationView";
+import {
+    AMOUNT_TOLERANCE,
+    SETTLE_MODE_LABEL,
+    type ConfirmGateReason,
+    type SettleMode,
+} from "./allocationView";
 import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
@@ -2670,7 +2675,9 @@ export const pickFitsSingleSelect = (decision: RowDecision): boolean =>
     decisionLinkKeys(decision).size <= 1;
 
 /**
- * Whether a row carries a decision that could be confirmed right now.
+ * Why a row's decision cannot be confirmed right now, as the sentence shown beside a disabled
+ * Confirm -- or `null` when it can. `isConfirmable` below is exactly its `null`, so the button and
+ * the reason next to it are one rule (a greyed button with no reason read as broken).
  *
  * ⚠️ A ROW THE MATCH HAS NOT RUN ON IS NEVER CONFIRMABLE, whatever decision is attached to it.
  * `Pending match run` means nothing has been looked up, so any decision on it was made against no
@@ -2681,15 +2688,17 @@ export const pickFitsSingleSelect = (decision: RowDecision): boolean =>
  * written and a balance remains, so a person still owes this row a decision: the next tick-set
  * calls `allocate_row` again, never `settle_row`, which `chooseSettleEndpoint` enforces.
  */
-export const isConfirmable = (
+export const confirmBlocker = (
     row: OutflowImportRow,
     decision: RowDecision | undefined
-): boolean => {
+): string | null => {
     if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
-        return false;
+        return `This transfer is ${row.row_status || "closed"} — there is nothing left to confirm.`;
     }
-    if (row.row_status === "Pending match run") return false;
-    if (!decision) return false;
+    if (row.row_status === "Pending match run") {
+        return "This line has not been matched yet — press Re-run match first.";
+    }
+    if (!decision) return "Pick the record this transfer paid, or choose what to create from it.";
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense
      * out of money that ARRIVED files a receipt as a spend, which is the same class of error as
@@ -2697,11 +2706,14 @@ export const isConfirmable = (
      * dispositions (`inflow` / `nonProjectInflow`) are the ones that exist for such a row.
      */
     if (decision.target === "new") {
-        if (isCreditRow(row)) return false;
+        if (isCreditRow(row)) return "Money came IN on this line, so it cannot become an expense.";
         const form = decision.newExpense;
-        if (!form?.doctype || !form.expenseType) return false;
-        if (form.doctype === "Project Expenses" && !form.project) return false;
-        return true;
+        if (!form?.doctype) return "Choose which kind of expense to create.";
+        if (!form.expenseType) return "Choose the expense type.";
+        if (form.doctype === "Project Expenses" && !form.project) {
+            return "Choose the project for this expense.";
+        }
+        return null;
     }
     /**
      * ⚠️ A CREDIT ONLY, AND THE CHECK IS ON THE ROW (slice B6). `direction` is what separates money
@@ -2715,9 +2727,11 @@ export const isConfirmable = (
      * button with a reason beside it, rather than a click that fails.
      */
     if (decision.target === "inflow") {
-        if (!isCreditRow(row)) return false;
+        if (!isCreditRow(row)) return "Money went OUT on this line, so it cannot be an inflow.";
         const form = decision.newInflow;
-        return Boolean(form?.project && form.customer);
+        if (!form?.project) return "Choose the project this money came in for.";
+        if (!form.customer) return "This project has no customer — add one to the project first.";
+        return null;
     }
     /**
      * ⚠️ A CREDIT ONLY (#1266): a debit recorded here would book money that LEFT the account as money
@@ -2728,19 +2742,22 @@ export const isConfirmable = (
      * page's own rules (`isInflowType` / `descriptionRequired`), read rather than restated.
      */
     if (decision.target === "nonProjectInflow") {
-        if (!isCreditRow(row)) return false;
+        if (!isCreditRow(row)) return "Money went OUT on this line, so it cannot be an inflow.";
         const form = decision.newNonProjectInflow;
         const inflowType = form?.inflowType ?? "";
-        if (!isInflowType(inflowType)) return false;
-        return !descriptionRequired(inflowType) || Boolean(form?.description?.trim());
+        if (!isInflowType(inflowType)) return "Choose the inflow type.";
+        if (descriptionRequired(inflowType) && !form?.description?.trim()) {
+            return "Add a description for this inflow.";
+        }
+        return null;
     }
     /**
      * ⚠️ A CREDIT ONLY, and every allocation rule the server applies (`refundAllocationProblem`) --
      * this keeps the bulk bar from counting such a row as decided.
      */
     if (decision.target === "vendorRefund") {
-        if (!isCreditRow(row)) return false;
-        return refundAllocationProblem(decision.newVendorRefund, row.amount) === null;
+        if (!isCreditRow(row)) return "Money went OUT on this line, so it cannot be a vendor refund.";
+        return refundAllocationProblem(decision.newVendorRefund, row.amount);
     }
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MISSING HALF, AND THE ONE THAT MOVED REAL MONEY. Every
@@ -2757,8 +2774,46 @@ export const isConfirmable = (
      * carrying its own doctype, so `target` is not load-bearing there and is left whatever a
      * "create something new" card may have set it to (the fan-out picker clears it on every tick).
      */
-    if (isCreditRow(row)) return false;
-    return decisionLinkKeys(decision).size > 0;
+    if (isCreditRow(row)) return "Money came IN on this line, so it cannot settle a payment.";
+    return decisionLinkKeys(decision).size > 0
+        ? null
+        : "Pick the record this transfer paid, or choose what to create from it.";
+};
+
+/**
+ * Whether a row's decision is complete enough to confirm -- exactly "`confirmBlocker` has nothing
+ * to say". The bulk bar counts with it and the dialog's button is gated on it, so the button, the
+ * bar and the sentence shown beside a disabled Confirm are ONE rule and cannot disagree.
+ */
+export const isConfirmable = (
+    row: OutflowImportRow,
+    decision: RowDecision | undefined
+): boolean => confirmBlocker(row, decision) === null;
+
+/**
+ * The sentence the decision dialog shows beside a DISABLED Confirm, from the button's own gate
+ * reason (`allocationView.confirmGate`) -- or `null` when Confirm is live, or merely busy (the
+ * spinner says that).
+ *
+ * ⚠️ AN INCOMPLETE DECISION IS EXPLAINED BY `confirmBlocker`, THE RULE THAT GATES IT, never by a
+ * second reading of the row here.
+ */
+export const confirmDisabledSentence = (
+    reason: ConfirmGateReason | null,
+    row: OutflowImportRow,
+    decision: RowDecision | undefined
+): string | null => {
+    switch (reason) {
+        case null:
+        case "busy":
+            return null;
+        case "decision-incomplete":
+            return confirmBlocker(row, decision);
+        case "balance-unknown":
+            return "Still reading what this transfer has already settled — wait a moment.";
+        case "over-allocated":
+            return "The ticked records add up to more than this transfer — untick one.";
+    }
 };
 
 /**
@@ -3800,7 +3855,10 @@ export const RECORD_DATE_LABELS: Record<RecordDateKind, string> = {
 };
 
 /**
- * Widest a wrapped line of the Vendor / Description column gets. The column is 220px.
+ * Widest a wrapped line of the Vendor / Description column gets. The column is 165px (2026-09-22).
+ *
+ * ⚠️ STILL 24 AT 165px BECAUSE THE DESCRIPTION IS `text-[11px]`: 24 characters there is ~145px,
+ * inside the 149px content box. The note below is the history of the 220px width.
  *
  * ⚠️ 24, WIDENED FROM 16 (owner ruling), AND THE COLUMN WIDENED WITH IT -- the two numbers are one
  * decision. 24 characters at `text-sm` is roughly 168px, and a 180px column has a 164px content box
@@ -3899,10 +3957,18 @@ export interface RecordColumn {
  */
 /**
  * ⚠️ THE WIDTH BUDGET, STATED SO THE NEXT PERSON MOVING ONE KNOWS WHAT THEY ARE SPENDING. The
- * dialog is 960px with ~48px of padding and a ~36px radio column, leaving 876px; the five columns
- * sum to 850px (190 + 220 + 160 + 130 + 150). Outgrow the 876 and AMOUNT is the column that falls
- * off the right edge -- the one fact that decides whether a record can be settled at all -- so a
- * widening has to be PAID FOR out of another column, never simply added.
+ * five columns sum to 765px (190 + 165 + 145 + 115 + 150), 805px with the 40px tick column.
+ *
+ * ⚠️ 850 WAS TOO MUCH IN PRACTICE (owner, 2026-09-22): the table sits inside the settle panel's own
+ * border and padding and beside a vertical scrollbar, so the "876px left" below was never all there
+ * -- the table scrolled sideways and cut AMOUNT, the one fact that decides whether a record can be
+ * settled at all. Vendor / Description paid for it (its header breaks onto two lines and a long
+ * vendor name wraps instead of being cut), with Project and Approval Date trimmed. Outgrow the room
+ * again and AMOUNT falls off the edge again, so a widening has to be PAID FOR out of another
+ * column, never simply added.
+ *
+ * The earlier reasoning, kept for the record: the dialog is 960px with ~48px of padding and a ~36px
+ * radio column, leaving 876px.
  *
  * The 40px `vendor` took to reach 220px came from `record`, which lost its document id at D11 and
  * had the room to give. That is the whole reason `vendor` could grow: `VENDOR_DESCRIPTION_WRAP_CHARS`
@@ -3915,9 +3981,9 @@ export const RECORD_COLUMNS: RecordColumn[] = [
     // record whose vendor was missing, when in truth its ledger has no such fact. The column now
     // states what it actually carries: the vendor where there is one, and the description that
     // identifies the record where there is not. The id stays `vendor`; only the heading moved.
-    { id: "vendor", title: "Vendor / Description", width: "220px" },
-    { id: "project", title: "Project", width: "160px" },
-    { id: "date", title: "Approval Date", width: "130px" },
+    { id: "vendor", title: "Vendor / Description", width: "165px" },
+    { id: "project", title: "Project", width: "145px" },
+    { id: "date", title: "Approval Date", width: "115px" },
     { id: "amount", title: "Amount", width: "150px", align: "right" },
 ];
 

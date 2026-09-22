@@ -259,8 +259,9 @@ interface PaymentStats {
      * never be added to the two 30-day outflow figures beside it.
      *
      * ⚠️ IT IS Bulk Import's **Not Matched – Outflow** tab, unfiltered (owner, 2026-09-22): lines
-     * still Pending match run, Mismatched or Error. A server pass-through, built from the tab's own
-     * scope — never re-derive it here.
+     * still Pending match run, Mismatched or Error — PLUS the still-unallocated part of every
+     * **Partly Allocated – Outflow** line (which counts once). A server pass-through, built from
+     * the tabs' own scopes — never re-derive it here.
      */
     total_unreconciled_outflow_amount: number;
     total_unreconciled_outflow_count: number;
@@ -580,8 +581,9 @@ const RecentActivityTile: React.FC<{
                             {/* ⚠️ ALL TIME, NOT 30 DAYS — it sits in this column because it is outflow,
                                 not because it shares the window. It is deliberately BELOW a rule, and
                                 is NOT part of the column's "Outflow (30 Days)" total above: adding it
-                                there would sum two different periods into one figure. Same number as
-                                Bulk Import's unfiltered "Not Matched – Outflow" tab. */}
+                                there would sum two different periods into one figure. It is Bulk
+                                Import's unfiltered "Not Matched – Outflow" tab plus what is still
+                                unallocated on its "Partly Allocated – Outflow" lines. */}
                             <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                             {/* ⚠️ ONE LABEL, NO SHORT VARIANT. Every other row here swaps a short label
                                 in below `lg:`; this one must read "Total Unreconciled Outflow" at every
