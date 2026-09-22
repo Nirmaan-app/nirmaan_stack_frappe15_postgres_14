@@ -2046,21 +2046,25 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(n, 450)
         # SLICE 1e (owner X-b / X-d): NO system column -- the source pair is gone, and `kind` is gone
         # too because cabletray_raceway lists ONE item kind (the upload fills it). Inverted, not deleted.
+        # SLICE 1g (owner Z-c): `discipline` and `category` right after item_uid, in EVERY file. Inverted,
+        # not deleted -- every 1e value claim kept; the two are the ONLY non-edited columns beside the id.
         self.assertEqual(headers,
-                         ["item_uid", "brand", "unit",
+                         ["item_uid", "discipline", "category", "brand", "unit",
                           "material", "thickness_mm", "tray_type", "width_mm",
                           "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
         self.assertNotIn("source_sheet", headers)  # NEGATIVE (1e): a system column is never in the file
         self.assertNotIn("source_row", headers)
         self.assertNotIn("kind", headers)          # NEGATIVE (1e): a single-kind category carries no kind
         self.assertNotIn("core", headers)          # a wiring attribute must NOT appear
-        self.assertNotIn("category", headers)      # MODE A has no category column
+        self.assertNotIn("import_batch", headers)  # NEGATIVE (1g): no OTHER system column returns
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(rows[0], headers)
         self.assertEqual(len(rows) - 1, 450)   # F-16: 460 -> 450, same reason as the count above
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]),
                         "every row must carry item_uid")
+        self.assertTrue(all(r[1] == disc and r[2] == "cabletray_raceway" for r in rows[1:]),
+                        "every row names its discipline and category (1g)")
 
     def test_24n_mode_b_gives_the_union_plus_a_category_column(self):
         """SLICE 5 MODE B -- one file, every category, the UNION of all keys.
@@ -2075,10 +2079,12 @@ class TestRateMaster(FrappeTestCase):
 
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(n, 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
-        self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
+        # SLICE 1g (owner Z-c): `discipline` joins right after item_uid -- inverted, not deleted.
+        self.assertEqual(headers[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"])
         # SLICE 1e (owner X-b): the source pair is NOT in the file any more -- inverted, not deleted.
         self.assertNotIn("source_sheet", headers)
         self.assertNotIn("source_row", headers)
+        self.assertNotIn("import_batch", headers)      # NEGATIVE (1g): no other system column returns
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
             self.assertIn(k, headers)
         # SLICE 2b: 45 -> 48. The MCB-ladder mint gave the 106 `family: Switchgear` rows the four
@@ -2091,17 +2097,19 @@ class TestRateMaster(FrappeTestCase):
         # DECLARED attribute -- which is the whole reason it round-trips as a NUMBER rather than a
         # string -- so it necessarily joins the Mode B union.
         # SLICE 1e: 49 -> 47, the two system columns (source_sheet, source_row) removed (owner X-b).
-        self.assertEqual(len(headers), 47)
+        # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c).
+        self.assertEqual(len(headers), 48)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(len(rows) - 1, 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
-        cats = {r[1] for r in rows[1:]}
+        self.assertEqual({r[1] for r in rows[1:]}, {disc})          # 1g: every row names the discipline
+        cats = {r[2] for r in rows[1:]}
         self.assertIn("cabletray_raceway", cats)
         self.assertIn("wiring_cabling", cats)
         # a cable row is BLANK in the tray column -- sparse, not wrong
         ti = headers.index("tray_type")
-        cable = next(r for r in rows[1:] if r[2] == "cable")
+        cable = next(r for r in rows[1:] if r[3] == "cable")      # 1g: kind sits after discipline + category
         self.assertEqual(cable[ti], "")
 
     def test_24o_a_comma_or_quote_survives_and_values_are_emitted_as_stored(self):
@@ -2165,7 +2173,8 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 2b: 45 -> 48, the same +3 as test_24n (device / amp_a / curve; `pole` already existed).
         # SLICE 5: 48 -> 49, the `modules` width column -- the same +1 as test_24n.
         # SLICE 1e: 49 -> 47, the two system columns removed (owner X-b) -- the same -2 as test_24n.
-        self.assertEqual(res_all["column_count"], 47)
+        # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c) -- the same +1 as test_24n.
+        self.assertEqual(res_all["column_count"], 48)
         self.assertEqual(res_all["row_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
@@ -4654,7 +4663,10 @@ class TestRateMaster(FrappeTestCase):
 
         plan_a = csv_importer.build_plan(disc, a_text)
         self.assertEqual(plan_a["mode"], "category")
-        self.assertNotIn("category", plan_a["columns"]["fixed"])
+        # SLICE 1g (owner Z-c): a Mode A file carries `category` (and `discipline`) too; the mode is decided by
+        # the file's VALUES -- one category here -- inverted, not deleted.
+        self.assertIn("category", plan_a["columns"]["fixed"]); self.assertIn("discipline", plan_a["columns"]["fixed"])
+        self.assertEqual(plan_a["target"]["category"], "junction_box_raceway")
         self.assertEqual((plan_a["errors"], plan_a["changes"]), ([], []))
         self.assertEqual(plan_a["counts"]["unchanged"], na)
 
@@ -4673,7 +4685,14 @@ class TestRateMaster(FrappeTestCase):
         victim = next(r for r in rows if r[cat_i] not in ("", "wiring_cabling"))
         victim[cat_i] = "wiring_cabling"
         bad = csv_importer.build_plan(disc, self._csv_text(headers, rows))
-        self.assertTrue(any("does not match kind" in e["message"] for e in bad["errors"]))
+        # SLICE 1g (owner Z-c): an EXISTING item's edited category cell is refused in the ruled words --
+        # "cannot be moved to another category by editing these cells" -- inverted, not deleted; the
+        # pre-1g "does not match kind" wording now covers a NEW row whose kind and category disagree.
+        self.assertTrue(any("cannot be moved to another category" in e["message"] for e in bad["errors"]))
+        self.assertEqual(bad["changes"], [])
+        new_bad = list(victim); new_bad[0] = ""
+        bad2 = csv_importer.build_plan(disc, self._csv_text(headers, [new_bad]))
+        self.assertTrue(any("does not match kind" in e["message"] for e in bad2["errors"]))
 
     # ---- F-21 (2026-08-14): the >=10% boundary keeps its own promise -------------------
     # Plain-English coverage summary (test -> changed behaviour):
@@ -5182,9 +5201,12 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(sorted(spec["rates"]), ["list_price"])
 
         spec_b, errs_b = csv_importer.classify_columns(
-            ["item_uid", "category", "kind"], attrs, rates)
+            ["item_uid", "discipline", "category", "kind"], attrs, rates)
         self.assertEqual(errs_b, [])
-        self.assertEqual(spec_b["mode"], "all")
+        # SLICE 1g (owner Z-c): every file carries `category` (and `discipline`), so the header no longer
+        # decides the mode -- build_plan decides it from the VALUES; both columns are fixed columns here.
+        self.assertEqual(spec_b["mode"], "category")
+        self.assertEqual(sorted(spec_b["fixed"]), ["category", "discipline", "item_uid", "kind"])
 
         _s, collide = csv_importer.classify_columns(
             ["item_uid", "kind", "material"], {"material"}, {"material"})
@@ -5442,6 +5464,188 @@ class TestRateMaster(FrappeTestCase):
             csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
         self.assertEqual(self._active_items(disc), 1367)
 
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1g -- SELF-DESCRIBING FILES + IDs FOR HAND-ADDED ITEMS (owner Z-a..Z-e), Electrical half:
+    #   e14  COLUMNS: `discipline` and `category` right after item_uid in every Mode A file and Mode B,
+    #        both formats, filled on every row (the discipline as the system names it; the category id
+    #        Mode B always used); TEXT cells in the .xlsx; NEGATIVE: no other system column returns.
+    #   e15  UPLOAD CHECKS: the matching file -> zero changes and the target names the category; a wrong
+    #        discipline -> refused naming the row, file-says vs page; a wrong category (not this
+    #        discipline's) -> refused; a single-category file on another category's page -> refused; the
+    #        all-categories file with a category of another discipline -> refused; an existing item's
+    #        category edited -> refused ("cannot be moved"); a blank new row filled from the file; a
+    #        blank new row in a file whose rows disagree -> refused; a file with NO values -> the page
+    #        decides and `from_page` is set; a 1f-format file (no columns) -> exactly today's result.
+    #        Nothing written on any refusal.
+    #   e16  IDs: the manual create mints an item_uid in the shared format through the ONE mint; the
+    #        download shows it; re-upload -> zero changes and ZERO warnings; NEGATIVE: no path creates a
+    #        uid-less active item any more.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    def test_e14_every_file_carries_discipline_and_category_as_text(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        import csv
+        import io as _io
+        import openpyxl
+        disc = self._loaded_disc()
+        _items, kind_cat, cat_kinds = csv_exporter._load(disc)
+        for cat in cat_kinds:
+            text, headers, n = csv_exporter.build_category_csv(disc, cat)
+            self.assertEqual(headers[:3], ["item_uid", "discipline", "category"], cat)
+            rows = list(csv.reader(_io.StringIO(text.lstrip(BOM))))[1:]
+            self.assertEqual(len(rows), n)
+            self.assertTrue(all(r[1] == disc and r[2] == cat for r in rows), cat)
+            raw, hx, nx = csv_exporter.build_category_xlsx(disc, cat)
+            self.assertEqual(hx, headers)
+            ws = openpyxl.load_workbook(_io.BytesIO(raw)).worksheets[0]
+            if nx:
+                self.assertEqual({ws.cell(row=r, column=2).number_format for r in range(2, nx + 2)}, {"@"}, cat)
+                self.assertEqual({ws.cell(row=r, column=3).number_format for r in range(2, nx + 2)}, {"@"}, cat)
+                self.assertEqual({ws.cell(row=r, column=2).value for r in range(2, nx + 2)}, {disc}, cat)
+                self.assertEqual({ws.cell(row=r, column=3).value for r in range(2, nx + 2)}, {cat}, cat)
+            for gone in ("source_sheet", "source_row", "import_batch", "name"):
+                self.assertNotIn(gone, headers, cat)                        # NEGATIVE
+        text_b, hb, nb = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(hb[:3], ["item_uid", "discipline", "category"])
+        rows_b = list(csv.reader(_io.StringIO(text_b.lstrip(BOM))))[1:]
+        self.assertEqual(len(rows_b), 1367)
+        self.assertEqual({r[1] for r in rows_b}, {disc})
+        self.assertEqual({r[2] for r in rows_b}, set(kind_cat.values()))       # the category ID, as before
+        raw_b, hxb, _n = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(hxb, hb)
+
+    def test_e15_upload_refuses_a_file_that_does_not_describe_this_page(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        import csv
+        disc = self._loaded_disc()
+        n_before = self._active_items(disc)
+        text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        hdr_line, body = text.split("\r\n")[0], text.split("\r\n")[1:]
+        di, ci, ui = headers.index("discipline"), headers.index("category"), headers.index("item_uid")
+
+        def with_rows(rows, header=hdr_line):
+            return header + "\r\n" + "\r\n".join(rows) + "\r\n"
+
+        def edited(row_text, **cells):
+            parts = next(csv.reader([row_text]))
+            for k, v in cells.items():
+                parts[headers.index(k)] = v
+            buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts); return buf.getvalue()
+
+        # 1. the matching file: zero changes, the target names the page's category, not from the page
+        plan = csv_importer.build_plan(disc, text, category_id="cabletray_raceway")
+        self.assertEqual((plan["errors"], plan["changes"]), ([], []))
+        self.assertEqual(plan["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": False})
+        self.assertEqual(plan["mode"], "category")
+        # 2. a wrong DISCIPLINE on one row: refused naming the row, file-says vs page
+        bad = with_rows([edited(body[0], discipline="HVAC")] + body[1:3])
+        p = csv_importer.build_plan(disc, bad, category_id="cabletray_raceway")
+        self.assertEqual(len(p["errors"]), 1); self.assertEqual(p["errors"][0]["row"], 1)
+        self.assertIn("the file says discipline 'HVAC' but this page is '%s'" % disc, p["errors"][0]["message"])
+        # 3. a CATEGORY that is not this discipline's: refused
+        bad = with_rows([edited(body[0], category="hvac_adp")] + body[1:3])
+        p = csv_importer.build_plan(disc, bad, category_id="cabletray_raceway")
+        self.assertEqual(len(p["errors"]), 1)
+        self.assertIn("the file says category 'hvac_adp', which is not a category of %s" % disc, p["errors"][0]["message"])
+        # 4. a single-category file uploaded on ANOTHER category's page: refused, file-says vs page
+        p = csv_importer.build_plan(disc, text, category_id="earthing")
+        self.assertEqual(len(p["errors"]), n)
+        self.assertIn("the file says category 'cabletray_raceway' but this page is on 'earthing'", p["errors"][0]["message"])
+        # 5. the all-categories file: an all-categories upload on any page of the discipline, zero changes;
+        #    one row given a category of ANOTHER discipline: refused
+        text_b, hb, _nb = csv_exporter.build_all_categories_csv(disc)
+        pb = csv_importer.build_plan(disc, text_b, category_id="earthing")
+        self.assertEqual((pb["errors"], pb["changes"]), ([], []))
+        self.assertEqual(pb["target"], {"discipline": disc, "category": None, "mode": "all", "from_page": False})
+        lines_b = text_b.split("\r\n")
+        parts = next(csv.reader([lines_b[1]])); parts[hb.index("category")] = "hvac_adp"
+        buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts)
+        pb2 = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n" + "\r\n".join(lines_b[2:]))
+        self.assertEqual(len(pb2["errors"]), 1); self.assertIn("not a category of", pb2["errors"][0]["message"])
+        # 6. an EXISTING item's category cell edited to another real category: refused ("cannot be moved")
+        lines_b = text_b.split("\r\n")
+        tray_line = next(l for l in lines_b[1:] if ",cabletray_raceway," in l)
+        parts = next(csv.reader([tray_line])); parts[hb.index("category")] = "earthing"
+        buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts)
+        pm = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n")
+        self.assertEqual(len(pm["errors"]), 1)
+        self.assertIn("belongs to category 'cabletray_raceway'; the file says 'earthing'", pm["errors"][0]["message"])
+        self.assertIn("cannot be moved to another category", pm["errors"][0]["message"])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n", expected_digest=pm["digest"])
+        # 7. a NEW row with BLANK discipline / category is filled from the file's rows (all agree)
+        new_row = edited(body[0], item_uid="", discipline="", category="", width_mm="999", install_rate="1")
+        pn = csv_importer.build_plan(disc, with_rows(body[:2] + [new_row]), category_id="cabletray_raceway")
+        self.assertEqual(pn["errors"], [], pn["errors"][:2]); self.assertEqual(pn["counts"]["items_added"], 1)
+        self.assertEqual(pn["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertFalse(pn["target"]["from_page"])
+        # 8. a blank new row in a file whose rows name SEVERAL categories: refused (cannot be filled)
+        lines_b = text_b.split("\r\n")
+        new_b = edited(body[0], item_uid="", discipline="", category="", width_mm="999", install_rate="1")
+        parts = next(csv.reader([new_b]))
+        # re-shape the tray row onto the Mode B header: blank every column the tray file lacks
+        mode_b_new = [""] * len(hb)
+        for k, v in zip(headers, parts):
+            mode_b_new[hb.index(k)] = v
+        buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(mode_b_new)
+        cable_line = next(l for l in lines_b[1:] if ",wiring_cabling," in l)
+        pd = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + cable_line + "\r\n" + tray_line + "\r\n" + buf.getvalue() + "\r\n")
+        self.assertEqual(len(pd["errors"]), 1)
+        self.assertIn("name more than one category", pd["errors"][0]["message"])
+        # 9. a file with NO discipline / category value at all: the page decides, and the plan says so
+        blanked = with_rows([edited(l, discipline="", category="") for l in body[:3]])
+        pz = csv_importer.build_plan(disc, blanked, category_id="cabletray_raceway")
+        self.assertEqual((pz["errors"], pz["changes"]), ([], []))
+        self.assertEqual(pz["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": True})
+        # 10. a 1f-format file (no such columns at all): exactly today's result, the page decides
+        old_hdr = [h for h in headers if h not in ("discipline", "category")]
+        old_rows = []
+        for l in body[:3]:
+            parts = next(csv.reader([l])); old_rows.append([parts[headers.index(h)] for h in old_hdr])
+        po = csv_importer.build_plan(disc, self._csv_text(old_hdr, old_rows), category_id="cabletray_raceway")
+        self.assertEqual((po["errors"], po["changes"]), ([], [])); self.assertEqual(po["counts"]["unchanged"], 3)
+        self.assertEqual(po["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": True})
+        self.assertEqual(po["columns"]["ignored"], [])
+        # nothing written by any of the above
+        self.assertEqual(self._active_items(disc), n_before)
+
+    def test_e16_a_hand_added_item_gets_a_uid_and_round_trips_with_zero_warnings(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        res = rate_master.create_rate_master_item(
+            discipline=disc, kind="cable_tray", brand="Generic", unit="Rmt",
+            attributes=json.dumps({"material": "GI", "thickness_mm": 2.0, "tray_type": "Perforated", "width_mm": 999.0}),
+            rates=json.dumps({"install_rate": 5.0}),
+        )
+        self.assertTrue(res["ok"])
+        uid = res["item"]["item_uid"]
+        self.assertRegex(uid, r"^rmi-[0-9a-f]{12}$")                         # the shared format
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", res["item"]["name"], "item_uid"), uid)
+        self.assertEqual(csv_importer.UID_PREFIX + "x" * csv_importer.UID_HEX_LEN, "rmi-xxxxxxxxxxxx")
+        # unique among EVERY row of the discipline (active and inactive)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "item_uid": uid}), 1)
+        # the download shows it, and an unchanged re-upload is zero changes and ZERO warnings
+        text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        self.assertEqual(n, 451)
+        self.assertIn(uid, text)
+        plan = csv_importer.build_plan(disc, text, category_id="cabletray_raceway")
+        self.assertEqual((plan["errors"], plan["changes"], plan["counts"]["unchanged"], plan["counts"]["twins"]), ([], [], 451, 0))
+        raw, _h, _n = csv_exporter.build_category_xlsx(disc, "cabletray_raceway")
+        px = csv_importer.build_plan(disc, raw, category_id="cabletray_raceway")
+        self.assertEqual((px["errors"], px["changes"], px["counts"]["twins"]), ([], [], 0))
+        # NEGATIVE: no active item of the discipline is without a uid (the manual path was the only one)
+        self.assertEqual(frappe.db.sql(
+            'select count(*) from "tabBoQ Rate Master Item" where discipline=%s and active=1 and (item_uid is null or item_uid=%s)',
+            (disc, "")), [(0,)])
+        # the mint itself: unique against a taken set, and it adds what it minted -- proven by FORCING the
+        # first draw to collide (a random draw would pass a broken loop by luck)
+        from unittest.mock import patch as _patch
+        taken = {uid}
+        with _patch("frappe.generate_hash", side_effect=[uid[len("rmi-"):], "abcdef012345"]):
+            minted = csv_importer.mint_item_uid(disc, taken)
+        self.assertEqual(minted, "rmi-abcdef012345")                 # the collision was skipped
+        self.assertIn(minted, taken); self.assertRegex(minted, r"^rmi-[0-9a-f]{12}$")
+
     def test_e01_xlsx_round_trip_is_a_no_op_for_every_electrical_file(self):
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
         disc = self._loaded_disc()
@@ -5540,28 +5744,31 @@ class TestRateMaster(FrappeTestCase):
                 self.assertNotIn("source_row", headers, cat)
                 for must in ("item_uid", "brand", "unit"):
                     self.assertIn(must, headers, cat)
-                self.assertEqual(headers[0], "item_uid")
+                self.assertEqual(headers[:3], ["item_uid", "discipline", "category"])   # 1g (owner Z-c)
+                self.assertNotIn("import_batch", headers, cat)             # NEGATIVE (1g): nothing else returns
                 if cat in multi:
-                    self.assertEqual(headers[:4], ["item_uid", "kind", "brand", "unit"], cat)
+                    self.assertEqual(headers[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"], cat)
                 else:
                     self.assertNotIn("kind", headers, cat)              # NEGATIVE
-                    self.assertEqual(headers[:3], ["item_uid", "brand", "unit"], cat)
+                    self.assertEqual(headers[:5], ["item_uid", "discipline", "category", "brand", "unit"], cat)
         # the person-edited columns are all there (one multi-kind, one single-kind example)
+        # SLICE 1g: discipline + category after item_uid -- inverted, not deleted; every other column kept.
         _t, h_wire, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
-        self.assertEqual(h_wire, ["item_uid", "kind", "brand", "unit",
+        self.assertEqual(h_wire, ["item_uid", "discipline", "category", "kind", "brand", "unit",
                                   "core", "insulation", "material", "thickness_sqmm",
                                   "gland_band1_list", "gland_band2_list", "install_base_per_mtr",
                                   "list_price_per_mtr", "lug_list"])
         _t, h_tray, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
-        self.assertEqual(h_tray, ["item_uid", "brand", "unit",
+        self.assertEqual(h_tray, ["item_uid", "discipline", "category", "brand", "unit",
                                   "material", "thickness_mm", "tray_type", "width_mm",
                                   "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
         # MODE B: category + kind (the file holds multi-kind categories), no system columns
         for build in (csv_exporter.build_all_categories_csv, csv_exporter.build_all_categories_xlsx):
             _p, hb, nb = build(disc)
-            self.assertEqual(hb[:5], ["item_uid", "category", "kind", "brand", "unit"])
+            self.assertEqual(hb[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"])   # 1g
             self.assertNotIn("source_sheet", hb); self.assertNotIn("source_row", hb)
-            self.assertEqual(len(hb), 47)          # 49 before 1e, minus the two system columns
+            self.assertNotIn("import_batch", hb)   # NEGATIVE (1g): no other system column returns
+            self.assertEqual(len(hb), 48)          # 49 before 1e, minus the two system columns, plus discipline (1g)
             self.assertEqual(nb, 1367)
 
     def test_e04_text_cells_stay_text_in_the_xlsx(self):
@@ -5638,12 +5845,19 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             csv_importer.apply_plan(disc, self._csv_text(hw, rw + [nr]), category_id="wiring_cabling")
         self.assertEqual(set(self._active_rows(disc)), set(after))     # nothing written
-        # NEGATIVE: a headers-only template with a new row and NO hint and NO existing rows cannot type it
-        p_none = csv_importer.build_plan(disc, self._csv_text(headers, [new_row]))
+        # SLICE 1g (owner Z-c / U4): the row's OWN category cell types it, even with no hint and no existing rows
+        p_self = csv_importer.build_plan(disc, self._csv_text(headers, [new_row]))
+        self.assertEqual(p_self["errors"], []); self.assertEqual(p_self["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertFalse(p_self["target"]["from_page"])
+        # NEGATIVE (kept): with the cells BLANK, a headers-only template with a new row and NO hint and NO
+        # existing rows cannot type it
+        blank_row = list(new_row); blank_row[headers.index("discipline")] = ""; blank_row[headers.index("category")] = ""
+        p_none = csv_importer.build_plan(disc, self._csv_text(headers, [blank_row]))
         self.assertTrue(any("kind" in e["message"] for e in p_none["errors"]))
-        # ... the category hint resolves it
-        p_hint = csv_importer.build_plan(disc, self._csv_text(headers, [new_row]), category_id="cabletray_raceway")
+        # ... the category hint resolves it, and the plan says the page decided
+        p_hint = csv_importer.build_plan(disc, self._csv_text(headers, [blank_row]), category_id="cabletray_raceway")
         self.assertEqual(p_hint["errors"], []); self.assertEqual(p_hint["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertTrue(p_hint["target"]["from_page"])
 
     def test_e06_an_old_format_file_uploads_and_its_system_columns_are_ignored(self):
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
@@ -5674,7 +5888,9 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(after[old_rows[0][0]]["source_sheet"], stored[old_rows[0][0]]["source_sheet"])
         self.assertEqual(after[old_rows[0][0]]["source_row"], stored[old_rows[0][0]]["source_row"])
         # a kind column that is PRESENT is still honoured (it is the item type, not a system column)
-        self.assertEqual(plan["columns"]["fixed"], ["brand", "item_uid", "kind", "unit"])
+        # SLICE 1g (owner Z-c): the file is rebuilt from a current download, so it also carries the two
+        # self-describing columns -- inverted, not deleted.
+        self.assertEqual(plan["columns"]["fixed"], ["brand", "category", "discipline", "item_uid", "kind", "unit"])
 
     def test_e07_format_is_detected_by_content_not_name(self):
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
@@ -5707,7 +5923,7 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("item_uid", base64.b64decode(res_c["content_base64"]).decode("utf-8"))
         self.assertEqual(res_c["columns"], res["columns"])
         res_all = rate_master.export_rate_master_csv(discipline=disc)
-        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 47, 1367))
+        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 48, 1367))   # 1g: +discipline
         with self.assertRaises(frappe.ValidationError):
             rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="pdf")
         # preview / apply take the category hint and report the format

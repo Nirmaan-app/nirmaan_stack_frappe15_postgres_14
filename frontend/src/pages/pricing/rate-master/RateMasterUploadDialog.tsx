@@ -41,8 +41,10 @@ import {
   twinFingerprints,
   twinNumbers,
   undecidedTwinRows,
+  uploadTargetLine,
   UPLOAD_ACCEPT,
   type TwinDecision,
+  type UploadTargetLabels,
   type UploadChange,
   type UploadPlan,
   type UploadResult,
@@ -74,6 +76,8 @@ interface Props {
   ) => Promise<UploadResult>;
   /** Fired after a successful apply so the caller can refetch the item list. */
   onApplied?: () => void;
+  /** SLICE 1g: the page's own labels, for the "Uploading into" banner (the id is shown where no label fits). */
+  targetLabels?: UploadTargetLabels;
 }
 
 /** The row's own text, from the fields the plan carries, for the question. */
@@ -216,7 +220,7 @@ function ChangeRow({
   );
 }
 
-export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }: Props) {
+export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied, targetLabels }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<null | "preview" | "apply">(null);
@@ -364,6 +368,11 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                 </Badge>
                 <span className="text-muted-foreground">{plan.row_count} rows read</span>
               </div>
+
+              {targetLabels && uploadTargetLine(plan, targetLabels) ? (
+                // SLICE 1g (owner Z-c / Z-d): where this upload goes, as the server decided it from the file.
+                <p className="text-xs font-medium" data-testid="upload-target">{uploadTargetLine(plan, targetLabels)}</p>
+              ) : null}
 
               {showEncodingWarning(plan) && (
                 <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">

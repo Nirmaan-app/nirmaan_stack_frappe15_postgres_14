@@ -10,6 +10,8 @@ import {
   planIsNoOp,
   splitChanges,
   TWIN_COPY,
+  TARGET_COPY,
+  uploadTargetLine,
   rowsWithTwin,
   twinFingerprints,
   twinNumbers,
@@ -399,5 +401,41 @@ describe("SLICE 1f -- the duplicate warning", () => {
   it("the shown-in-full hint names the duplicate rows (the server promotes them to major)", () => {
     expect(UPLOAD_COPY.expandedHint).toMatch(/same as an existing item/);
     expect(UPLOAD_COPY.expandedHint).toContain("ask about or flags");   // the 1d half stays
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1g -- SELF-DESCRIBING FILES (owner Z-c / Z-d). Plain-English coverage:
+//   * the banner is "Uploading into: <discipline> > <category label>" for a single-category target (the
+//     page's own label, since the server refuses any other category), "> all categories" for an
+//     all-categories target, and carries the page note ONLY when the file said nothing (from_page);
+//   * an unknown category id (an API caller's) falls back to the id itself;
+//   * NEGATIVE: a plan without a target (a pre-1g reply, or one refused at the header stage) renders no line.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("SLICE 1g -- the 'Uploading into' banner", () => {
+  const labels = { disciplineLabel: "HVAC", categoryId: "hvac_adp", categoryLabel: "ADP (Air Distribution Products)" };
+  it("names the page's category label for a single-category target the file stated", () => {
+    const p = plan({ target: { discipline: "HVAC", category: "hvac_adp", mode: "category", from_page: false } });
+    expect(uploadTargetLine(p, labels)).toBe("Uploading into: HVAC > ADP (Air Distribution Products)");
+  });
+  it("adds the page note ONLY when the file said nothing (owner Z-d)", () => {
+    const p = plan({ target: { discipline: "HVAC", category: "hvac_adp", mode: "category", from_page: true } });
+    expect(uploadTargetLine(p, labels)).toBe(
+      `Uploading into: HVAC > ADP (Air Distribution Products) ${TARGET_COPY.fromPage}`,
+    );
+    expect(TARGET_COPY.fromPage).toBe("(taken from the page - the file doesn't say)");
+  });
+  it("says 'all categories' for an all-categories upload", () => {
+    const p = plan({ target: { discipline: "Electrical", category: null, mode: "all", from_page: false } });
+    expect(uploadTargetLine(p, { disciplineLabel: "Electrical", categoryId: "earthing", categoryLabel: "Earthing" }))
+      .toBe("Uploading into: Electrical > all categories");
+  });
+  it("falls back to the id for a category the page has no label for; NEGATIVE: no target -> no line", () => {
+    const p = plan({ target: { discipline: "Electrical", category: "earthing", mode: "category", from_page: false } });
+    expect(uploadTargetLine(p, { disciplineLabel: "Electrical", categoryId: "cabletray_raceway", categoryLabel: "CableTray & Raceway" }))
+      .toBe("Uploading into: Electrical > earthing");
+    expect(uploadTargetLine(plan(), labels)).toBeNull();
+    expect(uploadTargetLine(null, labels)).toBeNull();
   });
 });

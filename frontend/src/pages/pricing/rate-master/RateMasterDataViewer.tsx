@@ -545,6 +545,7 @@ export function RateMasterDataViewer({
             // SLICE 1e: the selected category rides as the optional hint (see the prop comments above)
             onPreview={(b64) => onPreviewCsv(b64, config.category_id)}
             onApply={(b64, digest, decisions, fps, tdec, tfps) => onApplyCsv(b64, digest, decisions, fps, config.category_id, tdec, tfps)}
+            targetLabels={{ disciplineLabel, categoryId: config.category_id, categoryLabel }}
             onApplied={onUploadApplied}
           />
         )}

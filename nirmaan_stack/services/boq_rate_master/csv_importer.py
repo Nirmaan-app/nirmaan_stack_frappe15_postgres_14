@@ -96,6 +96,24 @@ UID_HEX_LEN = 12
 # One shared batch per apply, mirroring the loader's one-batch-per-run provenance and the module's
 # existing `rmbulk-` / `manual-` prefixes.
 BATCH_PREFIX = "csvup-"
+
+
+def mint_item_uid(discipline, taken=None):
+    """SLICE 1g (owner Z-a) -- THE ONE uid mint. `rmi-` + 12 lowercase hex, unique among EVERY row of
+    the discipline (active and inactive: a retired row keeps its uid, and a successor row re-uses its
+    predecessor's, so uniqueness is checked against all of them). `taken` is the caller's set of uids
+    already known (the apply passes its own so a batch never mints the same uid twice); the minted uid
+    is added to it. The manual create endpoint and the upload apply both mint here -- never inline."""
+    if taken is None:
+        taken = {
+            (r["item_uid"] or "").strip()
+            for r in frappe.get_all(ITEM_DOCTYPE, filters={"discipline": discipline}, fields=["item_uid"])
+        }
+    uid = UID_PREFIX + frappe.generate_hash(length=UID_HEX_LEN)
+    while uid in taken:
+        uid = UID_PREFIX + frappe.generate_hash(length=UID_HEX_LEN)
+    taken.add(uid)
+    return uid
 # SLICE 1e: the provenance the SYSTEM stamps on a new row -- a file no longer carries source columns
 # (owner X-b), so this is the one value a row added by upload can have. Stored, never downloaded.
 DEFAULT_SOURCE_SHEET = "Rate master upload"
@@ -108,7 +126,8 @@ MAJOR_RATE_CHANGE_PCT = 10.0
 
 _LEAD = set(csv_exporter.LEAD_COLUMNS)          # item_uid, kind, brand, unit (kind OPTIONAL since 1e)
 _TAIL = set(csv_exporter.TAIL_COLUMNS)          # source_sheet, source_row -- SYSTEM columns: IGNORED since 1e
-_CATEGORY = csv_exporter.CATEGORY_COLUMN        # `category` -- the MODE B marker
+_CATEGORY = csv_exporter.CATEGORY_COLUMN        # `category` -- in EVERY file since 1g (Mode B's marker before)
+_DISCIPLINE = csv_exporter.DISCIPLINE_COLUMN    # `discipline` -- in every file since 1g (owner Z-c)
 FORMAT_XLSX = csv_exporter.FORMAT_XLSX
 FORMAT_CSV = csv_exporter.FORMAT_CSV
 
@@ -238,8 +257,9 @@ def classify_columns(headers, attr_ids, rate_keys):
 
     spec = {"attributes": {name: idx}, "rates": {name: idx}, "fixed": {name: idx}, "mode": ...}
 
-    MODE DETECTION IS THE PRESENCE OF THE `category` COLUMN, and nothing else. Mode B (all
-    categories) carries it; Mode A (one category) does not. ⚠️ THE MODE IS INFORMATIONAL: items
+    THE MODE IS DECIDED BY THE FILE'S VALUES (SLICE 1g), not by the presence of the `category`
+    column -- every file carries it now. `build_plan` calls the upload "all" when the rows name (or
+    belong to) more than one category and "category" otherwise. ⚠️ THE MODE IS INFORMATIONAL: items
     carry no category of their own -- a category is derived from an item's `kind` -- so the upsert
     is uid-keyed and MODE-INDEPENDENT. The same rows in either shape produce the same result.
 
@@ -264,9 +284,8 @@ def classify_columns(headers, attr_ids, rate_keys):
                            "Column '%s' appears more than once." % name})
             continue
         seen.add(name)
-        if name == _CATEGORY:
-            spec["mode"] = "all"
-            spec["fixed"][name] = idx
+        if name in (_CATEGORY, _DISCIPLINE):
+            spec["fixed"][name] = idx          # SLICE 1g: self-describing columns, checked in build_plan
         elif name in _TAIL:
             spec["ignored"][name] = idx            # a system column from an old file: read past, never applied
         elif name in _LEAD:
@@ -591,6 +610,16 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     the file says (an add, or the edit) and carries `change["twin"]`; "confirm" re-plans it as an UPDATE
     of the existing item's rates (its wording, attributes, uid and spec status untouched); "decline"
     drops the row. Two new rows that mean the same as each other are an ERROR (owner Y-b 2).
+
+    SLICE 1g (owner Z-c / Z-d): every file carries `discipline` and `category`. A non-blank discipline
+    must equal THIS discipline; a non-blank category must be one of its categories; when the file's rows
+    name ONE category it must equal the page's `category_id` (when given) -- a single-category upload;
+    when they name several it is an all-categories upload. An EXISTING item's category cell must be its
+    real category (an item is never moved by editing the cell). A NEW row with a blank category takes
+    the one category the file's rows agree on; disagreeing rows refuse it; a file with NO discipline /
+    category value at all is typed as before (matched rows, the page hint, the only category) and the
+    plan says so. The plan carries `target` = {discipline, category, mode, from_page} for the banner.
+    A pre-1g file WITHOUT these columns uploads exactly as before.
     """
     discipline = (discipline or "").strip()
     if not discipline:
@@ -609,6 +638,20 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     else:
         attr_ids, rate_keys, attr_types, kind_cat = column_spaces(discipline)
         spec, errors = classify_columns(headers, attr_ids, rate_keys)
+        # SLICE 1g (owner Z-c): a file that SAYS it is another discipline's is refused by its rows -- "the file
+        # says X but this page is Y" -- BEFORE the column check, whose "unknown column" errors would otherwise
+        # bury the real reason (an HVAC file has no Electrical column at all).
+        if _DISCIPLINE in headers:
+            dix = headers.index(_DISCIPLINE)
+            foreign = []
+            for rownum, cells in data_rows:
+                v = (cells[dix] if dix < len(cells) else "") or ""
+                if v.strip() and v.strip() != discipline:
+                    foreign.append({"row": rownum, "column": _DISCIPLINE, "message":
+                                    "the file says discipline '%s' but this page is '%s' -- upload the file on "
+                                    "its own discipline's page, or fix the cell." % (v.strip(), discipline)})
+            if foreign:
+                errors = foreign
     cat_kinds = _category_kinds(discipline) if not errors else {}
     # SLICE 1c: the opted-in categories ({kind: category_id}; {} for Electrical) and the columns the
     # reader owns for each. Resolved ONCE per plan, never per row.
@@ -657,6 +700,7 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
 
     ui, ki = spec["fixed"]["item_uid"], spec["fixed"].get("kind")
     ci_cat = spec["fixed"].get(_CATEGORY)
+    di_disc = spec["fixed"].get(_DISCIPLINE)
     seen_uids = {}
     width = len(headers)
 
@@ -675,16 +719,49 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
             c = kind_cat.get(m[0]["kind"])
             if c:
                 file_cats.add(c)
-    file_cat = next(iter(file_cats)) if len(file_cats) == 1 else None
-    if file_cat is None and not file_cats and category_id in cat_kinds:
+    # SLICE 1g: what the file SAYS -- every non-blank discipline / category cell, over every row.
+    declared_cats, declared_discs = set(), set()
+    for _r, cells in data_rows:
+        if not any((c or "").strip() for c in cells):
+            continue
+        if ci_cat is not None and (cell(cells, ci_cat) or "").strip():
+            declared_cats.add(cell(cells, ci_cat).strip())
+        if di_disc is not None and (cell(cells, di_disc) or "").strip():
+            declared_discs.add(cell(cells, di_disc).strip())
+    file_says = bool(declared_cats or declared_discs)
+    # every category a kind belongs to -- a kind two configs claim (switch_socket_item, pre-existing) belongs
+    # to both, so a row of either category's file names a real category of the item
+    kind_cats_all = {}
+    for _cat, _ks in cat_kinds.items():
+        for _k in _ks:
+            kind_cats_all.setdefault(_k, set()).add(_cat)
+    # a single-category upload names ONE category (declared, else the matched rows'); several -> "all"
+    named_cats = declared_cats or file_cats
+    upload_all = len(named_cats) > 1
+    file_cat = next(iter(named_cats)) if len(named_cats) == 1 else None
+    if file_cat is None and not named_cats and category_id in cat_kinds:
         file_cat = category_id
-    if file_cat is None and not file_cats and len(cat_kinds) == 1:
+    if file_cat is None and not named_cats and len(cat_kinds) == 1:
         # a discipline with ONE category (HVAC today): every row is that category's, no hint needed
         file_cat = next(iter(cat_kinds))
+    plan["target"] = {
+        "discipline": discipline,
+        "category": None if upload_all else file_cat,
+        "mode": "all" if upload_all else "category",
+        # owner Z-d: no row carried a discipline / category value -- the page (or the file's own
+        # matched rows) decided, and the banner says so
+        "from_page": not file_says,
+    }
+    plan["mode"] = plan["target"]["mode"]
 
     def kind_for_new_row(cells):
         """(kind, error) for a NEW row whose kind cell is blank or absent (owner X-d)."""
         cat = ((cell(cells, ci_cat) or "").strip() if ci_cat is not None else "") or file_cat
+        if not cat and len(declared_cats) > 1:
+            # SLICE 1g: the file's rows name several categories, so a blank cell cannot be filled from them
+            return None, ("category is required for this new row -- the file's rows name more than one "
+                          "category (%s), so a blank cell cannot be filled from them. Fill the category cell."
+                          % ", ".join(sorted(declared_cats)))
         if not cat:
             return None, ("'kind' is required -- this file has no kind column and the row's category "
                           "could not be determined. Upload the file downloaded for its category, or add "
@@ -710,6 +787,22 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
         kind = (cell(cells, ki) or "").strip() if ki is not None else ""
         row_errors = []
 
+        # ══════════════════════════════════════════════════════════════════════════════════
+        # SLICE 1g (owner Z-c) -- the file must describe THIS page. A wrong discipline, a category that
+        # is not this discipline's, or a single-category file naming a category other than the page's
+        # is refused NAMING the row and saying what the file says versus the page.
+        # ══════════════════════════════════════════════════════════════════════════════════
+        # (a wrong DISCIPLINE never reaches this loop: the pre-scan above refuses the whole file by its rows)
+        row_cat = (cell(cells, ci_cat) or "").strip() if ci_cat is not None else ""
+        if row_cat and row_cat not in cat_kinds:
+            row_errors.append(
+                "the file says category '%s', which is not a category of %s (%s)."
+                % (row_cat, discipline, ", ".join(sorted(cat_kinds))))
+        elif row_cat and not upload_all and category_id in cat_kinds and row_cat != category_id:
+            row_errors.append(
+                "the file says category '%s' but this page is on '%s' -- upload the file on its own "
+                "category's page, or fix the cell." % (row_cat, category_id))
+
         existing = None
         if uid:
             if uid in seen_uids:
@@ -729,6 +822,12 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
                     % (uid, len(matches)))
             else:
                 existing = matches[0]
+                # SLICE 1g (owner Z-c): an existing item is never MOVED by editing these cells
+                real_cats = kind_cats_all.get(existing["kind"], set())
+                if row_cat and real_cats and row_cat in cat_kinds and row_cat not in real_cats:
+                    row_errors.append(
+                        "item '%s' belongs to category '%s'; the file says '%s' -- an item cannot be moved "
+                        "to another category by editing these cells." % (uid, " / ".join(sorted(real_cats)), row_cat))
         if not kind:
             # SLICE 1e: the file carries no kind for this row. An EXISTING item keeps its own; a NEW row
             # is typed from its category (one kind) or refused by a message naming the kinds (several).
@@ -868,7 +967,7 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
         # MODE B: the `category` column is DERIVED from the kind and is never stored, so a value
         # disagreeing with the kind's real category is refused rather than silently discarded.
         ci = spec["fixed"].get(_CATEGORY)
-        if ci is not None and kind:
+        if ci is not None and kind and stored is None:      # SLICE 1g: an existing row is judged above
             declared = (cell(cells, ci) or "").strip()
             real = kind_cat.get(kind)
             if declared and real and declared != real:
@@ -1280,10 +1379,7 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
     for change in plan["changes"]:
         uid = change["item_uid"] or None
         if uid is None:
-            uid = UID_PREFIX + frappe.generate_hash(length=UID_HEX_LEN)
-            while uid in existing_uids:
-                uid = UID_PREFIX + frappe.generate_hash(length=UID_HEX_LEN)
-            existing_uids.add(uid)
+            uid = mint_item_uid(discipline, existing_uids)
         # SLICE 1f: counted by what the change IS -- a confirmed duplicate whose existing item never had a
         # uid (a manual entry) is an update, and its successor is the first row of that item to carry one.
         if change["kind"] == "add":

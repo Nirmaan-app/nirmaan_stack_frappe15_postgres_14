@@ -75,6 +75,13 @@ LEAD_COLUMNS = ("item_uid", "kind", "brand", "unit")
 TAIL_COLUMNS = ("source_sheet", "source_row")
 SYSTEM_COLUMNS = TAIL_COLUMNS          # filled by the system on upload; never in a file since 1e
 CATEGORY_COLUMN = "category"
+# SLICE 1g (owner Z-c): EVERY rate file is self-describing -- `discipline` and `category` sit right
+# after `item_uid`, in both modes and both formats, filled on download. They are the ONLY non-edited
+# columns beside the id (the amendment to 1e's X-b): the upload refuses a file whose values do not
+# match the page it is uploaded on, so a file can never land in the wrong catalog by accident. The
+# category value is the CATEGORY ID (`cabletray_raceway`, `hvac_adp`) -- the same value Mode B's
+# category column has always carried; the discipline is the value the system names it by.
+DISCIPLINE_COLUMN = "discipline"
 
 FORMAT_XLSX = "xlsx"
 FORMAT_CSV = "csv"
@@ -215,20 +222,19 @@ def _numeric_columns(attrs, rates, attr_types):
     return set(rates) | {a for a in attrs if attr_types.get(a) in NUMERIC_ATTR_TYPES}
 
 
-def _lead(item, with_kind, category=None):
-    lead = [item["item_uid"]]
-    if category is not None:
-        lead.append(category)
+def _lead(item, with_kind, discipline, category):
+    """item_uid, discipline, category, [kind], brand, unit -- the same shape in BOTH modes since 1g."""
+    lead = [item["item_uid"], discipline, category]
     if with_kind:
         lead.append(item["kind"])
     lead += [item["brand"], item["unit"]]
     return lead
 
 
-def _lead_headers(with_kind, mode_b):
-    hdr = ["item_uid"]
-    if mode_b:
-        hdr.append(CATEGORY_COLUMN)
+def _lead_headers(with_kind, mode_b=None):
+    """The fixed header run. `mode_b` is accepted for the callers' sake and no longer changes the
+    shape: since 1g both modes carry discipline + category (Mode B always had category)."""
+    hdr = ["item_uid", DISCIPLINE_COLUMN, CATEGORY_COLUMN]
     if with_kind:
         hdr.append("kind")
     hdr += ["brand", "unit"]
@@ -271,7 +277,7 @@ def build_category_rows(discipline, category_id):
     rows = []
     for it in rows_in:
         rows.append(
-            _lead(it, with_kind)
+            _lead(it, with_kind, discipline, category_id)
             + [it["attributes"].get(a) for a in attrs]
             + [it["rates"].get(r) for r in rates]
         )
@@ -302,7 +308,7 @@ def build_all_categories_rows(discipline):
         else:
             attr_cells = [it["attributes"].get(a) for a in attrs]
         rows.append(
-            _lead(it, with_kind, category=kind_cat.get(it["kind"], ""))
+            _lead(it, with_kind, discipline, kind_cat.get(it["kind"], ""))
             + attr_cells
             + [it["rates"].get(r) for r in rates]
         )

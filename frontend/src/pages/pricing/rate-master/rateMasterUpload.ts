@@ -108,9 +108,24 @@ export interface UploadCounts {
   twins_declined?: number;
 }
 
+/**
+ * SLICE 1g (owner Z-c / Z-d) -- where this upload goes, as the server decided it from the file's own
+ * discipline / category cells: ONE category (a single-category upload) or every category of the
+ * discipline ("all"). `from_page` is TRUE when no row carried a value and the page's selection (or the
+ * file's own matched rows) decided -- the banner then says so.
+ */
+export interface UploadTarget {
+  discipline: string;
+  category: string | null;
+  mode: "category" | "all";
+  from_page: boolean;
+}
+
 export interface UploadPlan {
   discipline: string;
   mode: "category" | "all";
+  /** SLICE 1g: absent on a pre-1g reply and on a plan refused at the header stage. */
+  target?: UploadTarget;
   /** SLICE 1e: which format the server detected (by content, never by name). */
   format?: RateFileFormat;
   encoding: string;
@@ -239,6 +254,43 @@ export const TWIN_COPY = {
     `${n} row${n === 1 ? " means" : "s mean"} the same as an existing item -- confirm or decline each before applying.`,
   chip: "same as existing",
 } as const;
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1g -- SELF-DESCRIBING FILES (owner Z-c / Z-d): the preview always states where the upload goes.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+export const TARGET_COPY = {
+  prefix: "Uploading into:",
+  allCategories: "all categories",
+  fromPage: "(taken from the page - the file doesn't say)",
+} as const;
+
+/** The labels the page knows: its discipline and the selected category (id + label). */
+export interface UploadTargetLabels {
+  disciplineLabel: string;
+  categoryId: string | null;
+  categoryLabel: string;
+}
+
+/**
+ * "Uploading into: HVAC > ADP (Air Distribution Products)" / "Uploading into: Electrical > all categories",
+ * plus the page note when the file said nothing. A single-category target is always the page's own
+ * category (the server refuses any other), so the page's label is the right one; an unknown id (an API
+ * caller's) falls back to the id itself. Null for a plan without a target (pre-1g reply / header error). PURE.
+ */
+export function uploadTargetLine(
+  plan: Pick<UploadPlan, "target"> | null | undefined,
+  labels: UploadTargetLabels,
+): string | null {
+  const t = plan?.target;
+  if (!t) return null;
+  const disc = labels.disciplineLabel || t.discipline;   // the server refuses any other discipline, so the page's label is right
+  let cat: string;
+  if (t.mode === "all" || t.category === null) cat = TARGET_COPY.allCategories;
+  else if (labels.categoryId && t.category === labels.categoryId) cat = labels.categoryLabel;
+  else cat = t.category;
+  const base = `${TARGET_COPY.prefix} ${disc} > ${cat}`;
+  return t.from_page ? `${base} ${TARGET_COPY.fromPage}` : base;
+}
 
 /** `key = value, key = value` -- the numbers, in a stable order. PURE. */
 export function twinNumbers(rates: Record<string, string>): string {

@@ -208,10 +208,11 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(spec_reader.spec_categories(disc), {"hvac_adp_item": "hvac_adp"})
         text, headers, n = csv_exporter.build_category_csv(disc, "hvac_adp")
         # SLICE 1e (owner X-b / X-d): no kind (ONE item kind), no source pair -- inverted, not deleted.
-        self.assertEqual(headers, ["item_uid", "brand", "unit", "item_name", "item_detail",
+        # SLICE 1g (owner Z-c): discipline + category right after item_uid -- inverted again, not deleted.
+        self.assertEqual(headers, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
                                    "cost_install", "cost_supply", "install_markup", "supply_markup"])
-        for gone in ("kind", "source_sheet", "source_row"):
-            self.assertNotIn(gone, headers)                    # NEGATIVE (1e)
+        for gone in ("kind", "source_sheet", "source_row", "import_batch"):
+            self.assertNotIn(gone, headers)                    # NEGATIVE (1e; 1g: no other system column)
         self.assertEqual(n, 95)
         for derived in spec_reader.ADP_DERIVED_ATTRS + spec_reader.RESERVED_ATTRS:
             self.assertNotIn(derived, headers)
@@ -228,7 +229,7 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(by_uid[uid_of[91]], "0.0")
         # Mode B: same text-first rule, the category column in place; still no kind (no multi-kind category)
         text_b, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
-        self.assertEqual(headers_b, ["item_uid", "category", "brand", "unit", "item_name", "item_detail",
+        self.assertEqual(headers_b, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
                                      "cost_install", "cost_supply", "install_markup", "supply_markup"])
         self.assertEqual(n_b, 95)
 
@@ -247,7 +248,9 @@ class TestSpecReader(FrappeTestCase):
         for cat in ("cabletray_raceway", "lighting_mgmt_system", "wiring_cabling"):
             rows_in = [it for it in items if it["kind"] in set(cat_kinds[cat])]
             attrs, rates = csv_exporter._keys_for(rows_in)
-            lead = ["item_uid", "kind", "brand", "unit"] if cat == "wiring_cabling" else ["item_uid", "brand", "unit"]
+            # SLICE 1g: discipline + category after item_uid, in every file (owner Z-c) -- inverted, not deleted.
+            lead = (["item_uid", "discipline", "category", "kind", "brand", "unit"] if cat == "wiring_cabling"
+                    else ["item_uid", "discipline", "category", "brand", "unit"])
             expected = lead + attrs + rates
             _t, headers, n = csv_exporter.build_category_csv(disc, cat)
             self.assertEqual(headers, expected, cat)
@@ -255,7 +258,7 @@ class TestSpecReader(FrappeTestCase):
             self.assertNotIn("item_name", headers)
             self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
         attrs, rates = csv_exporter._keys_for(items)
-        expected_b = ["item_uid", "category", "kind", "brand", "unit"] + attrs + rates
+        expected_b = ["item_uid", "discipline", "category", "kind", "brand", "unit"] + attrs + rates
         _tb, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, expected_b)
         self.assertEqual(n_b, len(items))
@@ -932,7 +935,8 @@ class TestSpecReader(FrappeTestCase):
     #        cell's ISO text, the reader refuses it by name, nothing is silently stored.
     # ══════════════════════════════════════════════════════════════════════════════════════════
 
-    HVAC_FILE_COLUMNS = ["item_uid", "brand", "unit", "item_name", "item_detail",
+    # SLICE 1g (owner Z-c): discipline + category after item_uid -- the 1e nine columns became eleven.
+    HVAC_FILE_COLUMNS = ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
                          "cost_install", "cost_supply", "install_markup", "supply_markup"]
 
     def test_t21_hvac_xlsx_columns_text_survives_and_round_trips_to_zero(self):
@@ -970,7 +974,8 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(plan_c["changes"], []); self.assertEqual(plan_c["digest"], plan["digest"])
         # Mode B for HVAC: category kept, kind absent (no multi-kind category in the discipline)
         _b, hb, nb = csv_exporter.build_all_categories_xlsx(disc)
-        self.assertEqual(hb, ["item_uid", "category", "brand", "unit", "item_name", "item_detail",
+        # SLICE 1g (owner Z-c): discipline joins right after item_uid -- inverted, not deleted.
+        self.assertEqual(hb, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
                               "cost_install", "cost_supply", "install_markup", "supply_markup"])
         self.assertEqual(nb, 95)
 
@@ -1128,19 +1133,22 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(ok["spec"]["status"], "confirmed")
         p2 = csv_importer.build_plan(disc, self._hvac_rows([dict(name="Round Diffuser without damper", detail="325 mm dia", unit="Nos")]))
         self.assertEqual(p2["errors"], [])
-        self.assertEqual((p2["changes"][0]["twin"]["item_uid"], p2["changes"][0]["twin"]["name"]), ("", ok["item"]["name"]))
+        # SLICE 1g (owner Z-a): a hand-added item now carries a uid, and the warning names it
+        self.assertEqual((p2["changes"][0]["twin"]["item_uid"], p2["changes"][0]["twin"]["name"]), (ok["item"]["item_uid"], ok["item"]["name"]))
+        self.assertRegex(ok["item"]["item_uid"], r"^rmi-[0-9a-f]{12}$")
         self.assertEqual(p2["changes"][0]["twin"]["existing_wording"], "Round Difuser without damper / 325 mm dia")
-        # an item ADDED BY HAND carries no uid (a pre-1f fact: the manual endpoint never minted one) and is
-        # still an existing item: the warning names it without a uid; a confirm updates it and its successor
-        # is the first row of that item to carry a uid; still no new item
+        # an item ADDED BY HAND: before 1g it carried no uid (the manual endpoint never minted one); since 1g
+        # (owner Z-a) it is minted one exactly as an uploaded row is, so the warning names it by uid and a
+        # confirm's successor row carries the SAME uid; still no new item. (Inverted under Z-a, not deleted.)
         hand = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
                                                    attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "275 mm dia"}),
                                                    rates=json.dumps({"cost_supply": 50.0}))
-        self.assertIsNone(frappe.db.get_value(ITEM, hand["item"]["name"], "item_uid"))
+        hand_uid = frappe.db.get_value(ITEM, hand["item"]["name"], "item_uid")
+        self.assertRegex(hand_uid or "", r"^rmi-[0-9a-f]{12}$")
         t_hand = self._hvac_rows([dict(name="Round Diffuser With GI Damper", detail="275 MM DIA", unit="Nos", cs=60)])
         p_hand = csv_importer.build_plan(disc, t_hand)
         self.assertEqual(p_hand["errors"], [])
-        self.assertEqual((p_hand["changes"][0]["twin"]["item_uid"], p_hand["changes"][0]["twin"]["name"]), ("", hand["item"]["name"]))
+        self.assertEqual((p_hand["changes"][0]["twin"]["item_uid"], p_hand["changes"][0]["twin"]["name"]), (hand_uid, hand["item"]["name"]))
         n_now = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
         r_hand = csv_importer.apply_plan(disc, t_hand, expected_digest=p_hand["digest"], twin_decisions={"1": "confirm"},
                                          twin_fingerprints={"1": p_hand["changes"][0]["twin"]["fingerprint"]})
@@ -1148,7 +1156,7 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual((r_hand["items_added"], r_hand["items_replaced"]), (0, 1))
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_now)
         succ = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": r_hand["batch"]}, fields=["item_uid", "attributes", "rates"])
-        self.assertEqual(len(succ), 1); self.assertRegex(succ[0]["item_uid"] or "", r"^rmi-[0-9a-f]{12}$")
+        self.assertEqual(len(succ), 1); self.assertEqual(succ[0]["item_uid"], hand_uid)     # the SAME uid (1g)
         self.assertEqual(rate_master._parse_json(succ[0]["attributes"], {})["item_name"], "Round Diffuser with damper")
         self.assertEqual(rate_master._parse_json(succ[0]["rates"], {})["cost_supply"], 60.0)
         # NEGATIVES: unit, brand or an attribute differs -> NOT a twin (plain adds, no warning)
@@ -1464,3 +1472,85 @@ class TestSpecReader(FrappeTestCase):
             self.assertEqual(p["counts"]["unchanged"], 95)
             self.assertEqual(p["counts"]["twins"], 0); self.assertEqual(p["counts"]["twins_declined"], 0)
             self.assertEqual(csv_importer.apply_plan(disc, payload)["applied"], 0)
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1g -- SELF-DESCRIBING FILES + IDs FOR HAND-ADDED ITEMS (owner Z-a..Z-e), the HVAC half:
+    #   t32  THE OWNER'S SCENARIO: one new row with discipline / category filled -> added, target HVAC >
+    #        hvac_adp, not from the page; the same with both cells BLANK -> added, `from_page` set (Z-d);
+    #        the HVAC file uploaded with an ELECTRICAL page -> refused naming every row, file-says vs page,
+    #        nothing written; an existing HVAC item's category cell edited -> refused; the HVAC file itself
+    #        (both formats) round-trips to zero changes and zero warnings with the columns present.
+    #   t33  A hand-added HVAC item gets a uid, shows in the download, re-uploads with zero changes and
+    #        zero warnings; NEGATIVE: never uid-less.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    def test_t32_the_owners_scenario_and_the_refusals(self):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        raw, h, _n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        self.assertEqual(h[:3], ["item_uid", "discipline", "category"])
+        numeric = {"cost_install", "cost_supply", "install_markup", "supply_markup"}
+        def one_row(disc_cell, cat_cell, detail):
+            row = {"discipline": disc_cell, "category": cat_cell, "unit": "Nos",
+                   "item_name": "Round Diffuser with damper", "item_detail": detail,
+                   "cost_install": 150.0, "cost_supply": 800.0, "install_markup": 0.6, "supply_markup": 0.45}
+            return xlsx_io.write_xlsx(h, [[row.get(c) for c in h]], numeric)
+        # 1. filled -> added, the target is the file's own word
+        p = csv_importer.build_plan(disc, one_row(disc, "hvac_adp", "325 mm dia"), category_id="hvac_adp")
+        self.assertEqual(p["errors"], [], p["errors"][:2]); self.assertEqual(p["counts"]["items_added"], 1)
+        self.assertEqual(p["target"], {"discipline": disc, "category": "hvac_adp", "mode": "category", "from_page": False})
+        # 2. both BLANK -> added, the page decides and the plan says so (owner Z-d)
+        p2 = csv_importer.build_plan(disc, one_row(None, None, "335 mm dia"), category_id="hvac_adp")
+        self.assertEqual(p2["errors"], []); self.assertEqual(p2["counts"]["items_added"], 1)
+        self.assertEqual(p2["changes"][0]["_payload"]["kind"], "hvac_adp_item")
+        self.assertEqual(p2["target"], {"discipline": disc, "category": "hvac_adp", "mode": "category", "from_page": True})
+        res = csv_importer.apply_plan(disc, one_row(None, None, "335 mm dia"), expected_digest=p2["digest"], category_id="hvac_adp")
+        frappe.db.commit()
+        self.assertEqual(res["items_added"], 1)
+        # 3. the HVAC file on an ELECTRICAL page: every row refused, file-says vs page, nothing written
+        e_disc = self._new_disc()
+        self._load(_asset(ELECTRICAL_ASSET), e_disc)
+        n_e = frappe.db.count(ITEM, {"discipline": e_disc, "active": 1})
+        pe = csv_importer.build_plan(e_disc, raw, category_id="cabletray_raceway")
+        self.assertEqual(len(pe["errors"]), 95)                     # one per row, naming the row
+        self.assertEqual([e["row"] for e in pe["errors"]], list(range(1, 96)))
+        self.assertIn("the file says discipline '%s' but this page is '%s'" % (disc, e_disc), pe["errors"][0]["message"])
+        self.assertFalse(any("Unknown column" in e["message"] for e in pe["errors"]))   # NEGATIVE: the real reason, not column noise
+        # the same file with the DISCIPLINE cells matching the page but the category foreign: refused by category
+        hdr_e, rows_e = xlsx_io.read_xlsx(raw)
+        fixed = [[(e_disc if c == "discipline" else (float(v) if (c in numeric and v not in ("", None)) else (v or None)))
+                  for c, v in zip(hdr_e, cells)] for _i, cells in rows_e[:2]]
+        pe2 = csv_importer.build_plan(e_disc, xlsx_io.write_xlsx(hdr_e, fixed, numeric), category_id="cabletray_raceway")
+        self.assertTrue(pe2["errors"])
+        self.assertTrue(any("Unknown column" in e["message"] for e in pe2["errors"]))   # an HVAC column set is not Electrical's
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(e_disc, raw, expected_digest=pe["digest"], category_id="cabletray_raceway")
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": e_disc, "active": 1}), n_e)
+        # 4. an existing HVAC item's category cell edited (to a name that is no category): refused, nothing written
+        hdr, rows = xlsx_io.read_xlsx(raw)
+        cells = list(rows[0][1]); cells[hdr.index("category")] = "hvac_ducting"
+        bad = xlsx_io.write_xlsx(hdr, [[(float(v) if (c in numeric and v not in ("", None)) else (v or None)) for c, v in zip(hdr, cells)]], numeric)
+        pb = csv_importer.build_plan(disc, bad, category_id="hvac_adp")
+        self.assertEqual(len(pb["errors"]), 1); self.assertIn("not a category of", pb["errors"][0]["message"])
+        # 5. the file itself, both formats: zero changes AND zero warnings, the columns present
+        for payload in (raw, csv_exporter.build_category_csv(disc, "hvac_adp")[0], csv_exporter.build_all_categories_xlsx(disc)[0]):
+            pr = csv_importer.build_plan(disc, payload, category_id="hvac_adp")
+            self.assertEqual((pr["errors"], pr["changes"], pr["counts"]["twins"]), ([], [], 0))
+            self.assertEqual(pr["target"]["from_page"], False)
+
+    def test_t33_a_hand_added_hvac_item_gets_a_uid_and_round_trips(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        res = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "345 mm dia"}),
+                                                  rates=json.dumps({"cost_supply": 1.0}))
+        self.assertTrue(res["ok"])
+        uid = res["item"]["item_uid"]
+        self.assertRegex(uid, r"^rmi-[0-9a-f]{12}$")
+        self.assertEqual(frappe.db.get_value(ITEM, res["item"]["name"], "item_uid"), uid)
+        raw, h, n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        self.assertEqual(n, 96)
+        p = csv_importer.build_plan(disc, raw, category_id="hvac_adp")
+        self.assertEqual((p["errors"], p["changes"], p["counts"]["unchanged"], p["counts"]["twins"]), ([], [], 96, 0))
+        self.assertEqual(frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where discipline=%s and active=1 and (item_uid is null or item_uid=%s)', (disc, "")), [(0,)])   # NEGATIVE

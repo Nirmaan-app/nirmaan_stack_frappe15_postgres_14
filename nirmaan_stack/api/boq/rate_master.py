@@ -1514,6 +1514,8 @@ def create_rate_master_item(
     if target is not None:
         return _twin_confirmed_write(target["name"], clean_rates, block, spec_out)   # NO new item (Y-d)
 
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
     doc = frappe.get_doc(
         {
             "doctype": ITEM_DOCTYPE,
@@ -1521,6 +1523,9 @@ def create_rate_master_item(
             "kind": kind.strip(),
             "brand": brand,
             "unit": unit,
+            # SLICE 1g (owner Z-a): a hand-added item gets an id exactly as an uploaded row does -- the
+            # ONE mint, so it round-trips through the file like every other item.
+            "item_uid": csv_importer.mint_item_uid(discipline),
             "attributes": json.dumps(attrs),
             "rates": json.dumps(clean_rates),
             "source_sheet": _MANUAL_SOURCE_SHEET,
@@ -1541,6 +1546,7 @@ def create_rate_master_item(
             "unit": doc.unit,
             "attributes": _parse_json(doc.attributes, {}),
             "rates": _parse_json(doc.rates, {}),
+            "item_uid": doc.item_uid,
             "source_sheet": doc.source_sheet,
             "source_row": doc.source_row,
             "import_batch": doc.import_batch,
