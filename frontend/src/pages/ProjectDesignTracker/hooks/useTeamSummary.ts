@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import {
     UNASSIGNED_SENTINEL,
+    PREVIOUS_USERS_SENTINEL,
     TaskPreviewFilter,
     TaskPreviewItem,
     TeamSummaryFilters,
@@ -166,6 +167,11 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
                 // Fallback: if JSON parsing fails, try substring match
                 return String(designerField).includes(filter.user_id);
             }
+        }
+
+        // Previous Users row: any of the folded ids
+        if (filter.user_id === PREVIOUS_USERS_SENTINEL) {
+            return userIds.some((id) => filter.memberIds?.includes(id));
         }
 
         // Exact match against extracted user IDs
