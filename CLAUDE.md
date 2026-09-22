@@ -632,6 +632,22 @@ wording is not asked again; changed wording is a fresh read. A plan row the read
 (shown in full) -- the question box renders only in the expanded group and "Accept all shown" acts on every
 suggestion, so a collapsed question would be accepted unseen; the expansion rule stays on the server.
 
+**⚠️ A RATE FILE CARRIES NO SYSTEM-GENERATED COLUMN EXCEPT `item_uid`; `kind` APPEARS ONLY FOR A MULTI-KIND
+CATEGORY; THE SYSTEM FILLS THE REST ON UPLOAD (owner-locked, X-a..X-e, 2026-09-22).** The editable rate file
+(`csv_exporter`, both formats, both modes) holds `item_uid`, `brand`, `unit`, every column a person edits and the
+rate / markup columns -- and nothing the system fills: `source_sheet` / `source_row` are never written and, on an
+OLD file that still carries them, are IGNORED (never an error, never applied). `kind` is written only when the
+file holds a category whose config lists more than one item kind (Electrical wiring_cabling, db_switchgear,
+popup_boxes; every Electrical all-categories file); for a single-kind category the upload fills it from the
+category, and a blank kind on a new multi-kind row is refused by a message naming the kinds. The all-categories
+file keeps its `category` column for the same reason. EXCEL IS THE DEFAULT FORMAT and CSV the second option: a
+CSV carries no cell types and Excel rewrote "1:6" as a time on the owner's own upload; the .xlsx marks every
+text column TEXT ("@") at cell and column, rates as numbers. Upload accepts both, detected by CONTENT (`PK\x03\x04`),
+through ONE row pipeline (`csv_importer.read_upload`); the .xlsx and the .csv of the same content give the same
+preview and the same digest. The asset JSON path (exporter / loader / mint) never read the rate file's columns and
+is untouched. ⚠️ A blank-uid row with the SAME attributes as an active item is ADDED beside it with no flag (observed
+2026-09-22, E3 / E3b); there is no owner ruling on duplicates yet -- do not add one without it.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

@@ -39470,3 +39470,244 @@ edits + one import line); this record; root `CLAUDE.md` (one durable rule). Unto
 3421 passed / 1 failed, the known writeOffControl); tsc 3229 errors total before and after, 0 in the touched files;
 build clean (`Done in 184.83s`, 198 precache entries). Feat commit `c6a95440`; this record's commit follows it. NOT pushed; the owner pushes 1b, 1c and 1d
 together.
+
+## RATE MASTER, SLICE 1e -- EXCEL BY DEFAULT; NO SYSTEM COLUMNS IN RATE FILES (2026-09-22) -- SHIPPED
+
+**Why:** the owner's live test (2026-09-22) downloaded the HVAC CSV, added one row in Excel and uploaded it. Excel
+had rewritten "1:6" and "1:4" in `item_detail` as the times 01:06 / 01:04 (the reader correctly refused them) and
+the new row was rejected with "'kind' is required". The system protected the data; the FILE FORMAT was the defect.
+
+Owner rulings (quoted): **X-a** "we should change the default download to excel for all files not jjust HVAC" (CSV
+stays as a second option; upload accepts both); **X-b** "as a rule any system generated columns excpet id should not
+be a part of the download and upload. the user can make mistke in it. these aRE anyways systeme generated and can be
+populated by the sytem upon upload. also the last column which gives source row is not required. it is serving no
+purpose. the file we are using for upload will be retired oince this is live"; **X-c** "brand keep for HVAC also. we
+will ue it at som epoint"; **X-d** "apply to electrical also" -- with the accepted exception that `kind` stays ONLY
+for a category whose config lists more than one item kind (new rows there cannot be typed without it); **X-e** a file
+that still carries the removed columns uploads fine, the columns IGNORED, never an error. The 1c / 1d spec-reader
+rules are unchanged. **One reading, stated up front in chat and not objected to:** the all-categories file KEEPS its
+`category` column -- it is system-derived too, but with `kind` gone it is the one thing that types a new row in
+that file, the same reasoning X-d gave for multi-kind `kind`.
+
+### PREMISES VERIFIED, CORRECTIONS
+- openpyxl 3.1.5 is in the bench env and already a dependency of frappe AND nirmaan_stack (`pip show`) -- no new
+  dependency. Read-back semantics measured: a text cell returns `str`, a written float 2.0 returns `int 2`, 0.45
+  returns `float`; a zip starts `PK\x03\x04`.
+- "rows 33, 95": the values sit on ADP sheet rows 17 ("1:6") and 18 ("1:4") (and "1:10 /12" on 16, "9/10 NM" on
+  13); the file is sorted by `kind, item_uid`, and in the file "1:6" is DATA row 33 (Excel row 34) and "1:4" DATA
+  row 95 (Excel row 96) -- the owner's numbers are the file's data rows. Verified by reading the .xlsx back.
+- Kinds per category (live): Electrical multi-kind = wiring_cabling (cable, termination), db_switchgear
+  (db_switchgear_item, db_shell), popup_boxes (popup_box_module, switch_socket_item); every other Electrical
+  category and HVAC hvac_adp list ONE kind; point_wiring lists none. No kind on any item is unmapped.
+  `switch_socket_item` is claimed by TWO configs (popup_boxes and switches_sockets) -- pre-existing; a Mode A file
+  for either holds those 61 rows, and the Mode B row maps to popup_boxes (first writer). Not changed.
+- **F4 Deployment Mode check:** the asset exporter reads `source_sheet` / `source_row` / `kind` from the DATABASE
+  rows (`exporter.py` 77, 97), the loader reads them from the ASSET JSON's `source` (`loader.py` 356, 482), and
+  `scripts/mint_completeness_check.py` reads no CSV column (grep: 0 hits for csv / source_sheet / source_row).
+  Nothing in that path reads the rate file. Untouched.
+- The frontend download helper (`rateMasterDownload.ts`, out of scope) is content-type agnostic
+  (`new Blob([bytes], { type: payload.content_type })`) and its `DOWNLOAD_COPY` needed no change; the format
+  control's wording lives in `rateMasterUpload.ts` (in scope).
+- The canonical command block matches the repo `CLAUDE.md`. The `--test` flag of `bench run-tests` exists and
+  drove the vacuity runs.
+
+### AS BUILT
+- **NEW `services/boq_rate_master/xlsx_io.py`** -- `is_xlsx(raw)` (content magic), `write_xlsx(headers, rows,
+  numeric_columns)` (one sheet; every non-numeric column TEXT "@" at CELL and COLUMN so a row typed below the data
+  inherits text; numeric columns as numbers, exact; freeze pane A2), `read_xlsx(raw)` -> the `parse_csv_text`
+  shape (text as is, numbers as `str()`, a date/time as ISO text -- SURFACED, never repaired).
+- **`csv_exporter.py`** -- rows are built ONCE, format-neutral (`build_category_rows` / `build_all_categories_rows`
+  -> `{headers, rows (raw values), numeric, n}`), then written by `to_csv` (byte-identical CSV writer) or
+  `to_xlsx`. `LEAD_COLUMNS` / `TAIL_COLUMNS` stay as the importer's RECOGNISED names; `SYSTEM_COLUMNS = TAIL`.
+  `multi_kind_categories(cat_kinds)` + `file_carries_kind(cat_kinds, category_id)` decide `kind`; the header is
+  `item_uid[, category][, kind], brand, unit` + attrs + rates, never a source column. `_numeric_columns` = rates
+  + attributes whose declared type is number / number_choice (undeclared keys are text, as the importer keeps them).
+  `build_category_csv` / `build_all_categories_csv` keep their names and signatures; `..._xlsx` twins added.
+- **`csv_importer.py`** -- `read_upload(raw) -> (headers, data_rows, encoding, format)` detects by content and
+  hands both formats to ONE pipeline. `classify_columns` classifies `source_sheet` / `source_row` as `ignored`
+  (no error) and no longer requires `kind` (item_uid stays mandatory). `build_plan(..., category_id=None)`: a
+  row with no kind takes the EXISTING item's kind, or, for a NEW row, the kind of its category -- the Mode B
+  `category` cell, else the ONE category the file's own matched rows belong to, else the caller's hint (only
+  when the file has NO matched rows -- a headers-only template), else the discipline's only category (HVAC);
+  a multi-kind category with a blank kind is refused by a message naming the kinds; an undeterminable one by a
+  message saying so. `_source_for(stored, rownum)` replaces `_source_from`: an existing item keeps its
+  provenance, a new row is stamped `DEFAULT_SOURCE_SHEET = "Rate master upload"` + the file's data-row number;
+  the file has no say. `_diff_fields` no longer diffs the source pair. The plan carries `format` and
+  `columns.ignored`. `apply_plan(..., category_id=None)` passes the hint to both re-plans.
+- **`api/boq/rate_master.py`** -- `export_rate_master_csv(discipline, category_id, fmt=None)`: `fmt` "xlsx"
+  (DEFAULT; content type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, name `.xlsx`) or
+  "csv" (the old file); any other value refused; the reply adds `format`. The endpoint keeps its historical name.
+  `preview_rate_master_csv` / `apply_rate_master_csv` gain optional `category_id`.
+- **Frontend** -- `rateMasterUpload.ts`: `RateFileFormat`, `DEFAULT_RATE_FILE_FORMAT = "xlsx"`,
+  `RATE_FILE_FORMATS` (Excel, CSV), `UPLOAD_ACCEPT` (.xlsx, .csv + both media types), `rateFileFallbackName`,
+  `FORMAT_COPY`; `UPLOAD_COPY.hint` names both formats; `UploadPlan` gains `format?` / `columns.ignored?`.
+  `RateMasterDataViewer.tsx`: a Format radiogroup (Excel default | CSV) beside the two edit downloads
+  (`data-testid="rate-file-format-<id>"`); the download callback takes `fmt`; the upload dialog's preview /
+  apply are wrapped to carry the selected category as the optional hint. `RateMasterUploadDialog.tsx`: the file
+  input's `accept` is `UPLOAD_ACCEPT` (one line). `RateMasterPage.tsx`: `onDownloadCsv(categoryId, fmt)` sends
+  `fmt` and falls back to a name by format; `onPreviewCsv` / `onApplyCsv` add `category_id` ONLY when given
+  (payloads byte-identical otherwise -- the 1d builders are reused, out of scope and untouched).
+
+### COLUMNS, before -> after (both formats identical)
+| File | Before (1d) | After (1e) |
+|---|---|---|
+| HVAC hvac_adp (Mode A) | item_uid, kind, brand, unit, item_name, item_detail, cost_install, cost_supply, install_markup, supply_markup, source_sheet, source_row | item_uid, brand, unit, item_name, item_detail, cost_install, cost_supply, install_markup, supply_markup |
+| HVAC all categories | item_uid, category, kind, brand, unit, item_name, item_detail, the four numbers, source_sheet, source_row | item_uid, category, brand, unit, item_name, item_detail, the four numbers |
+| Electrical single-kind category (e.g. cabletray_raceway) | item_uid, kind, brand, unit, attrs, rates, source_sheet, source_row | item_uid, brand, unit, attrs, rates |
+| Electrical multi-kind category (wiring_cabling, db_switchgear, popup_boxes) | item_uid, kind, brand, unit, attrs, rates, source_sheet, source_row | item_uid, kind, brand, unit, attrs, rates |
+| Electrical all categories | item_uid, category, kind, brand, unit, union (49 columns) | item_uid, category, kind, brand, unit, union (47 columns) |
+Removed, per discipline, with why: `source_sheet`, `source_row` (system provenance, X-b) everywhere; `kind` on every
+single-kind category (X-d: the upload fills it from the category). Kept: `item_uid` (identity, X-b's "except id"),
+`brand` (X-c), `unit`, every person-edited column, the rates and markups; `kind` on the three multi-kind Electrical
+categories and on the Electrical all-categories file; `category` on the all-categories file (typing).
+
+### TESTS
+`api/boq/test_rate_master.py` 385 -> 393 (e01-e08) and `api/boq/test_spec_reader.py` 20 -> 23 (t21-t23), positive AND
+negative. e01 THE ROUND TRIP: every Electrical Mode A .xlsx (12 categories; `switch_socket_item` sits in both
+popup_boxes and switches_sockets, so the per-file counts are pinned per category and the DISTINCT uids to 1,367) and
+the Mode B .xlsx (1,367) re-upload to ZERO changes, every rate read back equal to the stored value as a number and as
+the stored string. e02 the .csv round trips still zero and the .csv / .xlsx of the same content -- untouched AND with
+the same one edit -- give the same counts, the same fields and the SAME digest. e03 COLUMNS: no source pair in either
+format or mode; item_uid / brand / unit present; `kind` ONLY on wiring_cabling, db_switchgear, popup_boxes and Mode B
+(NEGATIVE: absent on every single-kind category); wiring_cabling and cabletray_raceway header lists exact; Mode B 47
+columns. e04 TEXT CELLS ARE TEXT: "1:6", "1:4", "1/2", "3/4", "007" and a 20-digit string planted on a text attribute
+survive the .xlsx round trip byte-for-byte, the cells are "@"-formatted, the numeric column holds numbers. e05 UPLOAD
+without kind: a new single-kind row is accepted with the kind filled and the source stamped; the same file WITHOUT the
+category hint is typed from its own rows and gives the same digest; NEGATIVE: a blank kind on a new wiring_cabling row
+is refused by a message naming "cable, termination", nothing written; NEGATIVE: a headers-only template with no hint
+cannot be typed, and the hint resolves it. e06 OLD FORMAT: a file rebuilt in the pre-1e shape (kind, source pair)
+plans zero changes and reports `columns.ignored`; NEGATIVE: a CHANGED value in an ignored column is neither a change
+nor applied, the stored provenance survives. e07 detection by CONTENT: xlsx bytes / csv bytes / csv text with no file
+name; NEGATIVE: a zip that is not a workbook is one named error. e08 the endpoint defaults to .xlsx (content type,
+name, `format`), `fmt=csv` serves the CSV with the same columns, a bad `fmt` refuses, Mode B is 47 x 1,367, and
+preview takes `category_id`. t21 the HVAC .xlsx: the nine ruled columns in order, 95 rows, "1:6" / "1:4" / "1:10 /12" /
+"9/10 NM" / "NECK:300X300/OUTER: 595X595" byte-for-byte, item_name / item_detail cells all "@", cost_supply numeric or
+blank never text, zero-change re-upload, csv digest equal, Mode B header with category and no kind. t22 THE OWNER'S
+NEW SKU without kind from the .xlsx: accepted, kind filled, source stamped `Rate master upload` / 96, the reader's
+verdict carried, the four numbers exact; the same without the hint; applied; then the OLD-FORMAT csv with kind +
+source_sheet "ADP" + source_row 999 -> the source is the system's (NEGATIVE: never "ADP", never 999) and no source
+field is diffed. t23 a time Excel manufactured in a text column is SURFACED as "01:06:00" and refused by name, never
+repaired. `rateMasterUpload.test.ts` 24 -> 29: Excel default and first, CSV second, no third; the accept list names
+both formats by extension and media type; the hints; the fallback name; `showEncodingWarning` fires for a cp1252
+csv only (NEGATIVE: never for a workbook, and a pre-1e reply without `format` keeps the old rule).
+
+**Inverted pins (each ruled by X-b / X-d, none deleted, values kept):**
+- `test_24m` -- before: `headers == ["item_uid","kind","brand","unit", ..., "source_sheet","source_row"]`; after: the
+  same attribute + rate list with NO kind and NO source pair, plus three NEGATIVE `assertNotIn` (source_sheet,
+  source_row, kind). Row count 450 and the item_uid checks unchanged.
+- `test_24n` -- before: `headers[-2:] == ["source_sheet","source_row"]`, `len(headers) == 49`; after: `assertNotIn`
+  both, `len == 47`. `headers[:5]` (item_uid, category, kind, brand, unit) unchanged.
+- `test_24p` -- before: default `content_type == "text/csv"`, `.csv` name, `column_count == 49`; after: default
+  content type is the xlsx media type, `.xlsx` name, bytes start `PK\x03\x04`; a NEW `fmt="csv"` call pins the CSV
+  (text/csv, `.csv`, item_uid in the text); `column_count == 47`. The admin-gate half is unchanged.
+- `test_89` -- before: blanked `source_sheet` / `source_row` cells by header index on the new row; after: asserts the
+  header has neither (nor kind) and blanks nothing; every value assertion (999.0, DEFAULT_SOURCE_SHEET, the data-row
+  number, the minted uid) unchanged.
+- `test_100` -- before: the duplicate-column probe appended `kind`; after: appends `brand` (kind is no longer in a
+  single-kind file); the rule under test unchanged.
+- `test_t05` -- before: the HVAC header lists with kind + source pair, rows 89 / 91 keyed by the `source_row` COLUMN;
+  after: the nine-column header (+ NEGATIVE for the three removed), rows 89 / 91 keyed by item_uid via the DB; the
+  `0.0` values unchanged; Mode B header without kind.
+- `test_t06` -- before: expected = LEAD + attrs + rates + TAIL / LEAD[0], category, LEAD[1:] + union + TAIL; after:
+  item_uid, kind ONLY for wiring_cabling, brand, unit + attrs + rates, no source pair; Mode B item_uid, category,
+  kind, brand, unit + union; the counts and the zero-change round trip unchanged.
+- `test_t07` / `test_t08` rows built from the export header dropped `kind=` (the header no longer has the column; the
+  category fills it) -- four call sites; every assertion unchanged. `_hvac_csv` deliberately KEEPS the old header
+  (kind + source pair) so t12-t20 now also prove the X-e path.
+No pin asserting a VALUE was changed.
+
+### VACUITY
+Ten breaks, targeted with `bench run-tests --test`, each restored and sha256-verified: V1 text cells not TEXT-formatted
+("@" -> "General") -> e04; V2 xlsx never detected by content -> e07; V3 system columns no longer ignored -> e06; V4 kind
+never filled from a single-kind category -> e05; V5 a multi-kind blank kind silently takes the first kind -> e05; V6 the
+system stamps the file's source sheet ("ADP") instead of its own -> t22; V7 kind written for every file -> e03; V8
+numeric columns written as text -> t21; V9 the endpoint default falls back to csv -> e08; V10 the frontend default
+format csv -> the vitest format pin. All ten RED as expected. (`showEncodingWarning` was pinned after the cert finding
+with both halves in one test; its red run is the live pre-fix preview recorded under E1.)
+
+### THE CERT
+Live :8080 after web / worker / socketio / vite restarted by PID (vite with `.vite` removed) and the bundle markers
+read on the plain URLs (`rate-file-format-` 1, `UPLOAD_ACCEPT` 2, `RATE_FILE_FORMATS` 1, `rateFileFallbackName` 2,
+later `showEncodingWarning` 2). Session survived every restart.
+- **E1 Electrical (wiring_cabling, 588):** the default "This category" download is `rate_master_electrical_wiring_cabling.xlsx`
+  (36,395 bytes); read programmatically: 13 columns `item_uid, kind, brand, unit, core, insulation, material,
+  thickness_sqmm, gland_band1_list, gland_band2_list, install_base_per_mtr, list_price_per_mtr, lug_list` (kind KEPT:
+  multi-kind; no source pair); item_uid / kind / brand / unit / insulation / material cells "@" and `str`; core /
+  thickness_sqmm / every rate column numeric (int / float / blank). "All categories" -> `rate_master_electrical_all_categories.xlsx`
+  (141,415 bytes): 47 columns, item_uid, category, kind, brand, unit first, 1,367 rows, no source pair. Re-upload of the
+  wiring .xlsx: "588 rows read, 0 rates changed, 0 items added, 588 rows unchanged, 0 errors. This file matches the
+  catalog exactly." **FOUND:** the first preview carried the CSV encoding warning ("This file was read as xlsx, not
+  UTF-8...") -- the client keyed it on `encoding !== "utf-8"`; fixed with `showEncodingWarning` (csv AND non-utf-8
+  only), pinned, vite restarted, re-run: no warning, still zero. The all-categories .xlsx re-upload: 1,367 unchanged,
+  zero. The CSV control: Format -> CSV, "This category" -> `rate_master_electrical_wiring_cabling (3).csv` (49,834
+  bytes, 13 columns, no source pair, `sha256 c4f95fa7...`); re-upload: 588 unchanged, zero, no warning.
+- **E5 (while on wiring_cabling):** the wiring .xlsx plus one new row with a BLANK kind: "589 rows read ... 1 errors.
+  1 problem -- nothing will be applied. Row 589: 'kind' is required for a new wiring_cabling row -- this category has
+  more than one item kind (cable, termination). Fill the kind column for this row." Apply disabled; no apply call in
+  the server log; Electrical 1,367 / 12, checksum `77a70755...f0db` unchanged.
+- **E2 HVAC (95):** the default download is `rate_master_hvac_hvac_adp.xlsx` (10,530 bytes); columns EXACTLY
+  `item_uid, brand, unit, item_name, item_detail, cost_install, cost_supply, install_markup, supply_markup` (no kind, no
+  source pair); every text column "@"; cost_install / cost_supply int-or-blank, markups float. "1:6" is at DATA row 33
+  (Excel row 34: `rmi-4784ebd3a556`, Fire Damper/ ACTUATOR Control Panel, 500 / 11580) and "1:4" at DATA row 95 (Excel
+  row 96: `rmi-fd5bb0f5891f`, 500 / 8900) -- the owner's two rows, unchanged; "1:10 /12" at 66 and "9/10 NM" at 57.
+  Re-upload unchanged: 95 unchanged, zero, no warning.
+- **E3 THE OWNER'S NEW SKU:** the downloaded .xlsx plus ONE row: unit Nos, item_name "Round Diffuser Without GI
+  Dampers", item_detail "300 MM DIA", 150 / 800 / 0.6 / 0.45, brand and item_uid blank. Preview: **ACCEPTED** as a new
+  item (96 rows read, 1 added, 95 unchanged, 0 errors) -- the reader took the **EXACT read** (no suggestion box, no
+  question): `family = round diffuser, damper = without, dia_mm = 300`; `kind -> hvac_adp_item` filled by the system;
+  no "kind is required" error. **An ACTIVE item with the SAME family + damper + dia already existed** (sheet row 44,
+  `rmi-31fd9a7020d8`, "Round Diffuser Without GI Damper" / "300 MM DIA", cost 720 / 250) and **the preview did nothing
+  about it** -- no duplicate flag, no warning; a blank uid is an add. Applied: "Applied 1 row(s): 0 replaced, 1
+  added. Snapshot v6"; the screen showed 96 items with BOTH rows side by side (44: 720 / 250 / ADP; the new one: 800 /
+  150 / "Rate master upload" / 96), both "read from spec" with round diffuser / without / 300. DB: `rmi-9683fd28b77d`,
+  kind hvac_adp_item, source "Rate master upload" 96, batch `csvup-df77663f4df6`, no flag. **BoQ by the rule:
+  supply ROUNDUP(800 x 1.45) = 1160, install ROUNDUP(150 x 1.6) = 240** (the pre-existing 44 computes 1044 / 400).
+- **E3b DUPLICATE (observed, no code changed):** original picked: sheet row 2, `rmi-4f4585c07dd2`, "Volume control
+  Damper (VCD)" / "GI Rectangular", SQM, cost_install 1200, cost_supply 5400, install_markup 0.6, supply_markup 0.45.
+  New row = the same wording and unit, cost_supply 5500. Preview: **accepted as a normal new item** -- not flagged, not
+  warned, not refused ("1 items added, 95 unchanged"); the reader read the SAME attributes (family VCD, variant GI
+  rectangular). Applied (Snapshot v7): the Rate Master showed TWO active items with the same wording and attributes
+  (5400 / ADP / 2 and 5500 / Rate master upload / 96). The original's document `BRMI-26-4436523` is UNCHANGED (same
+  document, same rates 5400 / 1200 / 0.6 / 0.45, modified 2026-09-21 18:02, batch `rmbulk-0c5525ac8670`); the copy is
+  `rmi-f272b2553dd6` (`BRMI-26-5533925`). **There is no owner ruling on duplicates; nothing was changed.**
+- **E4 OLD FORMAT (the owner's actual file shape):** the pre-1e CSV with kind + source_sheet "ADP" + source_row for the
+  same SKU: accepted, no source line in the diff, the same attributes read; applied (Snapshot v8) -> the row's source
+  is "Rate master upload" / 1, never "ADP".
+- **E6 FINAL:** the three synthetic rows deactivated by the normal route ("Deactivate this rate row?" confirm, one
+  each): 98 -> 95 on screen. DB: 95 active HVAC (297 total, the three RETAINED inactive with their uids and
+  `csvup-*` batches), the original VCD document untouched, Electrical 1,367 / 12 / 15,040, checksum
+  `77a70755e65b3e093021736625197363e804232b78b6ac191d7ff236615bf0db` unchanged; HVAC snapshots 5 -> 8 (E3, E3b, E4).
+
+### ANOMALIES (disclosed)
+(1) The first .xlsx preview showed the CSV encoding warning (fixed: `showEncodingWarning`, pinned). (2) After a
+Radix dialog closes on the 588-row Electrical table the exit animation lingers with `body { pointer-events: none }`
+(the renderer is slow), so the extension's ref clicks on the format radio, the "This category" button and the
+discipline combobox were swallowed or landed on stale refs -- three clicks produced NO server call (verified in
+`serve.log`); the same actions dispatched in-page (`element.click()`, `pointerdown` on the Select trigger) worked
+first time. Pre-existing UI behaviour, not this slice; disclosed because it cost ~10 minutes and one page reload.
+(3) The Chrome multiple-download block did not fire this time (all four downloads landed); one CSV download was
+repeated in a fresh tab only because of (2). (4) Seven `TEST_RM_*` disciplines (1,940 `BoQ Rate Master Item` rows,
+18 configs, created 2026-09-21 23:49) remain in the LIVE database -- the residue of the test process the Docker crash
+killed mid-vacuity on 1d (no tearDownClass ran). They are outside HVAC / Electrical and every count and checksum in
+this slice; they were NOT deleted (owner's call; the suites' own purge is by discipline). (5) The renderer froze
+twice for >45 s on Runtime.evaluate while switching the discipline (the 588-row table); no write was in flight either
+time. (6) The `switch_socket_item` kind is claimed by two categories (pre-existing): the switches_sockets and
+popup_boxes Mode A files both hold those 61 rows; e01 pins the distinct-uid total instead of the sum. (7) The
+duplicate observation (E3, E3b): the importer adds a blank-uid row beside an active item with identical attributes
+with no flag -- reported, not changed. (8) `DEFAULT_SOURCE_SHEET` changed from "CSV upload" to "Rate master upload"
+(no test pinned the literal); the 1c / 1d synthetic rows keep their old stamp.
+
+### FILES
+NEW `nirmaan_stack/services/boq_rate_master/xlsx_io.py`. MODIFIED `csv_exporter.py`, `csv_importer.py`,
+`nirmaan_stack/api/boq/rate_master.py` (the three download / upload endpoints only), `nirmaan_stack/api/boq/test_rate_master.py`
+(385 -> 393; six inverted pins), `nirmaan_stack/api/boq/test_spec_reader.py` (20 -> 23; t05 / t06 inverted, four
+`row(kind=...)` sites), `frontend/src/pages/pricing/rate-master/rateMasterUpload.ts` (+ `.test.ts` 24 -> 29),
+`RateMasterUploadDialog.tsx` (accept + the warning predicate), `RateMasterDataViewer.tsx` (Format control, props,
+the hint wrappers), `RateMasterPage.tsx` (fmt / category_id on the three callbacks); this record; root `CLAUDE.md`
+(one durable rule). Untouched: `rateMasterTypes.ts` (no type needed), `rateMasterDownload.ts` (out of scope; agnostic),
+`rateMasterSpec.ts` (out of scope; its 1d payload builders reused as-is), `patches.txt`, `.claude/settings.local.json`
+(declared noise, left as found), every asset file, the loader, the asset exporter / snapshot code, `spec_reader.py`,
+`config_validation.py`, `extraction.py`, every pricing / interpreter / panel file, every doctype JSON. Final counts:
+`test_spec_reader` Ran 23 OK; `test_rate_master` Ran 393 OK; vitest 3437 passed / 1 failed (3438) (baseline 3432 passed / 1 failed, the
+known writeOffControl); tsc 3229 errors total before and after, 0 in the touched files; build clean (`Done in 170.30s`). Feat commit `e5028f85`; this record's commit follows it. NOT
+pushed; the owner pushes.
