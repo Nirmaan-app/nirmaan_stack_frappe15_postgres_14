@@ -673,6 +673,23 @@ one is not touched); decline = that row is skipped; unanswered = the apply is re
 mean the same are an ERROR. A manual entry has never carried an `item_uid` (pre-1f fact) and is still an
 existing item: the index keys it by document name.
 
+**A CATEGORY WITH NOTHING TO PRICE DECLARES ITS MESSAGE AND ITS PENDING MARK IN CONFIG, NEVER IN CODE
+(owner-locked; the HV-10 rule applied to messages).** A rate-master category config may carry two top-level keys:
+`helper_message` -- what the rate-helper panel and the calculator show instead of the generic "coming soon" when the
+config is not eligible for pricing (e.g. the HVAC vendor-quote categories AHU / DX Unit / Panels / Pumps say
+"Take Vendor Quotation") -- and `pending_label` -- the amber mark every EMPTY or ZERO rate cell of a row in that
+category shows until a non-zero rate is typed (a visible mark, NOT a submission block). Both are read from the config
+at ONE site each (`pricingSheetHelper.declineReasonFor`; the page-built `pendingLabelByCategory` map into the grid's
+per-row `pendingLabel` primitive); no category id and no message text appears in frontend code, and a test greps for
+both. Such a MESSAGE-ONLY config has empty `attribute_definitions`, empty `pipelines` and empty `item_kinds` -- the
+loader admits an empty definitions list ONLY beside empty pipelines -- so it is never eligible for pricing or
+extraction, holds no items, and is kept OFF the Rate Master page by the registry flag `holds_items: false`
+(`rateMasterPageEntry` is the ONE filter; the fetch targets and the calculator picker read the full list). Before a
+suggestion run, a row's decline card shows ONLY when the row's DISCIPLINE has nothing to price (no eligible config
+among that discipline's fetched configs, `disciplineHasNothingToPrice`); a discipline with an eligible config
+(Electrical) keeps its before-run panel exactly as it was, and the decline-only helper feeds the panel alone, never
+the badge map.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

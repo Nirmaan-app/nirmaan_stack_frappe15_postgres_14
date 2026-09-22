@@ -40215,3 +40215,189 @@ existing rule), `RateMasterPage.tsx`, `rateMasterSpec.ts`, `rateMasterTypes.ts`.
 `.claude/settings.local.json` (declared noise), every asset file, the loader, the asset exporter / snapshot code,
 `spec_reader.py`, `config_validation.py`, `extraction.py`, every shared `components/ui/*` file, every pricing /
 interpreter / panel file, every doctype JSON. Feat commit `eb92e22f`; this record's commit follows it; NOT pushed.
+
+## HVAC PRICING, SLICE 2 -- CALCULATOR TAB; "TAKE VENDOR QUOTATION" + "AWAITING VENDOR QUOTE"; "COMING SOON" WITHOUT A RUN; HVAC v3 (2026-09-22) -- SHIPPED
+
+Owner rulings (quoted in the slice prompt): **P-a** scope ("agreefor both 1 and 2"): the HVAC Pricing page gains a
+Calculator tab; HVAC BoQ rows get the rate helper panel; AHU, DX Unit, Panels and Pumps show "Take Vendor Quotation"
+in the panel and the calculator; every other HVAC category shows "Coming soon" straight away, without a "Suggest
+rates" run; Electrical unchanged. **P-b** "this is always priced base don vendor quotes. so nothing to extract here
+and pricre as of now. for this the helper should say : Take Vendor Quotation. same for DX unit, panels and pumps."
+**P-c** a vendor-quote row is marked "Awaiting vendor quote" until someone types the quoted rate -- a VISIBLE mark on
+each empty or zero rate cell, cleared by a non-zero rate, NOT a submission block. **P-d** the four vendor-quote
+categories do NOT appear on the Rate Master page (they hold no items); "coming soon" before a run applies ONLY to
+categories with nothing to price -- Electrical and any eligible config behave exactly as today before a run.
+**P-e** each discipline minted on its own; this slice mints HVAC v3 only. Handover line: **Electrical v63 / HVAC v3.**
+
+**Two STOPs, both ruled mid-slice (owner, 2026-09-22):** STOP 1 -- the LOADER (not the validator) refused a config
+with an empty `attribute_definitions` list, so the four data-only configs could not be loaded as specified; ruled
+**option (a)**: ONE condition change in `loader._validate_one_config` (an empty list is allowed ONLY when pipelines is
+also empty; a missing / non-list key refused as before; empty list beside non-empty pipelines still refused), with the
+asset sweep as proof (below). STOP 2 -- the registry's `categories` list feeds THREE readers (the Rate Master page
+picker, the calculator picker + `calculatorRowFor`, the plumbing's fetch targets), so "fetch but do not list" cannot be
+said by the registry alone; ruled **R1**: `holds_items: false` on the four entries, ONE registry export
+(`rateMasterPageEntry`) that filters them, ONE expression change at `RateMasterPage.tsx`'s lookup; the calculator keeps
+its one line; plumbing untouched. J5 / J6 designs confirmed as stated; four pin moves authorised (`CURRENT_HVAC_ASSET`
+-> v3, h07 series [v1, v2, v3], h01 one config -> five, targets 13 -> 17); K0 / K4 must also diff the grid DOM of three
+Electrical rows.
+
+### PREMISES VERIFIED, CORRECTIONS
+- Tip `70166aa8` == origin; tree == the declared noise. Docker up; bench processes were hand-started (no honcho), so
+  the restart-by-PID recipe applies (`docker exec -d`, cwd `sites/` for serve + worker).
+- The four ids are the HVAC classifier's exact ids (`categories_hvac.json`: hvac_ahu "AHU", hvac_dx_unit "DX Unit",
+  hvac_panels "Panels", hvac_pumps "Pumps"); the v3 configs take those display names.
+- Recon sections 3 / 4 hold: `CALCULATOR_WORKBOOKS` one line; `pricingSheetHelper.compute` declines at ONE site;
+  `isEligibleConfig` / `config_is_eligible` both require non-empty pipelines AND definitions, so the vendor configs
+  (empty both) are ineligible on both sides with no code. `cases.length === 34` derives from the v59 goldens, NOT the
+  registry -- J7 leaves it. **Correction:** `pricingCalculator.test.ts:278-283` pinned the workbook map to
+  Electrical-only and `/hvac-pricing` -> null; it fails SOLELY under P-a / J7 and was inverted (below).
+- **The J5 tension, found at K0:** two of the three Electrical before-run rows captured (Excel 58 "Panels" -- an
+  Electrical classifier category with NO rate-master config; Excel 800 "Point Wiring" -- a data-only, not-eligible
+  config) are themselves decline-only categories. A category-level "decline before a run" would have added a card to
+  Electrical before a run, breaking U6 and the K0 / K4 identity. P-d's own words resolve it: "categories with nothing
+  to price -- Electrical ... behave exactly as today". **The one interpretation made: the decline card shows before a
+  run ONLY when the row's DISCIPLINE has nothing to price** -- at least one of that discipline's registry configs has
+  arrived and NONE is eligible (`disciplineHasNothingToPrice`). HVAC today (ADP data-only + four message-only) is such a
+  discipline; Electrical is not. The row's discipline is read from the resolved category read
+  (`resolvedByExcelRow.get(excelRow)?.resolved_discipline`; the grid-shaped adapter still drops it). Consequence to
+  record: once HVAC gains an eligible config (the ADP pricing slice), HVAC rows revert to today's "static cards until a
+  run" behaviour by this rule -- that slice must revisit it.
+- The live DB before the slice: HVAC 95 items / 1 config (`rmbulk-0c5525ac8670`), Electrical 1,367 / 12.
+
+### AS BUILT
+- **Backend.** `config_validation._KNOWN_CONFIG_KEYS` += `helper_message`, `pending_label` (pass-through, like
+  `item_kinds`). `loader._validate_one_config`: the one condition (check order unchanged). NEW
+  `data/rate_master_hvac_all_v3.json` = v2 UNCHANGED (95 items, uids and the ADP config deep-equal) + four
+  MESSAGE-ONLY configs `hvac_ahu` / `hvac_dx_unit` / `hvac_panels` / `hvac_pumps` (`item_kinds: []`,
+  `attribute_definitions: []`, `pipelines: {}`, `helper_message` "Take Vendor Quotation", `pending_label` "Awaiting
+  vendor quote", `discipline` stamped); minted by the untracked `_mint_hvac_v3_tmp.py`. Loaded LIVE, HVAC scope,
+  `replace=True`: batch **`rmbulk-dc943407983c`**, 95 active items (items-only checksum `17f11618...559a` unchanged,
+  uids == v3), 5 active configs; Electrical 1,367 / 12 / `77a70755...f0db` unchanged.
+- **Frontend.** `rateMasterTypes.RateCategoryConfig` += `helper_message?` / `pending_label?`.
+  `rateMasterRegistry`: `RateMasterCategoryEntry.holds_items?: false`, the four HVAC entries flagged, and
+  `rateMasterPageEntry(entry)` (same object back when nothing is filtered -- Electrical reference-identical).
+  `RateMasterPage.tsx`: the lookup `useMemo` wraps its result in `rateMasterPageEntry(...)` -- one expression.
+  `PricingCalculator.tsx`: `"/hvac-pricing": "HVAC"`. `pricingSheetHelper.ts`: `COMING_SOON_REASON`,
+  `declineReasonFor(cfg)` (J4, read at the ONE decline site), `disciplineHasNothingToPrice`, `makeDeclineOnlyHelper`
+  (same id + label as the real helper; never prices, never badges). `SheetPricingPage.tsx`: `pendingLabelByCategory`
+  (config-load stable; the SHARED `EMPTY_PENDING_LABEL_MAP` when no config declares one), `declineOnlyHelper` +
+  `panelHelpers` (fed to BOTH panel mounts; the badge effect keeps `helperList`). `PricingGrid.tsx`: grid prop
+  `pendingLabelByCategory`, per-row PRIMITIVE `pendingLabel` (in `pricingRowPropsAreEqual`), `isPendingRateValue`
+  (empty / whitespace / null / any value parsing to 0), `pendingRateMark` drawn under the input on the editable rate
+  cell AND on the read-only rate cell (never qty / others).
+
+### THE J5 MEMO / IDENTITY FINDING
+The recon warned the helper identity would move from run-load to config-load. As built: `declineOnlyHelper` rebuilds
+as configs arrive (N times, exactly like `configsByCategory`) and `panelHelpers` re-resolves on a selection change --
+both reach ONLY the panel's `helpers` prop, never a grid row prop; with a run adopted, `panelHelpers` IS `helperList`
+(same reference). The badge-building effect is unchanged (`buildSuggestions(..., helperList)` behind the
+`!suggestRun || !pricingSheetHelper` guard), so the decline-only helper can never badge a cell. For an Electrical row
+`panelHelpers` returns `helperList` itself, so the panel's `helpers` prop does not even change identity. Proof: the
+K0 / K4 badge signature (354 rows, 200 badged, {"1|1":77,"used|1":4,"used|used":119}, hash b33ad24c) and the
+per-cell hashes of three grid rows are IDENTICAL before and after.
+
+### THE J6 SUBMISSION-PATH FINDING (not built)
+There is no "submit tender" step in the product. The two nearest surfaces: (1) the sheet header's live readout
+"N of M priced - ready to finalize" (`SheetPricingPage.tsx` ~3837; the comment says "no finalize logic -- that is a
+later slice"), and (2) the client export `export_writeback.export_priced_workbook` (hub -> `PricedTenderDialog`),
+which stamps `last_exported_at` per sheet behind a fidelity guard that rejects-mutates-nothing. A block for
+"vendor-quote rows still awaiting a rate" could live server-side as a per-sheet pre-check in
+`export_priced_workbook` beside that guard (rows whose resolved category config carries `pending_label` and whose
+rate cells are empty / zero), and client-side in the readout's count. Nothing of the kind ships in this slice (P-c).
+
+### TESTS (positive AND negative)
+Backend `TestHvacVendorQuoteSlice2` (s01-s05): s01 the two keys accepted, the four configs pass BOTH validators;
+NEGATIVE unknown key refused by name, empty defs + non-empty pipelines refused, missing key / non-list refused with
+today's message. s02 THE ASSET SWEEP (A8): every asset file on disk (50 files, 564 configs: 47 Electrical + HVAC v1 /
+v2 / v3) passes the loader's shape check and the full validator refuses exactly the ONE pre-existing v12
+`point_wiring` defect. s03 v3 = v2 + four (items deep-equal, uids identical, ADP config deep-equal, classifier ids
+and names, the two messages); NEGATIVE none eligible and the extraction population's eligibility filter admits NONE
+of the five; the frontend predicate pinned. s04 the load under a fresh discipline (95 / 5), the config endpoint hands
+the two keys VERBATIM, `_load_active_configs` sees 5 / 0 eligible, Electrical checksum unchanged. s05 no vendor id
+and no message literal in `pricingSheetHelper.ts` / `PricingGrid.tsx` / `PricingCalculator.tsx` /
+`SheetPricingPage.tsx`; the keys ARE read where designed. INVERTED (authorised): `CURRENT_HVAC_ASSET` -> v3; h01 five
+configs (the ADP config now fetched by category_id); h07 series exactly [v1, v2, v3], v1 AND v2 byte-identical to
+HEAD, no "v3" text (negative half kept and widened).
+Vitest: `pricingCalculator.test.ts` -- the HVAC registry lists five (four `holds_items: false`), the four are in the
+fetch targets, `rateMasterPageEntry` drops them and returns Electrical's entry BY REFERENCE, the page reads the
+registry only through it (source), the HVAC calculator declines each vendor category with ITS CONFIG's message and
+ADP with coming soon; NEGATIVE Electrical entry has no hvac_ id, 34 goldens, 12 categories; INVERTED: the workbook map
++ `/hvac-pricing` -> "HVAC"; targets 13 -> 17. `pricingSheetHelper.test.ts` -- `declineReasonFor` (message / exact
+coming-soon / blank = absent), `makePricingSheetHelper` on a not-eligible config with / without the key,
+NEGATIVE an eligible config prices unchanged even carrying the key; `disciplineHasNothingToPrice` TRUE / FALSE,
+NEGATIVE null / unregistered / nothing-loaded FALSE, the documented partial-load edge; `makeDeclineOnlyHelper` same
+id + label, declines, NEGATIVE never a suggestion, `suggestionCountForKind` 0; source pins on the page (both mounts,
+badge effect, run fallback). `PricingGrid.test.ts` -- `isPendingRateValue` positive / NEGATIVE, `pendingLabel` in the
+comparator, `EMPTY_PENDING_LABEL_MAP` one reference, source pins (ONE mark function at both rate renders, gated on the
+row's label; the page builds the map and hands the shared empty).
+
+### VACUITY (each: break, expected red, restore, sha256 verified)
+V1 loader relaxation reverted: s01 + s04 + h01 ERROR. V2 `helper_message` dropped from the allowlist: s01 + s02 FAIL.
+V3 one vendor config's display name altered in the v3 file: s03 FAIL. V4 `declineReasonFor` ignores the key: 4 vitest
+FAIL (calculator + helper). V5 `disciplineHasNothingToPrice` never true: 2 FAIL. V6 an empty cell not pending: 1 FAIL.
+V7 one vendor entry loses `holds_items: false`: 2 FAIL. V8 the calculator line removed: 1 FAIL. V9 one panel mount
+handed `helperList` again: 1 FAIL. All nine green again after the restore.
+
+### COUNTS (measured in-session)
+Backend module: 401 OK (baseline) / 406 OK (401 + the 5 new tests) (after); `test_spec_reader` 33 OK (after, untouched module,
+run because it reads the HVAC v1 / v2 files by name). Vitest: 3,449 passed / 1 failed (3,450) baseline ->
+3,466 passed / 1 failed (3,467) after; the one failure is the known pre-existing `writeOffControl` "mirrors the sibling admin
+predicates". tsc: 3,229 errors repo-wide before and 3,229 (identical; the one pre-existing test-file error now sits at line 4816 after the added imports) after; touched SOURCE files 0 before / 0 after
+(the one pre-existing test-file error at `pricingSheetHelper.test.ts:4810` is unchanged). In-container `yarn build`:
+EXIT 0, "built in 2m 18s", Done in 165 s; 0 error lines; the tracked tree is unchanged by the build.
+
+### THE CERT (live, :8080, web + worker + socketio + vite restarted by PID, vite cache wiped; bundle markers
+`data-pending-mark` x1, `disciplineHasNothingToPrice` x1, `holds_items` x6 in the served modules; session survived,
+no CSRF break -- the K3 write succeeded)
+- **K0** (before, current bundle) BOQ-26-00224 / ELECTRICAL: 354 rows, 200 badged, {"1|1":77,"used|1":4,"used|used":119},
+  hash b33ad24c; per-cell normalised hashes of data-index 10 / 100 / 216 recorded. BOQ-26-00153 / BOQ (no run):
+  rows 233 [Wiring], 58 [Panels], 800 [Point Wiring] each show exactly "Previously priced BoQs / No priced corpus
+  for this category yet / Qty breakdown + live data / Helper not built -- planned".
+- **K1** /hvac-pricing has the Calculator tab; picker = ADP, AHU, DX Unit, Panels, Pumps; ADP -> "Rate attributes
+  for this category haven't been defined yet -- coming soon."; the four -> "Take Vendor Quotation". Electrical
+  calculator: 12 categories, wiring renders its fields (8 selects) -- unchanged.
+- **K2** BOQ-26-00234 / "(CHW BOQ) AHU & Low Side" (467 category rows, NO suggestion run, 0 badges): row 9 [AHU] ->
+  "Pricing sheet / Take Vendor Quotation"; row 446 [ADP] and row 418 [Ducting] -> the coming-soon card; the two
+  static cards follow on all three.
+- **K3** same sheet: the mark sits on every AHU (81), Panels (30) and Pumps (1) row and on NO other category (527 rows
+  scanned; CHW Units, Fans, Piping, ... 0 marks). Row 9's rate cell ("0", unpriced): typed 1234 -> mark GONE,
+  cell priced; typed 0 back -> mark RETURNS. Restore: the two `BoQ Cell Pricing` rows the typing created
+  (`BPRC-26-37700` rate 1234 superseded, `BPRC-26-37701` rate 0 current) were DELETED through the document layer
+  -- the cell's original state was "no record"; **0 `Version` rows and 0 `Nirmaan Versions` rows were created**;
+  the pricing lock row the typing acquired (holder admins@nirmaan.app) was left to its 2-minute expiry. Reloaded: row
+  9 "0", unpriced, mark shown.
+- **K4** BOQ-26-00224 / ELECTRICAL after: 354 rows, 200 badged, identical split, hash b33ad24c; per-cell hashes of
+  rows 10 / 100 / 216 IDENTICAL to K0 (14 cells each); 0 pending marks on the sheet. BOQ-26-00153 rows 233 / 58 / 800:
+  panel text IDENTICAL to K0.
+- **K5** Rate Master -> HVAC: category picker lists ONLY "ADP (Air Distribution Products)", batch
+  `rmbulk-dc943407983c`, 95 items; Electrical: the same 12 categories.
+- **K6** DB: HVAC 95 active / 5 configs, uids == v3, items-only checksum unchanged; Electrical 1,367 / 12 /
+  `77a70755...f0db` unchanged; 0 suggestion runs and 0 classify rows created today (zero AI calls); 0 TEST_RM residue.
+
+### ANOMALIES (disclosed)
+- The 1g HVAC checksum `106f5395...b884` was ITEMS + CONFIGS; it moved to `89f0449f...b104` because four configs were
+  added by design. The items-only checksum (`17f11618...`) and every uid are unchanged -- the "ADP items unchanged"
+  claim holds on that basis.
+- The pending mark also appears on PREAMBLE rows categorised AHU / Panels / Pumps whose read-only rate cell shows "0"
+  (e.g. rows 4 / 6 / 7 "PART A - High Side Equipments"). This is the literal reading of P-c / J6 ("each rate cell of a
+  row whose category's config has pending_label"); confining it to editable cells would be an extension. Not changed.
+- The pre-run decline rule is DISCIPLINE-scoped (above); its one documented edge: a discipline whose first-arrived
+  config is not eligible reads "nothing to price" until an eligible sibling lands (a sub-second window at page load,
+  before any row can be selected; pinned as documented behaviour).
+- The paused session relaunched the backend baseline on resume (the first run's log was overwritten); the counts above
+  are from the completed relaunch. The vacuity driver crashed twice on Windows cp1252 console encoding (V5 output);
+  the `finally` restore had already run, sha verified, and the case was re-run under UTF-8.
+- The K3 restore deleted two rows this cert itself created; nothing else in the DB was written by the slice except the
+  intended HVAC v3 load.
+
+### FILES
+`nirmaan_stack/services/boq_rate_master/config_validation.py`, `loader.py`, NEW `data/rate_master_hvac_all_v3.json`,
+`nirmaan_stack/api/boq/test_rate_master.py`; `frontend/src/pages/pricing/rate-master/rateMasterTypes.ts`,
+`rateMasterRegistry.ts`, `RateMasterPage.tsx`, `frontend/src/pages/pricing/PricingCalculator.tsx`,
+`pricingCalculator.test.ts`, `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (+ test),
+`frontend/src/pages/boq-wizard/SheetPricingPage.tsx`, `PricingGrid.tsx` (+ test); this record; root `CLAUDE.md` (one
+rule). Untouched: `patches.txt`, every Electrical asset file, v1 / v2, the exporter, `extraction.py`, the interpreter,
+the upload / spec-reader code, `rateHelperPlumbing.tsx`, `RateHelperPanel.tsx`, `components/ui/*`, every doctype JSON;
+the modified `.claude/settings.local.json` and the root untracked files are declared noise, not staged; the untracked
+`_mint_hvac_v3_tmp.py` is a temporary build tool, never committed. Feat commit `7f740764`; this record's commit
+follows it. NOT pushed.
