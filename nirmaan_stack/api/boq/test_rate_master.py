@@ -677,15 +677,39 @@ class TestRateMaster(FrappeTestCase):
         it = frappe.get_all(
             "BoQ Rate Master Item", filters={"discipline": disc, "kind": "cable"}, fields=["name"], limit=1
         )[0]["name"]
+        # a rates-only edit: audited, as before
         res = rate_master.update_rate_master_item(
             name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
-            attributes_patch=json.dumps({"material": "copper"}),  # canonicalised -> COPPER
         )
         self.assertTrue(res["ok"])
         self.assertEqual(res["item"]["rates"]["list_price_per_mtr"], 999.5)
-        self.assertEqual(res["item"]["attributes"]["material"], "COPPER")
         # AUDIT
         self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+        # SLICE 1f (inverted under owner Y-b 3 / Y-e): this cable is ALUMINIUM, and "copper" (canonicalised ->
+        # COPPER) would make it MEAN THE SAME as the COPPER cable with the same core / insulation / thickness,
+        # so the endpoint ASKS and writes nothing -- no second Version, attributes untouched.
+        ask = rate_master.update_rate_master_item(
+            name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
+            attributes_patch=json.dumps({"material": "copper"}),
+        )
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        self.assertEqual(ask["twin"]["case"], "edit")
+        self.assertIn("material=COPPER", ask["twin"]["existing_wording"])
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+        self.assertEqual(_obj(frappe.db.get_value("BoQ Rate Master Item", it, "attributes"))["material"], "ALUMINIUM")
+        # confirm: the OTHER (copper) item takes the rates, audited on ITS document; this one is untouched
+        target = ask["twin"]["name"]
+        ok = rate_master.update_rate_master_item(
+            name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
+            attributes_patch=json.dumps({"material": "copper"}),
+            twin_decision="confirm", twin_fingerprint=ask["twin"]["fingerprint"],
+        )
+        self.assertTrue(ok["ok"]); self.assertEqual(ok["item"]["name"], target)
+        self.assertEqual(ok["item"]["rates"]["list_price_per_mtr"], 999.5)
+        self.assertEqual(ok["item"]["attributes"]["material"], "COPPER")
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", target)), 1)
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+        self.assertEqual(_obj(frappe.db.get_value("BoQ Rate Master Item", it, "attributes"))["material"], "ALUMINIUM")
 
     def test_12_item_edit_negatives(self):
         disc = self._new_disc()
@@ -5199,6 +5223,225 @@ class TestRateMaster(FrappeTestCase):
     def _rate_columns(self, headers, rate_keys):
         return [h for h in headers if h in rate_keys]
 
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1f -- SAME-MEANING DUPLICATES (owner Y-a..Y-f), the ELECTRICAL half. Plain-English coverage:
+    #   e09  TWIN FOUND for the same kind + brand + unit + EVERY attribute (the live cable rmi-2c2f8e25a3e0);
+    #        the warning names the identifying fields as the file shows them; a typed lower-case value and a
+    #        typed integer still mean the same (the importer canonicalises, numbers compare as numbers);
+    #        NEGATIVE: differing ONLY in brand is NOT a twin; differing in one attribute is not.
+    #   e10  CONFIRM: the existing cable takes the row's rates, its uid / attributes untouched, NO new item
+    #        (1,367 stays 1,367); DECLINE: that row is skipped, the other new row applied.
+    #   e11  THE ROUND TRIP, NEGATIVE: every Electrical file (12 Mode A .xlsx + .csv, Mode B) re-uploaded
+    #        unchanged -> zero changes AND zero warnings; with a planted twin pair present, still zero; a
+    #        rates-only edit of one twin is a plain update with no warning; an item shared by two categories
+    #        under ONE uid is one item, never its own twin (no identity in the index carries two uids).
+    #   e12  MANUAL ADD / EDIT: ask with nothing written; decline writes nothing; confirm updates the existing
+    #        cable only (add: no new item; edit: the OTHER item's rates, the edited one byte-for-byte
+    #        unchanged); a rates-only patch never asks.
+    #   e13  IN-FILE TWINS: two identical new rows are refused naming the rows, nothing written.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    E_TWIN_UID = "rmi-2c2f8e25a3e0"      # Polycab / Mtr / cable / core 3 / ARMOURED / COPPER / 2.5 sqmm
+
+    def _e_state(self, name):
+        d = frappe.db.get_value("BoQ Rate Master Item", name,
+                                ["item_uid", "kind", "brand", "unit", "attributes", "rates", "source_sheet",
+                                 "source_row", "import_batch", "active", "modified"], as_dict=True)
+        d["attributes"] = _obj(d["attributes"]); d["rates"] = _obj(d["rates"])
+        return d
+
+    def _e_uid_name(self, disc, uid):
+        rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1, "item_uid": uid}, fields=["name"])
+        self.assertEqual(len(rows), 1, (uid, rows))
+        return rows[0]["name"]
+
+    def _wiring_with(self, disc, extra_rows):
+        """The wiring_cabling csv plus the given rows (dicts keyed by header name; blank where absent)."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        text, headers, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        lines = [",".join(str(r.get(h, "")) for h in headers) for r in extra_rows]
+        return text + "\r\n".join(lines) + "\r\n", headers
+
+    def test_e09_electrical_twin_same_kind_brand_unit_every_attribute_and_the_negatives(self):
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        row = {"kind": "cable", "brand": "Polycab", "unit": "Mtr", "core": "3", "insulation": "armoured",
+               "material": "copper", "thickness_sqmm": "2.5", "install_base_per_mtr": "15", "list_price_per_mtr": "500"}
+        text, headers = self._wiring_with(disc, [row])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(plan["errors"], [], plan["errors"][:2])
+        self.assertEqual(len(plan["changes"]), 1); self.assertEqual(plan["counts"]["twins"], 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["kind"], "add"); self.assertTrue(ch["major"])
+        tw = ch["twin"]
+        self.assertEqual((tw["case"], tw["item_uid"]), ("new", self.E_TWIN_UID))
+        self.assertEqual(tw["existing_wording"],
+                         "kind=cable, brand=Polycab, unit=Mtr, core=3.0, insulation=ARMOURED, material=COPPER, thickness_sqmm=2.5")
+        self.assertEqual(tw["row_wording"], tw["existing_wording"])     # identical meaning, identical fields
+        self.assertEqual(tw["compared"], ["kind", "brand", "unit", "core", "insulation", "material", "thickness_sqmm"])
+        self.assertEqual(tw["existing_rates"], {"install_base_per_mtr": "14.0", "list_price_per_mtr": "481.0"})
+        self.assertEqual(tw["row_rates"], {"install_base_per_mtr": "15.0", "list_price_per_mtr": "500.0"})
+        # NEGATIVE: differing ONLY in brand is NOT a twin; differing in ONE attribute is not
+        for over in ({"brand": "Havells"}, {"thickness_sqmm": "999"}):
+            t2, _h = self._wiring_with(disc, [{**row, **over}])
+            p2 = csv_importer.build_plan(disc, t2)
+            self.assertEqual(p2["errors"], [], over); self.assertEqual(len(p2["changes"]), 1)
+            self.assertNotIn("twin", p2["changes"][0], over); self.assertEqual(p2["counts"]["twins"], 0, over)
+        # a typed INTEGER means the same as the stored float (the manual path sends numbers as typed)
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+                                                  attributes=json.dumps({"core": 3, "insulation": "armoured", "material": "copper", "thickness_sqmm": 2.5}),
+                                                  rates=json.dumps({"list_price_per_mtr": 500.0}))
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        self.assertEqual(ask["twin"]["item_uid"], self.E_TWIN_UID)
+
+    def test_e10_electrical_confirm_updates_the_existing_cable_and_decline_skips_the_row(self):
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        target = self._e_uid_name(disc, self.E_TWIN_UID)
+        before = self._e_state(target)
+        n_before = self._active_items(disc)
+        self.assertEqual(n_before, 1367)
+        row = {"kind": "cable", "brand": "Polycab", "unit": "Mtr", "core": "3", "insulation": "ARMOURED",
+               "material": "COPPER", "thickness_sqmm": "2.5", "install_base_per_mtr": "15", "list_price_per_mtr": "500"}
+        text, _h = self._wiring_with(disc, [row])
+        plan = csv_importer.build_plan(disc, text)
+        row_no = str(plan["changes"][0]["row"])                  # the appended row: 589 (588 existing rows)
+        self.assertEqual(row_no, "589")
+        fp = plan["changes"][0]["twin"]["fingerprint"]
+        # NEGATIVE: unanswered -> refused, nothing written
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
+        self.assertEqual(self._active_items(disc), 1367); self.assertEqual(self._e_state(target), before)
+        # CONFIRM
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={row_no: "confirm"}, twin_fingerprints={row_no: fp})
+        frappe.db.commit()
+        self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
+        self.assertEqual(self._active_items(disc), 1367)                                   # NO new item
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", target, "active"), 0)  # superseded, retained
+        after = self._e_state(self._e_uid_name(disc, self.E_TWIN_UID))
+        self.assertEqual(after["attributes"], before["attributes"])
+        self.assertEqual((after["kind"], after["brand"], after["unit"]), ("cable", "Polycab", "Mtr"))
+        self.assertEqual(after["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 15.0})
+        # DECLINE with an unrelated new row in the same file: the twin row skipped, the other added
+        t2, _h = self._wiring_with(disc, [{**row, "list_price_per_mtr": "600"}, {**row, "brand": "Havells"}])
+        p2 = csv_importer.build_plan(disc, t2)
+        self.assertEqual(p2["counts"]["twins"], 1); self.assertIn("twin", p2["changes"][0]); self.assertNotIn("twin", p2["changes"][1])
+        r2 = csv_importer.apply_plan(disc, t2, expected_digest=p2["digest"], twin_decisions={str(p2["changes"][0]["row"]): "decline"})
+        frappe.db.commit()
+        self.assertEqual((r2["applied"], r2["items_added"], r2["items_replaced"]), (1, 1, 0))
+        self.assertEqual(r2["plan"]["counts"]["twins_declined"], 1)
+        self.assertEqual(self._active_items(disc), 1368)
+        still = self._e_state(self._e_uid_name(disc, self.E_TWIN_UID))
+        self.assertEqual(still["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 15.0})   # not 600
+        added = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1, "import_batch": r2["batch"]}, fields=["brand"])
+        self.assertEqual([a["brand"] for a in added], ["Havells"])
+
+    def test_e11_every_electrical_file_round_trips_to_zero_changes_and_zero_warnings(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, spec_reader
+        disc = self._loaded_disc()
+        _items, _kc, cat_kinds = csv_exporter._load(disc)
+        self.assertEqual(len(cat_kinds), 12)
+        def zero(payload, n, label):
+            p = csv_importer.build_plan(disc, payload)
+            self.assertEqual(p["errors"], [], label); self.assertEqual(p["changes"], [], label)
+            self.assertEqual(p["counts"]["unchanged"], n, label)
+            self.assertEqual((p["counts"]["twins"], p["counts"]["twins_declined"]), (0, 0), label)
+            return p
+        for cat in cat_kinds:
+            raw, _h, n = csv_exporter.build_category_xlsx(disc, cat)
+            zero(raw, n, cat)
+            text, _h2, n2 = csv_exporter.build_category_csv(disc, cat)
+            zero(text, n2, cat)
+        raw_b, _hb, nb = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(nb, 1367); zero(raw_b, 1367, "mode B")
+        self.assertEqual(csv_importer.apply_plan(disc, raw_b)["applied"], 0)
+        # an item shared by two categories under ONE uid is one item, never its own twin: no identity in
+        # the index carries two uids (and switch_socket_item IS in both popup_boxes and switches_sockets)
+        active = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
+                                fields=["name", "item_uid", "kind", "brand", "unit", "attributes", "rates"])
+        idx = csv_importer.twin_index(active, spec_reader.spec_categories(disc))
+        self.assertEqual([k for k, v in idx.items() if len(v) > 1], [])
+        self.assertIn("switch_socket_item", cat_kinds["popup_boxes"]); self.assertIn("switch_socket_item", cat_kinds["switches_sockets"])
+        # plant a twin of the live cable DIRECTLY (a new uid): the file still round trips to zero, and a
+        # rates-only edit of the original is a plain update with no warning
+        src = frappe.get_doc("BoQ Rate Master Item", self._e_uid_name(disc, self.E_TWIN_UID))
+        frappe.get_doc({"doctype": "BoQ Rate Master Item", "discipline": disc, "kind": src.kind, "brand": src.brand,
+                        "unit": src.unit, "item_uid": "rmi-1f1f1f1f1f1f", "attributes": src.attributes, "rates": src.rates,
+                        "source_sheet": "test", "source_row": 999, "import_batch": "test-1f", "active": 1}).insert(ignore_permissions=True)
+        frappe.db.commit()
+        raw_w, hw, nw = csv_exporter.build_category_xlsx(disc, "wiring_cabling")
+        self.assertEqual(nw, 589); zero(raw_w, 589, "wiring with twins")
+        text, headers = self._wiring_with(disc, [{"item_uid": self.E_TWIN_UID, "kind": "cable", "brand": "Polycab", "unit": "Mtr",
+                                                 "core": "3.0", "insulation": "ARMOURED", "material": "COPPER", "thickness_sqmm": "2.5",
+                                                 "install_base_per_mtr": "14", "list_price_per_mtr": "482"}])
+        # (the file now names the uid twice: once in the export and once in the appended row -> use ONLY the appended row)
+        one = "\r\n".join([",".join(headers), text.strip().split("\r\n")[-1]]) + "\r\n"
+        p = csv_importer.build_plan(disc, one)
+        self.assertEqual(p["errors"], [], p["errors"][:2]); self.assertEqual(len(p["changes"]), 1)
+        self.assertNotIn("twin", p["changes"][0]); self.assertEqual(p["counts"]["twins"], 0)
+        self.assertEqual([f["column"] for f in p["changes"][0]["fields"]], ["list_price_per_mtr"])
+
+    def test_e12_electrical_manual_add_and_edit_ask_decline_and_confirm(self):
+        disc = self._loaded_disc()
+        target = self._e_uid_name(disc, self.E_TWIN_UID)
+        before = self._e_state(target)
+        n_before = self._active_items(disc)
+        attrs = json.dumps({"core": 3.0, "insulation": "ARMOURED", "material": "COPPER", "thickness_sqmm": 2.5})
+        rates = json.dumps({"list_price_per_mtr": 500.0})
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates)
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        self.assertEqual((ask["twin"]["item_uid"], ask["twin"]["name"]), (self.E_TWIN_UID, target))
+        self.assertEqual(ask["twin"]["compared"], ["kind", "brand", "unit", "core", "insulation", "material", "thickness_sqmm"])
+        self.assertEqual(self._active_items(disc), n_before)
+        dec = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates,
+                                                  twin_decision="decline")
+        self.assertTrue(dec["ok"]); self.assertFalse(dec["written"]); self.assertEqual(self._active_items(disc), n_before)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates,
+                                                twin_decision="confirm", twin_fingerprint="nope")
+        self.assertEqual(self._e_state(target), before)
+        ok = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates,
+                                                 twin_decision="confirm", twin_fingerprint=ask["twin"]["fingerprint"])
+        self.assertTrue(ok["ok"]); self.assertEqual(ok["item"]["name"], target)
+        self.assertEqual(ok["item"]["attributes"], before["attributes"])
+        self.assertEqual(ok["item"]["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 14.0})
+        self.assertEqual(self._active_items(disc), n_before)                                  # NO new item
+        # NEGATIVE: differing only in brand -> a plain create, no question
+        other = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Havells", unit="Mtr", attributes=attrs, rates=rates)
+        self.assertTrue(other["ok"]); self.assertNotIn("twin", other); self.assertEqual(self._active_items(disc), n_before + 1)
+        # EDIT (Y-e): X (thickness 999) patched to 2.5 would mean the same as the target -> ask; confirm -> the
+        # target takes X's rates, X byte-for-byte unchanged; a rates-only patch never asks
+        x = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+                                                attributes=json.dumps({"core": 3.0, "insulation": "ARMOURED", "material": "COPPER", "thickness_sqmm": 999.0}),
+                                                rates=json.dumps({"list_price_per_mtr": 7.0}))
+        x_name = x["item"]["name"]; x_state = self._e_state(x_name); t_state = self._e_state(target)
+        ask2 = rate_master.update_rate_master_item(name=x_name, attributes_patch=json.dumps({"thickness_sqmm": 2.5}), rates_patch=json.dumps({"list_price_per_mtr": 8.0}))
+        self.assertTrue(ask2["needs_twin_confirmation"])
+        self.assertEqual((ask2["twin"]["case"], ask2["twin"]["item_uid"], ask2["twin"]["edited_item_uid"]), ("edit", self.E_TWIN_UID, x_state["item_uid"]))
+        self.assertEqual(self._e_state(x_name), x_state); self.assertEqual(self._e_state(target), t_state)
+        ok2 = rate_master.update_rate_master_item(name=x_name, attributes_patch=json.dumps({"thickness_sqmm": 2.5}), rates_patch=json.dumps({"list_price_per_mtr": 8.0}),
+                                                  twin_decision="confirm", twin_fingerprint=ask2["twin"]["fingerprint"])
+        self.assertEqual(ok2["item"]["name"], target)
+        self.assertEqual(ok2["item"]["rates"], {"list_price_per_mtr": 8.0, "install_base_per_mtr": 14.0})
+        self.assertEqual(ok2["item"]["attributes"], before["attributes"])
+        self.assertEqual(self._e_state(x_name), x_state)
+        r3 = rate_master.update_rate_master_item(name=x_name, rates_patch=json.dumps({"list_price_per_mtr": 9.0}))
+        self.assertTrue(r3["ok"]); self.assertNotIn("twin", r3)
+
+    def test_e13_electrical_two_identical_new_rows_are_refused_naming_the_rows(self):
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        row = {"kind": "cable", "brand": "Havells", "unit": "Mtr", "core": "3", "insulation": "ARMOURED",
+               "material": "COPPER", "thickness_sqmm": "2.5", "list_price_per_mtr": "500"}
+        text, _h = self._wiring_with(disc, [row, {**row, "list_price_per_mtr": "510"}])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(len(plan["errors"]), 1)
+        self.assertIn("Rows 589 and 590 mean the same item", plan["errors"][0]["message"])
+        self.assertIn("remove one", plan["errors"][0]["message"])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
+        self.assertEqual(self._active_items(disc), 1367)
+
     def test_e01_xlsx_round_trip_is_a_no_op_for_every_electrical_file(self):
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
         disc = self._loaded_disc()
@@ -5925,8 +6168,19 @@ class TestRateMasterFreeze(FrappeTestCase):
             name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
             param_key=_RMF_PARAM_KEY, new_value=0.5)
         b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
-        applied = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        # SLICE 1f (inverted under owner Y-a): this fixture's items carry no item_uid, so each row of its own
+        # export is a new row that MEANS THE SAME as the item it came from -- every row warns, and an
+        # unanswered apply is refused. Declining every row proves the write path itself is open again.
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["counts"]["twins"], plan["row_count"]); self.assertGreater(plan["row_count"], 0)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        decisions = {str(c["row"]): "decline" for c in plan["changes"] if c.get("twin")}
+        applied = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64,
+                                                    twin_decisions=json.dumps(decisions))
         self.assertIn("applied", applied)
+        self.assertEqual(applied["applied"], 0)
 
     def test_rmf_07_freezing_records_who_and_when(self):
         """POSITIVE: attribution. The live fields say who SET the freeze and when, and the flip lands

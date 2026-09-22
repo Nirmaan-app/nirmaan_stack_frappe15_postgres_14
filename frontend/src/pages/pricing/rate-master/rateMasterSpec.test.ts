@@ -204,3 +204,33 @@ describe("the shown-in-full hint names the spec rows (the server promotes them t
     expect(UPLOAD_COPY.expandedHint).toContain("10%");
   });
 });
+
+describe("SLICE 1f -- the duplicate answers on the three payloads: byte-identical when absent, exact keys when present", () => {
+  it("applyCsvPayload: absent / empty twin maps -> the pre-1f payload to the byte", () => {
+    const base = applyCsvPayload("HVAC", "QUJD", "d");
+    expect(JSON.stringify(applyCsvPayload("HVAC", "QUJD", "d", undefined, undefined, {}, {}))).toBe(JSON.stringify(base));
+    expect(Object.keys(base)).toEqual(["discipline", "content_base64", "expected_digest"]);
+    // present -> exactly two more JSON-string fields, after the 1d pair
+    const p = applyCsvPayload("HVAC", "QUJD", "d", { 1: "accept" }, { 1: "fp" }, { 2: "confirm", 3: "decline" }, { 2: "tfp" });
+    expect(p.twin_decisions).toBe(JSON.stringify({ 2: "confirm", 3: "decline" }));
+    expect(p.twin_fingerprints).toBe(JSON.stringify({ 2: "tfp" }));
+    expect(Object.keys(p)).toEqual(["discipline", "content_base64", "expected_digest", "decisions", "accepted_fingerprints", "twin_decisions", "twin_fingerprints"]);
+    // twin answers WITHOUT spec answers: the 1d keys are absent, the 1f keys present
+    const q = applyCsvPayload("Electrical", "QUJD", "d", undefined, undefined, { 4: "confirm" }, { 4: "tfp4" });
+    expect(Object.keys(q)).toEqual(["discipline", "content_base64", "expected_digest", "twin_decisions", "twin_fingerprints"]);
+  });
+  it("createItemPayload / saveItemPayload: the twin pair is added only when present", () => {
+    const base = createItemPayload("Electrical", { kind: "cable", brand: "Polycab", unit: "Mtr", attributes: { material: "COPPER" }, rates: { list_price_per_mtr: 10 } });
+    expect(Object.keys(base)).toEqual(["discipline", "kind", "brand", "unit", "attributes", "rates"]);
+    const c = createItemPayload("Electrical", { kind: "cable", brand: "Polycab", unit: "Mtr", attributes: {}, rates: {}, twin_decision: "confirm", twin_fingerprint: "tfp" });
+    expect(Object.keys(c).slice(-2)).toEqual(["twin_decision", "twin_fingerprint"]);
+    expect(c.twin_decision).toBe("confirm"); expect(c.twin_fingerprint).toBe("tfp");
+    const s0 = saveItemPayload("RMI-1", { rates_patch: { x: 1 } });
+    expect(Object.keys(s0)).toEqual(["name", "rates_patch", "attributes_patch"]);
+    const s1 = saveItemPayload("RMI-1", { attributes_patch: { core: 2 }, twin_decision: "confirm", twin_fingerprint: "tfp" });
+    expect(Object.keys(s1)).toEqual(["name", "rates_patch", "attributes_patch", "twin_decision", "twin_fingerprint"]);
+    // a spec answer AND a twin answer travel together (the form may have answered both questions in turn)
+    const both = saveItemPayload("RMI-1", { attributes_patch: { item_detail: "x" }, spec_decision: "accept", spec_fingerprint: "sfp", twin_decision: "confirm", twin_fingerprint: "tfp" });
+    expect(Object.keys(both)).toEqual(["name", "rates_patch", "attributes_patch", "spec_decision", "spec_fingerprint", "twin_decision", "twin_fingerprint"]);
+  });
+});

@@ -1261,16 +1261,93 @@ def _resolve_spec_write(spec_cat, item_name, item_detail, unit, spec_decision, s
     return confirmed, spec_out, None
 
 
+def _resolve_twin_write(discipline, kind, brand, unit, attributes, rates, spec_cat, twin_decision,
+                        twin_fingerprint, exclude_name=None, case="new", edited_uid=None):
+    """SLICE 1f -- THE ONE duplicate resolver both manual endpoints use (owner Y-a / Y-b 3 / Y-e).
+
+    Returns (ask, target, block). `ask` non-None: return it INSTEAD of writing -- the entry means the
+    same as an existing active item and either no decision was sent (needs_twin_confirmation) or the
+    user DECLINED (nothing written, `written: False`). `target` non-None: the user CONFIRMED and the
+    fingerprint matches what the form was shown -- the caller updates THAT item's rates and markups
+    and nothing else (never inserts, never saves the edited item). Both None: no twin, write as today.
+    The identity, the finder and the block are `csv_importer`'s -- one definition for every path."""
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    target, ident, ambiguous = csv_importer.find_active_twin(
+        discipline, kind, brand, unit, attributes, exclude_name=exclude_name)
+    if ambiguous:
+        frappe.throw(
+            "This entry means the same as %d existing items (%s) -- the catalog already holds twins; "
+            "resolve those first. Nothing was written." % (len(ambiguous), ", ".join(ambiguous)),
+            title="Duplicate items",
+        )
+    if target is None:
+        return None, None, None
+    block = csv_importer.twin_block(case, target, ident, kind, brand, unit, attributes, rates, spec_cat,
+                                    edited_uid=edited_uid)
+    if twin_decision is None:
+        return {"ok": False, "needs_twin_confirmation": True, "twin": block}, None, block
+    if twin_decision == csv_importer.TWIN_DECLINE:
+        block["decision"] = csv_importer.TWIN_DECLINE
+        return {"ok": True, "written": False, "twin": block}, None, block     # no change at all (Y-a)
+    if twin_decision != csv_importer.TWIN_CONFIRM:
+        frappe.throw("twin_decision must be 'confirm' or 'decline'.", title="Invalid value")
+    if not twin_fingerprint or twin_fingerprint != block["fingerprint"]:
+        frappe.throw(
+            "The existing item this entry would update is not the one that was shown, or it changed since "
+            "(or no fingerprint was sent). Re-open the entry and answer again. Nothing was written.",
+            title="Duplicate target out of date",
+        )
+    block["decision"] = csv_importer.TWIN_CONFIRM
+    return None, target, block
+
+
+def _twin_confirmed_write(target_name, rates, block, spec_out=None):
+    """The CONFIRMED write: the existing item takes the entry's non-blank rates and markups; its uid,
+    wording, attributes, spec status and provenance are untouched. Audited (doc.save)."""
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    tdoc = frappe.get_doc(ITEM_DOCTYPE, target_name)
+    tdoc.rates = json.dumps(csv_importer.merge_rates(_parse_json(tdoc.rates, {}) or {}, rates))
+    tdoc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    frappe.db.commit()
+    out = {
+        "ok": True,
+        "item": {
+            "name": tdoc.name,
+            "discipline": tdoc.discipline,
+            "kind": tdoc.kind,
+            "brand": tdoc.brand,
+            "unit": tdoc.unit,
+            "attributes": _parse_json(tdoc.attributes, {}),
+            "rates": _parse_json(tdoc.rates, {}),
+            "source_sheet": tdoc.source_sheet,
+            "source_row": tdoc.source_row,
+            "import_batch": tdoc.import_batch,
+            "active": tdoc.active,
+        },
+        "twin": block,
+    }
+    if spec_out is not None:
+        out["spec"] = spec_out
+    return out
+
+
 @frappe.whitelist(methods=["POST"])
 def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
-                            spec_decision=None, spec_fingerprint=None):
+                            spec_decision=None, spec_fingerprint=None,
+                            twin_decision=None, twin_fingerprint=None):
     """ADMIN-ONLY: merge a rates_patch and/or attributes_patch onto an item's existing JSON dicts.
     Rate values numeric-or-null; attribute keys validated against the discipline's active config
     attribute-definitions where determinable, and material/insulation canonicalised to UPPERCASE.
     Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item
     SLICE 1d: for an opted-in kind whose changed text the exact read refuses, returns
     {ok: False, needs_confirmation: True, question, suggestion} WITHOUT writing until the caller answers
-    with spec_decision (+ spec_fingerprint on accept); see _resolve_spec_write."""
+    with spec_decision (+ spec_fingerprint on accept); see _resolve_spec_write.
+    SLICE 1f (owner Y-e): an attributes_patch that would make this item mean the same as ANOTHER active
+    item returns {ok: False, needs_twin_confirmation: True, twin} WITHOUT writing; twin_decision "confirm"
+    (+ twin_fingerprint) updates the OTHER item's rates and markups and leaves this one exactly as it
+    was; "decline" writes nothing. A rates-only patch never checks."""
     _require_rate_admin()  # BEFORE resolution/write
     freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
@@ -1289,6 +1366,7 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
     doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
     rates = _parse_json(doc.rates, {}) or {}
     attributes = _parse_json(doc.attributes, {}) or {}
+    original_attributes = json.dumps(attributes, sort_keys=True, default=str)
 
     if rates_patch:
         for k, v in rates_patch.items():
@@ -1332,6 +1410,18 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
             merged[k] = v
         attributes = loader._canonicalize_attributes(merged)  # material/insulation -> UPPERCASE
 
+    # SLICE 1f: ONLY an identity change is checked -- a rates-only patch, and a patch that leaves the
+    # attributes as they were, never warn even when the item already has a twin today (G2).
+    if attributes_patch and json.dumps(attributes, sort_keys=True, default=str) != original_attributes:
+        ask, target, block = _resolve_twin_write(
+            doc.discipline, doc.kind, doc.brand, doc.unit, attributes, rates, spec_cat,
+            twin_decision, twin_fingerprint, exclude_name=doc.name, case="edit", edited_uid=doc.item_uid)
+        if ask is not None:
+            return ask                # NOTHING written -- the form asks first, or the user declined
+        if target is not None:
+            # Y-e: the OTHER item takes the row's rates and markups; THIS item is not saved at all.
+            return _twin_confirmed_write(target["name"], rates, block, spec_out)
+
     doc.rates = json.dumps(rates)
     doc.attributes = json.dumps(attributes)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
@@ -1357,12 +1447,16 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
 @frappe.whitelist(methods=["POST"])
 def create_rate_master_item(
     discipline=None, kind=None, brand=None, unit=None, attributes=None, rates=None,
-    spec_decision=None, spec_fingerprint=None,
+    spec_decision=None, spec_fingerprint=None, twin_decision=None, twin_fingerprint=None,
 ):
     """ADMIN-ONLY: insert a new ACTIVE item row with MANUAL provenance (import_batch='manual-'+hash,
     source_sheet='Manual entry', source_row=0). Attribute keys validated against the discipline's
     active config where determinable; material/insulation canonicalised to UPPERCASE; rate values
     numeric-or-null. Audited on insert. Returns {ok, item}.
+    SLICE 1f (owner Y-a): an entry that means the same as an existing active item returns
+    {ok: False, needs_twin_confirmation: True, twin} WITHOUT writing; twin_decision "confirm"
+    (+ twin_fingerprint) updates the EXISTING item's rates and markups and inserts NOTHING; "decline"
+    writes nothing.
     URL: .../rate_master.create_rate_master_item"""
     _require_rate_admin()  # BEFORE resolution/write
     freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
@@ -1410,6 +1504,15 @@ def create_rate_master_item(
                         title="Invalid attribute",
                     )
         attrs = loader._canonicalize_attributes(attributes)  # material/insulation -> UPPERCASE
+
+    # SLICE 1f: does this entry mean the same as an active item? Asked AFTER the spec is resolved (the
+    # reader decides the attributes the meaning is made of) and BEFORE anything is inserted.
+    ask, target, block = _resolve_twin_write(
+        discipline, kind.strip(), brand, unit, attrs, clean_rates, spec_cat, twin_decision, twin_fingerprint)
+    if ask is not None:
+        return ask                    # NOTHING inserted -- the form asks first, or the user declined
+    if target is not None:
+        return _twin_confirmed_write(target["name"], clean_rates, block, spec_out)   # NO new item (Y-d)
 
     doc = frappe.get_doc(
         {
@@ -1708,7 +1811,7 @@ def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
 @frappe.whitelist(methods=["POST"])
 def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
                           expected_digest=None, decisions=None, accepted_fingerprints=None,
-                          category_id=None):
+                          category_id=None, twin_decisions=None, twin_fingerprints=None):
     """ADMIN-ONLY: apply an already-previewed CSV. ALL-OR-NOTHING.
 
     A SNAPSHOT of the pre-upload catalog is written FIRST, in the SAME transaction, via
@@ -1740,10 +1843,20 @@ def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
         frappe.throw("decisions must be an object of row -> accept | reject.", title="Invalid value")
     if accepted_fingerprints is not None and not isinstance(accepted_fingerprints, dict):
         frappe.throw("accepted_fingerprints must be an object of row -> fingerprint.", title="Invalid value")
+    # SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning + the confirmed targets'
+    # fingerprints, both OPTIONAL. Absent -> exactly the 1e apply (a plan with a warning is then refused
+    # as unanswered, nothing written). Present -> apply_plan re-derives each target and checks it.
+    twin_decisions = _parse_json(twin_decisions, None)
+    twin_fingerprints = _parse_json(twin_fingerprints, None)
+    if twin_decisions is not None and not isinstance(twin_decisions, dict):
+        frappe.throw("twin_decisions must be an object of row -> confirm | decline.", title="Invalid value")
+    if twin_fingerprints is not None and not isinstance(twin_fingerprints, dict):
+        frappe.throw("twin_fingerprints must be an object of row -> fingerprint.", title="Invalid value")
     result = csv_importer.apply_plan(
         discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest,
         decisions=decisions or None, accepted_fingerprints=accepted_fingerprints or None,
         category_id=(category_id or None),
+        twin_decisions=twin_decisions or None, twin_fingerprints=twin_fingerprints or None,
     )
     frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
     result["plan"] = csv_importer.public_plan(result["plan"])

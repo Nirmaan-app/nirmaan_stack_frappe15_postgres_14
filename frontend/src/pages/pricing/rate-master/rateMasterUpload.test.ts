@@ -9,9 +9,15 @@ import {
   headlineCounts,
   planIsNoOp,
   splitChanges,
+  TWIN_COPY,
+  rowsWithTwin,
+  twinFingerprints,
+  twinNumbers,
+  undecidedTwinRows,
   type UploadChange,
   type UploadCounts,
   type UploadPlan,
+  type UploadTwin,
 } from "./rateMasterUpload";
 
 // SLICE 6. `fileToBase64` is deliberately NOT covered here: it wraps FileReader, and this project
@@ -290,5 +296,108 @@ describe("showEncodingWarning -- the cp1252 warning is about a CSV decode, never
     // a pre-1e server reply carries no `format`: the old rule stands unchanged
     expect(showEncodingWarning({ encoding: "cp1252" } as { encoding: string; format?: "xlsx" | "csv" })).toBe(true);
     expect(showEncodingWarning({ encoding: "utf-8" } as { encoding: string; format?: "xlsx" | "csv" })).toBe(false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1f -- SAME-MEANING DUPLICATES (owner Y-a..Y-f). Plain-English coverage:
+//   * the warning is the approved sentence, with BOTH wordings and the existing item's uid; the edit
+//     case adds the line naming the edited item, which stays as it is;
+//   * canApply is FALSE while any duplicate warning is unanswered (the server refuses too; this keeps
+//     the button honest) and TRUE once every one is confirmed or declined; a plan with no warning is
+//     unchanged (NEGATIVE: the pre-1f rule still holds for it);
+//   * twinFingerprints sends a fingerprint for a CONFIRMED row only -- never for a decline, never for a
+//     row without a warning;
+//   * the `same as existing` chip appears ONLY when the count is non-zero (like `other changes`), so an
+//     ordinary upload keeps its four numbers;
+//   * twinNumbers renders the numbers in a stable order with the em-dash for a blank.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+const twin = (over: Partial<UploadTwin> = {}): UploadTwin => ({
+  case: "new",
+  item_uid: "rmi-31fd9a7020d8",
+  name: "BRMI-26-1",
+  existing_wording: "Round Diffuser Without GI Damper / 300 MM DIA",
+  row_wording: "Round Diffuser Without GI Dampers / 300 MM DIA",
+  existing_rates: { cost_install: "250.0", cost_supply: "720.0" },
+  row_rates: { cost_install: "150.0", cost_supply: "800.0" },
+  compared: ["family", "damper", "dia_mm"],
+  fingerprint: "fp-existing",
+  decision: null,
+  ...over,
+});
+
+describe("SLICE 1f -- the duplicate warning", () => {
+  it("is the approved sentence with BOTH wordings and the existing item's uid", () => {
+    const t = twin();
+    const text = TWIN_COPY.warning(t.existing_wording, t.item_uid, t.row_wording);
+    expect(text).toBe(
+      "This means the same as an existing item: Round Diffuser Without GI Damper / 300 MM DIA (rmi-31fd9a7020d8). " +
+      "Your row says: Round Diffuser Without GI Dampers / 300 MM DIA. " +
+      "If you confirm, the existing item's rates and markups are updated to these; its wording stays as it is.",
+    );
+    // an existing item WITHOUT a uid (added by hand): no empty bracket
+    expect(TWIN_COPY.warning("A / B", "", "C / D")).toBe(
+      "This means the same as an existing item: A / B. Your row says: C / D. " +
+      "If you confirm, the existing item's rates and markups are updated to these; its wording stays as it is.",
+    );
+    // the edit case (Y-e) names the edited item and says it stays exactly as it is
+    expect(TWIN_COPY.editNote("rmi-aaaaaaaaaaaa")).toContain("rmi-aaaaaaaaaaaa");
+    expect(TWIN_COPY.editNote("rmi-aaaaaaaaaaaa")).toMatch(/exactly as it is/);
+    expect(TWIN_COPY.decided("confirm")).toMatch(/existing item/);
+    expect(TWIN_COPY.decided("decline")).toMatch(/nothing changes/);
+  });
+  it("renders both sets of numbers in a stable order, em-dash for a blank", () => {
+    expect(twinNumbers({ cost_supply: "720.0", cost_install: "250.0" })).toBe("cost_install = 250.0, cost_supply = 720.0");
+    expect(twinNumbers({ b: "", a: "1" })).toBe("a = 1, b = \u2014");
+    expect(twinNumbers({})).toBe("");
+  });
+  it("names the warning rows and the UNANSWERED ones; canApply waits for every answer", () => {
+    const p = plan({
+      changes: [
+        change({ row: 1, kind: "add", item_uid: null, major: true, twin: twin() }),
+        change({ row: 2, major: false }),
+        change({ row: 3, kind: "add", item_uid: null, major: true, twin: twin({ fingerprint: "fp3" }) }),
+      ],
+    });
+    expect(rowsWithTwin(p)).toEqual([1, 3]);
+    expect(rowsWithTwin(null)).toEqual([]);
+    expect(undecidedTwinRows(p, {})).toEqual([1, 3]);
+    expect(undecidedTwinRows(p, { 1: "confirm" })).toEqual([3]);
+    expect(undecidedTwinRows(p, { 1: "confirm", 3: "decline" })).toEqual([]);
+    expect(canApply(p)).toBe(false);                                 // unanswered -> no apply
+    expect(canApply(p, { 1: "confirm" })).toBe(false);               // one still unanswered
+    expect(canApply(p, { 1: "confirm", 3: "decline" })).toBe(true);  // every warning answered
+    expect(canApply(p, { 1: "decline", 3: "decline" })).toBe(true);  // declining all is an answer too
+    // NEGATIVE: a plan with NO warning keeps the pre-1f rule -- appliable without any decision map
+    const q = plan({ changes: [change({ row: 1 })] });
+    expect(canApply(q)).toBe(true);
+    expect(canApply(plan({ changes: [change({ row: 1 })], errors: [{ row: 1, column: "", message: "x" }] }))).toBe(false);
+  });
+  it("sends a fingerprint for a CONFIRMED warning row only", () => {
+    const p = plan({
+      changes: [
+        change({ row: 1, kind: "add", item_uid: null, twin: twin({ fingerprint: "fp1" }) }),
+        change({ row: 2 }),
+        change({ row: 3, kind: "add", item_uid: null, twin: twin({ fingerprint: "fp3" }) }),
+      ],
+    });
+    expect(twinFingerprints(p, { 1: "confirm", 2: "confirm", 3: "decline" })).toEqual({ 1: "fp1" });
+    expect(twinFingerprints(p, {})).toEqual({});
+    expect(twinFingerprints(null, { 1: "confirm" })).toEqual({});
+  });
+  it("the chip appears ONLY when the count is non-zero, after the four, before unchanged", () => {
+    const keys = (c: UploadCounts) => headlineCounts(c).map((x) => x.key);
+    expect(keys(counts())).toEqual(["rates_changed", "items_added", "unchanged", "errors"]);
+    expect(keys(counts({ twins: 0 }))).toEqual(["rates_changed", "items_added", "unchanged", "errors"]);
+    expect(keys(counts({ twins: 2 }))).toEqual(["rates_changed", "items_added", "twins", "unchanged", "errors"]);
+    const chip = headlineCounts(counts({ twins: 2 })).find((x) => x.key === "twins")!;
+    expect(chip.label).toBe(TWIN_COPY.chip);
+    expect(chip.value).toBe(2);
+    expect(chip.tone).toBe("warn");
+  });
+  it("the shown-in-full hint names the duplicate rows (the server promotes them to major)", () => {
+    expect(UPLOAD_COPY.expandedHint).toMatch(/same as an existing item/);
+    expect(UPLOAD_COPY.expandedHint).toContain("ask about or flags");   // the 1d half stays
   });
 });

@@ -25,8 +25,8 @@ import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
 import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
 import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import {
-  DEFAULT_RATE_FILE_FORMAT, FORMAT_COPY, RATE_FILE_FORMATS,
-  type RateFileFormat, type UploadPlan, type UploadResult,
+  DEFAULT_RATE_FILE_FORMAT, FORMAT_COPY, RATE_FILE_FORMATS, TWIN_COPY, twinNumbers,
+  type RateFileFormat, type TwinDecision, type UploadPlan, type UploadResult, type UploadTwin,
 } from "./rateMasterUpload";
 import {
   categoryItemKinds,
@@ -108,6 +108,9 @@ interface Props {
     // SLICE 1d: the per-row Accept / Reject answers and the accepted suggestions' fingerprints, both optional.
     decisions?: Record<number, SpecDecision>, acceptedFingerprints?: Record<number, string>,
     categoryId?: string | null,
+    // SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning + the confirmed targets'
+    // fingerprints, both optional (absent -> the payload is byte-identical to before).
+    twinDecisions?: Record<number, TwinDecision>, twinFingerprints?: Record<number, string>,
   ) => Promise<UploadResult>;
   onUploadApplied?: () => void;
 }
@@ -157,6 +160,10 @@ export function RateMasterDataViewer({
   const [rowErr, setRowErr] = useState<string | null>(null);
   // SLICE 1d: an edit the exact read refused, awaiting the user's Accept / Reject of the server's best match.
   const [rowAsk, setRowAsk] = useState<{ name: string; patch: SaveItemPatch; reply: SpecConfirmationReply } | null>(null);
+  // SLICE 1f (owner Y-e): an edit that would make this item mean the same as ANOTHER item -- the warning is
+  // answered in the row; Confirm sends the answer (the OTHER item takes the rates, this one stays), Decline
+  // sends nothing at all.
+  const [rowTwinAsk, setRowTwinAsk] = useState<{ name: string; patch: SaveItemPatch; twin: UploadTwin } | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<{ name: string; label: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -368,6 +375,7 @@ export function RateMasterDataViewer({
     setEditingRow(null);
     setRowErr(null);
     setRowAsk(null);
+    setRowTwinAsk(null);
   };
   const saveEdit = async (it: RateMasterItem) => {
     if (!onSaveItem || !it.name) return;
@@ -422,6 +430,11 @@ export function RateMasterDataViewer({
         return;
       }
       setRowAsk(null);
+      if (reply && reply.needs_twin_confirmation && reply.twin) {
+        setRowTwinAsk({ name, patch, twin: reply.twin });   // NOTHING written -- ask first
+        return;
+      }
+      setRowTwinAsk(null);
       setEditingRow(null);
     } catch (e) {
       setRowErr((e as { message?: string })?.message ?? "Save failed");
@@ -433,6 +446,15 @@ export function RateMasterDataViewer({
     if (!rowAsk) return;
     const fp = rowAsk.reply.suggestion?.fingerprint;
     await sendSave(rowAsk.name, { ...rowAsk.patch, spec_decision: d, spec_fingerprint: d === "accept" ? fp : undefined });
+  };
+  const answerRowTwin = async (d: TwinDecision) => {
+    if (!rowTwinAsk) return;
+    if (d === "decline") {
+      // Declined: no request, no change (owner Y-a / Y-e). The row stays in edit mode with its draft.
+      setRowTwinAsk(null);
+      return;
+    }
+    await sendSave(rowTwinAsk.name, { ...rowTwinAsk.patch, twin_decision: "confirm", twin_fingerprint: rowTwinAsk.twin.fingerprint });
   };
   const doDeactivate = async () => {
     if (!onDeactivateItem || !confirmDeactivate) return;
@@ -522,7 +544,7 @@ export function RateMasterDataViewer({
             frozen={writeBlocked}
             // SLICE 1e: the selected category rides as the optional hint (see the prop comments above)
             onPreview={(b64) => onPreviewCsv(b64, config.category_id)}
-            onApply={(b64, digest, decisions, fps) => onApplyCsv(b64, digest, decisions, fps, config.category_id)}
+            onApply={(b64, digest, decisions, fps, tdec, tfps) => onApplyCsv(b64, digest, decisions, fps, config.category_id, tdec, tfps)}
             onApplied={onUploadApplied}
           />
         )}
@@ -651,14 +673,20 @@ export function RateMasterDataViewer({
                 {canEdit && (
                   <TableCell className="sticky left-0 z-10 bg-background text-right">
                     {editing ? (
-                      <div className="flex items-center justify-end gap-1">
-                        {rowErr && <span className="text-[10px] text-destructive">{rowErr}</span>}
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Save row" onClick={() => void saveEdit(r.it)}>
-                          <Check className="h-4 w-4 text-emerald-600" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Cancel edit" onClick={cancelEdit}>
-                          <X className="h-4 w-4" />
-                        </Button>
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center justify-end gap-1">
+                          {rowErr && <span className="text-[10px] text-destructive">{rowErr}</span>}
+                          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving || !!rowTwinAsk} aria-label="Save row" onClick={() => void saveEdit(r.it)}>
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Cancel edit" onClick={cancelEdit}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        {rowTwinAsk && rowTwinAsk.name === r.it.name ? (
+                          // SLICE 1f (owner Y-e): the edit would make this item mean the same as another one.
+                          <TwinQuestion twin={rowTwinAsk.twin} busy={rowSaving} onAnswer={(d) => void answerRowTwin(d)} testId="row-twin-question" />
+                        ) : null}
                       </div>
                     ) : (
                       <div className="flex items-center justify-end gap-1">
@@ -848,6 +876,27 @@ export function RateMasterDataViewer({
 // RM-4a: the Add-item form -- selects/inputs built from the attribute definitions + the known rate
 // keys. Attribute choices come from each definition's stored values; numbers + rates are free inputs.
 // Manual provenance ("Manual entry", batch manual-...) is stamped server-side.
+/**
+ * SLICE 1f -- the duplicate warning in a form (owner Y-a / Y-b 3 / Y-e): the approved sentence with BOTH wordings
+ * and BOTH sets of numbers, Confirm / Decline. The same text as the upload preview; nothing is decided here.
+ */
+function TwinQuestion({ twin, busy, onAnswer, testId }: {
+  twin: UploadTwin; busy: boolean; onAnswer: (d: TwinDecision) => void; testId: string;
+}) {
+  return (
+    <div className="max-w-[24rem] rounded border border-orange-500/50 bg-orange-50 p-1.5 text-left text-[10px] text-orange-950 dark:bg-orange-950/30 dark:text-orange-200" data-testid={testId}>
+      <div>{TWIN_COPY.warning(twin.existing_wording, twin.item_uid, twin.row_wording)}</div>
+      {twin.case === "edit" && twin.edited_item_uid ? <div className="mt-0.5">{TWIN_COPY.editNote(twin.edited_item_uid)}</div> : null}
+      <div className="mt-0.5 font-mono">{TWIN_COPY.existingNumbers}: {twinNumbers(twin.existing_rates) || "—"}</div>
+      <div className="font-mono">{TWIN_COPY.rowNumbers}: {twinNumbers(twin.row_rates) || "—"}</div>
+      <div className="mt-1 flex gap-1">
+        <Button size="sm" className="h-6 px-2 text-[10px]" disabled={busy} onClick={() => onAnswer("confirm")} aria-label="Confirm duplicate">{TWIN_COPY.confirm}</Button>
+        <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" disabled={busy} onClick={() => onAnswer("decline")} aria-label="Decline duplicate">{TWIN_COPY.decline}</Button>
+      </div>
+    </div>
+  );
+}
+
 function AddItemDialog({
   open, onOpenChange, config, rateCols, kinds, specMode, textDefs, onCreate,
 }: {
@@ -874,6 +923,9 @@ function AddItemDialog({
   const [err, setErr] = useState<string | null>(null);
   // SLICE 1d: the server's "needs confirmation" reply for THIS entry -- the form asks before anything is saved.
   const [ask, setAsk] = useState<{ payload: CreateItemPayload; reply: SpecConfirmationReply } | null>(null);
+  // SLICE 1f (owner Y-a): the entry means the same as an existing item -- the server wrote NOTHING and asks;
+  // Confirm updates the EXISTING item's rates (no new item), Decline sends nothing and leaves the form open.
+  const [twinAsk, setTwinAsk] = useState<{ payload: CreateItemPayload; twin: UploadTwin } | null>(null);
 
   const send = async (payload: CreateItemPayload) => {
     setSaving(true);
@@ -885,6 +937,11 @@ function AddItemDialog({
         return;
       }
       setAsk(null);
+      if (reply && reply.needs_twin_confirmation && reply.twin) {
+        setTwinAsk({ payload, twin: reply.twin });
+        return;
+      }
+      setTwinAsk(null);
       onOpenChange(false);
       setAttrs({});
       setRates({});
@@ -899,9 +956,18 @@ function AddItemDialog({
     const fp = ask.reply.suggestion?.fingerprint;
     await send({ ...ask.payload, spec_decision: d, spec_fingerprint: d === "accept" ? fp : undefined });
   };
+  const answerTwin = async (d: TwinDecision) => {
+    if (!twinAsk) return;
+    if (d === "decline") {
+      setTwinAsk(null);          // no request, no change; the entry stays for the user to change or cancel
+      return;
+    }
+    await send({ ...twinAsk.payload, twin_decision: "confirm", twin_fingerprint: twinAsk.twin.fingerprint });
+  };
 
   const submit = async () => {
     setAsk(null);
+    setTwinAsk(null);
     const attributes: Record<string, string | number> = {};
     if (specMode) {
       for (const d of textDefs ?? []) attributes[d.id] = attrs[d.id] ?? "";
@@ -1029,9 +1095,12 @@ function AddItemDialog({
             </div>
           </div>
         ) : null}
+        {twinAsk ? (
+          <TwinQuestion twin={twinAsk.twin} busy={saving} onAnswer={(d) => void answerTwin(d)} testId="add-twin-question" />
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={() => void submit()} disabled={saving || !kind || !!ask}>Add item</Button>
+          <Button onClick={() => void submit()} disabled={saving || !kind || !!ask || !!twinAsk}>Add item</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

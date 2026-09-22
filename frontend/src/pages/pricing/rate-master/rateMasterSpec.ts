@@ -13,7 +13,7 @@
 
 import { formatDate } from "@/utils/FormatDate";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
-import type { UploadPlan, UploadSpec } from "./rateMasterUpload";
+import type { TwinDecision, UploadPlan, UploadSpec, UploadTwin } from "./rateMasterUpload";
 
 /** The config key that opts a category in. Read as `=== true`, exactly as the server reads it. */
 export const SPEC_CONFIG_KEY = "attributes_from_spec";
@@ -123,6 +123,13 @@ export interface SpecConfirmationReply {
   suggestion?: SpecSuggestion | null;
   no_suggestion_reason?: string | null;
   item?: unknown;
+  /**
+   * SLICE 1f: the entry MEANS THE SAME as an existing active item (owner Y-a / Y-e): NOTHING was written,
+   * the form must ask Confirm / Decline. Confirm re-sends with `twin_decision` + `twin_fingerprint` and the
+   * EXISTING item takes the rates; Decline sends nothing (no change at all).
+   */
+  needs_twin_confirmation?: boolean;
+  twin?: UploadTwin;
 }
 
 export const SPEC_CONFIRM_COPY = {
@@ -195,10 +202,16 @@ export function applyCsvPayload(
   expectedDigest: string,
   decisions?: Record<number, SpecDecision>,
   fingerprints?: Record<number, string>,
+  // SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning and the confirmed targets'
+  // fingerprints -- both optional; absent (or empty), the payload is byte-identical to before.
+  twinDecisions?: Record<number, TwinDecision>,
+  twinFingerprints?: Record<number, string>,
 ): Record<string, string> {
   const out: Record<string, string> = { discipline, content_base64: contentBase64, expected_digest: expectedDigest };
   if (decisions && Object.keys(decisions).length) out.decisions = JSON.stringify(decisions);
   if (fingerprints && Object.keys(fingerprints).length) out.accepted_fingerprints = JSON.stringify(fingerprints);
+  if (twinDecisions && Object.keys(twinDecisions).length) out.twin_decisions = JSON.stringify(twinDecisions);
+  if (twinFingerprints && Object.keys(twinFingerprints).length) out.twin_fingerprints = JSON.stringify(twinFingerprints);
   return out;
 }
 
@@ -210,6 +223,9 @@ export interface CreateItemPayload {
   rates: Record<string, number | null>;
   spec_decision?: SpecDecision;
   spec_fingerprint?: string;
+  /** SLICE 1f: the answer to the duplicate warning (only "confirm" ever travels; a decline sends nothing). */
+  twin_decision?: TwinDecision;
+  twin_fingerprint?: string;
 }
 
 export function createItemPayload(discipline: string, p: CreateItemPayload): Record<string, string | undefined> {
@@ -219,6 +235,8 @@ export function createItemPayload(discipline: string, p: CreateItemPayload): Rec
   };
   if (p.spec_decision) out.spec_decision = p.spec_decision;
   if (p.spec_fingerprint) out.spec_fingerprint = p.spec_fingerprint;
+  if (p.twin_decision) out.twin_decision = p.twin_decision;
+  if (p.twin_fingerprint) out.twin_fingerprint = p.twin_fingerprint;
   return out;
 }
 
@@ -227,6 +245,9 @@ export interface SaveItemPatch {
   attributes_patch?: Record<string, string | number>;
   spec_decision?: SpecDecision;
   spec_fingerprint?: string;
+  /** SLICE 1f: the answer to the duplicate warning on an edit (Y-e); only "confirm" ever travels. */
+  twin_decision?: TwinDecision;
+  twin_fingerprint?: string;
 }
 
 export function saveItemPayload(name: string, patch: SaveItemPatch): Record<string, string | undefined> {
@@ -237,5 +258,7 @@ export function saveItemPayload(name: string, patch: SaveItemPatch): Record<stri
   };
   if (patch.spec_decision) out.spec_decision = patch.spec_decision;
   if (patch.spec_fingerprint) out.spec_fingerprint = patch.spec_fingerprint;
+  if (patch.twin_decision) out.twin_decision = patch.twin_decision;
+  if (patch.twin_fingerprint) out.twin_fingerprint = patch.twin_fingerprint;
   return out;
 }

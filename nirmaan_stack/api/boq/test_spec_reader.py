@@ -373,16 +373,28 @@ class TestSpecReader(FrappeTestCase):
     def test_t08_manual_add_and_edit_go_through_the_same_reader(self):
         disc = self._new_disc()
         self._load(self.v2, disc)
-        res = rate_master.create_rate_master_item(
+        # SLICE 1f (inverted under owner Y-a / Y-c): "Round Diffuser with damper / 250 mm dia / Nos" MEANS THE
+        # SAME as v2 row 41 ("Round Diffuser With GI Damper / 250 MM DIA"), so the create now ASKS and inserts
+        # nothing; the reader claims below continue on a size no v2 item carries.
+        before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        twin = rate_master.create_rate_master_item(
             discipline=disc, kind="hvac_adp_item", unit="Nos",
             attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "250 mm dia"}),
+            rates=json.dumps({"cost_supply": 900.0, "cost_install": 120.0, "supply_markup": 0.45, "install_markup": 0.6}),
+        )
+        self.assertFalse(twin["ok"]); self.assertTrue(twin["needs_twin_confirmation"])
+        self.assertEqual(twin["twin"]["item_uid"], "rmi-fa0c8236a474")
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before)
+        res = rate_master.create_rate_master_item(
+            discipline=disc, kind="hvac_adp_item", unit="Nos",
+            attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "225 mm dia"}),
             rates=json.dumps({"cost_supply": 900.0, "cost_install": 120.0, "supply_markup": 0.45, "install_markup": 0.6}),
         )
         self.assertTrue(res["ok"])
         self.assertEqual(res["spec"], {"status": "ok", "reason": None})
         self.assertEqual(res["item"]["attributes"], {"item_name": "Round Diffuser with damper",
-                                                     "item_detail": "250 mm dia", "family": "round diffuser",
-                                                     "damper": "with", "dia_mm": 250.0})
+                                                     "item_detail": "225 mm dia", "family": "round diffuser",
+                                                     "damper": "with", "dia_mm": 225.0})
         name = res["item"]["name"]
         # NEGATIVE: a derived key cannot be typed in on create ...
         with self.assertRaises(frappe.ValidationError):
@@ -395,14 +407,14 @@ class TestSpecReader(FrappeTestCase):
         # ... nor on edit
         with self.assertRaises(frappe.ValidationError):
             rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"dia_mm": 300}))
-        # an edit of the detail is re-read
-        res2 = rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"item_detail": "300 mm dia"}))
+        # an edit of the detail is re-read (310: 300 would make it mean the same as v2 row 40 -- slice 1f)
+        res2 = rate_master.update_rate_master_item(name=name, attributes_patch=json.dumps({"item_detail": "310 mm dia"}))
         self.assertEqual(res2["spec"], {"status": "ok", "reason": None})
-        self.assertEqual(res2["item"]["attributes"]["dia_mm"], 300.0)
-        self.assertEqual(res2["item"]["attributes"]["item_detail"], "300 mm dia")
+        self.assertEqual(res2["item"]["attributes"]["dia_mm"], 310.0)
+        self.assertEqual(res2["item"]["attributes"]["item_detail"], "310 mm dia")
         # an unchanged text with a rate patch leaves the attributes exactly as stored
         res3 = rate_master.update_rate_master_item(name=name, rates_patch=json.dumps({"cost_supply": 950.0}),
-                                                   attributes_patch=json.dumps({"item_detail": "300 mm dia"}))
+                                                   attributes_patch=json.dumps({"item_detail": "310 mm dia"}))
         self.assertNotIn("spec", res3)
         self.assertEqual(res3["item"]["attributes"], res2["item"]["attributes"])
         self.assertEqual(res3["item"]["rates"]["cost_supply"], 950.0)
@@ -777,23 +789,45 @@ class TestSpecReader(FrappeTestCase):
         disc = self._new_disc()
         self._load(self.v2, disc)
         before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        # SLICE 1f (inverted under owner Y-a / Y-c): 250 means the same as v2 row 41 -> the duplicate question,
+        # nothing inserted; the exact-reading claim continues on 225.
+        dup = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "250 mm dia"}),
+                                                  rates=json.dumps({}))
+        self.assertFalse(dup["ok"]); self.assertTrue(dup["needs_twin_confirmation"])
+        self.assertNotIn("needs_confirmation", dup)          # the spec read was exact; only the duplicate asks
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before)
         # 1. an exact-reading text asks nothing
         res = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
-                                                  attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "250 mm dia"}),
+                                                  attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "225 mm dia"}),
                                                   rates=json.dumps({}))
         self.assertTrue(res["ok"]); self.assertEqual(res["spec"]["status"], "ok")
         # 2. a misspelt text: needs confirmation, NOTHING inserted
         ask = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
-                                                  attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                  attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "310 mm dia"}),
                                                   rates=json.dumps({"cost_supply": 1.0}))
         self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_confirmation"])
-        self.assertIn("Couldn't read 'Round Difuser with damper / 300 mm dia' exactly. Best match:", ask["question"])
-        self.assertEqual(ask["suggestion"]["attributes"], {"family": "round diffuser", "damper": "with", "dia_mm": 300.0})
+        self.assertIn("Couldn't read 'Round Difuser with damper / 310 mm dia' exactly. Best match:", ask["question"])
+        self.assertEqual(ask["suggestion"]["attributes"], {"family": "round diffuser", "damper": "with", "dia_mm": 310.0})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before + 1)
+        # SLICE 1f (inverted): an ACCEPTED suggestion that means the same as v2 row 40 (with / 300) asks the
+        # duplicate question AFTER the spec one -- the spec is resolved first, then the meaning is compared --
+        # and inserts nothing.
+        ask300 = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                     attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                     rates=json.dumps({"cost_supply": 1.0}))
+        self.assertTrue(ask300["needs_confirmation"])
+        dup300 = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                     attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                     rates=json.dumps({"cost_supply": 1.0}),
+                                                     spec_decision="accept", spec_fingerprint=ask300["suggestion"]["fingerprint"])
+        self.assertFalse(dup300["ok"]); self.assertTrue(dup300["needs_twin_confirmation"])
+        self.assertEqual(dup300["twin"]["item_uid"], "rmi-16b7d2716dbb")
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before + 1)
         # NEGATIVE: the wrong fingerprint is refused; an accept with no suggestion is refused
         with self.assertRaises(frappe.ValidationError):
             rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
-                                                attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "310 mm dia"}),
                                                 rates=json.dumps({}), spec_decision="accept", spec_fingerprint="nope")
         with self.assertRaises(frappe.ValidationError):
             rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
@@ -802,13 +836,13 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before + 1)
         # 3. accept -> confirmed with who + when
         ok = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
-                                                 attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "300 mm dia"}),
+                                                 attributes=json.dumps({"item_name": "Round Difuser with damper", "item_detail": "310 mm dia"}),
                                                  rates=json.dumps({"cost_supply": 1.0}),
                                                  spec_decision="accept", spec_fingerprint=ask["suggestion"]["fingerprint"])
         self.assertTrue(ok["ok"]); self.assertEqual(ok["spec"]["status"], "confirmed")
         a = ok["item"]["attributes"]
         self.assertEqual((a["family"], a["dia_mm"], a["spec_status"], a["spec_confirmed_by"]),
-                         ("round diffuser", 300.0, "confirmed", frappe.session.user))
+                         ("round diffuser", 310.0, "confirmed", frappe.session.user))
         name = ok["item"]["name"]
         # 4. reject -> flagged
         rej = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
@@ -867,11 +901,19 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(plan_a["digest"], plan_b["digest"]); self.assertEqual(plan_a["digest"], plan_c["digest"])
         self.assertEqual(csv_importer.apply_plan(disc, text)["applied"], 0)
         self.assertEqual(csv_importer.apply_plan(disc, text, decisions={"1": "accept"}, accepted_fingerprints={"1": "x"})["applied"], 0)
-        # the legacy create path never reaches the resolver: spec_decision is inert there
-        res = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+        # the legacy create path never reaches the SPEC resolver: spec_decision is inert there. SLICE 1f (inverted
+        # under owner Y-f): it DOES reach the duplicate resolver -- this cable means the same as the live
+        # rmi-2c2f8e25a3e0 (Polycab / Mtr / 3 x 2.5 COPPER ARMOURED), so it asks first and inserts nothing.
+        dup = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
                                                   attributes=json.dumps({"material": "copper", "insulation": "armoured", "core": 3.0, "thickness_sqmm": 2.5}),
                                                   rates=json.dumps({"list_price_per_mtr": 10.0}), spec_decision="accept", spec_fingerprint="x")
-        self.assertTrue(res["ok"]); self.assertNotIn("spec", res)
+        self.assertFalse(dup["ok"]); self.assertTrue(dup["needs_twin_confirmation"]); self.assertNotIn("spec", dup)
+        self.assertEqual(dup["twin"]["item_uid"], "rmi-2c2f8e25a3e0")
+        # differing ONLY in brand is NOT a twin (owner G1): the same entry under another brand is a plain create
+        res = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="TestBrand", unit="Mtr",
+                                                  attributes=json.dumps({"material": "copper", "insulation": "armoured", "core": 3.0, "thickness_sqmm": 2.5}),
+                                                  rates=json.dumps({"list_price_per_mtr": 10.0}), spec_decision="accept", spec_fingerprint="x")
+        self.assertTrue(res["ok"]); self.assertNotIn("spec", res); self.assertNotIn("twin", res)
         self.assertEqual(res["item"]["attributes"]["material"], "COPPER")
         self.assertEqual(spec_reader.spec_categories(disc), {})
 
@@ -1001,3 +1043,424 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(ch["spec"]["status"], "not_understood")           # refused by name, visible
         self.assertEqual(ch["spec"]["text"]["item_detail"], "01:06:00")     # the ISO text, as read
         self.assertTrue(ch["major"])
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1f -- SAME-MEANING DUPLICATES (owner Y-a..Y-f), the HVAC half. Plain-English coverage:
+    #   t24  TWIN FOUND for the same derived attributes + unit + brand with DIFFERENT wording ("Dampers" vs
+    #        "Damper"; a CONFIRMED item counts like a read one); the warning carries both wordings, both
+    #        sets of numbers, the existing uid and a fingerprint; NEGATIVE: not a twin when the unit, the
+    #        brand or any attribute differs; an INACTIVE item never counts; a NOT-UNDERSTOOD item never
+    #        counts (and two of them in one file are not "the same").
+    #   t25  CONFIRM (CSV): the existing item takes the row's rates and markups; its uid, wording,
+    #        attributes and spec status (a confirmed target stays confirmed, same who / when) are
+    #        untouched; NO new item (active count unchanged); the row rides the applied plan as an update.
+    #   t26  DECLINE (CSV): that row is skipped, the other new row in the same file is applied; NEGATIVE:
+    #        an UNANSWERED warning refuses the whole apply, nothing written; a confirm with the WRONG
+    #        fingerprint is refused; a target that CHANGED since the preview is refused (by the digest with
+    #        it, by the fingerprint without it), nothing written.
+    #   t27  IN-FILE TWINS: two new rows meaning the same item are refused naming the rows, nothing written.
+    #   t28  THE EDIT CASE (Y-e): editing A into a twin of B warns naming both; confirm -> B takes the row's
+    #        rates, A is byte-for-byte unchanged; decline -> nothing changes.
+    #   t29  NEGATIVE: a rates-only edit on an item that ALREADY has a twin never warns; the whole file with
+    #        the twins present re-uploads to zero changes and zero warnings; a NEW row meaning the same as
+    #        two existing twins is refused by name (the catalog is ambiguous, never guessed).
+    #   t30  MANUAL ADD / EDIT: the same outcomes through the endpoints -- ask with nothing written, decline
+    #        writes nothing, wrong fingerprint refused, confirm updates the existing item only (add: no new
+    #        item; edit: the OTHER item's rates, the edited item untouched); a rates-only patch never asks.
+    #   t31  THE ROUND TRIP: the HVAC .xlsx and .csv re-uploaded unchanged -> zero changes AND zero warnings.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    HVAC_1E_HEADER = ["item_uid", "brand", "unit", "item_name", "item_detail",
+                      "cost_install", "cost_supply", "install_markup", "supply_markup"]
+
+    def _hvac_rows(self, rows):
+        """A 1e-shape HVAC file (no kind, no source pair) from row dicts: name, detail, unit, and optional
+        uid, brand, ci, cs, im, sm (rates default 100 / 1000 / 0.6 / 0.45)."""
+        out = [",".join(self.HVAC_1E_HEADER)]
+        for r in rows:
+            out.append(",".join([r.get("uid", ""), r.get("brand", ""), r["unit"], r["name"], r["detail"],
+                                 str(r.get("ci", 100)), str(r.get("cs", 1000)), str(r.get("im", 0.6)), str(r.get("sm", 0.45))]))
+        return "\r\n".join(out) + "\r\n"
+
+    def _doc_state(self, name):
+        """Everything that identifies an item's stored state -- for byte-for-byte 'unchanged' claims."""
+        d = frappe.db.get_value(ITEM, name, ["item_uid", "kind", "brand", "unit", "attributes", "rates",
+                                             "source_sheet", "source_row", "import_batch", "active", "modified"], as_dict=True)
+        d["attributes"] = rate_master._parse_json(d["attributes"], {}); d["rates"] = rate_master._parse_json(d["rates"], {})
+        return d
+
+    def _uid_name(self, disc, uid):
+        rows = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "item_uid": uid}, fields=["name"])
+        self.assertEqual(len(rows), 1, (uid, rows))
+        return rows[0]["name"]
+
+    # -- t24 ----------------------------------------------------------------------------------------
+    def test_t24_hvac_twin_same_meaning_different_wording_and_the_negatives(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        # v2 row 44: rmi-31fd9a7020d8 "Round Diffuser Without GI Damper" / "300 MM DIA" / Nos, 250 / 720
+        text = self._hvac_rows([dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Nos", ci=150, cs=800)])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(len(plan["changes"]), 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["kind"], "add"); self.assertTrue(ch["major"])
+        tw = ch["twin"]
+        self.assertEqual(tw["case"], "new")
+        self.assertEqual(tw["item_uid"], "rmi-31fd9a7020d8")
+        self.assertEqual(tw["existing_wording"], "Round Diffuser Without GI Damper / 300 MM DIA")
+        self.assertEqual(tw["row_wording"], "Round Diffuser Without GI Dampers / 300 MM DIA")
+        self.assertEqual(tw["existing_rates"], {"cost_install": "250.0", "cost_supply": "720.0", "install_markup": "0.6", "supply_markup": "0.45"})
+        self.assertEqual(tw["row_rates"], {"cost_install": "150.0", "cost_supply": "800.0", "install_markup": "0.6", "supply_markup": "0.45"})
+        self.assertEqual(tw["compared"], ["damper", "dia_mm", "family"])       # the MEANING, never the wording
+        self.assertIsNone(tw["decision"]); self.assertIsNone(tw["edited_item_uid"])
+        self.assertRegex(tw["fingerprint"], r"^[0-9a-f]{24}$")
+        self.assertEqual(plan["counts"]["twins"], 1); self.assertEqual(plan["counts"]["items_added"], 1)
+        self.assertIn("twin", csv_importer.public_plan(plan)["changes"][0])
+        # a CONFIRMED (1d) item counts like a read one: confirm a misspelt 325, then an exact 325 row twins it
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Round Difuser without damper", "item_detail": "325 mm dia"}),
+                                                  rates=json.dumps({"cost_supply": 5.0}))
+        ok = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                 attributes=json.dumps({"item_name": "Round Difuser without damper", "item_detail": "325 mm dia"}),
+                                                 rates=json.dumps({"cost_supply": 5.0}),
+                                                 spec_decision="accept", spec_fingerprint=ask["suggestion"]["fingerprint"])
+        self.assertEqual(ok["spec"]["status"], "confirmed")
+        p2 = csv_importer.build_plan(disc, self._hvac_rows([dict(name="Round Diffuser without damper", detail="325 mm dia", unit="Nos")]))
+        self.assertEqual(p2["errors"], [])
+        self.assertEqual((p2["changes"][0]["twin"]["item_uid"], p2["changes"][0]["twin"]["name"]), ("", ok["item"]["name"]))
+        self.assertEqual(p2["changes"][0]["twin"]["existing_wording"], "Round Difuser without damper / 325 mm dia")
+        # an item ADDED BY HAND carries no uid (a pre-1f fact: the manual endpoint never minted one) and is
+        # still an existing item: the warning names it without a uid; a confirm updates it and its successor
+        # is the first row of that item to carry a uid; still no new item
+        hand = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                   attributes=json.dumps({"item_name": "Round Diffuser with damper", "item_detail": "275 mm dia"}),
+                                                   rates=json.dumps({"cost_supply": 50.0}))
+        self.assertIsNone(frappe.db.get_value(ITEM, hand["item"]["name"], "item_uid"))
+        t_hand = self._hvac_rows([dict(name="Round Diffuser With GI Damper", detail="275 MM DIA", unit="Nos", cs=60)])
+        p_hand = csv_importer.build_plan(disc, t_hand)
+        self.assertEqual(p_hand["errors"], [])
+        self.assertEqual((p_hand["changes"][0]["twin"]["item_uid"], p_hand["changes"][0]["twin"]["name"]), ("", hand["item"]["name"]))
+        n_now = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        r_hand = csv_importer.apply_plan(disc, t_hand, expected_digest=p_hand["digest"], twin_decisions={"1": "confirm"},
+                                         twin_fingerprints={"1": p_hand["changes"][0]["twin"]["fingerprint"]})
+        frappe.db.commit()
+        self.assertEqual((r_hand["items_added"], r_hand["items_replaced"]), (0, 1))
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_now)
+        succ = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": r_hand["batch"]}, fields=["item_uid", "attributes", "rates"])
+        self.assertEqual(len(succ), 1); self.assertRegex(succ[0]["item_uid"] or "", r"^rmi-[0-9a-f]{12}$")
+        self.assertEqual(rate_master._parse_json(succ[0]["attributes"], {})["item_name"], "Round Diffuser with damper")
+        self.assertEqual(rate_master._parse_json(succ[0]["rates"], {})["cost_supply"], 60.0)
+        # NEGATIVES: unit, brand or an attribute differs -> NOT a twin (plain adds, no warning)
+        for row in (dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Set"),
+                    dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Nos", brand="Acme"),
+                    dict(name="Round Diffuser Without GI Dampers", detail="275 MM DIA", unit="Nos")):
+            p = csv_importer.build_plan(disc, self._hvac_rows([row]))
+            self.assertEqual(p["errors"], [], row)
+            self.assertEqual(len(p["changes"]), 1); self.assertNotIn("twin", p["changes"][0], row)
+            self.assertEqual(p["counts"]["twins"], 0, row)
+        # NEGATIVE: an INACTIVE item never counts
+        rate_master.deactivate_rate_master_item(name=self._uid_name(disc, "rmi-31fd9a7020d8"))
+        p = csv_importer.build_plan(disc, text)
+        self.assertEqual(p["errors"], []); self.assertNotIn("twin", p["changes"][0]); self.assertEqual(p["counts"]["twins"], 0)
+        # NEGATIVE: a NOT-UNDERSTOOD item has no meaning to compare -- it never counts, and two flagged rows in
+        # one file are not "the same item"
+        flat = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                   attributes=json.dumps({"item_name": "Frobnicator", "item_detail": "x"}), rates=json.dumps({}))
+        self.assertEqual(flat["spec"]["status"], "not_understood")
+        p = csv_importer.build_plan(disc, self._hvac_rows([dict(name="Frobnicator", detail="x", unit="Nos"),
+                                                          dict(name="Frobnicator", detail="x", unit="Nos")]))
+        self.assertEqual(p["errors"], []); self.assertEqual(len(p["changes"]), 2)
+        self.assertTrue(all("twin" not in c for c in p["changes"])); self.assertEqual(p["counts"]["twins"], 0)
+
+    # -- t25 ----------------------------------------------------------------------------------------
+    def test_t25_confirm_updates_the_existing_items_rates_only_and_adds_nothing(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        target_name = self._uid_name(disc, "rmi-31fd9a7020d8")
+        before_state = self._doc_state(target_name)
+        n_before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        text = self._hvac_rows([dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Nos", ci=150, cs=800, im=0.7, sm=0.5)])
+        plan = csv_importer.build_plan(disc, text)
+        fp = plan["changes"][0]["twin"]["fingerprint"]
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"],
+                                      twin_decisions={"1": "confirm"}, twin_fingerprints={"1": fp})
+        frappe.db.commit()
+        self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)     # NO new item
+        # the same uid, ONE active row, the OLD wording, the same attributes, the ROW'S numbers
+        new_name = self._uid_name(disc, "rmi-31fd9a7020d8")
+        self.assertNotEqual(new_name, target_name)                       # freeze-and-supersede: a fresh document
+        self.assertEqual(frappe.db.get_value(ITEM, target_name, "active"), 0)     # the old one retained inactive
+        after = self._doc_state(new_name)
+        self.assertEqual(after["attributes"], before_state["attributes"])
+        self.assertEqual(after["attributes"]["item_name"], "Round Diffuser Without GI Damper")   # its own wording
+        self.assertEqual((after["kind"], after["brand"], after["unit"]), (before_state["kind"], before_state["brand"], before_state["unit"]))
+        self.assertEqual((after["source_sheet"], after["source_row"]), (before_state["source_sheet"], before_state["source_row"]))
+        self.assertEqual(after["rates"], {"cost_install": 150.0, "cost_supply": 800.0, "install_markup": 0.7, "supply_markup": 0.5})
+        # the applied plan carries the row as an UPDATE of the existing item, confirmed
+        ch = res["plan"]["changes"][0]
+        self.assertEqual((ch["kind"], ch["item_uid"], ch["name"]), ("update", "rmi-31fd9a7020d8", target_name))
+        self.assertEqual(ch["twin"]["decision"], "confirm")
+        self.assertEqual(sorted(f["column"] for f in ch["fields"]), ["cost_install", "cost_supply", "install_markup", "supply_markup"])
+        self.assertTrue(all(f["space"] == "rate" for f in ch["fields"]))
+        self.assertEqual(res["plan"]["counts"]["rates_changed"], 1); self.assertEqual(res["plan"]["counts"]["items_added"], 0)
+        # a CONFIRMED target keeps its spec status, who and when
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                  attributes=json.dumps({"item_name": "Round Difuser without damper", "item_detail": "325 mm dia"}),
+                                                  rates=json.dumps({"cost_supply": 5.0}))
+        ok = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                 attributes=json.dumps({"item_name": "Round Difuser without damper", "item_detail": "325 mm dia"}),
+                                                 rates=json.dumps({"cost_supply": 5.0}),
+                                                 spec_decision="accept", spec_fingerprint=ask["suggestion"]["fingerprint"])
+        conf_attrs = ok["item"]["attributes"]
+        t2 = self._hvac_rows([dict(name="Round Diffuser without damper", detail="325 mm dia", unit="Nos", cs=77)])
+        p2 = csv_importer.build_plan(disc, t2)
+        r2 = csv_importer.apply_plan(disc, t2, expected_digest=p2["digest"], twin_decisions={"1": "confirm"},
+                                     twin_fingerprints={"1": p2["changes"][0]["twin"]["fingerprint"]})
+        frappe.db.commit()
+        self.assertEqual((r2["items_added"], r2["items_replaced"]), (0, 1))
+        self.assertEqual(frappe.db.get_value(ITEM, ok["item"]["name"], "active"), 0)     # superseded ...
+        succ = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": r2["batch"]}, fields=["name"])
+        self.assertEqual(len(succ), 1)
+        st = self._doc_state(succ[0]["name"])                                                 # ... by its successor
+        self.assertEqual(st["attributes"], conf_attrs)          # confirmed, same by / at, the misspelt wording kept
+        self.assertEqual(st["attributes"]["spec_status"], "confirmed")
+        self.assertEqual(st["rates"]["cost_supply"], 77.0)
+
+    # -- t26 ----------------------------------------------------------------------------------------
+    def test_t26_decline_skips_the_row_only_and_the_apply_refusals_write_nothing(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        target_name = self._uid_name(disc, "rmi-31fd9a7020d8")
+        before_state = self._doc_state(target_name)
+        n_before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        snaps = frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc})
+        text = self._hvac_rows([dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Nos", ci=150, cs=800),
+                                dict(name="Round Diffuser without damper", detail="275 mm dia", unit="Nos")])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(plan["errors"], []); self.assertEqual(plan["counts"]["twins"], 1)
+        self.assertIn("twin", plan["changes"][0]); self.assertNotIn("twin", plan["changes"][1])
+        fp = plan["changes"][0]["twin"]["fingerprint"]
+        # NEGATIVE 1: UNANSWERED -> the whole apply is refused, nothing written (with and without decisions)
+        for kw in ({}, {"twin_decisions": {"2": "confirm"}, "twin_fingerprints": {}}):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], **kw)
+            self.assertIn("not answered", str(cm.exception))
+        # NEGATIVE 2: a confirm with the WRONG fingerprint (or none) is refused
+        for fps in ({"1": "deadbeef"}, {}):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "confirm"}, twin_fingerprints=fps)
+            self.assertIn("not the one that was previewed", str(cm.exception))
+        # NEGATIVE 3: a bad decision value is a row error
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "maybe"}, twin_fingerprints={"1": fp})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), snaps)
+        self.assertEqual(self._doc_state(target_name), before_state)
+        # DECLINE: that row is skipped, the 275 row is added, the target is untouched
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "decline"})
+        frappe.db.commit()
+        self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 1, 0))
+        self.assertEqual(res["plan"]["counts"]["twins_declined"], 1)
+        self.assertEqual([c["row"] for c in res["plan"]["changes"]], [2])
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before + 1)
+        self.assertEqual(self._doc_state(target_name), before_state)
+        added = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": res["batch"]}, fields=["attributes"])
+        self.assertEqual(len(added), 1); self.assertEqual(rate_master._parse_json(added[0]["attributes"], {})["dia_mm"], 275.0)
+        # NEGATIVE 4: the target CHANGED since the preview -> refused by the digest (the fingerprint is in it)
+        # and, without a digest, by the fingerprint check itself; nothing written either way
+        t3 = self._hvac_rows([dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Nos", ci=150, cs=800)])
+        p3 = csv_importer.build_plan(disc, t3)
+        fp3 = p3["changes"][0]["twin"]["fingerprint"]
+        rate_master.update_rate_master_item(name=target_name, rates_patch=json.dumps({"cost_supply": 721.0}))   # the target moved
+        moved = self._doc_state(target_name)
+        with self.assertRaises(frappe.ValidationError) as cm:
+            csv_importer.apply_plan(disc, t3, expected_digest=p3["digest"], twin_decisions={"1": "confirm"}, twin_fingerprints={"1": fp3})
+        self.assertIn("changed since", str(cm.exception))
+        with self.assertRaises(frappe.ValidationError) as cm:
+            csv_importer.apply_plan(disc, t3, twin_decisions={"1": "confirm"}, twin_fingerprints={"1": fp3})
+        self.assertIn("not the one that was previewed", str(cm.exception))
+        self.assertEqual(self._doc_state(target_name), moved)
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before + 1)
+
+    # -- t27 ----------------------------------------------------------------------------------------
+    def test_t27_two_new_rows_meaning_the_same_item_are_refused_naming_the_rows(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        n_before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        text = self._hvac_rows([dict(name="Round Diffuser without damper", detail="275 mm dia", unit="Nos", cs=1),
+                                dict(name="Round Diffuser without GI Damper", detail="275 MM DIA", unit="Nos", cs=2)])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(len(plan["errors"]), 1)
+        self.assertIn("Rows 1 and 2 mean the same item", plan["errors"][0]["message"])
+        self.assertIn("remove one", plan["errors"][0]["message"])
+        self.assertIn("cannot know which rate", plan["errors"][0]["message"])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)
+        # NEGATIVE: two new rows that differ in unit are two items, no error
+        p = csv_importer.build_plan(disc, self._hvac_rows([dict(name="Round Diffuser without damper", detail="275 mm dia", unit="Nos"),
+                                                          dict(name="Round Diffuser without damper", detail="275 mm dia", unit="Set")]))
+        self.assertEqual(p["errors"], []); self.assertEqual(len(p["changes"]), 2)
+
+    # -- t28 ----------------------------------------------------------------------------------------
+    def test_t28_the_edit_case_confirm_updates_the_other_item_and_leaves_the_edited_one(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        seed = self._hvac_rows([dict(name="Round Diffuser without damper", detail="275 mm dia", unit="Nos", ci=10, cs=100),
+                                dict(name="Round Diffuser without damper", detail="325 mm dia", unit="Nos", ci=20, cs=200)])
+        r = csv_importer.apply_plan(disc, seed, expected_digest=csv_importer.build_plan(disc, seed)["digest"])
+        frappe.db.commit()
+        rows = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": r["batch"]}, fields=["name", "item_uid", "attributes"])
+        by_dia = {rate_master._parse_json(x["attributes"], {})["dia_mm"]: x for x in rows}
+        a, b = by_dia[275.0], by_dia[325.0]
+        a_before, b_before = self._doc_state(a["name"]), self._doc_state(b["name"])
+        # A's row edited: detail 275 -> 325 (now the same meaning as B) and A's numbers changed
+        text = self._hvac_rows([dict(uid=a["item_uid"], name="Round Diffuser without damper", detail="325 mm dia", unit="Nos", ci=10, cs=999)])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(plan["errors"], [])
+        ch = plan["changes"][0]
+        self.assertEqual((ch["kind"], ch["item_uid"]), ("update", a["item_uid"]))
+        tw = ch["twin"]
+        self.assertEqual((tw["case"], tw["item_uid"], tw["edited_item_uid"]), ("edit", b["item_uid"], a["item_uid"]))
+        self.assertEqual(tw["existing_wording"], "Round Diffuser without damper / 325 mm dia")
+        self.assertEqual(tw["row_wording"], "Round Diffuser without damper / 325 mm dia")
+        self.assertEqual(tw["existing_rates"]["cost_supply"], "200.0"); self.assertEqual(tw["row_rates"]["cost_supply"], "999.0")
+        # DECLINE: nothing changes at all
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "decline"})
+        frappe.db.commit()
+        self.assertEqual(res["applied"], 0)
+        self.assertEqual(self._doc_state(a["name"]), a_before); self.assertEqual(self._doc_state(b["name"]), b_before)
+        # CONFIRM: B takes the row's rates and markups; A is byte-for-byte unchanged (never superseded)
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "confirm"},
+                                      twin_fingerprints={"1": tw["fingerprint"]})
+        frappe.db.commit()
+        self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
+        self.assertEqual(self._doc_state(a["name"]), a_before)                        # A: untouched, still active
+        self.assertEqual(frappe.db.get_value(ITEM, b["name"], "active"), 0)           # B: superseded ...
+        b_after = self._doc_state(self._uid_name(disc, b["item_uid"]))                # ... by its successor
+        self.assertEqual(b_after["attributes"], b_before["attributes"])
+        self.assertEqual(b_after["rates"], {"cost_install": 10.0, "cost_supply": 999.0, "install_markup": 0.6, "supply_markup": 0.45})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1, "item_uid": a["item_uid"]}), 1)
+
+    # -- t29 ----------------------------------------------------------------------------------------
+    def test_t29_a_rates_only_edit_on_an_item_that_already_has_a_twin_never_warns(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        # plant a twin of v2 row 44 DIRECTLY (the guard is on the upload and the endpoints, not the doctype)
+        src = frappe.get_doc(ITEM, self._uid_name(disc, "rmi-31fd9a7020d8"))
+        twin_doc = frappe.get_doc({"doctype": ITEM, "discipline": disc, "kind": src.kind, "brand": src.brand, "unit": src.unit,
+                                   "item_uid": "rmi-1f1f1f1f1f1f", "attributes": src.attributes, "rates": src.rates,
+                                   "source_sheet": "test", "source_row": 999, "import_batch": "test-1f", "active": 1})
+        twin_doc.insert(ignore_permissions=True); frappe.db.commit()
+        # the whole file, twins present, unchanged -> zero changes, zero warnings
+        raw, _h, n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        self.assertEqual(n, 96)
+        p = csv_importer.build_plan(disc, raw)
+        self.assertEqual((p["errors"], p["changes"], p["counts"]["unchanged"], p["counts"]["twins"]), ([], [], 96, 0))
+        # a RATES-ONLY edit of one twin: a plain update, no warning
+        text = self._hvac_rows([dict(uid="rmi-31fd9a7020d8", name="Round Diffuser Without GI Damper", detail="300 MM DIA", unit="Nos", ci=250, cs=725)])
+        p = csv_importer.build_plan(disc, text)
+        self.assertEqual(p["errors"], []); self.assertEqual(len(p["changes"]), 1)
+        self.assertNotIn("twin", p["changes"][0]); self.assertEqual(p["counts"]["twins"], 0)
+        self.assertEqual([f["column"] for f in p["changes"][0]["fields"]], ["cost_supply"])
+        res = csv_importer.apply_plan(disc, text, expected_digest=p["digest"]); frappe.db.commit()
+        self.assertEqual(res["items_replaced"], 1)
+        # a rates-only PATCH through the endpoint never asks either
+        r2 = rate_master.update_rate_master_item(name=twin_doc.name, rates_patch=json.dumps({"cost_supply": 730.0}))
+        self.assertTrue(r2["ok"]); self.assertNotIn("twin", r2)
+        # a NEW row meaning the same as the TWO twins: refused by name (never a guess at which)
+        p = csv_importer.build_plan(disc, self._hvac_rows([dict(name="Round Diffuser Without GI Dampers", detail="300 MM DIA", unit="Nos")]))
+        self.assertEqual(len(p["errors"]), 1)
+        self.assertIn("2 existing items", p["errors"][0]["message"]); self.assertIn("rmi-1f1f1f1f1f1f", p["errors"][0]["message"])
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                attributes=json.dumps({"item_name": "Round Diffuser Without GI Dampers", "item_detail": "300 MM DIA"}),
+                                                rates=json.dumps({}))
+        self.assertIn("already holds twins", str(cm.exception))
+
+    # -- t30 ----------------------------------------------------------------------------------------
+    def test_t30_manual_add_and_edit_ask_decline_writes_nothing_confirm_updates_the_existing_item(self):
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        target_name = self._uid_name(disc, "rmi-31fd9a7020d8")
+        before_state = self._doc_state(target_name)
+        n_before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
+        attrs = json.dumps({"item_name": "Round Diffuser Without GI Dampers", "item_detail": "300 MM DIA"})
+        rates = json.dumps({"cost_install": 150.0, "cost_supply": 800.0})
+        # ADD: ask, nothing inserted
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos", attributes=attrs, rates=rates)
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        tw = ask["twin"]
+        self.assertEqual((tw["case"], tw["item_uid"], tw["name"]), ("new", "rmi-31fd9a7020d8", target_name))
+        self.assertEqual(tw["existing_wording"], "Round Diffuser Without GI Damper / 300 MM DIA")
+        self.assertEqual(tw["row_wording"], "Round Diffuser Without GI Dampers / 300 MM DIA")
+        self.assertEqual(tw["row_rates"], {"cost_install": "150.0", "cost_supply": "800.0"})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)
+        # DECLINE: nothing written
+        dec = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos", attributes=attrs, rates=rates,
+                                                  twin_decision="decline")
+        self.assertTrue(dec["ok"]); self.assertFalse(dec["written"]); self.assertNotIn("item", dec)
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)
+        self.assertEqual(self._doc_state(target_name), before_state)
+        # NEGATIVE: the wrong fingerprint / a bad decision are refused, nothing written
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos", attributes=attrs, rates=rates,
+                                                twin_decision="confirm", twin_fingerprint="nope")
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos", attributes=attrs, rates=rates,
+                                                twin_decision="maybe", twin_fingerprint=tw["fingerprint"])
+        self.assertEqual(self._doc_state(target_name), before_state)
+        # CONFIRM: the existing item's rates and markups, its own wording, NO new item
+        ok = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos", attributes=attrs, rates=rates,
+                                                 twin_decision="confirm", twin_fingerprint=tw["fingerprint"])
+        self.assertTrue(ok["ok"]); self.assertEqual(ok["item"]["name"], target_name)
+        self.assertEqual(ok["twin"]["decision"], "confirm")
+        self.assertEqual(ok["item"]["attributes"], before_state["attributes"])
+        self.assertEqual(ok["item"]["rates"], {"cost_install": 150.0, "cost_supply": 800.0, "install_markup": 0.6, "supply_markup": 0.45})
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)
+        self.assertEqual(frappe.db.get_value(ITEM, target_name, "item_uid"), "rmi-31fd9a7020d8")
+        # EDIT (Y-e): A (275) edited to mean the same as the target (300): ask, A untouched
+        a = rate_master.create_rate_master_item(discipline=disc, kind="hvac_adp_item", unit="Nos",
+                                                attributes=json.dumps({"item_name": "Round Diffuser without damper", "item_detail": "275 mm dia"}),
+                                                rates=json.dumps({"cost_install": 1.0, "cost_supply": 2.0}))
+        a_name = a["item"]["name"]; a_state = self._doc_state(a_name)
+        t_state = self._doc_state(target_name)
+        ask2 = rate_master.update_rate_master_item(name=a_name, attributes_patch=json.dumps({"item_detail": "300 mm dia"}),
+                                                   rates_patch=json.dumps({"cost_supply": 3.0}))
+        self.assertFalse(ask2["ok"]); self.assertTrue(ask2["needs_twin_confirmation"])
+        self.assertEqual((ask2["twin"]["case"], ask2["twin"]["item_uid"], ask2["twin"]["edited_item_uid"]),
+                         ("edit", "rmi-31fd9a7020d8", a_state["item_uid"]))
+        self.assertEqual(ask2["twin"]["row_rates"], {"cost_install": "1.0", "cost_supply": "3.0"})
+        self.assertEqual(self._doc_state(a_name), a_state); self.assertEqual(self._doc_state(target_name), t_state)
+        # decline on the edit path: nothing written
+        dec2 = rate_master.update_rate_master_item(name=a_name, attributes_patch=json.dumps({"item_detail": "300 mm dia"}),
+                                                   rates_patch=json.dumps({"cost_supply": 3.0}), twin_decision="decline")
+        self.assertFalse(dec2["written"]); self.assertEqual(self._doc_state(a_name), a_state); self.assertEqual(self._doc_state(target_name), t_state)
+        # confirm on the edit path: the OTHER item takes the row's rates and markups; A exactly as it was
+        ok2 = rate_master.update_rate_master_item(name=a_name, attributes_patch=json.dumps({"item_detail": "300 mm dia"}),
+                                                  rates_patch=json.dumps({"cost_supply": 3.0}),
+                                                  twin_decision="confirm", twin_fingerprint=ask2["twin"]["fingerprint"])
+        self.assertEqual(ok2["item"]["name"], target_name)
+        self.assertEqual(ok2["item"]["rates"], {"cost_install": 1.0, "cost_supply": 3.0, "install_markup": 0.6, "supply_markup": 0.45})
+        self.assertEqual(ok2["item"]["attributes"], before_state["attributes"])
+        self.assertEqual(self._doc_state(a_name), a_state)                # A: byte-for-byte unchanged
+        self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before + 1)
+        # NEGATIVE: a rates-only patch on A never asks, even though the catalog has twins elsewhere
+        r3 = rate_master.update_rate_master_item(name=a_name, rates_patch=json.dumps({"cost_supply": 9.0}))
+        self.assertTrue(r3["ok"]); self.assertNotIn("twin", r3); self.assertEqual(r3["item"]["rates"]["cost_supply"], 9.0)
+
+    # -- t31 ----------------------------------------------------------------------------------------
+    def test_t31_the_hvac_round_trip_is_zero_changes_and_zero_warnings(self):
+        disc = self.ro_disc
+        raw, _h, n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        text, _h2, n2 = csv_exporter.build_category_csv(disc, "hvac_adp")
+        raw_b, _hb, nb = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual((n, n2, nb), (95, 95, 95))
+        for payload in (raw, text, raw_b):
+            p = csv_importer.build_plan(disc, payload)
+            self.assertEqual(p["errors"], []); self.assertEqual(p["changes"], [])
+            self.assertEqual(p["counts"]["unchanged"], 95)
+            self.assertEqual(p["counts"]["twins"], 0); self.assertEqual(p["counts"]["twins_declined"], 0)
+            self.assertEqual(csv_importer.apply_plan(disc, payload)["applied"], 0)

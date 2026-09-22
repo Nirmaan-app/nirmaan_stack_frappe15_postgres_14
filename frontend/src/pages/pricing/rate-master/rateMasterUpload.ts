@@ -57,6 +57,37 @@ export interface UploadChange {
   major: boolean;
   fields: UploadField[];
   spec?: UploadSpec;
+  /**
+   * SLICE 1f -- this row MEANS THE SAME as an existing active item (owner Y-a..Y-f). Server-computed
+   * (`csv_importer.build_plan`); absent on every other row. The dialog asks Confirm / Decline per row
+   * and the apply is refused until every such row is answered.
+   */
+  twin?: UploadTwin;
+}
+
+/** SLICE 1f: the two answers to the duplicate warning. */
+export type TwinDecision = "confirm" | "decline";
+
+/**
+ * SLICE 1f -- the duplicate warning's payload, one per row that means the same as an existing item.
+ * `case` "new" = a blank-uid row; "edit" = an existing item edited into a twin of ANOTHER item (Y-e).
+ * `fingerprint` is what the apply re-verifies: the server re-derives the target and refuses a confirm
+ * whose target differs from, or has changed since, the preview.
+ */
+export interface UploadTwin {
+  case: "new" | "edit";
+  item_uid: string;
+  name: string | null;
+  existing_wording: string;
+  row_wording: string;
+  existing_rates: Record<string, string>;
+  row_rates: Record<string, string>;
+  /** Which fields the meaning was compared on (HVAC: the derived attributes; Electrical: kind, brand, unit, every attribute). */
+  compared: string[];
+  fingerprint: string;
+  decision?: TwinDecision | null;
+  /** The edit case only: the item whose row was edited -- it stays exactly as it is. */
+  edited_item_uid?: string | null;
 }
 
 export interface UploadError {
@@ -71,6 +102,10 @@ export interface UploadCounts {
   unchanged: number;
   other_changed: number;
   errors: number;
+  /** SLICE 1f: rows carrying the duplicate warning in this plan (absent on a pre-1f reply). */
+  twins?: number;
+  /** SLICE 1f: rows the user DECLINED on an apply (skipped; nothing written for them). */
+  twins_declined?: number;
 }
 
 export interface UploadPlan {
@@ -152,6 +187,11 @@ export function headlineCounts(counts: UploadCounts): Array<{
   if (counts.other_changed > 0) {
     out.push({ key: "other_changed", label: "other changes", value: counts.other_changed, tone: "warn" });
   }
+  // SLICE 1f: like `other changes`, the duplicate chip appears ONLY when non-zero -- the ordinary upload
+  // keeps its four numbers.
+  if ((counts.twins ?? 0) > 0) {
+    out.push({ key: "twins", label: TWIN_COPY.chip, value: counts.twins ?? 0, tone: "warn" });
+  }
   out.push({ key: "unchanged", label: "rows unchanged", value: counts.unchanged, tone: "neutral" });
   out.push({ key: "errors", label: "errors", value: counts.errors, tone: "error" });
   return out;
@@ -162,9 +202,72 @@ export function planIsNoOp(plan: UploadPlan): boolean {
   return plan.errors.length === 0 && plan.changes.length === 0;
 }
 
-/** Whether Apply may be offered at all. Errors block absolutely -- the apply is all-or-nothing. */
-export function canApply(plan: UploadPlan | null): boolean {
-  return !!plan && plan.errors.length === 0 && plan.changes.length > 0;
+/**
+ * Whether Apply may be offered at all. Errors block absolutely -- the apply is all-or-nothing.
+ * SLICE 1f: so does an UNANSWERED duplicate warning -- a row that means the same as an existing item
+ * has exactly two outcomes (confirm: update it; decline: skip it), never a silent third; the server
+ * refuses the apply too, this only keeps the button honest.
+ */
+export function canApply(plan: UploadPlan | null, twinDecisions: Record<number, TwinDecision> = {}): boolean {
+  return !!plan && plan.errors.length === 0 && plan.changes.length > 0
+    && undecidedTwinRows(plan, twinDecisions).length === 0;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1f -- SAME-MEANING DUPLICATES: warn, update the existing item on confirm (owner Y-a..Y-f).
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// The SERVER decides what "the same" means (csv_importer.twin_identity) and finds the existing item;
+// this half asks the question with BOTH wordings and BOTH sets of numbers, carries the per-row answer
+// back, and keeps Apply disabled until every warning is answered. Nothing here compares two items.
+
+export const TWIN_COPY = {
+  /** The warning, exactly as approved (G3). */
+  warning: (existingWording: string, itemUid: string, rowWording: string) =>
+    // an item added by hand carries no uid (a pre-1f fact) -- the bracket is then left out, never shown empty
+    `This means the same as an existing item: ${existingWording}${itemUid ? ` (${itemUid})` : ""}. Your row says: ${rowWording}. ` +
+    "If you confirm, the existing item's rates and markups are updated to these; its wording stays as it is.",
+  /** The edit case (Y-e): the second line names the edited item, which stays exactly as it was. */
+  editNote: (editedUid: string) =>
+    `The edited item (${editedUid}) is left exactly as it is; this edit is not applied to it.`,
+  existingNumbers: "Existing item's numbers",
+  rowNumbers: "Your row's numbers",
+  confirm: "Confirm",
+  decline: "Decline",
+  decided: (d: TwinDecision) =>
+    d === "confirm" ? "Will update the existing item's rates." : "Declined: this row is skipped, nothing changes.",
+  undecided: (n: number) =>
+    `${n} row${n === 1 ? " means" : "s mean"} the same as an existing item -- confirm or decline each before applying.`,
+  chip: "same as existing",
+} as const;
+
+/** `key = value, key = value` -- the numbers, in a stable order. PURE. */
+export function twinNumbers(rates: Record<string, string>): string {
+  return Object.keys(rates).sort().map((k) => `${k} = ${cellText(rates[k])}`).join(", ");
+}
+
+/** The preview rows that carry the duplicate warning. PURE. */
+export function rowsWithTwin(plan: Pick<UploadPlan, "changes"> | null | undefined): number[] {
+  return (plan?.changes ?? []).filter((c) => !!c.twin).map((c) => c.row);
+}
+
+/** The warning rows not yet answered. PURE. */
+export function undecidedTwinRows(
+  plan: Pick<UploadPlan, "changes"> | null | undefined,
+  decisions: Record<number, TwinDecision>,
+): number[] {
+  return rowsWithTwin(plan).filter((row) => decisions[row] !== "confirm" && decisions[row] !== "decline");
+}
+
+/** The fingerprints the apply must send for every CONFIRMED row -- never for a decline. PURE. */
+export function twinFingerprints(
+  plan: Pick<UploadPlan, "changes"> | null | undefined,
+  decisions: Record<number, TwinDecision>,
+): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const c of plan?.changes ?? []) {
+    if (decisions[c.row] === "confirm" && c.twin) out[c.row] = c.twin.fingerprint;
+  }
+  return out;
 }
 
 /** `+12.4%` / `-10%` / "" when a percentage does not exist for this move. PURE. */
@@ -238,8 +341,8 @@ export const UPLOAD_COPY = {
   /** ⚠️ THE SAFETY PROPERTY, said out loud. It is the reason a partial file is safe to upload. */
   absentHint: "Items that are not in this file are left untouched.",
   expandedHint:
-    "Shown in full: every new item, every rate change of 10% or more in either direction, and every row " +
-    "the spec reader must ask about or flags.",
+    "Shown in full: every new item, every rate change of 10% or more in either direction, every row " +
+    "the spec reader must ask about or flags, and every row that means the same as an existing item.",
   collapsedLabel: (n: number) => `${n} smaller change${n === 1 ? "" : "s"}`,
   noOp: "This file matches the catalog exactly. There is nothing to apply.",
   errorsTitle: (n: number) => `${n} problem${n === 1 ? "" : "s"} — nothing will be applied`,

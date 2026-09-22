@@ -28,6 +28,7 @@ import {
 } from "./rateMasterSpec";
 import {
   UPLOAD_COPY,
+  TWIN_COPY,
   canApply,
   cellText,
   changeSummary,
@@ -37,7 +38,11 @@ import {
   planIsNoOp,
   splitChanges,
   showEncodingWarning,
+  twinFingerprints,
+  twinNumbers,
+  undecidedTwinRows,
   UPLOAD_ACCEPT,
+  type TwinDecision,
   type UploadChange,
   type UploadPlan,
   type UploadResult,
@@ -62,6 +67,10 @@ interface Props {
     expectedDigest: string,
     decisions?: Record<number, SpecDecision>,
     acceptedFingerprints?: Record<number, string>,
+    // SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning + the confirmed targets'
+    // fingerprints (both optional; the server re-derives the target and refuses a stale confirm).
+    twinDecisions?: Record<number, TwinDecision>,
+    twinFingerprints?: Record<number, string>,
   ) => Promise<UploadResult>;
   /** Fired after a successful apply so the caller can refetch the item list. */
   onApplied?: () => void;
@@ -74,13 +83,16 @@ function rowText(change: UploadChange, column: string): string {
 }
 
 function ChangeRow({
-  change, decision, onDecide,
+  change, decision, onDecide, twinDecision, onTwinDecide,
 }: {
   change: UploadChange;
   decision?: SpecDecision;
   onDecide?: (row: number, d: SpecDecision) => void;
+  twinDecision?: TwinDecision;
+  onTwinDecide?: (row: number, d: TwinDecision) => void;
 }) {
   const suggestion = change.spec?.suggestion ?? null;
+  const twin = change.twin ?? null;
   return (
     <div className="rounded border px-2 py-1.5">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -159,6 +171,46 @@ function ChangeRow({
             </div>
           </div>
         ) : null}
+        {twin ? (
+          // SLICE 1f (owner Y-a / Y-c / Y-d): this row MEANS THE SAME as an existing item -- the warning with
+          // BOTH wordings and BOTH sets of numbers, Confirm / Decline per row, no bulk button. Confirm updates
+          // the EXISTING item's rates (its wording stays); Decline skips the row and changes nothing.
+          <div
+            className="mt-1 rounded border border-orange-500/50 bg-orange-50 p-1.5 text-[11px] text-orange-950 dark:bg-orange-950/30 dark:text-orange-200"
+            data-testid="upload-twin"
+          >
+            <div className="flex gap-1.5">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div>
+                <div>{TWIN_COPY.warning(twin.existing_wording, twin.item_uid, twin.row_wording)}</div>
+                {twin.case === "edit" && twin.edited_item_uid ? (
+                  <div className="mt-0.5">{TWIN_COPY.editNote(twin.edited_item_uid)}</div>
+                ) : null}
+                <div className="mt-0.5 font-mono text-[10px]">
+                  {TWIN_COPY.existingNumbers}: {twinNumbers(twin.existing_rates) || cellText("")}
+                </div>
+                <div className="font-mono text-[10px]">
+                  {TWIN_COPY.rowNumbers}: {twinNumbers(twin.row_rates) || cellText("")}
+                </div>
+              </div>
+            </div>
+            <div className="mt-1 flex items-center gap-1.5">
+              <Button
+                size="sm" variant={twinDecision === "confirm" ? "default" : "outline"} className="h-6 px-2 text-[11px]"
+                onClick={() => onTwinDecide?.(change.row, "confirm")} aria-label={`Confirm duplicate row ${change.row}`}
+              >
+                {TWIN_COPY.confirm}
+              </Button>
+              <Button
+                size="sm" variant={twinDecision === "decline" ? "destructive" : "outline"} className="h-6 px-2 text-[11px]"
+                onClick={() => onTwinDecide?.(change.row, "decline")} aria-label={`Decline duplicate row ${change.row}`}
+              >
+                {TWIN_COPY.decline}
+              </Button>
+              {twinDecision ? <span className="text-[10px]">{TWIN_COPY.decided(twinDecision)}</span> : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -175,6 +227,8 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
   const [showCollapsed, setShowCollapsed] = useState(false);
   // SLICE 1d: the user's per-row answers to the suggestion question, by plan row. Cleared with the plan.
   const [decisions, setDecisions] = useState<Record<number, SpecDecision>>({});
+  // SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning. Cleared with the plan.
+  const [twinDecisions, setTwinDecisions] = useState<Record<number, TwinDecision>>({});
   // The file's bytes are held so APPLY sends exactly what was PREVIEWED -- re-reading the file on
   // confirm would let a file changed on disk in between be applied against the wrong preview.
   const b64Ref = useRef<string>("");
@@ -185,12 +239,16 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
     setErr(null);
     setShowCollapsed(false);
     setDecisions({});
+    setTwinDecisions({});
     b64Ref.current = "";
     setFileName("");
     if (inputRef.current) inputRef.current.value = "";
   }, []);
   const decide = useCallback((row: number, d: SpecDecision) => {
     setDecisions((p) => ({ ...p, [row]: d }));
+  }, []);
+  const twinDecide = useCallback((row: number, d: TwinDecision) => {
+    setTwinDecisions((p) => ({ ...p, [row]: d }));
   }, []);
 
   const onChoose = useCallback(
@@ -202,6 +260,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
       setPlan(null);
       setShowCollapsed(false);
       setDecisions({});
+      setTwinDecisions({});
       setFileName(file.name);
       try {
         const b64 = await fileToBase64(file);
@@ -227,9 +286,13 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
     try {
       // SLICE 1d: only rows with a decision travel; an undecided row stays "won't price" as before.
       const fps = acceptedFingerprints(plan, decisions);
+      // SLICE 1f: the duplicate answers ride only when any exist; a confirmed row's target fingerprint too.
+      const tfps = twinFingerprints(plan, twinDecisions);
       setResult(await onApply(b64Ref.current, plan.digest,
         Object.keys(decisions).length ? decisions : undefined,
-        Object.keys(fps).length ? fps : undefined));
+        Object.keys(fps).length ? fps : undefined,
+        Object.keys(twinDecisions).length ? twinDecisions : undefined,
+        Object.keys(tfps).length ? tfps : undefined));
       setPlan(null);
       onApplied?.();
     } catch (e) {
@@ -237,10 +300,11 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
     } finally {
       setBusy(null);
     }
-  }, [onApply, onApplied, plan, decisions]);
+  }, [onApply, onApplied, plan, decisions, twinDecisions]);
 
   const { expanded, collapsed } = splitChanges(plan?.changes ?? []);
   const suggestable = rowsWithSuggestion(plan);
+  const undecidedTwins = undecidedTwinRows(plan, twinDecisions);
   const acceptAllShown = useCallback(() => {
     setDecisions((p) => {
       const next = { ...p };
@@ -361,7 +425,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                   <p className="text-[11px] text-muted-foreground">{UPLOAD_COPY.expandedHint}</p>
                   <div className="space-y-1">
                     {expanded.map((c) => (
-                      <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} decision={decisions[c.row]} onDecide={decide} />
+                      <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} decision={decisions[c.row]} onDecide={decide} twinDecision={twinDecisions[c.row]} onTwinDecide={twinDecide} />
                     ))}
                   </div>
                 </div>
@@ -384,7 +448,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                   {showCollapsed ? (
                     <div className="space-y-1">
                       {collapsed.map((c) => (
-                        <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} decision={decisions[c.row]} onDecide={decide} />
+                        <ChangeRow key={`${c.row}-${c.item_uid ?? "new"}`} change={c} decision={decisions[c.row]} onDecide={decide} twinDecision={twinDecisions[c.row]} onTwinDecide={twinDecide} />
                       ))}
                     </div>
                   ) : (
@@ -399,7 +463,13 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                 </div>
               )}
 
-              {canApply(plan) && (
+              {undecidedTwins.length > 0 && (
+                <p className="text-[11px] font-medium text-orange-800 dark:text-orange-300" data-testid="upload-twin-undecided">
+                  {TWIN_COPY.undecided(undecidedTwins.length)}
+                </p>
+              )}
+
+              {canApply(plan, twinDecisions) && (
                 <p className="text-[11px] text-muted-foreground">{UPLOAD_COPY.snapshotNote}</p>
               )}
             </div>
@@ -425,7 +495,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
               {result ? "Close" : UPLOAD_COPY.cancel}
             </Button>
             {!result && (
-              <Button size="sm" disabled={!canApply(plan) || busy !== null} onClick={() => void doApply()}>
+              <Button size="sm" disabled={!canApply(plan, twinDecisions) || busy !== null} onClick={() => void doApply()}>
                 {busy === "apply" ? UPLOAD_COPY.applying : UPLOAD_COPY.apply}
               </Button>
             )}

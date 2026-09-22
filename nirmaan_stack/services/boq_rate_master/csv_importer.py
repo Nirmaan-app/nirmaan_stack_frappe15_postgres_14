@@ -344,6 +344,186 @@ def _canon(payload):
     return json.dumps(payload, sort_keys=True, default=str)
 
 
+# ── SLICE 1f: same-meaning duplicates ──────────────────────────────────────────────────
+#
+# Owner rulings (quoted): Y-a "for the duplicate cases a warning should be shown that the old record
+# will itself be updated if the user confirms. if the user declines no change should be made."; Y-b
+# declining skips only that row, two identical new rows in one file are refused, an edit that turns an
+# item into a twin of another gets the same warning; Y-c "same item" means SAME MEANING -- identical
+# attributes (for the same unit), whatever the exact words; Y-d on confirm the existing item KEEPS ITS
+# OWN WORDING, only its rates and markups are updated; Y-e on an edit the OTHER item takes the rates
+# and the edited item stays exactly as it was; Y-f on for HVAC AND Electrical.
+#
+# THE IDENTITY (`twin_identity`) is the one definition every path shares -- the upload preview, the
+# upload apply (which re-derives it), the manual add and the manual edit. A category that reads its
+# attributes from the spec (HVAC) compares the DERIVED attributes, unit and brand -- the wording is
+# deliberately NOT in it, that is the whole point; an item whose spec is not understood has no
+# meaning to compare and never counts; a confirmed (1d) item counts like a read one. Any other
+# category (Electrical) compares kind, brand, unit and EVERY attribute: two items differing only in
+# brand are NOT twins. Inactive items never count, and the index is keyed by uid so an item shared by
+# two categories under ONE uid is one item, never its own twin.
+#
+# WHEN IT FIRES: a NEW row (blank uid) whose identity matches an active item, or an EDIT whose
+# identity CHANGED into another active item's. It never fires for a rates-only edit or an unchanged
+# row, even when the item already has a twin today -- an unchanged re-upload stays zero changes, zero
+# warnings (pinned for every Electrical file and the HVAC file).
+#
+# NOTHING IS DECIDED HERE. The preview carries the warning (`change["twin"]`) with both wordings,
+# both sets of numbers and a FINGERPRINT of the target; the apply re-derives the target and refuses a
+# confirm whose fingerprint is not the one previewed (the target differs, or changed since). A row the
+# user CONFIRMS becomes an UPDATE of the existing item -- its uid, wording, attributes and spec
+# status untouched, only the rates and markups the row carries; a DECLINED row is skipped; an
+# UNANSWERED one refuses the whole apply (two outcomes, never a silent third). Two new rows that are
+# twins of each other are an ERROR naming both rows (Y-b 2).
+
+TWIN_CONFIRM = "confirm"
+TWIN_DECLINE = "decline"
+
+
+def _twin_value(v):
+    """Numbers compare as floats (a typed 2 and a stored 2.0 mean the same); everything else verbatim."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, dict):
+        return {k: _twin_value(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_twin_value(x) for x in v]
+    return v
+
+
+def twin_identity(kind, brand, unit, attributes, spec_cat=None):
+    """The MEANING of an item as a canonical string, or None when it has none to compare.
+
+    spec category (HVAC): kind + brand + unit + the DERIVED attributes (text and flag keys stripped);
+    a not-understood spec -> None. Other categories: kind + brand + unit + every attribute. A blank
+    attribute value contributes nothing (a new row declares only what it has; a stored "" means the
+    same). Brand and unit: None and "" are the same absence."""
+    attributes = attributes or {}
+    if spec_cat:
+        if attributes.get(spec_reader.SPEC_STATUS_ATTR) == spec_reader.NOT_UNDERSTOOD:
+            return None
+        attrs = {k: v for k, v in attributes.items()
+                 if k not in spec_reader.TEXT_ATTRS and k not in spec_reader.RESERVED_ATTRS}
+    else:
+        attrs = dict(attributes)
+    attrs = {k: v for k, v in attrs.items() if not _blankish(v)}
+    return json.dumps([(kind or "").strip(), (brand or "").strip(), (unit or "").strip(), _twin_value(attrs)],
+                      sort_keys=True, default=str)
+
+
+def _twin_key(row):
+    """One entry per ITEM: the uid, or -- for an item that has none (a manual entry, which has never been
+    given a uid) -- its document name. An item shared by two categories under one uid is ONE entry."""
+    uid = (row.get("item_uid") or "").strip()
+    return uid or ("doc:" + (row.get("name") or ""))
+
+
+def twin_index(active_rows, spec_cats):
+    """{identity: {item key: row}} over ACTIVE rows (see `_twin_key`)."""
+    idx = {}
+    for r in active_rows:
+        uid = _twin_key(r)
+        if uid == "doc:":
+            continue
+        attrs = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        ident = twin_identity(r["kind"], r["brand"], r["unit"], attrs, spec_cats.get(r["kind"]))
+        if ident is None:
+            continue
+        idx.setdefault(ident, {})[uid] = r
+    return idx
+
+
+def twin_wording(kind, brand, unit, attributes, spec_cat, attr_order=None):
+    """The item in its own words, for the warning. A spec category shows `item_name / item_detail`;
+    any other shows its identifying fields as the file shows them -- kind, brand, unit, then every
+    non-blank attribute in the given column order (the file's), else sorted."""
+    attributes = attributes or {}
+    if spec_cat:
+        name, detail = spec_reader.text_of(attributes)
+        return " / ".join(t for t in (name.strip(), detail.strip()) if t)
+    bits = []
+    for label, v in (("kind", kind), ("brand", brand), ("unit", unit)):
+        if not _blankish(v):
+            bits.append("%s=%s" % (label, v))
+    order = [k for k in (attr_order or []) if k in attributes] + sorted(k for k in attributes if k not in (attr_order or []))
+    for k in order:
+        if not _blankish(attributes.get(k)):
+            bits.append("%s=%s" % (k, _cell(attributes[k])))
+    return ", ".join(bits)
+
+
+def twin_compared(attributes, spec_cat):
+    """Which fields the meaning was compared on (for the warning): the derived attribute ids for a spec
+    category, else kind, brand, unit and every attribute key."""
+    attributes = attributes or {}
+    if spec_cat:
+        return sorted(k for k in attributes if k not in spec_reader.TEXT_ATTRS and k not in spec_reader.RESERVED_ATTRS)
+    return ["kind", "brand", "unit"] + sorted(attributes)
+
+
+def twin_fingerprint(target, ident):
+    """What the apply re-verifies: the target's uid, its document, its identity and its rates. Any of
+    them moving between preview and apply changes it, and the confirm is refused."""
+    rates = target["rates"] if isinstance(target["rates"], dict) else json.loads(target["rates"] or "{}")
+    blob = "|".join([(target.get("item_uid") or ""), (target.get("name") or ""), ident, _canon(rates)])
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+
+
+def merge_rates(target_rates, row_rates):
+    """The confirmed write: the target's rate map with every NON-blank rate the row carries set on it.
+    A blank in the row is 'I have no value', never a clearing -- the row was typed as a new item."""
+    out = dict(target_rates or {})
+    for k, v in (row_rates or {}).items():
+        if v is not None:
+            out[k] = v
+    return out
+
+
+def twin_block(case, target, ident, row_kind, row_brand, row_unit, row_attributes, row_rates, spec_cat,
+               attr_order=None, edited_uid=None):
+    """The warning's payload for one row / one form entry. PUBLIC (no underscore) -- it rides the plan
+    to the client, which renders it verbatim."""
+    t_attrs = target["attributes"] if isinstance(target["attributes"], dict) else json.loads(target["attributes"] or "{}")
+    t_rates = target["rates"] if isinstance(target["rates"], dict) else json.loads(target["rates"] or "{}")
+    return {
+        "case": case,
+        "item_uid": (target.get("item_uid") or "").strip(),
+        "name": target.get("name"),
+        "existing_wording": twin_wording(target["kind"], target["brand"], target["unit"], t_attrs, spec_cat, attr_order),
+        "row_wording": twin_wording(row_kind, row_brand, row_unit, row_attributes, spec_cat, attr_order),
+        "existing_rates": {k: _cell(v) for k, v in sorted(t_rates.items())},
+        "row_rates": {k: _cell(v) for k, v in sorted((row_rates or {}).items())},
+        "compared": twin_compared(row_attributes, spec_cat),
+        "fingerprint": twin_fingerprint(target, ident),
+        "decision": None,
+        "edited_item_uid": edited_uid,
+    }
+
+
+def find_active_twin(discipline, kind, brand, unit, attributes, exclude_uid=None, exclude_name=None):
+    """THE MANUAL ENDPOINTS' finder (the upload builds its own index once per plan from the same
+    functions). Returns (target_row | None, identity, ambiguous_keys). `ambiguous_keys` is non-empty
+    when MORE than one active item already carries the meaning -- the caller refuses rather than pick.
+    `exclude_name` / `exclude_uid` leave the item being edited out (it is never its own twin)."""
+    spec_cats = spec_reader.spec_categories(discipline)
+    spec_cat = spec_cats.get((kind or "").strip())
+    ident = twin_identity(kind, brand, unit, attributes, spec_cat)
+    if ident is None:
+        return None, None, []
+    rows = frappe.get_all(ITEM_DOCTYPE,
+                          filters={"discipline": discipline, "active": 1, "kind": (kind or "").strip()},
+                          fields=["name", "item_uid", "kind", "brand", "unit", "attributes", "rates"])
+    cands = {u: r for u, r in twin_index(rows, spec_cats).get(ident, {}).items()
+             if not (exclude_uid and u == exclude_uid) and not (exclude_name and r.get("name") == exclude_name)}
+    if not cands:
+        return None, ident, []
+    if len(cands) > 1:
+        return None, ident, sorted(cands)
+    return next(iter(cands.values())), ident, []
+
+
 # ── plan ────────────────────────────────────────────────────────────────────────────────
 
 
@@ -387,7 +567,7 @@ def _now_iso():
     return frappe.utils.now_datetime().replace(microsecond=0).isoformat()
 
 
-def build_plan(discipline, raw, decisions=None, category_id=None):
+def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions=None):
     """READ-ONLY. The whole decision, computed from the file and the live catalog.
 
     Returns {discipline, mode, format, encoding, row_count, columns, counts, errors, changes, digest}.
@@ -405,11 +585,18 @@ def build_plan(discipline, raw, decisions=None, category_id=None):
     every such row is planned as not_understood, exactly as 1c; "accept" plans the SUGGESTED attributes
     with spec_status "confirmed" (who + when); "reject" is not_understood. An accept for a row that has
     no suggestion is a row ERROR, never a silent no-op.
+
+    SLICE 1f: `twin_decisions` = {"<data row number>": "confirm" | "decline"} -- the answers to the
+    duplicate warning. ABSENT (the preview): a row that means the same as an active item is planned as
+    the file says (an add, or the edit) and carries `change["twin"]`; "confirm" re-plans it as an UPDATE
+    of the existing item's rates (its wording, attributes, uid and spec status untouched); "decline"
+    drops the row. Two new rows that mean the same as each other are an ERROR (owner Y-b 2).
     """
     discipline = (discipline or "").strip()
     if not discipline:
         frappe.throw("discipline is required to read a rate-master CSV.")
     decisions = {str(k): v for k, v in (decisions or {}).items()}
+    twin_decisions = {str(k): v for k, v in (twin_decisions or {}).items()}
 
     headers, data_rows, encoding, fmt = read_upload(raw)
     if headers is None:
@@ -439,6 +626,9 @@ def build_plan(discipline, raw, decisions=None, category_id=None):
         uid = (r["item_uid"] or "").strip()
         if uid:
             by_uid.setdefault(uid, []).append(r)
+    # SLICE 1f: the meaning of every active item, ONCE per plan (keyed by uid inside, so a shared item is one).
+    twin_idx = twin_index(active, spec_cats)
+    in_file_identities = {}      # identity -> [rows] over the rows whose identity is NEW or CHANGED (Y-b 2)
 
     plan = {
         "discipline": discipline,
@@ -455,7 +645,7 @@ def build_plan(discipline, raw, decisions=None, category_id=None):
         "errors": errors,
         "changes": [],
         "counts": {"rates_changed": 0, "items_added": 0, "unchanged": 0,
-                   "other_changed": 0, "errors": 0},
+                   "other_changed": 0, "errors": 0, "twins": 0, "twins_declined": 0},
         "digest": "",
     }
     if errors:
@@ -711,6 +901,71 @@ def build_plan(discipline, raw, decisions=None, category_id=None):
             plan["counts"]["unchanged"] += 1
             continue
 
+        # ══════════════════════════════════════════════════════════════════════════════════
+        # SLICE 1f -- does this row MEAN THE SAME as an existing item? Only a NEW row, or an edit
+        # whose identity CHANGED, is checked (a rates-only edit never is). The identity is taken from
+        # the attributes that WOULD be stored; for a spec row the reader could not read but has a
+        # suggestion for, from the suggestion -- so the warning is on the preview a user sees, and an
+        # accept + confirm at apply lands on the same target (same derived attributes, same identity).
+        # ══════════════════════════════════════════════════════════════════════════════════
+        twin_info = None
+        twin_target = None
+        twin_attrs = attributes
+        if (spec_cat and spec_reader.is_not_understood(attributes) and spec_info
+                and spec_info.get("suggestion") and spec_info.get("decision") is None):
+            # UNDECIDED only: a rejected suggestion stores a not-understood item, which has no meaning.
+            twin_attrs = {"item_name": new_name, "item_detail": new_detail, **spec_info["suggestion"]["attributes"]}
+        ident_new = twin_identity(kind, new_payload["brand"], new_payload["unit"], twin_attrs, spec_cat)
+        ident_old = (twin_identity(stored["kind"], stored["brand"], stored["unit"], stored["attributes"], spec_cat)
+                     if stored is not None else None)
+        if ident_new is not None and (stored is None or ident_new != ident_old):
+            in_file_identities.setdefault(ident_new, []).append(rownum)
+            cands = {u: r for u, r in twin_idx.get(ident_new, {}).items() if not (uid and u == uid)}
+            if len(cands) > 1:
+                errors.append({"row": rownum, "column": "", "message":
+                               "Row %d means the same as %d existing items (%s) -- the catalog already holds "
+                               "twins; resolve those first." % (rownum, len(cands), ", ".join(sorted(cands)))})
+                continue
+            if cands:
+                twin_target = next(iter(cands.values()))
+                twin_info = twin_block("edit" if stored is not None else "new", twin_target, ident_new,
+                                       kind, new_payload["brand"], new_payload["unit"], twin_attrs, rates, spec_cat,
+                                       attr_order=[n for n, _i in sorted(spec["attributes"].items(), key=lambda x: x[1])],
+                                       edited_uid=uid or None)
+                plan["counts"]["twins"] += 1
+                decision = twin_decisions.get(str(rownum))
+                twin_info["decision"] = decision
+                if decision == TWIN_DECLINE:
+                    plan["counts"]["twins_declined"] += 1
+                    continue                                    # skipped: nothing for this row (Y-a, Y-b 1)
+                if decision == TWIN_CONFIRM:
+                    # THE EXISTING ITEM takes the row's rates and markups and NOTHING else (Y-d / Y-e): its
+                    # uid, wording, attributes, spec status and provenance are its own. The edited item
+                    # (edit case) gets no change at all.
+                    t_stored = _stored_payload(twin_target)
+                    t_payload = {**t_stored, "rates": merge_rates(t_stored["rates"], rates)}
+                    if _canon(t_payload) == _canon(t_stored):
+                        plan["counts"]["unchanged"] += 1
+                        continue
+                    t_fields, _t_major = _diff_fields(t_stored, t_payload, spec)
+                    plan["changes"].append({
+                        "row": rownum,
+                        "kind": "update",
+                        "item_uid": twin_info["item_uid"],
+                        "name": twin_target["name"],
+                        "label": _label(t_stored),
+                        "major": True,
+                        "fields": t_fields,
+                        "_payload": t_payload,
+                        "twin": twin_info,
+                    })
+                    plan["counts"]["rates_changed"] += 1
+                    continue
+                if decision is not None:
+                    errors.append({"row": rownum, "column": "", "message":
+                                   "Row %d: duplicate decision '%s' is neither confirm nor decline." % (rownum, decision)})
+                    continue
+
         fields, rate_major = _diff_fields(stored, new_payload, spec)
         change = {
             "row": rownum,
@@ -725,6 +980,10 @@ def build_plan(discipline, raw, decisions=None, category_id=None):
             # readers. The preview endpoint strips it before the client sees it (see `public_plan`).
             "_payload": new_payload,
         }
+        if twin_info is not None:
+            # SLICE 1f: the warning rides the change (undecided); shown in full, like a spec question.
+            change["twin"] = twin_info
+            change["major"] = True
         if spec_info is not None:
             # SLICE 1c: what the reader understood from the new / changed text, or why it could not.
             # PUBLIC (no underscore) -- this is the preview's U2 line.
@@ -744,6 +1003,15 @@ def build_plan(discipline, raw, decisions=None, category_id=None):
             plan["counts"]["rates_changed"] += 1
         else:
             plan["counts"]["other_changed"] += 1
+
+    # SLICE 1f (owner Y-b 2): two or more rows in THIS file that mean the same item -- refused, naming
+    # the rows; the system cannot know which rate was meant. Only new / changed-identity rows are in
+    # the registry, so two existing twins re-uploaded (unchanged, or rates only) never trip it.
+    for ident, rows_ in in_file_identities.items():
+        if len(rows_) > 1:
+            errors.append({"row": rows_[0], "column": "", "message":
+                           "Rows %s mean the same item -- remove one; the system cannot know which rate you meant."
+                           % " and ".join(str(r) for r in rows_)})
 
     plan["counts"]["errors"] = len(errors)
     plan["digest"] = _digest(discipline, plan)
@@ -858,7 +1126,10 @@ def _digest(discipline, plan):
         "errors": [e["message"] for e in plan["errors"]],
         "changes": [
             {"row": c["row"], "kind": c["kind"], "uid": c["item_uid"], "name": c["name"],
-             "fields": [(f["column"], f["old"], f["new"]) for f in c["fields"]]}
+             "fields": [(f["column"], f["old"], f["new"]) for f in c["fields"]],
+             # SLICE 1f: a warning's target is part of what the user saw -- present ONLY on such a row,
+             # so every other plan's digest is byte-identical to before.
+             **({"twin": c["twin"]["fingerprint"]} if c.get("twin") else {})}
             for c in plan["changes"]
         ],
     }
@@ -870,7 +1141,7 @@ def _digest(discipline, plan):
 
 
 def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_fingerprints=None,
-               category_id=None):
+               category_id=None, twin_decisions=None, twin_fingerprints=None):
     """ALL-OR-NOTHING. Writes a snapshot, then supersedes and inserts. Does NOT commit.
 
     THE TRANSACTIONAL GUARANTEE IS POSTGRES', not a hand-rolled one: every statement below runs in
@@ -914,11 +1185,13 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
             "what would happen. Preview the file again and re-confirm.",
             title="Preview out of date",
         )
-    if decisions:
+    if decisions or twin_decisions:
         # SLICE 1d: re-plan WITH the user's answers, then verify every ACCEPT against the fingerprint the
         # preview showed -- the suggestion is RE-DERIVED here, never trusted from the client, and an accept
         # whose suggestion differs (or that names a row with no suggestion) is refused before any write.
-        plan = build_plan(discipline, raw, decisions, category_id=category_id)
+        # SLICE 1f: the duplicate answers ride the same re-plan; each CONFIRM's target is re-derived and
+        # checked below.
+        plan = build_plan(discipline, raw, decisions, category_id=category_id, twin_decisions=twin_decisions)
         if plan["errors"]:
             first = plan["errors"][0]
             frappe.throw(
@@ -941,6 +1214,42 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
                     "so it cannot be applied. Preview the file again and re-confirm." % c["row"],
                     title="Suggestion out of date",
                 )
+
+    # SLICE 1f: every duplicate warning must be ANSWERED, and every CONFIRM must land on the target the
+    # preview showed -- the target is re-derived from the live catalog here, never trusted from the
+    # client; a target that differs, or whose rates / identity / document moved since, is refused before
+    # any write. Two changes on one document (a confirm onto an item the file ALSO edits) are refused
+    # too: one supersede per document per apply.
+    tfps = {str(k): v for k, v in (twin_fingerprints or {}).items()}
+    for c in plan["changes"]:
+        tw = c.get("twin")
+        if not tw:
+            continue
+        if tw.get("decision") is None:
+            frappe.throw(
+                "Row %d means the same as an existing item (%s) and the warning was not answered -- confirm "
+                "or decline it and apply again. Nothing has been applied." % (c["row"], tw.get("item_uid")),
+                title="Duplicate not answered",
+            )
+        if tw.get("decision") == TWIN_CONFIRM:
+            shown = tfps.get(str(c["row"]))
+            if not shown or shown != tw.get("fingerprint"):
+                frappe.throw(
+                    "Row %d: the existing item this row would update is not the one that was previewed, or "
+                    "it changed since (or no fingerprint was sent). Preview the file again and re-confirm. "
+                    "Nothing has been applied." % c["row"],
+                    title="Duplicate target out of date",
+                )
+    seen_docs = {}
+    for c in plan["changes"]:
+        if c["kind"] == "update" and c.get("name"):
+            if c["name"] in seen_docs:
+                frappe.throw(
+                    "Rows %d and %d both update the same existing item (%s) -- apply them one at a time. "
+                    "Nothing has been applied." % (seen_docs[c["name"]], c["row"], c["item_uid"]),
+                    title="One change per item",
+                )
+            seen_docs[c["name"]] = c["row"]
 
     if not plan["changes"]:
         return {"applied": 0, "items_added": 0, "items_replaced": 0, "snapshot": None,
@@ -969,12 +1278,15 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
     }
     added = replaced = 0
     for change in plan["changes"]:
-        uid = change["item_uid"]
+        uid = change["item_uid"] or None
         if uid is None:
             uid = UID_PREFIX + frappe.generate_hash(length=UID_HEX_LEN)
             while uid in existing_uids:
                 uid = UID_PREFIX + frappe.generate_hash(length=UID_HEX_LEN)
             existing_uids.add(uid)
+        # SLICE 1f: counted by what the change IS -- a confirmed duplicate whose existing item never had a
+        # uid (a manual entry) is an update, and its successor is the first row of that item to carry one.
+        if change["kind"] == "add":
             added += 1
         else:
             replaced += 1

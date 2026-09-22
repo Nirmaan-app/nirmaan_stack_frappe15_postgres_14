@@ -32,7 +32,7 @@ import {
 import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
 import {
   DEFAULT_RATE_FILE_FORMAT, rateFileFallbackName,
-  type RateFileFormat, type UploadPlan, type UploadResult,
+  type RateFileFormat, type TwinDecision, type UploadPlan, type UploadResult,
 } from "./rateMasterUpload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
 import {
@@ -239,11 +239,18 @@ export function RateMasterPage() {
       acceptedFingerprints?: Record<number, string>,
       // SLICE 1e: the same optional category hint the preview sent (absent -> byte-identical payload).
       categoryId?: string | null,
+      // SLICE 1f (payload channel only): the per-row Confirm / Decline answers to the duplicate warning and
+      // the confirmed targets' fingerprints, BOTH OPTIONAL -- absent, the payload is byte-identical to before
+      // (`applyCsvPayload` is pinned by test for that). The server re-derives every target and refuses a
+      // confirm whose target differs from, or has changed since, the preview.
+      twinDecisions?: Record<number, TwinDecision>,
+      twinFingerprints?: Record<number, string>,
     ) => {
       // `expected_digest` is the preview's fingerprint. The server re-derives the plan and REFUSES when
       // the catalog moved underneath -- what the user confirmed is then no longer what would happen.
       const res = await callApplyCsv({
-        ...applyCsvPayload(disciplineId, contentBase64, expectedDigest, decisions, acceptedFingerprints),
+        ...applyCsvPayload(disciplineId, contentBase64, expectedDigest, decisions, acceptedFingerprints,
+          twinDecisions, twinFingerprints),
         ...(categoryId ? { category_id: categoryId } : {}),
       });
       return (res as { message: UploadResult }).message;
