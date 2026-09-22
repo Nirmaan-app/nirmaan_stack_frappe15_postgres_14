@@ -138,7 +138,40 @@ _KNOWN_CONFIG_KEYS = {
     # frontend `pricingSheetHelper.compute` and the pricing grid; a config WITHOUT them -- every
     # Electrical category, and HVAC ADP -- is byte-identical to before.
     "helper_message", "pending_label",
+    # SLICE 3 (2026-09-22, owner Q-a / Q-b): `alias_of = {discipline, category_id}` -- this category's
+    # rows RESOLVE to another discipline's config, items and catalogue at lookup time; NOTHING is ever
+    # copied between disciplines (a copy would drift: production edits rates by CSV). Structurally
+    # validated below (`_validate_alias_of`): an alias config holds NO pipelines and NO attribute
+    # definitions of its own and may not point at itself. A chain (alias -> alias) cannot be seen
+    # here (one config at a time) and is resolved ONE HOP ONLY by the consumers: the target's own
+    # emptiness makes it ineligible, so the row shows the coming-soon card, never an error.
+    "alias_of",
 }
+
+
+def _validate_alias_of(cfg):
+    """SLICE 3: the alias key's shape. Absent => nothing to check (byte-identical to before)."""
+    if "alias_of" not in cfg:
+        return
+    alias = cfg.get("alias_of")
+    if not isinstance(alias, dict):
+        _vthrow("alias_of must be an object {discipline, category_id}.")
+    unknown = set(alias.keys()) - {"discipline", "category_id"}
+    if unknown:
+        _vthrow(f"alias_of: unknown key(s): {', '.join(sorted(unknown))}.")
+    for k in ("discipline", "category_id"):
+        v = alias.get(k)
+        if not isinstance(v, str) or not v.strip():
+            _vthrow(f"alias_of needs a non-empty string '{k}'.")
+    own_disc = (cfg.get("discipline") or "").strip()
+    own_cat = (cfg.get("category_id") or "").strip()
+    if alias["discipline"].strip() == own_disc and alias["category_id"].strip() == own_cat:
+        _vthrow("alias_of may not point at the config itself.")
+    # an alias holds nothing of its own -- the target's pipelines / definitions are THE definitions
+    if cfg.get("pipelines"):
+        _vthrow("an alias_of config must have EMPTY pipelines (the target's pipelines are used).")
+    if cfg.get("attribute_definitions"):
+        _vthrow("an alias_of config must have EMPTY attribute_definitions (the target's are used).")
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
 
@@ -226,6 +259,7 @@ def _validate_config(cfg):
     unknown = set(cfg.keys()) - _KNOWN_CONFIG_KEYS
     if unknown:
         _vthrow(f"Unknown top-level config key(s): {', '.join(sorted(unknown))}.")
+    _validate_alias_of(cfg)  # SLICE 3: shape of the alias key; a no-op for every config without it
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")

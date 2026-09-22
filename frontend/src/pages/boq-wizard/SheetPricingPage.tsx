@@ -207,9 +207,9 @@ import { RateHelperPanel, type UseMeta } from "./rate-helper/RateHelperPanel";
 import { buildHelperList } from "./rate-helper/rateHelperRegistry";
 import {
   buildExtractionByRow,
-  disciplineHasNothingToPrice,
+  disciplineHasNothingToRun,
   isRunForVersion,
-  makeDeclineOnlyHelper,
+  makePreRunHelper,
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
 import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
@@ -2938,17 +2938,21 @@ const SheetPricingPage = () => {
   // decline helper rebuilds as configs arrive (N times, like configsByCategory) and `panelHelpers`
   // re-resolves on a selection change -- both reach only the panel, never a grid row; once a run is
   // adopted this is `helperList` itself.
-  const declineOnlyHelper = useMemo(
-    () => (RATE_HELPER_ENABLED && configsByCategory.size > 0 ? makeDeclineOnlyHelper(configsByCategory) : null),
-    [configsByCategory],
+  // SLICE 3 (owner ruling 2026-09-22): the before-run helper is the REAL helper over an EMPTY extraction
+  // map (the calculator's construction) -- vendor / coming-soon cards unchanged, an aliased row shows its
+  // fields -- and it applies to a discipline with nothing to RUN (no eligible config of its OWN; an alias
+  // does not count). Panel-only, as before: the badge effect keeps `helperList`.
+  const preRunHelper = useMemo(
+    () => (RATE_HELPER_ENABLED && configsByCategory.size > 0 ? makePreRunHelper(configsByCategory, rmItems) : null),
+    [configsByCategory, rmItems],
   );
   const panelHelpers = useMemo(() => {
-    if (pricingSheetHelper || !declineOnlyHelper || !helperPanel) return helperList;
+    if (pricingSheetHelper || !preRunHelper || !helperPanel) return helperList;
     const discipline = resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null;
-    return disciplineHasNothingToPrice(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
-      ? buildHelperList(declineOnlyHelper)
+    return disciplineHasNothingToRun(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
+      ? buildHelperList(preRunHelper)
       : helperList;
-  }, [pricingSheetHelper, declineOnlyHelper, helperPanel, resolvedByExcelRow, configsByCategory, helperList]);
+  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, configsByCategory, helperList]);
 
   // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
   // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).

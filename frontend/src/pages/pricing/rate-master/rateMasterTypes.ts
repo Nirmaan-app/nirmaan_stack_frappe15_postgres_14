@@ -752,6 +752,13 @@ export interface RateCategoryConfig {
    * Absent => no mark, byte-identical to before.
    */
   pending_label?: string;
+  /**
+   * SLICE 3 (2026-09-22, owner Q-a / Q-b): this category's rows RESOLVE to another discipline's config,
+   * items and catalogue at lookup time -- nothing is ever copied between disciplines. An alias config
+   * holds no pipelines and no attribute definitions of its own; `resolveAliasConfig` maps it ONE HOP to
+   * the target config (a missing or ineligible target leaves the row on the coming-soon card).
+   */
+  alias_of?: { discipline: string; category_id: string };
   [k: string]: unknown;
 }
 

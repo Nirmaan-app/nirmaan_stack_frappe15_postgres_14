@@ -44,10 +44,13 @@ import {
   categoryLabel,
   COMING_SOON_REASON,
   declineReasonFor,
-  disciplineHasNothingToPrice,
+  disciplineHasNothingToRun,
+  isEligibleConfig,
+  isAliasConfig,
+  makePreRunHelper,
+  resolveAliasConfig,
   groupFigures,
   isRunForVersion,
-  makeDeclineOnlyHelper,
   makePricingSheetHelper,
   nonBcsPipelines,
   PRICING_SHEET_HELPER_ID,
@@ -4888,41 +4891,133 @@ describe("SLICE 2 / helper_message: the decline reason comes from the config, el
     { discipline: "T", categoryId: "t_vendor" }, { discipline: "T", categoryId: "t_data" }, { discipline: "T", categoryId: "t_missing" },
     { discipline: "E", categoryId: "e_ok" }, { discipline: "E", categoryId: "e_data" },
   ];
-  it("disciplineHasNothingToPrice: TRUE for a discipline whose fetched configs are all not eligible; FALSE with one eligible config", () => {
-    expect(disciplineHasNothingToPrice("T", byCat, TARGETS)).toBe(true);
-    expect(disciplineHasNothingToPrice("E", byCat, TARGETS)).toBe(false);
+  // SLICE 3 (owner ruling 2026-09-22, superseding the slice-2 decline-only card): the rule is "nothing to
+  // RUN" -- no eligible config OF ITS OWN; an ALIAS does not count -- and the before-run helper is the real
+  // one over an empty extraction map.
+  const ALIAS_TO_E: RateCategoryConfig = { discipline: "A", category_id: "a_alias", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "E", category_id: "e_ok" } };
+  const A_OWN: RateCategoryConfig = { ...ELIGIBLE, discipline: "A", category_id: "a_own" };
+  const TARGETS3 = [...TARGETS, { discipline: "A", categoryId: "a_alias" }, { discipline: "A", categoryId: "a_own" }];
+  it("disciplineHasNothingToRun: TRUE for a discipline whose fetched configs are all not eligible; FALSE with one eligible config of its own", () => {
+    expect(disciplineHasNothingToRun("T", byCat, TARGETS3)).toBe(true);
+    expect(disciplineHasNothingToRun("E", byCat, TARGETS3)).toBe(false);
+  });
+  it("⚠️ NEGATIVE (owner ruling): a discipline whose ONLY eligible config is an ALIAS still has nothing to run; once it gains an eligible config of its OWN it stops counting -- THE FLIP, pinned", () => {
+    const withAlias = new Map(byCat); withAlias.set("a_alias", ALIAS_TO_E);
+    expect(isEligibleConfig(resolveAliasConfig(withAlias, "a_alias"))).toBe(true);   // the alias IS priceable...
+    expect(disciplineHasNothingToRun("A", withAlias, TARGETS3)).toBe(true);           // ...but it is not the discipline's OWN
+    withAlias.set("a_own", A_OWN);                                                     // slice 5 lands an own pipeline...
+    expect(disciplineHasNothingToRun("A", withAlias, TARGETS3)).toBe(false);          // ...and the discipline stops counting
+    // and Electrical-shaped disciplines are untouched by the alias rule in either direction
+    expect(disciplineHasNothingToRun("E", withAlias, TARGETS3)).toBe(false);
   });
   it("⚠️ NEGATIVE: FALSE for no discipline, an unregistered discipline, and a discipline none of whose configs has loaded", () => {
-    expect(disciplineHasNothingToPrice(null, byCat, TARGETS)).toBe(false);
-    expect(disciplineHasNothingToPrice(undefined, byCat, TARGETS)).toBe(false);
-    expect(disciplineHasNothingToPrice("ELV", byCat, TARGETS)).toBe(false);
-    expect(disciplineHasNothingToPrice("T", new Map(), TARGETS)).toBe(false);           // nothing arrived yet
+    expect(disciplineHasNothingToRun(null, byCat, TARGETS3)).toBe(false);
+    expect(disciplineHasNothingToRun(undefined, byCat, TARGETS3)).toBe(false);
+    expect(disciplineHasNothingToRun("ELV", byCat, TARGETS3)).toBe(false);
+    expect(disciplineHasNothingToRun("T", new Map(), TARGETS3)).toBe(false);           // nothing arrived yet
     // documented edge: one NOT-eligible config arrived, the eligible sibling not yet -> TRUE until it lands
     const partial = new Map<string, RateCategoryConfig>([["e_data", DATA_ONLY]]);
-    expect(disciplineHasNothingToPrice("E", partial, TARGETS)).toBe(true);
+    expect(disciplineHasNothingToRun("E", partial, TARGETS3)).toBe(true);
     partial.set("e_ok", ELIGIBLE);
-    expect(disciplineHasNothingToPrice("E", partial, TARGETS)).toBe(false);
+    expect(disciplineHasNothingToRun("E", partial, TARGETS3)).toBe(false);
   });
-  it("makeDeclineOnlyHelper: the same card id/label as the real helper; declines with the config's message or coming soon; NEVER prices, NEVER badges", () => {
-    const d = makeDeclineOnlyHelper(byCat);
+  it("makePreRunHelper: the real helper over an EMPTY map -- vendor / coming-soon cards byte-identical to slice 2, an eligible or aliased category shows its fields; NEVER badges", () => {
+    const withAlias = new Map(byCat); withAlias.set("a_alias", ALIAS_TO_E);
+    const d = makePreRunHelper(withAlias, ITEMS);
     expect(d.id).toBe(PRICING_SHEET_HELPER_ID);
     expect(d.label).toBe("Pricing sheet");
     expect(d.compute(rowCtx("t_vendor"))).toEqual({ kind: "none", reason: "Ask the vendor" });
     expect(d.compute(rowCtx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
     expect(d.compute(rowCtx("t_missing"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
     expect(d.compute(rowCtx(null))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
-    // NEGATIVE: even an ELIGIBLE config gets a decline -- this helper cannot price
-    expect(d.compute(rowCtx("e_ok")).kind).toBe("none");
-    expect(suggestionCountForKind(rowCtx("e_ok"), "supply_rate", [d])).toBe(0);
+    // an eligible category, and an ALIAS of one, show the fields (a Suggestion with a blank fill), no run needed
+    const own = d.compute(rowCtx("e_ok"));
+    const via = d.compute(rowCtx("a_alias"));
+    if (!isSuggestion(own) || !isSuggestion(via)) throw new Error("expected suggestions");
+    expect(via.workings.attributes.map((a) => a.id)).toEqual(own.workings.attributes.map((a) => a.id));
+    expect(via.basis).toBe(own.basis);
+    // it is panel-only: the page never puts it in the badge list (source pin below); here, the empty-map
+    // helper mints no computed value for a blank row, so the badge count stays 0 even if it were asked
     expect(suggestionCountForKind(rowCtx("t_vendor"), "supply_rate", [d])).toBe(0);
   });
-  it("(source) the page hands the panel `panelHelpers` (both mounts) and the badge effect keeps `helperList`; with a run, panelHelpers IS helperList", () => {
+  it("(source) the page hands the panel `panelHelpers` (both mounts) and the badge effect keeps `helperList`; with a run, panelHelpers IS helperList; Electrical's before-run list is untouched", () => {
     const page = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf8");
     expect(page.match(/helpers=\{panelHelpers\}/g) ?? []).toHaveLength(2);
     expect(page).not.toMatch(/helpers=\{helperList\}/);
     expect(page).toContain("buildSuggestions(rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList)");
-    expect(page).toContain("if (pricingSheetHelper || !declineOnlyHelper || !helperPanel) return helperList;");
-    expect(page).toContain("disciplineHasNothingToPrice(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
+    expect(page).toContain("if (pricingSheetHelper || !preRunHelper || !helperPanel) return helperList;");
+    expect(page).toContain("disciplineHasNothingToRun(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
+    expect(page).toContain("? buildHelperList(preRunHelper)");
+    expect(page).toContain(": helperList;");
     expect(page).toContain("resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null");
+    expect(page).not.toContain("makeDeclineOnlyHelper");
+    // the Use event records the ROW's own category, never the resolved config's id (L5)
+    expect(page).toContain('category_id: liveCategoriesByExcelRow.get(excelRow)?.effective_category_id ?? "",');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 3 (2026-09-22, owner Q-a / Q-b): `alias_of` -- ONE frontend resolution, one hop, never an error.
+describe("SLICE 3 / alias_of: resolveAliasConfig is one hop; an aliased row prices as its target, wiring pairing included", () => {
+  const cats63 = (LIVE_ASSET_V63 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] });
+  const WIRING = cats63.category_configs.find((c) => c.category_id === "wiring_cabling")!;
+  const DATA_ONLY: RateCategoryConfig = { discipline: "T", category_id: "t_data", attribute_definitions: [{ id: "x", label: "X", type: "choice", values: ["a"] }], pipelines: {} };
+  const ALIAS: RateCategoryConfig = { discipline: "T", category_id: "t_cables", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "Electrical", category_id: "wiring_cabling" } };
+  const ALIAS_TO_DATA: RateCategoryConfig = { discipline: "T", category_id: "t_to_data", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "T", category_id: "t_data" } };
+  const ALIAS_TO_MISSING: RateCategoryConfig = { discipline: "T", category_id: "t_to_missing", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "Nowhere", category_id: "nope" } };
+  const CHAIN_A: RateCategoryConfig = { discipline: "T", category_id: "t_chain", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "T", category_id: "t_cables" } };
+  const byCat = new Map<string, RateCategoryConfig>([
+    ["wiring_cabling", WIRING], ["t_data", DATA_ONLY], ["t_cables", ALIAS], ["t_to_data", ALIAS_TO_DATA],
+    ["t_to_missing", ALIAS_TO_MISSING], ["t_chain", CHAIN_A],
+  ]);
+  const ITEMS63 = cats63.items.map((i) => ({ ...i, attributes: { ...i.attributes, ...((i as unknown as { brand?: string }).brand ? { brand: (i as unknown as { brand?: string }).brand } : {}) } })) as RateMasterItem[];
+  const wctx = (category: string, excelRow = 5, description = "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable"): RateHelperRowContext =>
+    ({ excelRow, description, nodeType: "Line Item", category, discipline: null, rateKinds: ["supply_rate", "install_rate", "combined_rate"] });
+
+  it("resolveAliasConfig: target for an alias, own for a non-alias, own for a missing target, ONE hop on a chain, null for none", () => {
+    expect(resolveAliasConfig(byCat, "t_cables")).toBe(WIRING);
+    expect(resolveAliasConfig(byCat, "wiring_cabling")).toBe(WIRING);
+    expect(resolveAliasConfig(byCat, "t_data")).toBe(DATA_ONLY);
+    expect(resolveAliasConfig(byCat, "t_to_missing")).toBe(ALIAS_TO_MISSING);   // own back: not eligible
+    expect(resolveAliasConfig(byCat, "t_chain")).toBe(ALIAS);                    // one hop lands on the alias, never on WIRING
+    expect(resolveAliasConfig(byCat, "nope")).toBeNull();
+    expect(resolveAliasConfig(byCat, null)).toBeNull();
+    expect(isAliasConfig(ALIAS)).toBe(true);
+    expect(isAliasConfig(WIRING)).toBe(false);
+    expect(isAliasConfig({ ...ALIAS, alias_of: { discipline: "E", category_id: "  " } })).toBe(false);
+  });
+  it("an ALIAS is eligible exactly when its target is; an alias to a data-only / missing target, and a chain, decline coming soon -- never an error", () => {
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_cables"))).toBe(true);
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_to_data"))).toBe(false);
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_to_missing"))).toBe(false);
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_chain"))).toBe(false);
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS63, extractionByRow: new Map() });
+    for (const cat of ["t_to_data", "t_to_missing", "t_chain"]) expect(h.compute(wctx(cat))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+  });
+  it("an aliased in-run row prices EXACTLY as the wiring row -- the Cable | Termination pairing fires because the resolved config's id IS wiring_cabling", () => {
+    const g = (WIRING.goldens as Array<{ attrs: Record<string, string | number> }>)[0];
+    const map = buildExtractionByRow([{ excel_row: 5, attributes: ext(g.attrs) }]);
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS63, extractionByRow: map });
+    const E = h.compute(wctx("wiring_cabling"));
+    const A = h.compute(wctx("t_cables"));
+    if (!isSuggestion(E) || !isSuggestion(A)) throw new Error("expected suggestions");
+    expect(Object.keys(E.values).length).toBeGreaterThan(0);
+    expect(A.values).toEqual(E.values);
+    expect(A.headlines).toEqual(E.headlines);
+    expect(A.headlines).toHaveLength(2);                                        // Cable | Termination
+    expect(A.workings.sections?.map((s) => s.figures)).toEqual(E.workings.sections?.map((s) => s.figures));
+    expect(A.basis).toBe(E.basis);
+    // NEGATIVE: a non-alias category resolves as today (its own config) and a data-only one still declines
+    expect(h.compute(wctx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+  });
+  it("(source) resolveConfig reads the ONE resolution; the calculator imports the same function; no alias id is named", () => {
+    const src = readFileSync(join(__dirname, "pricingSheetHelper.ts"), "utf8");
+    expect(src).toContain("if (configsByCategory) return resolveAliasConfig(configsByCategory, category);");
+    expect((src.match(/export function resolveAliasConfig\(/g) ?? []).length).toBe(1);
+    expect(src).not.toContain('"hvac_cables"');
+    expect(src).not.toContain('"hvac_raceway"');
+    const calc = readFileSync(join(__dirname, "..", "..", "pricing", "PricingCalculator.tsx"), "utf8");
+    expect(calc).toContain("resolveAliasConfig");
+    expect(calc).not.toContain('"hvac_cables"');
   });
 });

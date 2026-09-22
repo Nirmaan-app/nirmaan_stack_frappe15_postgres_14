@@ -2197,6 +2197,8 @@ export function isPendingRateValue(value: string | number | null | undefined): b
  * SLICE 2 (J6): the pending-mark node for a rate cell, or null. Rendered ONLY when the row's category
  * declares a label AND the shown value is empty / zero -- a row without a label renders byte-identical
  * markup to before (no wrapper, no attribute). Amber, consistent with the grid's other pending cues.
+ * SLICE 3 (owner Q-c): called from the EDITABLE rate branch only -- a row that cannot take a rate
+ * (heading / preamble without qty, or any cell behind the formula / category gates) shows no mark.
  */
 function pendingRateMark(pendingLabel: string | null, value: string | number | null | undefined) {
   if (!pendingLabel || !isPendingRateValue(value)) return null;
@@ -3481,7 +3483,10 @@ const PricingGridRow = memo(function PricingGridRow({
                   )}
                 />
               </div>
-              {/* SLICE 2 (J6): the pending mark -- only on a row whose category declares one. */}
+              {/* SLICE 2 (J6) / SLICE 3 (owner Q-c): the pending mark -- only on a row whose category
+                  declares one AND only where a rate can actually be typed: this branch is entered by the
+                  grid's rate-editable condition (onSaveRate && formulasComplete && categoryGateOpen &&
+                  isRateDescriptor && isRateEditableRow), so the mark shares it exactly. */}
               {pendingRateMark(pendingLabel, value)}
             </td>
           );
@@ -3606,8 +3611,9 @@ const PricingGridRow = memo(function PricingGridRow({
               />
             )}
             {renderDescriptorCell(val)}
-            {/* SLICE 2 (J6): the pending mark on a read-only RATE cell (never on qty / others). */}
-            {isRateDescriptor(d) ? pendingRateMark(pendingLabel, val as string | number | null | undefined) : null}
+            {/* SLICE 3 (owner Q-c): NO pending mark here -- a read-only rate cell cannot take a rate, so a
+                heading / preamble row in a pending_label category shows nothing; the mark lives ONLY in
+                the editable branch above (the grid's own rate-editable condition). */}
           </td>
         );
       })}

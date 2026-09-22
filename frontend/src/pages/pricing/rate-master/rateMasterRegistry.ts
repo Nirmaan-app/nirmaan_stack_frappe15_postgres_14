@@ -87,6 +87,12 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       { category_id: "hvac_dx_unit", label: "DX Unit", holds_items: false },
       { category_id: "hvac_panels", label: "Panels", holds_items: false },
       { category_id: "hvac_pumps", label: "Pumps", holds_items: false },
+      // SLICE 3 (2026-09-22, owner Q-a / Q-b): the two ALIAS categories -- their configs carry `alias_of`
+      // and resolve to Electrical's wiring / tray categories at lookup (stored ONCE, never copied). They
+      // own no items (`holds_items: false`): listed in the calculator, fetched for the helper, and kept
+      // OFF the Rate Master page exactly like the vendor-quote entries above.
+      { category_id: "hvac_cables", label: "Cables", holds_items: false },
+      { category_id: "hvac_raceway", label: "Raceway", holds_items: false },
     ],
   },
 ];

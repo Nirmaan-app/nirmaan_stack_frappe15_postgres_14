@@ -1,0 +1,2374 @@
+{
+ "discipline": "HVAC",
+ "source_workbook": "HVAC_BOQ_BCS PRICING_ Nitesh EditsV2.xlsx",
+ "items": [
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "FIRE DAMPER",
+    "item_detail": "Wihtout Sleeve - with TDF Flange With Fusible link",
+    "family": "fire damper",
+    "variant": "without sleeve",
+    "ul": "no"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 9750.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 6
+   },
+   "item_uid": "rmi-00a8f9d87bb3"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Fire damper",
+    "item_detail": "UL 555 Rated",
+    "family": "fire damper",
+    "variant": "UL",
+    "ul": "yes"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 15000.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 8
+   },
+   "item_uid": "rmi-0164800dd5ac"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Flexible Canvas Conection",
+    "item_detail": "NA",
+    "family": "canvas connection"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1000.0,
+    "cost_install": 800.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 80
+   },
+   "item_uid": "rmi-075939d40d34"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Rmt",
+   "attributes": {
+    "item_name": "Aluminium (Al) Slot diffuser without hit and miss damper",
+    "item_detail": "3 slot",
+    "family": "slot diffuser",
+    "damper": "without",
+    "slot_count": 3.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1160.0,
+    "cost_install": 220.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 28
+   },
+   "item_uid": "rmi-0848f557acde"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Grill",
+    "item_detail": "Intake Louver With Bird Screen",
+    "family": "intake louvre"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 5000.0,
+    "cost_install": 1750.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 23
+   },
+   "item_uid": "rmi-0c2e9c3e24e7"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Grill",
+    "item_detail": "Curved Grill - with damper",
+    "family": "curved grille",
+    "damper": "with"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 7400.0,
+    "cost_install": 1750.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 21
+   },
+   "item_uid": "rmi-0fb2679bbeae"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Eye Ball Diffuser (Jet Nozzle)",
+    "item_detail": "300mm Dia",
+    "family": "jet / eyeball diffuser",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 2550.0,
+    "cost_install": 400.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 93
+   },
+   "item_uid": "rmi-105a0bff6e83"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Volume control Damper (VCD)",
+    "item_detail": "GI Oval",
+    "family": "VCD",
+    "variant": "GI oval"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 6900.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 3
+   },
+   "item_uid": "rmi-10a67ed96761"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Volume control Damper (VCD)",
+    "item_detail": "Motorized",
+    "family": "VCD",
+    "variant": "motorised"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 8500.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 4
+   },
+   "item_uid": "rmi-11efe4d759d4"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser With GI Damper",
+    "item_detail": "300 MM DIA",
+    "family": "round diffuser",
+    "damper": "with",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1000.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 40
+   },
+   "item_uid": "rmi-16b7d2716dbb"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "UN-Insulated Flexible Duct",
+    "item_detail": "350MM DIA",
+    "family": "flexible duct",
+    "insulated": "without",
+    "dia_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 240.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 64
+   },
+   "item_uid": "rmi-18a2e3c266fe"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "UN-Insulated Flexible Duct",
+    "item_detail": "250 MM DIA",
+    "family": "flexible duct",
+    "insulated": "without",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 180.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 62
+   },
+   "item_uid": "rmi-1a5449b35746"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "MS Floor Grill",
+    "item_detail": "MS Floor Grill with AL collar Damper",
+    "family": "floor grille",
+    "damper": "with"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 12650.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 72
+   },
+   "item_uid": "rmi-1b6446d16953"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser With Al Collar Damper",
+    "item_detail": "NECK:300X300/OUTER: 595X595",
+    "family": "square diffuser",
+    "damper": "with",
+    "neck_mm": 300.0,
+    "face_w_mm": 595.0,
+    "face_h_mm": 595.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1360.0,
+    "cost_install": 360.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 30
+   },
+   "item_uid": "rmi-1bcd45b99bcd"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Butterfly Damper With SPIGOT",
+    "item_detail": "300 MM DIA",
+    "family": "butterfly damper",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1100.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 51
+   },
+   "item_uid": "rmi-1d0ea57f4c3a"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Low Pressure Plenum / Mixing Box without insulation",
+    "item_detail": "GI",
+    "family": "mixing box / LP plenum",
+    "insulated": "without"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 880.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 88
+   },
+   "item_uid": "rmi-1f51d557846c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Diffuser Without Al Collar Damper",
+    "item_detail": "NA",
+    "family": "square diffuser",
+    "damper": "without"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 3500.0,
+    "cost_install": 700.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 38
+   },
+   "item_uid": "rmi-20083bb2435b"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Insulated Flexible Duct",
+    "item_detail": "350MM DIA",
+    "family": "flexible duct",
+    "insulated": "with",
+    "dia_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 710.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 58
+   },
+   "item_uid": "rmi-20f79e60afac"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator",
+    "item_detail": "6 NM",
+    "family": "actuator",
+    "ul": "no",
+    "torque_nm": 6.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 5800.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 15
+   },
+   "item_uid": "rmi-242548d7768f"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Butterfly Damper With SPIGOT",
+    "item_detail": "350MM DIA",
+    "family": "butterfly damper",
+    "dia_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1300.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 52
+   },
+   "item_uid": "rmi-24e8c7683f3f"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "FIRE DAMPER",
+    "item_detail": "Motorised fire damper",
+    "family": "fire damper",
+    "variant": "motorised",
+    "ul": "no"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 8600.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 7
+   },
+   "item_uid": "rmi-258feed2c4ed"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Insulated Flexible Duct",
+    "item_detail": "250 MM DIA",
+    "family": "flexible duct",
+    "insulated": "with",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 510.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 56
+   },
+   "item_uid": "rmi-2a9001aac321"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser With Al Collar Damper",
+    "item_detail": "1200MM X300MM",
+    "family": "square diffuser",
+    "damper": "with",
+    "face_w_mm": 1200.0,
+    "face_h_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1900.0,
+    "cost_install": 360.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 33
+   },
+   "item_uid": "rmi-2e4bc3668454"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Rmt",
+   "attributes": {
+    "item_name": "Aluminium (Al) Slot diffuser without hit and miss damper",
+    "item_detail": "2 slot",
+    "family": "slot diffuser",
+    "damper": "without",
+    "slot_count": 2.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 800.0,
+    "cost_install": 220.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 26
+   },
+   "item_uid": "rmi-2fcdf1aa57f4"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser Without GI Damper",
+    "item_detail": "300 MM DIA",
+    "family": "round diffuser",
+    "damper": "without",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 720.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 44
+   },
+   "item_uid": "rmi-31fd9a7020d8"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Butterfly Damper With SPIGOT",
+    "item_detail": "100 MM DIA",
+    "family": "butterfly damper",
+    "dia_mm": 100.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 230.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 47
+   },
+   "item_uid": "rmi-3ad42a761832"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Rmt",
+   "attributes": {
+    "item_name": "Aluminium (Al) Slot diffuser with hit and miss damper",
+    "item_detail": "3 slot",
+    "family": "slot diffuser",
+    "damper": "with",
+    "slot_count": 3.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1520.0,
+    "cost_install": 220.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 27
+   },
+   "item_uid": "rmi-3cd5daab511e"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Double Skin Plenum",
+    "item_detail": "25MM Thick",
+    "family": "double-skin plenum",
+    "thickness_mm": 25.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 3300.0,
+    "cost_install": 400.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 70
+   },
+   "item_uid": "rmi-4075c7f57422"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Low Pressure Plenum / Mixing Box without insulation",
+    "item_detail": "750 X 150X350 mm",
+    "family": "mixing box / LP plenum",
+    "insulated": "without",
+    "face_w_mm": 750.0,
+    "face_h_mm": 150.0,
+    "depth_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 89
+   },
+   "item_uid": "rmi-4184735331c3"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "500 mm x 250 mm",
+    "family": "cross-talk",
+    "face_w_mm": 500.0,
+    "face_h_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 86
+   },
+   "item_uid": "rmi-4261b1d876cf"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "GI Hinged access doors near Fire dampers, VCDs, etc. as",
+    "item_detail": "450 x 450 mm",
+    "family": "access door",
+    "face_w_mm": 450.0,
+    "face_h_mm": 450.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 6000.0,
+    "cost_install": 800.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 94
+   },
+   "item_uid": "rmi-446aa2fc37fe"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Diffuser With Al Collar Damper",
+    "item_detail": "NA",
+    "family": "square diffuser",
+    "damper": "with"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 5300.0,
+    "cost_install": 1000.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 34
+   },
+   "item_uid": "rmi-4783cf9fb105"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper/ ACTUATOR Control Panel",
+    "item_detail": "1:6",
+    "family": "control panel",
+    "panel_ratio": 6.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 11580.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 17
+   },
+   "item_uid": "rmi-4784ebd3a556"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator - UL 555 Rated",
+    "item_detail": "3.5 NM",
+    "family": "actuator",
+    "ul": "yes",
+    "torque_nm": 3.5
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 14800.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 11
+   },
+   "item_uid": "rmi-4b176001d40b"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser Without GI Damper",
+    "item_detail": "250 MM DIA",
+    "family": "round diffuser",
+    "damper": "without",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 700.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 45
+   },
+   "item_uid": "rmi-4c2a1d4b2e6f"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "COLLAR DAMPER",
+    "item_detail": "GI",
+    "family": "collar damper"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 3600.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 68
+   },
+   "item_uid": "rmi-4cfd286b200c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Volume control Damper (VCD)",
+    "item_detail": "GI Rectangular",
+    "family": "VCD",
+    "variant": "GI rectangular"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 5400.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 2
+   },
+   "item_uid": "rmi-4f4585c07dd2"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser Without Al Collar Damper",
+    "item_detail": "NECK:300X300/OUTER: 595X595",
+    "family": "square diffuser",
+    "damper": "without",
+    "neck_mm": 300.0,
+    "face_w_mm": 595.0,
+    "face_h_mm": 595.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1056.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 35
+   },
+   "item_uid": "rmi-5161d753e366"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Insulated Flexible Duct",
+    "item_detail": "300 MM DIA",
+    "family": "flexible duct",
+    "insulated": "with",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 610.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 57
+   },
+   "item_uid": "rmi-5243f0583b87"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "UN-Insulated Flexible Duct",
+    "item_detail": "300 MM DIA",
+    "family": "flexible duct",
+    "insulated": "without",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 210.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 63
+   },
+   "item_uid": "rmi-557176472cec"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "MS Floor Grill",
+    "item_detail": "MS Floor Grill without  AL collar Damper",
+    "family": "floor grille",
+    "damper": "without"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 9500.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 73
+   },
+   "item_uid": "rmi-582220367199"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Insulated Flexible Duct",
+    "item_detail": "200 MM DIA",
+    "family": "flexible duct",
+    "insulated": "with",
+    "dia_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 410.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 55
+   },
+   "item_uid": "rmi-59c2562e9346"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Butterfly Damper With SPIGOT",
+    "item_detail": "150 MM DIA",
+    "family": "butterfly damper",
+    "dia_mm": 150.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 500.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 48
+   },
+   "item_uid": "rmi-5ada07e3591e"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator - UL 555 Rated",
+    "item_detail": "20 NM",
+    "family": "actuator",
+    "ul": "yes",
+    "torque_nm": 20.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 18000.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 9
+   },
+   "item_uid": "rmi-5b75b9335d9c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator",
+    "item_detail": "8 NM",
+    "family": "actuator",
+    "ul": "no",
+    "torque_nm": 8.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 6600.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 14
+   },
+   "item_uid": "rmi-602e26b73b4a"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Spigot",
+    "item_detail": "100 MM DIA",
+    "family": "spigot",
+    "dia_mm": 100.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 130.0,
+    "cost_install": 40.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 74
+   },
+   "item_uid": "rmi-61eec127f207"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser Without GI Damper",
+    "item_detail": "400 MM DIA",
+    "family": "round diffuser",
+    "damper": "without",
+    "dia_mm": 400.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 730.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 43
+   },
+   "item_uid": "rmi-622981f994a5"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "300 mm x 300 mm",
+    "family": "cross-talk",
+    "face_w_mm": 300.0,
+    "face_h_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 83
+   },
+   "item_uid": "rmi-68e2a265e2ac"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "NOS",
+   "attributes": {
+    "item_name": "Flexible Canvas Conection",
+    "item_detail": "NA",
+    "family": "canvas connection"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1000.0,
+    "cost_install": 800.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 80
+   },
+   "item_uid": "rmi-6e83dcb0380f"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "650 mm x 250 mm",
+    "family": "cross-talk",
+    "face_w_mm": 650.0,
+    "face_h_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 85
+   },
+   "item_uid": "rmi-78a05a963b8c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "GI Back Draft Damper(NRD)",
+    "item_detail": "NA",
+    "family": "NRD"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 4750.0,
+    "cost_install": 1000.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 67
+   },
+   "item_uid": "rmi-78e47b1da5eb"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser Without Al Collar Damper",
+    "item_detail": "NECK:375X375/OUTER: 595X595",
+    "family": "square diffuser",
+    "damper": "without",
+    "neck_mm": 375.0,
+    "face_w_mm": 595.0,
+    "face_h_mm": 595.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1150.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 36
+   },
+   "item_uid": "rmi-79cd92070297"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "UN-Insulated Flexible Duct",
+    "item_detail": "100 MM DIA",
+    "family": "flexible duct",
+    "insulated": "without",
+    "dia_mm": 100.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 90.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 59
+   },
+   "item_uid": "rmi-7e38eb71a6ba"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "UN-Insulated Flexible Duct",
+    "item_detail": "150 MM DIA",
+    "family": "flexible duct",
+    "insulated": "without",
+    "dia_mm": 150.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 120.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 60
+   },
+   "item_uid": "rmi-81b4c4444d9d"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Aluminium (Al) Slot diffuser with hit and miss damper",
+    "item_detail": "NA",
+    "family": "slot diffuser",
+    "damper": "with"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 8960.0,
+    "cost_install": 1790.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 29
+   },
+   "item_uid": "rmi-84ba7020e828"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Spigot",
+    "item_detail": "150 MM DIA",
+    "family": "spigot",
+    "dia_mm": 150.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 145.0,
+    "cost_install": 40.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 75
+   },
+   "item_uid": "rmi-864850fe4528"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator",
+    "item_detail": "9/10 NM",
+    "family": "actuator",
+    "ul": "no",
+    "torque_nm": 10.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 9000.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 13
+   },
+   "item_uid": "rmi-88517c38007f"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Grill",
+    "item_detail": "Linear Grill or Linear Grill without collar damper",
+    "family": "linear grille",
+    "damper": "without"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 3330.0,
+    "cost_install": 550.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 19
+   },
+   "item_uid": "rmi-8a40f3a13ba7"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "PVC Disc Valve",
+    "item_detail": "150MM DIA",
+    "family": "disc valve",
+    "dia_mm": 150.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 450.0,
+    "cost_install": 110.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 66
+   },
+   "item_uid": "rmi-8d9ac3d0c77e"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "250 mm x 250 mm",
+    "family": "cross-talk",
+    "face_w_mm": 250.0,
+    "face_h_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 82
+   },
+   "item_uid": "rmi-8d9dece78c43"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "350 mm x 350 mm",
+    "family": "cross-talk",
+    "face_w_mm": 350.0,
+    "face_h_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 84
+   },
+   "item_uid": "rmi-8ffbce6db411"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Spigot",
+    "item_detail": "200 MM DIA",
+    "family": "spigot",
+    "dia_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 160.0,
+    "cost_install": 40.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 76
+   },
+   "item_uid": "rmi-931e2dbc229c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser With Al Collar Damper",
+    "item_detail": "NECK:450X450/OUTER: 595X595",
+    "family": "square diffuser",
+    "damper": "with",
+    "neck_mm": 450.0,
+    "face_w_mm": 595.0,
+    "face_h_mm": 595.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1740.0,
+    "cost_install": 360.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 32
+   },
+   "item_uid": "rmi-a17859a92dcc"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Rmt",
+   "attributes": {
+    "item_name": "Aluminium (Al) Slot diffuser with hit and miss damper",
+    "item_detail": "2 slot",
+    "family": "slot diffuser",
+    "damper": "with",
+    "slot_count": 2.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1010.0,
+    "cost_install": 220.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 25
+   },
+   "item_uid": "rmi-a18a544e4125"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Low Pressure Plenum / Mixing Box with insulation",
+    "item_detail": "750 X 150X350 mm",
+    "family": "mixing box / LP plenum",
+    "insulated": "with",
+    "face_w_mm": 750.0,
+    "face_h_mm": 150.0,
+    "depth_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 91
+   },
+   "item_uid": "rmi-a23b43d34447"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper/ ACTUATOR Control Panel",
+    "item_detail": "1:10 /12",
+    "family": "control panel",
+    "panel_ratio": 12.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 14000.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 16
+   },
+   "item_uid": "rmi-a26d98530b67"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Flexible Canvas Conection",
+    "item_detail": "NA",
+    "family": "canvas connection"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1000.0,
+    "cost_install": 800.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 80
+   },
+   "item_uid": "rmi-a2ecc519f753"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Grill",
+    "item_detail": "Linear Grill - with damper or Supply Air Linear Grill",
+    "family": "linear grille",
+    "damper": "with"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 6640.0,
+    "cost_install": 1750.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 20
+   },
+   "item_uid": "rmi-a34c24acbbfa"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Grill",
+    "item_detail": "Curved Grill or Curved Grill Without Collar Damper",
+    "family": "curved grille",
+    "damper": "without"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 3800.0,
+    "cost_install": 550.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 22
+   },
+   "item_uid": "rmi-a9dc7c5e0021"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Sound Attenuator",
+    "item_detail": "NA",
+    "family": "sound attenuator"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 4300.0,
+    "cost_install": 1800.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 69
+   },
+   "item_uid": "rmi-b48ab302dc1a"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator",
+    "item_detail": "20NM",
+    "family": "actuator",
+    "ul": "no",
+    "torque_nm": 20.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 10800.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 12
+   },
+   "item_uid": "rmi-b8c903407fba"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Spigot",
+    "item_detail": "300 MM DIA",
+    "family": "spigot",
+    "dia_mm": 300.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 190.0,
+    "cost_install": 40.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 78
+   },
+   "item_uid": "rmi-b92c5f1dde22"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser With Al Collar Damper",
+    "item_detail": "NECK:375X375/OUTER: 595X595",
+    "family": "square diffuser",
+    "damper": "with",
+    "neck_mm": 375.0,
+    "face_w_mm": 595.0,
+    "face_h_mm": 595.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1550.0,
+    "cost_install": 360.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 31
+   },
+   "item_uid": "rmi-be7dd72bc98d"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "UN-Insulated Flexible Duct",
+    "item_detail": "200 MM DIA",
+    "family": "flexible duct",
+    "insulated": "without",
+    "dia_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 150.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 61
+   },
+   "item_uid": "rmi-bfdd0c89f0f2"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Insulated Flexible Duct",
+    "item_detail": "100 MM DIA",
+    "family": "flexible duct",
+    "insulated": "with",
+    "dia_mm": 100.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 110.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 53
+   },
+   "item_uid": "rmi-c4ecfb3d6fdc"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Diffuser Without Al Collar Damper",
+    "item_detail": "NECK:450X450/OUTER: 595X595",
+    "family": "square diffuser",
+    "damper": "without",
+    "neck_mm": 450.0,
+    "face_w_mm": 595.0,
+    "face_h_mm": 595.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1250.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 37
+   },
+   "item_uid": "rmi-caae7f26bd82"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "200 mm x 200 mm",
+    "family": "cross-talk",
+    "face_w_mm": 200.0,
+    "face_h_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 81
+   },
+   "item_uid": "rmi-cc4079a8bc39"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Spigot",
+    "item_detail": "350MM DIA",
+    "family": "spigot",
+    "dia_mm": 350.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 205.0,
+    "cost_install": 40.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 79
+   },
+   "item_uid": "rmi-cc513d7c8222"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper Actuator - UL 555 Rated",
+    "item_detail": "8 NM",
+    "family": "actuator",
+    "ul": "yes",
+    "torque_nm": 8.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 16500.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 10
+   },
+   "item_uid": "rmi-d083622106a0"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Z-Piece/Cross-talk Silencer with acoustic insulation",
+    "item_detail": "NA",
+    "family": "cross-talk"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1600.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 87
+   },
+   "item_uid": "rmi-d2c72131f1f5"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Spigot",
+    "item_detail": "250 MM DIA",
+    "family": "spigot",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 175.0,
+    "cost_install": 40.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 77
+   },
+   "item_uid": "rmi-d4930667824b"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Grill",
+    "item_detail": "Door Grill (Louver)/air transfer grill",
+    "family": "door grille"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 6150.0,
+    "cost_install": 1750.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 24
+   },
+   "item_uid": "rmi-d4c3587fc5c7"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "RMT",
+   "attributes": {
+    "item_name": "Insulated Flexible Duct",
+    "item_detail": "150 MM DIA",
+    "family": "flexible duct",
+    "insulated": "with",
+    "dia_mm": 150.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 310.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 54
+   },
+   "item_uid": "rmi-d5c27f0c2c0d"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "FIRE DAMPER",
+    "item_detail": "WITH 400MM SLEEVE - WITH TDF FLANGE",
+    "family": "fire damper",
+    "variant": "with sleeve",
+    "ul": "no"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 14400.0,
+    "cost_install": 1200.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 5
+   },
+   "item_uid": "rmi-dae7b3eda613"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser With GI Damper",
+    "item_detail": "400 MM DIA",
+    "family": "round diffuser",
+    "damper": "with",
+    "dia_mm": 400.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1105.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 39
+   },
+   "item_uid": "rmi-db51c2b4c58c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "PVC Disc Valve",
+    "item_detail": "100MM DIA",
+    "family": "disc valve",
+    "dia_mm": 100.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 380.0,
+    "cost_install": 110.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 65
+   },
+   "item_uid": "rmi-de1322dd025b"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser With GI Damper",
+    "item_detail": "200 MM DIA",
+    "family": "round diffuser",
+    "damper": "with",
+    "dia_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 880.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 42
+   },
+   "item_uid": "rmi-e0ee0b62222c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Low Pressure Plenum / Mixing Box with insulation",
+    "item_detail": "GI",
+    "family": "mixing box / LP plenum",
+    "insulated": "with"
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 1230.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 90
+   },
+   "item_uid": "rmi-e102d36e227c"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Butterfly Damper With SPIGOT",
+    "item_detail": "200 MM DIA",
+    "family": "butterfly damper",
+    "dia_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 700.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 49
+   },
+   "item_uid": "rmi-e1de69cac7e8"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "SQM",
+   "attributes": {
+    "item_name": "Double Skin Plenum",
+    "item_detail": "50MM Thick",
+    "family": "double-skin plenum",
+    "thickness_mm": 50.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 3900.0,
+    "cost_install": 400.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 71
+   },
+   "item_uid": "rmi-e2742dc0ef7a"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser Without GI Damper",
+    "item_detail": "200 MM DIA",
+    "family": "round diffuser",
+    "damper": "without",
+    "dia_mm": 200.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 680.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 46
+   },
+   "item_uid": "rmi-e2b2d1a6ea87"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Butterfly Damper With SPIGOT",
+    "item_detail": "250 MM DIA",
+    "family": "butterfly damper",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 900.0,
+    "cost_install": 0.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 50
+   },
+   "item_uid": "rmi-eaf8eba0776a"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Eye Ball Diffuser (Jet Nozzle)",
+    "item_detail": "250mm Dia",
+    "family": "jet / eyeball diffuser",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 2100.0,
+    "cost_install": 400.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 92
+   },
+   "item_uid": "rmi-f9d3b05da975"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Round Diffuser With GI Damper",
+    "item_detail": "250 MM DIA",
+    "family": "round diffuser",
+    "damper": "with",
+    "dia_mm": 250.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 950.0,
+    "cost_install": 250.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 41
+   },
+   "item_uid": "rmi-fa0c8236a474"
+  },
+  {
+   "kind": "hvac_adp_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "item_name": "Fire Damper/ ACTUATOR Control Panel",
+    "item_detail": "1:4",
+    "family": "control panel",
+    "panel_ratio": 4.0
+   },
+   "rates": {
+    "supply_markup": 0.45,
+    "install_markup": 0.6,
+    "cost_supply": 8900.0,
+    "cost_install": 500.0
+   },
+   "source": {
+    "sheet": "ADP",
+    "row": 18
+   },
+   "item_uid": "rmi-fd5bb0f5891f"
+  }
+ ],
+ "category_configs": [
+  {
+   "category_id": "hvac_adp",
+   "category_display": "ADP (Air Distribution Products)",
+   "item_kinds": [
+    "hvac_adp_item"
+   ],
+   "attributes_from_spec": true,
+   "attribute_definitions": [
+    {
+     "id": "item_name",
+     "label": "Item",
+     "type": "choice",
+     "values_from": {
+      "kind": "hvac_adp_item",
+      "attr": "item_name"
+     },
+     "selector": false,
+     "panel": false,
+     "note": "The sheet's own Item text, verbatim. Source of truth for the derived attributes (spec reader, slice 1c); never a model question, never a pricing input."
+    },
+    {
+     "id": "item_detail",
+     "label": "Item detail",
+     "type": "choice",
+     "values_from": {
+      "kind": "hvac_adp_item",
+      "attr": "item_detail"
+     },
+     "selector": false,
+     "panel": false,
+     "note": "The sheet's own ITEM DETAIL text, verbatim. Read together with Item by the spec reader."
+    },
+    {
+     "id": "family",
+     "label": "Family",
+     "type": "choice",
+     "values": [
+      "VCD",
+      "fire damper",
+      "actuator",
+      "control panel",
+      "linear grille",
+      "curved grille",
+      "intake louvre",
+      "door grille",
+      "floor grille",
+      "slot diffuser",
+      "square diffuser",
+      "round diffuser",
+      "jet / eyeball diffuser",
+      "butterfly damper",
+      "spigot",
+      "flexible duct",
+      "disc valve",
+      "NRD",
+      "collar damper",
+      "sound attenuator",
+      "cross-talk",
+      "double-skin plenum",
+      "mixing box / LP plenum",
+      "canvas connection",
+      "access door"
+     ]
+    },
+    {
+     "id": "damper",
+     "label": "Damper",
+     "type": "choice",
+     "values": [
+      "with",
+      "without"
+     ]
+    },
+    {
+     "id": "insulated",
+     "label": "Insulated",
+     "type": "choice",
+     "values": [
+      "with",
+      "without"
+     ]
+    },
+    {
+     "id": "neck_mm",
+     "label": "Neck (mm)",
+     "type": "number"
+    },
+    {
+     "id": "face_w_mm",
+     "label": "Face / size width (mm)",
+     "type": "number"
+    },
+    {
+     "id": "face_h_mm",
+     "label": "Face / size height (mm)",
+     "type": "number"
+    },
+    {
+     "id": "depth_mm",
+     "label": "Depth (mm)",
+     "type": "number"
+    },
+    {
+     "id": "dia_mm",
+     "label": "Diameter (mm)",
+     "type": "number"
+    },
+    {
+     "id": "slot_count",
+     "label": "Slot count",
+     "type": "number"
+    },
+    {
+     "id": "torque_nm",
+     "label": "Torque (NM)",
+     "type": "number"
+    },
+    {
+     "id": "ul",
+     "label": "UL 555 rated",
+     "type": "choice",
+     "values": [
+      "yes",
+      "no"
+     ]
+    },
+    {
+     "id": "panel_ratio",
+     "label": "Panel ratio (1:N)",
+     "type": "number"
+    },
+    {
+     "id": "thickness_mm",
+     "label": "Thickness (mm)",
+     "type": "number"
+    },
+    {
+     "id": "variant",
+     "label": "Variant",
+     "type": "choice",
+     "values": [
+      "GI rectangular",
+      "GI oval",
+      "motorised",
+      "with sleeve",
+      "without sleeve",
+      "UL"
+     ]
+    }
+   ],
+   "pipelines": {},
+   "notes": "Slice 1b (2026-09-21): DATA-ONLY -- items + attributes, no pipelines, so the config is NOT eligible for pricing or extraction (extraction.config_is_eligible / pricingSheetHelper.isEligibleConfig both require non-empty pipelines). Rates per SKU: cost_supply, cost_install, supply_markup, install_markup (R-c); the eight derived items (sheet rows 81-86, 89, 91) carry markups only (R-f). Pricing rule for a later slice: BoQ = ROUNDUP(cost x (1 + markup), 0), per side. Slice 1c (2026-09-21): attributes_from_spec -- item_name and item_detail are the source of truth; every other attribute is READ from them by services/boq_rate_master/spec_reader.py (never hand-edited, never a CSV column). Rows 89 and 91 store cost_install 0 (S-d).",
+   "discipline": "HVAC"
+  },
+  {
+   "category_id": "hvac_ahu",
+   "category_display": "AHU",
+   "item_kinds": [],
+   "attribute_definitions": [],
+   "pipelines": {},
+   "helper_message": "Take Vendor Quotation",
+   "pending_label": "Awaiting vendor quote",
+   "notes": "Slice 2 (2026-09-22, owner P-a / P-b): ALWAYS priced from a vendor quotation -- nothing to extract, nothing to price, NO items. Message-only config: helper_message is what the rate helper panel and the calculator show instead of 'coming soon'; pending_label marks every empty / zero rate cell of a row in this category until a non-zero rate is typed. Empty attribute_definitions + empty pipelines keep it out of extraction and pricing (config_is_eligible / isEligibleConfig both False); it is fetched by the rate helper but NOT listed on the Rate Master page (registry holds_items: false).",
+   "discipline": "HVAC"
+  },
+  {
+   "category_id": "hvac_dx_unit",
+   "category_display": "DX Unit",
+   "item_kinds": [],
+   "attribute_definitions": [],
+   "pipelines": {},
+   "helper_message": "Take Vendor Quotation",
+   "pending_label": "Awaiting vendor quote",
+   "notes": "Slice 2 (2026-09-22, owner P-a / P-b): ALWAYS priced from a vendor quotation -- nothing to extract, nothing to price, NO items. Message-only config: helper_message is what the rate helper panel and the calculator show instead of 'coming soon'; pending_label marks every empty / zero rate cell of a row in this category until a non-zero rate is typed. Empty attribute_definitions + empty pipelines keep it out of extraction and pricing (config_is_eligible / isEligibleConfig both False); it is fetched by the rate helper but NOT listed on the Rate Master page (registry holds_items: false).",
+   "discipline": "HVAC"
+  },
+  {
+   "category_id": "hvac_panels",
+   "category_display": "Panels",
+   "item_kinds": [],
+   "attribute_definitions": [],
+   "pipelines": {},
+   "helper_message": "Take Vendor Quotation",
+   "pending_label": "Awaiting vendor quote",
+   "notes": "Slice 2 (2026-09-22, owner P-a / P-b): ALWAYS priced from a vendor quotation -- nothing to extract, nothing to price, NO items. Message-only config: helper_message is what the rate helper panel and the calculator show instead of 'coming soon'; pending_label marks every empty / zero rate cell of a row in this category until a non-zero rate is typed. Empty attribute_definitions + empty pipelines keep it out of extraction and pricing (config_is_eligible / isEligibleConfig both False); it is fetched by the rate helper but NOT listed on the Rate Master page (registry holds_items: false).",
+   "discipline": "HVAC"
+  },
+  {
+   "category_id": "hvac_pumps",
+   "category_display": "Pumps",
+   "item_kinds": [],
+   "attribute_definitions": [],
+   "pipelines": {},
+   "helper_message": "Take Vendor Quotation",
+   "pending_label": "Awaiting vendor quote",
+   "notes": "Slice 2 (2026-09-22, owner P-a / P-b): ALWAYS priced from a vendor quotation -- nothing to extract, nothing to price, NO items. Message-only config: helper_message is what the rate helper panel and the calculator show instead of 'coming soon'; pending_label marks every empty / zero rate cell of a row in this category until a non-zero rate is typed. Empty attribute_definitions + empty pipelines keep it out of extraction and pricing (config_is_eligible / isEligibleConfig both False); it is fetched by the rate helper but NOT listed on the Rate Master page (registry holds_items: false).",
+   "discipline": "HVAC"
+  },
+  {
+   "category_id": "hvac_cables",
+   "category_display": "Cables",
+   "item_kinds": [],
+   "attribute_definitions": [],
+   "pipelines": {},
+   "alias_of": {
+    "discipline": "Electrical",
+    "category_id": "wiring_cabling"
+   },
+   "notes": "Slice 3 (2026-09-22, owner Q-a / Q-b): ALIAS config -- this category's rows resolve, at lookup time, to the Electrical 'wiring_cabling' config, items and catalogue; nothing is copied between the disciplines ('all logic all pricing must be same exactly'; a copy would drift because production edits rates by CSV). No items, no attribute definitions, no pipelines of its own: the extraction population, the prompt, the calculator and the BoQ helper all read the target ONE HOP away. Not listed on the Rate Master page (registry holds_items: false).",
+   "discipline": "HVAC"
+  },
+  {
+   "category_id": "hvac_raceway",
+   "category_display": "Raceway",
+   "item_kinds": [],
+   "attribute_definitions": [],
+   "pipelines": {},
+   "alias_of": {
+    "discipline": "Electrical",
+    "category_id": "cabletray_raceway"
+   },
+   "notes": "Slice 3 (2026-09-22, owner Q-a / Q-b): ALIAS config -- this category's rows resolve, at lookup time, to the Electrical 'cabletray_raceway' config, items and catalogue; nothing is copied between the disciplines ('all logic all pricing must be same exactly'; a copy would drift because production edits rates by CSV). No items, no attribute definitions, no pipelines of its own: the extraction population, the prompt, the calculator and the BoQ helper all read the target ONE HOP away. Not listed on the Rate Master page (registry holds_items: false).",
+   "discipline": "HVAC"
+  }
+ ],
+ "goldens": {},
+ "retired_kinds": [],
+ "retired_category_ids": [],
+ "retirement_reasons": {
+  "kinds": {},
+  "categories": {}
+ }
+}

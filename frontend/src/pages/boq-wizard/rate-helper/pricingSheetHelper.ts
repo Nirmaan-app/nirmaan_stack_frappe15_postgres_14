@@ -189,6 +189,30 @@ export function isEligibleConfig(config: RateCategoryConfig | null | undefined):
   );
 }
 
+/**
+ * SLICE 3 (2026-09-22, owner Q-a / Q-b) -- THE ONE alias resolution on the frontend, used by the helper's
+ * `resolveConfig` AND by the calculator's layout reads. A config carrying `alias_of` resolves ONE HOP to
+ * the target config when that target is in the map; otherwise (missing target, or no alias) the config
+ * itself comes back -- an alias holds no pipelines, so an unresolved alias, and a CHAIN (alias -> alias),
+ * read as NOT eligible and show the coming-soon card, never an error. No discipline or category is
+ * named here: the key is data (the HV-10 rule). PURE.
+ */
+export function resolveAliasConfig(
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  categoryId: string | null | undefined,
+): RateCategoryConfig | null {
+  const own = (categoryId && configsByCategory.get(categoryId)) || null;
+  const target = own?.alias_of;
+  if (!target || typeof target.category_id !== "string" || target.category_id.trim() === "") return own;
+  return configsByCategory.get(target.category_id) ?? own;
+}
+
+/** SLICE 3: is this config an alias (carries a usable `alias_of`)? PURE. */
+export function isAliasConfig(config: RateCategoryConfig | null | undefined): boolean {
+  const a = config?.alias_of;
+  return !!a && typeof a.category_id === "string" && a.category_id.trim() !== "";
+}
+
 /** The generic decline the helper has always given a category with no eligible config. */
 export const COMING_SOON_REASON = "Rate attributes for this category haven't been defined yet — coming soon.";
 
@@ -204,15 +228,17 @@ export function declineReasonFor(config: RateCategoryConfig | null | undefined):
 }
 
 /**
- * SLICE 2 (J5, owner P-d): does a DISCIPLINE have nothing to price -- at least one of its registry
- * configs has arrived and NONE of them is eligible? This is what lets a row show its decline
- * ("coming soon" / `helper_message`) BEFORE any suggestion run: a discipline with no eligible config
- * has nothing a run could produce. A discipline with an eligible config (Electrical) is FALSE, so its
- * before-run panel is exactly today's; an unregistered or unresolved discipline is FALSE; and a
- * discipline none of whose configs has loaded yet is FALSE (the fetch has not settled -- never decline
- * on an empty map). PURE.
+ * SLICE 2 (J5, owner P-d), RE-RULED AT SLICE 3 (owner, 2026-09-22): does a DISCIPLINE have nothing to
+ * RUN -- at least one of its registry configs has arrived and NONE of them is an eligible config OF ITS
+ * OWN? An ALIAS config does NOT count as the discipline's own, whatever its target. For such a
+ * discipline the page shows the real pricing-sheet helper with an EMPTY extraction map BEFORE any run
+ * (the calculator's construction): vendor-quote rows keep their `helper_message`, data-only rows keep
+ * "coming soon", and an aliased row shows the helper card with the target's fields. A discipline with
+ * an eligible config of its own (Electrical) is FALSE, so its before-run panel is exactly today's; an
+ * unregistered or unresolved discipline is FALSE; a discipline none of whose configs has loaded yet is
+ * FALSE (never decide on an empty map). No discipline or category is named here. PURE.
  */
-export function disciplineHasNothingToPrice(
+export function disciplineHasNothingToRun(
   discipline: string | null | undefined,
   configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
   targets: ReadonlyArray<{ discipline: string; categoryId: string }>,
@@ -220,26 +246,26 @@ export function disciplineHasNothingToPrice(
   if (!discipline) return false;
   const ids = targets.filter((t) => t.discipline === discipline).map((t) => t.categoryId);
   if (!ids.some((id) => configsByCategory.has(id))) return false;
-  return !ids.some((id) => isEligibleConfig(configsByCategory.get(id)));
+  return !ids.some((id) => {
+    const cfg = configsByCategory.get(id);
+    return !isAliasConfig(cfg) && isEligibleConfig(cfg);
+  });
 }
 
 /**
- * SLICE 2 (J5): the BEFORE-A-RUN "Pricing sheet" card -- DECLINE-ONLY. It never prices, never badges
- * and never shows a field: `compute` returns exactly the NoSuggestion `makePricingSheetHelper` would
- * return for a not-eligible / absent config (`declineReasonFor`). The page hands it to the panel ONLY
- * for a row whose discipline has nothing to price (`disciplineHasNothingToPrice`); it is never in the
- * badge-building helper list, so the badge map is untouched by it. Same id + label as the real helper,
- * so the card the pricer sees is the same card, just earlier. PURE.
+ * SLICE 3 (owner ruling 2026-09-22, superseding slice 2's decline-only card): the BEFORE-A-RUN helper for
+ * a discipline with nothing to run is the REAL pricing-sheet helper over an EMPTY extraction map -- the
+ * calculator's exact construction. A not-eligible / absent config still declines (`declineReasonFor`),
+ * so the vendor-quote and coming-soon cards are byte-identical to slice 2; an eligible (or aliased)
+ * category shows its fields. The page hands it to the panel ONLY (never the badge list). The shared
+ * empty map keeps the helper's identity stable across renders. PURE.
  */
-export function makeDeclineOnlyHelper(configsByCategory: ReadonlyMap<string, RateCategoryConfig>): RateHelper {
-  return {
-    id: PRICING_SHEET_HELPER_ID,
-    label: "Pricing sheet",
-    compute: (ctx) => ({
-      kind: "none",
-      reason: declineReasonFor((ctx.category && configsByCategory.get(ctx.category)) || null),
-    }),
-  };
+export const EMPTY_EXTRACTION_MAP: ReadonlyMap<number, ExtractionRow> = new Map();
+export function makePreRunHelper(
+  configsByCategory: Map<string, RateCategoryConfig>,
+  items: RateMasterItem[],
+): RateHelper {
+  return makePricingSheetHelper({ configsByCategory, items, extractionByRow: EMPTY_EXTRACTION_MAP as Map<number, ExtractionRow> });
 }
 
 interface Deps {
@@ -892,7 +918,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
   /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
    * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
   function resolveConfig(category: string | null): RateCategoryConfig | null {
-    if (configsByCategory) return (category && configsByCategory.get(category)) || null;
+    // SLICE 3: an alias category resolves ONE HOP to its target's config -- the row then uses the
+    // target's pipelines, attributes and (for a wiring target) the Cable | Termination pairing, because
+    // the resolved config's id IS the target's. The Use event still records the ROW's own category (the
+    // page reads it from the row, never from this config).
+    if (configsByCategory) return resolveAliasConfig(configsByCategory, category);
     if (config && category && config.category_id === category) return config;
     return null;
   }

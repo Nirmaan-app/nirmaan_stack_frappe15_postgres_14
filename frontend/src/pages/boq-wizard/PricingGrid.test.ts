@@ -1793,10 +1793,18 @@ describe("SLICE 2 / the pending mark", () => {
     expect(pricingRowPropsAreEqual(prev, { ...prev, pendingLabel: "Waiting" })).toBe(false);
     expect(pricingRowPropsAreEqual({ ...prev, pendingLabel: "Waiting" }, { ...prev, pendingLabel: "Waiting" })).toBe(true);
   });
-  it("(source) both rate renders -- editable and read-only -- draw the mark through ONE function, gated on the row's label; qty cells never do", () => {
+  it("(source) SLICE 3 (owner Q-c, inverting the slice-2 pin): ONLY the editable rate render draws the mark -- the read-only render never does, so a heading / preamble row shows nothing", () => {
     const src = readFileSync(join(__dirname, "PricingGrid.tsx"), "utf8");
-    expect(src.match(/pendingRateMark\(pendingLabel, /g) ?? []).toHaveLength(2);
-    expect(src).toContain("isRateDescriptor(d) ? pendingRateMark(pendingLabel, val");
+    expect(src.match(/pendingRateMark\(pendingLabel, /g) ?? []).toHaveLength(1);
+    expect(src).not.toContain("isRateDescriptor(d) ? pendingRateMark(pendingLabel, val");
+    // the one call sits INSIDE the editable branch, i.e. behind the grid's own rate-editable condition
+    const editableStart = src.indexOf("isRateEditableRow(row, override)\n        ) {");
+    const amountStart = src.indexOf("// ── AMOUNT cell (F4)");
+    const readOnlyStart = src.indexOf("// ── Default read-only cell");
+    expect(editableStart).toBeGreaterThan(0);
+    expect(src.indexOf("pendingRateMark(pendingLabel, value)")).toBeGreaterThan(editableStart);
+    expect(src.indexOf("pendingRateMark(pendingLabel, value)")).toBeLessThan(amountStart);
+    expect(src.slice(readOnlyStart)).not.toContain("pendingRateMark(");
     expect(src).toContain("if (!pendingLabel || !isPendingRateValue(value)) return null;");
     expect(src).toContain("prev.pendingLabel === next.pendingLabel &&");
     expect(src).toContain("pendingLabel={pendingLabelByCategory.get(categoriesByExcelRow.get(row.source_row_number)?.effective_category_id ?? \"\") ?? null}");

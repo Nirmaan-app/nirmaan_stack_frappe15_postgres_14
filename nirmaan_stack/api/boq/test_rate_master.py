@@ -10854,7 +10854,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v3.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v4.json"
 
 
 def _mint_gate_module():
@@ -11059,10 +11059,13 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual(r["items_by_kind"], {"hvac_adp_item": 95})
         # slice 2 (owner P-a / P-e, inverting the 1b "one config" pin): FIVE configs -- ADP plus the four
         # vendor-quote MESSAGE-ONLY configs (no items, no attributes, no pipelines); the ITEMS are unchanged
-        self.assertEqual(r["configs_loaded"], 5)
-        self.assertEqual(r["category_ids"], ["hvac_adp", "hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"])
+        # slice 3 (owner Q-a / Q-e, inverting the slice-2 pin): SEVEN configs -- ADP, the four vendor-quote
+        # message-only configs AND the two ALIAS configs (hvac_cables, hvac_raceway); the ITEMS are unchanged
+        self.assertEqual(r["configs_loaded"], 7)
+        self.assertEqual(r["category_ids"], ["hvac_adp", "hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps",
+                                             "hvac_cables", "hvac_raceway"])
         self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
-        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 5)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 7)
         rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
                               fields=["kind", "unit", "source_sheet", "source_row", "item_uid", "import_batch"])
         self.assertEqual({x["source_sheet"] for x in rows}, {"ADP"})
@@ -11207,10 +11210,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_v2_v3_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v4_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 2 (owner P-e, inverting the 1c pin): the HVAC series now holds EXACTLY v1, v2 and v3
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v3.json")
+        # slice 3 (owner Q-e, inverting the slice-2 pin): the HVAC series now holds EXACTLY v1..v4
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v4.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11219,10 +11222,11 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # committed form -- a superseded version is history, never edited; Electrical's latest file IS the
         # pinned current asset -- no slice created an Electrical file at any newer N
         self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
-                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", CURRENT_HVAC_ASSET])
+                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json",
+                          "rate_master_hvac_all_v3.json", CURRENT_HVAC_ASSET])
         import subprocess
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
-        for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json"):
+        for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
@@ -11240,6 +11244,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertNotIn("v1", raw)
         self.assertNotIn("v2", raw)
         self.assertNotIn("v3", raw)
+        self.assertNotIn("v4", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
@@ -11385,7 +11390,9 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         self.assertEqual(self.v3["items"], self.v2["items"])
         self.assertEqual([i["item_uid"] for i in self.v3["items"]], [i["item_uid"] for i in self.v2["items"]])
         self.assertEqual(self.v3["category_configs"][0], self.v2["category_configs"][0])
-        self.assertEqual([c["category_id"] for c in self.v3["category_configs"]], ["hvac_adp"] + self.VENDOR_IDS)
+        # slice 3 (owner Q-a / Q-e, inverting): the current asset also carries the two ALIAS configs, last
+        self.assertEqual([c["category_id"] for c in self.v3["category_configs"]],
+                         ["hvac_adp"] + self.VENDOR_IDS + ["hvac_cables", "hvac_raceway"])
         # the classifier's EXACT ids and display names (J2)
         cls_path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "categories_hvac.json")
         with open(os.path.abspath(cls_path), "r", encoding="utf-8") as fh:
@@ -11422,10 +11429,11 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         payload["discipline"] = disc
         r = loader.load_rate_master(payload=payload)
         self.assertEqual(r["items_total"], 95)
-        self.assertEqual(r["configs_loaded"], 5)
-        self.assertEqual(r["category_ids"], ["hvac_adp"] + self.VENDOR_IDS)
+        # slice 3 (owner Q-a / Q-e, inverting): SEVEN configs -- the two alias configs ride the same load
+        self.assertEqual(r["configs_loaded"], 7)
+        self.assertEqual(r["category_ids"], ["hvac_adp"] + self.VENDOR_IDS + ["hvac_cables", "hvac_raceway"])
         self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
-        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 5)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 7)
         for cid in self.VENDOR_IDS:
             out = api.get_rate_category_config(discipline=disc, category_id=cid)
             self.assertIsNotNone(out["config"])
@@ -11436,7 +11444,8 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         self.assertIsNone(api.get_rate_category_config(discipline=disc, category_id="hvac_ducting")["config"])
         # NEGATIVE: the extraction loader sees all five and finds NOTHING eligible under this discipline
         active = extraction._load_active_configs({disc})
-        self.assertEqual(sorted(k[1] for k in active), sorted(["hvac_adp"] + self.VENDOR_IDS))
+        self.assertEqual(sorted(k[1] for k in active), sorted(["hvac_adp"] + self.VENDOR_IDS + ["hvac_cables", "hvac_raceway"]))
+        # of its OWN nothing is eligible (the plain test); slice 3's alias eligibility is pinned in TestHvacAliasSlice3
         self.assertEqual({k: v for k, v in active.items() if extraction.config_is_eligible(v)}, {})
         self.assertEqual(_electrical_active_checksum(), before)
 
@@ -11454,3 +11463,211 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         # the two keys ARE read where the design says: the helper reads helper_message, the page the label
         self.assertIn("helper_message", self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"))
         self.assertIn("pending_label", self._frontend_src("pages", "boq-wizard", "SheetPricingPage.tsx"))
+
+
+class TestHvacAliasSlice3(FrappeTestCase):
+    """SLICE 3 (2026-09-22) -- HVAC cables and raceway RESOLVE to Electrical's wiring_cabling and cabletray_raceway
+    (owner Q-a "all logic all pricing must be same exactly"; Q-b stored ONCE, shared at lookup, never copied; Q-e
+    HVAC v4 only). A category may declare `alias_of`; its rows resolve ONE HOP to the target discipline's config,
+    items and catalogue. Plain-English coverage:
+
+      test_a01  THE ALIAS KEY: the validator accepts `alias_of` on the two v4 configs (both validators);
+                NEGATIVE: a non-object, a missing / blank discipline or category_id, an unknown alias key, a
+                self-alias, and an alias carrying its OWN pipelines or definitions are each refused, by name.
+      test_a02  THE ASSET SWEEP (A8): every asset file on disk validates with exactly today's outcome (the one
+                v12 point_wiring refusal and nothing else).
+      test_a03  v4 = v3 + two: items deep-equal (uids identical), the five slice-2 configs deep-equal, the two alias
+                configs name EXISTING Electrical targets and carry nothing of their own; ELIGIBILITY BY TARGET:
+                an alias is eligible iff its target is (resolved with the Electrical configs); NEGATIVE: an alias
+                on its own is not eligible, an alias to a missing target is not, a CHAIN is resolved one hop
+                only and is not eligible.
+      test_a04  THE LOAD under a fresh discipline: 95 / 7, the config endpoint hands `alias_of` VERBATIM, the
+                alias-aware loader pulls the TARGET discipline's configs alongside, the aliased keys are eligible
+                and the non-aliased HVAC keys are not; Electrical byte-identical before and after.
+      test_a05  NO CATEGORY NAMED IN CODE: neither alias id nor either target id appears in extraction.py, and
+                neither alias id appears in the frontend helper / calculator / page / grid sources (the wiring
+                pairing constant predates this slice and is the one target literal the helper may hold).
+    """
+    ALIASES = [("hvac_cables", "wiring_cabling"), ("hvac_raceway", "cabletray_raceway")]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v4 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v3.json"), "r", encoding="utf-8") as fh:
+            cls.v3 = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _alias_configs(self):
+        ids = [a for a, _t in self.ALIASES]
+        return [c for c in self.v4["category_configs"] if c["category_id"] in ids]
+
+    def _eall_configs(self):
+        gold = self.eall.get("goldens") or {}
+        return {("Electrical", c["category_id"]): loader._loaded_config(c, "Electrical", gold)
+                for c in self.eall["category_configs"]}
+
+    @staticmethod
+    def _src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- a01 ----------------------------------------------------------------------------------------
+    def test_a01_alias_of_is_accepted_and_every_malformed_alias_is_refused_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        self.assertIn("alias_of", config_validation._KNOWN_CONFIG_KEYS)
+        aliases = self._alias_configs()
+        self.assertEqual([c["category_id"] for c in aliases], [a for a, _t in self.ALIASES])
+        for c in aliases:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", self.v4.get("goldens") or {}))
+            loader._validate_one_config(c, "category_configs[x]")
+        base = loader._loaded_config(aliases[0], "HVAC", {})
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception))
+        refused(lambda c: c.__setitem__("alias_of", "wiring_cabling"), "must be an object")
+        refused(lambda c: c["alias_of"].pop("category_id"), "non-empty string 'category_id'")
+        refused(lambda c: c["alias_of"].__setitem__("discipline", "  "), "non-empty string 'discipline'")
+        refused(lambda c: c["alias_of"].__setitem__("extra", 1), "unknown key")
+        refused(lambda c: c.__setitem__("alias_of", {"discipline": "HVAC", "category_id": c["category_id"]}), "itself")
+        refused(lambda c: c.__setitem__("pipelines", {"p": {"output": ["x"], "steps": [{"step": "match_master_row", "params": {"kind": "k"}}]}}), "EMPTY pipelines")
+        refused(lambda c: c.__setitem__("attribute_definitions", [{"id": "x", "label": "X", "type": "choice", "values": ["a"]}]), "EMPTY attribute_definitions")
+        # NEGATIVE: a config WITHOUT the key is untouched by the alias check (the ADP config still validates)
+        config_validation._validate_config(loader._loaded_config(self.v4["category_configs"][0], "HVAC", {}))
+
+    # -- a02 ----------------------------------------------------------------------------------------
+    def test_a02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertGreaterEqual(len(files), 51)
+        n_configs, full_refusals = 0, []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc, gold = d.get("discipline") or "Electrical", d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 571)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- a03 ----------------------------------------------------------------------------------------
+    def test_a03_v4_is_v3_plus_two_aliases_and_eligibility_follows_the_target_one_hop(self):
+        self.assertEqual(self.v4["items"], self.v3["items"])
+        self.assertEqual([i["item_uid"] for i in self.v4["items"]], [i["item_uid"] for i in self.v3["items"]])
+        self.assertEqual(self.v4["category_configs"][:5], self.v3["category_configs"])
+        self.assertEqual([c["category_id"] for c in self.v4["category_configs"]][5:], [a for a, _t in self.ALIASES])
+        cls_path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "categories_hvac.json")
+        with open(os.path.abspath(cls_path), "r", encoding="utf-8") as fh:
+            names = {c["category_id"]: c["name"] for c in json.load(fh)["categories"]}
+        eall = self._eall_configs()
+        for c, (own, target) in zip(self._alias_configs(), self.ALIASES):
+            self.assertEqual(c["category_id"], own)
+            self.assertEqual(c["category_display"], names[own])
+            self.assertEqual(c["alias_of"], {"discipline": "Electrical", "category_id": target})
+            self.assertIn(("Electrical", target), eall)   # the target EXISTS in the current Electrical asset
+            self.assertEqual((c["attribute_definitions"], c["pipelines"], c["item_kinds"]), ([], {}, []))
+            self.assertEqual(extraction.alias_target(c), ("Electrical", target))
+            # NEGATIVE: an alias on its own is NOT eligible; with the configs it is eligible BY ITS TARGET
+            self.assertFalse(extraction.config_is_eligible(c))
+            stamped = loader._loaded_config(c, "HVAC", {})
+            configs = dict(eall); configs[("HVAC", own)] = stamped
+            self.assertTrue(extraction.config_is_eligible(stamped, configs))
+            self.assertEqual(extraction.resolve_alias(configs, "HVAC", own), ("Electrical", target, eall[("Electrical", target)]))
+        # NEGATIVE: the ADP / vendor configs carry no alias and resolve to themselves
+        for c in self.v4["category_configs"][:5]:
+            self.assertIsNone(extraction.alias_target(c))
+            st = loader._loaded_config(c, "HVAC", {})
+            self.assertEqual(extraction.resolve_alias({("HVAC", c["category_id"]): st}, "HVAC", c["category_id"]), ("HVAC", c["category_id"], st))
+        # NEGATIVE: a missing target is not eligible and resolves to the row's own (empty) config
+        lone = loader._loaded_config(self._alias_configs()[0], "HVAC", {})
+        self.assertFalse(extraction.config_is_eligible(lone, {("HVAC", "hvac_cables"): lone}))
+        self.assertEqual(extraction.resolve_alias({("HVAC", "hvac_cables"): lone}, "HVAC", "hvac_cables"), ("HVAC", "hvac_cables", lone))
+        # NEGATIVE: a CHAIN (A -> B -> C) is resolved ONE HOP: A lands on B, an alias with nothing of its own
+        a = {"discipline": "X", "category_id": "a", "attribute_definitions": [], "pipelines": {}, "alias_of": {"discipline": "X", "category_id": "b"}}
+        b = {"discipline": "X", "category_id": "b", "attribute_definitions": [], "pipelines": {}, "alias_of": {"discipline": "Electrical", "category_id": "wiring_cabling"}}
+        chain = dict(eall); chain[("X", "a")] = a; chain[("X", "b")] = b
+        self.assertEqual(extraction.resolve_alias(chain, "X", "a"), ("X", "b", b))
+        self.assertFalse(extraction.config_is_eligible(a, chain))
+        self.assertTrue(extraction.config_is_eligible(b, chain))   # b itself is one hop from the real target
+
+    # -- a04 ----------------------------------------------------------------------------------------
+    def test_a04_the_load_the_endpoint_and_the_alias_aware_loader_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v4)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual((r["items_total"], r["configs_loaded"]), (95, 7))
+        for own, target in self.ALIASES:
+            out = api.get_rate_category_config(discipline=disc, category_id=own)
+            self.assertEqual(out["config"]["alias_of"], {"discipline": "Electrical", "category_id": target})
+            self.assertEqual((out["config"]["pipelines"], out["config"]["attribute_definitions"]), ({}, []))
+        # the alias-aware loader pulls the TARGET discipline alongside the row discipline
+        plain = extraction._load_active_configs({disc})
+        self.assertEqual({d for (d, _c) in plain}, {disc})
+        with_targets = extraction.load_configs_with_alias_targets({disc})
+        self.assertEqual({d for (d, _c) in with_targets}, {disc, "Electrical"})
+        self.assertEqual(len(with_targets), 7 + 12)
+        for own, target in self.ALIASES:
+            self.assertTrue(extraction.config_is_eligible(with_targets[(disc, own)], with_targets))
+            self.assertEqual(extraction.resolve_alias(with_targets, disc, own)[:2], ("Electrical", target))
+        # NEGATIVE: every non-aliased key of this discipline stays ineligible (nothing to run of its own)
+        for cid in ("hvac_adp", "hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"):
+            self.assertFalse(extraction.config_is_eligible(with_targets[(disc, cid)], with_targets))
+        # NEGATIVE: a discipline with no alias loads exactly as before (one query, same keys)
+        self.assertEqual(set(extraction.load_configs_with_alias_targets({"Electrical"})), set(extraction._load_active_configs({"Electrical"})))
+        self.assertEqual(_electrical_active_checksum(), before)
+
+    # -- a05 ----------------------------------------------------------------------------------------
+    def test_a05_no_alias_or_target_category_is_named_in_code(self):
+        ext_src = self._src("nirmaan_stack", "services", "boq_rate_master", "extraction.py")
+        for own, target in self.ALIASES:
+            self.assertNotIn('"%s"' % own, ext_src)
+        # the ONE pre-existing target literal is the RM-3 legacy module constant (`CATEGORY_ID = "wiring_cabling"`,
+        # predating this slice); no alias resolution adds a second, and the tray target is named nowhere
+        self.assertEqual(ext_src.count('"wiring_cabling"'), 1)
+        self.assertIn('CATEGORY_ID = "wiring_cabling"', ext_src)
+        self.assertNotIn('"cabletray_raceway"', ext_src)
+        for parts in (("frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"),
+                      ("frontend", "src", "pages", "pricing", "PricingCalculator.tsx"),
+                      ("frontend", "src", "pages", "boq-wizard", "SheetPricingPage.tsx"),
+                      ("frontend", "src", "pages", "boq-wizard", "PricingGrid.tsx")):
+            src = self._src(*parts)
+            for own, _t in self.ALIASES:
+                self.assertNotIn('"%s"' % own, src, parts[-1])
+        # the ONE resolution each side reads the key generically
+        self.assertIn("def resolve_alias(", ext_src)
+        self.assertIn("alias_of", self._src("frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"))

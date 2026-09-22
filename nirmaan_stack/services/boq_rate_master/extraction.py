@@ -359,11 +359,49 @@ def _config_kinds(cfg):
     return out
 
 
-def config_is_eligible(cfg):
+def config_is_eligible(cfg, configs=None):
     """A config participates in extraction iff it has BOTH non-empty pipelines AND non-empty
     attribute_definitions. Empty-pipelines DATA-ONLY configs (e.g. lighting_mgmt_system) are
-    excluded automatically -- NO special case."""
+    excluded automatically -- NO special case.
+
+    SLICE 3 (owner Q-a / Q-b): with `configs` ({(discipline, category_id): cfg}) given, an ALIAS
+    config (`alias_of`) is eligible iff its TARGET is -- resolved ONE HOP by `resolve_alias`. A
+    target that is missing, or itself an alias (a chain), has no pipelines of its own and is NOT
+    eligible. Without `configs` the plain test runs, so an alias on its own is never eligible."""
+    if configs is not None and alias_target(cfg):
+        _d, _c, target = resolve_alias(configs, cfg.get("discipline"), cfg.get("category_id"), cfg)
+        return bool(target.get("pipelines")) and bool(target.get("attribute_definitions"))
     return bool(cfg.get("pipelines")) and bool(cfg.get("attribute_definitions"))
+
+
+def alias_target(cfg):
+    """SLICE 3: the (discipline, category_id) an alias config points at, or None. PURE; reads only
+    the config. A malformed key (the validator refuses it at import) reads as no alias."""
+    a = (cfg or {}).get("alias_of")
+    if not isinstance(a, dict):
+        return None
+    d, c = a.get("discipline"), a.get("category_id")
+    if not isinstance(d, str) or not isinstance(c, str) or not d.strip() or not c.strip():
+        return None
+    return (d.strip(), c.strip())
+
+
+def resolve_alias(configs, discipline, category_id, cfg=None):
+    """SLICE 3 -- THE ONE alias resolution, called at the recon's two sites (`assemble_population`
+    and `run_extraction`, via `_group_context`) and by `config_is_eligible`. Returns
+    `(discipline, category_id, cfg)` -- the TARGET triple when `(discipline, category_id)` is an
+    alias whose target is loaded, else the row's own triple with its own config (`{}` when none).
+    ONE HOP ONLY, by design: a target that is itself an alias is returned as-is (its own pipelines
+    are empty, so it is not eligible); nothing loops, nothing errors. `cfg` may be passed when the
+    caller already holds it."""
+    own = cfg if cfg is not None else (configs.get((discipline, category_id)) or {})
+    target = alias_target(own)
+    if not target:
+        return discipline, category_id, own
+    tcfg = configs.get(target)
+    if tcfg is None:
+        return discipline, category_id, own
+    return target[0], target[1], tcfg
 
 
 def _load_active_configs(disciplines=None):
@@ -379,6 +417,21 @@ def _load_active_configs(disciplines=None):
     for r in rows:
         cfg = r["config"] if isinstance(r["config"], dict) else json.loads(r["config"] or "{}")
         out[(r["discipline"], r["category_id"])] = cfg
+    return out
+
+
+def load_configs_with_alias_targets(disciplines=None):
+    """SLICE 3: `_load_active_configs` PLUS the configs of every discipline an alias in that set
+    points at (one extra query, only when an alias names a discipline not already loaded), so an
+    aliased row's target can be resolved. With no alias in the loaded set this IS
+    `_load_active_configs(disciplines)` -- one query, byte-identical result."""
+    out = _load_active_configs(disciplines)
+    loaded = {d for (d, _c) in out}
+    if disciplines:
+        loaded |= set(disciplines)
+    extra = {t[0] for cfg in out.values() for t in [alias_target(cfg)] if t and t[0] not in loaded}
+    if extra:
+        out.update(_load_active_configs(extra))
     return out
 
 
@@ -819,9 +872,10 @@ def assemble_population(boq, sheet_name):
     resolved = _resolved_categories(boq, sheet_name, cv)
     rate_editable = _rate_editable_excel_rows(boq, sheet_name, cv)
     disciplines = {disc for (_cat, disc) in resolved.values() if disc}
-    eligible = {
-        key: cfg for key, cfg in _load_active_configs(disciplines).items() if config_is_eligible(cfg)
-    }
+    # SLICE 3: aliases resolve ONE HOP to their target's config (and the target's discipline is
+    # loaded alongside); a row whose category is an alias is admitted iff the TARGET is eligible.
+    all_cfgs = load_configs_with_alias_targets(disciplines)
+    eligible = {key: cfg for key, cfg in all_cfgs.items() if config_is_eligible(cfg, all_cfgs)}
     rows = []
     for r in ctx["rows"]:
         er = r["excel_row"]
@@ -2269,22 +2323,13 @@ def stamp_pole_ladder(row_out, records):
             cell["pole_ladder"] = dict(extras, to=rec.get("to"))
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, inch_trade=None, *, capture_ctx=None):
-    """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
-    confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
-    (<=20 rows, 3 attempts, sleep 2*attempt).
-
-    EA-DIFF: when `synonyms` ({attr_id: {variant: canonical}}) is configured for the category, a
-    SYNONYMS section + one guidance line are appended (the .md prompt ASSETS stay untouched -- the
-    guidance lives in this wrapper). _coerce_value ALSO maps variant->canonical (defence in depth).
-
-    EA-4a: when `defaults` (cfg.extraction_defaults: {attr_id: default | {default, text_overrides}})
-    is configured, a DEFAULTS section + one guidance line are appended -- where the row text gives NO
-    positive identification of a default-carrying attribute the model returns the default with moderate
-    confidence and `defaulted: true`; a text_override word in the row text IS a positive identification
-    of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
-    keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
-    payload_items = [_ai_item(r) for r in rows_batch]
+def batch_prompt_content(prompt_text, attr_defs, payload_items, synonyms=None, defaults=None, none_guidance=None,
+                         slot_spec=None, resolution_rules=None, rules=None):
+    """SLICE 3: the model-facing CONTENT of one extraction batch, assembled from the group context and
+    the rows' payload -- moved out of `_extract_batch` VERBATIM (the sections, their order and their
+    wording are untouched) so the assembled prompt can be compared byte-for-byte without a client:
+    the L4 proof asserts an aliased HVAC row's prompt equals the Electrical row's. `_extract_batch`
+    calls this and sends the string unchanged."""
     content = (
         prompt_text
         + "\n\nATTRIBUTE_DEFINITIONS:\n"
@@ -2361,6 +2406,28 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             + json.dumps(none_defs, ensure_ascii=False)
         )
     content += "\n\nROWS:\n" + json.dumps(payload_items, ensure_ascii=False)
+    return content
+
+
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, inch_trade=None, *, capture_ctx=None):
+    """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
+    confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
+    (<=20 rows, 3 attempts, sleep 2*attempt).
+
+    EA-DIFF: when `synonyms` ({attr_id: {variant: canonical}}) is configured for the category, a
+    SYNONYMS section + one guidance line are appended (the .md prompt ASSETS stay untouched -- the
+    guidance lives in this wrapper). _coerce_value ALSO maps variant->canonical (defence in depth).
+
+    EA-4a: when `defaults` (cfg.extraction_defaults: {attr_id: default | {default, text_overrides}})
+    is configured, a DEFAULTS section + one guidance line are appended -- where the row text gives NO
+    positive identification of a default-carrying attribute the model returns the default with moderate
+    confidence and `defaulted: true`; a text_override word in the row text IS a positive identification
+    of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
+    keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
+    payload_items = [_ai_item(r) for r in rows_batch]
+    content = batch_prompt_content(prompt_text, attr_defs, payload_items, synonyms=synonyms, defaults=defaults,
+                                   none_guidance=none_guidance, slot_spec=slot_spec,
+                                   resolution_rules=resolution_rules, rules=rules)
     batch_ids = {r["excel_row"] for r in rows_batch}
     # TPN POST-MATCH: the SOURCE row behind each id, so a post-match correction can read the row's
     # own text. `payload_items` above is the model-facing projection; this is the row itself.
@@ -2863,6 +2930,63 @@ def _corroborate(row, row_attrs):
 
 
 # ── the runner ──────────────────────────────────────────────────────────────────────
+
+def _group_context(configs, disc, cat):
+    """SLICE 3: ONE group's extraction context -- the config plus every per-discipline catalogue read
+    (`catalog_values`, `values_from_catalog` inside `build_attribute_defs`, `build_slot_spec`,
+    `breaker_catalog_for`) -- resolved through `resolve_alias` FIRST, so an aliased category
+    (HVAC hvac_cables -> Electrical wiring_cabling) is built from the TARGET config and the TARGET
+    discipline's catalogue. For a non-alias category `resolve_alias` returns its own triple and this
+    body is the one `run_extraction` always held, moved out verbatim so the L4 proof can compare two
+    groups' contexts directly: the aliased row's context must be byte-identical to the Electrical
+    row's."""
+    disc, cat, cfg = resolve_alias(configs, disc, cat)
+    catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
+    is_composite = cfg.get("matching_mode") == "composite_decomposition"
+    return {
+        "defs": build_attribute_defs(cfg, catalog, disc),  # EA-4a: disc resolves values_from
+        "prompt": select_prompt_text(cfg),
+        "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
+        "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
+        "none_guidance": cfg.get("extraction_none_guidance"),  # EA-4a-r: optional per-config None wording
+        # EA-4d: the composite-decomposition slot spec + resolution rules (None for the other modes,
+        # so _extract_batch stays byte-identical for item_identity / attribute categories).
+        "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
+        "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
+        # TPN POST-MATCH: the repeatable slot's catalogue WITH attributes, so the post-match
+        # four-pole correction can read a pick's device/pole/amp/curve and find its sibling.
+        # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
+        # for every other mode, which leaves those categories byte-identical.
+        "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
+        "conductor_groups": conductor_floor_groups(cfg),
+        # PAIRED-QUANTITY FILL (2026-09-07): which paired item the pipeline COMPUTES (the plate
+        # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
+        # from the config; None for a config with no module_fit over a paired item.
+        "paired_fill": paired_fill_plan(cfg),
+        # F-25 SLICE 2: the attribute ids some module_fit ladder reads as its stated count on the
+        # zero-module path (`on_zero_from`). The model writes them AS WRITTEN; `_extract_batch`
+        # reads the higher count in CODE before coercion. Derived from the config; [] for a
+        # config declaring none, which leaves every other category byte-identical.
+        "module_count_attrs": zero_path_stated_attrs(cfg),
+        # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
+        # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
+        # a config that does not declare `point_type` yields an empty set and the matcher is
+        # inert for it, which is every category but point_wiring today.
+        "code_attrs": {d["id"] for d in (cfg.get("attribute_definitions") or [])
+                       if d.get("id") in _CODE_SUPPLIED_ATTRS},
+        # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
+        # resolution_rules (composite-only), these must reach EVERY category, composite or not
+        # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
+        # the prompt is byte-identical to before.
+        "rules": cfg.get("rules"),
+        # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
+        # a category declaring none yields {} and the corrector is inert for it.
+        "absent_rules": absent_dependent_rules(cfg),
+        # CONDUIT TRADE SIZE (v63): {attr_id: {inch_text: trade_mm}} read FROM THE CONFIG -- a
+        # category declaring no `inch_trade_mm` yields {} and the corrector is inert for it.
+        "inch_trade": inch_trade_tables(cfg),
+    }
+
 def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb=None, skip_rows=None,
                    only_rows=None):
     """Assemble the population and extract attributes ACROSS ALL eligible categories (EA-2). Returns
@@ -2954,55 +3078,10 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
     groups = OrderedDict()
     for r in rows:
         groups.setdefault((r["discipline"], r["category_id"]), []).append(r)
-    configs = _load_active_configs({disc for (disc, _cat) in groups})
+    configs = load_configs_with_alias_targets({disc for (disc, _cat) in groups})
     group_ctx = {}
     for (disc, cat), _grp in groups.items():
-        cfg = configs.get((disc, cat)) or {}
-        catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
-        is_composite = cfg.get("matching_mode") == "composite_decomposition"
-        group_ctx[(disc, cat)] = {
-            "defs": build_attribute_defs(cfg, catalog, disc),  # EA-4a: disc resolves values_from
-            "prompt": select_prompt_text(cfg),
-            "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
-            "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
-            "none_guidance": cfg.get("extraction_none_guidance"),  # EA-4a-r: optional per-config None wording
-            # EA-4d: the composite-decomposition slot spec + resolution rules (None for the other modes,
-            # so _extract_batch stays byte-identical for item_identity / attribute categories).
-            "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
-            "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
-            # TPN POST-MATCH: the repeatable slot's catalogue WITH attributes, so the post-match
-            # four-pole correction can read a pick's device/pole/amp/curve and find its sibling.
-            # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
-            # for every other mode, which leaves those categories byte-identical.
-            "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
-            "conductor_groups": conductor_floor_groups(cfg),
-            # PAIRED-QUANTITY FILL (2026-09-07): which paired item the pipeline COMPUTES (the plate
-            # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
-            # from the config; None for a config with no module_fit over a paired item.
-            "paired_fill": paired_fill_plan(cfg),
-            # F-25 SLICE 2: the attribute ids some module_fit ladder reads as its stated count on the
-            # zero-module path (`on_zero_from`). The model writes them AS WRITTEN; `_extract_batch`
-            # reads the higher count in CODE before coercion. Derived from the config; [] for a
-            # config declaring none, which leaves every other category byte-identical.
-            "module_count_attrs": zero_path_stated_attrs(cfg),
-            # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
-            # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
-            # a config that does not declare `point_type` yields an empty set and the matcher is
-            # inert for it, which is every category but point_wiring today.
-            "code_attrs": {d["id"] for d in (cfg.get("attribute_definitions") or [])
-                           if d.get("id") in _CODE_SUPPLIED_ATTRS},
-            # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
-            # resolution_rules (composite-only), these must reach EVERY category, composite or not
-            # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
-            # the prompt is byte-identical to before.
-            "rules": cfg.get("rules"),
-            # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
-            # a category declaring none yields {} and the corrector is inert for it.
-            "absent_rules": absent_dependent_rules(cfg),
-            # CONDUIT TRADE SIZE (v63): {attr_id: {inch_text: trade_mm}} read FROM THE CONFIG -- a
-            # category declaring no `inch_trade_mm` yields {} and the corrector is inert for it.
-            "inch_trade": inch_trade_tables(cfg),
-        }
+        group_ctx[(disc, cat)] = _group_context(configs, disc, cat)
 
     def _defs_for(r):
         return group_ctx[(r["discipline"], r["category_id"])]["defs"]

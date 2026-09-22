@@ -1482,7 +1482,11 @@ class TestFillPairedSlotDefaults(FrappeTestCase):
         self.assertLess(i_scrub, i_fill)
         self.assertLess(i_fill, i_absent)
         # and run_extraction threads the plan through, derived from the config
-        src2 = inspect.getsource(extraction.run_extraction)
+        # SLICE 3 (owner ruling): the group context moved out of run_extraction VERBATIM into _group_context, so the
+        # two guarded facts now live in two functions -- the plan BUILT from the config (below, in _group_context)
+        # and the plan THREADED into every batch call (`_gc[...]`, still in run_extraction). Each literal occurs
+        # exactly once in extraction.py, so pinning the concatenation is exact, not looser.
+        src2 = inspect.getsource(extraction._group_context) + inspect.getsource(extraction.run_extraction)
         self.assertIn('"paired_fill": paired_fill_plan(cfg)', src2)
         self.assertIn('_gc["paired_fill"]', src2)
 
@@ -1717,7 +1721,11 @@ class TestModuleCountAtTheBatchSite(FrappeTestCase):
         i_parse = src.index("parsed_count = module_count_from_text(raw)")
         i_coerce = src.index("value, reason = _coerce_value_ex(defn, raw, (synonyms or {}).get(aid))")
         self.assertLess(i_parse, i_coerce)
-        src2 = inspect.getsource(extraction.run_extraction)
+        # SLICE 3 (owner ruling): the group context moved out of run_extraction VERBATIM into _group_context, so the
+        # two guarded facts now live in two functions -- the plan BUILT from the config (below, in _group_context)
+        # and the plan THREADED into every batch call (`_gc[...]`, still in run_extraction). Each literal occurs
+        # exactly once in extraction.py, so pinning the concatenation is exact, not looser.
+        src2 = inspect.getsource(extraction._group_context) + inspect.getsource(extraction.run_extraction)
         self.assertIn('"module_count_attrs": zero_path_stated_attrs(cfg)', src2)
         self.assertIn('_gc["module_count_attrs"]', src2)
 
@@ -1904,3 +1912,107 @@ class TestInchTradeSize(FrappeTestCase):
         contributes nothing."""
         cfg = self._cfg({" 1  1/2 ": 40, "1": 25})
         self.assertEqual(extraction.inch_trade_tables(cfg), {"size_mm": {"1 1/2": 40, "1": 25}})
+
+
+class TestAliasResolutionSlice3(FrappeTestCase):
+    """SLICE 3 (2026-09-22, owner Q-a / Q-b) -- the extraction side of `alias_of`. Plain-English coverage:
+
+      test_al_01  `resolve_alias` is ONE HOP and never errors: own triple for a non-alias, the target triple
+                  for a loaded alias, the own (empty) triple for a missing target, ONE hop on a chain.
+      test_al_02  THE L4 PROOF, no AI call: for the SAME fixture cable row, the group context (attribute
+                  definitions, prompt template, synonyms, defaults, none guidance, slot spec, rules, ...) built
+                  for (HVAC, hvac_cables) is DEEP-EQUAL to the one built for (Electrical, wiring_cabling), and
+                  the ASSEMBLED batch prompt is BYTE-IDENTICAL; the same for raceway vs cabletray_raceway.
+                  NEGATIVE: a non-aliased HVAC category's context is its own (not the wiring one); the Electrical
+                  context is unchanged by the presence of aliases in the map.
+      test_al_03  `_extract_batch` sends EXACTLY `batch_prompt_content(...)` -- a fake client captures the
+                  message and the string is compared byte-for-byte (the factor-out is a move, not a rewrite).
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_rate_master import loader
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            hvac = json.load(fh)
+        cfgs = {}
+        for c in eall["category_configs"]:
+            cfgs[("Electrical", c["category_id"])] = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+        for c in hvac["category_configs"]:
+            cfgs[("HVAC", c["category_id"])] = loader._loaded_config(c, "HVAC", hvac.get("goldens") or {})
+        cls.cfgs = cfgs
+        cls.aliases = [(c["category_id"], c["alias_of"]["category_id"]) for c in hvac["category_configs"] if c.get("alias_of")]
+
+    @staticmethod
+    def _row(excel_row, description):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "S", "ancestors": [
+            {"node_type": "Preamble", "description": "CABLES/TERMINATIONS"}], "own_notes_raw": [], "attached_notes": "",
+            "append_notes_raw": []}
+
+    def test_al_01_resolve_alias_is_one_hop_and_never_errors(self):
+        cfgs = self.cfgs
+        self.assertTrue(self.aliases, "the current HVAC asset must carry alias configs")
+        for own, target in self.aliases:
+            self.assertEqual(extraction.resolve_alias(cfgs, "HVAC", own), ("Electrical", target, cfgs[("Electrical", target)]))
+            self.assertEqual(extraction.resolve_alias(cfgs, "Electrical", target), ("Electrical", target, cfgs[("Electrical", target)]))
+        self.assertEqual(extraction.resolve_alias(cfgs, "HVAC", "hvac_adp"), ("HVAC", "hvac_adp", cfgs[("HVAC", "hvac_adp")]))
+        self.assertEqual(extraction.resolve_alias(cfgs, "HVAC", "hvac_nope"), ("HVAC", "hvac_nope", {}))
+        lone = {"discipline": "Z", "category_id": "z", "alias_of": {"discipline": "Nowhere", "category_id": "x"}, "pipelines": {}, "attribute_definitions": []}
+        self.assertEqual(extraction.resolve_alias({("Z", "z"): lone}, "Z", "z"), ("Z", "z", lone))
+        a = {"discipline": "Z", "category_id": "a", "alias_of": {"discipline": "Z", "category_id": "b"}, "pipelines": {}, "attribute_definitions": []}
+        b = {"discipline": "Z", "category_id": "b", "alias_of": {"discipline": "Electrical", "category_id": self.aliases[0][1]}, "pipelines": {}, "attribute_definitions": []}
+        chain = dict(cfgs); chain[("Z", "a")] = a; chain[("Z", "b")] = b
+        self.assertEqual(extraction.resolve_alias(chain, "Z", "a"), ("Z", "b", b))   # one hop, lands on the alias b
+        self.assertFalse(extraction.config_is_eligible(a, chain))
+
+    def test_al_02_the_aliased_group_context_and_prompt_are_byte_identical_to_electricals(self):
+        cfgs = self.cfgs
+        row = self._row(41, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")
+        for own, target in self.aliases:
+            h = extraction._group_context(cfgs, "HVAC", own)
+            e = extraction._group_context(cfgs, "Electrical", target)
+            self.assertEqual(h, e, own)
+            self.assertTrue(h["defs"], "the target's definitions must be present -- an empty context would be a vacuous match")
+            payload = [extraction._ai_item(row)]
+            ph = extraction.batch_prompt_content(h["prompt"], h["defs"], payload, synonyms=h["synonyms"], defaults=h["defaults"],
+                                                 none_guidance=h["none_guidance"], slot_spec=h["slot_spec"],
+                                                 resolution_rules=h["resolution_rules"], rules=h["rules"])
+            pe = extraction.batch_prompt_content(e["prompt"], e["defs"], payload, synonyms=e["synonyms"], defaults=e["defaults"],
+                                                 none_guidance=e["none_guidance"], slot_spec=e["slot_spec"],
+                                                 resolution_rules=e["resolution_rules"], rules=e["rules"])
+            self.assertEqual(ph, pe)
+            self.assertIn("ATTRIBUTE_DEFINITIONS", ph)
+            self.assertIn(json.dumps(payload, ensure_ascii=False), ph)
+        # NEGATIVE: a non-aliased HVAC category builds ITS OWN context (not the wiring one)
+        adp = extraction._group_context(cfgs, "HVAC", "hvac_adp")
+        self.assertNotEqual(adp, extraction._group_context(cfgs, "Electrical", self.aliases[0][1]))
+        # NEGATIVE: an Electrical context is what it was with a map holding NO aliases at all
+        only_e = {k: v for k, v in cfgs.items() if k[0] == "Electrical"}
+        for _own, target in self.aliases:
+            self.assertEqual(extraction._group_context(only_e, "Electrical", target), extraction._group_context(cfgs, "Electrical", target))
+
+    def test_al_03_extract_batch_sends_exactly_batch_prompt_content(self):
+        cfgs = self.cfgs
+        own, target = self.aliases[0]
+        ctx = extraction._group_context(cfgs, "HVAC", own)
+        rows = [self._row(7, "4C x 95 Sq.mm. AL.Armoured"), self._row(8, "Cable end termination")]
+        seen = {}
+        class _Block:  # the shape _extract_batch reads: resp.content[i].text, resp.stop_reason, resp.usage
+            def __init__(self, text): self.text = text
+        class _Resp:
+            def __init__(self, text): self.content = [_Block(text)]; self.stop_reason = "end_turn"; self.usage = None
+        class _Messages:
+            def create(self, **kw):
+                seen["content"] = kw["messages"][0]["content"]
+                return _Resp(json.dumps([{"id": r["excel_row"], "attributes": {}} for r in rows]))
+        class _Client:
+            messages = _Messages()
+        extraction._extract_batch(_Client(), "m", ctx["prompt"], ctx["defs"], rows, synonyms=ctx["synonyms"], defaults=ctx["defaults"],
+                                  none_guidance=ctx["none_guidance"], slot_spec=ctx["slot_spec"],
+                                  resolution_rules=ctx["resolution_rules"], rules=ctx["rules"])
+        expected = extraction.batch_prompt_content(ctx["prompt"], ctx["defs"], [extraction._ai_item(r) for r in rows],
+                                                   synonyms=ctx["synonyms"], defaults=ctx["defaults"], none_guidance=ctx["none_guidance"],
+                                                   slot_spec=ctx["slot_spec"], resolution_rules=ctx["resolution_rules"], rules=ctx["rules"])
+        self.assertEqual(seen.get("content"), expected)

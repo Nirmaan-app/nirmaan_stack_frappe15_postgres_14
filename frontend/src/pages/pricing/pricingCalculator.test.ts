@@ -13,10 +13,12 @@ import { join } from "node:path";
 import LIVE_ASSET_V59 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json";
 // SLICE 2 (2026-09-22): the HVAC asset -- ADP (data-only) + the four vendor-quote MESSAGE-ONLY configs.
 import HVAC_ASSET_V3 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v3.json";
+// SLICE 3 (2026-09-22): HVAC v4 = v3 + the two ALIAS configs (hvac_cables -> wiring_cabling, hvac_raceway -> cabletray_raceway).
+import HVAC_ASSET_V4 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v4.json";
 import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
 import { RATE_MASTER_DISCIPLINES, rateMasterPageEntry } from "./rate-master/rateMasterRegistry";
 import { RATE_MASTER_CONFIG_TARGETS } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
-import { buildExtractionByRow, COMING_SOON_REASON, makePricingSheetHelper } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { buildExtractionByRow, COMING_SOON_REASON, makePricingSheetHelper, resolveAliasConfig } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import { attrDisplayValue, isSuggestion, type ExtractionRow, type RateHelperRowContext } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
 import {
   CALCULATOR_COL,
@@ -25,6 +27,9 @@ import {
   calculatorCtx,
   calculatorDisciplineForPath,
   calculatorRowFor,
+  aliasTargetConfigs,
+  aliasTargetDisciplines,
+  mergeItemsByName,
   COLUMN_BANDS,
   WIDTH_COLUMN_CAPS,
   blockColumnsFor,
@@ -151,11 +156,11 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     expect(RATE_MASTER_CONFIG_TARGETS).toEqual(
       RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id }))),
     );
-    // 12 Electrical + 5 HVAC (`hvac_adp` slice 1b; the four vendor-quote message-only categories
-    // slice 2, 2026-09-22): the targets flatten EVERY registry discipline INCLUDING `holds_items:
-    // false` entries (they must be FETCHED), so slice 2 moves this by exactly four (13 -> 17).
-    // Re-pinned under owner ruling R1.
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(17);
+    // 12 Electrical + 7 HVAC (`hvac_adp` slice 1b; four vendor-quote message-only categories slice 2;
+    // the two ALIAS categories slice 3, 2026-09-22): the targets flatten EVERY registry discipline
+    // INCLUDING `holds_items: false` entries (they must be FETCHED), so slice 3 moves this by exactly
+    // two (17 -> 19). Re-pinned under owner ruling L7.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(19);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }
@@ -450,10 +455,14 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
   const HVAC_CONFIGS = new Map<string, RateCategoryConfig>(HVAC.category_configs.map((c) => [c.category_id, c]));
   const hvacHelper = () => makePricingSheetHelper({ configsByCategory: HVAC_CONFIGS, items: HVAC.items, extractionByRow: new Map() });
   const hvacEntry = RATE_MASTER_DISCIPLINES.find((d) => d.discipline === "HVAC")!;
-  const vendor = hvacEntry.categories.filter((c) => c.holds_items === false).map((c) => c.category_id);
+  // SLICE 3: the vendor-quote entries are the `holds_items: false` entries whose CONFIG carries a message
+  // (the two alias entries are `holds_items: false` too, but their config carries `alias_of` instead).
+  const noItems = hvacEntry.categories.filter((c) => c.holds_items === false).map((c) => c.category_id);
+  const vendor = noItems.filter((id) => typeof HVAC_CONFIGS.get(id)?.helper_message === "string");
 
-  it("the registry lists five HVAC categories: ADP holds items, the four vendor-quote ones do not", () => {
-    expect(hvacEntry.categories.map((c) => c.category_id)).toEqual(["hvac_adp", ...vendor]);
+  it("the registry lists seven HVAC categories: ADP holds items, the four vendor-quote and the two alias ones do not", () => {
+    expect(hvacEntry.categories.map((c) => c.category_id)).toEqual(["hvac_adp", ...noItems]);
+    expect(noItems).toHaveLength(6);
     expect(vendor).toHaveLength(4);
     // every vendor entry's CONFIG carries the two messages -- the registry names no message
     for (const id of vendor) {
@@ -503,5 +512,119 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
     let n = 0;
     for (const c of ASSET.category_configs) n += (c.goldens ?? []).length;
     expect(n).toBe(34);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 3 (2026-09-22, owner Q-a / Q-b / L6 / L7) -- HVAC Cables and Raceway are ALIASES of Electrical's
+// wiring_cabling and cabletray_raceway: stored once, resolved at lookup, never copied. The calculator
+// merges the alias TARGET discipline's items behind its own; the SAME picks give the SAME figures.
+describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring and tray", () => {
+  const HVAC4 = HVAC_ASSET_V4 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  // ONE config map, as the calculator's accumulate-once map holds it once every fetch has landed: the
+  // HVAC configs (alias included) AND the Electrical ones (the alias targets), keyed by category id.
+  const MERGED_CONFIGS = new Map<string, RateCategoryConfig>([
+    ...ASSET.category_configs.map((c) => [c.category_id, c] as const),
+    ...HVAC4.category_configs.map((c) => [c.category_id, c] as const),
+  ]);
+  const MERGED_ITEMS = mergeItemsByName(HVAC4.items, ITEMS);
+  const mergedHelper = () => makePricingSheetHelper({ configsByCategory: MERGED_CONFIGS, items: MERGED_ITEMS, extractionByRow: new Map() });
+  const ALIASES: Array<[string, string]> = HVAC4.category_configs
+    .filter((c) => c.alias_of)
+    .map((c) => [c.category_id, c.alias_of!.category_id]);
+
+  it("the v4 asset carries exactly two alias configs, each pointing at an EXISTING Electrical category, with nothing of their own", () => {
+    expect(ALIASES).toEqual([["hvac_cables", "wiring_cabling"], ["hvac_raceway", "cabletray_raceway"]]);
+    for (const c of HVAC4.category_configs.filter((x) => x.alias_of)) {
+      expect(c.alias_of!.discipline).toBe("Electrical");
+      expect(ASSET.category_configs.some((e) => e.category_id === c.alias_of!.category_id)).toBe(true);
+      expect(Object.keys(c.pipelines)).toHaveLength(0);
+      expect(c.attribute_definitions).toHaveLength(0);
+      expect(c.item_kinds).toEqual([]);
+    }
+    // the two are in the registry (fetched, calculator-listed) with holds_items: false
+    const hvacEntry = RATE_MASTER_DISCIPLINES.find((d) => d.discipline === "HVAC")!;
+    for (const [own] of ALIASES) {
+      expect(hvacEntry.categories.find((c) => c.category_id === own)?.holds_items).toBe(false);
+      expect(RATE_MASTER_CONFIG_TARGETS).toContainEqual({ discipline: "HVAC", categoryId: own });
+    }
+    expect(rateMasterPageEntry(hvacEntry).categories.map((c) => c.category_id)).toEqual(["hvac_adp"]);
+  });
+
+  for (const [own, target] of ALIASES) {
+    const goldens = (ASSET.category_configs.find((c) => c.category_id === target)!.goldens ?? []) as Golden[];
+    it(`${own} -> ${target}: the layout reads resolve to the TARGET config`, () => {
+      expect(resolveAliasConfig(MERGED_CONFIGS, own)).toBe(MERGED_CONFIGS.get(target));
+      expect(calculatorBlockLabels(resolveAliasConfig(MERGED_CONFIGS, own)!)).toEqual(calculatorBlockLabels(MERGED_CONFIGS.get(target)!));
+      expect(visibleFieldIds(resolveAliasConfig(MERGED_CONFIGS, own)!)).toEqual(visibleFieldIds(MERGED_CONFIGS.get(target)!));
+      expect(calculatorRowFor("HVAC", own)).toBeGreaterThan(0);
+    });
+    for (const golden of goldens) {
+      it(`${own} / ${golden.id ?? "?"}: the SAME picks give the SAME values, headlines and figures as ${target} (asserted equal)`, () => {
+        const E = mergedHelper().compute(calculatorCtx("Electrical", target), golden.attrs ? Object.fromEntries(Object.entries(golden.attrs).map(([k, v]) => [k, String(v)])) : {});
+        const H = mergedHelper().compute(calculatorCtx("HVAC", own), golden.attrs ? Object.fromEntries(Object.entries(golden.attrs).map(([k, v]) => [k, String(v)])) : {});
+        expect(H.kind).toBe(E.kind);
+        if (!isSuggestion(E) || !isSuggestion(H)) throw new Error("expected suggestions on both sides");
+        expect(Object.keys(E.values).length).toBeGreaterThan(0);   // a real price, not a refusal on both sides
+        expect(H.values).toEqual(E.values);
+        expect(headlinesOf(H)).toEqual(headlinesOf(E));
+        expect(figuresOf(H)).toEqual(figuresOf(E));
+        expect(H.workings.attributes.map((a) => a.id)).toEqual(E.workings.attributes.map((a) => a.id));
+      });
+    }
+  }
+
+  it("the calculator fetches each alias TARGET's CONFIG too -- its own map holds HVAC configs only, so without this the resolver finds no target (the M1 defect)", () => {
+    const hvacOnlyMap = new Map<string, RateCategoryConfig>(HVAC4.category_configs.map((c) => [c.category_id, c]));
+    expect(aliasTargetConfigs(hvacOnlyMap)).toEqual([
+      { discipline: "Electrical", categoryId: "cabletray_raceway" },
+      { discipline: "Electrical", categoryId: "wiring_cabling" },
+    ]);
+    expect(aliasTargetConfigs(CONFIGS)).toEqual([]);                         // Electrical aliases nowhere
+    // NEGATIVE, the defect itself: with HVAC configs alone the alias cannot resolve and declines coming soon
+    expect(resolveAliasConfig(hvacOnlyMap, "hvac_cables")).toBe(hvacOnlyMap.get("hvac_cables"));
+    const r = makePricingSheetHelper({ configsByCategory: hvacOnlyMap, items: MERGED_ITEMS, extractionByRow: new Map() }).compute(calculatorCtx("HVAC", "hvac_cables"));
+    expect(r).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    // once the target config lands (the extra fetch), it resolves and prices
+    hvacOnlyMap.set("wiring_cabling", CONFIGS.get("wiring_cabling")!);
+    expect(resolveAliasConfig(hvacOnlyMap, "hvac_cables")).toBe(CONFIGS.get("wiring_cabling"));
+    const src = strip(CALC_SRC);
+    expect(src).toContain("const aliasConfigTargets = useMemo(() => aliasTargetConfigs(configsByCategory), [configsByCategory]);");
+    expect(src).toContain("{aliasConfigTargets.map((t) => (");
+    expect(src).toContain("key={`calc-alias-cfg-${t.discipline}-${t.categoryId}`}");
+  });
+
+  it("⚠️ NEGATIVE: an HVAC-only category sees only HVAC items, and a config map without aliases fetches no extra discipline", () => {
+    expect(aliasTargetDisciplines(MERGED_CONFIGS, "HVAC")).toEqual(["Electrical"]);
+    expect(aliasTargetDisciplines(MERGED_CONFIGS, "Electrical")).toEqual([]);       // Electrical aliases nowhere
+    expect(aliasTargetDisciplines(CONFIGS, "Electrical")).toEqual([]);
+    const hvacOnly = mergeItemsByName(HVAC4.items);
+    // asset items carry no `discipline` (the loader stamps it); the KIND prefix is the discipline's mark
+    expect(hvacOnly.every((i) => i.kind.startsWith("hvac_"))).toBe(true);
+    expect(hvacOnly.some((i) => i.kind === "cable" || i.kind === "cable_tray")).toBe(false);
+    expect(hvacOnly).toHaveLength(95);
+    const adp = makePricingSheetHelper({ configsByCategory: MERGED_CONFIGS, items: hvacOnly, extractionByRow: new Map() }).compute(calculatorCtx("HVAC", "hvac_adp"));
+    expect(adp.kind).toBe("none");   // ADP is still data-only: coming soon, whatever items are loaded
+  });
+
+  it("mergeItemsByName: own discipline first, then the targets, DEDUPED BY NAME -- first occurrence wins (pinned so a future collision is loud)", () => {
+    const a: RateMasterItem = { name: "X-1", discipline: "HVAC", kind: "k", attributes: { a: 1 }, rates: { r: 1 } } as RateMasterItem;
+    const b: RateMasterItem = { name: "X-1", discipline: "Electrical", kind: "k", attributes: { a: 2 }, rates: { r: 2 } } as RateMasterItem;
+    const c: RateMasterItem = { name: "X-2", discipline: "Electrical", kind: "k", attributes: { a: 3 }, rates: { r: 3 } } as RateMasterItem;
+    const merged = mergeItemsByName([a], [b, c]);
+    expect(merged).toEqual([a, c]);             // b (same name as a) is DROPPED; a (own discipline) wins
+    expect(mergeItemsByName([b, c], [a])).toEqual([b, c]);
+    // nothing is dropped between the two assets (asset items carry no `name` -- the live endpoint's rows do --
+    // so the fallback key discipline/kind/uid-or-attributes is what keeps them apart here)
+    expect(MERGED_ITEMS).toHaveLength(HVAC4.items.length + ITEMS.length);
+  });
+
+  it("(source) the calculator resolves its layout config through resolveAliasConfig and mounts one items fetch per alias target discipline; plumbing untouched", () => {
+    const src = strip(CALC_SRC);
+    expect(src).toContain("const config = categoryId ? resolveAliasConfig(configsByCategory, categoryId) : null;");
+    expect(src).toContain("aliasDisciplines.map((d) => (");
+    expect(src).toContain("<RateItemsFetcher key={`calc-items-${d}`} discipline={d} onLoaded={onExtraItemsLoaded} />");
+    expect(src).toContain("mergeItemsByName(ownItems, ...aliasDisciplines.map((d) => extraItems.get(d) ?? []))");
+    expect(strip(PLUMBING_SRC)).not.toContain("alias");
   });
 });
