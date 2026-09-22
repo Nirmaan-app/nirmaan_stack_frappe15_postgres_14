@@ -1581,40 +1581,57 @@ def export_rate_master_asset(discipline=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def export_rate_master_csv(discipline=None, category_id=None):
-    """ADMIN-ONLY: the EDITABLE csv -- what a pricer edits in Excel and uploads back.
+def export_rate_master_csv(discipline=None, category_id=None, fmt=None):
+    """ADMIN-ONLY: the EDITABLE rate file -- what a pricer edits in Excel and uploads back.
 
     MODE A when `category_id` is given: exactly that category's attribute + rate columns.
     MODE B when it is omitted: every category in one file, with a `category` column and the UNION
     of every category's keys (sparse by construction).
 
+    SLICE 1e (owner X-a): `fmt` is "xlsx" (the DEFAULT -- Excel keeps a text cell as typed, where a
+    CSV let it rewrite "1:6" as a time) or "csv" (the second option). Both carry the same columns and
+    the same values, and neither carries a system column (X-b). The endpoint keeps its historical
+    name; the client and the tests call it by that name.
+
     Same download shape and the SAME admin gate as export_rate_master_asset -- an editable dump of
     the priced catalog is no less sensitive than the asset.
 
-    Returns {filename, content_type, content_base64, discipline, category_id, mode, columns,
+    Returns {filename, content_type, content_base64, discipline, category_id, mode, format, columns,
     column_count, row_count}. URL: .../rate_master.export_rate_master_csv
     """
     _require_rate_admin()  # BEFORE any read
     if not discipline:
         frappe.throw("discipline is required.", title="Missing field: discipline")
 
-    from nirmaan_stack.services.boq_rate_master import csv_exporter
+    from nirmaan_stack.services.boq_rate_master import csv_exporter, xlsx_io
+
+    fmt = (fmt or csv_exporter.FORMAT_XLSX).strip().lower()
+    if fmt not in csv_exporter.FORMATS:
+        frappe.throw("fmt must be one of %s." % ", ".join(csv_exporter.FORMATS), title="Invalid value")
 
     if category_id:
-        text, headers, n = csv_exporter.build_category_csv(discipline, category_id)
+        built = csv_exporter.build_category_rows(discipline, category_id)
         mode, label = "category", category_id
     else:
-        text, headers, n = csv_exporter.build_all_categories_csv(discipline)
+        built = csv_exporter.build_all_categories_rows(discipline)
         mode, label = "all", "all_categories"
+    headers, n = built["headers"], built["n"]
+    if fmt == csv_exporter.FORMAT_XLSX:
+        payload = csv_exporter.to_xlsx(headers, built["rows"], built["numeric"])
+        content_type = xlsx_io.XLSX_CONTENT_TYPE
+    else:
+        payload = csv_exporter.to_csv(headers, built["rows"]).encode("utf-8")
+        content_type = xlsx_io.CSV_CONTENT_TYPE
 
     slug = re.sub(r"[^A-Za-z0-9_-]+", "_", "%s_%s" % (discipline, label)).strip("_").lower()
     return {
-        "filename": f"rate_master_{slug}.csv",
-        "content_type": "text/csv",
-        "content_base64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+        "filename": f"rate_master_{slug}.{fmt}",
+        "content_type": content_type,
+        "content_base64": base64.b64encode(payload).decode("ascii"),
         "discipline": discipline,
         "category_id": category_id or None,
         "mode": mode,
+        "format": fmt,
         "columns": headers,
         "column_count": len(headers),
         "row_count": n,
@@ -1659,10 +1676,13 @@ def _decode_upload(content_base64, csv_text):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None):
+def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None, category_id=None):
     """ADMIN-ONLY, READ-ONLY: what this file WOULD do. Writes nothing, commits nothing.
 
-    Returns the plan: {discipline, mode, encoding, row_count, columns, counts, errors,
+    SLICE 1e: the file may be an .xlsx or a csv (detected by content); `category_id` is the optional
+    hint that types a NEW row in a headers-only template (see csv_importer.build_plan).
+
+    Returns the plan: {discipline, mode, format, encoding, row_count, columns, counts, errors,
     changes, digest}. `counts` carries rates_changed / items_added / unchanged / errors
     (the owner's four headline numbers) plus `other_changed` for rows that moved in some
     way other than a rate -- an honest fifth number rather than mislabelling those rows as
@@ -1680,13 +1700,15 @@ def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None)
 
     from nirmaan_stack.services.boq_rate_master import csv_importer
 
-    plan = csv_importer.build_plan(discipline, _decode_upload(content_base64, csv_text))
+    plan = csv_importer.build_plan(discipline, _decode_upload(content_base64, csv_text),
+                                   category_id=(category_id or None))
     return csv_importer.public_plan(plan)
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
-                          expected_digest=None, decisions=None, accepted_fingerprints=None):
+                          expected_digest=None, decisions=None, accepted_fingerprints=None,
+                          category_id=None):
     """ADMIN-ONLY: apply an already-previewed CSV. ALL-OR-NOTHING.
 
     A SNAPSHOT of the pre-upload catalog is written FIRST, in the SAME transaction, via
@@ -1721,6 +1743,7 @@ def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
     result = csv_importer.apply_plan(
         discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest,
         decisions=decisions or None, accepted_fingerprints=accepted_fingerprints or None,
+        category_id=(category_id or None),
     )
     frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
     result["plan"] = csv_importer.public_plan(result["plan"])

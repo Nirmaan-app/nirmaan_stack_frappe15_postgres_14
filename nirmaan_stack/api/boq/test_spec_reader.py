@@ -207,26 +207,29 @@ class TestSpecReader(FrappeTestCase):
         disc = self.ro_disc
         self.assertEqual(spec_reader.spec_categories(disc), {"hvac_adp_item": "hvac_adp"})
         text, headers, n = csv_exporter.build_category_csv(disc, "hvac_adp")
-        self.assertEqual(headers, ["item_uid", "kind", "brand", "unit", "item_name", "item_detail",
-                                   "cost_install", "cost_supply", "install_markup", "supply_markup",
-                                   "source_sheet", "source_row"])
+        # SLICE 1e (owner X-b / X-d): no kind (ONE item kind), no source pair -- inverted, not deleted.
+        self.assertEqual(headers, ["item_uid", "brand", "unit", "item_name", "item_detail",
+                                   "cost_install", "cost_supply", "install_markup", "supply_markup"])
+        for gone in ("kind", "source_sheet", "source_row"):
+            self.assertNotIn(gone, headers)                    # NEGATIVE (1e)
         self.assertEqual(n, 95)
         for derived in spec_reader.ADP_DERIVED_ATTRS + spec_reader.RESERVED_ATTRS:
             self.assertNotIn(derived, headers)
         rows = list(__import__("csv").reader(text.lstrip("﻿").splitlines()))
         hdr, body = rows[0], rows[1:]
         self.assertEqual(hdr, headers)
-        ci, ri = hdr.index("cost_install"), hdr.index("source_row")
-        by_row = {}
-        for r in body:
-            by_row.setdefault(r[ri], []).append(r[ci])
-        self.assertEqual(by_row["89"], ["0.0"])
-        self.assertEqual(by_row["91"], ["0.0"])
-        # Mode B: same text-first rule, the category column in place
+        # rows 89 / 91 carry cost_install 0 (S-d): keyed by item_uid now that the file has no source_row
+        ci, ui = hdr.index("cost_install"), hdr.index("item_uid")
+        uid_of = {r["source_row"]: r["item_uid"] for r in frappe.get_all(
+            ITEM, filters={"discipline": disc, "active": 1, "source_row": ["in", [89, 91]]},
+            fields=["source_row", "item_uid"])}
+        by_uid = {r[ui]: r[ci] for r in body}
+        self.assertEqual(by_uid[uid_of[89]], "0.0")
+        self.assertEqual(by_uid[uid_of[91]], "0.0")
+        # Mode B: same text-first rule, the category column in place; still no kind (no multi-kind category)
         text_b, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
-        self.assertEqual(headers_b, ["item_uid", "category", "kind", "brand", "unit", "item_name", "item_detail",
-                                     "cost_install", "cost_supply", "install_markup", "supply_markup",
-                                     "source_sheet", "source_row"])
+        self.assertEqual(headers_b, ["item_uid", "category", "brand", "unit", "item_name", "item_detail",
+                                     "cost_install", "cost_supply", "install_markup", "supply_markup"])
         self.assertEqual(n_b, 95)
 
     # -- t06 ----------------------------------------------------------------------------------------
@@ -237,19 +240,22 @@ class TestSpecReader(FrappeTestCase):
         self._load(e, disc)
         self.assertEqual(spec_reader.spec_categories(disc), {})
         items, kind_cat, cat_kinds = csv_exporter._load(disc)
-        # the PRE-SLICE construction, recomputed here from the same rows: LEAD + sorted attrs + sorted
-        # rates + TAIL for a category; LEAD[0], category, LEAD[1:] + union for all
+        # the 1e construction (owner X-b / X-d), recomputed here from the same rows: item_uid, kind ONLY
+        # for a multi-kind category, brand, unit + sorted attrs + sorted rates; NO source pair. Mode B:
+        # item_uid, category, kind (Electrical holds multi-kind categories), brand, unit + the union.
+        # (Pre-1e this pinned LEAD + attrs + rates + TAIL; inverted, not deleted.)
         for cat in ("cabletray_raceway", "lighting_mgmt_system", "wiring_cabling"):
             rows_in = [it for it in items if it["kind"] in set(cat_kinds[cat])]
             attrs, rates = csv_exporter._keys_for(rows_in)
-            expected = list(csv_exporter.LEAD_COLUMNS) + attrs + rates + list(csv_exporter.TAIL_COLUMNS)
+            lead = ["item_uid", "kind", "brand", "unit"] if cat == "wiring_cabling" else ["item_uid", "brand", "unit"]
+            expected = lead + attrs + rates
             _t, headers, n = csv_exporter.build_category_csv(disc, cat)
             self.assertEqual(headers, expected, cat)
             self.assertEqual(n, len(rows_in))
             self.assertNotIn("item_name", headers)
+            self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
         attrs, rates = csv_exporter._keys_for(items)
-        expected_b = ([csv_exporter.LEAD_COLUMNS[0], csv_exporter.CATEGORY_COLUMN]
-                      + list(csv_exporter.LEAD_COLUMNS[1:]) + attrs + rates + list(csv_exporter.TAIL_COLUMNS))
+        expected_b = ["item_uid", "category", "kind", "brand", "unit"] + attrs + rates
         _tb, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, expected_b)
         self.assertEqual(n_b, len(items))
@@ -282,7 +288,7 @@ class TestSpecReader(FrappeTestCase):
             return ",".join(cells)
 
         # (b) a NEW row: name, detail, unit, the four numbers, blank uid -> read attributes
-        new_line = row(kind="hvac_adp_item", unit="Nos", item_name="Diffuser with damper",
+        new_line = row(unit="Nos", item_name="Diffuser with damper",
                        item_detail="NECK: 375X375", cost_supply="1200", cost_install="150",
                        supply_markup="0.45", install_markup="0.6")
         plan = csv_importer.build_plan(disc, "\r\n".join([lines[0], new_line]))
@@ -332,7 +338,7 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(moved["neck_mm"], ("375.0", "450.0"))
 
         # (e) an UNREADABLE new row is planned, not refused, and saved flagged
-        bad_line = row(kind="hvac_adp_item", unit="Nos", item_name="Frobnicator",
+        bad_line = row(unit="Nos", item_name="Frobnicator",
                        item_detail="nonsense wording", cost_supply="10", cost_install="1",
                        supply_markup="0.45", install_markup="0.6")
         plan3 = csv_importer.build_plan(disc, "\r\n".join([lines[0], bad_line]))
@@ -351,7 +357,7 @@ class TestSpecReader(FrappeTestCase):
 
         # NEGATIVE: a hand-typed derived value is refused by name
         hdr4 = lines[0] + ",neck_mm"
-        typed = row(kind="hvac_adp_item", unit="Nos", item_name="Diffuser with damper",
+        typed = row(unit="Nos", item_name="Diffuser with damper",
                     item_detail="NECK: 375X375", cost_supply="1", cost_install="1",
                     supply_markup="0.45", install_markup="0.6") + ",300"
         plan4 = csv_importer.build_plan(disc, "\r\n".join([hdr4, typed]))
@@ -359,7 +365,7 @@ class TestSpecReader(FrappeTestCase):
         self.assertIn("read from Item and Item detail", plan4["errors"][0]["message"])
         self.assertTrue(plan4["errors"][0]["message"].startswith("neck_mm:"))
         # NEGATIVE: a new row with no item_name is refused
-        nameless = row(kind="hvac_adp_item", unit="Nos", item_detail="NECK: 375X375", cost_supply="1")
+        nameless = row(unit="Nos", item_detail="NECK: 375X375", cost_supply="1")
         plan5 = csv_importer.build_plan(disc, "\r\n".join([lines[0], nameless]))
         self.assertTrue(any("item_name is required" in e["message"] for e in plan5["errors"]))
 
@@ -499,7 +505,9 @@ class TestSpecReader(FrappeTestCase):
     # ══════════════════════════════════════════════════════════════════════════════════════════
 
     def _hvac_csv(self, disc, rows):
-        """A Mode A HVAC file with the 1c header and the given new rows: (name, detail, unit) tuples."""
+        """A Mode A HVAC file in the OLD (1c) shape -- kind + source pair present -- with the given new
+        rows: (name, detail, unit) tuples. Kept old on purpose since 1e: every test using it also proves
+        that an old-format file still uploads with those columns ignored (owner X-e)."""
         hdr = ["item_uid", "kind", "brand", "unit", "item_name", "item_detail", "cost_install", "cost_supply",
                "install_markup", "supply_markup", "source_sheet", "source_row"]
         out = [",".join(hdr)]
@@ -866,3 +874,130 @@ class TestSpecReader(FrappeTestCase):
         self.assertTrue(res["ok"]); self.assertNotIn("spec", res)
         self.assertEqual(res["item"]["attributes"]["material"], "COPPER")
         self.assertEqual(spec_reader.spec_categories(disc), {})
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1e -- EXCEL BY DEFAULT; NO SYSTEM COLUMNS (owner X-a..X-e), the HVAC half:
+    #   t21  the HVAC .xlsx: columns exactly item_uid, brand, unit, item_name, item_detail, the four
+    #        numbers (no kind -- one item kind; no source pair); 95 rows; "1:6" / "1:4" / "1:10 /12" /
+    #        "9/10 NM" read back byte-for-byte as TEXT (the owner's defect); an UNCHANGED re-upload
+    #        plans zero changes; the .csv of the same content gives the same digest.
+    #   t22  the OWNER'S NEW SKU: a row with only name, detail, unit and the four numbers (no kind, no
+    #        uid) is accepted from the .xlsx -- kind filled `hvac_adp_item`, source stamped by the
+    #        system, the reader's verdict carried; the SAME row on an OLD-FORMAT csv carrying kind +
+    #        source_sheet "ADP" + source_row uploads with those columns IGNORED (source stays the
+    #        system's, never "ADP") -- NEGATIVE: the ignored value is not applied.
+    #   t23  a datetime Excel manufactured in a TEXT column is SURFACED, never repaired: it lands as the
+    #        cell's ISO text, the reader refuses it by name, nothing is silently stored.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    HVAC_FILE_COLUMNS = ["item_uid", "brand", "unit", "item_name", "item_detail",
+                         "cost_install", "cost_supply", "install_markup", "supply_markup"]
+
+    def test_t21_hvac_xlsx_columns_text_survives_and_round_trips_to_zero(self):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        disc = self.ro_disc
+        raw, headers, n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        self.assertEqual(headers, self.HVAC_FILE_COLUMNS)
+        self.assertEqual(n, 95)
+        self.assertNotIn("kind", headers); self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
+        hdr, rows = xlsx_io.read_xlsx(raw)
+        self.assertEqual(hdr, headers)
+        self.assertEqual(len(rows), 95)
+        di, ni = hdr.index("item_detail"), hdr.index("item_name")
+        details = [c[di] for _i, c in rows]
+        for must in ("1:6", "1:4", "1:10 /12", "9/10 NM", "NECK:300X300/OUTER: 595X595"):
+            self.assertIn(must, details, must)                 # the owner's defect, byte-for-byte
+        # the cells are TEXT-formatted, so Excel shows and keeps them as typed
+        import io as _io
+        import openpyxl
+        ws = openpyxl.load_workbook(_io.BytesIO(raw)).worksheets[0]
+        self.assertEqual({ws.cell(row=r, column=di + 1).number_format for r in range(2, 97)}, {"@"})
+        self.assertEqual({ws.cell(row=r, column=ni + 1).number_format for r in range(2, 97)}, {"@"})
+        ci = hdr.index("cost_supply")
+        vals = [ws.cell(row=r, column=ci + 1).value for r in range(2, 97)]
+        self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in vals))   # numbers or blank, never text
+        self.assertGreater(sum(1 for v in vals if isinstance(v, (int, float))), 80)
+        # unchanged re-upload: nothing to apply; csv of the same content: the same digest
+        plan = csv_importer.build_plan(disc, raw, category_id="hvac_adp")
+        self.assertEqual(plan["errors"], []); self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["counts"]["unchanged"], 95)
+        self.assertEqual(plan["format"], "xlsx")
+        text, headers_c, n_c = csv_exporter.build_category_csv(disc, "hvac_adp")
+        self.assertEqual((headers_c, n_c), (headers, 95))
+        plan_c = csv_importer.build_plan(disc, text, category_id="hvac_adp")
+        self.assertEqual(plan_c["changes"], []); self.assertEqual(plan_c["digest"], plan["digest"])
+        # Mode B for HVAC: category kept, kind absent (no multi-kind category in the discipline)
+        _b, hb, nb = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(hb, ["item_uid", "category", "brand", "unit", "item_name", "item_detail",
+                              "cost_install", "cost_supply", "install_markup", "supply_markup"])
+        self.assertEqual(nb, 95)
+
+    def test_t22_the_owners_new_sku_without_kind_and_the_old_format_source_is_ignored(self):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        raw, hdr, _n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        h, rows = xlsx_io.read_xlsx(raw)
+        new = {"unit": "Nos", "item_name": "Diffuser with damper", "item_detail": "NECK: 375X375",
+               "cost_install": 150.0, "cost_supply": 800.0, "install_markup": 0.6, "supply_markup": 0.45}
+        row = [new.get(c) for c in h]                          # item_uid + brand blank
+        numeric = {"cost_install", "cost_supply", "install_markup", "supply_markup"}
+        edited = xlsx_io.write_xlsx(h, [[(c if c not in ("",) else None) for c in cells] for _i, cells in rows] + [row], numeric)
+        plan = csv_importer.build_plan(disc, edited, category_id="hvac_adp")
+        self.assertEqual(plan["errors"], [], plan["errors"][:2])
+        self.assertEqual(plan["counts"]["items_added"], 1)
+        self.assertEqual(plan["counts"]["unchanged"], 95)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["_payload"]["kind"], "hvac_adp_item")           # filled from the category
+        self.assertEqual(ch["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
+        self.assertEqual(ch["_payload"]["source_row"], 96)
+        self.assertEqual(ch["spec"]["status"], "ok")
+        self.assertEqual(ch["spec"]["read"], {"family": "square diffuser", "damper": "with", "neck_mm": 375.0})
+        self.assertEqual(ch["_payload"]["rates"], {"cost_install": 150.0, "cost_supply": 800.0,
+                                                   "install_markup": 0.6, "supply_markup": 0.45})
+        # without the hint too: the file's own 95 rows type it
+        plan_nohint = csv_importer.build_plan(disc, edited)
+        self.assertEqual(plan_nohint["errors"], []); self.assertEqual(plan_nohint["digest"], plan["digest"])
+        res = csv_importer.apply_plan(disc, edited, expected_digest=plan["digest"], category_id="hvac_adp")
+        frappe.db.commit()
+        self.assertEqual(res["items_added"], 1)
+        added = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "source_sheet": csv_importer.DEFAULT_SOURCE_SHEET},
+                               fields=["kind", "source_row", "attributes", "rates"])
+        self.assertEqual(len(added), 1)
+        self.assertEqual((added[0]["kind"], added[0]["source_row"]), ("hvac_adp_item", 96))
+        # OLD FORMAT (the owner's actual file): kind + source_sheet "ADP" + source_row present -> IGNORED
+        old_hdr = ["item_uid", "kind", "brand", "unit", "item_name", "item_detail", "cost_install", "cost_supply",
+                   "install_markup", "supply_markup", "source_sheet", "source_row"]
+        old_row = ["", "hvac_adp_item", "", "Nos", "Round Diffuser without damper", "225 mm dia",
+                   "150", "800", "0.6", "0.45", "ADP", "999"]
+        p_old = csv_importer.build_plan(disc, "\r\n".join([",".join(old_hdr), ",".join(old_row)]) + "\r\n")
+        self.assertEqual(p_old["errors"], [], p_old["errors"][:2])
+        self.assertEqual(p_old["columns"]["ignored"], ["source_row", "source_sheet"])
+        c2 = p_old["changes"][0]
+        self.assertEqual(c2["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)   # NEGATIVE: never "ADP"
+        self.assertEqual(c2["_payload"]["source_row"], 1)                                     # the file's data row, not 999
+        self.assertEqual(c2["_payload"]["kind"], "hvac_adp_item")
+        self.assertEqual(c2["spec"]["read"], {"family": "round diffuser", "damper": "without", "dia_mm": 225.0})
+        self.assertFalse(any(f["column"] in ("source_sheet", "source_row") for f in c2["fields"]))
+
+    def test_t23_an_excel_made_time_in_a_text_column_is_surfaced_not_repaired(self):
+        import datetime as _dt
+        import io as _io
+        import openpyxl
+        disc = self._new_disc()
+        self._load(self.v2, disc)
+        raw, hdr, _n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        wb = openpyxl.load_workbook(_io.BytesIO(raw)); ws = wb.worksheets[0]
+        di = hdr.index("item_detail") + 1
+        target = next(r for r in range(2, ws.max_row + 1) if ws.cell(row=r, column=di).value == "1:6")
+        # what Excel does to a CSV: the ratio becomes the time 01:06
+        ws.cell(row=target, column=di).value = _dt.time(1, 6)
+        ws.cell(row=target, column=di).number_format = "h:mm"
+        buf = _io.BytesIO(); wb.save(buf)
+        plan = csv_importer.build_plan(disc, buf.getvalue(), category_id="hvac_adp")
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(len(plan["changes"]), 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["spec"]["status"], "not_understood")           # refused by name, visible
+        self.assertEqual(ch["spec"]["text"]["item_detail"], "01:06:00")     # the ISO text, as read
+        self.assertTrue(ch["major"])

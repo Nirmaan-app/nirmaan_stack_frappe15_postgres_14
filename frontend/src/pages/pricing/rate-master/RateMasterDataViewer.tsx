@@ -24,7 +24,10 @@ import { parseFiniteInput } from "./rateMasterEdit";
 import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
 import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
 import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
-import type { UploadPlan, UploadResult } from "./rateMasterUpload";
+import {
+  DEFAULT_RATE_FILE_FORMAT, FORMAT_COPY, RATE_FILE_FORMATS,
+  type RateFileFormat, type UploadPlan, type UploadResult,
+} from "./rateMasterUpload";
 import {
   categoryItemKinds,
   isCategoryDataScopeEmpty,
@@ -91,16 +94,20 @@ interface Props {
   onDeactivateItem?: (name: string) => Promise<void>;
   // SLICE 5: the two download surfaces. The page owns the SDK calls and hands these down, exactly
   // as it already does for save/create/deactivate -- the viewer stays free of frappe-react-sdk.
-  // `categoryId === null` means MODE B (every category in one file).
-  onDownloadCsv?: (categoryId: string | null) => Promise<void>;
+  // `categoryId === null` means MODE B (every category in one file). SLICE 1e: `fmt` is the file format
+  // the user chose -- Excel by default, CSV as the second option (owner X-a).
+  onDownloadCsv?: (categoryId: string | null, fmt: RateFileFormat) => Promise<void>;
   onDownloadAsset?: () => Promise<void>;
   // SLICE 6: the upload half of the round trip. Withheld (not disabled) for a non-admin, like
   // every other write affordance here; the endpoints re-gate server-side, which is the boundary.
-  onPreviewCsv?: (contentBase64: string) => Promise<UploadPlan>;
+  // SLICE 1e: both carry the selected category as an OPTIONAL hint for typing a new row in a
+  // headers-only template; the file's own rows win over it server-side.
+  onPreviewCsv?: (contentBase64: string, categoryId?: string | null) => Promise<UploadPlan>;
   onApplyCsv?: (
     contentBase64: string, expectedDigest: string,
     // SLICE 1d: the per-row Accept / Reject answers and the accepted suggestions' fingerprints, both optional.
     decisions?: Record<number, SpecDecision>, acceptedFingerprints?: Record<number, string>,
+    categoryId?: string | null,
   ) => Promise<UploadResult>;
   onUploadApplied?: () => void;
 }
@@ -119,6 +126,8 @@ export function RateMasterDataViewer({
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
   const [downloading, setDownloading] = useState<null | "cat" | "all" | "asset">(null);
+  // SLICE 1e: the rate-file format for the two edit downloads -- Excel by default (owner X-a).
+  const [fileFormat, setFileFormat] = useState<RateFileFormat>(DEFAULT_RATE_FILE_FORMAT);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
   const runDownload = async (which: "cat" | "all" | "asset", fn: () => Promise<void>) => {
     setDownloading(which);
@@ -477,18 +486,32 @@ export function RateMasterDataViewer({
             <div className="flex items-center gap-2">
               <Button
                 size="sm" variant="outline" disabled={downloading !== null}
-                onClick={() => void runDownload("cat", () => onDownloadCsv(config.category_id))}
+                onClick={() => void runDownload("cat", () => onDownloadCsv(config.category_id, fileFormat))}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
                 {downloading === "cat" ? "Preparing..." : DOWNLOAD_COPY.editThisCategory}
               </Button>
               <Button
                 size="sm" variant="outline" disabled={downloading !== null}
-                onClick={() => void runDownload("all", () => onDownloadCsv(null))}
+                onClick={() => void runDownload("all", () => onDownloadCsv(null, fileFormat))}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
                 {downloading === "all" ? "Preparing..." : DOWNLOAD_COPY.editAllCategories}
               </Button>
+              {/* SLICE 1e (owner X-a): Excel by default; CSV is the second option. A segmented pair, not a
+                  select -- two choices, always visible, no menu to open. */}
+              <div className="ml-1 flex items-center gap-1" role="radiogroup" aria-label={FORMAT_COPY.label} title={FORMAT_COPY.hint}>
+                <span className="text-[11px] text-muted-foreground">{FORMAT_COPY.label}</span>
+                {RATE_FILE_FORMATS.map((f) => (
+                  <Button
+                    key={f.id} size="sm" variant={fileFormat === f.id ? "default" : "ghost"}
+                    className="h-7 px-2 text-[11px]" role="radio" aria-checked={fileFormat === f.id}
+                    data-testid={`rate-file-format-${f.id}`} onClick={() => setFileFormat(f.id)}
+                  >
+                    {f.label}
+                  </Button>
+                ))}
+              </div>
             </div>
             <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.editHint}</p>
             <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.newRowHint}</p>
@@ -497,8 +520,9 @@ export function RateMasterDataViewer({
         {onPreviewCsv && onApplyCsv && (
           <RateMasterUploadDialog
             frozen={writeBlocked}
-            onPreview={onPreviewCsv}
-            onApply={onApplyCsv}
+            // SLICE 1e: the selected category rides as the optional hint (see the prop comments above)
+            onPreview={(b64) => onPreviewCsv(b64, config.category_id)}
+            onApply={(b64, digest, decisions, fps) => onApplyCsv(b64, digest, decisions, fps, config.category_id)}
             onApplied={onUploadApplied}
           />
         )}

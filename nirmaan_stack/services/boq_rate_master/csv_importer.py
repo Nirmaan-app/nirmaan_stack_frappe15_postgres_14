@@ -83,7 +83,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader, spec_reader
+from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader, spec_reader, xlsx_io
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -96,7 +96,9 @@ UID_HEX_LEN = 12
 # One shared batch per apply, mirroring the loader's one-batch-per-run provenance and the module's
 # existing `rmbulk-` / `manual-` prefixes.
 BATCH_PREFIX = "csvup-"
-DEFAULT_SOURCE_SHEET = "CSV upload"
+# SLICE 1e: the provenance the SYSTEM stamps on a new row -- a file no longer carries source columns
+# (owner X-b), so this is the one value a row added by upload can have. Stored, never downloaded.
+DEFAULT_SOURCE_SHEET = "Rate master upload"
 
 # A rate change AT OR ABOVE this, IN EITHER DIRECTION, is expanded by default in the preview.
 # ⚠️ BOTH directions matter and the reason is asymmetric only in how it hurts: ₹26,100 typed for
@@ -104,9 +106,11 @@ DEFAULT_SOURCE_SHEET = "CSV upload"
 # ⚠️ "AT OR ABOVE" IS INCLUSIVE AND THE COMPARISON MUST BE ROUNDED (F-21) -- see `_diff_fields`.
 MAJOR_RATE_CHANGE_PCT = 10.0
 
-_LEAD = set(csv_exporter.LEAD_COLUMNS)          # item_uid, kind, brand, unit
-_TAIL = set(csv_exporter.TAIL_COLUMNS)          # source_sheet, source_row
+_LEAD = set(csv_exporter.LEAD_COLUMNS)          # item_uid, kind, brand, unit (kind OPTIONAL since 1e)
+_TAIL = set(csv_exporter.TAIL_COLUMNS)          # source_sheet, source_row -- SYSTEM columns: IGNORED since 1e
 _CATEGORY = csv_exporter.CATEGORY_COLUMN        # `category` -- the MODE B marker
+FORMAT_XLSX = csv_exporter.FORMAT_XLSX
+FORMAT_CSV = csv_exporter.FORMAT_CSV
 
 # Attribute types that mean "this value is a number". Mirrors the frontend's
 # rateMasterStructure.isNumericAttributeType -- the two must agree or a value written here can
@@ -140,6 +144,26 @@ def parse_csv_text(text):
         return [], []
     headers = [h.strip() for h in rows[0]]
     return headers, list(enumerate(rows[1:], start=1))
+
+
+def read_upload(raw):
+    """SLICE 1e -- ONE reader for BOTH formats: (headers, data_rows, encoding, format).
+
+    Detection is by CONTENT (an .xlsx is a zip: `PK\\x03\\x04`), never by file name, so a workbook
+    saved under a .csv name and a csv under any name both read. An .xlsx yields the rows exactly as
+    `parse_csv_text` would have -- text as is, numbers as their str(), a date as ISO text so it
+    SURFACES -- and from there the two formats share EVERY step: the same column classification,
+    the same preview, the same spec reader, the same digest, the same apply. A zip that is not a
+    workbook is reported as such rather than raised."""
+    if xlsx_io.is_xlsx(raw):
+        try:
+            headers, data_rows = xlsx_io.read_xlsx(raw)
+        except Exception as exc:  # noqa: BLE001 -- surfaced to the plan as one named error
+            return None, str(exc), FORMAT_XLSX, FORMAT_XLSX
+        return headers, data_rows, FORMAT_XLSX, FORMAT_XLSX
+    text, encoding = decode_csv_bytes(raw)
+    headers, data_rows = parse_csv_text(text)
+    return headers, data_rows, encoding, FORMAT_CSV
 
 
 # ── column spaces + classification ──────────────────────────────────────────────────────
@@ -178,6 +202,18 @@ def column_spaces(discipline):
     return attr_ids, rate_keys, attr_types, kind_cat
 
 
+def _category_kinds(discipline):
+    """SLICE 1e: {category_id: [kinds]} for one discipline -- what fills `kind` on a new row of a
+    single-kind category, and what names the kinds when a multi-kind row leaves it blank."""
+    out = {}
+    for c in frappe.get_all(CONFIG_DOCTYPE,
+                            filters={"discipline": discipline, "active": 1},
+                            fields=["category_id", "config"], order_by="category_id asc"):
+        cfg = c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+        out[c["category_id"]] = list(csv_exporter._config_kinds(cfg))
+    return out
+
+
 def _spec_owned_columns(discipline, spec_cats):
     """SLICE 1c: {category_id: the attribute ids the SPEC READER owns} for every opted-in category --
     its declared definitions minus the two text keys, plus the two reserved flag keys. A NON-blank
@@ -209,9 +245,14 @@ def classify_columns(headers, attr_ids, rate_keys):
 
     A header that is neither fixed, nor a known attribute, nor a known rate is an ERROR: a column
     nobody can place is a file we cannot read, and guessing is how a typo becomes a new attribute.
+
+    SLICE 1e (owner X-b / X-d / X-e): the SYSTEM columns (`source_sheet`, `source_row`) are no longer
+    written and, when an OLD file still carries them, are classified `ignored` -- never an error,
+    never read. `kind` is no longer REQUIRED: a 1e file carries it only for a multi-kind category;
+    `build_plan` fills it from the category otherwise. `item_uid` stays mandatory.
     """
     errors = []
-    spec = {"attributes": {}, "rates": {}, "fixed": {}, "mode": "category"}
+    spec = {"attributes": {}, "rates": {}, "fixed": {}, "ignored": {}, "mode": "category"}
     seen = set()
     for idx, name in enumerate(headers):
         if not name:
@@ -226,7 +267,9 @@ def classify_columns(headers, attr_ids, rate_keys):
         if name == _CATEGORY:
             spec["mode"] = "all"
             spec["fixed"][name] = idx
-        elif name in _LEAD or name in _TAIL:
+        elif name in _TAIL:
+            spec["ignored"][name] = idx            # a system column from an old file: read past, never applied
+        elif name in _LEAD:
             spec["fixed"][name] = idx
         elif name in attr_ids and name in rate_keys:
             # Measured DISJOINT on the live catalog, and it has to stay that way: the export emits
@@ -247,11 +290,8 @@ def classify_columns(headers, attr_ids, rate_keys):
 
     if "item_uid" not in spec["fixed"]:
         errors.append({"row": 0, "column": "item_uid", "message":
-                       "The file has no 'item_uid' column. Download the CSV again -- without it an "
+                       "The file has no 'item_uid' column. Download the file again -- without it an "
                        "edit cannot be told from a new item."})
-    if "kind" not in spec["fixed"]:
-        errors.append({"row": 0, "column": "kind", "message":
-                       "The file has no 'kind' column."})
     return spec, errors
 
 
@@ -347,12 +387,18 @@ def _now_iso():
     return frappe.utils.now_datetime().replace(microsecond=0).isoformat()
 
 
-def build_plan(discipline, raw, decisions=None):
+def build_plan(discipline, raw, decisions=None, category_id=None):
     """READ-ONLY. The whole decision, computed from the file and the live catalog.
 
-    Returns {discipline, mode, encoding, row_count, columns, counts, errors, changes, digest}.
+    Returns {discipline, mode, format, encoding, row_count, columns, counts, errors, changes, digest}.
     Never writes, never commits, never throws on file content -- a file we cannot read comes back
     as `errors`, because a preview that raises tells the user less than a preview that explains.
+
+    SLICE 1e: `raw` may be an .xlsx or a csv (detected by content; ONE pipeline after `read_upload`).
+    `category_id` is an optional HINT for typing a NEW row when the file carries no `kind` column and
+    no `category` column: it is used ONLY when the file's own existing rows cannot say (a headers-only
+    template) -- a file's matched rows always win over the hint, so a Mode A file for category X
+    uploaded while viewing category Y still types its new rows as X.
 
     SLICE 1d: `decisions` = {"<data row number>": "accept" | "reject"} -- the user's answers to the
     per-row question the preview asked for a spec the exact read refused. ABSENT (the preview) means
@@ -365,10 +411,18 @@ def build_plan(discipline, raw, decisions=None):
         frappe.throw("discipline is required to read a rate-master CSV.")
     decisions = {str(k): v for k, v in (decisions or {}).items()}
 
-    text, encoding = decode_csv_bytes(raw)
-    headers, data_rows = parse_csv_text(text)
-    attr_ids, rate_keys, attr_types, kind_cat = column_spaces(discipline)
-    spec, errors = classify_columns(headers, attr_ids, rate_keys)
+    headers, data_rows, encoding, fmt = read_upload(raw)
+    if headers is None:
+        # an unreadable workbook: ONE named error, the same shape as a header problem
+        attr_ids, rate_keys, attr_types, kind_cat = set(), set(), {}, {}
+        spec = {"attributes": {}, "rates": {}, "fixed": {}, "ignored": {}, "mode": "category"}
+        errors = [{"row": 0, "column": "", "message":
+                   "The file could not be read as an Excel workbook: %s" % data_rows}]
+        headers, data_rows = [], []
+    else:
+        attr_ids, rate_keys, attr_types, kind_cat = column_spaces(discipline)
+        spec, errors = classify_columns(headers, attr_ids, rate_keys)
+    cat_kinds = _category_kinds(discipline) if not errors else {}
     # SLICE 1c: the opted-in categories ({kind: category_id}; {} for Electrical) and the columns the
     # reader owns for each. Resolved ONCE per plan, never per row.
     spec_cats = spec_reader.spec_categories(discipline)
@@ -389,12 +443,14 @@ def build_plan(discipline, raw, decisions=None):
     plan = {
         "discipline": discipline,
         "mode": spec["mode"],
+        "format": fmt,
         "encoding": encoding,
         "row_count": len(data_rows),
         "columns": {
             "attributes": sorted(spec["attributes"]),
             "rates": sorted(spec["rates"]),
             "fixed": sorted(spec["fixed"]),
+            "ignored": sorted(spec["ignored"]),
         },
         "errors": errors,
         "changes": [],
@@ -409,12 +465,47 @@ def build_plan(discipline, raw, decisions=None):
         plan["digest"] = _digest(discipline, plan)
         return plan
 
-    ui, ki = spec["fixed"]["item_uid"], spec["fixed"]["kind"]
+    ui, ki = spec["fixed"]["item_uid"], spec["fixed"].get("kind")
+    ci_cat = spec["fixed"].get(_CATEGORY)
     seen_uids = {}
     width = len(headers)
 
     def cell(cells, idx):
         return cells[idx] if idx < len(cells) else ""
+
+    # SLICE 1e: the category a Mode A file is FOR, read from its own matched rows (the kinds of every
+    # uid the file names, mapped to their categories). ONE answer means every new row without a kind
+    # is typed from it; the caller's `category_id` hint is consulted only when the file has no matched
+    # rows to say (a headers-only template). Never guessed from attribute values.
+    file_cats = set()
+    for _r, cells in data_rows:
+        u = (cell(cells, ui) or "").strip()
+        m = by_uid.get(u) if u else None
+        if m and len(m) == 1:
+            c = kind_cat.get(m[0]["kind"])
+            if c:
+                file_cats.add(c)
+    file_cat = next(iter(file_cats)) if len(file_cats) == 1 else None
+    if file_cat is None and not file_cats and category_id in cat_kinds:
+        file_cat = category_id
+    if file_cat is None and not file_cats and len(cat_kinds) == 1:
+        # a discipline with ONE category (HVAC today): every row is that category's, no hint needed
+        file_cat = next(iter(cat_kinds))
+
+    def kind_for_new_row(cells):
+        """(kind, error) for a NEW row whose kind cell is blank or absent (owner X-d)."""
+        cat = ((cell(cells, ci_cat) or "").strip() if ci_cat is not None else "") or file_cat
+        if not cat:
+            return None, ("'kind' is required -- this file has no kind column and the row's category "
+                          "could not be determined. Upload the file downloaded for its category, or add "
+                          "a 'kind' column.")
+        kinds = cat_kinds.get(cat)
+        if kinds is None:
+            return None, "category '%s' is not a category of this discipline." % cat
+        if len(kinds) == 1:
+            return kinds[0], None
+        return None, ("'kind' is required for a new %s row -- this category has more than one item kind "
+                      "(%s). Fill the kind column for this row." % (cat, ", ".join(kinds)))
 
     for rownum, cells in data_rows:
         if not any((c or "").strip() for c in cells):
@@ -426,7 +517,7 @@ def build_plan(discipline, raw, decisions=None):
             continue
 
         uid = (cell(cells, ui) or "").strip()
-        kind = (cell(cells, ki) or "").strip()
+        kind = (cell(cells, ki) or "").strip() if ki is not None else ""
         row_errors = []
 
         existing = None
@@ -449,7 +540,15 @@ def build_plan(discipline, raw, decisions=None):
             else:
                 existing = matches[0]
         if not kind:
-            row_errors.append("'kind' is required.")
+            # SLICE 1e: the file carries no kind for this row. An EXISTING item keeps its own; a NEW row
+            # is typed from its category (one kind) or refused by a message naming the kinds (several).
+            if existing is not None:
+                kind = existing["kind"]
+            else:
+                kind, kind_err = kind_for_new_row(cells)
+                if kind_err:
+                    row_errors.append(kind_err)
+                kind = kind or ""
 
         # Build the payload that WOULD be stored.
         stored = _stored_payload(existing) if existing else None
@@ -587,10 +686,9 @@ def build_plan(discipline, raw, decisions=None):
                     "category '%s' does not match kind '%s', which belongs to '%s'. An item's "
                     "category comes from its kind and is never stored." % (declared, kind, real))
 
-        src_sheet, src_row = _source_from(cells, spec, rownum, stored)
-        if isinstance(src_row, str):
-            row_errors.append(src_row)
-            src_row = None
+        # SLICE 1e: provenance is the SYSTEM'S -- an existing row keeps what it has, a new row is stamped;
+        # a source column in an old file is never read (owner X-b / X-e).
+        src_sheet, src_row = _source_for(stored, rownum)
 
         if row_errors:
             for m in row_errors:
@@ -669,38 +767,14 @@ def _opt(text):
     return s if s != "" else None
 
 
-def _source_from(cells, spec, rownum, stored):
-    """(source_sheet, source_row) for a row, honouring the FILE so a round trip is faithful.
-
-    A NEW row that leaves them blank gets honest provenance instead: 'CSV upload' and the file's own
-    data-row number. `source_row` is emitted as an int by the exporter -- including 0, which is a
-    real value on the 27 db_shell items -- so a non-integer here is an error, not a coercion."""
-    si = spec["fixed"].get("source_sheet")
-    ri = spec["fixed"].get("source_row")
-    sheet = None
-    if si is not None:
-        sheet = _opt(cells[si] if si < len(cells) else "")
-    elif stored:
-        sheet = stored["source_sheet"]
-    row_val = None
-    if ri is not None:
-        raw = (cells[ri] if ri < len(cells) else "") or ""
-        raw = raw.strip()
-        if raw != "":
-            try:
-                row_val = int(float(raw)) if float(raw) == int(float(raw)) else None
-            except (TypeError, ValueError):
-                row_val = None
-            if row_val is None:
-                return sheet, "source_row: '%s' is not a whole number." % raw
-    elif stored:
-        row_val = stored["source_row"]
-    if stored is None:
-        if sheet is None:
-            sheet = DEFAULT_SOURCE_SHEET
-        if row_val is None:
-            row_val = rownum
-    return sheet, row_val
+def _source_for(stored, rownum):
+    """(source_sheet, source_row) -- the SYSTEM's provenance (SLICE 1e, owner X-b). An existing item
+    keeps exactly what it has; a new row is stamped `DEFAULT_SOURCE_SHEET` and the file's own data-row
+    number. The file has no say: the two columns are no longer written, and an old file's copy of them
+    is ignored (X-e)."""
+    if stored is not None:
+        return stored["source_sheet"], stored["source_row"]
+    return DEFAULT_SOURCE_SHEET, rownum
 
 
 def _label(payload):
@@ -726,7 +800,9 @@ def _diff_fields(stored, new_payload, spec):
     old = stored or {"kind": None, "brand": None, "unit": None, "attributes": {}, "rates": {},
                      "source_sheet": None, "source_row": None}
 
-    for key in ("kind", "brand", "unit", "source_sheet", "source_row"):
+    # SLICE 1e: the source pair is system-owned and cannot move through a file, so it is not diffed
+    # (a new row's stamp is not a "change" a user made).
+    for key in ("kind", "brand", "unit"):
         if _canon(old.get(key)) != _canon(new_payload.get(key)):
             fields.append({"space": "fixed", "column": key,
                            "old": _cell(old.get(key)), "new": _cell(new_payload.get(key)),
@@ -793,7 +869,8 @@ def _digest(discipline, plan):
 # ── apply ───────────────────────────────────────────────────────────────────────────────
 
 
-def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_fingerprints=None):
+def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_fingerprints=None,
+               category_id=None):
     """ALL-OR-NOTHING. Writes a snapshot, then supersedes and inserts. Does NOT commit.
 
     THE TRANSACTIONAL GUARANTEE IS POSTGRES', not a hand-rolled one: every statement below runs in
@@ -821,7 +898,7 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
     # file is how you find out what the deploy will do.
     freeze.guard_not_frozen()
     # The DECISION-FREE plan is what the preview showed: its digest is the one the client holds.
-    plan = build_plan(discipline, raw)
+    plan = build_plan(discipline, raw, category_id=category_id)
     if plan["errors"]:
         first = plan["errors"][0]
         frappe.throw(
@@ -841,7 +918,7 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
         # SLICE 1d: re-plan WITH the user's answers, then verify every ACCEPT against the fingerprint the
         # preview showed -- the suggestion is RE-DERIVED here, never trusted from the client, and an accept
         # whose suggestion differs (or that names a row with no suggestion) is refused before any write.
-        plan = build_plan(discipline, raw, decisions)
+        plan = build_plan(discipline, raw, decisions, category_id=category_id)
         if plan["errors"]:
             first = plan["errors"][0]
             frappe.throw(

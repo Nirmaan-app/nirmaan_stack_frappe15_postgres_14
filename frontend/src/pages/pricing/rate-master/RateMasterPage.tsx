@@ -30,7 +30,10 @@ import {
   type RateMasterFreezeState,
 } from "./rateMasterFreeze";
 import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
-import type { UploadPlan, UploadResult } from "./rateMasterUpload";
+import {
+  DEFAULT_RATE_FILE_FORMAT, rateFileFallbackName,
+  type RateFileFormat, type UploadPlan, type UploadResult,
+} from "./rateMasterUpload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
 import {
   applyCsvPayload, createItemPayload, saveItemPayload,
@@ -185,14 +188,17 @@ export function RateMasterPage() {
   // SLICE 5 -- the downloads. Both endpoints return the base64-in-JSON triple that
   // export_priced_workbook established, so ONE decoder serves both. `categoryId === null` is MODE B
   // (every category in one file). Nothing is mutated, so neither refetches.
+  // SLICE 1e (owner X-a): EXCEL BY DEFAULT, CSV as the second option -- `fmt` rides to the server, which
+  // builds the same columns and values either way; the server's filename wins, the fallback follows `fmt`.
   const onDownloadCsv = useCallback(
-    async (categoryId: string | null) => {
+    async (categoryId: string | null, fmt: RateFileFormat = DEFAULT_RATE_FILE_FORMAT) => {
       const res = await callExportCsv({
         discipline: disciplineId,
         category_id: categoryId ?? undefined,
+        fmt,
       });
       const payload = (res as { message: DownloadPayload }).message;
-      downloadBase64(payload, `rate_master_${categoryId ?? "all"}.csv`);
+      downloadBase64(payload, rateFileFallbackName(categoryId, fmt));
     },
     [callExportCsv, disciplineId]
   );
@@ -208,9 +214,15 @@ export function RateMasterPage() {
   // APPLY does, and its refetch is what makes the change visible immediately (the catalog is read
   // at runtime everywhere else too, so extraction values and helper dropdowns follow on their own
   // next read).
+  // SLICE 1e: the file may be .xlsx or .csv (the server detects by content). `categoryId` is the
+  // OPTIONAL hint that types a new row in a headers-only template; a file's own rows always win over
+  // it server-side. Absent, the payload is byte-identical to before.
   const onPreviewCsv = useCallback(
-    async (contentBase64: string) => {
-      const res = await callPreviewCsv({ discipline: disciplineId, content_base64: contentBase64 });
+    async (contentBase64: string, categoryId?: string | null) => {
+      const res = await callPreviewCsv({
+        discipline: disciplineId, content_base64: contentBase64,
+        ...(categoryId ? { category_id: categoryId } : {}),
+      });
       return (res as { message: UploadPlan }).message;
     },
     [callPreviewCsv, disciplineId]
@@ -225,10 +237,15 @@ export function RateMasterPage() {
       // every suggestion and refuses an accept whose fingerprint is not the one the preview showed.
       decisions?: Record<number, SpecDecision>,
       acceptedFingerprints?: Record<number, string>,
+      // SLICE 1e: the same optional category hint the preview sent (absent -> byte-identical payload).
+      categoryId?: string | null,
     ) => {
       // `expected_digest` is the preview's fingerprint. The server re-derives the plan and REFUSES when
       // the catalog moved underneath -- what the user confirmed is then no longer what would happen.
-      const res = await callApplyCsv(applyCsvPayload(disciplineId, contentBase64, expectedDigest, decisions, acceptedFingerprints));
+      const res = await callApplyCsv({
+        ...applyCsvPayload(disciplineId, contentBase64, expectedDigest, decisions, acceptedFingerprints),
+        ...(categoryId ? { category_id: categoryId } : {}),
+      });
       return (res as { message: UploadResult }).message;
     },
     [callApplyCsv, disciplineId]

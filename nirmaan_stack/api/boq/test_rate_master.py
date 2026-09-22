@@ -2020,11 +2020,15 @@ class TestRateMaster(FrappeTestCase):
         # tray_install_rate table); the table is retired, so its CSV scope shrank by exactly the
         # retired kind -- a positive signal, not merely a count edit.
         self.assertEqual(n, 450)
+        # SLICE 1e (owner X-b / X-d): NO system column -- the source pair is gone, and `kind` is gone
+        # too because cabletray_raceway lists ONE item kind (the upload fills it). Inverted, not deleted.
         self.assertEqual(headers,
-                         ["item_uid", "kind", "brand", "unit",
+                         ["item_uid", "brand", "unit",
                           "material", "thickness_mm", "tray_type", "width_mm",
-                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
-                          "source_sheet", "source_row"])
+                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
+        self.assertNotIn("source_sheet", headers)  # NEGATIVE (1e): a system column is never in the file
+        self.assertNotIn("source_row", headers)
+        self.assertNotIn("kind", headers)          # NEGATIVE (1e): a single-kind category carries no kind
         self.assertNotIn("core", headers)          # a wiring attribute must NOT appear
         self.assertNotIn("category", headers)      # MODE A has no category column
 
@@ -2048,7 +2052,9 @@ class TestRateMaster(FrappeTestCase):
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(n, 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
-        self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
+        # SLICE 1e (owner X-b): the source pair is NOT in the file any more -- inverted, not deleted.
+        self.assertNotIn("source_sheet", headers)
+        self.assertNotIn("source_row", headers)
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
             self.assertIn(k, headers)
         # SLICE 2b: 45 -> 48. The MCB-ladder mint gave the 106 `family: Switchgear` rows the four
@@ -2060,7 +2066,8 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 5: 48 -> 49, the single `modules` column (the per-SKU module width). It is a
         # DECLARED attribute -- which is the whole reason it round-trips as a NUMBER rather than a
         # string -- so it necessarily joins the Mode B union.
-        self.assertEqual(len(headers), 49)
+        # SLICE 1e: 49 -> 47, the two system columns (source_sheet, source_row) removed (owner X-b).
+        self.assertEqual(len(headers), 47)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(len(rows) - 1, 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
@@ -2117,17 +2124,24 @@ class TestRateMaster(FrappeTestCase):
         finally:
             frappe.set_user(original)
 
-        # POSITIVE twin: as admin both modes return a decodable file
+        # POSITIVE twin: as admin both modes return a decodable file. SLICE 1e (owner X-a): the DEFAULT
+        # is now .xlsx; the CSV is the explicit second option -- inverted, not deleted.
         res = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
-        self.assertEqual(res["content_type"], "text/csv")
+        self.assertEqual(res["content_type"],
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         self.assertEqual(res["mode"], "category")
-        self.assertTrue(res["filename"].endswith(".csv"))
-        self.assertIn("item_uid", base64.b64decode(res["content_base64"]).decode("utf-8"))
+        self.assertTrue(res["filename"].endswith(".xlsx"))
+        self.assertEqual(base64.b64decode(res["content_base64"])[:4], b"PK\x03\x04")
+        res_csv = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="csv")
+        self.assertEqual(res_csv["content_type"], "text/csv")
+        self.assertTrue(res_csv["filename"].endswith(".csv"))
+        self.assertIn("item_uid", base64.b64decode(res_csv["content_base64"]).decode("utf-8"))
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         self.assertEqual(res_all["mode"], "all")
         # SLICE 2b: 45 -> 48, the same +3 as test_24n (device / amp_a / curve; `pole` already existed).
         # SLICE 5: 48 -> 49, the `modules` width column -- the same +1 as test_24n.
-        self.assertEqual(res_all["column_count"], 49)
+        # SLICE 1e: 49 -> 47, the two system columns removed (owner X-b) -- the same -2 as test_24n.
+        self.assertEqual(res_all["column_count"], 47)
         self.assertEqual(res_all["row_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
@@ -4542,8 +4556,8 @@ class TestRateMaster(FrappeTestCase):
         new_row = list(rows[0])
         new_row[0] = ""                                       # blank uid -> ADD
         new_row[headers.index("width_mm")] = "999.0"
-        new_row[headers.index("source_sheet")] = ""
-        new_row[headers.index("source_row")] = ""
+        # SLICE 1e: the file carries no source columns (and no kind -- one item kind); nothing to blank.
+        self.assertNotIn("source_sheet", headers); self.assertNotIn("kind", headers)
         rows.append(new_row)
         edited = self._csv_text(headers, rows)
 
@@ -5120,7 +5134,9 @@ class TestRateMaster(FrappeTestCase):
         p3 = csv_importer.build_plan(disc, self._csv_text(headers, dup))
         self.assertTrue(any("appears twice" in e["message"] for e in p3["errors"]))
 
-        p4 = csv_importer.build_plan(disc, self._csv_text(headers + ["kind"],
+        # SLICE 1e: `kind` is no longer in a single-kind file, so the duplicate is `brand` (still a
+        # fixed column) -- the rule under test is unchanged.
+        p4 = csv_importer.build_plan(disc, self._csv_text(headers + ["brand"],
                                                           [r + ["x"] for r in rows]))
         self.assertTrue(any("appears more than once" in e["message"] for e in p4["errors"]))
 
@@ -5149,6 +5165,313 @@ class TestRateMaster(FrappeTestCase):
         _s, collide = csv_importer.classify_columns(
             ["item_uid", "kind", "material"], {"material"}, {"material"})
         self.assertTrue(any("both an attribute and a rate key" in e["message"] for e in collide))
+
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1e -- EXCEL BY DEFAULT; NO SYSTEM COLUMNS IN RATE FILES (owner X-a..X-e). Plain-English:
+    #   e01  THE ROUND TRIP, .xlsx: every Electrical category (Mode A) and the all-categories file
+    #        (Mode B, 1,367 rows) download as .xlsx and re-upload UNCHANGED to ZERO changes; every rate
+    #        and markup read back equals the stored value as a NUMBER and as the stored string.
+    #   e02  the same round trip as .csv, and the .xlsx and .csv of the same content give the SAME
+    #        preview counts and the SAME digest.
+    #   e03  COLUMNS: source_sheet / source_row absent from both formats and both modes; item_uid, brand,
+    #        unit and every person-edited column present; `kind` present ONLY in a multi-kind file --
+    #        Mode A wiring_cabling / db_switchgear / popup_boxes and Mode B -- and ABSENT for every
+    #        single-kind category (NEGATIVE).
+    #   e04  TEXT CELLS ARE TEXT: a text attribute holding "1/2", "3/4", "1:6", a leading-zero value and
+    #        a long digit string survives the .xlsx round trip byte-for-byte; the numeric columns are
+    #        numbers.
+    #   e05  UPLOAD without kind: a new single-kind row is accepted with kind filled from the category and
+    #        source stamped by the system; NEGATIVE: a new row in a multi-kind category with a blank kind
+    #        is refused by a clear message naming the kinds; nothing written.
+    #   e06  OLD FORMAT: a file still carrying kind + source columns uploads with zero changes; a CHANGED
+    #        value in an ignored column is NOT applied (NEGATIVE) and is not a change.
+    #   e07  detection is by CONTENT: xlsx bytes under a .csv name and csv text under any name both read;
+    #        the plan reports the format.
+    #   e08  the endpoint: default .xlsx (content type + name), fmt=csv gives the CSV, a bad fmt refuses;
+    #        preview / apply accept category_id and it is needed only for a headers-only template.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    def _xlsx_rows(self, raw):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        return xlsx_io.read_xlsx(raw)
+
+    def _rate_columns(self, headers, rate_keys):
+        return [h for h in headers if h in rate_keys]
+
+    def test_e01_xlsx_round_trip_is_a_no_op_for_every_electrical_file(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
+        disc = self._loaded_disc()
+        _attr_ids, rate_keys, _types, _kc = csv_importer.column_spaces(disc)
+        stored = self._active_rows(disc)
+        items, kind_cat, cat_kinds = csv_exporter._load(disc)
+        seen_uids = set()
+        for cat, kinds in cat_kinds.items():
+            raw, headers, n = csv_exporter.build_category_xlsx(disc, cat)
+            self.assertTrue(xlsx_io.is_xlsx(raw))
+            # a Mode A file holds every active item of the category's kinds (a kind shared by two
+            # categories -- switch_socket_item: popup_boxes AND switches_sockets -- is in both files)
+            self.assertEqual(n, sum(1 for it in items if it["kind"] in set(kinds)), cat)
+            plan = csv_importer.build_plan(disc, raw, category_id=cat)
+            self.assertEqual(plan["errors"], [], (cat, plan["errors"][:3]))
+            self.assertEqual(plan["changes"], [], (cat, plan["changes"][:2]))
+            self.assertEqual(plan["counts"]["unchanged"], n, cat)
+            self.assertEqual(plan["format"], "xlsx")
+            # every rate / markup equals the stored value as a NUMBER and as the stored STRING
+            hdr, rows = self._xlsx_rows(raw)
+            self.assertEqual(hdr, headers)
+            ui = hdr.index("item_uid")
+            for _i, cells in rows:
+                seen_uids.add(cells[ui])
+                row = stored[cells[ui]]
+                rates = _obj(row["rates"])
+                for col in self._rate_columns(hdr, rate_keys):
+                    text = cells[hdr.index(col)]
+                    sv = rates.get(col)
+                    if sv is None:
+                        self.assertEqual(text, "", (cat, col))
+                    else:
+                        self.assertEqual(float(text), float(sv), (cat, col))
+                        self.assertEqual(float(text), float(csv_exporter._cell(sv)))
+        self.assertEqual(len(seen_uids), 1367)              # every active item was in some file
+        self.assertEqual(seen_uids, set(stored))
+        # MODE B
+        raw_b, headers_b, n_b = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(n_b, 1367)
+        plan_b = csv_importer.build_plan(disc, raw_b)
+        self.assertEqual(plan_b["errors"], [])
+        self.assertEqual(plan_b["changes"], [])
+        self.assertEqual(plan_b["counts"]["unchanged"], 1367)
+        self.assertEqual(plan_b["mode"], "all")
+
+    def test_e02_csv_round_trip_still_zero_and_both_formats_agree(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        for cat in ("cabletray_raceway", "wiring_cabling", "db_switchgear", "earthing"):
+            text, headers, n = csv_exporter.build_category_csv(disc, cat)
+            raw, headers_x, n_x = csv_exporter.build_category_xlsx(disc, cat)
+            self.assertEqual((headers, n), (headers_x, n_x))
+            p_csv = csv_importer.build_plan(disc, text, category_id=cat)
+            p_x = csv_importer.build_plan(disc, raw, category_id=cat)
+            self.assertEqual(p_csv["errors"], []); self.assertEqual(p_csv["changes"], [])
+            self.assertEqual(p_csv["counts"]["unchanged"], n)
+            self.assertEqual(p_csv["format"], "csv")
+            self.assertEqual(p_csv["digest"], p_x["digest"], cat)
+            self.assertEqual(p_csv["counts"], p_x["counts"], cat)
+        text_b, _h, n_b = csv_exporter.build_all_categories_csv(disc)
+        p_b = csv_importer.build_plan(disc, text_b)
+        self.assertEqual((p_b["errors"], p_b["changes"], p_b["counts"]["unchanged"]), ([], [], 1367))
+        # the SAME EDIT in both formats plans the same change and the same digest
+        raw_x, hdr, _n = csv_exporter.build_category_xlsx(disc, "earthing")
+        hx, rows_x = self._xlsx_rows(raw_x)
+        rate_cols = [h for h in hx if h not in ("item_uid", "brand", "unit") and any(
+            (r[hx.index(h)] or "").strip() for _i, r in rows_x)]
+        # pick a populated rate column and double the first populated cell
+        _a, rate_keys, _t, _kc = csv_importer.column_spaces(disc)
+        col = next(h for h in rate_cols if h in rate_keys)
+        ci = hx.index(col)
+        i = next(i for i, (_r, cells) in enumerate(rows_x) if (cells[ci] or "").strip())
+        edited = [list(c) for _r, c in rows_x]
+        edited[i][ci] = str(float(edited[i][ci]) * 2)
+        csv_text = self._csv_text(hx, edited)
+        numeric = set(rate_keys)
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        xlsx_raw = xlsx_io.write_xlsx(hx, [[(float(v) if (h in numeric and v != "") else (v if v != "" else None))
+                                            for h, v in zip(hx, r)] for r in edited], numeric)
+        p1 = csv_importer.build_plan(disc, csv_text, category_id="earthing")
+        p2 = csv_importer.build_plan(disc, xlsx_raw, category_id="earthing")
+        self.assertEqual(p1["errors"], []); self.assertEqual(len(p1["changes"]), 1)
+        self.assertEqual(p1["digest"], p2["digest"])
+        self.assertEqual(p1["changes"][0]["fields"], p2["changes"][0]["fields"])
+
+    def test_e03_columns_no_system_columns_kind_only_where_multi_kind(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        disc = self._loaded_disc()
+        _items, _kc, cat_kinds = csv_exporter._load(disc)
+        multi = csv_exporter.multi_kind_categories(cat_kinds)
+        self.assertEqual(multi, {"wiring_cabling", "db_switchgear", "popup_boxes"})
+        for cat in cat_kinds:
+            for build in (csv_exporter.build_category_csv, csv_exporter.build_category_xlsx):
+                _payload, headers, _n = build(disc, cat)
+                self.assertNotIn("source_sheet", headers, cat)
+                self.assertNotIn("source_row", headers, cat)
+                for must in ("item_uid", "brand", "unit"):
+                    self.assertIn(must, headers, cat)
+                self.assertEqual(headers[0], "item_uid")
+                if cat in multi:
+                    self.assertEqual(headers[:4], ["item_uid", "kind", "brand", "unit"], cat)
+                else:
+                    self.assertNotIn("kind", headers, cat)              # NEGATIVE
+                    self.assertEqual(headers[:3], ["item_uid", "brand", "unit"], cat)
+        # the person-edited columns are all there (one multi-kind, one single-kind example)
+        _t, h_wire, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        self.assertEqual(h_wire, ["item_uid", "kind", "brand", "unit",
+                                  "core", "insulation", "material", "thickness_sqmm",
+                                  "gland_band1_list", "gland_band2_list", "install_base_per_mtr",
+                                  "list_price_per_mtr", "lug_list"])
+        _t, h_tray, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        self.assertEqual(h_tray, ["item_uid", "brand", "unit",
+                                  "material", "thickness_mm", "tray_type", "width_mm",
+                                  "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
+        # MODE B: category + kind (the file holds multi-kind categories), no system columns
+        for build in (csv_exporter.build_all_categories_csv, csv_exporter.build_all_categories_xlsx):
+            _p, hb, nb = build(disc)
+            self.assertEqual(hb[:5], ["item_uid", "category", "kind", "brand", "unit"])
+            self.assertNotIn("source_sheet", hb); self.assertNotIn("source_row", hb)
+            self.assertEqual(len(hb), 47)          # 49 before 1e, minus the two system columns
+            self.assertEqual(nb, 1367)
+
+    def test_e04_text_cells_stay_text_in_the_xlsx(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
+        disc = self._loaded_disc()
+        # plant Excel-hostile TEXT values on a junction_box row's `size` (a text attribute) and check
+        # the .xlsx keeps each one as typed through a full round trip
+        name = frappe.db.get_value("BoQ Rate Master Item",
+                                   {"discipline": disc, "kind": "junction_box", "active": 1}, "name")
+        for nasty in ("1:6", "1:4", "1/2", "3/4", "007", "12345678901234567890"):
+            frappe.db.set_value("BoQ Rate Master Item", name, "attributes",
+                                json.dumps({"size": nasty}), update_modified=False)
+            frappe.db.commit()
+            raw, headers, _n = csv_exporter.build_category_xlsx(disc, "junction_box_raceway")
+            hdr, rows = xlsx_io.read_xlsx(raw)
+            si = hdr.index("size")
+            self.assertIn(nasty, [c[si] for _i, c in rows], nasty)
+            plan = csv_importer.build_plan(disc, raw, category_id="junction_box_raceway")
+            self.assertEqual(plan["errors"], []); self.assertEqual(plan["changes"], [], nasty)
+        # and the cell really is TEXT-formatted in the workbook (not merely a string value)
+        import io as _io
+        import openpyxl
+        wb = openpyxl.load_workbook(_io.BytesIO(raw))
+        ws = wb.worksheets[0]
+        self.assertEqual(ws.cell(row=1, column=si + 1).value, "size")
+        fmts = {ws.cell(row=r, column=si + 1).number_format for r in range(2, ws.max_row + 1)}
+        self.assertEqual(fmts, {"@"})
+        # a numeric column is a number cell, not text
+        ri = next(i for i, h in enumerate(hdr) if h in ("list_price", "install_rate", "rate")) if any(
+            h in ("list_price", "install_rate", "rate") for h in hdr) else None
+        if ri is not None:
+            vals = [ws.cell(row=r, column=ri + 1).value for r in range(2, ws.max_row + 1)]
+            self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in vals))
+
+    def test_e05_new_row_kind_is_filled_from_a_single_kind_category_and_refused_for_multi(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        # single-kind: a new tray row with NO kind column (the 1e file has none)
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        self.assertNotIn("kind", headers)
+        new_row = list(rows[0]); new_row[0] = ""
+        new_row[headers.index("width_mm")] = "1234.0"
+        plan = csv_importer.build_plan(disc, self._csv_text(headers, rows + [new_row]), category_id="cabletray_raceway")
+        self.assertEqual(plan["errors"], [], plan["errors"][:2])
+        self.assertEqual(plan["counts"]["items_added"], 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["_payload"]["kind"], "cable_tray")
+        self.assertEqual(ch["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
+        self.assertEqual(ch["_payload"]["source_row"], len(rows) + 1)
+        # ... and WITHOUT the category hint the kind is inferred from the file's own existing rows
+        plan2 = csv_importer.build_plan(disc, self._csv_text(headers, rows + [new_row]))
+        self.assertEqual(plan2["errors"], []); self.assertEqual(plan2["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertEqual(plan2["digest"], plan["digest"])
+        before = set(self._active_rows(disc))
+        res = csv_importer.apply_plan(disc, self._csv_text(headers, rows + [new_row]),
+                                      expected_digest=plan["digest"], category_id="cabletray_raceway")
+        frappe.db.commit()
+        self.assertEqual(res["items_added"], 1)
+        after = self._active_rows(disc)
+        uid = (set(after) - before).pop()
+        self.assertEqual(after[uid]["kind"], "cable_tray")
+        self.assertEqual(after[uid]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
+        # NEGATIVE: multi-kind wiring_cabling, blank kind on a new row -> refused, naming the kinds
+        text_w, _h, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        hw, rw = self._csv_parts(text_w)
+        self.assertIn("kind", hw)
+        nr = list(rw[0]); nr[0] = ""; nr[hw.index("kind")] = ""
+        p_bad = csv_importer.build_plan(disc, self._csv_text(hw, rw + [nr]), category_id="wiring_cabling")
+        msgs = [e["message"] for e in p_bad["errors"]]
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertIn("kind", msgs[0]); self.assertIn("cable", msgs[0]); self.assertIn("termination", msgs[0])
+        self.assertEqual(p_bad["changes"], [])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, self._csv_text(hw, rw + [nr]), category_id="wiring_cabling")
+        self.assertEqual(set(self._active_rows(disc)), set(after))     # nothing written
+        # NEGATIVE: a headers-only template with a new row and NO hint and NO existing rows cannot type it
+        p_none = csv_importer.build_plan(disc, self._csv_text(headers, [new_row]))
+        self.assertTrue(any("kind" in e["message"] for e in p_none["errors"]))
+        # ... the category hint resolves it
+        p_hint = csv_importer.build_plan(disc, self._csv_text(headers, [new_row]), category_id="cabletray_raceway")
+        self.assertEqual(p_hint["errors"], []); self.assertEqual(p_hint["changes"][0]["_payload"]["kind"], "cable_tray")
+
+    def test_e06_an_old_format_file_uploads_and_its_system_columns_are_ignored(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        text, _h, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        stored = self._active_rows(disc)
+        # rebuild the PRE-1e shape: kind after item_uid, source_sheet / source_row at the end
+        old_hdr = [headers[0], "kind"] + headers[1:] + ["source_sheet", "source_row"]
+        old_rows = []
+        for r in rows:
+            s = stored[r[0]]
+            old_rows.append([r[0], s["kind"]] + r[1:] + [s["source_sheet"] or "", str(s["source_row"])])
+        plan = csv_importer.build_plan(disc, self._csv_text(old_hdr, old_rows))
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["counts"]["unchanged"], n)
+        self.assertEqual(plan["columns"]["ignored"], ["source_row", "source_sheet"])
+        # NEGATIVE: a CHANGED value in an ignored column is not a change and is never applied
+        changed = [list(r) for r in old_rows]
+        changed[0][-2] = "Somewhere else"; changed[0][-1] = "999"
+        p2 = csv_importer.build_plan(disc, self._csv_text(old_hdr, changed))
+        self.assertEqual(p2["errors"], []); self.assertEqual(p2["changes"], [])
+        res = csv_importer.apply_plan(disc, self._csv_text(old_hdr, changed))
+        frappe.db.commit()
+        self.assertEqual(res["applied"], 0)
+        after = self._active_rows(disc)
+        self.assertEqual(after[old_rows[0][0]]["source_sheet"], stored[old_rows[0][0]]["source_sheet"])
+        self.assertEqual(after[old_rows[0][0]]["source_row"], stored[old_rows[0][0]]["source_row"])
+        # a kind column that is PRESENT is still honoured (it is the item type, not a system column)
+        self.assertEqual(plan["columns"]["fixed"], ["brand", "item_uid", "kind", "unit"])
+
+    def test_e07_format_is_detected_by_content_not_name(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
+        disc = self._loaded_disc()
+        raw, _h, n = csv_exporter.build_category_xlsx(disc, "earthing")
+        text, _h2, _n2 = csv_exporter.build_category_csv(disc, "earthing")
+        self.assertTrue(xlsx_io.is_xlsx(raw))
+        self.assertFalse(xlsx_io.is_xlsx(text.encode("utf-8")))
+        self.assertFalse(xlsx_io.is_xlsx(text))
+        # the importer needs no file name at all
+        self.assertEqual(csv_importer.build_plan(disc, raw)["format"], "xlsx")
+        self.assertEqual(csv_importer.build_plan(disc, text.encode("utf-8"))["format"], "csv")
+        self.assertEqual(csv_importer.build_plan(disc, text)["format"], "csv")
+        # NEGATIVE: a zip that is not a workbook is a named error, not a crash
+        p = csv_importer.build_plan(disc, b"PK\x03\x04" + b"\x00" * 64)
+        self.assertTrue(p["errors"]); self.assertIn("workbook", p["errors"][0]["message"].lower())
+
+    def test_e08_the_endpoint_defaults_to_xlsx_and_still_serves_csv(self):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        disc = self._loaded_disc()
+        res = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
+        self.assertEqual(res["content_type"], xlsx_io.XLSX_CONTENT_TYPE)
+        self.assertTrue(res["filename"].endswith(".xlsx"))
+        self.assertEqual(res["format"], "xlsx")
+        self.assertTrue(xlsx_io.is_xlsx(base64.b64decode(res["content_base64"])))
+        self.assertNotIn("source_row", res["columns"]); self.assertNotIn("kind", res["columns"])
+        res_c = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="csv")
+        self.assertEqual(res_c["content_type"], "text/csv")
+        self.assertTrue(res_c["filename"].endswith(".csv"))
+        self.assertIn("item_uid", base64.b64decode(res_c["content_base64"]).decode("utf-8"))
+        self.assertEqual(res_c["columns"], res["columns"])
+        res_all = rate_master.export_rate_master_csv(discipline=disc)
+        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 47, 1367))
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="pdf")
+        # preview / apply take the category hint and report the format
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=res["content_base64"],
+                                                   category_id="earthing")
+        self.assertEqual(plan["errors"], []); self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["format"], "xlsx")
 
     # ── SLICE 4 (F-1 / F-8): three free NUMBER fields become CATALOGUE-FED pick-lists ──────────
     #

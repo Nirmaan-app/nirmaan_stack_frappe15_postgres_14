@@ -76,9 +76,12 @@ export interface UploadCounts {
 export interface UploadPlan {
   discipline: string;
   mode: "category" | "all";
+  /** SLICE 1e: which format the server detected (by content, never by name). */
+  format?: RateFileFormat;
   encoding: string;
   row_count: number;
-  columns: { attributes: string[]; rates: string[]; fixed: string[] };
+  /** SLICE 1e: `ignored` names the system columns an OLD file still carried -- read past, never applied. */
+  columns: { attributes: string[]; rates: string[]; fixed: string[]; ignored?: string[] };
   counts: UploadCounts;
   errors: UploadError[];
   changes: UploadChange[];
@@ -191,9 +194,39 @@ export function changeSummary(change: UploadChange): string {
  * THE WORDING, in one place -- the same discipline `DOWNLOAD_COPY` follows, so the two halves of the
  * round trip cannot drift apart.
  */
+/**
+ * SLICE 1e -- the two rate-file formats (owner X-a): EXCEL BY DEFAULT, CSV as the second option. The
+ * server builds the same columns and values either way; Excel is the default because a CSV carries no
+ * cell types and Excel rewrote "1:6" as a time on the owner's own upload. The upload accepts both,
+ * detected by CONTENT on the server -- the accept list below only steers the file picker.
+ */
+export type RateFileFormat = "xlsx" | "csv";
+export const DEFAULT_RATE_FILE_FORMAT: RateFileFormat = "xlsx";
+export const RATE_FILE_FORMATS: ReadonlyArray<{ id: RateFileFormat; label: string }> = [
+  { id: "xlsx", label: "Excel" },
+  { id: "csv", label: "CSV" },
+];
+export const UPLOAD_ACCEPT =
+  ".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
+/** The browser-side fallback name when the server sends none; the server's `filename` wins. */
+export function rateFileFallbackName(categoryId: string | null, fmt: RateFileFormat): string {
+  return `rate_master_${categoryId ?? "all"}.${fmt}`;
+}
+export const FORMAT_COPY = {
+  label: "Format",
+  hint: "Excel keeps text such as 1:6 exactly as typed; CSV is the plain-text option.",
+} as const;
+/**
+ * The cp1252 warning is about a CSV DECODE -- a workbook is not decoded, so it never applies to one.
+ * Found live at the 1e cert: the first .xlsx preview showed "read as xlsx, not UTF-8".
+ */
+export function showEncodingWarning(plan: Pick<UploadPlan, "encoding" | "format">): boolean {
+  return plan.format !== "xlsx" && plan.encoding !== "utf-8";
+}
+
 export const UPLOAD_COPY = {
   group: "Upload an edited file",
-  hint: "Choose the CSV you edited. Nothing is applied until you confirm.",
+  hint: "Choose the Excel or CSV file you edited. Nothing is applied until you confirm.",
   choose: "Choose file",
   previewing: "Reading...",
   applying: "Applying...",

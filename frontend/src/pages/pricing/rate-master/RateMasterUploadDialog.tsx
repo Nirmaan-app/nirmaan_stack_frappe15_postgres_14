@@ -36,6 +36,8 @@ import {
   headlineCounts,
   planIsNoOp,
   splitChanges,
+  showEncodingWarning,
+  UPLOAD_ACCEPT,
   type UploadChange,
   type UploadPlan,
   type UploadResult,
@@ -253,7 +255,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,text/csv"
+        accept={UPLOAD_ACCEPT}
         className="hidden"
         onChange={(e) => void onChoose(e.target.files?.[0])}
       />
@@ -299,7 +301,7 @@ export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }
                 <span className="text-muted-foreground">{plan.row_count} rows read</span>
               </div>
 
-              {plan.encoding !== "utf-8" && (
+              {showEncodingWarning(plan) && (
                 <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>{UPLOAD_COPY.encodingWarn(plan.encoding)}</span>

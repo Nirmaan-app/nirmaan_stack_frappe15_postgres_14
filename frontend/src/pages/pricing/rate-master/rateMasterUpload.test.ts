@@ -246,3 +246,49 @@ describe("UPLOAD_COPY", () => {
     expect(UPLOAD_COPY.encodingWarn("cp1252")).toContain("cp1252");
   });
 });
+
+// ── SLICE 1e -- Excel by default, CSV second; the upload accepts both; no system columns ──────────
+import {
+  DEFAULT_RATE_FILE_FORMAT,
+  FORMAT_COPY,
+  RATE_FILE_FORMATS,
+  UPLOAD_ACCEPT,
+  rateFileFallbackName,
+  showEncodingWarning,
+} from "./rateMasterUpload";
+
+describe("SLICE 1e -- the rate-file format (owner X-a)", () => {
+  it("Excel is the default and the first choice; CSV is the second, and there is no third", () => {
+    expect(DEFAULT_RATE_FILE_FORMAT).toBe("xlsx");
+    expect(RATE_FILE_FORMATS.map((f) => f.id)).toEqual(["xlsx", "csv"]);
+    expect(RATE_FILE_FORMATS[0].label).toBe("Excel");
+    expect(RATE_FILE_FORMATS[1].label).toBe("CSV");
+  });
+  it("the file picker admits BOTH formats by extension and by media type", () => {
+    const parts = UPLOAD_ACCEPT.split(",");
+    expect(parts).toContain(".xlsx");
+    expect(parts).toContain(".csv");
+    expect(parts).toContain("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(parts).toContain("text/csv");
+  });
+  it("the upload hint names both formats and the format hint explains why Excel is the default", () => {
+    expect(UPLOAD_COPY.hint).toMatch(/Excel/);
+    expect(UPLOAD_COPY.hint).toMatch(/CSV/);
+    expect(FORMAT_COPY.hint).toMatch(/1:6/);
+  });
+  it("the fallback file name follows the format and the mode", () => {
+    expect(rateFileFallbackName("hvac_adp", "xlsx")).toBe("rate_master_hvac_adp.xlsx");
+    expect(rateFileFallbackName(null, "csv")).toBe("rate_master_all.csv");
+  });
+});
+
+describe("showEncodingWarning -- the cp1252 warning is about a CSV decode, never a workbook", () => {
+  it("fires for a cp1252 csv, stays silent for a utf-8 csv and for ANY xlsx (NEGATIVE)", () => {
+    expect(showEncodingWarning({ format: "csv", encoding: "cp1252" })).toBe(true);
+    expect(showEncodingWarning({ format: "csv", encoding: "utf-8" })).toBe(false);
+    expect(showEncodingWarning({ format: "xlsx", encoding: "xlsx" })).toBe(false);
+    // a pre-1e server reply carries no `format`: the old rule stands unchanged
+    expect(showEncodingWarning({ encoding: "cp1252" } as { encoding: string; format?: "xlsx" | "csv" })).toBe(true);
+    expect(showEncodingWarning({ encoding: "utf-8" } as { encoding: string; format?: "xlsx" | "csv" })).toBe(false);
+  });
+});
