@@ -462,7 +462,7 @@ def get_project_status_overview(project):
     """
     Get the status overview for a project:
     - Drawing status from Project Design Tracker (excluding Not Applicable)
-    - DPR last updated from Project Progress Reports
+    - DPR last updated from Completed Project Progress Reports (drafts ignored)
     - Inventory last updated from Remaining Items Report
     """
     result = {
@@ -525,10 +525,11 @@ def get_project_status_overview(project):
             "is_disabled": bool(tracker_doc.get("hide_design_tracker")),
         }
 
-    # 2. DPR status - last updated from Project Progress Reports
+    # 2. DPR status - last updated from Completed Project Progress Reports.
+    # Drafts are skipped: the merged-PDF download only prints Completed reports.
     latest_dpr = frappe.get_all(
         "Project Progress Reports",
-        filters={"project": project},
+        filters={"project": project, "report_status": "Completed"},
         fields=["report_date", "modified", "report_zone", "declaration_user_not_at_site"],
         order_by="report_date desc",
         limit=1,
