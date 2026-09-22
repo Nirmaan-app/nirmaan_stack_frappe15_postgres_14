@@ -1,7 +1,8 @@
 // The handover documents whose text comes from the HOD library (per system, edited in Desk):
-// O&M Manual, Do's & Don'ts, Maintenance Checklist, Recommended Tools, Equipment Warranty,
-// Completion Certificate. The project stores only its choices: which parts are included, the
-// values of the O&M [blanks], and the dates / names these certificates need.
+// O&M Manual, Do's & Don'ts, Recommended Tools, Equipment Warranty, Completion Certificate (the
+// Maintenance Checklist has its own form, MaintenanceForm.tsx). The project stores only its choices:
+// which parts are included, the values of the O&M [blanks], the remarks per tool, and the dates / names
+// these certificates need.
 
 import * as React from "react";
 
@@ -15,7 +16,55 @@ import { asString, asStringList, dlpEnd } from "../hodRules";
 import type { HodLibraryBlock } from "../types";
 import type { FormProps } from "./TableForms";
 
-// ------------------------------------------------------------ O&M / Do's & Don'ts / Maintenance
+// ------------------------------------------------------------ shared by the library documents
+
+export const NoLibraryText: React.FC = () => (
+  <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
+    The library has no text for this document yet. It is added in Desk under HOD
+    Library Content.
+  </p>
+);
+
+/** Which library parts (sub-systems) this project hands over; stored as `form_data.included`. */
+export const PartTicks: React.FC<
+  FormProps & { blocks: HodLibraryBlock[]; included: string[] }
+> = ({ value, onChange, readOnly, blocks, included }) => {
+  const toggle = (sub: string, on: boolean) => {
+    const next = on
+      ? Array.from(new Set([...included, sub]))
+      : included.filter((s) => s !== sub);
+    onChange({ ...value, included: next });
+  };
+  return (
+    <div className="rounded-md border bg-gray-50/60 p-3">
+      <p className="mb-2 text-sm font-semibold text-gray-700">
+        Parts handed over on this project
+      </p>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {blocks.map((b) => {
+          const sub = b.sub_system || "all";
+          return (
+            <label key={b.name} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={included.includes(sub)}
+                disabled={readOnly}
+                onCheckedChange={(c) => toggle(sub, c === true)}
+              />
+              {b.sub_system || b.title}
+            </label>
+          );
+        })}
+      </div>
+      {value.included === undefined && (
+        <p className="mt-2 text-xs text-gray-500">
+          Pre-ticked from this project&apos;s Commission Report categories.
+        </p>
+      )}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------- O&M / Do's & Don'ts
 
 export const LibraryForm: React.FC<
   FormProps & {
@@ -43,50 +92,18 @@ export const LibraryForm: React.FC<
   ) as Record<string, string>;
   const blanks = Array.from(new Set(picked.flatMap((b) => b.blanks)));
 
-  if (!blocks.length) {
-    return (
-      <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
-        The library has no text for this document yet. It is added in Desk under
-        HOD Library Content.
-      </p>
-    );
-  }
-
-  const toggle = (sub: string, on: boolean) => {
-    const next = on
-      ? Array.from(new Set([...included, sub]))
-      : included.filter((s) => s !== sub);
-    onChange({ ...value, included: next });
-  };
+  if (!blocks.length) return <NoLibraryText />;
 
   return (
     <div className="space-y-4">
       {multi && (
-        <div className="rounded-md border bg-gray-50/60 p-3">
-          <p className="mb-2 text-sm font-semibold text-gray-700">
-            Parts handed over on this project
-          </p>
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {blocks.map((b) => {
-              const sub = b.sub_system || "all";
-              return (
-                <label key={b.name} className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={included.includes(sub)}
-                    disabled={readOnly}
-                    onCheckedChange={(c) => toggle(sub, c === true)}
-                  />
-                  {b.sub_system || b.title}
-                </label>
-              );
-            })}
-          </div>
-          {value.included === undefined && (
-            <p className="mt-2 text-xs text-gray-500">
-              Pre-ticked from this project&apos;s Commission Report categories.
-            </p>
-          )}
-        </div>
+        <PartTicks
+          value={value}
+          onChange={onChange}
+          readOnly={readOnly}
+          blocks={blocks}
+          included={included}
+        />
       )}
 
       {withBlanks && blanks.length > 0 && (
@@ -164,19 +181,70 @@ export const LibraryForm: React.FC<
 
 // ------------------------------------------------------------------------ Recommended Tools
 
-export const ToolsView: React.FC<{ tools: string[] }> = ({ tools }) =>
-  tools.length ? (
-    <ol className="list-decimal space-y-1 rounded-md border px-8 py-3 text-sm text-gray-700">
-      {tools.map((t, i) => (
-        <li key={i}>{t}</li>
-      ))}
-    </ol>
-  ) : (
-    <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
-      No tools are listed for this system. They are added in Desk on the HOD
-      System.
-    </p>
+/** The system's tool list (library) with this project's remark per tool, printed in the Remarks column.
+ *  Stored as `form_data.tool_remarks`, keyed by the tool's text. */
+export const ToolsForm: React.FC<FormProps & { tools: string[] }> = ({
+  value,
+  onChange,
+  readOnly,
+  tools,
+}) => {
+  if (!tools.length) {
+    return (
+      <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
+        No tools are listed for this system. They are added in Desk on the HOD
+        System.
+      </p>
+    );
+  }
+  const remarks = (
+    value.tool_remarks && typeof value.tool_remarks === "object"
+      ? value.tool_remarks
+      : {}
+  ) as Record<string, unknown>;
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full min-w-[560px] border-collapse">
+        <thead>
+          <tr>
+            <th className="w-14 border-b bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-600">
+              Sl No
+            </th>
+            <th className="border-b bg-gray-50 px-2 py-1.5 text-left text-xs font-semibold text-gray-600">
+              Recommended Tools
+            </th>
+            <th className="w-72 border-b bg-gray-50 px-2 py-1.5 text-left text-xs font-semibold text-gray-600">
+              Remarks
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {tools.map((tool, i) => (
+            <tr key={`${i}-${tool}`} className="border-b last:border-b-0">
+              <td className="px-2 py-1 text-center text-sm text-gray-500">
+                {i + 1}
+              </td>
+              <td className="px-2 py-1 text-sm text-gray-700">{tool}</td>
+              <td className="px-1 py-1">
+                <Input
+                  className="h-8 rounded-sm border-gray-200 px-2 text-sm"
+                  value={asString(remarks[tool])}
+                  disabled={readOnly}
+                  onChange={(e) =>
+                    onChange({
+                      ...value,
+                      tool_remarks: { ...remarks, [tool]: e.target.value },
+                    })
+                  }
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
+};
 
 // ------------------------------------------------------------------------ Equipment Warranty
 

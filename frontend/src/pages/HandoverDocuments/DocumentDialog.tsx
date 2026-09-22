@@ -28,17 +28,25 @@ import {
 import {
   CompletionForm,
   LibraryForm,
-  ToolsView,
+  ToolsForm,
   WarrantyForm,
 } from "./forms/TemplateForms";
+import { MaintenanceForm } from "./forms/MaintenanceForm";
 import { PicturesField } from "./forms/PicturesField";
 import { SourcesView } from "./forms/SourcesView";
 import { useSystemLibrary } from "./hodApi";
-import { asObjectList, asString, compactRows } from "./hodRules";
+import {
+  asObjectList,
+  asString,
+  compactMaintenanceChecks,
+  compactRows,
+  compactTextMap,
+} from "./hodRules";
 import type { HodDocumentMeta, HodRow } from "./types";
 
 /** Documents whose header block prints a DATE the user may set (default: today). The Maintenance Checklist
- *  leaves its DATE blank for the service visit; the Warranty prints its commissioning date instead. */
+ *  asks for the date of the check inside its own form (empty stays blank on paper); the Warranty prints its
+ *  commissioning date instead. */
 const DATED = new Set([
   "escalation_chart",
   "inventory_list",
@@ -47,7 +55,6 @@ const DATED = new Set([
 ]);
 const LIST_LABELS: Record<string, [string, string]> = {
   dos_donts: ["Do's", "Don't"],
-  maintenance_checklist: ["Six months", "Yearly"],
 };
 
 /** Tidy the draft before it is stored: drop empty grid rows, keep defaults the screen displayed. */
@@ -83,6 +90,12 @@ function finalize(
         url: asString(p.url),
         caption: asString(p.caption).trim(),
       }));
+  }
+  if (key === "recommended_tools" && out.tool_remarks !== undefined) {
+    out.tool_remarks = compactTextMap(out.tool_remarks);
+  }
+  if (key === "maintenance_checklist" && out.checks !== undefined) {
+    out.checks = compactMaintenanceChecks(out.checks);
   }
   if (
     key === "completion_certificate" &&
@@ -148,7 +161,7 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
   );
 
   const isFromApp = meta.kind === "app";
-  const editable = !readOnly && !isFromApp && meta.key !== "recommended_tools";
+  const editable = !readOnly && !isFromApp;
 
   const save = async () => {
     setSaving(true);
@@ -202,7 +215,9 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
         body = <InventoryForm {...formProps} />;
         break;
       case "recommended_tools":
-        body = <ToolsView tools={library?.system.tools ?? []} />;
+        body = (
+          <ToolsForm {...formProps} tools={library?.system.tools ?? []} />
+        );
         break;
       case "equipment_warranty":
         body = (
@@ -221,6 +236,17 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
           />
         );
         break;
+      case "maintenance_checklist": {
+        const lib = meta.library ?? "";
+        body = (
+          <MaintenanceForm
+            {...formProps}
+            blocks={library?.contents[lib] ?? []}
+            defaultIncluded={library?.default_included[lib] ?? []}
+          />
+        );
+        break;
+      }
       default: {
         const lib = meta.library ?? "";
         body = (

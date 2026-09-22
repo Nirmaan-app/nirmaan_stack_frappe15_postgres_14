@@ -12,7 +12,7 @@ import os
 import unittest
 from datetime import date
 
-from nirmaan_stack.services.hod import blanks, checklist, dates, index, sources
+from nirmaan_stack.services.hod import blanks, checklist, dates, index, maintenance, sources
 
 _DOCTYPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stack", "doctype")
 
@@ -89,6 +89,14 @@ class TestChecklist(unittest.TestCase):
 		self.assertEqual(d("escalation_chart", None, {"levels": [{}, {}]}), checklist.STATUS_PENDING)
 		self.assertEqual(d("escalation_chart", None, '{"levels": [{"name": "Ravi"}]}'), checklist.STATUS_FILLED)
 		self.assertEqual(d("escalation_chart", "/files/s.pdf", {"levels": [{"name": "Ravi"}]}), checklist.STATUS_COMPLETED)
+		# the maintenance results are a form too
+		self.assertEqual(
+			d("maintenance_checklist", None, {"checks": {"b1": {"list_1": {"results": {"Clean filters": {"result": "OK"}}}}}}),
+			checklist.STATUS_FILLED,
+		)
+		self.assertEqual(d("maintenance_checklist", None, {"checks": {"b1": {"list_1": {"comments": " "}}}}), checklist.STATUS_PENDING)
+		self.assertEqual(d("recommended_tools", None, {"tool_remarks": {"Multimeter": "2 nos handed over"}}), checklist.STATUS_FILLED)
+		self.assertEqual(d("recommended_tools", None, {"tool_remarks": {"Multimeter": ""}}), checklist.STATUS_PENDING)
 		# nothing to fill on these: only the upload moves them
 		self.assertEqual(d("dos_donts", None, {"included": ["DX"]}), checklist.STATUS_PENDING)
 		self.assertEqual(d("demo_training", None, {"x": 1}), checklist.STATUS_PENDING)
@@ -97,8 +105,8 @@ class TestChecklist(unittest.TestCase):
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):
 		self.assertEqual(
 			{d["key"] for d in index.DOCUMENTS if d.get("fill")},
-			{"escalation_chart", "om_manual", "inventory_list", "attic_stock_list", "key_list",
-			 "equipment_warranty", "completion_certificate"},
+			{"escalation_chart", "om_manual", "maintenance_checklist", "inventory_list", "recommended_tools",
+			 "attic_stock_list", "key_list", "equipment_warranty", "completion_certificate"},
 		)
 
 	def test_doctype_status_options_match(self):
@@ -231,3 +239,31 @@ class TestBinder(unittest.TestCase):
 		# a category with a Work Package goes by it, not by its name
 		self.assertTrue(b("Anything", "HVAC System", "HVAC", "HVAC System"))
 		self.assertFalse(b("HVAC", "Electrical Work", "HVAC", "HVAC System"))
+
+
+class TestMaintenance(unittest.TestCase):
+	BLOCK = {"name": "b1", "title": "VRF Maintenance", "list_1": ["Clean filters", "Check drain"], "list_2": ["Gas leak test"]}
+
+	def test_one_sheet_per_non_empty_list(self):
+		out = maintenance.sheets([self.BLOCK, {"name": "b2", "title": "Duct", "list_1": [], "list_2": ["Inspect"]}], {})
+		self.assertEqual([(s["title"], s["period"]) for s in out], [
+			("VRF Maintenance", "Six Months Report"), ("VRF Maintenance", "Yearly Report"), ("Duct", "Yearly Report"),
+		])
+		# nothing entered: every row prints blank, numbered from 1 on each sheet
+		self.assertEqual(out[0]["rows"][1], {"no": 2, "item": "Check drain", "result": "", "remarks": ""})
+		self.assertEqual(out[0]["comments"], "")
+
+	def test_results_follow_the_item_text_not_the_position(self):
+		fd = {"checks": {"b1": {
+			"list_1": {"results": {"Check drain": {"result": "Not OK", "remarks": " choked "}, "Old wording": {"result": "OK"}},
+					   "comments": " Recheck in a week "},
+		}}}
+		rows = maintenance.sheets([self.BLOCK], fd)[0]["rows"]
+		self.assertEqual([(r["item"], r["result"], r["remarks"]) for r in rows],
+						 [("Clean filters", "", ""), ("Check drain", "Not OK", "choked")])
+		self.assertEqual(maintenance.sheets([self.BLOCK], fd)[0]["comments"], "Recheck in a week")
+
+	def test_bad_shapes_read_as_empty(self):
+		for fd in (None, "x", {"checks": []}, {"checks": {"b1": "x"}}, {"checks": {"b1": {"list_1": {"results": ["x"]}}}}):
+			rows = maintenance.sheets([self.BLOCK], fd)[0]["rows"]
+			self.assertEqual({r["result"] for r in rows}, {""})

@@ -23,7 +23,7 @@ formats in Desk, give a browser test login and commit; **owner** makes the rulin
 | 6 | Documents from Nirmaan (read-only) + Select & Download | built |
 | 7 | Print formats "HOD Document" + "HOD Checklist" | built; pasted in Desk on localhost (they match the repo files) |
 | 8 | Binder + single-document content download | built; tested by running the job directly, not yet from the button |
-| 9 | Tests | 29 Python unit tests + 7 vitest pass; endpoints, binder and print have no automated tests (gaps §4) |
+| 9 | Tests | 32 Python unit tests + 10 vitest pass; endpoints, binder and print have no automated tests (gaps §4) |
 | 10 | Rollout | pending: gaps P2–P6 |
 
 ## Decisions
@@ -54,6 +54,8 @@ Owner rulings made during the build (2026-09-22), all built:
 - Status is derived from actions: Pending / Form Filled / Completed. The Actions cell follows the Commission Report.
 - A "Details" guide sits beside Edit library.
 - All six From Nirmaan documents get "Select & Download".
+- The Recommended Tools List has Remarks per tool, filled on screen (owner 2026-09-22).
+- The Maintenance Checklist is filled on screen (owner 2026-09-22): Result + Remarks per check, Comments per sheet, date of the check.
 
 ---
 
@@ -78,11 +80,12 @@ What each document keeps in `form_data`:
 | Attic Stock List | `date`, `rows` |
 | Key List | `date`, `rows`, `receiver`, `belongs_to` (default the project customer) |
 | O&M Manual | `included` (sub-systems), `blanks` (name → value), `pictures` (`url`, `caption`) |
-| Maintenance Checklist | `included` |
+| Maintenance Checklist | `included`, `date` (of the check; empty prints blank), `checks` (per part and period: `results` = item text → `result` OK / Not OK / NA + `remarks`; `comments`) |
 | Equipment Warranty | `equipment` (default the system's list), `commissioning_date` |
 | Completion Certificate | `commissioning_date`, `handed_over_to` (default the project customer) |
 | The six From Nirmaan documents | `selected` (record names ticked for download; absent = all) |
-| Do's & Don'ts, Recommended Tools | nothing |
+| Recommended Tools List | `tool_remarks` (tool text → remark; printed in the Remarks column) |
+| Do's & Don'ts | nothing |
 
 ### The status rule
 
@@ -90,19 +93,20 @@ What each document keeps in `form_data`:
 and the API runs it again on read.
 
 - **Completed**: a signed copy is uploaded (`attachment`).
-- **Form Filled**: the document has something to fill (`fill` in the index: Escalation, O&M, Inventory, Attic,
-  Key List, Warranty, Completion) and its saved `form_data` holds real input.
-- **Pending**: anything else. Library documents and From Nirmaan documents go straight from Pending to Completed.
+- **Form Filled**: the document has something to fill (`fill` in the index: Escalation, O&M, Maintenance,
+  Inventory, Recommended Tools, Attic, Key List, Warranty, Completion) and its saved `form_data` holds real input.
+- **Pending**: anything else. Do's & Don'ts and the From Nirmaan documents go straight from Pending to Completed.
 
 Nobody picks a status by hand. `update_row` does not accept one.
 
 ### Backend
 
-- `services/hod/` (pure, ADR-0010 B1) + `test_hod_services.py` (29 tests):
+- `services/hod/` (pure, ADR-0010 B1) + `test_hod_services.py` (32 tests):
   - `index`: the 16 documents (key, S.No, title, kind, `fill`, `landscape`, library / source).
   - `checklist`: status rule, `is_untouched`, `counts`, S.No close-up (`printable_rows`), `binder_parts`.
   - `blanks`: `[Blank]` find / fill.
   - `dates`: DLP end.
+  - `maintenance`: the Maintenance Checklist sheets (one per part and period) with the project's results.
   - `sources`: Commission buckets, whole-word keywords, default sub-system ticks, `commission_binder_source`,
     `drawing_download_url`, `design_category_belongs`.
 - `integrations/controllers/project_hod_document.validate`, wired in `hooks.py` doc_events:
@@ -147,7 +151,9 @@ Nobody picks a status by hand. `update_row` does not accept one.
   The ⋮ menu offers: view/edit form, view records, Preview PDF, download, and replace/remove/upload the signed copy.
 - `DocumentDialog`: routes to the right form:
   - `forms/TableForms`: Escalation, Attic, Key List, Inventory matrix;
-  - `forms/TemplateForms`: O&M blanks + part ticks, Do's & Don'ts, Maintenance, Tools, Warranty, Completion;
+  - `forms/TemplateForms`: O&M blanks + part ticks, Do's & Don'ts, Tools (Remarks per tool), Warranty, Completion;
+  - `forms/MaintenanceForm`: part ticks, date of the check, Result (OK / Not OK / NA) + Remarks per item and
+    Comments per sheet;
   - `forms/PicturesField`: O&M project pictures;
   - `forms/SourcesView`: tick tables for the From Nirmaan records. Each row has a View action, and the footer
     has "Download selected (N)".
@@ -156,7 +162,7 @@ Nobody picks a status by hand. `update_row` does not accept one.
   - `hodDownloads`: PDF URLs, `usePdfDownload`, `saveUrlAs`.
   - `useHodBinder`: enqueue, socket events + a 2-second `get_job_status` poll, finish-once guard.
   - `HodDownloadDialogs`: the progress window and the "nothing to include" list.
-  - `hodRules` (pure, 7 vitest).
+  - `hodRules` (pure, 10 vitest).
   - `types`.
 - `handoverIndex.ts` is deleted: titles, kinds and order come from the API.
 
@@ -193,7 +199,8 @@ Nothing is written to those features. The ticks are saved in `form_data.selected
 ### Print formats (pasted in Desk; source in `print-formats/hod-document.html` and `hod-checklist.html`)
 
 - One "HOD Document" format with a block per document and shared macros for the header block, signatures and footer.
-- The header block appears on 7 documents only (see the owner rulings). The Maintenance Checklist's DATE prints blank.
+- The header block appears on 7 documents only (see the owner rulings). The Maintenance Checklist prints the team's results, remarks, comments and date of the check;
+  whatever is left empty prints blank.
 - Checklist: one page, Commission-style signature row. It prints **YES only for Completed**.
 - Inventory is landscape, via a top-level `.print-format { orientation: Landscape; }`.
 - Blank rows when nothing is entered: Attic 14, Key List 8, Inventory 8, so each fits one page.

@@ -81,9 +81,9 @@ on the site they were pasted on — the library is NOT shipped as fixtures (owne
 |---|---|---|---|
 | G13 | **Library is not in fixtures** | Live starts with no HOD Systems or library content (owner 2026-09-22); everything entered on localhost has to be entered again on live | Enter it on live in Desk (or Data Import) |
 
-Intentional (not gaps): Maintenance Checklist header DATE blank (service-visit date written by hand); Inventory
-prints 8 blank rows when empty (fits one landscape page); library documents (Do's & Don'ts, Maintenance, Tools)
-go Pending → Completed with no "Form Filled"; status is never set by hand.
+Intentional (not gaps): anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
+blank to fill by hand; Inventory prints 8 blank rows when empty (fits one landscape page); a tool with no remark prints an empty
+Remarks cell; Do's & Don'ts goes Pending → Completed with no "Form Filled"; status is never set by hand.
 
 ---
 
@@ -91,8 +91,8 @@ go Pending → Completed with no "Form Filled"; status is never set by hand.
 
 | Area | Today | Missing |
 |---|---|---|
-| Pure rules (`services/hod/*`) | 29 unit tests | — |
-| Frontend rules (`hodRules.ts`) | 7 vitest | — |
+| Pure rules (`services/hod/*`) | 32 unit tests | — |
+| Frontend rules (`hodRules.ts`) | 10 vitest | — |
 | Endpoints (`api/hod/project_hod.py`) | manual scripts only | add_systems (all-or-nothing), remove_system (force), update_row (disabled lock, derived status) |
 | Binder (`api/hod/binder.py`) | manual scripts on real data | build_plan / selection / empty reasons with fixtures |
 | Print (`print_context.py` + the two formats) | manual renders through the real print path | a render smoke test (no Jinja leaks, page counts) |

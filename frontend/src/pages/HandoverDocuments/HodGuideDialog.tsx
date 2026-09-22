@@ -94,8 +94,9 @@ export const HodGuideDialog: React.FC<{
         <Section icon={FileText} title="3. Documents you fill (Form)">
           <p>
             Escalation Chart, Inventory List, Attic Stock List, Key List,
-            O&amp;M Manual (blanks + project pictures), Equipment Warranty,
-            Completion Certificate.
+            O&amp;M Manual (blanks + project pictures), Maintenance Checklist
+            (Result + Remarks per check, Comments), Recommended Tools List
+            (Remarks per tool), Equipment Warranty, Completion Certificate.
           </p>
           <p>
             <b>Fill Form</b> → save (<i>Form Filled</i>) → <b>Download</b> → get
@@ -105,10 +106,10 @@ export const HodGuideDialog: React.FC<{
 
         <Section icon={Library} title="4. Library documents">
           <p>
-            Do&apos;s &amp; Don&apos;ts, Maintenance Checklist, Recommended
-            Tools — the text is the same for every project and comes from the
-            HOD library. Nothing to fill: <b>Download</b> → sign →{" "}
-            <b>Upload Signed</b>.
+            Do&apos;s &amp; Don&apos;ts — the text is the same for every
+            project and comes from the HOD library. Nothing to fill:{" "}
+            <b>Download</b> → sign → <b>Upload Signed</b>. The Maintenance
+            Checklist items and the tool list come from the library too.
           </p>
           <p>
             To change a system&apos;s library text (or its tools / warranty

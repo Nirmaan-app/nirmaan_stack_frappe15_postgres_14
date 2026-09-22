@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compactMaintenanceChecks,
   compactRows,
+  compactTextMap,
   dlpEnd,
   inventoryTotals,
   printedNumbers,
+  maintenanceSheet,
   rowEditable,
+  withMaintenanceResult,
+  withMaintenanceSheet,
 } from "./hodRules";
 import type { HodDocumentMeta, HodRow } from "./types";
 
@@ -77,5 +82,43 @@ describe("dlpEnd (mirrors services/hod/dates.dlp_end)", () => {
   });
   it("blank for a bad date", () => {
     expect(dlpEnd("")).toBe("");
+  });
+});
+
+describe("maintenance checks (mirrors services/hod/maintenance)", () => {
+  it("patches one item without touching the rest of the form", () => {
+    let v: Record<string, unknown> = { included: ["VRF"], date: "2026-09-22" };
+    v = withMaintenanceResult(v, "b1", "list_1", "Clean filters", { result: "OK" });
+    v = withMaintenanceResult(v, "b1", "list_1", "Clean filters", { remarks: "done" });
+    v = withMaintenanceSheet(v, "b1", "list_2", { comments: "Next visit in March" });
+    expect(v.included).toEqual(["VRF"]);
+    expect(maintenanceSheet(v, "b1", "list_1").results).toEqual({
+      "Clean filters": { result: "OK", remarks: "done" },
+    });
+    expect(maintenanceSheet(v, "b1", "list_2").comments).toBe("Next visit in March");
+    expect(maintenanceSheet(v, "b9", "list_1")).toEqual({});
+  });
+  it("compacting drops empty items, sheets and blocks", () => {
+    expect(
+      compactMaintenanceChecks({
+        b1: {
+          list_1: { results: { A: { result: "", remarks: " " }, B: { result: "Not OK" } }, comments: "" },
+          list_2: { results: { C: {} }, comments: "  " },
+        },
+        b2: { list_1: { results: {} } },
+        b3: "junk",
+      }),
+    ).toEqual({ b1: { list_1: { results: { B: { result: "Not OK", remarks: "" } }, comments: "" } } });
+  });
+});
+
+describe("compactTextMap", () => {
+  it("keeps only non-blank text, trimmed", () => {
+    expect(compactTextMap({ Multimeter: " 2 nos ", Clamp: "  ", Drill: 5 })).toEqual({
+      Multimeter: "2 nos",
+      Drill: "5",
+    });
+    expect(compactTextMap(null)).toEqual({});
+    expect(compactTextMap(["x"])).toEqual({});
   });
 });

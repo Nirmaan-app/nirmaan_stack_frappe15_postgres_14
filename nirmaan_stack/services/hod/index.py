@@ -11,8 +11,8 @@ receives the same list from the API instead of keeping its own copy.
 keys, in this order -- pinned by test). `no` is the S.No printed on the checklist before
 switched-off rows are removed and the rest renumbered.
 
-`fill` marks a document that gives users something to fill in (a form, O&M blanks / pictures, certificate
-dates); only those pass through "Form Filled" (see `checklist.derive_status`).
+`fill` marks a document that gives users something to fill in (a form, O&M blanks / pictures, the maintenance
+results, remarks on the tools, certificate dates); only those pass through "Form Filled" (see `checklist.derive_status`).
 
 Kinds:
   form      -- the project types everything (stored in `form_data`)
@@ -43,9 +43,9 @@ DOCUMENTS = (
     {"key": "material_tds", "no": 4, "title": "Material Technical Data Sheet", "kind": FROM_APP, "source": SRC_TDS},
     {"key": "om_manual", "no": 5, "title": "Operations & Maintenance Manual", "kind": TEMPLATE, "library": LIB_OM, "fill": True},
     {"key": "dos_donts", "no": 6, "title": "Do's & Don'ts", "kind": TEMPLATE, "library": LIB_DOS},
-    {"key": "maintenance_checklist", "no": 7, "title": "Maintenance Checklist", "kind": TEMPLATE, "library": LIB_MAINT},
+    {"key": "maintenance_checklist", "no": 7, "title": "Maintenance Checklist", "kind": TEMPLATE, "library": LIB_MAINT, "fill": True},
     {"key": "inventory_list", "no": 8, "title": "Inventory List", "kind": FORM, "landscape": True, "fill": True},
-    {"key": "recommended_tools", "no": 9, "title": "Recommended Tools List", "kind": TEMPLATE},
+    {"key": "recommended_tools", "no": 9, "title": "Recommended Tools List", "kind": TEMPLATE, "fill": True},
     {"key": "attic_stock_list", "no": 10, "title": "Attic Stock List", "kind": FORM, "fill": True},
     {"key": "key_list", "no": 11, "title": "Key List", "kind": FORM, "fill": True},
     {"key": "equipment_warranty", "no": 12, "title": "Equipment Warranty", "kind": TEMPLATE, "fill": True},

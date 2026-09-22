@@ -238,26 +238,22 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 {# ---------------------------------------------- 7. Maintenance Checklist (library) #}
 {% elif ctx.key == "maintenance_checklist" %}
-    {% set pages = [] %}
-    {% for block in ctx.library %}
-        {% if block.list_1 %}{% set _ = pages.append((block, "Six Months Report", block.list_1)) %}{% endif %}
-        {% if block.list_2 %}{% set _ = pages.append((block, "Yearly Report", block.list_2)) %}{% endif %}
-    {% endfor %}
-    {% for block, period, items in pages %}
+    {# One sheet per part and period; Result / Remarks / Comments as the team filled them, blank otherwise. #}
+    {% for sheet in ctx.sheets %}
     <div class="hd-page">
-        <div class="hd-title">{{ v(block.title) }}</div>
+        <div class="hd-title">{{ v(sheet.title) }}</div>
         {{ head_table(h) }}
         <p class="hd-note">Check the boxes if they are satisfactory and mention any remarks if needed.</p>
         <table class="hd-table">
-            <tr><th rowspan="2" style="width: 7%;">Sl.No</th><th rowspan="2">DESCRIPTION</th><th colspan="2" style="width: 34%;">{{ period }}</th></tr>
+            <tr><th rowspan="2" style="width: 7%;">Sl.No</th><th rowspan="2">DESCRIPTION</th><th colspan="2" style="width: 34%;">{{ sheet.period }}</th></tr>
             <tr><th style="width: 12%;">Result</th><th>Remarks</th></tr>
-            {% for x in items %}
-            <tr><td class="hd-c">{{ loop.index }}</td><td>{{ v(x) }}</td><td></td><td></td></tr>
+            {% for r in sheet.rows %}
+            <tr><td class="hd-c">{{ r.no }}</td><td>{{ v(r.item) }}</td><td class="hd-c">{{ v(r.result) }}</td><td>{{ v(r.remarks) }}</td></tr>
             {% endfor %}
         </table>
         <p class="hd-note"><span class="hd-b">Emergency Maintenance:</span><br>In case of critical failures or unexpected issues, conduct immediate diagnostics and repairs. Ensure that personnel are familiar with emergency shutdown procedures.</p>
         <div class="hd-b">Comments :</div>
-        <div class="hd-box"></div>
+        <div class="hd-box" style="white-space: pre-wrap;">{{ v(sheet.comments) }}</div>
         {{ signatures(ctx) }}
     </div>
     {% else %}
@@ -298,8 +294,8 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     <p class="hd-para">Proper maintenance is crucial for ensuring the safety, efficiency, and longevity of all the systems. Below is a comprehensive list of recommended tools for {{ v(ctx.display_name | title) }} maintenance.</p>
     <table class="hd-table">
         <tr><th style="width: 8%;">Sl No</th><th>Recommended Tools</th><th style="width: 30%;">Remarks</th></tr>
-        {% for t in ctx.tools %}
-        <tr><td class="hd-c">{{ loop.index }}</td><td>{{ v(t) }}</td><td></td></tr>
+        {% for r in ctx.tool_rows %}
+        <tr><td class="hd-c">{{ loop.index }}</td><td>{{ v(r.tool) }}</td><td>{{ v(r.remarks) }}</td></tr>
         {% endfor %}
     </table>
 

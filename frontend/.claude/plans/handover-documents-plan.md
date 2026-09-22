@@ -52,9 +52,9 @@ proposal, `{{Blank Name}}` with self-filling `{{Project}}` / `{{Date}}`, was not
 | 4 | Material Technical Data Sheet | From app | Project TDS (`Project TDS Item List`) |
 | 5 | Operations & Maintenance Manual | Template + blanks + project pictures | library per system (all 11 workbooks); `[blanks]`; pictures uploaded per project |
 | 6 | Do's & Don'ts | Template | library per system |
-| 7 | Maintenance Checklist | Template | library per system; printed blank for the client |
+| 7 | Maintenance Checklist | Template + results | check items from the library; filled on screen (owner 2026-09-22): Result + Remarks per check, Comments per sheet, date of the check |
 | 8 | Inventory List | Form — Location rows × extendable Material columns, qty cells, Total row; LANDSCAPE | layout received — Appendix F |
-| 9 | Recommended Tools List | Template | `HOD System.tools` |
+| 9 | Recommended Tools List | Template + remarks | `HOD System.tools`; Remarks per tool, filled on screen (owner 2026-09-22) |
 | 10 | Attic Stock List | Form — S No / Material / Make / Qty / Remark; can be switched off | layout received — Appendix D |
 | 11 | Key List | Form — keys table + recipient details + declaration; can be switched off | layout received — Appendix E |
 | 12 | Equipment Warranty | Template list — equipment from `HOD System.warranty_equipment`, project can remove/add | workbook layout; escalation levels copied from #1 |
@@ -98,8 +98,8 @@ Built once as a print-format macro.
 
 **Owner 2026-09-22: the header block prints ONLY on** the Checklist, Escalation Matrix, Maintenance Checklist,
 Inventory List, Attic Stock List, Key List and Equipment Warranty (whose date row reads COMMISSIONING DATE). The
-other documents print without it. The Maintenance Checklist's DATE prints blank (the service visit's date is
-written by hand).
+other documents print without it. The Maintenance Checklist's DATE is the date of the check the team entered, or
+blank to write by hand.
 
 ## Analysis — owner's `HOD FORMATS` workbooks (2026-09-21)
 
@@ -252,11 +252,12 @@ Nobody picks a status. `services/hod/checklist.derive_status` decides it on ever
 | Status | When |
 |---|---|
 | **Pending** | nothing done yet |
-| **Form Filled** | the document has something to fill (Escalation, O&M, Inventory, Attic, Key List, Warranty, Completion) and its saved form holds real input |
+| **Form Filled** | the document has something to fill (Escalation, O&M, Maintenance, Inventory, Recommended Tools, Attic, Key List, Warranty, Completion) and its saved form holds real input |
 | **Completed** | the signed copy is uploaded |
 
-Library documents (Do's & Don'ts, Maintenance, Tools) and From-app documents go Pending → Completed: there is
-nothing for the user to fill. The Actions cell follows the Commission Report: one primary action picked by the
+Do's & Don'ts and the From-app documents go Pending → Completed: there is nothing for the user to fill. The
+Maintenance Checklist (Result / Remarks / Comments) and the Recommended Tools List (Remarks per tool) are forms
+since 2026-09-22, see the index. The Actions cell follows the Commission Report: one primary action picked by the
 status (Pending → Fill Form, or Download / Select & Download + Upload Signed; Form Filled → Download + Upload
 Signed; Completed → View Signed) and a ⋮ menu for the rest. The printed checklist says **YES only for Completed**
 (gaps G10 asks the owner whether Form Filled should print too). A **Details** button beside Edit library opens a
@@ -340,9 +341,9 @@ Chilled Water, AHU, Air Washer unticked. The user can still change the ticks; th
 | 4 | Material TDS | Project TDS Item List: 18 HVAC items, all Approved, all with files (Daikin VRF ODU + cassettes, Twiga flexible duct, …) | remarks, upload, ticked records (`selected`) |
 | 5 | O&M | Library HVAC ×6; pre-ticked Duct, VRF, DX; Duct manual's `[Facility Name]` | `form_data.included` + `blanks` |
 | 6 | Do's & Don'ts | Library HVAC ×1 | remarks, upload |
-| 7 | Maintenance | Library HVAC ×3 (DX, Duct, VRF) — pre-ticked by the same rule | `form_data.included` |
+| 7 | Maintenance | Library HVAC ×3 (DX, Duct, VRF) — pre-ticked by the same rule | `form_data.included` + `checks` (results, remarks, comments) + `date` |
 | 8 | Inventory | typed (zones: Default) | `form_data` matrix, landscape |
-| 9 | Tools | `HOD System.tools` (27) | remarks, upload |
+| 9 | Tools | `HOD System.tools` (27) | `form_data.tool_remarks` |
 | 10 | Attic Stock | typed | `form_data.rows` |
 | 11 | Key List | typed; "belongs to" defaults to Space Design | `form_data` |
 | 12 | Warranty | `HOD System.warranty_equipment` (12) + Escalation (#1) | `form_data.equipment` + commissioning date |
@@ -401,7 +402,7 @@ values that are still needed went:
    Completed, derived on every save) · `disabled` (Check — the switch) · `remarks` (Small Text) · `attachment`
    (Attach — the signed copy) · `form_data` (JSON — the document's own values: escalation levels, inventory
    matrix, attic rows, key list + receiver, warranty equipment + commissioning date, completion commissioning
-   date + handed-over-to, O&M included parts + blank values + project pictures, maintenance included parts, the
+   date + handed-over-to, O&M included parts + blank values + project pictures, maintenance included parts + results + comments, the
    From-app records ticked for download, each form's date). Write: System Manager, PMO Executive, Project Lead,
    Project Manager; the other Nirmaan roles read.
 

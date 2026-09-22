@@ -24,7 +24,7 @@ from frappe.utils import formatdate, getdate, today
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import VENDOR, as_dict, project_info
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
-from nirmaan_stack.services.hod import blanks, checklist, dates, index
+from nirmaan_stack.services.hod import blanks, checklist, dates, index, maintenance
 
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
@@ -188,6 +188,7 @@ def _library(project: str, doc, library_document: str, fill: bool) -> list:
 	for c in included_library(project, doc.hod_system, library_document, doc.form_data):
 		out.append(
 			{
+				"name": c.name,
 				"title": c.title,
 				"sub_system": c.sub_system or "",
 				"html": embed_stored_images(blanks.fill_blanks(c.content, values) if fill else (c.content or "")),
@@ -241,9 +242,15 @@ def hod_print_context(doc) -> dict:
 		ctx["library"] = _library(doc.project, doc, index.LIB_DOS, fill=False)
 	elif key == "maintenance_checklist":
 		ctx["library"] = _library(doc.project, doc, index.LIB_MAINT, fill=False)
-		ctx["header"]["date"] = ""  # the service visit's date is written on the printed sheet
+		ctx["sheets"] = maintenance.sheets(ctx["library"], fd)
+		# The date of the check when the team entered one; otherwise blank, written by hand on the visit.
+		ctx["header"]["date"] = _fmt(fd.get("date"))
 	elif key == "recommended_tools":
 		ctx["tools"] = checklist.parse_lines(system.tools)
+		# Remarks per tool (`form_data.tool_remarks`, keyed by the tool's text so an edited library line never
+		# inherits a neighbour's remark).
+		remarks = fd.get("tool_remarks") if isinstance(fd.get("tool_remarks"), dict) else {}
+		ctx["tool_rows"] = [{"tool": t, "remarks": str(remarks.get(t) or "").strip()} for t in ctx["tools"]]
 	elif key == "equipment_warranty":
 		equipment = fd.get("equipment") if isinstance(fd.get("equipment"), list) else None
 		ctx["equipment"] = equipment if equipment is not None else checklist.parse_lines(system.warranty_equipment)
