@@ -632,10 +632,20 @@ wording is not asked again; changed wording is a fresh read. A plan row the read
 (shown in full) -- the question box renders only in the expanded group and "Accept all shown" acts on every
 suggestion, so a collapsed question would be accepted unseen; the expansion rule stays on the server.
 
-**⚠️ A RATE FILE CARRIES NO SYSTEM-GENERATED COLUMN EXCEPT `item_uid`; `kind` APPEARS ONLY FOR A MULTI-KIND
-CATEGORY; THE SYSTEM FILLS THE REST ON UPLOAD (owner-locked, X-a..X-e, 2026-09-22).** The editable rate file
-(`csv_exporter`, both formats, both modes) holds `item_uid`, `brand`, `unit`, every column a person edits and the
-rate / markup columns -- and nothing the system fills: `source_sheet` / `source_row` are never written and, on an
+**⚠️ A RATE FILE CARRIES NO SYSTEM-GENERATED COLUMN EXCEPT `item_uid`, `discipline` AND `category`; `kind`
+APPEARS ONLY FOR A MULTI-KIND CATEGORY; THE SYSTEM FILLS THE REST ON UPLOAD (owner-locked, X-a..X-e, amended
+by Z-c 2026-09-22).** The editable rate file (`csv_exporter`, both formats, both modes) holds `item_uid`, then
+`discipline` and `category` (SLICE 1g: filled on download, the category as its ID, both TEXT cells -- the only
+non-edited columns beside the id), `brand`, `unit`, every column a person edits and the rate / markup columns --
+and nothing else the system fills. **The upload REFUSES a file whose discipline / category do not describe the
+page it is uploaded on**, naming the rows (a foreign discipline is refused by its rows BEFORE the column check;
+a category that is not the discipline's, or a single-category file on another category's page, by row); an
+EXISTING item is never moved by editing these cells (a kind claimed by two configs belongs to both); a NEW row
+with the cells blank takes the one category the file's rows agree on, else the page's selection when no row says
+anything (and the preview's "Uploading into" banner says so); a pre-1g file without the columns uploads exactly
+as before. The mode ("one category" / "all categories") is decided by the file's VALUES, never by which columns
+it has. A hand-added item is minted an `item_uid` through the ONE mint `csv_importer.mint_item_uid` (SLICE 1g,
+owner Z-a), so it round-trips like an uploaded row; the loader never mints (it carries the asset's uid). `source_sheet` / `source_row` are never written and, on an
 OLD file that still carries them, are IGNORED (never an error, never applied). `kind` is written only when the
 file holds a category whose config lists more than one item kind (Electrical wiring_cabling, db_switchgear,
 popup_boxes; every Electrical all-categories file); for a single-kind category the upload fills it from the

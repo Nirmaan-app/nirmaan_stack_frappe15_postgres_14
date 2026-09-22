@@ -39916,7 +39916,7 @@ request after the restart took 50 s) and vite killed by PID with `node_modules/.
   15,040 + 3 synthetic retained inactive); 0 active synthetic rows in either discipline; 0 active Electrical
   items without a uid. Snapshots: HVAC 10 (8 + v9..v12, the keep-10 prune evicted two), Electrical 10.
 
-### G10 -- LOGGED FOR LATER (owner Y-i, not fixed)
+### G10 -- LOGGED FOR LATER (owner Y-i, not fixed) -- DIAGNOSED AT SLICE 1g: NOT A PRODUCT DEFECT (a hidden automation tab starves the exit animation of frames; see the 1g section, H2)
 On a large Data-tab table (the 588-row wiring_cabling) a closed Radix dialog's exit animation can leave
 `body { pointer-events: none }` behind, so subsequent clicks silently do nothing until the page is reloaded.
 Observed at the 1e cert (three extension ref-clicks produced no server call; in-page `element.click()` worked);
@@ -39954,3 +39954,264 @@ committed). Untouched: `patches.txt`, `.claude/settings.local.json` (declared no
 asset file, the loader, the asset exporter / snapshot code, `spec_reader.py`, `xlsx_io.py`, `csv_exporter.py`,
 `config_validation.py`, `extraction.py`, every pricing / interpreter / panel file, every doctype JSON. Feat
 commit `6ee6fa41`; this record's commit follows it; NOT pushed -- the owner pushes 1e and 1f after the combined manual test.
+
+## RATE MASTER, SLICE 1g -- DISCIPLINE + CATEGORY COLUMNS IN RATE FILES; IDs FOR HAND-ADDED ITEMS; THE CLOSED-DIALOG CLICK BUG (2026-09-22) -- SHIPPED (H2 diagnosed and STOPPED, not built)
+
+Owner rulings (quoted): **Z-a** IDs for hand-added items -- chat recommended "have the form give each new item
+an ID, the same as uploads do"; owner "yes". **Z-b** the closed-dialog click bug: "lets fix it now". **Z-c**
+"i think the CSV should have 2 more columns of discip0line and category" -- every rate file carries discipline
+and category, filled on download; on upload each row's values must match the page uploaded on, a mismatch is
+refused naming the rows; an existing item cannot be moved to another category by editing these cells; a new row
+with them blank is filled from the rest of the file; the preview states where the upload goes; the all-categories
+file already has category and gains discipline ("yes for both"). **Z-d** if NO row carries a value, the page's
+selection is used and the banner says so. **Z-e** the six 1f readings accepted ("yes for both") -- unchanged.
+Standing: X-b (no system columns except id) is amended ONLY by Z-c's two columns.
+
+### PREMISES VERIFIED, CORRECTIONS
+- Tips: local `f5c12723` == origin `f5c12723`, as stated (`git fetch` first). The canonical command block
+  matches the repo `CLAUDE.md`.
+- **H1 CORRECTION -- there was no shared mint function.** The loader NEVER mints: it passes the asset's
+  `item_uid` through (`loader.py` 353 / 479); the format lived only in `csv_importer` (`UID_PREFIX = "rmi-"`,
+  `UID_HEX_LEN = 12`) with the mint INLINE in `apply_plan` (generate + a uniqueness loop against every uid of the
+  discipline). It is now ONE function, `csv_importer.mint_item_uid(discipline, taken=None)`, called by
+  `apply_plan` (with its own taken set) and by `create_rate_master_item`. Uniqueness = against EVERY row of the
+  discipline, active and inactive (a retired row keeps its uid; a successor re-uses its predecessor's).
+  Uid-less rows live: 5 inactive (3 Electrical, 2 HVAC), 0 active -- untouched, as ruled.
+- **H3 -- the category value is the CATEGORY ID** (`cabletray_raceway`, `hvac_adp`), exactly what Mode B's
+  category column has always carried (`kind_cat` maps kind -> `category_id`); the label lives only in the
+  frontend registry / `config.category_display`, not in the config JSON (verified: no `label` key on any of
+  the 13 configs). The discipline value is the doctype's `discipline` field (`Electrical`, `HVAC`).
+- **The shared kind (pre-existing) shaped one rule:** `switch_socket_item` is claimed by BOTH popup_boxes and
+  switches_sockets, so the switches_sockets file legitimately says `switches_sockets` for items `kind_cat`
+  (first writer) maps to popup_boxes. "An item's ACTUAL category" is therefore EVERY category whose kinds
+  include its kind (`kind_cats_all`); the move check refuses only a category outside that set. Found by the
+  round-trip pins (e01 / e11 went red on the first cut).
+- **A foreign file is refused by its ROWS before the column check.** An HVAC file on an Electrical page has
+  no Electrical column at all, so the pre-1g column check would have said "Unknown column 'item_name'" six
+  times and buried the real reason; the importer now pre-scans the `discipline` column and, when any row names
+  another discipline, refuses with one row-named error per row (file-says vs page) and nothing else.
+- **H2 -- ROOT CAUSE FOUND, and it is NOT in the rate-master components (STOPPED per H2's own condition):**
+  see the section below. G1 recorded; G2 not applicable (no fix shipped); U6 not delivered.
+
+### H2 -- THE CLOSED-DIALOG CLICK BUG: ROOT CAUSE IN PLAIN WORDS
+Reproduced deterministically on the 588-row wiring table (G1), instrumented in-page: after Cancel on
+"Deactivate this rate row?" the `[role=alertdialog]` element stays mounted with `data-state="closed"`, its exit
+animation reports `playState: running` with **`currentTime: 0` for 24+ seconds** (duration 150 ms, 1 iteration,
+not paused), and `body.style.pointerEvents` stays `none`. A `requestAnimationFrame` await never resolved (the
+CDP evaluate timed out at 45 s). `document.visibilityState === "hidden"`, `document.hidden === true`. **The tab
+the automation drives is a BACKGROUND tab: Chrome produces no animation frames for a hidden document, so the
+Radix exit animation never advances, `animationend` never fires, `@radix-ui/react-presence` keeps the closed
+content mounted, and the DismissableLayer that set `body { pointer-events: none }` never runs its cleanup.**
+The moment the tab was foregrounded (a screenshot activates it) the animation completed and the element
+unmounted with pointer-events restored, within 800 ms. Every 1e / 1f sighting was under the same automation
+(the "renderer is slow" / "large table" theory recorded in 1e was wrong: the size of the table only decides
+how long the tab stayed hidden while the driver worked). A human never clicks into a tab they cannot see, so
+no user-facing defect exists; a user who switches tabs mid-close gets the cleanup on return.
+**Where a fix would live and why it was not built here:** the exit animation is set by the SHARED
+`frontend/src/components/ui/alert-dialog.tsx` / `dialog.tsx` (`data-[state=closed]:animate-out ...`) and the
+wait-for-`animationend` is `@radix-ui/react-presence`'s design -- both outside this slice's files (H2: "STOP
+and report the cause and the proposed fix"). Proposed fix, if the owner still wants one: none for users (there is
+no user-facing defect); for automation, the driver should keep the tab foregrounded, or the two shared dialog
+components could drop their exit animation (`data-[state=closed]:animate-none`), which makes Presence unmount
+synchronously -- a product-wide visual change that is the owner's call, not this slice's. A setTimeout /
+polling / global-style workaround was NOT added (H2 forbids masking).
+
+### AS BUILT
+- **`csv_exporter.py`** -- `DISCIPLINE_COLUMN = "discipline"`; `_lead_headers` is now `item_uid, discipline,
+  category, [kind], brand, unit` in BOTH modes (Mode B always had category; Mode A gains both);
+  `_lead(item, with_kind, discipline, category)` fills them on every row (Mode A: the file's category; Mode B:
+  the item's kind's category, as before). Both are TEXT cells in the .xlsx (`_numeric_columns` untouched).
+- **`csv_importer.py`** -- `classify_columns` treats `discipline` and `category` as fixed columns (the mode
+  is no longer "the category column is present"). `build_plan`: (1) a PRE-SCAN of the discipline column refuses
+  a foreign file by its rows, one error per row, before the column check; (2) the file's declared categories
+  decide the upload: ONE -> a single-category upload that must equal the page's `category_id` (when given),
+  SEVERAL -> an all-categories upload; a category that is not this discipline's is refused by row; (3) an
+  EXISTING item's category cell must name one of its real categories (`kind_cats_all`) or the row is refused
+  "cannot be moved to another category by editing these cells"; (4) a NEW row with a blank category takes the
+  one category the file's rows agree on; a blank row in a file naming several categories is refused; a file
+  with NO discipline / category value falls back to 1e's typing (matched rows, the page hint, the only category)
+  and the plan says so; (5) `plan["target"] = {discipline, category | None, mode, from_page}` and `plan["mode"]`
+  follows it; (6) the pre-1g Mode B "category does not match kind" check now covers NEW rows only (an existing
+  row is judged by rule 3); (7) `mint_item_uid` -- the ONE mint (above). A pre-1g file without the two columns
+  takes none of rules 1-4 (nothing declared) and plans exactly as before.
+- **`api/boq/rate_master.py`** -- `create_rate_master_item` mints `item_uid` through `csv_importer.mint_item_uid`
+  and returns it in `item`. The download / upload endpoints needed no change (the hint already rides).
+- **Frontend** -- `rateMasterUpload.ts`: `UploadTarget`, `UploadPlan.target?`, `TARGET_COPY` ("Uploading
+  into:", "all categories", "(taken from the page - the file doesn't say)"), `UploadTargetLabels`,
+  `uploadTargetLine(plan, labels)` (the page's own category label for a single-category target -- the server
+  refuses any other -- the id as a fallback, "all categories" for mode all, the note when `from_page`; null
+  without a target). `RateMasterUploadDialog.tsx`: the banner line (`data-testid="upload-target"`) above the
+  chips, rendered when the viewer passes `targetLabels`. `RateMasterDataViewer.tsx`: passes
+  `{disciplineLabel, categoryId: config.category_id, categoryLabel}`. `RateMasterPage.tsx`, `rateMasterSpec.ts`,
+  `rateMasterTypes.ts`: NOT touched (no change needed -- named here because the scope listed them).
+
+### COLUMN LISTS, before -> after (both formats identical)
+| File | Before (1f) | After (1g) |
+|---|---|---|
+| HVAC hvac_adp (Mode A) | item_uid, brand, unit, item_name, item_detail, the four numbers | item_uid, discipline, category, brand, unit, item_name, item_detail, the four numbers |
+| HVAC all categories | item_uid, category, brand, unit, item_name, item_detail, the four numbers | item_uid, discipline, category, brand, unit, item_name, item_detail, the four numbers |
+| Electrical single-kind category (e.g. cabletray_raceway) | item_uid, brand, unit, attrs, rates | item_uid, discipline, category, brand, unit, attrs, rates |
+| Electrical multi-kind category (wiring_cabling, db_switchgear, popup_boxes) | item_uid, kind, brand, unit, attrs, rates | item_uid, discipline, category, kind, brand, unit, attrs, rates |
+| Electrical all categories | item_uid, category, kind, brand, unit, union (47) | item_uid, discipline, category, kind, brand, unit, union (48) |
+
+### THE REFUSAL MESSAGES, verbatim
+- `Row N: the file says discipline 'HVAC' but this page is 'Electrical' -- upload the file on its own discipline's page, or fix the cell.` (one per row; nothing else reported)
+- `the file says category 'hvac_adp', which is not a category of Electrical (cabletray_raceway, conduit_piping, ...).`
+- `the file says category 'cabletray_raceway' but this page is on 'earthing' -- upload the file on its own category's page, or fix the cell.`
+- `item 'rmi-...' belongs to category 'cabletray_raceway'; the file says 'earthing' -- an item cannot be moved to another category by editing these cells.` (a shared kind lists both: `popup_boxes / switches_sockets`)
+- `category is required for this new row -- the file's rows name more than one category (cabletray_raceway, wiring_cabling), so a blank cell cannot be filled from them. Fill the category cell.`
+
+### TESTS
+`api/boq/test_rate_master.py` 398 -> 401 (e14-e16), `api/boq/test_spec_reader.py` 31 -> 33 (t32-t33),
+`rateMasterUpload.test.ts` 35 -> 39. Plain English: **e14** every Mode A file and Mode B, both formats, carry
+`discipline` and `category` right after item_uid, filled on every row (the discipline as the system names it, the
+category id Mode B always used), TEXT cells in the .xlsx; NEGATIVE: `source_sheet` / `source_row` / `import_batch`
+/ `name` never return. **e15** the matching file -> zero changes and a target naming the category (not from the
+page); a wrong discipline on one row -> refused naming the row, file-says vs page; a category that is not this
+discipline's -> refused; a single-category file on another category's page -> every row refused; the
+all-categories file on any page of the discipline -> zero changes, target "all"; one Mode B row given a category
+of another discipline -> refused; an existing item's category cell edited to another real category -> refused
+"cannot be moved", the apply refuses too; a blank new row filled from the file; a blank new row in a file naming
+several categories -> refused; a file with NO values -> the page decides, `from_page` set; a 1f-format file (no
+columns) -> exactly today's result, `columns.ignored` empty; nothing written by any refusal (active count
+unchanged). **e16** the manual create returns and stores an `item_uid` in the shared format, unique among every
+row of the discipline; the download shows it; the .csv and .xlsx re-upload to zero changes and ZERO warnings;
+NEGATIVE: no active item of the discipline is uid-less; the mint skips a FORCED collision (`frappe.generate_hash`
+patched to return a taken hex first). **t32** the owner's scenario: one new HVAC row with the cells filled ->
+added, target `HVAC > hvac_adp`, not from the page; both cells blank -> added and applied, `from_page` set
+(Z-d); the HVAC file on an ELECTRICAL page -> 95 row-named refusals ("the file says discipline ... but this page
+is ..."), NEGATIVE no "Unknown column" noise, nothing written; the same file with the discipline cells matching
+the page -> refused by its columns (an HVAC column set is not Electrical's); an existing HVAC item's category
+cell edited to a non-category -> refused; the HVAC file itself (.xlsx, .csv, Mode B) -> zero changes AND zero
+warnings, `from_page` false. **t33** a hand-added HVAC item gets a uid, shows in the download, re-uploads with
+zero changes and zero warnings; NEGATIVE: never uid-less. **vitest** the banner names the page's category label
+for a single-category target, adds the page note ONLY when `from_page`, says "all categories" for mode all, falls
+back to the id for a category the page has no label for; NEGATIVE: no target -> no line.
+
+**H2 component test:** NOT written -- `frontend/CLAUDE.md` records that vitest runs with environment "node" and
+NO DOM (a deliberate choice), and the mechanism is the browser's frame scheduling for a hidden document, which
+no DOM shim reproduces; the cert (G1 / G2 below) carries the proof.
+
+**Inverted pins (each failing SOLELY under Z-c; none deleted; every value claim kept):**
+- `test_24m` -- before: the tray header `["item_uid","brand","unit", ...]` and `assertNotIn("category")`;
+  after: `["item_uid","discipline","category","brand","unit", ...]`, every row's discipline / category asserted,
+  and the NEGATIVE `assertNotIn("import_batch")` (no other system column) in place of the category negative.
+- `test_24n` -- before: `headers[:5] == [item_uid, category, kind, brand, unit]`, `len == 47`, the cable row found
+  by `r[2] == "cable"`; after: `headers[:6]` with discipline, `len == 48`, `r[1]` is the discipline on every row,
+  the kind at `r[3]`, `+ import_batch` negative.
+- `test_24p`, `test_e08` -- before: `column_count == 47`; after: 48.
+- `test_e03` -- before: `headers[:4]` / `[:3]` and the two exact lists without the columns; after: `[:6]` / `[:5]`
+  and both exact lists with them, `+ import_batch` negative on every category and on Mode B (48).
+- `test_91` -- before: `assertNotIn("category", plan_a["columns"]["fixed"])` and the edited-category refusal
+  matched "does not match kind"; after: category AND discipline are fixed columns of a Mode A file, the target
+  names the category, the edited EXISTING row is refused in the ruled words ("cannot be moved to another
+  category"), and the pre-1g "does not match kind" wording is pinned on a NEW row whose kind and category disagree.
+- `test_101` -- before: `classify_columns([...,"category",...])["mode"] == "all"`; after: the mode is "category"
+  from the header alone (the file's VALUES decide it in build_plan) and both columns are recorded as fixed.
+- `test_e05` -- before: a headers-only template + one new row and no hint could not be typed; after: the new row
+  (a copy of a download row) types ITSELF from its category cell with no hint (`from_page` false); the original
+  negative is kept with the two cells blanked (the "kind" refusal), and the hint then resolves it with
+  `from_page` true.
+- `test_e06` -- before: the old-format file's fixed columns `[brand, item_uid, kind, unit]`; after: the file is
+  rebuilt from a CURRENT download, so `[brand, category, discipline, item_uid, kind, unit]`.
+- `test_t05`, `test_t06`, `test_t21` (`HVAC_FILE_COLUMNS` + the inline Mode B list) -- before: the 1e nine / eleven
+  column lists; after: with discipline + category after item_uid, `+ import_batch` negative on t05.
+- `test_t24` (1f) -- inverted under Z-a, not Z-c: before, a hand-added item had NO uid (`assertIsNone`) and the
+  warning named it with an empty uid, its confirm successor being "the first row to carry one"; after, the
+  hand-added item's uid is asserted in the shared format, the warning names it, and the successor carries the
+  SAME uid.
+
+### VACUITY
+Fourteen breaks, each restored and sha256-verified, all RED (both streams captured): V1 / V1b the foreign-file
+pre-scan disabled -> t32, e15; V2 a foreign category accepted -> e15; V3 a single-category file on another page
+accepted -> e15; V4 an existing item movable -> e15; V5 a blank row in a disagreeing file typed -> e15; V6
+`from_page` never set -> e15; V7 / V7b the discipline column not written -> e14, t21; V8 / V8b the manual create
+mints no uid -> e16, t33; V9 the mint's uniqueness loop removed -> e16 (the forced collision); V10 the page note
+never shown -> vitest; V11 "all categories" never said -> vitest.
+
+### COUNTS (measured in-session)
+BEFORE: `test_spec_reader` Ran 31 OK; `test_rate_master` Ran 398 OK; vitest 3445 passed / 1 failed (3446); tsc 3229
+total, 0 in the touched files. AFTER (feature + inversions): `test_spec_reader` Ran 33 OK; `test_rate_master` Ran
+401 OK (the run before the seven Z-c inversions: 401 ran, 6 failed -- 101, 24p, 91, e05, e06, e08 -- all
+inverted above); vitest 3449 passed / 1 failed (3450; the known `POAdjustment/writeOffControl.test.ts > mirrors
+the sibling admin predicates`); tsc 3229 total, 0 in the touched files; build clean (`Done in 221.20s`, no tracked
+file changed by it). A one-line wording change to the pre-scan message landed after that full run (found at G5:
+the dialog already prefixes "Row N:"); t32 + e15 re-run green, and the full `test_rate_master` re-run afterwards:
+Ran 401 OK (623.3 s).
+
+### THE CERT
+Live `http://localhost:8080/rate-master` after web / worker / socketio / vite restarted by PID (vite with
+`.vite` removed), `yarn build` run BEFORE the tab was opened, and web + worker restarted once more after the
+wording fix. Bundle markers on the plain URLs: `uploadTargetLine` 1 (upload.ts) / 3 (dialog), `TARGET_COPY` 4,
+`upload-target` 1, `targetLabels` 4 (dialog) / 1 (viewer). Session survived every restart.
+- **G1 (BEFORE any change, the reproduction):** 588-row wiring table, trash -> "Deactivate this rate row?" ->
+  Cancel, polled every 250 ms for 24 s: `[role=alertdialog]` stayed mounted `data-state="closed"`, exit
+  animation `running` with `currentTime: 0`, body `pointer-events: none` throughout; `document.visibilityState`
+  "hidden"; a rAF await never resolved (CDP timeout 45 s). A screenshot (which foregrounds the tab) cleared it
+  within 800 ms: element gone, pointer-events unset. The control click under the stuck state was not attempted
+  separately: with `pointer-events: none` on body no pointer click can reach a control, which is the 1e / 1f
+  observation exactly.
+- **G2 (no fix shipped -- the diagnosis instead):** with the tab VISIBLE (`visibilityState` "visible",
+  `document.hasFocus`), the same open -> Cancel cycle FIVE times on the 450-row tray table and FIVE times on the
+  95-row HVAC table: every dialog unmounted within 200-300 ms and body pointer-events was restored every time; the
+  upload dialog closed the same way after G9; the four deactivation alerts at the end likewise. Same code, same
+  tables, no reload -- the only variable is whether the tab is hidden.
+- **G3:** downloads read programmatically -- wiring_cabling .xlsx: 588 rows, 15 columns, `item_uid, discipline,
+  category, kind, brand, unit, ...`, discipline {Electrical}, category {wiring_cabling}, both columns "@";
+  all-categories .xlsx: 1,367 rows, 48 columns, discipline {Electrical}, 10 category ids, "@"; HVAC .xlsx: 95
+  rows, 11 columns `item_uid, discipline, category, brand, unit, item_name, item_detail, cost_install, cost_supply,
+  install_markup, supply_markup`, {HVAC} / {hvac_adp}, "@".
+- **G4 (the owner's scenario):** `G4a_filled.xlsx` (one row, discipline HVAC, category hvac_adp, "Round Diffuser
+  with damper" / "325 mm dia"): banner **"Uploading into: HVAC > ADP (Air Distribution Products)"**, "1 items
+  added", read from spec; applied (HVAC snapshot v13) -> 96. `G4b_blank.xlsx` (both cells blank, 335 mm dia):
+  banner **"Uploading into: HVAC > ADP (Air Distribution Products) (taken from the page - the file doesn't
+  say)"**, kind filled `hvac_adp_item`, applied (v14) -> 97.
+- **G5:** the HVAC download uploaded on Electrical / CableTray: "95 problems -- nothing will be applied", every
+  row named: "the file says discipline 'HVAC' but this page is 'Electrical' -- upload the file on its own
+  discipline's page, or fix the cell." (shown 50 + "and 45 more"), Apply disabled, no apply call. (The first
+  rendering read "Row 1: Row 1: ..." -- the pre-scan message carried a prefix the dialog adds itself; fixed,
+  web restarted, t32 / e15 green.)
+- **G6:** the first cabletray item's category cell edited to `earthing` (one-row file): "2 problems", "Row 1: the
+  file says category 'earthing' but this page is on 'cabletray_raceway' ..." and "Row 1: item 'rmi-00b8e3d1d6f3'
+  belongs to category 'cabletray_raceway'; the file says 'earthing' -- an item cannot be moved to another category
+  by editing these cells.", banner "Uploading into: Electrical > earthing", Apply disabled, nothing written.
+- **G7:** `G7_1f_format.xlsx` (no discipline / category columns, one new row 345 mm dia): "1 items added, 0
+  errors", banner with the page note, kind filled; applied (v15) -> 98 -- exactly as before, never an error.
+- **G8:** Add row: Nos / "Round Diffuser with damper" / "355 mm dia" / 100 / 1000 -> one create call, 99 items, the
+  row "Manual entry"; DB: `rmi-c6c7fb225b53` (the three upload rows `rmi-d93802f5c2f7`, `rmi-1b7d5508790d`,
+  `rmi-01dee7935733`); the fresh HVAC download carries it (99 rows, 0 blank uids); re-uploaded unchanged: "99 rows
+  unchanged", ZERO warnings, banner without the page note.
+- **G9:** all-categories .xlsx on the CableTray page: "1367 rows unchanged", "Uploading into: Electrical > all
+  categories", 0 warnings; wiring_cabling .xlsx on the Wiring page: 588 unchanged, "Uploading into: Electrical >
+  Wiring, Cabling & Termination", 0 warnings; HVAC (G8): 99 unchanged, 0 warnings.
+- **Clean-up by the normal route:** the four synthetic HVAC rows deactivated (trash -> Deactivate, one each):
+  98 -> 97 -> 96 -> 95, pointer-events restored after each.
+- **G10 (DB):** HVAC 95 active, uids == v2, checksum `106f5395...b884` UNCHANGED (305 rows in all: the 4 synthetic
+  retained inactive); Electrical 1,367 / 12, checksum `77a70755...f0db` UNCHANGED; 0 synthetic active; 0 uid-less
+  active in either discipline; 0 `TEST_RM_*` residue; snapshots HVAC 10 / Electrical 10 (keep-10).
+
+### ANOMALIES (disclosed)
+(1) H2 STOPPED by design (above) -- U6 not delivered; G2 replaced by the visible-tab evidence. (2) The pre-scan
+message duplicated the dialog's "Row N:" prefix at G5 -- a one-line wording fix after the full AFTER run; the two
+covering tests re-run green and the full suite re-run recorded in COUNTS. (3) The first cut of the move check refused
+the switches_sockets round trip (the shared kind) -- caught by e01 / e11, fixed with `kind_cats_all` before any
+commit. (4) The first cut of t32 expected 190 row errors for a foreign file; the column check refused first with
+"Unknown column" noise -- the importer now pre-scans the discipline column so the refusal names the rows and the
+real reason (the owner's G5 expectation). (5) One of my own pins (`test_t24`, 1f) asserted the very gap this slice
+closes (a uid-less hand-added item) and was inverted under Z-a. (6) `test_rmf_06`'s legacy fixture (uid-less
+items, 1f) is unaffected: its rows still warn as twins and are declined. (7) The in-loop discipline check written
+first became dead code once the pre-scan existed and was removed (the vacuity break on the pre-scan is what
+proves the mechanism). (8) The owner's own HVAC download at 17:35 sat in Downloads; not used -- a fresh one was
+taken. (9) `residence_check.py` not run (not in the canonical block).
+
+### FILES
+MODIFIED `nirmaan_stack/services/boq_rate_master/csv_exporter.py`, `csv_importer.py`,
+`nirmaan_stack/api/boq/rate_master.py` (manual create only), `nirmaan_stack/api/boq/test_rate_master.py` (398 -> 401;
+nine pins inverted), `nirmaan_stack/api/boq/test_spec_reader.py` (31 -> 33; t05 / t06 / t21 / t24 inverted),
+`frontend/src/pages/pricing/rate-master/rateMasterUpload.ts` (+ `.test.ts` 35 -> 39), `RateMasterUploadDialog.tsx`,
+`RateMasterDataViewer.tsx`; this record (+ the 1f Radix entry re-marked); root `CLAUDE.md` (the amended rate-file
+rule). NOT touched though in scope: `xlsx_io.py` (no text-cell change needed -- the two columns are text by the
+existing rule), `RateMasterPage.tsx`, `rateMasterSpec.ts`, `rateMasterTypes.ts`. Untouched: `patches.txt`,
+`.claude/settings.local.json` (declared noise), every asset file, the loader, the asset exporter / snapshot code,
+`spec_reader.py`, `config_validation.py`, `extraction.py`, every shared `components/ui/*` file, every pricing /
+interpreter / panel file, every doctype JSON. Feat commit `eb92e22f`; this record's commit follows it; NOT pushed.
