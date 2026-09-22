@@ -150,10 +150,15 @@ class TestWhatTheCardDoesNotShow(BankLinesFixture):
         self.assertEqual(card["status"], RECONCILIATION_PENDING)
         self.assertAlmostEqual(card["remaining"], float(lines[0]["amount"]), places=2)
 
-    def test_a_payment_is_refused_by_name(self):
+    def test_a_doctype_no_bank_line_settles_is_refused_by_name(self):
         with self.assertRaises(frappe.ValidationError) as caught:
-            get_expense_bank_lines(doctype="Project Payments", name="whatever")
-        self.assertIn("Project Payments", str(caught.exception))
+            get_expense_bank_lines(doctype="Procurement Orders", name="whatever")
+        self.assertIn("Procurement Orders", str(caught.exception))
+
+    def test_a_payment_is_read_rather_than_refused(self):
+        """Payments carry the card too now: an unknown one is NOT FOUND, not "not an expense"."""
+        with self.assertRaises(frappe.DoesNotExistError):
+            get_expense_bank_lines(doctype="Project Payments", name="no-such-payment")
 
     def test_an_expense_that_does_not_exist_is_refused(self):
         with self.assertRaises(frappe.DoesNotExistError):

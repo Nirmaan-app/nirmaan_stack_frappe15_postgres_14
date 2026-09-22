@@ -89,13 +89,23 @@ export interface ApprovalQueueRow {
   reconciled_on: string | null;
   auto_approved: number;
   /**
-   * How many live bank lines settle this expense (ADR-0027 R5, #1303). Always 0 on a payment —
-   * a payment is settled by exactly one line and has no Bank lines card.
+   * How many live bank lines settle this expense or payment (ADR-0027 R5, #1303). On a PO / SR
+   * payment a part payment split, it is the whole split family's.
    *
    * ⚠️ IT DECIDES ONLY WHETHER THE Against CELL OFFERS THE CARD. The lines themselves are fetched
-   * lazily on open, so an expense no line has reached shows no trigger and costs no query.
+   * lazily on open, so a row no line has reached shows no trigger and costs no query.
    */
   bank_line_count: number;
+  /**
+   * What live bank lines already cover of this row — 0 when none has reached it. Every ledger.
+   * ⚠️ On a PO / SR payment a bank line paid only PART of, it is the whole split family's (the
+   * payment was split into a Paid half and a Reconciliation Pending balance), so the balance row
+   * can say how much of the original request is already reconciled.
+   */
+  linked_amount: number;
+  /** What no bank line has covered yet (`amount - linked_amount`, measured server-side); for a
+   *  part-reconciled split family, its Reconciliation Pending balance. */
+  remaining_amount: number;
   tier: "auto" | "l1" | "l1_l2";
   /**
    * Kept under their PAYMENT names deliberately. The bulk-approve engine and the

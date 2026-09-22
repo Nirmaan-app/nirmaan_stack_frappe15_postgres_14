@@ -222,6 +222,8 @@ interface PaymentStats {
      *  fulfil path writes the status — an honest zero, same as the tab. */
     total_reconciliation_pending_count: number;
     total_reconciliation_pending_amount: number;
+    /** The part of those records bank lines already cover (expenses part-paid by several lines). */
+    total_reconciliation_pending_reconciled_amount: number;
     total_approval_done_today: number;
     total_approval_done_today_amount: number;
     total_approval_done_7_days: number;
@@ -256,15 +258,15 @@ interface PaymentStats {
      * The label says so; the figure covers every import, every source and every date, and must
      * never be added to the two 30-day outflow figures beside it.
      *
-     * ⚠️ IT IS THE SERVER'S PASS-THROUGH OF Bulk Import's own "Still open / Paid out" with no
-     * filters. Never re-derive it here, and never sum it with anything: the whole requirement is
-     * that this card and that screen show the same number.
+     * ⚠️ IT IS Bulk Import's **Not Matched – Outflow** tab, unfiltered (owner, 2026-09-22): lines
+     * still Pending match run, Mismatched or Error. A server pass-through, built from the tab's own
+     * scope — never re-derive it here.
      */
     total_unreconciled_outflow_amount: number;
     total_unreconciled_outflow_count: number;
     /**
-     * Total Unreconciled Inflow — the inflow twin of the figure above: bank money that has ARRIVED
-     * and still owes somebody a decision in Bulk Import (its unfiltered "Still open / Received").
+     * Total Unreconciled Inflow — the inflow twin of the figure above: Bulk Import's unfiltered
+     * **Not Matched – Inflow** tab.
      * Same rules: ALL TIME, a server pass-through, never summed with the 30-day inflow figures.
      */
     total_unreconciled_inflow_amount: number;
@@ -421,7 +423,8 @@ const StatRow: React.FC<{ label: string; count: number; amount: number; type: st
 );
 
 // Composite tile: umbrella "Pending Payment Approval" with L1 + CEO breakdown,
-// plus a footer line for "Total Payment Due" (status=Approved, awaiting fulfilment).
+// plus footer lines for "Total Payment Due" (status=Approved, awaiting fulfilment)
+// and "Payment Done / Reconciliation Pending" (paid out, awaiting bank confirmation).
 const PendingApprovalTile: React.FC<{
     totalAmount: number;
     totalCount: number;
@@ -431,20 +434,36 @@ const PendingApprovalTile: React.FC<{
     ceoCount: number;
     totalDueAmount: number;
     totalDueCount: number;
+    reconciliationAmount: number;
+    reconciliationCount: number;
+    reconciliationReconciledAmount: number;
 }> = ({
     totalAmount, totalCount,
     l1Amount, l1Count,
     ceoAmount, ceoCount,
     totalDueAmount, totalDueCount,
+    reconciliationAmount, reconciliationCount, reconciliationReconciledAmount,
 }) => (
-        <TileShell type="pending" label="Pending Payment Summary" count={totalCount + totalDueCount}>
+        <TileShell type="pending" label="Pending Payment Summary" count={totalCount + totalDueCount + reconciliationCount}>
             <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
                 <BreakdownRow tone="red" label="Total Pending" labelLong="Pending Payment Approval" amount={totalAmount} count={totalCount} />
                 <BreakdownRow tone="amber" label="L1 Pending" labelLong="L1 Pending Approval" amount={l1Amount} count={l1Count} />
                 <BreakdownRow tone="blue" label="CEO Pending" labelLong="CEO Pending Approval" amount={ceoAmount} count={ceoCount} />
             </div>
-            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
                 <BreakdownRow tone="red" label="Approved – Not Paid" labelLong="Approved But not Paid" amount={totalDueAmount} count={totalDueCount} />
+                <BreakdownRow tone="violet" label="Reconciliation Pending" labelLong="Payment Done / Reconciliation Pending" amount={reconciliationAmount} count={reconciliationCount} />
+                {/* The row's figure is the records' full amounts (it equals the tab). When bank
+                    lines already cover part of them, say how much -- and what is ACTUALLY left. */}
+                {reconciliationReconciledAmount > 0 && (
+                    <div className="pl-3.5 text-right text-[10px] leading-tight tabular-nums">
+                        <span className="text-green-700">{formatToRoundedIndianRupee(reconciliationReconciledAmount)} reconciled</span>
+                        <span className="text-slate-400"> · </span>
+                        <span className="text-orange-600">
+                            {formatToRoundedIndianRupee(reconciliationAmount - reconciliationReconciledAmount)} actually pending
+                        </span>
+                    </div>
+                )}
             </div>
         </TileShell>
     );
@@ -544,7 +563,7 @@ const RecentActivityTile: React.FC<{
                             <BreakdownRow tone="blue" label="Non-Project" labelLong="Non-Project Inflow" amount={nonProjectInflowAmount} count={nonProjectInflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
                             {/* ⚠️ ALL TIME, NOT 30 DAYS — the inflow twin of Total Unreconciled
                                 Outflow, below a rule for the same reason. Same number as Bulk
-                                Import's unfiltered "Still open / Received". */}
+                                Import's unfiltered "Not Matched – Inflow" tab. */}
                             <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                             <BreakdownRow tone="violet" label="Total Unreconciled Inflow" amount={unreconciledInflowAmount} count={unreconciledInflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
                         </div>
@@ -562,7 +581,7 @@ const RecentActivityTile: React.FC<{
                                 not because it shares the window. It is deliberately BELOW a rule, and
                                 is NOT part of the column's "Outflow (30 Days)" total above: adding it
                                 there would sum two different periods into one figure. Same number as
-                                Bulk Import's unfiltered "Still open / Paid out" (#1286). */}
+                                Bulk Import's unfiltered "Not Matched – Outflow" tab. */}
                             <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                             {/* ⚠️ ONE LABEL, NO SHORT VARIANT. Every other row here swaps a short label
                                 in below `lg:`; this one must read "Total Unreconciled Outflow" at every
@@ -795,6 +814,9 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 ceoCount={stats.total_ceo_pending_count}
                                 totalDueAmount={stats.total_pending_payment_amount}
                                 totalDueCount={stats.total_pending_payment_count}
+                                reconciliationAmount={stats.total_reconciliation_pending_amount}
+                                reconciliationCount={stats.total_reconciliation_pending_count}
+                                reconciliationReconciledAmount={stats.total_reconciliation_pending_reconciled_amount ?? 0}
                             />
                         </div>
                         <div className="lg:col-span-3">

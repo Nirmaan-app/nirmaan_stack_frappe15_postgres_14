@@ -297,7 +297,16 @@ def list_expense_lines(doctype: str, name: str) -> list[dict]:
                r.added_on          AS added_on,
                r.beneficiary_name  AS beneficiary_name,
                r.bank_reference_no AS bank_reference_no,
-               r.transfer_id       AS transfer_id
+               r.transfer_id       AS transfer_id,
+               -- The bank line's OWN figures, so a card can say when the line is only part used
+               -- (split across several records): its amount, status, and what its live slips
+               -- -- to any record -- add up to, as magnitudes like `allocation.allocated_of`.
+               r.amount            AS line_amount,
+               r.row_status        AS line_status,
+               (SELECT COALESCE(SUM(ABS(m2.target_amount)), 0)
+                FROM "tab{_MATCH_DOCTYPE}" m2
+                WHERE m2.import_row = m.import_row
+                  AND m2.match_kind = %(settled)s) AS line_reconciled
         FROM "tab{_MATCH_DOCTYPE}" m
         LEFT JOIN "tab{_ROW_DOCTYPE}" r ON r.name = m.import_row
         WHERE m.target_doctype = %(doctype)s

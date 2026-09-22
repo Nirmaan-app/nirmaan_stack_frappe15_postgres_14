@@ -27,6 +27,7 @@ import {
   VendorDetailPopover,
 } from "../components/DetailPopovers";
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
+import { partReconciled } from "../components/expenseBankLinesView";
 
 import {
   APPROVAL_STATUS,
@@ -373,8 +374,7 @@ const REGISTRY: Record<
       // card. An expense row has no parent document — it keeps the hover that
       // shows the untrimmed description, which is the only "more" it has.
       if (isPayment) {
-        if (!r.document_name) return body;
-        return (
+        const documentCard = r.document_name ? (
           <DocumentDetailPopover
             docName={r.document_name}
             docType={r.document_type}
@@ -384,6 +384,26 @@ const REGISTRY: Record<
           >
             {body}
           </DocumentDetailPopover>
+        ) : body;
+        if (r.bank_line_count <= 0) return documentCard;
+        // A payment bank lines settle gets the same Bank lines card as an expense — on its OWN
+        // trigger line, because the PO / WO number already opens the document's card. For a
+        // payment a part payment split, the count and the card are the whole request's.
+        return (
+          <span className="block min-w-0">
+            {documentCard}
+            <ExpenseBankLinesPopover
+              doctype={r.doctype}
+              name={r.name}
+              subtitle={r.document_name || undefined}
+              status={r.status}
+              lineCount={r.bank_line_count}
+            >
+              <span className="text-[10px] text-muted-foreground">
+                {r.bank_line_count} bank {r.bank_line_count === 1 ? "line" : "lines"}
+              </span>
+            </ExpenseBankLinesPopover>
+          </span>
         );
       }
       // An expense several bank lines settled opens its Bank lines card instead (#1303,
@@ -401,7 +421,7 @@ const REGISTRY: Record<
           <ExpenseBankLinesPopover
             doctype={r.doctype}
             name={r.name}
-            expenseType={r.expense_type}
+            subtitle={r.expense_type}
             description={r.against_full || r.against_primary}
             comment={r.comment_text}
             status={r.status}
@@ -527,9 +547,23 @@ const REGISTRY: Record<
     size: 128,
     cell: ({ row }) => {
       const r = row.original;
+      // A row bank lines cover only part of says so right here, not only inside the Bank lines
+      // card — on any ledger. `null` (nothing linked, or fully covered) renders the plain figure.
+      const part = partReconciled({
+        amount: r.amount,
+        linked_total: r.linked_amount,
+        line_count: r.bank_line_count,
+        remaining: r.remaining_amount,
+      });
       const figure = (
-        <div className="pr-2 text-right font-medium tabular-nums">
-          {formatToRoundedIndianRupee(r.amount)}
+        <div className="pr-2 text-right tabular-nums">
+          <div className="font-medium">{formatToRoundedIndianRupee(r.amount)}</div>
+          {part && (
+            <div className="text-[10px] leading-tight">
+              <div className="text-green-700">{part.reconciled} reconciled</div>
+              <div className="text-orange-600">{part.pending} pending</div>
+            </div>
+          )}
         </div>
       );
       // WO/PO Value, Total Paid and Payable Against Delivery used to be three

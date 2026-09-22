@@ -76,6 +76,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
+# Read by `load_part_reconciled_split_families`, from the modules that own them -- the same slips
+# and statuses every settle path writes, never retyped here.
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, RECONCILIATION_PENDING
+
 # A split must leave something meaningful on BOTH sides. Below this the action
 # is not a partial approval — it is a full approval or a rejection, and both of
 # those already have their own button.
@@ -518,3 +523,84 @@ def _percentage(amount: float, po_total: float) -> str:
     rounding here would make split rows visibly unlike every other row.
     """
     return str(flt(amount) / flt(po_total) * 100)
+
+
+# --- how much of a split request the bank has reconciled -----------------------------------------
+
+
+def load_part_reconciled_split_families() -> list[dict]:
+    """Split payment families a bank line has reached but not finished, in ONE query.
+
+    A family is every payment reachable through `split_from` from one root: a bank part-payment
+    (`settle_row_partial`, whose balance waits at Reconciliation Pending for its own line), a CEO
+    part-approval, and any re-split of either. It is PART-RECONCILED when a member carries a live
+    bank-line slip AND a member is still `Reconciliation Pending`.
+
+    One dict per such family:
+      * `members` -- every payment in it;
+      * `line_count` / `reconciled` -- its members' live slips, counted and totalled;
+      * `pending` -- its Reconciliation Pending members' amounts.
+
+    ⚠️ A ROOT IS A PAYMENT WHOSE `split_from` NAMES NOTHING THAT EXISTS, not merely a blank one, so a
+    family whose first payment was deleted is still found from what is left.
+    """
+    rows = frappe.db.sql(
+        f"""
+        WITH RECURSIVE lineage AS (
+            SELECT p.name, p.name AS root
+            FROM "tab{PAYMENT_DOCTYPE}" p
+            WHERE NOT EXISTS (SELECT 1 FROM "tab{PAYMENT_DOCTYPE}" pp WHERE pp.name = p.split_from)
+              AND EXISTS (SELECT 1 FROM "tab{PAYMENT_DOCTYPE}" c WHERE c.split_from = p.name)
+            UNION ALL
+            SELECT c.name, l.root
+            FROM "tab{PAYMENT_DOCTYPE}" c
+            JOIN lineage l ON c.split_from = l.name
+        ),
+        slips AS (
+            SELECT l.root,
+                   COUNT(m.name) AS line_count,
+                   SUM(m.target_amount) AS reconciled
+            FROM lineage l
+            JOIN "tabOutflow Row Match" m
+              ON m.target_doctype = %(doctype)s
+             AND m.target_name = l.name
+             AND m.match_kind = %(settled)s
+            GROUP BY l.root
+        )
+        SELECT ARRAY_AGG(l.name ORDER BY l.name)                       AS members,
+               MAX(s.line_count)                                        AS line_count,
+               MAX(s.reconciled)                                        AS reconciled,
+               SUM(CASE WHEN p.status = %(pending)s
+                        THEN COALESCE(p.amount, 0) ELSE 0 END)          AS pending
+        FROM lineage l
+        JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = l.name
+        JOIN slips s ON s.root = l.root
+        GROUP BY l.root
+        HAVING SUM(CASE WHEN p.status = %(pending)s THEN 1 ELSE 0 END) > 0
+        """,
+        {
+            "doctype": PAYMENT_DOCTYPE,
+            "settled": MATCH_SETTLED,
+            "pending": RECONCILIATION_PENDING,
+        },
+        as_dict=True,
+    )
+    return [
+        {
+            "members": list(r["members"] or []),
+            "line_count": int(r["line_count"] or 0),
+            "reconciled": flt(r["reconciled"]),
+            "pending": flt(r["pending"]),
+        }
+        for r in rows
+    ]
+
+
+def part_reconciled_split_family_of(payment_name: str) -> dict | None:
+    """The part-reconciled split family `payment_name` belongs to, or `None` -- the same families
+    `load_part_reconciled_split_families` returns, so the Bank lines card and the queue's Amount
+    cell describe one payment with one set of figures."""
+    return next(
+        (f for f in load_part_reconciled_split_families() if payment_name in f["members"]),
+        None,
+    )

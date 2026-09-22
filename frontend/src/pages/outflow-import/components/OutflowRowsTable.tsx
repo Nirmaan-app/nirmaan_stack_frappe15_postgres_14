@@ -38,6 +38,7 @@ import {
     type SortState,
 } from "../outflowTableModel";
 import { skipSourceSummary } from "../skipSourceView";
+import { partlyAllocatedFigures } from "../allocationView";
 import {
     CONFIRM_BY_HAND_CHIP,
     UNRECONCILE_CASHBOOK_SENTENCE,
@@ -591,7 +592,23 @@ const Cell = ({
             // ⚠️ COLOURED BY DIRECTION -- red out, green in (owner, 2026-09-14) -- and that colour
             // is now the only per-row direction marker: the `Direction` column it replaced was
             // removed in the same change. The figure itself is unchanged.
-            return <span className={amountToneClass(row)}>{formatToRoundedIndianRupee(row.amount)}</span>;
+            //
+            // A part-used line also says, under the figure, how much of it is reconciled against
+            // records and how much still waits -- the wording the Payments table uses.
+            {
+                const part = partlyAllocatedFigures(row);
+                const figure = <span className={amountToneClass(row)}>{formatToRoundedIndianRupee(row.amount)}</span>;
+                if (!part) return figure;
+                return (
+                    <div className="tabular-nums">
+                        <div>{figure}</div>
+                        <div className="text-[10px] leading-tight">
+                            <div className="text-green-700">{formatToRoundedIndianRupee(part.reconciled)} reconciled</div>
+                            <div className="text-orange-600">{formatToRoundedIndianRupee(part.pending)} pending</div>
+                        </div>
+                    </div>
+                );
+            }
 
         case "remarks": {
             // ⚠️ WRAPPED, NOT CLIPPED (see `wrapRemarks`). `truncate` cut the narration to one line

@@ -1,7 +1,8 @@
 import frappe
 from frappe.utils import today, add_days, getdate
 
-from nirmaan_stack.api.outflow_import.review import unmatched_outflow_totals
+from nirmaan_stack.api.outflow_import.review import not_matched_totals
+from nirmaan_stack.services.outflow_import.expense_links import load_linked_totals
 
 
 def _to_float(value):
@@ -53,6 +54,10 @@ def get_payment_dashboard_stats():
         # one the tab shows.
         'total_reconciliation_pending_count': 0,
         'total_reconciliation_pending_amount': 0.0,
+        # The part of those records bank lines ALREADY cover -- an expense several lines pay
+        # stays Reconciliation Pending until they add up. Amount minus this = what is actually
+        # still waiting for the bank. Read inside the outflow `try` below; 0 if that fails.
+        'total_reconciliation_pending_reconciled_amount': 0.0,
 
         # Approved
         'total_approval_done_today': 0,
@@ -95,17 +100,17 @@ def get_payment_dashboard_stats():
         # Import: EVERY import, EVERY source, ALL TIME. It is NOT a 30-day figure and must
         # never be folded into the cash-flow block above, which is.
         #
-        # ⚠️ IT IS NOT AGGREGATED HERE. It comes from `review.unmatched_outflow_totals`, which
-        # runs the SAME grouped query and the SAME deriver Bulk Import's own summary panel
-        # runs -- so the card's figure and the panel's "Still open / Paid out" cannot disagree.
-        # A second query written here to the same specification is exactly how they would.
+        # ⚠️ IT IS NOT AGGREGATED HERE. It is Bulk Import's **Not Matched – Outflow** tab PLUS what
+        # is still unallocated on each **Partly Allocated – Outflow** line (owner, 2026-09-22 -- it
+        # was #1286's "Still open", which also counted Matched lines and the WHOLE of a part-used
+        # one). `review.not_matched_totals` builds both from the tabs' own scope clauses, so the
+        # card and the tabs cannot disagree. A second query written here would be how they do.
         'total_unreconciled_outflow_amount': 0.0,
         'total_unreconciled_outflow_count': 0,
 
         # --- Total Unreconciled Inflow ---
-        # The inflow twin of the figure above: bank money that has ARRIVED and still owes
-        # somebody a decision in Bulk Import (its "Still open / Received"). Same source call,
-        # same all-time scope, same rule -- never folded into the 30-day inflow figures.
+        # The inflow twin: Bulk Import's **Not Matched – Inflow** tab. Same source call, same
+        # all-time scope, same rule -- never folded into the 30-day inflow figures.
         'total_unreconciled_inflow_amount': 0.0,
         'total_unreconciled_inflow_count': 0,
     }
@@ -128,6 +133,7 @@ def get_payment_dashboard_stats():
                        'ceo_approval_date', 'payment_date', 'auto_approved']
 
         all_payments = []
+        reconciliation_pending_names = {_ledger: set() for _ledger in LEDGERS}
         for _ledger in LEDGERS:
             for _row in frappe.get_all(_ledger, fields=_row_fields, limit_page_length=None):
                 _row['ledger'] = _ledger
@@ -158,6 +164,7 @@ def get_payment_dashboard_stats():
             if status == 'Reconciliation Pending':
                 stats['total_reconciliation_pending_count'] += 1
                 stats['total_reconciliation_pending_amount'] += amount
+                reconciliation_pending_names[doc.ledger].add(doc.name)
 
             # --- 2b & 2c. APPROVED Check (L1) ---
             # Exclude auto-approved payments — they skipped the L1 gate and are
@@ -276,16 +283,15 @@ def get_payment_dashboard_stats():
             _to_float(r.amount) for r in non_project_expenses
         )
 
-        # --- 2h. Total Unreconciled Outflow — all imports, all sources, all time (#1286) ---
-        # A pass-through, not a calculation. `unmatched_outflow_totals` IS Bulk Import's
-        # unfiltered "Still open / Paid out": imported lines whose direction is Outflow and
-        # whose status is still active (pending match run, matched, mismatched, error,
-        # partially allocated). Settled lines, skipped lines and transfers the bank refused
-        # are already out, decided by the import's own deriver rather than restated here.
+        # --- 2h. Total Unreconciled Outflow / Inflow — all imports, all sources, all time ---
+        # Bulk Import's two Not Matched tabs (owner, 2026-09-22): lines still `Pending match run`,
+        # `Mismatched` or `Error`, by direction -- and on the outflow side, the part of every
+        # Partly Allocated line no record has taken yet (that line counts once). Matched, Settled
+        # and Skipped lines are out, and so are transfers the bank refused.
         #
         # ⚠️ IT CARRIES ITS OWN `try`, AND THAT IS NOT DEFENSIVE HABIT -- IT IS A FAILURE DOMAIN
-        # THIS FIGURE BROUGHT WITH IT. Everything above reads the payment, expense and inflow
-        # ledgers; this one reads `tabOutflow Import Row` through raw SQL naming eight columns.
+        # THESE FIGURES BROUGHT WITH THEM. Everything above reads the payment, expense and inflow
+        # ledgers; this reads `tabOutflow Import Row` and `tabOutflow Row Match` through raw SQL.
         # The function's outer `except` rolls back and re-throws, and the card's client turns ANY
         # error from this endpoint into a single "Error Loading Summary" panel -- so without this
         # guard a site where the outflow-import migration has not run, or a later rename of one of
@@ -297,11 +303,24 @@ def get_payment_dashboard_stats():
         # where the work actually gets done, so a 0 on the card understates a backlog rather than
         # hiding money nothing else reports. The failure is LOGGED, never swallowed silently.
         try:
-            unmatched_outflow = unmatched_outflow_totals()
-            stats['total_unreconciled_outflow_amount'] = unmatched_outflow['amount']
-            stats['total_unreconciled_outflow_count'] = unmatched_outflow['rows']
-            stats['total_unreconciled_inflow_amount'] = unmatched_outflow['received_amount']
-            stats['total_unreconciled_inflow_count'] = unmatched_outflow['received_rows']
+            not_matched = not_matched_totals()
+            # `load_linked_totals` is the live-slip aggregate the queue and the Bank lines card
+            # read, grouped by record; only the Reconciliation Pending records' share is taken.
+            reconciled_in_pending = sum(
+                float(links.linked_total)
+                for ledger, names in reconciliation_pending_names.items()
+                for name, links in load_linked_totals(ledger).items()
+                if name in names
+            )
+            stats['total_unreconciled_outflow_amount'] = (
+                not_matched['outflow']['amount'] + not_matched['partly_outflow']['pending']
+            )
+            stats['total_unreconciled_outflow_count'] = (
+                not_matched['outflow']['rows'] + not_matched['partly_outflow']['rows']
+            )
+            stats['total_unreconciled_inflow_amount'] = not_matched['inflow']['amount']
+            stats['total_unreconciled_inflow_count'] = not_matched['inflow']['rows']
+            stats['total_reconciliation_pending_reconciled_amount'] = reconciled_in_pending
         except Exception as unmatched_error:
             frappe.log_error(
                 f"Total Unreconciled Outflow / Inflow unavailable: {unmatched_error}",

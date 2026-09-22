@@ -3995,11 +3995,10 @@ def _summary_groups(where, params):
     """The ONE grouped query behind every summary figure this feature reports.
 
     ⚠️ IT IS A FUNCTION SO THAT THERE CAN ONLY EVER BE ONE OF IT. `get_outflow_summary` reports a
-    filtered period to the import screen; `unmatched_outflow_totals` reports the unfiltered
-    *Still open / Paid out* figure to the Payments card. Both are the SAME population rule read
-    under different WHERE clauses, and a second hand-written query for the second reader is exactly
-    how the two screens would come to disagree about the same money. The filters stay the caller's;
-    the population rule stays here.
+    filtered period to the import screen through it; a second hand-written query for the same
+    figures is exactly how two readers would come to disagree about the same money. The filters stay
+    the caller's; the population rule stays here. (The Payments card no longer reads it: since
+    2026-09-22 it reports the Not Matched tabs, through `not_matched_totals`.)
 
     ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
     `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
@@ -4075,29 +4074,55 @@ def _summary_tallies(grouped):
     )
 
 
-def unmatched_outflow_totals() -> dict:
-    """Bulk Import's *Still open / Paid out*, over EVERY import, source and date (#1286).
+def not_matched_totals() -> dict:
+    """Bulk Import's two Not Matched tabs, over EVERY import, source and date: lines and money.
 
-    The Payments screen's summary card reports this as **Total Unreconciled Outflow**: bank money
-    that has left the account and still owes somebody a decision. The same call also returns the
-    *Still open / Received* side (`received_amount` / `received_rows`), which the card reports as
-    **Total Unreconciled Inflow** -- same population rule, same one query, opposite direction.
+    The Payments card reports them as **Total Unreconciled Outflow** (`outflow`) and **Total
+    Unreconciled Inflow** (`inflow`) -- owner, 2026-09-22, replacing #1286's *Still open*, which
+    also counted `Matched` lines and the WHOLE of every `Partially Allocated` one. Unreconciled now
+    means what the reviewer sees under Not Matched (`Pending match run`, `Mismatched`, `Error`),
+    PLUS `partly_outflow`: the Partly Allocated – Outflow lines, counted by what is still NOT
+    allocated on each (the line's amount less its live slips, as `allocation.remaining_of` reads
+    it) -- the part of that money no record has taken yet.
 
-    ⚠️ IT IS THE SAME QUERY AND THE SAME DERIVER THE IMPORT SCREEN USES, WITH NO FILTERS. That is
-    the whole requirement: the card and Bulk Import must agree, and two screens agree by sharing
-    one population rule, never by two queries written to the same specification. `open_paid_value`
-    is `derive_import_summary`'s own figure -- summed over the ACTIVE statuses (pending match run,
-    matched, mismatched, error, partially allocated), never subtracted from anything, with settled
-    rows, skipped rows and transfers the bank refused already excluded by the deriver.
+    ⚠️ BUILT FROM THE TABS' OWN `_scope_clause` UNDER `_row_filters` WITH EVERY FILTER ABSENT, so the
+    card and the tab cannot come to disagree about which lines are "not matched". The one addition
+    is the failed-transfer exclusion every summary figure carries (owner ruling 2026-08-10, option
+    B) -- money the bank refused to move owes nobody a decision. A failed transfer is `Skipped` at
+    staging, so on real data it changes nothing.
 
-    ⚠️ IT GOES THROUGH `_row_filters` WITH EVERY FILTER ABSENT rather than passing empty lists, so
-    "no filters" is a fact the shared builder states and not one this function asserts about it.
-
-    ⚠️ NO PERMISSION GATE, AND THAT IS DELIBERATE (#1286). `require_outflow_access` guards the Bulk
-    Import screen; this figure rides a card everyone who can see the Payments screen already sees,
-    and the ticket rules that no new gate is added. It is NOT whitelisted -- it is called in-process
-    by the dashboard stats endpoint, which carries its own `@frappe.whitelist`.
+    ⚠️ NO PERMISSION GATE, AND THAT IS DELIBERATE (#1286). It rides a card everyone who can see the
+    Payments screen already sees. NOT whitelisted -- called in-process by the dashboard stats
+    endpoint, which carries its own `@frappe.whitelist`.
     """
+    totals = {}
+    for key, scope in (("outflow", SCOPE_NOT_MATCHED_OUTFLOW), ("inflow", SCOPE_NOT_MATCHED_INFLOW)):
+        where, params = _row_filters(
+            batch=None,
+            search=None,
+            date_from=None,
+            date_to=None,
+            amount_min=None,
+            amount_max=None,
+            failed="0",
+        )
+        scoped_where, scoped_params = _scope_clause(scope)
+        result = frappe.db.sql(
+            f"""
+            SELECT COUNT(*) AS rows, COALESCE(SUM(r.amount), 0) AS amount
+            FROM "tabOutflow Import Row" r
+            WHERE {" AND ".join(where + scoped_where)}
+            """,
+            tuple(params + scoped_params),
+            as_dict=True,
+        )[0]
+        totals[key] = {
+            "rows": int(result["rows"] or 0),
+            "amount": float(normalize_amount(result["amount"])),
+        }
+
+    # The Partly Allocated – Outflow tab, by what is still unallocated on each line. The same
+    # filters and the tab's own scope clause; slips summed as magnitudes, live ones only.
     where, params = _row_filters(
         batch=None,
         search=None,
@@ -4105,17 +4130,30 @@ def unmatched_outflow_totals() -> dict:
         date_to=None,
         amount_min=None,
         amount_max=None,
+        failed="0",
     )
-    summary = derive_import_summary(_summary_tallies(_summary_groups(where, params)))
-    return {
-        "amount": float(summary["open_paid_value"]),
-        "rows": int(summary["open_paid_rows"]),
-        # The inflow twin: Bulk Import's *Still open / Received*. Read off the SAME derived
-        # summary, never a second query -- `open_paid + open_received == open` is the deriver's
-        # own invariant, so the two card figures cannot drift from the panel or from each other.
-        "received_amount": float(summary["open_received_value"]),
-        "received_rows": int(summary["open_received_rows"]),
+    scoped_where, scoped_params = _scope_clause(SCOPE_PARTLY_OUTFLOW)
+    result = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) AS rows, COALESCE(SUM(t.amount - t.allocated), 0) AS pending
+        FROM (
+            SELECT r.amount,
+                   (SELECT COALESCE(SUM(ABS(m.target_amount)), 0)
+                    FROM "tabOutflow Row Match" m
+                    WHERE m.import_row = r.name
+                      AND TRIM(COALESCE(m.match_kind, '')) = %s) AS allocated
+            FROM "tabOutflow Import Row" r
+            WHERE {" AND ".join(where + scoped_where)}
+        ) t
+        """,
+        (MATCH_SETTLED,) + tuple(params + scoped_params),
+        as_dict=True,
+    )[0]
+    totals["partly_outflow"] = {
+        "rows": int(result["rows"] or 0),
+        "pending": float(normalize_amount(result["pending"])),
     }
+    return totals
 
 
 def _settled_by_direction(where, params) -> list[dict]:
