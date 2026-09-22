@@ -28,12 +28,12 @@
  * anomalous. `file_swap_detected` is excluded for the same structural reason
  * (gate 13's else-branch needs a source URL).
  *
- * ⚠️ Reasons are a snapshot from CREATION — they do not re-run on their own, so
- * a reason can be stale once the PO has been delivered or the invoice corrected.
- * The RE-CHECK (`api/invoices/recheck_auto_approve.py`, driven from the reason
- * key and the row hover) re-runs every gate against current data and rewrites
- * this field — but ONLY the `CEILING_REASONS` below; every other reason is
- * left exactly as recorded.
+ * ⚠️ Reasons are a snapshot from CREATION, so a reason can be stale once the PO
+ * has been delivered or the invoice corrected. The RE-CHECK
+ * (`api/invoices/recheck_auto_approve.py` — daily at 05:00 via
+ * `tasks/invoice_recheck.py`, and on demand from the reason key and the row
+ * hover) re-evaluates against current data and rewrites this field — but ONLY
+ * the `CEILING_REASONS` below; every other reason is left exactly as recorded.
  *
  * Pure module, no React — unit-tested, per ADR-0010 F4.
  */

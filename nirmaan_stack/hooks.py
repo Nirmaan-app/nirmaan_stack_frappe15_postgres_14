@@ -445,6 +445,11 @@ scheduler_events = {
 			"nirmaan_stack.tasks.vendor_credit_update.update_all_vendor_credits",
 			# "nirmaan_stack.tasks.project_cashflow_hold_update.update_projects_cashflow_hold"
 		],
+		# Invoice re-check: approve Pending PO invoices whose PO-value checks now pass
+		# (delivery recorded / PO revised since upload). Same sweep as the Re-check button.
+		"0 5 * * *": [
+			"nirmaan_stack.tasks.invoice_recheck.run_daily_recheck"
+		],
 		"0 1 * * *": [
 			"nirmaan_stack.tasks.pmo_task_renewal.renew_due_recurring_tasks"
 		],

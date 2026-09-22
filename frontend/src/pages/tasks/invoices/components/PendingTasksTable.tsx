@@ -87,8 +87,8 @@ export const PendingTasksTable: React.FC = () => {
 
     // --- Auto-approve re-check ---
     // The gates run once, at creation. A PO delivered afterwards leaves its
-    // invoice sitting behind `nothing_delivered_yet` forever; this re-runs them
-    // against current data. Gated to the same profiles that may approve — the
+    // invoice sitting behind `nothing_delivered_yet` until the PO-value gates
+    // re-run — daily at 05:00 (`tasks/invoice_recheck.py`), or on demand here. Gated to the same profiles that may approve — the
     // backend enforces it, this only decides whether the controls render.
     const canRecheck = canActionInvoiceApprovals(role, user_id);
     const [recheckOpen, setRecheckOpen] = React.useState(false);
