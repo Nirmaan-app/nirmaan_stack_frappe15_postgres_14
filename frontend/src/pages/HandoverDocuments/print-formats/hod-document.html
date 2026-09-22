@@ -1,0 +1,433 @@
+<!--
+    PRINT FORMAT: HOD Document            (DocType: Project HOD Document, Custom HTML, Jinja)
+    One handover document of one system of one project. Every value is prepared by
+    `hod_print_context(doc)` (nirmaan_stack/api/hod/print_context.py, a hooks.jinja method);
+    this file is layout only. The binder renders this same HTML page by page.
+
+    Margins come from the top-level `.print-format { ... }` rule below -- Frappe reads them into
+    wkhtmltopdf options; the Print Format's own margin fields are not read for a Custom HTML format.
+    The Inventory List switches the whole PDF to landscape the same way.
+-->
+{%- set ctx = hod_print_context(doc) -%}
+{%- set h = ctx.header -%}
+
+<style>
+.print-format { margin-top: 30mm; margin-bottom: 24mm; margin-left: 12mm; margin-right: 12mm; }
+/* The rule above is read ONLY as wkhtmltopdf page margins. The header/footer pages wrap their content in a
+   .print-format div too, so cancel it as CSS (a div.* selector is not read as a page option). */
+div.print-format { margin: 0 auto !important; }
+{% if ctx.landscape %}.print-format { orientation: Landscape; }{% endif %}
+* { box-sizing: border-box; }
+html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.3; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; }
+.hd-title { text-align: center; font-weight: 700; font-size: 13px; text-decoration: underline; margin: 2px 0 8px 0; text-transform: uppercase; }
+.hd-subtitle { text-align: center; font-weight: 700; font-size: 11px; margin: 0 0 8px 0; }
+.hd-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: -1px 0 0 0; }
+/* Frappe's print page forces `.print-format td { padding: 6px !important }`, which made every row twice as
+   tall as designed: the doubled selectors below out-rank it in both render paths. */
+.hd-table td, .hd-table th, .print-format .hd-table td, .print-format .hd-table th {
+    border: 1px solid #000; padding: 3px 5px !important; vertical-align: top !important;
+    font-size: 10px; line-height: 1.3; word-wrap: break-word; color: #000;
+}
+.hd-table th, .print-format .hd-table th { font-weight: 700; text-align: center; background: #f2f2f2; vertical-align: middle !important; }
+/* The VENDOR / PROJECT / ... block: roomier rows than the data tables (owner's layout). */
+.hd-table.hd-head td, .print-format .hd-table.hd-head td { padding: 7px 10px !important; vertical-align: middle !important; font-size: 10.5px; }
+.hd-head td.hd-hl { width: 130px; font-weight: 700; }
+.hd-c { text-align: center; }
+.hd-r { text-align: right; }
+.hd-b { font-weight: 700; }
+.hd-row td { height: 20px; }
+.hd-gap { height: 10px; }
+.hd-para { font-size: 10.5px; line-height: 1.6; text-align: justify; margin: 8px 0; }
+.hd-note { font-size: 10px; margin: 8px 0; }
+.hd-muted { color: #666; }
+.hd-fill { display: inline-block; min-width: 140px; border-bottom: 1px solid #000; }
+.hd-box { border: 1px solid #000; min-height: 60px; padding: 4px 6px; margin-top: 8px; }
+/* Signatures as in the Commission Report: a row of role titles over a row of empty boxes. */
+.hd-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 20px; page-break-inside: avoid; }
+.hd-sigs.hd-sigs-one { width: 38%; }
+.hd-sigs .hd-sig-header td, .print-format .hd-sigs .hd-sig-header td {
+    border: 1px solid #000; text-align: center; padding: 5px !important; font-size: 11px; font-weight: 700; color: #000;
+}
+.hd-sigs .hd-sig-box td, .print-format .hd-sigs .hd-sig-box td { border: 1px solid #000; height: 60px; padding: 0 !important; }
+.hd-list { margin: 4px 0 10px 0; padding-left: 20px; font-size: 10.5px; line-height: 1.55; }
+.hd-list li { margin-bottom: 3px; }
+.hd-lib { font-size: 10.5px; line-height: 1.5; }
+.hd-lib h4 { font-size: 11px; margin: 10px 0 4px 0; }
+.hd-lib p { margin: 3px 0; }
+.hd-lib ul { margin: 3px 0 6px 0; padding-left: 18px; }
+.hd-lib img { max-width: 100%; max-height: 180mm; }
+.hd-page { page-break-after: always; }
+.hd-page:last-child { page-break-after: auto; }
+.hd-pics { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.hd-pics tr { page-break-inside: avoid; }
+.hd-pics td, .print-format .hd-pics td { width: 50%; border: 1px solid #bbb; padding: 6px !important; text-align: center; vertical-align: top !important; }
+.hd-pics td.hd-pics-empty { border: 0; }
+.hd-pics img { max-width: 100%; max-height: 90mm; }
+.hd-cap { font-size: 10px; margin-top: 4px; color: #333; }
+.hd-off { border: 1px dashed #999; padding: 16px; text-align: center; color: #555; margin-top: 30px; }
+</style>
+
+<div id="header-html">
+    <div style="text-align: center; border-bottom: 1.5px solid #000; background: #fff;font-family: 'Inter', Helvetica, Arial, sans-serif;  line-height: 22px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1056 1056"
+             preserveAspectRatio="xMidYMid meet"
+             width="40" height="40"
+             style="vertical-align: bottom; margin-right: 14px;">
+            <g transform="translate(0,1056) scale(0.1,-0.1)" fill="#DC2626" stroke="none">
+                <path d="M4534 8883 c-39 -48 -89 -113 -112 -143 -23 -30 -45 -59 -50 -65 -22 -29 -49 -65 -62 -85 -8 -12 -48 -66 -87 -120 -40 -55 -73 -101 -73 -104 0 -4 -8 -15 -17 -25 -28 -31 -40 -46 -52 -68 -6 -12 -17 -27 -23 -35 -7 -7 -29 -36 -47 -63 -19 -28 -37 -52 -40 -55 -4 -3 -10 -12 -16 -22 -16 -26 -168 -242 -174 -248 -3 -3 -20 -25 -36 -50 -17 -25 -34 -50 -40 -57 -11 -13 -11 -13 -181 -258 -68 -99 -131 -188 -139 -197 -8 -10 -11 -18 -7 -18 4 0 2 -4 -3 -8 -11 -8 -80 -102 -168 -232 -32 -47 -99 -143 -148 -215 -50 -71 -107 -155 -127 -185 -20 -30 -40 -57 -43 -60 -3 -3 -18 -25 -34 -49 -15 -25 -31 -49 -36 -55 -10 -12 -33 -45 -183 -266 -55 -80 -104 -148 -110 -152 -6 -4 -7 -8 -2 -8 5 0 0 -10 -11 -22 -11 -13 -60 -81 -109 -153 -48 -71 -111 -163 -139 -204 -27 -40 -54 -80 -60 -89 -5 -9 -18 -25 -27 -36 -10 -11 -20 -28 -24 -38 -3 -10 -9 -18 -14 -18 -4 0 -10 -8 -13 -17 -4 -10 -30 -52 -60 -93 -52 -73 -171 -246 -251 -365 -23 -33 -43 -62 -46 -65 -3 -3 -38 -54 -79 -115 -40 -60 -77 -111 -82 -113 -5 -2 -9 -8 -9 -14 0 -6 -23 -41 -50 -79 -28 -39 -56 -81 -62 -94 -6 -14 -15 -25 -19 -25 -4 0 -10 -8 -14 -19 -3 -10 -13 -28 -23 -39 -48 -57 -56 -67 -54 -70 2 -1 -5 -12 -14 -25 -25 -34 -285 -415 -398 -582 -55 -82 -104 -154 -109 -160 -18 -23 -157 -226 -157 -230 0 -8 -94 -140 -102 -143 -4 -2 -8 -8 -8 -13 0 -5 -29 -52 -65 -104 -36 -51 -65 -100 -65 -109 0 -25 66 -37 212 -40 57 -1 109 -5 116 -10 7 -4 12 -2 12 5 0 8 4 8 15 -1 8 -7 15 -9 15 -4 0 10 83 9 99 -1 6 -3 11 -3 11 2 0 10 111 10 127 0 5 -3 13 -4 17 0 5 6 246 11 758 16 98 1 178 6 178 10 0 4 6 4 14 0 8 -4 37 -6 65 -5 l50 4 66 99 c36 54 65 103 65 108 0 5 3 11 8 13 4 1 73 104 152 228 79 124 159 246 177 272 18 26 33 50 33 53 0 3 5 11 11 18 14 17 95 142 127 197 14 25 32 49 39 53 7 4 13 13 13 18 0 6 19 38 42 72 24 34 51 78 62 97 10 19 21 37 25 40 13 11 51 70 51 80 0 5 5 10 10 10 6 0 10 5 10 10 0 6 16 33 35 60 19 27 35 52 35 55 0 2 18 30 39 62 75 111 161 244 161 249 0 3 5 10 10 17 6 7 28 39 49 72 21 33 73 113 115 178 42 64 76 122 76 127 0 6 5 10 10 10 6 0 14 8 17 18 4 9 58 95 120 190 62 95 113 177 113 182 0 6 5 10 10 10 6 0 10 7 10 15 0 8 3 15 8 15 4 0 18 20 32 45 14 25 28 45 32 45 5 0 8 4 8 8 0 8 98 164 117 187 5 6 20 28 33 50 13 22 28 42 32 43 4 2 8 8 8 12 0 8 36 68 58 95 4 6 22 33 39 60 18 28 36 55 40 60 5 6 30 42 56 80 74 111 78 116 135 193 70 95 114 138 146 144 27 5 62 -26 136 -122 19 -25 37 -47 40 -50 3 -3 27 -34 53 -70 26 -36 54 -74 63 -85 39 -51 119 -166 253 -364 80 -119 149 -217 153 -219 4 -2 8 -8 8 -14 0 -8 77 -126 113 -173 4 -5 39 -55 77 -110 178 -258 258 -367 275 -377 12 -7 88 83 195 229 19 26 37 50 40 53 3 3 25 34 49 70 25 36 47 67 50 70 4 3 26 34 51 70 24 36 48 67 52 68 4 2 8 10 8 18 0 8 5 14 10 14 6 0 10 7 10 15 0 8 4 15 9 15 5 0 12 8 15 18 4 10 14 27 24 38 10 10 28 37 42 59 13 22 30 44 37 48 7 4 13 12 13 17 0 8 104 170 168 260 93 134 87 213 -31 398 -26 40 -47 77 -47 82 0 6 -4 10 -8 10 -4 0 -36 39 -70 88 -112 159 -185 257 -193 260 -5 2 -9 9 -9 14 0 6 -7 18 -15 27 -30 32 -95 121 -95 130 0 5 -4 11 -9 13 -12 4 -81 96 -81 107 0 5 -4 11 -9 13 -5 2 -52 62 -106 133 -124 166 -137 182 -155 205 -8 10 -22 28 -30 40 -8 12 -20 28 -25 34 -6 6 -40 49 -75 96 -36 46 -70 91 -77 100 -7 8 -26 33 -42 55 -17 22 -36 46 -43 54 -6 8 -42 55 -80 105 -79 105 -107 141 -128 165 -8 9 -28 35 -44 56 -17 22 -33 42 -36 45 -3 3 -17 21 -30 40 -13 19 -29 40 -35 46 -5 6 -23 28 -40 49 -16 21 -34 43 -40 49 -5 6 -32 40 -60 76 -27 36 -52 67 -55 70 -3 3 -37 44 -74 93 -38 48 -73 87 -78 87 -4 0 -8 6 -8 13 0 6 -22 34 -49 60 l-48 49 -69 -89z"/>
+                <path d="M8303 7062 c-39 -59 -107 -163 -151 -232 -45 -69 -85 -130 -90 -136 -5 -5 -15 -21 -22 -34 -7 -14 -19 -31 -27 -38 -7 -7 -13 -19 -13 -27 0 -7 -7 -15 -15 -19 -8 -3 -15 -12 -15 -21 0 -8 -4 -15 -9 -15 -5 0 -11 -8 -15 -17 -5 -18 -26 -53 -36 -63 -10 -10 -50 -69 -50 -74 0 -2 -22 -37 -49 -78 -26 -40 -70 -107 -96 -148 -26 -41 -74 -114 -107 -162 -32 -49 -58 -90 -58 -93 0 -2 -13 -24 -29 -47 -45 -65 -211 -320 -211 -323 0 -4 -108 -168 -120 -182 -5 -7 -10 -15 -10 -17 0 -3 -25 -42 -55 -87 -30 -45 -55 -83 -55 -84 0 -2 -31 -50 -68 -107 -38 -57 -124 -190 -193 -296 -125 -195 -139 -216 -173 -268 -10 -16 -48 -74 -84 -129 -36 -55 -87 -132 -114 -172 -26 -39 -48 -76 -48 -81 0 -6 -3 -12 -7 -14 -8 -3 -145 -203 -152 -222 -2 -6 -12 -19 -23 -30 -10 -11 -18 -26 -18 -33 0 -7 -4 -13 -10 -13 -5 0 -10 -6 -10 -14 0 -8 -3 -16 -7 -18 -5 -1 -26 -30 -48 -63 -22 -33 -43 -64 -48 -70 -4 -5 -32 -45 -63 -87 -64 -89 -88 -99 -144 -59 -71 50 -189 197 -366 456 -48 72 -92 132 -96 133 -4 2 -8 8 -8 14 0 8 -74 122 -90 138 -7 7 -29 42 -37 60 -4 8 -17 26 -30 40 -13 14 -23 28 -23 32 0 4 -15 28 -32 53 -18 26 -38 54 -43 63 -9 14 -68 102 -125 187 -8 12 -28 42 -45 66 -118 175 -199 273 -236 284 -24 8 -69 -12 -69 -31 0 -7 -4 -14 -8 -16 -5 -1 -56 -68 -115 -148 -59 -80 -115 -156 -124 -169 -99 -133 -361 -522 -408 -606 -16 -27 -34 -57 -40 -65 -17 -22 -68 -141 -68 -160 -1 -25 15 -70 24 -70 5 0 9 -5 9 -10 0 -14 120 -204 132 -208 4 -2 8 -10 8 -18 0 -8 5 -14 10 -14 6 0 10 -5 10 -10 0 -6 22 -41 50 -79 28 -38 50 -73 50 -79 0 -6 4 -12 8 -14 4 -1 75 -97 157 -213 82 -115 153 -214 158 -220 4 -5 26 -35 48 -65 21 -30 46 -64 55 -75 9 -11 39 -53 67 -92 28 -40 54 -73 59 -73 4 0 8 -7 8 -15 0 -8 5 -15 10 -15 6 0 10 -7 10 -15 0 -8 3 -15 8 -15 4 0 18 -17 32 -38 14 -20 27 -39 30 -42 3 -3 39 -50 80 -105 41 -55 79 -105 84 -111 6 -6 18 -22 26 -34 8 -12 35 -47 58 -78 24 -32 52 -68 63 -82 10 -14 47 -61 82 -106 34 -45 73 -96 87 -114 14 -18 71 -91 128 -163 56 -71 102 -134 102 -139 0 -5 5 -6 10 -3 6 3 10 2 10 -4 0 -24 296 -361 317 -361 15 0 101 99 176 201 54 74 129 176 140 189 7 8 30 42 52 75 22 33 45 65 50 70 6 6 26 34 45 62 19 29 38 53 43 53 4 0 7 5 7 10 0 8 64 103 97 145 9 11 81 117 98 143 6 9 20 27 33 41 12 14 22 31 22 38 0 6 4 13 8 15 4 2 48 61 96 132 49 71 100 146 115 167 14 20 33 47 41 59 8 12 27 39 41 59 53 76 134 193 144 209 6 10 13 19 16 22 3 3 19 25 35 49 68 104 175 258 226 328 21 29 38 55 38 58 0 4 19 32 43 63 24 31 52 72 62 90 11 17 23 32 28 32 4 0 6 4 3 9 -4 5 -3 11 2 13 4 1 23 27 42 56 18 28 37 52 42 52 4 0 8 5 8 10 0 6 12 28 28 49 15 21 33 47 40 57 6 11 46 68 87 127 41 59 75 112 75 118 0 5 3 9 8 9 4 0 27 32 51 70 24 39 48 70 53 70 4 0 8 5 8 10 0 12 33 61 64 98 11 12 16 22 13 22 -6 0 13 26 41 55 6 8 12 16 12 19 0 2 32 50 70 106 39 56 70 105 70 110 0 4 3 10 8 12 12 5 62 76 62 87 0 6 3 11 8 11 4 0 21 23 37 50 17 27 33 50 38 50 4 0 7 5 7 10 0 9 35 65 50 80 7 7 32 43 155 225 59 88 117 170 128 183 11 12 16 22 11 22 -5 0 -4 4 2 8 6 4 48 63 95 132 46 69 86 127 89 130 6 6 120 172 135 198 6 9 14 21 18 26 34 44 137 199 137 206 0 4 4 10 8 12 7 3 89 121 298 430 40 59 78 113 84 120 6 7 25 36 42 63 18 28 35 52 38 55 3 3 25 36 50 74 24 38 49 74 55 80 5 7 15 19 20 28 6 9 53 78 105 154 52 76 97 143 99 149 2 5 12 18 23 28 10 10 16 22 13 28 -4 5 -340 9 -853 9 l-848 -1 -71 -107z"/>
+            </g>
+        </svg>
+        <span style="font-size: 22px; font-weight: 200; letter-spacing: 0.4px;">
+            STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED
+        </span>
+    </div>
+</div>
+
+<div id="footer-html">
+    {# class letter-head-footer: Frappe's footer page starts 15mm down; this class pulls the address up so
+       the CIN line is not clipped. (A Jinja comment: an HTML comment here prints as text in the PDF.) #}
+    <div class="letter-head-footer" style="text-align: center; border-top: 1px solid #000;  background: #fff; font-family: 'Inter', Helvetica, Arial, sans-serif; line-height:1">
+        <span style="text-align: center; font-size: 9px; color: #333;">Registered Address: Flat 403, Fine Aura Co-operative Housing Society, Marol Military Road, Andheri East, Mumbai, Maharashtra - 400059</span></br>
+        <span style="text-align: center; font-size: 9px; color: #333;">Corporate Address: No.234, 1st Floor, 9th Main, 16th Cross, 6th Sector, HSR Layout, Bangalore, Karnataka, 560102</span></br>
+        <span style="text-align: center; font-size: 9px; font-weight: 700; color: #333;">CIN: U74999MH2021PTC358936</span>
+    </div>
+</div>
+
+{#- v(): a value as escaped text; a missing key or None prints nothing (DebugUndefined would print the expression) -#}
+{%- macro v(x) -%}{%- if x is defined and x is not none -%}{{ x | string | e }}{%- endif -%}{%- endmacro -%}
+
+{#- The VENDOR / PROJECT / LOCATION / DATE / PACKAGE block (owner 2026-09-22): Escalation Matrix, Maintenance Checklist,
+    Inventory, Attic Stock, Key List and Warranty only (the checklist format prints its own copy). -#}
+{%- macro head_table(h, date_label="DATE", date_value=None) -%}
+<table class="hd-table hd-head">
+    <tr><td class="hd-hl">VENDOR</td><td>{{ h.vendor }}</td></tr>
+    <tr><td class="hd-hl">PROJECT</td><td>{{ v(h.project) }}</td></tr>
+    <tr><td class="hd-hl">LOCATION</td><td>{{ v(h.location) }}</td></tr>
+    <tr><td class="hd-hl">{{ date_label }}</td><td>{{ v(date_value if date_value is not none else h.date) }}</td></tr>
+    <tr><td class="hd-hl">PACKAGE</td><td>{{ v(h.package) }}</td></tr>
+</table>
+<div class="hd-gap"></div>
+{%- endmacro -%}
+
+{%- macro signatures(ctx) -%}
+<table class="hd-sigs">
+    <tr class="hd-sig-header"><td>TESTED BY</td><td>{{ v(ctx.consultant_label) }}</td><td>CLIENT</td></tr>
+    <tr class="hd-sig-box"><td></td><td></td><td></td></tr>
+</table>
+{%- endmacro -%}
+
+{%- macro signature_one(label) -%}
+<table class="hd-sigs hd-sigs-one">
+    <tr class="hd-sig-header"><td>{{ label }}</td></tr>
+    <tr class="hd-sig-box"><td></td></tr>
+</table>
+{%- endmacro -%}
+
+{%- macro fill(value) -%}{% if value %}{{ v(value) }}{% else %}<span class="hd-fill">&nbsp;</span>{% endif %}{%- endmacro -%}
+
+{% if ctx.disabled %}
+    <div class="hd-title">{{ v(ctx.title) }}</div>
+    <div class="hd-off">This document is switched off for {{ v(ctx.display_name) }} on this project, so it is not part of the handover.</div>
+
+{# ------------------------------------------------------------------ 1. Escalation Chart #}
+{% elif ctx.key == "escalation_chart" %}
+    <div class="hd-title">Project Escalation Matrix</div>
+    {{ head_table(h) }}
+    <table class="hd-table">
+        <tr><th style="width: 14%;">Escalation</th><th style="width: 22%;">Contact Person</th><th style="width: 20%;">Designation</th><th style="width: 18%;">Contact Info.</th><th>Email Address</th></tr>
+        {% for lv in ctx.levels %}
+        <tr class="hd-row">
+            <td class="hd-b">{{ lv.label }}</td>
+            <td>{{ v(lv.name) }}</td>
+            <td>{{ v(lv.designation) }}</td>
+            <td>{{ v(lv.phone) }}</td>
+            <td>{{ v(lv.email) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-para">If any queries / complaints with regards to the work, services, drawings and material, please follow the above escalation provided.</p>
+
+{# ------------------------------------------- 2, 3, 14. From the Commission Report #}
+{% elif ctx.key in ("demo_training", "commissioning_report", "factory_test_reports") %}
+    <div class="hd-title">{{ v(ctx.title) }}</div>
+    {% set items = ctx.sources["items"] %}
+    {% if items %}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S.No</th><th>Report</th><th style="width: 24%;">Category</th><th style="width: 16%;">Status</th><th style="width: 12%;">Filled</th></tr>
+        {% for t in items %}
+        <tr>
+            <td class="hd-c">{{ loop.index }}</td>
+            <td>{{ v(t.task_name) }}</td>
+            <td>{{ v(t.commission_category) }}</td>
+            <td class="hd-c">{{ v((t.task_status or "Pending")) }}</td>
+            <td class="hd-c">{{ "Yes" if t.has_report else "No" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-note">The reports listed above are kept in Nirmaan&rsquo;s Commission Report. In the handover binder each filled report follows this page.</p>
+    {% else %}
+    <div class="hd-off">No {{ v(ctx.title) }} is recorded for {{ v(ctx.display_name) }} in this project&rsquo;s Commission Report yet.</div>
+    {% endif %}
+
+{# ------------------------------------------------------------ 4. Material TDS #}
+{% elif ctx.key == "material_tds" %}
+    <div class="hd-title">Technical Data Sheet</div>
+    {% set items = ctx.sources["items"] %}
+    {% if items %}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S.No</th><th>Item</th><th style="width: 18%;">Make</th><th style="width: 22%;">Category</th><th style="width: 12%;">Status</th><th style="width: 10%;">Sheet</th></tr>
+        {% for t in items %}
+        <tr>
+            <td class="hd-c">{{ loop.index }}</td>
+            <td>{{ v(t.tds_item_name) }}</td>
+            <td>{{ v(t.tds_make) }}</td>
+            <td>{{ v(t.tds_category) }}</td>
+            <td class="hd-c">{{ v(t.tds_status) }}</td>
+            <td class="hd-c">{{ "Yes" if t.tds_attachment else "No" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-note">In the handover binder each attached data sheet follows this page.</p>
+    {% else %}
+    <div class="hd-off">No Technical Data Sheet item is recorded for {{ v(ctx.display_name) }} on this project yet.</div>
+    {% endif %}
+
+{# ------------------------------------------------------ 5. O&M Manual (library) #}
+{% elif ctx.key == "om_manual" %}
+    {% for block in ctx.library %}
+    <div class="hd-page">
+        <div class="hd-title">{{ v(block.title) }}</div>
+        <div class="hd-lib">{{ block.html }}</div>
+    </div>
+    {% else %}
+    {% if not ctx.pictures %}
+    <div class="hd-title">Operations &amp; Maintenance Manual</div>
+    <div class="hd-off">No O&amp;M manual part is selected for this system.</div>
+    {% endif %}
+    {% endfor %}
+    {# Pictures uploaded for THIS project and system (not library text), two per row. #}
+    {% if ctx.pictures %}
+    <div class="hd-page">
+        <div class="hd-title">Operations &amp; Maintenance Manual &ndash; Pictures</div>
+        <table class="hd-pics">
+            {% for pair in ctx.pictures | batch(2) %}
+            <tr>
+                {% for p in pair %}<td><img src="{{ p.src }}"><div class="hd-cap">{{ v(p.caption) }}</div></td>{% endfor %}
+                {% if pair | length == 1 %}<td class="hd-pics-empty"></td>{% endif %}
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+{# ---------------------------------------------------- 6. Do's & Don'ts (library) #}
+{% elif ctx.key == "dos_donts" %}
+    {% for block in ctx.library %}
+    <div class="hd-page">
+        <div class="hd-title">{{ v(block.title) }}</div>
+        <div class="hd-b" style="font-size: 11px;">Do&rsquo;s:</div>
+        <ol class="hd-list">{% for x in block.list_1 %}<li>{{ v(x) }}</li>{% endfor %}</ol>
+        <div class="hd-b" style="font-size: 11px;">Don&rsquo;t:</div>
+        <ol class="hd-list">{% for x in block.list_2 %}<li>{{ v(x) }}</li>{% endfor %}</ol>
+    </div>
+    {% else %}
+    <div class="hd-title">Do&rsquo;s &amp; Don&rsquo;ts</div>
+    <div class="hd-off">No Do&rsquo;s &amp; Don&rsquo;ts part is selected for this system.</div>
+    {% endfor %}
+
+{# ---------------------------------------------- 7. Maintenance Checklist (library) #}
+{% elif ctx.key == "maintenance_checklist" %}
+    {% set pages = [] %}
+    {% for block in ctx.library %}
+        {% if block.list_1 %}{% set _ = pages.append((block, "Six Months Report", block.list_1)) %}{% endif %}
+        {% if block.list_2 %}{% set _ = pages.append((block, "Yearly Report", block.list_2)) %}{% endif %}
+    {% endfor %}
+    {% for block, period, items in pages %}
+    <div class="hd-page">
+        <div class="hd-title">{{ v(block.title) }}</div>
+        {{ head_table(h) }}
+        <p class="hd-note">Check the boxes if they are satisfactory and mention any remarks if needed.</p>
+        <table class="hd-table">
+            <tr><th rowspan="2" style="width: 7%;">Sl.No</th><th rowspan="2">DESCRIPTION</th><th colspan="2" style="width: 34%;">{{ period }}</th></tr>
+            <tr><th style="width: 12%;">Result</th><th>Remarks</th></tr>
+            {% for x in items %}
+            <tr><td class="hd-c">{{ loop.index }}</td><td>{{ v(x) }}</td><td></td><td></td></tr>
+            {% endfor %}
+        </table>
+        <p class="hd-note"><span class="hd-b">Emergency Maintenance:</span><br>In case of critical failures or unexpected issues, conduct immediate diagnostics and repairs. Ensure that personnel are familiar with emergency shutdown procedures.</p>
+        <div class="hd-b">Comments :</div>
+        <div class="hd-box"></div>
+        {{ signatures(ctx) }}
+    </div>
+    {% else %}
+    <div class="hd-title">Maintenance Checklist</div>
+    <div class="hd-off">No maintenance checklist part is selected for this system.</div>
+    {% endfor %}
+
+{# ------------------------------------------------ 8. Inventory List (landscape) #}
+{% elif ctx.key == "inventory_list" %}
+    {% set inv = ctx.inventory %}
+    <div class="hd-title">Inventory List</div>
+    {{ head_table(h) }}
+    <table class="hd-table">
+        <tr>
+            <th style="width: 5%;">S No</th>
+            <th style="width: 22%;">Location</th>
+            {% for m in inv.materials %}<th>{{ v(m) }}</th>{% endfor %}
+        </tr>
+        {% for r in inv.rows %}
+        <tr class="hd-row">
+            <td class="hd-c">{{ loop.index }}</td>
+            <td>{{ v(r.name) }}</td>
+            {% for c in r.cells %}<td class="hd-c">{{ v(c) }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+        {% if inv.totals %}
+        <tr>
+            <td></td><td class="hd-b hd-r">TOTAL</td>
+            {% for t in inv.totals %}<td class="hd-c hd-b">{{ t }}</td>{% endfor %}
+        </tr>
+        {% endif %}
+    </table>
+    {{ signatures(ctx) }}
+
+{# -------------------------------------------------- 9. Recommended Tools List #}
+{% elif ctx.key == "recommended_tools" %}
+    <div class="hd-title">{{ v(ctx.display_name) }} &ndash; Recommended Tool List for Maintenance</div>
+    <p class="hd-para">Proper maintenance is crucial for ensuring the safety, efficiency, and longevity of all the systems. Below is a comprehensive list of recommended tools for {{ v(ctx.display_name | title) }} maintenance.</p>
+    <table class="hd-table">
+        <tr><th style="width: 8%;">Sl No</th><th>Recommended Tools</th><th style="width: 30%;">Remarks</th></tr>
+        {% for t in ctx.tools %}
+        <tr><td class="hd-c">{{ loop.index }}</td><td>{{ v(t) }}</td><td></td></tr>
+        {% endfor %}
+    </table>
+
+{# ------------------------------------------------------- 10. Attic Stock List #}
+{% elif ctx.key == "attic_stock_list" %}
+    <div class="hd-title">Attic Stock List</div>
+    {{ head_table(h) }}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S No</th><th>Material</th><th style="width: 20%;">Make</th><th style="width: 13%;">Qty (in Nos)</th><th style="width: 24%;">Remarks</th></tr>
+        {% for r in ctx.rows %}
+        <tr class="hd-row">
+            <td class="hd-c">{{ loop.index }}</td>
+            <td>{{ v(r.material) }}</td>
+            <td>{{ v(r.make) }}</td>
+            <td class="hd-c">{{ v(r.qty) }}</td>
+            <td>{{ v(r.remarks) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {{ signatures(ctx) }}
+
+{# --------------------------------------------------------------- 11. Key List #}
+{% elif ctx.key == "key_list" %}
+    {% set rc = ctx.receiver %}
+    <div class="hd-title">Key List</div>
+    {{ head_table(h) }}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S No</th><th>Description</th><th style="width: 16%;">Key No.</th><th style="width: 13%;">Qty (in Nos)</th><th style="width: 22%;">Remarks</th></tr>
+        {% for r in ctx.rows %}
+        <tr class="hd-row">
+            <td class="hd-c">{{ loop.index }}</td>
+            <td>{{ v(r.description) }}</td>
+            <td class="hd-c">{{ v(r.key_no) }}</td>
+            <td class="hd-c">{{ v(r.qty) }}</td>
+            <td>{{ v(r.remarks) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <div class="hd-gap"></div>
+    <table class="hd-table">
+        <tr><td colspan="2" class="hd-b">Details of the person handing over to:</td></tr>
+        <tr class="hd-row"><td style="width: 28%;">Name</td><td>{{ v(rc.name) }}</td></tr>
+        <tr class="hd-row"><td>Designation</td><td>{{ v(rc.designation) }}</td></tr>
+        <tr class="hd-row"><td>Contact Number</td><td>{{ v(rc.phone) }}</td></tr>
+        <tr class="hd-row"><td>Date</td><td>{{ v(rc.date) }}</td></tr>
+    </table>
+    <div class="hd-gap"></div>
+    <div class="hd-b" style="text-align: center; text-decoration: underline;">ACKNOWLEDGEMENT AND DECLARATION BY EMPLOYEE</div>
+    <p class="hd-para">I, Ms/Mr. {{ fill(rc.name) }} hereby acknowledge that I have received the above mentioned material. I understand that this asset belongs to {{ fill(ctx.belongs_to) }} and I assure that I own the responsibility to take care of the asset of the company to its extent.</p>
+    <p class="hd-para">I will be solely responsible for the company belongings with me.</p>
+    {{ signature_one("SIGNATURE OF THE RECEIVING PERSON") }}
+
+{# ------------------------------------------------------ 12. Equipment Warranty #}
+{% elif ctx.key == "equipment_warranty" %}
+    <div class="hd-title">Warranty Certificate</div>
+    {# The warranty's date row is the COMMISSIONING date (its one-year term counts from it), as in the Excel format. #}
+    {{ head_table(h, "COMMISSIONING DATE", ctx.commissioning_date) }}
+    <div class="hd-b" style="margin: 6px 0 4px 0;">Following are the equipment installed</div>
+    {% set eq = ctx.equipment %}
+    {% set half = ((eq | length) + 1) // 2 %}
+    <table class="hd-table">
+        {% for i in range(half) %}
+        <tr>
+            <td style="width: 50%;">{{ v(eq[i]) }}</td>
+            <td>{% if i + half < (eq | length) %}{{ v(eq[i + half]) }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-para">All the above mentioned equipment was working in good condition at the site. All above products are covered under a standard manufacturer&rsquo;s warranty of One year from the date of Commissioning.</p>
+    <div class="hd-b" style="margin: 10px 0 4px 0;">Following will be the escalation Matrix for any kind of Emergency Support</div>
+    <table class="hd-table">
+        <tr><th style="width: 14%;">Escalation</th><th style="width: 30%;">Name</th><th style="width: 22%;">Contact Info.</th><th>Email id</th></tr>
+        {% for lv in ctx.levels %}
+        <tr class="hd-row">
+            <td class="hd-b">Level {{ loop.index }}</td>
+            <td>{{ v(lv.name) }}</td>
+            <td>{{ v(lv.phone) }}</td>
+            <td>{{ v(lv.email) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {{ signature_one("AUTHORIZED SIGNATURE") }}
+
+{# -------------------------------------------------- 13. Completion Certificate #}
+{% elif ctx.key == "completion_certificate" %}
+    <div class="hd-title">Completion Certificate</div>
+    <div class="hd-gap"></div>
+    <p class="hd-para">This is to certify that work has been successfully completed by {{ v(h.vendor) }}, at {{ v(h.project) }} in the field of {{ v(h.package) }} and has been handed over to the client, {{ fill(ctx.handed_over_to) }}, in accordance with the contract specifications and drawings.</p>
+    <p class="hd-para">The Defects Liability Period commences from the date of Commissioning, up to Twelve months of period i.e., from {{ fill(ctx.dlp_from) }} to {{ fill(ctx.dlp_to) }}. During this period, the contractor will diligently address and rectify any defects, faults, or issues identified in the completed works.</p>
+    <p class="hd-para">This certificate marks the conclusion of the Defects Liability Period, and any further issues or defects identified after this date will be subject to the standard warranty provisions outlined in the construction contract.</p>
+    {{ signature_one("AUTHORIZED SIGNATURE") }}
+
+{# ------------------------------------------------------------- 15. Snag List #}
+{% elif ctx.key == "snag_list" %}
+    {% set sm = ctx.sources.summary %}
+    <div class="hd-title">Snag List</div>
+    {% if sm.total %}
+    <table class="hd-table" style="width: 50%;">
+        <tr><th>Status</th><th style="width: 30%;">Snags</th></tr>
+        {% for st, n in sm.by_status.items() %}<tr><td>{{ v(st) }}</td><td class="hd-c">{{ n }}</td></tr>{% endfor %}
+        <tr><td class="hd-b">Total</td><td class="hd-c hd-b">{{ sm.total }}</td></tr>
+    </table>
+    <p class="hd-note">The project&rsquo;s snag list is kept in Nirmaan&rsquo;s Snag List (for the whole project; snags are not split by system). In the handover binder it follows this page.</p>
+    {% else %}
+    <div class="hd-off">No snag is recorded on this project.</div>
+    {% endif %}
+
+{# ------------------------------------------------------ 16. As Built Drawings #}
+{% elif ctx.key == "as_built_drawings" %}
+    <div class="hd-title">As Built Drawings</div>
+    {% set items = ctx.sources["items"] %}
+    {% if items %}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S.No</th><th>Drawing</th><th style="width: 20%;">Category</th><th style="width: 14%;">Zone</th><th style="width: 14%;">Status</th><th style="width: 10%;">Link</th></tr>
+        {% for t in items %}
+        <tr>
+            <td class="hd-c">{{ loop.index }}</td>
+            <td>{{ v(t.task_name) }}</td>
+            <td>{{ v(t.design_category) }}</td>
+            <td>{{ v(t.task_zone) }}</td>
+            <td class="hd-c">{{ v((t.task_status or "Pending")) }}</td>
+            <td class="hd-c">{% if t.file_link %}<a href="{{ v(t.file_link) }}">Open</a>{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-note">The drawings are kept in Nirmaan&rsquo;s Design Tracker (Handover phase); the links above open them.</p>
+    {% else %}
+    <div class="hd-off">No As Built drawing is recorded for {{ v(ctx.display_name) }} in this project&rsquo;s Design Tracker yet.</div>
+    {% endif %}
+
+{% endif %}

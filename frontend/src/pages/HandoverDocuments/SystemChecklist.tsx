@@ -1,0 +1,554 @@
+// One system's 16-document checklist: the on/off switch, the status (derived by the server from what was
+// done), remarks, and the Commission-style Actions cell. Switched-off rows are greyed, blocked, and left out of
+// the printed checklist and the binder (S.No closes up).
+
+import { useFrappeFileUpload } from "frappe-react-sdk";
+import {
+  AlertTriangle,
+  BookOpenText,
+  FileText,
+  Loader2,
+  Trash2,
+} from "lucide-react";
+import * as React from "react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
+import { getFrappeError } from "@/utils/frappeErrors";
+
+import { DocumentDialog } from "./DocumentDialog";
+import { HodActionCell } from "./HodActionCell";
+import { EmptyDocumentsDialog } from "./HodDownloadDialogs";
+import { HOD_DOCTYPE, type HodRowPatch } from "./hodApi";
+import {
+  hodChecklistPdfUrl,
+  hodDocumentPdfUrl,
+  hodPdfFilename,
+  usePdfDownload,
+} from "./hodDownloads";
+import { orderRows, printedNumbers, rowEditable } from "./hodRules";
+import type {
+  HodCounts,
+  HodDocumentMeta,
+  HodProjectInfo,
+  HodRow,
+  HodStatus,
+  HodSystemOption,
+} from "./types";
+import type { BinderProgress, EmptyDocument, HodJob } from "./useHodBinder";
+
+const KIND_LABEL: Record<string, { label: string; className: string }> = {
+  form: { label: "Form", className: "bg-blue-50 text-blue-700" },
+  template: { label: "Library", className: "bg-purple-50 text-purple-700" },
+  app: { label: "From Nirmaan", className: "bg-teal-50 text-teal-700" },
+};
+
+const STATUS_STYLE: Record<HodStatus, string> = {
+  Pending: "bg-gray-100 text-gray-600",
+  "Form Filled": "bg-blue-50 text-blue-700",
+  Completed: "bg-green-50 text-green-700",
+};
+
+const RemarksCell: React.FC<{
+  row: HodRow;
+  disabled: boolean;
+  onSave: (v: string) => Promise<void>;
+}> = ({ row, disabled, onSave }) => {
+  const [value, setValue] = React.useState(row.remarks || "");
+  React.useEffect(() => setValue(row.remarks || ""), [row.remarks]);
+  return (
+    <Input
+      className="h-8 text-sm"
+      placeholder={disabled ? "" : "Remarks"}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        if (value !== (row.remarks || ""))
+          onSave(value).catch(() => setValue(row.remarks || ""));
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+    />
+  );
+};
+
+export interface SystemChecklistProps {
+  project: HodProjectInfo;
+  system: HodSystemOption;
+  rows: HodRow[];
+  counts: HodCounts | undefined;
+  documents: HodDocumentMeta[];
+  canEdit: boolean;
+  updateRow: (name: string, patch: HodRowPatch) => Promise<unknown>;
+  /** `force`: the user confirmed that the system's entries are deleted with it. */
+  onRemoveSystem: (force: boolean) => Promise<void>;
+  /** The server-built PDF running for this user (binder or one document's content), if any. */
+  job: HodJob | null;
+  progress: BinderProgress | null;
+  /** Start a build: the binder (`document` null) or one document's content. */
+  onBuild: (document: string | null, title: string) => void;
+  /** Switched-on documents with nothing to include (the binder refuses while there are any). */
+  onCheck: () => Promise<{ empty: EmptyDocument[]; steps: number }>;
+  onShowProgress: () => void;
+}
+
+export const SystemChecklist: React.FC<SystemChecklistProps> = ({
+  project,
+  system,
+  rows,
+  counts,
+  documents,
+  canEdit,
+  updateRow,
+  onRemoveSystem,
+  job,
+  progress,
+  onBuild,
+  onCheck,
+  onShowProgress,
+}) => {
+  const metaByKey = React.useMemo(
+    () => new Map(documents.map((d) => [d.key, d])),
+    [documents],
+  );
+  const ordered = React.useMemo(
+    () => orderRows(rows, documents),
+    [rows, documents],
+  );
+  const numbers = React.useMemo(
+    () => printedNumbers(rows, documents),
+    [rows, documents],
+  );
+  const [savingRow, setSavingRow] = React.useState<string | null>(null);
+  const [openRow, setOpenRow] = React.useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
+  const [checking, setChecking] = React.useState(false);
+  const [emptyDocs, setEmptyDocs] = React.useState<EmptyDocument[]>([]);
+  const { busyKey, download } = usePdfDownload();
+  const { upload } = useFrappeFileUpload();
+
+  const building = job !== null;
+  const buildingBinderHere = job?.hodSystem === system.name && !job.document;
+  const binderTitle = `${system.display_name} — ${project.project_name}`;
+  const touched = counts?.touched ?? 0;
+
+  const patch = React.useCallback(
+    async (row: HodRow, p: HodRowPatch) => {
+      setSavingRow(row.name);
+      try {
+        await updateRow(row.name, p);
+      } catch (error) {
+        toast({
+          title: "Could not save",
+          description: getFrappeError(error),
+          variant: "destructive",
+        });
+        throw error;
+      } finally {
+        setSavingRow(null);
+      }
+    },
+    [updateRow],
+  );
+
+  const uploadSigned = async (row: HodRow, file: File) => {
+    setSavingRow(row.name);
+    try {
+      const uploaded = await upload(file, {
+        doctype: HOD_DOCTYPE,
+        docname: row.name,
+        fieldname: "attachment",
+        isPrivate: true,
+      });
+      await updateRow(row.name, { attachment: uploaded.file_url });
+      toast({
+        title: "Completed",
+        description: "Signed copy uploaded — it goes into the binder.",
+        variant: "success",
+      });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: getFrappeError(error),
+        variant: "destructive",
+      });
+    } finally {
+      setSavingRow(null);
+    }
+  };
+
+  const downloadRow = (row: HodRow, meta: HodDocumentMeta) => {
+    if (meta.kind === "app") {
+      const mine =
+        job?.hodSystem === system.name && job.document === row.document;
+      if (mine) return onShowProgress();
+      // Pick which reports / sheets / snag batches / drawings first (owner 2026-09-22), in the records window.
+      return setOpenRow(row.name);
+    }
+    download(
+      `doc:${row.name}`,
+      hodDocumentPdfUrl(row.name),
+      hodPdfFilename(
+        project.project_name,
+        system.name,
+        `${meta.no}`,
+        meta.title,
+      ),
+    );
+  };
+
+  /** Keep the ticked reports on the row (so the binder takes the same ones), then build the download. */
+  const downloadSelected = async (
+    row: HodRow,
+    meta: HodDocumentMeta,
+    selected: string[],
+  ) => {
+    if (rowEditable(row, canEdit)) {
+      try {
+        await updateRow(row.name, {
+          form_data: { ...(row.form_data || {}), selected },
+        });
+      } catch (error) {
+        toast({
+          title: "Could not save the selection",
+          description: getFrappeError(error),
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    setOpenRow(null);
+    onBuild(row.document, meta.title);
+  };
+
+  // Owner 2026-09-22: never start a binder that would carry an empty document; say which ones first.
+  const startBinder = async () => {
+    if (buildingBinderHere) return onShowProgress();
+    setChecking(true);
+    try {
+      const res = await onCheck();
+      if (res.empty.length) setEmptyDocs(res.empty);
+      else onBuild(null, binderTitle);
+    } catch (error) {
+      toast({
+        title: "Could not check the documents",
+        description: getFrappeError(error),
+        variant: "destructive",
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const switchOffAndBuild = async () => {
+    for (const e of emptyDocs) {
+      const row = rows.find((r) => r.document === e.document);
+      if (row && !row.disabled) await updateRow(row.name, { disabled: true });
+    }
+    setEmptyDocs([]);
+    onBuild(null, binderTitle);
+  };
+
+  const openRowData = openRow
+    ? ordered.find((r) => r.name === openRow)
+    : undefined;
+  const openMeta = openRowData
+    ? metaByKey.get(openRowData.document)
+    : undefined;
+  const checklistKey = `checklist:${system.name}`;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">
+            {system.display_name}
+          </p>
+          <p className="text-xs text-gray-500">
+            {counts ? `${counts.completed} of ${counts.needed} completed` : ""}
+            {counts?.filled ? ` · ${counts.filled} form filled` : ""}
+            {counts?.off ? ` · ${counts.off} switched off` : ""} · Work package:{" "}
+            {system.work_package}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={busyKey === checklistKey}
+            onClick={() =>
+              download(
+                checklistKey,
+                hodChecklistPdfUrl(project.name, system.name),
+                hodPdfFilename(
+                  project.project_name,
+                  system.name,
+                  "Handover_Checklist",
+                ),
+              )
+            }
+          >
+            {busyKey === checklistKey ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileText className="mr-1 h-3.5 w-3.5" />
+            )}
+            Checklist PDF
+          </Button>
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={checking || (building && !buildingBinderHere)}
+            onClick={startBinder}
+          >
+            {checking || buildingBinderHere ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <BookOpenText className="mr-1 h-3.5 w-3.5" />
+            )}
+            {checking
+              ? "Checking…"
+              : buildingBinderHere
+                ? progress
+                  ? `Building ${progress.done}/${progress.total}`
+                  : "Starting…"
+                : "Download binder"}
+          </Button>
+          {canEdit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-gray-500 hover:text-red-600"
+              onClick={() => setConfirmRemove(true)}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove system
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full min-w-[980px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-600">
+              <th className="w-14 px-2 py-2 text-center">S.No</th>
+              <th className="px-2 py-2">Document</th>
+              <th className="w-16 px-2 py-2 text-center">Use</th>
+              <th className="w-28 px-2 py-2 text-center">Status</th>
+              <th className="w-60 px-2 py-2">Remarks</th>
+              <th className="w-64 px-2 py-2 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ordered.map((row) => {
+              const meta = metaByKey.get(row.document);
+              if (!meta) return null;
+              const off = !!row.disabled;
+              const editable = rowEditable(row, canEdit);
+              const kind = KIND_LABEL[meta.kind];
+              const contentBusy =
+                job?.hodSystem === system.name && job.document === row.document;
+              const rowBusy =
+                savingRow === row.name ||
+                busyKey === `doc:${row.name}` ||
+                contentBusy;
+              return (
+                <tr
+                  key={row.name}
+                  className={cn(
+                    "border-t",
+                    off && "bg-gray-50/80 text-gray-400",
+                  )}
+                >
+                  <td className="px-2 py-2 text-center">
+                    {off ? "—" : numbers.get(row.document)}
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "font-medium",
+                          off ? "text-gray-400 line-through" : "text-gray-900",
+                        )}
+                      >
+                        {meta.title}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                          off ? "bg-gray-100 text-gray-400" : kind.className,
+                        )}
+                      >
+                        {kind.label}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <Switch
+                      checked={!off}
+                      disabled={!canEdit || savingRow === row.name}
+                      title={
+                        off
+                          ? "Switched off: not needed for this project"
+                          : "Needed for this project"
+                      }
+                      onCheckedChange={(on) =>
+                        patch(row, { disabled: !on }).catch(() => undefined)
+                      }
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    {off ? (
+                      <span className="text-[11px] text-gray-400">—</span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "inline-block rounded-full px-2 py-0.5 text-[11px] font-medium",
+                          STATUS_STYLE[row.status],
+                        )}
+                      >
+                        {row.status}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2">
+                    <RemarksCell
+                      row={row}
+                      disabled={!editable || savingRow === row.name}
+                      onSave={(v) => patch(row, { remarks: v })}
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    <HodActionCell
+                      row={row}
+                      meta={meta}
+                      canEdit={editable}
+                      busy={
+                        rowBusy ||
+                        (meta.kind === "app" && building && !contentBusy)
+                      }
+                      onOpen={() => setOpenRow(row.name)}
+                      onDownload={() => downloadRow(row, meta)}
+                      onUpload={(file) => uploadSigned(row, file)}
+                      onRemoveUpload={() =>
+                        patch(row, { attachment: "" }).catch(() => undefined)
+                      }
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {openRowData && openMeta && (
+        <DocumentDialog
+          open={!!openRow}
+          onOpenChange={(o) => !o && setOpenRow(null)}
+          projectId={project.name}
+          customerName={project.customer_name}
+          hodSystem={system.name}
+          displayName={system.display_name}
+          row={openRowData}
+          meta={openMeta}
+          siblings={ordered}
+          readOnly={
+            !rowEditable(openRowData, canEdit) ||
+            (openMeta.kind !== "app" && openRowData.status === "Completed")
+          }
+          onSave={async (formData) => {
+            await updateRow(openRowData.name, { form_data: formData });
+          }}
+          onDownloadSelected={(selected) =>
+            downloadSelected(openRowData, openMeta, selected)
+          }
+        />
+      )}
+
+      <EmptyDocumentsDialog
+        open={emptyDocs.length > 0}
+        empty={emptyDocs}
+        canEdit={canEdit}
+        onCancel={() => setEmptyDocs([])}
+        onSwitchOffAndBuild={switchOffAndBuild}
+      />
+
+      <AlertDialog
+        open={confirmRemove}
+        onOpenChange={(o) => !removing && setConfirmRemove(o)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              {touched > 0 && (
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+              )}
+              Remove {system.display_name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {touched > 0 ? (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                    <span className="font-semibold">
+                      {touched} document{touched !== 1 ? "s" : ""} already{" "}
+                      {touched !== 1 ? "have" : "has"} entries
+                    </span>{" "}
+                    — filled forms, remarks, uploaded signed copies or switched
+                    documents. Removing the system deletes all of it, and it
+                    cannot be undone.
+                  </p>
+                ) : (
+                  <p>
+                    Its 16 handover documents are removed from this project.
+                    Nothing has been entered on them yet.
+                  </p>
+                )}
+                <p>Are you sure you want to remove this system?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={removing}
+              onClick={async (e) => {
+                e.preventDefault();
+                setRemoving(true);
+                try {
+                  await onRemoveSystem(touched > 0);
+                  setConfirmRemove(false);
+                } catch {
+                  // the caller already showed the error; keep the dialog open
+                } finally {
+                  setRemoving(false);
+                }
+              }}
+            >
+              {removing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {touched > 0 ? "Remove anyway" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+};
