@@ -233,10 +233,12 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
     });
   };
 
-  // --- CHANGE 2: Modify the mismatch check ---
-  // Allow submission if the absolute difference is less than 1.
+  // Allow submission when the terms are within ±₹1 of the PO total (above or
+  // below). Rounded to paise first so float noise never tips exactly ₹1 over.
   const isTotalAmountMismatched =
-    Math.abs(totalAmount - Number(po?.total_amount)) >= 1;
+    Math.abs(
+      Math.round((totalAmount - Number(po?.total_amount)) * 100) / 100
+    ) > 1;
   const remainingAmount = Number(po?.total_amount) - totalAmount;
 
   const isCredit = po?.payment_terms?.[0]?.payment_type === "Credit";
@@ -502,7 +504,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
               <div className="flex items-center p-3 text-sm text-red-700 bg-red-50 rounded-lg mt-2">
                 <AlertCircle className="h-5 w-5 mr-2" />
                 The total allocated amount must match the PO total of{" "}
-                {formatToIndianRupee(po.total_amount)}. Current difference is{" "}
+                {formatToIndianRupee(po.total_amount)} (within ±₹1). Current difference is{" "}
                 {formatToIndianRupee(remainingAmount)}.
               </div>
             )}
