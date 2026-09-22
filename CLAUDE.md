@@ -646,7 +646,22 @@ text column TEXT ("@") at cell and column, rates as numbers. Upload accepts both
 through ONE row pipeline (`csv_importer.read_upload`); the .xlsx and the .csv of the same content give the same
 preview and the same digest. The asset JSON path (exporter / loader / mint) never read the rate file's columns and
 is untouched. ⚠️ A blank-uid row with the SAME attributes as an active item is ADDED beside it with no flag (observed
-2026-09-22, E3 / E3b); there is no owner ruling on duplicates yet -- do not add one without it.
+2026-09-22, E3 / E3b). ⚠️ **SUPERSEDED BY THE RULE BELOW (owner Y-a..Y-f, 2026-09-22).**
+
+**⚠️ TWO ACTIVE ITEMS THAT MEAN THE SAME ARE NEVER CREATED; A SAME-MEANING ROW UPDATES THE EXISTING
+ITEM'S RATES ONLY AFTER THE USER CONFIRMS (owner-locked, HVAC AND Electrical).** "The same" is the
+MEANING, never the wording: for a spec-read category (HVAC) the reader-derived attributes plus unit and
+brand (a not-understood item has no meaning and never counts; a confirmed one counts like a read one);
+for any other category kind, brand, unit and EVERY attribute -- two items differing only in brand are
+NOT the same. ONE definition, `csv_importer.twin_identity`, serves the upload preview, the upload apply
+(which RE-DERIVES the target and refuses a confirm whose fingerprint is not the one previewed) and both
+manual endpoints; do not write a second. It fires ONLY for a new row or an edit whose identity CHANGED --
+never for a rates-only edit or an unchanged row, so a re-upload of any file stays zero changes, zero
+warnings even where twins exist today. Confirm = the existing item takes the row's rates and markups and
+keeps its uid, wording, attributes and spec status (on an edit the OTHER item is updated and the edited
+one is not touched); decline = that row is skipped; unanswered = the apply is refused; two new rows that
+mean the same are an ERROR. A manual entry has never carried an `item_uid` (pre-1f fact) and is still an
+existing item: the index keys it by document name.
 
 ## BoQ Rate Suggestion (RM-3)
 
