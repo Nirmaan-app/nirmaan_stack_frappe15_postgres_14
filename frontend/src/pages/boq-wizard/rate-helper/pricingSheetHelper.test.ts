@@ -36,15 +36,21 @@ import {
 } from "@/pages/pricing/rate-master/rateMasterStructure";
 import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import { hasSessionEdits, overridesForRow } from "./RateHelperPanel";
+import { suggestionCountForKind } from "./rateHelperRegistry";
 import {
   applyDerivedDisplay,
   attributeOptions,
   buildExtractionByRow,
   categoryLabel,
+  COMING_SOON_REASON,
+  declineReasonFor,
+  disciplineHasNothingToPrice,
   groupFigures,
   isRunForVersion,
+  makeDeclineOnlyHelper,
   makePricingSheetHelper,
   nonBcsPipelines,
+  PRICING_SHEET_HELPER_ID,
   outputWord,
   pipelineLabel,
   prettifyPipelineId,
@@ -4822,5 +4828,101 @@ describe("CONDUIT LADDER (v63) -- the asset: the ladder lives in conduit_piping 
     const c1 = conduit63({ conduit_type: "PVC", size_mm: 25 });
     if (!isSuggestion(c1)) throw new Error("expected suggestion");
     expect(c1.values).toEqual({ supply_rate: 42, install_rate: 10, combined_rate: 52 });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 2 (2026-09-22, owner P-a / P-b / P-d): a category with NOTHING TO PRICE declares its message in
+// config (`helper_message`), and a discipline with nothing to price gets its decline card BEFORE a run.
+describe("SLICE 2 / helper_message: the decline reason comes from the config, else coming soon", () => {
+  const VENDOR: RateCategoryConfig = {
+    discipline: "T", category_id: "t_vendor", attribute_definitions: [], pipelines: {},
+    helper_message: "Ask the vendor", pending_label: "Waiting",
+  };
+  const DATA_ONLY: RateCategoryConfig = {
+    discipline: "T", category_id: "t_data",
+    attribute_definitions: [{ id: "x", label: "X", type: "choice", values: ["a"] }], pipelines: {},
+  };
+  const ELIGIBLE: RateCategoryConfig = {
+    discipline: "E", category_id: "e_ok",
+    attribute_definitions: [{ id: "item", label: "Item", type: "choice", values: ["40A"] }],
+    pipelines: { boq: { output: ["supply"], steps: [
+      { step: "match_master_row", params: { kind: "e_item" } },
+      { step: "scale", target: "base", result: "supply", params: { markup: 0 }, formula: "base*(1+markup)" },
+    ] } },
+  };
+  const ITEMS: RateMasterItem[] = [{ discipline: "E", kind: "e_item", attributes: { item: "40A" }, rates: { base: 500 } }];
+  const byCat = new Map<string, RateCategoryConfig>([["t_vendor", VENDOR], ["t_data", DATA_ONLY], ["e_ok", ELIGIBLE]]);
+  const rowCtx = (category: string | null): RateHelperRowContext => ({ excelRow: 1, description: "", nodeType: "Line Item", category, discipline: null, rateKinds: ["supply_rate"] });
+
+  it("declineReasonFor: the config's helper_message when present, else the exact coming-soon text", () => {
+    expect(declineReasonFor(VENDOR)).toBe("Ask the vendor");
+    expect(declineReasonFor(DATA_ONLY)).toBe(COMING_SOON_REASON);
+    expect(declineReasonFor(null)).toBe(COMING_SOON_REASON);
+    expect(declineReasonFor(undefined)).toBe(COMING_SOON_REASON);
+    expect(declineReasonFor({ ...VENDOR, helper_message: "   " })).toBe(COMING_SOON_REASON);   // blank = absent
+    expect(COMING_SOON_REASON).toBe("Rate attributes for this category haven't been defined yet — coming soon.");
+  });
+  it("makePricingSheetHelper: a not-eligible config WITH helper_message declines with it; WITHOUT -> coming soon; no config -> coming soon", () => {
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS, extractionByRow: new Map() });
+    expect(h.compute(rowCtx("t_vendor"))).toEqual({ kind: "none", reason: "Ask the vendor" });
+    expect(h.compute(rowCtx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(h.compute(rowCtx("nope"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(h.compute(rowCtx(null))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+  });
+  it("⚠️ NEGATIVE: an ELIGIBLE config's result is unchanged -- it prices, helper_message or not", () => {
+    const map = buildExtractionByRow([{ excel_row: 1, attributes: ext({ item: "40A" }) }]);
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS, extractionByRow: map });
+    const r = h.compute(rowCtx("e_ok"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values.supply_rate).toBe(500);
+    // an eligible config that (nonsensically) also carries helper_message still prices -- the key is
+    // read ONLY on the decline branch
+    const withMsg = new Map(byCat); withMsg.set("e_ok", { ...ELIGIBLE, helper_message: "ignored" });
+    const r2 = makePricingSheetHelper({ configsByCategory: withMsg, items: ITEMS, extractionByRow: map }).compute(rowCtx("e_ok"));
+    if (!isSuggestion(r2)) throw new Error("expected suggestion");
+    expect(r2.values).toEqual(r.values);
+  });
+
+  const TARGETS = [
+    { discipline: "T", categoryId: "t_vendor" }, { discipline: "T", categoryId: "t_data" }, { discipline: "T", categoryId: "t_missing" },
+    { discipline: "E", categoryId: "e_ok" }, { discipline: "E", categoryId: "e_data" },
+  ];
+  it("disciplineHasNothingToPrice: TRUE for a discipline whose fetched configs are all not eligible; FALSE with one eligible config", () => {
+    expect(disciplineHasNothingToPrice("T", byCat, TARGETS)).toBe(true);
+    expect(disciplineHasNothingToPrice("E", byCat, TARGETS)).toBe(false);
+  });
+  it("⚠️ NEGATIVE: FALSE for no discipline, an unregistered discipline, and a discipline none of whose configs has loaded", () => {
+    expect(disciplineHasNothingToPrice(null, byCat, TARGETS)).toBe(false);
+    expect(disciplineHasNothingToPrice(undefined, byCat, TARGETS)).toBe(false);
+    expect(disciplineHasNothingToPrice("ELV", byCat, TARGETS)).toBe(false);
+    expect(disciplineHasNothingToPrice("T", new Map(), TARGETS)).toBe(false);           // nothing arrived yet
+    // documented edge: one NOT-eligible config arrived, the eligible sibling not yet -> TRUE until it lands
+    const partial = new Map<string, RateCategoryConfig>([["e_data", DATA_ONLY]]);
+    expect(disciplineHasNothingToPrice("E", partial, TARGETS)).toBe(true);
+    partial.set("e_ok", ELIGIBLE);
+    expect(disciplineHasNothingToPrice("E", partial, TARGETS)).toBe(false);
+  });
+  it("makeDeclineOnlyHelper: the same card id/label as the real helper; declines with the config's message or coming soon; NEVER prices, NEVER badges", () => {
+    const d = makeDeclineOnlyHelper(byCat);
+    expect(d.id).toBe(PRICING_SHEET_HELPER_ID);
+    expect(d.label).toBe("Pricing sheet");
+    expect(d.compute(rowCtx("t_vendor"))).toEqual({ kind: "none", reason: "Ask the vendor" });
+    expect(d.compute(rowCtx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(d.compute(rowCtx("t_missing"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(d.compute(rowCtx(null))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    // NEGATIVE: even an ELIGIBLE config gets a decline -- this helper cannot price
+    expect(d.compute(rowCtx("e_ok")).kind).toBe("none");
+    expect(suggestionCountForKind(rowCtx("e_ok"), "supply_rate", [d])).toBe(0);
+    expect(suggestionCountForKind(rowCtx("t_vendor"), "supply_rate", [d])).toBe(0);
+  });
+  it("(source) the page hands the panel `panelHelpers` (both mounts) and the badge effect keeps `helperList`; with a run, panelHelpers IS helperList", () => {
+    const page = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf8");
+    expect(page.match(/helpers=\{panelHelpers\}/g) ?? []).toHaveLength(2);
+    expect(page).not.toMatch(/helpers=\{helperList\}/);
+    expect(page).toContain("buildSuggestions(rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList)");
+    expect(page).toContain("if (pricingSheetHelper || !declineOnlyHelper || !helperPanel) return helperList;");
+    expect(page).toContain("disciplineHasNothingToPrice(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
+    expect(page).toContain("resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null");
   });
 });

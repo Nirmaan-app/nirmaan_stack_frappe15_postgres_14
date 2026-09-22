@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ShieldCheck, ShieldOff } from "lucide-react";
 import { useUserData } from "@/hooks/useUserData";
-import { RATE_MASTER_DISCIPLINES } from "./rateMasterRegistry";
+import { RATE_MASTER_DISCIPLINES, rateMasterPageEntry } from "./rateMasterRegistry";
 import { RateMasterDataViewer } from "./RateMasterDataViewer";
 import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
@@ -66,7 +66,9 @@ const UNFREEZE_METHOD = "nirmaan_stack.api.boq.rate_master.unfreeze_rate_master"
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
   const discipline = useMemo(
-    () => RATE_MASTER_DISCIPLINES.find((d) => d.discipline === disciplineId) ?? RATE_MASTER_DISCIPLINES[0],
+    // SLICE 2 (owner ruling R1): the page reads ITEM categories only -- a message-only category
+    // (`holds_items: false`) is fetched by the pricing surfaces but never listed here.
+    () => rateMasterPageEntry(RATE_MASTER_DISCIPLINES.find((d) => d.discipline === disciplineId) ?? RATE_MASTER_DISCIPLINES[0]),
     [disciplineId]
   );
   const [categoryId, setCategoryId] = useState(discipline?.categories[0]?.category_id ?? "");

@@ -11,10 +11,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import LIVE_ASSET_V59 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json";
+// SLICE 2 (2026-09-22): the HVAC asset -- ADP (data-only) + the four vendor-quote MESSAGE-ONLY configs.
+import HVAC_ASSET_V3 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v3.json";
 import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
-import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
+import { RATE_MASTER_DISCIPLINES, rateMasterPageEntry } from "./rate-master/rateMasterRegistry";
 import { RATE_MASTER_CONFIG_TARGETS } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
-import { buildExtractionByRow, makePricingSheetHelper } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { buildExtractionByRow, COMING_SOON_REASON, makePricingSheetHelper } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import { attrDisplayValue, isSuggestion, type ExtractionRow, type RateHelperRowContext } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
 import {
   CALCULATOR_COL,
@@ -149,9 +151,11 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     expect(RATE_MASTER_CONFIG_TARGETS).toEqual(
       RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id }))),
     );
-    // 12 Electrical + 1 HVAC (`hvac_adp`, slice 1b 2026-09-21): the targets flatten EVERY registry
-    // discipline, so the HVAC entry moves this by exactly one. Re-pinned under owner ruling R-a.
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(13);
+    // 12 Electrical + 5 HVAC (`hvac_adp` slice 1b; the four vendor-quote message-only categories
+    // slice 2, 2026-09-22): the targets flatten EVERY registry discipline INCLUDING `holds_items:
+    // false` entries (they must be FETCHED), so slice 2 moves this by exactly four (13 -> 17).
+    // Re-pinned under owner ruling R1.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(17);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }
@@ -275,10 +279,13 @@ describe("Calculator slice 2 / the PARKED split-pipeline shape is REPRODUCED, no
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 describe("Calculator slice 2 / the tab", () => {
   it("the tab exists only on the workbook page that has a calculator discipline", () => {
-    expect(CALCULATOR_WORKBOOKS).toEqual({ "/electrical-pricing": "Electrical" });
+    // SLICE 2 (owner P-a, inverting the calculator-slice pin): HVAC has a rate master since slice 1b
+    // and now gets the tab; ELV still has none and still gets no tab.
+    expect(CALCULATOR_WORKBOOKS).toEqual({ "/electrical-pricing": "Electrical", "/hvac-pricing": "HVAC" });
     expect(calculatorDisciplineForPath("/electrical-pricing")).toBe("Electrical");
     expect(calculatorDisciplineForPath("/electrical-pricing/")).toBe("Electrical");
-    expect(calculatorDisciplineForPath("/hvac-pricing")).toBeNull();
+    expect(calculatorDisciplineForPath("/hvac-pricing")).toBe("HVAC");
+    expect(calculatorDisciplineForPath("/hvac-pricing/")).toBe("HVAC");
     expect(calculatorDisciplineForPath("/elv-pricing")).toBeNull();
     expect(calculatorDisciplineForPath("")).toBeNull();
   });
@@ -431,5 +438,70 @@ describe("Calculator layout / the BoQ panel is UNCHANGED -- the layout lives beh
     if (!isSuggestion(A) || !isSuggestion(B)) throw new Error("expected suggestions");
     expect(B.values).toEqual(A.values);
     expect(figuresOf(B)).toEqual(figuresOf(A));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 2 (2026-09-22) -- the HVAC calculator and the registry's fetch-but-do-not-list flag (owner
+// rulings P-a / P-b / P-d, R1). The four vendor-quote categories are DATA: their message lives in
+// the config (`helper_message`), the registry only says "no items" (`holds_items: false`).
+describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote categories say what their config says", () => {
+  const HVAC = HVAC_ASSET_V3 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const HVAC_CONFIGS = new Map<string, RateCategoryConfig>(HVAC.category_configs.map((c) => [c.category_id, c]));
+  const hvacHelper = () => makePricingSheetHelper({ configsByCategory: HVAC_CONFIGS, items: HVAC.items, extractionByRow: new Map() });
+  const hvacEntry = RATE_MASTER_DISCIPLINES.find((d) => d.discipline === "HVAC")!;
+  const vendor = hvacEntry.categories.filter((c) => c.holds_items === false).map((c) => c.category_id);
+
+  it("the registry lists five HVAC categories: ADP holds items, the four vendor-quote ones do not", () => {
+    expect(hvacEntry.categories.map((c) => c.category_id)).toEqual(["hvac_adp", ...vendor]);
+    expect(vendor).toHaveLength(4);
+    // every vendor entry's CONFIG carries the two messages -- the registry names no message
+    for (const id of vendor) {
+      const cfg = HVAC_CONFIGS.get(id)!;
+      expect(typeof cfg.helper_message).toBe("string");
+      expect(typeof cfg.pending_label).toBe("string");
+      expect(Object.keys(cfg.pipelines)).toHaveLength(0);
+      expect(cfg.attribute_definitions).toHaveLength(0);
+    }
+  });
+  it("the four are FETCHED (in the config targets) so the helper can read their messages", () => {
+    for (const id of vendor) expect(RATE_MASTER_CONFIG_TARGETS).toContainEqual({ discipline: "HVAC", categoryId: id });
+  });
+  it("⚠️ NEGATIVE: the Rate Master page's view of HVAC drops the four; Electrical's view is the SAME object", () => {
+    const pageHvac = rateMasterPageEntry(hvacEntry);
+    expect(pageHvac.categories.map((c) => c.category_id)).toEqual(["hvac_adp"]);
+    const electrical = RATE_MASTER_DISCIPLINES[0];
+    expect(electrical.discipline).toBe("Electrical");
+    expect(rateMasterPageEntry(electrical)).toBe(electrical);        // reference-identical
+    expect(electrical.categories).toHaveLength(12);                   // unchanged
+    expect(electrical.categories.some((c) => c.holds_items === false)).toBe(false);
+    expect(rateMasterPageEntry(undefined)).toBeUndefined();
+  });
+  it("(source) the Rate Master page reads the registry ONLY through rateMasterPageEntry; the calculator picker reads the full list", () => {
+    const page = strip(readFileSync(join(__dirname, "rate-master", "RateMasterPage.tsx"), "utf8"));
+    expect(page).toContain("rateMasterPageEntry(RATE_MASTER_DISCIPLINES.find((d) => d.discipline === disciplineId) ?? RATE_MASTER_DISCIPLINES[0])");
+    expect(page.match(/RATE_MASTER_DISCIPLINES\.find\(/g) ?? []).toHaveLength(1);
+    expect(strip(CALC_SRC)).toContain("(entry?.categories ?? []).map((c) => {");
+    expect(strip(CALC_SRC)).not.toContain("rateMasterPageEntry");
+  });
+  it("the HVAC calculator: each vendor-quote category declines with ITS CONFIG's helper_message; ADP declines coming soon", () => {
+    for (const id of vendor) {
+      const r = hvacHelper().compute(calculatorCtx("HVAC", id));
+      expect(r.kind).toBe("none");
+      if (r.kind === "none") expect(r.reason).toBe(HVAC_CONFIGS.get(id)!.helper_message);
+      expect(calculatorRowFor("HVAC", id)).toBeGreaterThan(0);        // a real sentinel row, not -1
+    }
+    const adp = hvacHelper().compute(calculatorCtx("HVAC", "hvac_adp"));
+    expect(adp.kind).toBe("none");
+    if (adp.kind === "none") expect(adp.reason).toBe(COMING_SOON_REASON);
+    expect(calculatorBlockLabels(HVAC_CONFIGS.get("hvac_ahu")!)).toEqual([]);
+    expect(visibleFieldIds(HVAC_CONFIGS.get("hvac_ahu")!)).toEqual([]);
+  });
+  it("⚠️ NEGATIVE: the Electrical calculator is untouched -- 34 goldens, 12 categories, no HVAC id in its entry", () => {
+    const electrical = RATE_MASTER_DISCIPLINES[0];
+    expect(electrical.categories.some((c) => c.category_id.startsWith("hvac_"))).toBe(false);
+    let n = 0;
+    for (const c of ASSET.category_configs) n += (c.goldens ?? []).length;
+    expect(n).toBe(34);
   });
 });

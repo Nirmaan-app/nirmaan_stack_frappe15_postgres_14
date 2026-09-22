@@ -129,6 +129,15 @@ _KNOWN_CONFIG_KEYS = {
     # only, like item_kinds): the consumers branch on `spec_reader.spec_categories`, which reads the key
     # as `is True`, so a category WITHOUT it -- every Electrical category -- is byte-identical to before.
     "attributes_from_spec",
+    # SLICE 2 (2026-09-22, owner P-a / P-b / P-c): a category with NOTHING TO PRICE declares its
+    # message and its pending mark IN CONFIG, never in code (the HV-10 rule -- no category named
+    # in code). `helper_message` is what the rate-helper panel and the calculator show instead of
+    # the generic "coming soon" for a config that is not eligible for pricing; `pending_label` is
+    # the mark shown on every empty / zero rate cell of a row in that category until a non-zero
+    # rate is typed. Pass-through here (allowlist only, like item_kinds): the consumers are the
+    # frontend `pricingSheetHelper.compute` and the pricing grid; a config WITHOUT them -- every
+    # Electrical category, and HVAC ADP -- is byte-identical to before.
+    "helper_message", "pending_label",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 

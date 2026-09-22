@@ -62,6 +62,7 @@ import { DISPLAY_RATE_KINDS, type RateHelper, type RateHelperRowContext } from "
  */
 export const CALCULATOR_WORKBOOKS: Readonly<Record<string, string>> = {
   "/electrical-pricing": "Electrical",
+  "/hvac-pricing": "HVAC", // SLICE 2 (2026-09-22, owner P-a): the HVAC rate master exists since slice 1b
 };
 
 /** PURE. The calculator discipline for a route path (first segment), or null when the page has no tab. */

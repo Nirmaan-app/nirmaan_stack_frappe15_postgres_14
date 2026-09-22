@@ -10854,7 +10854,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v2.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v3.json"
 
 
 def _mint_gate_module():
@@ -11057,10 +11057,12 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         r = self._load_hvac(disc)
         self.assertEqual(r["items_total"], 95)
         self.assertEqual(r["items_by_kind"], {"hvac_adp_item": 95})
-        self.assertEqual(r["configs_loaded"], 1)
-        self.assertEqual(r["category_ids"], ["hvac_adp"])
+        # slice 2 (owner P-a / P-e, inverting the 1b "one config" pin): FIVE configs -- ADP plus the four
+        # vendor-quote MESSAGE-ONLY configs (no items, no attributes, no pipelines); the ITEMS are unchanged
+        self.assertEqual(r["configs_loaded"], 5)
+        self.assertEqual(r["category_ids"], ["hvac_adp", "hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"])
         self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
-        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 1)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 5)
         rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
                               fields=["kind", "unit", "source_sheet", "source_row", "item_uid", "import_batch"])
         self.assertEqual({x["source_sheet"] for x in rows}, {"ADP"})
@@ -11070,7 +11072,8 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # the sheet's own units, verbatim; row 80 contributes SQM / RMT / NOS (R-d 3)
         self.assertEqual({x["unit"] for x in rows}, {"SQM", "Nos", "Rmt", "RMT", "NOS"})
         self.assertEqual(sum(1 for x in rows if x["source_row"] == 80), 3)
-        cfg = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": disc, "active": 1}, "config"))
+        cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                    {"discipline": disc, "active": 1, "category_id": "hvac_adp"}, "config"))
         self.assertEqual(cfg["item_kinds"], ["hvac_adp_item"])
         # slice 1c (owner ruling, inverting the 1b pin): the config declares the 14 derived ids PLUS the two
         # text definitions item_name / item_detail (D1, S-a), and the two text defs come FIRST
@@ -11204,9 +11207,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_and_v2_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_v2_v3_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v2.json")
+        # slice 2 (owner P-e, inverting the 1c pin): the HVAC series now holds EXACTLY v1, v2 and v3
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v3.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11215,15 +11219,16 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # committed form -- a superseded version is history, never edited; Electrical's latest file IS the
         # pinned current asset -- no slice created an Electrical file at any newer N
         self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
-                         ["rate_master_hvac_all_v1.json", CURRENT_HVAC_ASSET])
+                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", CURRENT_HVAC_ASSET])
         import subprocess
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
-        committed_v1 = subprocess.run(
-            ["git", "-c", "safe.directory=*", "-C", repo, "show",
-             "HEAD:nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v1.json"],
-            capture_output=True, check=True).stdout
-        with open(_asset_path("rate_master_hvac_all_v1.json"), "rb") as fh:
-            self.assertEqual(fh.read(), committed_v1, "v1 must stay byte-identical to its committed form")
+        for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json"):
+            committed = subprocess.run(
+                ["git", "-c", "safe.directory=*", "-C", repo, "show",
+                 "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
+                capture_output=True, check=True).stdout
+            with open(_asset_path(prior), "rb") as fh:
+                self.assertEqual(fh.read(), committed, prior + " must stay byte-identical to its committed form")
         self.assertEqual(gate.latest_in("HVAC", names), CURRENT_HVAC_ASSET)
         self.assertEqual(gate.latest_in("Electrical", names), CURRENT_EALL_ASSET)
         self.assertEqual(gate.latest_asset("HVAC"), CURRENT_HVAC_ASSET)
@@ -11234,6 +11239,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertNotIn("version", self.hvac)
         self.assertNotIn("v1", raw)
         self.assertNotIn("v2", raw)
+        self.assertNotIn("v3", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
@@ -11246,3 +11252,205 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual(gate.latest_in("HVAC", names + ["rate_master_electrical_all_v64.json"]),
                          CURRENT_HVAC_ASSET)
         self.assertIsNone(gate.latest_in("HVAC", [n for n in names if not gate.HVAC_RE.match(n)]))
+
+
+class TestHvacVendorQuoteSlice2(FrappeTestCase):
+    """SLICE 2 (2026-09-22) -- HVAC pricing: the four VENDOR-QUOTE categories (AHU, DX Unit, Panels, Pumps)
+    ship as MESSAGE-ONLY configs in HVAC v3 (owner P-a / P-b / P-d / P-e; STOP 1 ruled option (a)).
+    A category with nothing to price declares its message (`helper_message`) and its pending mark
+    (`pending_label`) IN CONFIG, never in code. Plain-English coverage:
+
+      test_s01  THE TWO KEYS + THE LOADER RELAXATION: the validator accepts helper_message / pending_label and
+                the four data-only configs pass BOTH `config_validation._validate_config` and
+                `loader._validate_one_config`; NEGATIVE: an unknown key is still refused; an empty
+                attribute_definitions list beside NON-empty pipelines is still refused; a config MISSING the
+                key, or carrying a non-list, is refused with today's message.
+      test_s02  THE ASSET SWEEP (A8): every asset file in the data directory -- every Electrical version and
+                HVAC v1 / v2 / v3 -- validates and would load with exactly today's outcome: the loader's shape
+                check accepts every config, and the full validator refuses exactly the ONE pre-existing v12
+                `point_wiring` defect and nothing else.
+      test_s03  HVAC v3 = v2 UNCHANGED + the four: the 95 items and the ADP config are DEEP-EQUAL to v2 (uids
+                identical), the four ids are the CLASSIFIER's exact ids with its display names, each carries
+                the two messages and NOTHING else to price; NEGATIVE: none is eligible (`config_is_eligible`)
+                and the extraction population's eligibility filter admits NONE of the five HVAC configs, so no
+                AI call can ever touch them; the frontend predicate reads the same fact.
+      test_s04  THE LOAD: through the loader under a fresh discipline, 95 items / 5 configs, and the config
+                endpoint hands the frontend the two keys VERBATIM; Electrical is byte-identical before and
+                after (counts + content checksum); NEGATIVE: `_load_active_configs` sees 5, 0 eligible.
+      test_s05  NO CATEGORY NAMED IN CODE (the HV-10 rule): neither message literal nor any vendor id appears
+                in the frontend helper / grid / calculator / page sources -- the four categories are DATA.
+    """
+    VENDOR_IDS = ["hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"]
+    HELPER_MESSAGE = "Take Vendor Quotation"
+    PENDING_LABEL = "Awaiting vendor quote"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v3 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v2.json"), "r", encoding="utf-8") as fh:
+            cls.v2 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _vendor_configs(self):
+        return [c for c in self.v3["category_configs"] if c["category_id"] in self.VENDOR_IDS]
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- s01 ----------------------------------------------------------------------------------------
+    def test_s01_the_two_keys_are_accepted_and_the_loader_admits_a_message_only_config(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        self.assertIn("helper_message", config_validation._KNOWN_CONFIG_KEYS)
+        self.assertIn("pending_label", config_validation._KNOWN_CONFIG_KEYS)
+        vendors = self._vendor_configs()
+        self.assertEqual([c["category_id"] for c in vendors], self.VENDOR_IDS)
+        for c in vendors:
+            stored = loader._loaded_config(c, "HVAC", self.v3.get("goldens") or {})
+            config_validation._validate_config(stored)      # the import gate: must not raise
+            loader._validate_one_config(c, "category_configs[x]")  # the shape check: must not raise
+        # NEGATIVE 1: an unknown top-level key is still refused, by name
+        bad = copy.deepcopy(vendors[0])
+        bad["not_a_key"] = 1
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            config_validation._validate_config(bad)
+        self.assertIn("not_a_key", str(ctx.exception))
+        # NEGATIVE 2: an EMPTY definitions list beside NON-empty pipelines is still refused by the loader --
+        # the relaxation is scoped to "nothing to price"
+        bad2 = copy.deepcopy(vendors[0])
+        bad2["pipelines"] = {"p": {"output": ["x"], "steps": [{"step": "match_master_row", "params": {"kind": "k"}}]}}
+        with self.assertRaises(frappe.ValidationError) as ctx2:
+            loader._validate_one_config(bad2, "x")
+        self.assertIn("missing 'attribute_definitions'", str(ctx2.exception))
+        # NEGATIVE 3: a config MISSING the key entirely, or carrying a non-list, behaves exactly as today
+        bad3 = copy.deepcopy(vendors[0])
+        del bad3["attribute_definitions"]
+        bad4 = copy.deepcopy(vendors[0])
+        bad4["attribute_definitions"] = "x"
+        for b in (bad3, bad4):
+            with self.assertRaises(frappe.ValidationError) as ctx3:
+                loader._validate_one_config(b, "x")
+            self.assertIn("missing 'attribute_definitions'", str(ctx3.exception))
+
+    # -- s02 ----------------------------------------------------------------------------------------
+    def test_s02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertGreaterEqual(len(files), 50)
+        self.assertIn(os.path.join(data_dir, CURRENT_HVAC_ASSET), files)
+        n_configs = 0
+        full_refusals = []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc = d.get("discipline") or "Electrical"
+            gold = d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))  # every config: accepted, as before
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 564)
+        # the ONE pre-existing refusal (a bare `choice` with no values in a retired asset) and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- s03 ----------------------------------------------------------------------------------------
+    def test_s03_v3_is_v2_plus_four_message_only_configs_none_eligible(self):
+        self.assertEqual(self.v3["items"], self.v2["items"])
+        self.assertEqual([i["item_uid"] for i in self.v3["items"]], [i["item_uid"] for i in self.v2["items"]])
+        self.assertEqual(self.v3["category_configs"][0], self.v2["category_configs"][0])
+        self.assertEqual([c["category_id"] for c in self.v3["category_configs"]], ["hvac_adp"] + self.VENDOR_IDS)
+        # the classifier's EXACT ids and display names (J2)
+        cls_path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "categories_hvac.json")
+        with open(os.path.abspath(cls_path), "r", encoding="utf-8") as fh:
+            names = {c["category_id"]: c["name"] for c in json.load(fh)["categories"]}
+        for c in self._vendor_configs():
+            self.assertIn(c["category_id"], names)
+            self.assertEqual(c["category_display"], names[c["category_id"]])
+            self.assertEqual(c["helper_message"], self.HELPER_MESSAGE)
+            self.assertEqual(c["pending_label"], self.PENDING_LABEL)
+            self.assertEqual(c["attribute_definitions"], [])
+            self.assertEqual(c["pipelines"], {})
+            self.assertEqual(c["item_kinds"], [])
+            self.assertFalse(extraction.config_is_eligible(c))
+        # no item wears a vendor kind (there are none): the items are ADP only
+        self.assertEqual({i["kind"] for i in self.v3["items"]}, {"hvac_adp_item"})
+        # NEGATIVE: the extraction population's eligibility filter -- the exact expression
+        # assemble_population applies -- admits NONE of the five HVAC configs
+        all_cfgs = {("HVAC", c["category_id"]): c for c in self.v3["category_configs"]}
+        eligible_seen = {k: v for k, v in all_cfgs.items() if extraction.config_is_eligible(v)}
+        self.assertEqual(eligible_seen, {})
+        # the FRONTEND predicate reads the same two facts (non-empty pipelines AND definitions)
+        src = self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        body = src[src.index("export function isEligibleConfig("):]
+        body = body[:body.index("\n}")]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        self.assertIn("(config.attribute_definitions ?? []).length > 0", body)
+
+    # -- s04 ----------------------------------------------------------------------------------------
+    def test_s04_the_load_and_the_endpoint_hand_the_frontend_the_keys_verbatim_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v3)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual(r["items_total"], 95)
+        self.assertEqual(r["configs_loaded"], 5)
+        self.assertEqual(r["category_ids"], ["hvac_adp"] + self.VENDOR_IDS)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 5)
+        for cid in self.VENDOR_IDS:
+            out = api.get_rate_category_config(discipline=disc, category_id=cid)
+            self.assertIsNotNone(out["config"])
+            self.assertEqual(out["config"]["helper_message"], self.HELPER_MESSAGE)
+            self.assertEqual(out["config"]["pending_label"], self.PENDING_LABEL)
+            self.assertEqual(out["config"]["pipelines"], {})
+            self.assertEqual(out["config"]["attribute_definitions"], [])
+        self.assertIsNone(api.get_rate_category_config(discipline=disc, category_id="hvac_ducting")["config"])
+        # NEGATIVE: the extraction loader sees all five and finds NOTHING eligible under this discipline
+        active = extraction._load_active_configs({disc})
+        self.assertEqual(sorted(k[1] for k in active), sorted(["hvac_adp"] + self.VENDOR_IDS))
+        self.assertEqual({k: v for k, v in active.items() if extraction.config_is_eligible(v)}, {})
+        self.assertEqual(_electrical_active_checksum(), before)
+
+    # -- s05 ----------------------------------------------------------------------------------------
+    def test_s05_no_category_and_no_message_is_named_in_frontend_code(self):
+        for parts in (("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"),
+                      ("pages", "boq-wizard", "PricingGrid.tsx"),
+                      ("pages", "pricing", "PricingCalculator.tsx"),
+                      ("pages", "boq-wizard", "SheetPricingPage.tsx")):
+            src = self._frontend_src(*parts)
+            self.assertNotIn(self.HELPER_MESSAGE, src, parts[-1])
+            self.assertNotIn(self.PENDING_LABEL, src, parts[-1])
+            for cid in self.VENDOR_IDS:
+                self.assertNotIn('"%s"' % cid, src, parts[-1])
+        # the two keys ARE read where the design says: the helper reads helper_message, the page the label
+        self.assertIn("helper_message", self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"))
+        self.assertIn("pending_label", self._frontend_src("pages", "boq-wizard", "SheetPricingPage.tsx"))

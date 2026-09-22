@@ -1894,6 +1894,14 @@ interface PricingGridProps {
    */
   categoryLabelById?: Map<string, string>;
   /**
+   * SLICE 2 (J6, owner P-c): category id -> the PENDING MARK a category's config declares
+   * (`pending_label`). Every EMPTY or ZERO rate cell of a row whose category is in this map shows the
+   * label (amber) until a non-zero rate is typed. Page-built, config-load stable (never on keystroke);
+   * ABSENT/empty => no row shows a mark, byte-identical to before. Each row receives ONLY its own
+   * resolved label as a primitive (`pendingLabel`), never the map.
+   */
+  pendingLabelByCategory?: Map<string, string>;
+  /**
    * Cluster B: choose (keep_document/take_formula) or clear the reconciliation choice for one
    * divergent amount cell (save_cell_reconciliation_choice + mutate). ABSENT => the divergence
    * cue renders read-only (a static pill, no chooser) -- the page withholds it when
@@ -2168,6 +2176,39 @@ const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 const EMPTY_FILTER_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_FILTER_OPTIONS: readonly ColumnFilterOption[] = [];
 const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
+/** SLICE 2 (J6): the shared empty pending-label map -- the page hands this same reference when no
+ *  config declares a `pending_label`, so a sheet without one never re-renders a row for it. */
+export const EMPTY_PENDING_LABEL_MAP: Map<string, string> = new Map();
+
+/**
+ * SLICE 2 (J6, owner P-c): is a rate cell's SHOWN value "empty or zero" -- the state the pending mark
+ * covers? Blank (or whitespace) and any value that parses to exactly 0 are pending; a non-zero number
+ * clears the mark; a non-numeric string is neither (nothing is claimed about it). PURE.
+ */
+export function isPendingRateValue(value: string | number | null | undefined): boolean {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim();
+  if (s === "") return true;
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n === 0;
+}
+
+/**
+ * SLICE 2 (J6): the pending-mark node for a rate cell, or null. Rendered ONLY when the row's category
+ * declares a label AND the shown value is empty / zero -- a row without a label renders byte-identical
+ * markup to before (no wrapper, no attribute). Amber, consistent with the grid's other pending cues.
+ */
+function pendingRateMark(pendingLabel: string | null, value: string | number | null | undefined) {
+  if (!pendingLabel || !isPendingRateValue(value)) return null;
+  return (
+    <div
+      data-pending-mark
+      className="mt-0.5 text-right text-[10px] font-medium leading-tight text-amber-600 dark:text-amber-400"
+    >
+      {pendingLabel}
+    </div>
+  );
+}
 // U1 rate-helper: stable empty default so an absent prop never churns the memo.
 const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
 // SELECTED-ROW runs: module-level empties so a destructuring DEFAULT cannot mint a new identity
@@ -2623,6 +2664,10 @@ interface PricingGridRowProps {
   /** CL-3: id->label for the Category cell display (per-SHEET, reference-stable -- changes only on
    *  a catalog fetch, never on keystroke). */
   categoryLabelById: Map<string, string>;
+  /** SLICE 2 (J6): THIS row's pending-mark label (its category's `pending_label`), or null. A per-row
+   *  PRIMITIVE compared by value in pricingRowPropsAreEqual, so only a row whose label actually
+   *  changes re-renders; null for every row of a category without one (byte-identical render). */
+  pendingLabel: string | null;
   /** CL-3: open the verdict picker for a classified row's Category cell (page-owned, ref-stable).
    *  undefined => the cell is display-only (no click-to-edit). */
   onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
@@ -2751,6 +2796,7 @@ export function pricingRowPropsAreEqual(
     prev.category === next.category &&
     prev.hasRun === next.hasRun &&
     prev.categoryLabelById === next.categoryLabelById &&
+    prev.pendingLabel === next.pendingLabel &&
     prev.onCategoryClick === next.onCategoryClick &&
     rowSuggestionsEqual(prev.rowSuggestions, next.rowSuggestions) &&
     prev.onSuggestionBadgeClick === next.onSuggestionBadgeClick &&
@@ -2838,6 +2884,7 @@ const PricingGridRow = memo(function PricingGridRow({
   category,
   hasRun,
   categoryLabelById,
+  pendingLabel,
   onCategoryClick,
   rowSuggestions,
   onSuggestionBadgeClick,
@@ -3434,6 +3481,8 @@ const PricingGridRow = memo(function PricingGridRow({
                   )}
                 />
               </div>
+              {/* SLICE 2 (J6): the pending mark -- only on a row whose category declares one. */}
+              {pendingRateMark(pendingLabel, value)}
             </td>
           );
         }
@@ -3557,6 +3606,8 @@ const PricingGridRow = memo(function PricingGridRow({
               />
             )}
             {renderDescriptorCell(val)}
+            {/* SLICE 2 (J6): the pending mark on a read-only RATE cell (never on qty / others). */}
+            {isRateDescriptor(d) ? pendingRateMark(pendingLabel, val as string | number | null | undefined) : null}
           </td>
         );
       })}
@@ -3762,7 +3813,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, pendingLabelByCategory = EMPTY_PENDING_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -6437,6 +6488,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       category={categoriesByExcelRow.get(row.source_row_number)}
       hasRun={hasRun}
       categoryLabelById={categoryLabelById}
+      pendingLabel={pendingLabelByCategory.get(categoriesByExcelRow.get(row.source_row_number)?.effective_category_id ?? "") ?? null}
       onCategoryClick={onCategoryClick}
       rowSuggestions={rowSuggestionsByExcelRow.get(row.source_row_number)}
       onSuggestionBadgeClick={onSuggestionBadgeClick}

@@ -159,6 +159,7 @@ import {
   classificationVisible,
   countMasterSetBlankRows,
   deriveSaveStatus,
+  EMPTY_PENDING_LABEL_MAP,
   hideableDescriptors,
   isCategoryGateOpen,
   isGridOnlySheet,
@@ -206,7 +207,9 @@ import { RateHelperPanel, type UseMeta } from "./rate-helper/RateHelperPanel";
 import { buildHelperList } from "./rate-helper/rateHelperRegistry";
 import {
   buildExtractionByRow,
+  disciplineHasNothingToPrice,
   isRunForVersion,
+  makeDeclineOnlyHelper,
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
 import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
@@ -651,6 +654,19 @@ const SheetPricingPage = () => {
   // Calculator slice 2: the map + its accumulate-once callback and the items fetch (discipline
   // "Electrical", SWR key `boq-rm-items-electrical`) are the shared plumbing's, unchanged.
   const { configsByCategory, onConfigLoaded: handleRateConfigLoaded } = useConfigsByCategory();
+  // SLICE 2 (J6, owner P-c): category id -> `pending_label` for every fetched config that declares one
+  // (a category with nothing to price marks its empty / zero rate cells until a rate is typed).
+  // Config-load stable -- changes only as configs arrive, exactly like configsByCategory, never on
+  // keystroke -- and the SHARED empty constant when no config declares one, so a sheet with none
+  // (every Electrical sheet) hands the grid a reference-identical prop and no row re-renders.
+  const pendingLabelByCategory = useMemo(() => {
+    const m = new Map<string, string>();
+    configsByCategory.forEach((cfg, id) => {
+      const label = cfg.pending_label;
+      if (typeof label === "string" && label.trim() !== "") m.set(id, label);
+    });
+    return m.size > 0 ? m : EMPTY_PENDING_LABEL_MAP;
+  }, [configsByCategory]);
   const { data: rmItemsData } = useRateMasterItems(RATE_HELPER_ENABLED);
   // The ACTIVE suggestion run for this sheet (persistence -- version-keyed on load).
   const { data: activeRunData, mutate: mutateActiveRun } = useFrappeGetCall<{
@@ -2913,6 +2929,26 @@ const SheetPricingPage = () => {
     [configsByCategory, rmItems, extractionByRow, suggestRun],
   );
   const helperList = useMemo(() => buildHelperList(pricingSheetHelper), [pricingSheetHelper]);
+  // SLICE 2 (J5, owner P-a / P-d): BEFORE a run, the panel shows the "Pricing sheet" decline card
+  // ("coming soon" / the config's helper_message) for a row whose DISCIPLINE has nothing to price --
+  // no eligible config among that discipline's fetched configs (HVAC today: ADP is data-only and the
+  // four vendor-quote configs are message-only). Every discipline WITH an eligible config (Electrical)
+  // keeps today's before-run list, reference-identical. THIS LIST FEEDS THE PANEL ONLY: the badge
+  // effect keeps `helperList`, so the decline-only helper can never badge a cell. Identity cost: the
+  // decline helper rebuilds as configs arrive (N times, like configsByCategory) and `panelHelpers`
+  // re-resolves on a selection change -- both reach only the panel, never a grid row; once a run is
+  // adopted this is `helperList` itself.
+  const declineOnlyHelper = useMemo(
+    () => (RATE_HELPER_ENABLED && configsByCategory.size > 0 ? makeDeclineOnlyHelper(configsByCategory) : null),
+    [configsByCategory],
+  );
+  const panelHelpers = useMemo(() => {
+    if (pricingSheetHelper || !declineOnlyHelper || !helperPanel) return helperList;
+    const discipline = resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null;
+    return disciplineHasNothingToPrice(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
+      ? buildHelperList(declineOnlyHelper)
+      : helperList;
+  }, [pricingSheetHelper, declineOnlyHelper, helperPanel, resolvedByExcelRow, configsByCategory, helperList]);
 
   // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
   // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).
@@ -5326,6 +5362,7 @@ const SheetPricingPage = () => {
             categoryFilter={categoryFilter}
             onCategoryFilterChange={onCategoryFilterChange}
             categoryLabelById={categoryLabelById}
+            pendingLabelByCategory={pendingLabelByCategory}
             onCategoryClick={locked ? undefined : onCategoryClick}
             // U1 rate-helper (DEV): the per-row suggestion badges + the page-owned open callback.
             // Both are withheld when the flag is off (feature does not exist). onSuggestionBadgeClick
@@ -5450,7 +5487,7 @@ const SheetPricingPage = () => {
             col={helperPanelOpen ? helperPanel!.col : undefined}
             kind={helperPanelOpen ? helperPanel!.kind : undefined}
             ctx={helperPanelOpen ? helperPanelCtx! : undefined}
-            helpers={helperList}
+            helpers={panelHelpers}
             onUse={handleUseSuggestion}
             onClose={() => setHelperPanel(null)}
           />
@@ -5466,7 +5503,7 @@ const SheetPricingPage = () => {
             col={helperPanel.col}
             kind={helperPanel.kind}
             ctx={helperPanelCtx}
-            helpers={helperList}
+            helpers={panelHelpers}
             onUse={handleUseSuggestion}
             onClose={() => setHelperPanel(null)}
           />

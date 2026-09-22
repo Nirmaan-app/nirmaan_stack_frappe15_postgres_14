@@ -739,6 +739,19 @@ export interface RateCategoryConfig {
    * add/edit form sends the text only. Read as `=== true` on both sides; absent => unchanged.
    */
   attributes_from_spec?: boolean;
+  /**
+   * SLICE 2 (2026-09-22, owner P-a / P-b): a category with NOTHING TO PRICE declares its message in
+   * config, never in code. When the config is not eligible for pricing, the rate helper panel and the
+   * calculator show this text instead of the generic "coming soon" (e.g. a vendor-quote category).
+   * Absent => the generic coming-soon, byte-identical to before.
+   */
+  helper_message?: string;
+  /**
+   * SLICE 2 (owner P-c): when present, every EMPTY or ZERO rate cell of a row in this category shows
+   * this mark (amber) until a non-zero rate is typed. A visible mark, NOT a submission block.
+   * Absent => no mark, byte-identical to before.
+   */
+  pending_label?: string;
   [k: string]: unknown;
 }
 

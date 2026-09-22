@@ -189,6 +189,59 @@ export function isEligibleConfig(config: RateCategoryConfig | null | undefined):
   );
 }
 
+/** The generic decline the helper has always given a category with no eligible config. */
+export const COMING_SOON_REASON = "Rate attributes for this category haven't been defined yet — coming soon.";
+
+/**
+ * SLICE 2 (2026-09-22, owner P-a / P-b -- J4): the NoSuggestion reason for a category with NOTHING TO
+ * PRICE. A config may declare its own message IN CONFIG (`helper_message`, e.g. "Take Vendor
+ * Quotation" on a vendor-quote category -- never a category named in code, the HV-10 rule); a config
+ * without it, and no config at all, get today's coming-soon text byte-for-byte. PURE.
+ */
+export function declineReasonFor(config: RateCategoryConfig | null | undefined): string {
+  const m = config?.helper_message;
+  return typeof m === "string" && m.trim() !== "" ? m : COMING_SOON_REASON;
+}
+
+/**
+ * SLICE 2 (J5, owner P-d): does a DISCIPLINE have nothing to price -- at least one of its registry
+ * configs has arrived and NONE of them is eligible? This is what lets a row show its decline
+ * ("coming soon" / `helper_message`) BEFORE any suggestion run: a discipline with no eligible config
+ * has nothing a run could produce. A discipline with an eligible config (Electrical) is FALSE, so its
+ * before-run panel is exactly today's; an unregistered or unresolved discipline is FALSE; and a
+ * discipline none of whose configs has loaded yet is FALSE (the fetch has not settled -- never decline
+ * on an empty map). PURE.
+ */
+export function disciplineHasNothingToPrice(
+  discipline: string | null | undefined,
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  targets: ReadonlyArray<{ discipline: string; categoryId: string }>,
+): boolean {
+  if (!discipline) return false;
+  const ids = targets.filter((t) => t.discipline === discipline).map((t) => t.categoryId);
+  if (!ids.some((id) => configsByCategory.has(id))) return false;
+  return !ids.some((id) => isEligibleConfig(configsByCategory.get(id)));
+}
+
+/**
+ * SLICE 2 (J5): the BEFORE-A-RUN "Pricing sheet" card -- DECLINE-ONLY. It never prices, never badges
+ * and never shows a field: `compute` returns exactly the NoSuggestion `makePricingSheetHelper` would
+ * return for a not-eligible / absent config (`declineReasonFor`). The page hands it to the panel ONLY
+ * for a row whose discipline has nothing to price (`disciplineHasNothingToPrice`); it is never in the
+ * badge-building helper list, so the badge map is untouched by it. Same id + label as the real helper,
+ * so the card the pricer sees is the same card, just earlier. PURE.
+ */
+export function makeDeclineOnlyHelper(configsByCategory: ReadonlyMap<string, RateCategoryConfig>): RateHelper {
+  return {
+    id: PRICING_SHEET_HELPER_ID,
+    label: "Pricing sheet",
+    compute: (ctx) => ({
+      kind: "none",
+      reason: declineReasonFor((ctx.category && configsByCategory.get(ctx.category)) || null),
+    }),
+  };
+}
+
 interface Deps {
   /** Legacy single-category form (RM-3 tests): the ONE config this helper serves. */
   config?: RateCategoryConfig;
@@ -854,10 +907,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // always resolves to its own eligible category by construction.
     const cfg = resolveConfig(ctx.category);
     if (!isEligibleConfig(cfg)) {
-      return {
-        kind: "none",
-        reason: "Rate attributes for this category haven't been defined yet — coming soon.",
-      };
+      // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
+      return { kind: "none", reason: declineReasonFor(cfg) };
     }
     const category = cfg!;
     const defs = selectableDefs(category);

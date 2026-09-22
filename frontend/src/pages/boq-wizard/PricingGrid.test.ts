@@ -5,6 +5,8 @@
 // -- a committed 0.0 rate can be a valid priced value). The JSX grid itself is manual-cert
 // (no jsdom / @testing-library added); only these pure functions are unit-tested.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   isRateDescriptor,
   isCellPriced,
@@ -37,6 +39,8 @@ import {
   validateFormulaRefs,
   groupDraftsByRow,
   pricingRowPropsAreEqual,
+  isPendingRateValue,
+  EMPTY_PENDING_LABEL_MAP,
   isNonZeroNum,
   isRowQtyBearing,
   isRateEditableRow,
@@ -1759,5 +1763,48 @@ describe("batchDraftsToDrop -- the two draft layers do NOT settle alike", () => 
 
   it("still drops the RATE drafts on a rejection (pre-S3a behaviour, deliberately unchanged)", () => {
     expect(batchDraftsToDrop("rejected").rates).toBe(true);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 2 (2026-09-22, owner P-c): the PENDING MARK -- a row whose category's config declares
+// `pending_label` shows it on every empty / zero rate cell until a non-zero rate is typed. A visible
+// mark, not a submission block. The grid receives a per-row PRIMITIVE, never the map.
+describe("SLICE 2 / the pending mark", () => {
+  it("isPendingRateValue: empty, whitespace, null/undefined and any zero are pending", () => {
+    // "0x" too: parseFloat reads the leading 0, so a typed "0x" is a zero as far as the mark is concerned
+    for (const v of ["", "   ", null, undefined, "0", "0.0", "0.00", 0, "-0", " 0 ", "0x"]) expect(isPendingRateValue(v), String(v)).toBe(true);
+  });
+  it("⚠️ NEGATIVE: a non-zero value clears it; a non-numeric string is not pending", () => {
+    for (const v of ["1", "0.5", "-3", 1490, "1e3", "abc", "x0"]) expect(isPendingRateValue(v), String(v)).toBe(false);
+  });
+  it("the shared empty map is one reference, and a row's pendingLabel flips the memo only when IT changes", () => {
+    expect(EMPTY_PENDING_LABEL_MAP.size).toBe(0);
+    const noop = () => {};
+    const prev = {
+      row: { row_index: 5, source_row_number: 50 }, rowIndex: 0, depth: 0, parentExcelRow: null, flags: undefined,
+      rowDraftRates: {}, rowProposedRates: {}, activeColIndex: null, anyCellActive: false, openRemark: false,
+      displayDescriptors: [], columnDescriptors: [], columnFormulas: [], override: false, formulasComplete: true,
+      categoryGateOpen: true, colCount: 6, rowCount: 1, remarksColIndex: 5, pendingLabel: null,
+      commitRate: noop, scheduleAutoSave: noop, onCellFocus: noop, registerCell: noop, focusCell: noop,
+      setDraftRates: noop, setProposedRates: noop, setOpenRemark: noop,
+    } as unknown as Parameters<typeof pricingRowPropsAreEqual>[0];
+    expect(pricingRowPropsAreEqual(prev, { ...prev })).toBe(true);
+    expect(pricingRowPropsAreEqual(prev, { ...prev, pendingLabel: "Waiting" })).toBe(false);
+    expect(pricingRowPropsAreEqual({ ...prev, pendingLabel: "Waiting" }, { ...prev, pendingLabel: "Waiting" })).toBe(true);
+  });
+  it("(source) both rate renders -- editable and read-only -- draw the mark through ONE function, gated on the row's label; qty cells never do", () => {
+    const src = readFileSync(join(__dirname, "PricingGrid.tsx"), "utf8");
+    expect(src.match(/pendingRateMark\(pendingLabel, /g) ?? []).toHaveLength(2);
+    expect(src).toContain("isRateDescriptor(d) ? pendingRateMark(pendingLabel, val");
+    expect(src).toContain("if (!pendingLabel || !isPendingRateValue(value)) return null;");
+    expect(src).toContain("prev.pendingLabel === next.pendingLabel &&");
+    expect(src).toContain("pendingLabel={pendingLabelByCategory.get(categoriesByExcelRow.get(row.source_row_number)?.effective_category_id ?? \"\") ?? null}");
+    expect(src).toContain("pendingLabelByCategory = EMPTY_PENDING_LABEL_MAP");
+    // the page builds the map from the configs' pending_label and hands the SHARED empty when none
+    const page = readFileSync(join(__dirname, "SheetPricingPage.tsx"), "utf8");
+    expect(page).toContain("const label = cfg.pending_label;");
+    expect(page).toContain("return m.size > 0 ? m : EMPTY_PENDING_LABEL_MAP;");
+    expect(page).toContain("pendingLabelByCategory={pendingLabelByCategory}");
   });
 });

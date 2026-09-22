@@ -10,6 +10,13 @@ export interface RateMasterCategoryEntry {
   category_id: string;
   /** Fallback label until the config's category_display loads. */
   label: string;
+  /**
+   * SLICE 2 (2026-09-22, owner P-d, ruling R1): `false` marks a MESSAGE-ONLY category that holds NO
+   * items. It is still FETCHED (its config carries `helper_message` / `pending_label`, which the rate
+   * helper panel, the pricing grid and the calculator read) but it is NOT listed on the Rate Master
+   * page -- `rateMasterPageEntry` filters it out there. Absent => today: an item category.
+   */
+  holds_items?: false;
 }
 
 export interface RateMasterDisciplineEntry {
@@ -19,6 +26,17 @@ export interface RateMasterDisciplineEntry {
 }
 
 export const RATE_MASTER_ROUTE = "/rate-master";
+
+/**
+ * The discipline entry AS THE RATE MASTER PAGE READS IT: item categories only (`holds_items !== false`).
+ * PURE. Returns the SAME object when nothing is filtered, so an entry with no message-only categories
+ * (every Electrical entry) is reference-identical and the page is byte-unchanged for it.
+ */
+export function rateMasterPageEntry<T extends RateMasterDisciplineEntry | undefined>(entry: T): T {
+  if (!entry) return entry;
+  const kept = entry.categories.filter((c) => c.holds_items !== false);
+  return (kept.length === entry.categories.length ? entry : { ...entry, categories: kept }) as T;
+}
 
 export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
   {
@@ -60,6 +78,15 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
     label: "HVAC",
     categories: [
       { category_id: "hvac_adp", label: "ADP (Air Distribution Products)" },
+      // SLICE 2 (2026-09-22, owner P-a / P-b / P-d): the four VENDOR-QUOTE categories -- always priced
+      // from a vendor quotation, so their configs are MESSAGE-ONLY (no items, no attributes, no
+      // pipelines; `helper_message` "Take Vendor Quotation" + `pending_label`). `holds_items: false`
+      // keeps them OFF the Rate Master page; they are still fetched for the helper and the calculator.
+      // The ids are the HVAC classifier's exact ids (categories_hvac.json).
+      { category_id: "hvac_ahu", label: "AHU", holds_items: false },
+      { category_id: "hvac_dx_unit", label: "DX Unit", holds_items: false },
+      { category_id: "hvac_panels", label: "Panels", holds_items: false },
+      { category_id: "hvac_pumps", label: "Pumps", holds_items: false },
     ],
   },
 ];
