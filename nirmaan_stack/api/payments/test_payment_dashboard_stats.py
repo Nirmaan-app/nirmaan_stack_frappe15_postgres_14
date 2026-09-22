@@ -113,12 +113,13 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
     """The card's **Total Unreconciled Outflow** figure (#1286).
 
     ⚠️ IT MUST EQUAL BULK IMPORT'S OWN **Not Matched – Outflow** TAB WITH NO FILTERS, PLUS WHAT IS
-    STILL UNALLOCATED ON EACH **Partly Allocated – Outflow** LINE (owner, 2026-09-22 -- it was *Still
-    open / Paid out*, which also held Matched lines and the WHOLE of a part-used one), and the
-    equality test below is the point of this class -- not the per-status deltas beside it. The two screens
-    are allowed to disagree about nothing, so the assertion is EQUALITY against the real import
-    endpoint, never a re-implementation of the population rule in the test. A test that re-spells
-    the rule to check the rule passes whenever the two spellings agree, which is not the question.
+    STILL UNALLOCATED ON EACH **Partly Allocated – Outflow** LINE (owner, 2026-09-22 -- it was
+    *Still open / Paid out*, which also held Matched lines and the WHOLE of a part-used one), and
+    the equality test below is the point of this class -- not the per-status deltas beside it. The
+    two screens are allowed to disagree about nothing, so the assertion is EQUALITY against the real
+    import endpoint, never a re-implementation of the population rule in the test. A test that
+    re-spells the rule to check the rule passes whenever the two spellings agree, which is not the
+    question.
 
     ⚠️ THE PLANTED FIXTURE SPANS SEVERAL STATUSES, BOTH DIRECTIONS AND MORE THAN ONE SOURCE, and
     every one of those axes is load-bearing: the figure is a cut of the open statuses on the Paid
@@ -206,7 +207,9 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
         while True:
             page = get_outflow_rows(scope=scope, failed="0", limit=200, offset=offset)
             for row in page["rows"]:
-                taken = sum(abs(m["target_amount"]) for m in row["matches"]) if unallocated_only else 0
+                taken = (
+                    sum(abs(m["target_amount"]) for m in row["matches"]) if unallocated_only else 0
+                )
                 amount += row["amount"] - taken
             offset += len(page["rows"])
             if not page["rows"] or offset >= page["total"]:

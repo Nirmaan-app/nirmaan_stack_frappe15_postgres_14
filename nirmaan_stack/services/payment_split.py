@@ -528,8 +528,9 @@ def _percentage(amount: float, po_total: float) -> str:
 # --- how much of a split request the bank has reconciled -----------------------------------------
 
 
-def load_part_reconciled_split_families() -> list[dict]:
-    """Split payment families a bank line has reached but not finished, in ONE query.
+def load_part_reconciled_split_families(payment_names) -> list[dict]:
+    """The split payment families the given payments belong to that a bank line has reached but
+    not finished. Empty in, empty out.
 
     A family is every payment reachable through `split_from` from one root: a bank part-payment
     (`settle_row_partial`, whose balance waits at Reconciliation Pending for its own line), a CEO
@@ -537,70 +538,97 @@ def load_part_reconciled_split_families() -> list[dict]:
     bank-line slip AND a member is still `Reconciliation Pending`.
 
     One dict per such family:
-      * `members` -- every payment in it;
+      * `members` -- every payment in it, sorted;
       * `line_count` / `reconciled` -- its members' live slips, counted and totalled;
       * `pending` -- its Reconciliation Pending members' amounts.
+
+    ⚠️ BUILT FROM THE SPLIT LINKS, NOT A RECURSIVE QUERY. `split_from` carries no index, so walking
+    it in SQL scans every payment at every step (~35ms a queue page). Instead the handful of split
+    links are read in ONE filtered scan and the families put together here; a page none of whose
+    payments is in a family -- nearly every page -- stops there. Only when one is do two lookups by
+    NAME (the primary key) read the members' statuses and their slips.
 
     ⚠️ A ROOT IS A PAYMENT WHOSE `split_from` NAMES NOTHING THAT EXISTS, not merely a blank one, so a
     family whose first payment was deleted is still found from what is left.
     """
-    rows = frappe.db.sql(
-        f"""
-        WITH RECURSIVE lineage AS (
-            SELECT p.name, p.name AS root
-            FROM "tab{PAYMENT_DOCTYPE}" p
-            WHERE NOT EXISTS (SELECT 1 FROM "tab{PAYMENT_DOCTYPE}" pp WHERE pp.name = p.split_from)
-              AND EXISTS (SELECT 1 FROM "tab{PAYMENT_DOCTYPE}" c WHERE c.split_from = p.name)
-            UNION ALL
-            SELECT c.name, l.root
-            FROM "tab{PAYMENT_DOCTYPE}" c
-            JOIN lineage l ON c.split_from = l.name
-        ),
-        slips AS (
-            SELECT l.root,
-                   COUNT(m.name) AS line_count,
-                   SUM(m.target_amount) AS reconciled
-            FROM lineage l
-            JOIN "tabOutflow Row Match" m
-              ON m.target_doctype = %(doctype)s
-             AND m.target_name = l.name
-             AND m.match_kind = %(settled)s
-            GROUP BY l.root
+    names = {n for n in (payment_names or ()) if n}
+    if not names:
+        return []
+
+    parent_of = {
+        child: parent
+        for child, parent in frappe.db.sql(
+            f"""SELECT name, split_from FROM "tab{PAYMENT_DOCTYPE}"
+                WHERE COALESCE(split_from, '') <> ''"""
         )
-        SELECT ARRAY_AGG(l.name ORDER BY l.name)                       AS members,
-               MAX(s.line_count)                                        AS line_count,
-               MAX(s.reconciled)                                        AS reconciled,
-               SUM(CASE WHEN p.status = %(pending)s
-                        THEN COALESCE(p.amount, 0) ELSE 0 END)          AS pending
-        FROM lineage l
-        JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = l.name
-        JOIN slips s ON s.root = l.root
-        GROUP BY l.root
-        HAVING SUM(CASE WHEN p.status = %(pending)s THEN 1 ELSE 0 END) > 0
-        """,
-        {
-            "doctype": PAYMENT_DOCTYPE,
-            "settled": MATCH_SETTLED,
-            "pending": RECONCILIATION_PENDING,
-        },
-        as_dict=True,
+    }
+    if not parent_of:
+        return []
+    existing = set(
+        frappe.db.sql_list(
+            f'SELECT name FROM "tab{PAYMENT_DOCTYPE}" WHERE name IN %s',
+            (tuple(set(parent_of.values())),),
+        )
     )
-    return [
-        {
-            "members": list(r["members"] or []),
-            "line_count": int(r["line_count"] or 0),
-            "reconciled": flt(r["reconciled"]),
-            "pending": flt(r["pending"]),
-        }
-        for r in rows
-    ]
+
+    def root_of(name):
+        seen = set()
+        while parent_of.get(name) in existing and name not in seen:
+            seen.add(name)
+            name = parent_of[name]
+        return name
+
+    families: dict[str, set] = {}
+    for child in parent_of:
+        root = root_of(child)
+        families.setdefault(root, {root}).add(child)
+    wanted = [members for members in families.values() if members & names]
+    if not wanted:
+        return []
+
+    everyone = tuple(set().union(*wanted))
+    status_amount = {
+        r["name"]: r
+        for r in frappe.db.sql(
+            f'SELECT name, status, amount FROM "tab{PAYMENT_DOCTYPE}" WHERE name IN %s',
+            (everyone,),
+            as_dict=True,
+        )
+    }
+    slips = {
+        r["target_name"]: r
+        for r in frappe.db.sql(
+            """
+            SELECT target_name, COUNT(name) AS line_count, SUM(target_amount) AS reconciled
+            FROM "tabOutflow Row Match"
+            WHERE target_doctype = %s AND match_kind = %s AND target_name IN %s
+            GROUP BY target_name
+            """,
+            (PAYMENT_DOCTYPE, MATCH_SETTLED, everyone),
+            as_dict=True,
+        )
+    }
+
+    result = []
+    for members in wanted:
+        line_count = sum(int(slips[m]["line_count"] or 0) for m in members if m in slips)
+        waiting = [
+            m for m in members
+            if (status_amount.get(m) or {}).get("status") == RECONCILIATION_PENDING
+        ]
+        if not line_count or not waiting:
+            continue
+        result.append({
+            "members": sorted(members),
+            "line_count": line_count,
+            "reconciled": flt(sum(flt(slips[m]["reconciled"]) for m in members if m in slips)),
+            "pending": flt(sum(flt(status_amount[m]["amount"]) for m in waiting)),
+        })
+    return result
 
 
 def part_reconciled_split_family_of(payment_name: str) -> dict | None:
-    """The part-reconciled split family `payment_name` belongs to, or `None` -- the same families
-    `load_part_reconciled_split_families` returns, so the Bank lines card and the queue's Amount
-    cell describe one payment with one set of figures."""
-    return next(
-        (f for f in load_part_reconciled_split_families() if payment_name in f["members"]),
-        None,
-    )
+    """The part-reconciled split family `payment_name` belongs to, or `None` -- the same read the
+    queue's Amount cell uses, so the Bank lines card and the cell describe one payment alike."""
+    families = load_part_reconciled_split_families([payment_name])
+    return families[0] if families else None

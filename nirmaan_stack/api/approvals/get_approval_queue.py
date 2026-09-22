@@ -452,10 +452,13 @@ def get_approval_queue(
 
     # A PO / SR payment is never left part-covered itself: a bank line that pays part of it SPLITS
     # it into a Paid half and a Reconciliation Pending balance (`split_from`). So for a payment the
-    # "reconciled / pending" pair is its split FAMILY's -- read once per page, keyed by member.
+    # "reconciled / pending" pair is its split FAMILY's -- read once per page, for this page's
+    # payments only (a page with none makes no query), keyed by member.
     part_families = {
         member: family
-        for family in load_part_reconciled_split_families()
+        for family in load_part_reconciled_split_families(
+            [r["name"] for r in rows if r.get("doctype") == "Project Payments"]
+        )
         for member in family["members"]
     }
 

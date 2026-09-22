@@ -591,13 +591,15 @@ const Cell = ({
         case "amount":
             // ⚠️ COLOURED BY DIRECTION -- red out, green in (owner, 2026-09-14) -- and that colour
             // is now the only per-row direction marker: the `Direction` column it replaced was
-            // removed in the same change. The figure itself is unchanged.
+            // removed in the same change.
             //
             // A part-used line also says, under the figure, how much of it is reconciled against
             // records and how much still waits -- the wording the Payments table uses.
             {
                 const part = partlyAllocatedFigures(row);
-                const figure = <span className={amountToneClass(row)}>{formatToRoundedIndianRupee(row.amount)}</span>;
+                const figure = (
+                    <span className={amountToneClass(row)}>{formatToRoundedIndianRupee(row.amount)}</span>
+                );
                 if (!part) return figure;
                 return (
                     <div className="tabular-nums">

@@ -3855,16 +3855,12 @@ export const RECORD_DATE_LABELS: Record<RecordDateKind, string> = {
 };
 
 /**
- * Widest a wrapped line of the Vendor / Description column gets. The column is 165px (2026-09-22).
+ * Widest a wrapped line of the Vendor / Description column gets (owner ruling: 24, up from 16).
  *
- * ⚠️ STILL 24 AT 165px BECAUSE THE DESCRIPTION IS `text-[11px]`: 24 characters there is ~145px,
- * inside the 149px content box. The note below is the history of the 220px width.
- *
- * ⚠️ 24, WIDENED FROM 16 (owner ruling), AND THE COLUMN WIDENED WITH IT -- the two numbers are one
- * decision. 24 characters at `text-sm` is roughly 168px, and a 180px column has a 164px content box
- * once `px-2` is taken off each side, so leaving the width alone would have wrapped the text for a
- * box it no longer fits. `RECORD_COLUMNS` pays for the extra 40px out of `record`, which lost its
- * document id at D11 -- see the budget arithmetic there.
+ * ⚠️ THIS AND THE COLUMN'S WIDTH ARE ONE DECISION. The description renders at `text-[11px]`, where
+ * 24 characters is ~145px; the 165px column has a 149px content box once `px-2` is taken off each
+ * side. Narrow the column below that, or render the description larger, and the pre-wrapped lines
+ * no longer fit the box they were wrapped for.
  */
 export const VENDOR_DESCRIPTION_WRAP_CHARS = 24;
 
@@ -3959,20 +3955,14 @@ export interface RecordColumn {
  * ⚠️ THE WIDTH BUDGET, STATED SO THE NEXT PERSON MOVING ONE KNOWS WHAT THEY ARE SPENDING. The
  * five columns sum to 765px (190 + 165 + 145 + 115 + 150), 805px with the 40px tick column.
  *
- * ⚠️ 850 WAS TOO MUCH IN PRACTICE (owner, 2026-09-22): the table sits inside the settle panel's own
- * border and padding and beside a vertical scrollbar, so the "876px left" below was never all there
- * -- the table scrolled sideways and cut AMOUNT, the one fact that decides whether a record can be
- * settled at all. Vendor / Description paid for it (its header breaks onto two lines and a long
- * vendor name wraps instead of being cut), with Project and Approval Date trimmed. Outgrow the room
- * again and AMOUNT falls off the edge again, so a widening has to be PAID FOR out of another
- * column, never simply added.
+ * The table sits inside the settle panel's border and padding, beside a vertical scrollbar, in a
+ * 960px dialog -- so the room it really has is well under 876px. At 850px it scrolled sideways and
+ * cut AMOUNT, the one fact that decides whether a record can be settled at all (owner, 2026-09-22).
+ * Outgrow the room again and AMOUNT falls off the edge again, so a widening has to be PAID FOR out
+ * of another column, never simply added.
  *
- * The earlier reasoning, kept for the record: the dialog is 960px with ~48px of padding and a ~36px
- * radio column, leaving 876px.
- *
- * The 40px `vendor` took to reach 220px came from `record`, which lost its document id at D11 and
- * had the room to give. That is the whole reason `vendor` could grow: `VENDOR_DESCRIPTION_WRAP_CHARS`
- * went to 24, and 24 characters at `text-sm` will not fit a 180px column's 164px content box.
+ * Vendor / Description is narrow on purpose: its header breaks onto two lines and a long vendor
+ * name wraps rather than being cut. See `VENDOR_DESCRIPTION_WRAP_CHARS` for why 165px is its floor.
  */
 export const RECORD_COLUMNS: RecordColumn[] = [
     { id: "record", title: "Record", width: "190px" },

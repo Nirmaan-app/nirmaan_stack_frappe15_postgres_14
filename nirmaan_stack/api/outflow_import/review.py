@@ -4085,18 +4085,19 @@ def not_matched_totals() -> dict:
     allocated on each (the line's amount less its live slips, as `allocation.remaining_of` reads
     it) -- the part of that money no record has taken yet.
 
-    ⚠️ BUILT FROM THE TABS' OWN `_scope_clause` UNDER `_row_filters` WITH EVERY FILTER ABSENT, so the
-    card and the tab cannot come to disagree about which lines are "not matched". The one addition
-    is the failed-transfer exclusion every summary figure carries (owner ruling 2026-08-10, option
-    B) -- money the bank refused to move owes nobody a decision. A failed transfer is `Skipped` at
-    staging, so on real data it changes nothing.
+    ⚠️ BUILT FROM THE TABS' OWN `_scope_clause` UNDER `_row_filters` WITH EVERY FILTER ABSENT, so
+    the card and the tab cannot come to disagree about which lines are "not matched". The one
+    addition is the failed-transfer exclusion every summary figure carries (owner ruling 2026-08-10,
+    option B) -- money the bank refused to move owes nobody a decision. A failed transfer is
+    `Skipped` at staging, so on real data it changes nothing.
 
     ⚠️ NO PERMISSION GATE, AND THAT IS DELIBERATE (#1286). It rides a card everyone who can see the
     Payments screen already sees. NOT whitelisted -- called in-process by the dashboard stats
     endpoint, which carries its own `@frappe.whitelist`.
     """
     totals = {}
-    for key, scope in (("outflow", SCOPE_NOT_MATCHED_OUTFLOW), ("inflow", SCOPE_NOT_MATCHED_INFLOW)):
+    tabs = (("outflow", SCOPE_NOT_MATCHED_OUTFLOW), ("inflow", SCOPE_NOT_MATCHED_INFLOW))
+    for key, scope in tabs:
         where, params = _row_filters(
             batch=None,
             search=None,

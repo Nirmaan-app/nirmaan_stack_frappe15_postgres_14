@@ -42,7 +42,7 @@ _BANK_LINE_DOCTYPES = (PAYMENT_DOCTYPE, *EXPENSE_DOCTYPES)
 
 @frappe.whitelist()
 def get_expense_bank_lines(doctype: str, name: str) -> dict:
-    """Every live bank line linked to one expense or payment, with the linked total and what is left.
+    """Every live bank line linked to one expense or payment, its linked total and what is left.
 
     URL: /api/method/nirmaan_stack.api.approvals.expense_bank_lines.get_expense_bank_lines
 
@@ -54,7 +54,9 @@ def get_expense_bank_lines(doctype: str, name: str) -> dict:
     """
     if doctype not in _BANK_LINE_DOCTYPES:
         frappe.throw(
-            _("Bank lines are only kept for a payment or an expense, not for '{0}'.").format(doctype),
+            _("Bank lines are only kept for a payment or an expense, not for '{0}'.").format(
+                doctype
+            ),
             title=_("Not a payment or expense"),
         )
 
@@ -114,7 +116,13 @@ def _family_card(payment, family: dict) -> dict:
         for row in list_expense_lines(PAYMENT_DOCTYPE, member)
     ]
     # One run, oldest first, as `list_expense_lines` orders a single record's lines.
-    lines.sort(key=lambda r: (r.get("added_on") is None, r.get("added_on") or "", r.get("match_name") or ""))
+    lines.sort(
+        key=lambda r: (
+            r.get("added_on") is None,
+            r.get("added_on") or "",
+            r.get("match_name") or "",
+        )
+    )
     return {
         "doctype": PAYMENT_DOCTYPE,
         "name": payment["name"],

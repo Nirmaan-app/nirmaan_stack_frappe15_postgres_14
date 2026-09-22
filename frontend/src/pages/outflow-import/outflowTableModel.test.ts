@@ -858,9 +858,8 @@ describe("the Vendor / Description cell", () => {
 
     it("wraps at 24 and caps at 72 -- INVERTED from 16 / 48 (owner ruling)", () => {
         // ⚠️ INVERTED, not deleted: the old pair is asserted GONE so a revert cannot pass this
-        // file. The wrap and the column width are ONE decision -- 24 characters at `text-sm` is
-        // ~168px, which does not fit a 180px column's 164px content box, so `vendor` widened to
-        // 220px in the same change.
+        // file. The wrap and the column width are ONE decision -- see `VENDOR_DESCRIPTION_WRAP_CHARS`
+        // (24 characters at 11px fits the 165px column's content box).
         expect(VENDOR_DESCRIPTION_WRAP_CHARS).toBe(24);
         expect(VENDOR_DESCRIPTION_MAX_CHARS).toBe(72);
         expect(VENDOR_DESCRIPTION_WRAP_CHARS).not.toBe(16);
@@ -3007,14 +3006,11 @@ describe("the settleable-record table model", () => {
     });
 
     it("keeps the whole table inside the dialog without horizontal scroll", () => {
-        // The dialog is 960px wide with ~48px of padding and a ~36px radio column. If the columns
-        // outgrow that, Amount is the one that falls off -- which is what this change fixed.
+        // If the columns outgrow the room the table really has, Amount is the one that falls off.
         //
-        // ⚠️ 850 -> 765 (owner, 2026-09-22). 850 fitted the 876px on paper but NOT the room the table
-        // really has -- it sits inside the settle panel's border and padding, beside a vertical
-        // scrollbar -- so it scrolled sideways and cut Amount. `vendor` 220 -> 165 (its header now
-        // breaks onto two lines and a long vendor name wraps), `project` 160 -> 145, `date` 130 ->
-        // 115. A widening still has to be PAID FOR out of another column.
+        // ⚠️ 850 -> 765 (owner, 2026-09-22): at 850 the table scrolled sideways inside the settle
+        // panel and cut Amount. `vendor` 220 -> 165, `project` 160 -> 145, `date` 130 -> 115. A
+        // widening has to be PAID FOR out of another column.
         const total = RECORD_COLUMNS.reduce((sum, c) => sum + parseInt(c.width, 10), 0);
         expect(total).toBe(765);
         expect(total).not.toBe(850);
