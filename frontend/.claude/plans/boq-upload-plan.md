@@ -40401,3 +40401,216 @@ the upload / spec-reader code, `rateHelperPlumbing.tsx`, `RateHelperPanel.tsx`, 
 the modified `.claude/settings.local.json` and the root untracked files are declared noise, not staged; the untracked
 `_mint_hvac_v3_tmp.py` is a temporary build tool, never committed. Feat commit `7f740764`; this record's commit
 follows it. NOT pushed.
+
+## HVAC PRICING, SLICE 3 -- HVAC CABLES AND RACEWAY USE ELECTRICAL'S RULES AND ITEMS (alias_of); PENDING MARK ONLY ON RATE-EDITABLE ROWS; HVAC v4 (2026-09-22/23) -- SHIPPED
+
+Owner rulings (quoted in the slice prompt): **Q-a** "category 12 hvac cables will need to copy the wiring and cables
+section from electrical as it is. both of them will always be the same and cannot differ... all logic all pricing must
+be same exactly"; "category 15 Raceway, works same as raceway and cabvle trays from electrical". **Q-b** stored ONCE and
+shared at lookup, not copied ("i lean to opton B" -- a copy would drift because production edits rates by CSV).
+**Q-c** "awaiting vendor quote should come only on the rows which can ytake rates" -- heading / preamble rows lose the
+mark. **Q-d** "block not needed" -- the mark stays a visible warning; nothing added to the export or the
+ready-to-finalise counter. **Q-e** HVAC v4 only. **Q-f** NO AI CALLS; the pricing proof is the CALCULATOR.
+Handover line: **Electrical v63 / HVAC v4.**
+
+**The STOP, ruled mid-slice (owner, 2026-09-22):** slice 2's pre-run rule (`disciplineHasNothingToPrice` -- a
+discipline with no eligible config shows its decline card before a run) collides with an alias: once `hvac_cables`
+resolves to the eligible wiring config, HVAC "has" an eligible config and every HVAC row would revert to the two
+static cards before a run (vendor rows losing "Take Vendor Quotation", ADP / Ducting losing "coming soon", and a cable
+row showing no helper card at all -- M3 could not pass). **Ruled: the PROPOSED rule.** A discipline has "nothing to
+RUN" when it has NO ELIGIBLE CONFIG OF ITS OWN -- an alias config does NOT count as its own, whatever its target. For
+such a discipline the panel gets, before a run, the REAL pricing-sheet helper over an EMPTY extraction map (the
+calculator's construction): vendor-quote rows keep "Take Vendor Quotation"; ADP / Ducting keep "coming soon"; cable and
+raceway rows show the helper card with fields; badges untouched (panel-only); Electrical (own eligible configs) keeps
+today's before-run panel. Three NEGATIVE halves were ordered and are pinned: an alias-only discipline still counts as
+"nothing to run"; the FLIP when it gains an own eligible config; Electrical's before-run output unchanged. Also ruled:
+one exported pure `resolveAliasConfig` used by both `resolveConfig` and the calculator's layout reads; a
+per-target-discipline items fetcher child inside `PricingCalculator.tsx` with plumbing untouched; dedupe by item name
+with the collision behaviour reported and pinned (below); `test_extraction_coercion.py` is the extraction test module.
+
+### PREMISES VERIFIED, CORRECTIONS
+- Tip `f39b980e` == origin; tree == the declared noise. The corpus holds **278** current `hvac_cables` /
+  `hvac_raceway` rows (as stated). The Electrical target ids exist in v63 (`wiring_cabling` -- no `item_kinds`, its
+  kinds come from the pipelines; `cabletray_raceway` -- `item_kinds: ["cable_tray"]`); the classifier ids are exact
+  (`hvac_cables` "Cables", `hvac_raceway` "Raceway"). The Use event already records the ROW's own category
+  (`liveCategoriesByExcelRow.get(excelRow)?.effective_category_id`), so the L5 pin holds by construction.
+- Recon section 5 holds at every site B1-B4 / F2-F6; B5-B8 (per-discipline endpoint / CSV / exporter reads) are
+  untouched and need nothing -- an alias config is an HVAC row and is exported, edited and round-tripped as one.
+- **Correction (a real defect, found at M1, fixed in-slice):** the recon's frontend note assumed the alias target's
+  CONFIG would be in the map. On the BoQ page it is (every registry target of every discipline is fetched); in the
+  CALCULATOR it is NOT -- the calculator filters `RATE_MASTER_CONFIG_TARGETS` to its own discipline, so on
+  `/hvac-pricing` the wiring config never arrived, `resolveAliasConfig` returned the alias itself and Cables showed
+  "coming soon". My unit test used a merged map and hid it. Fix: `aliasTargetConfigs(configsByCategory)` (pure) mounts
+  one more `RateConfigFetcher` per alias target (keyed by category id in the accumulate-once map, exactly where the
+  resolver looks); pinned with the defect's own shape (HVAC-only map declines; the target landing resolves).
+- **Correction (test premise):** `extraction.py` has held `CATEGORY_ID = "wiring_cabling"` since RM-3 (the legacy
+  single-category constant); the "no target named in code" pin counts exactly that one pre-existing literal.
+- **Correction (test premise):** asset JSON items carry neither `discipline` nor `name` (the loader stamps the first,
+  Frappe autonames the second); the asset-based calculator tests key on the `hvac_` kind prefix and on the merged
+  count instead.
+- `_extract_batch` had no pure prompt builder; the content assembly was moved out VERBATIM as `batch_prompt_content`
+  (below) so the L4 proof could compare strings without a client.
+
+### AS BUILT
+- **Backend.** `config_validation`: `alias_of` allowlisted + `_validate_alias_of` (object with non-empty string
+  `discipline` / `category_id`, no other keys, not itself, EMPTY pipelines and EMPTY attribute_definitions).
+  `extraction`: `alias_target(cfg)`, **`resolve_alias(configs, disc, cat, cfg=None)` -- THE ONE resolution, ONE HOP**;
+  `config_is_eligible(cfg, configs=None)` (with the map, an alias is eligible iff its target is);
+  `load_configs_with_alias_targets(disciplines)` (`_load_active_configs` + the target disciplines an alias names, one
+  extra query only when needed; byte-identical when no alias is loaded); `assemble_population` builds `eligible` from
+  the alias-aware map with `config_is_eligible(cfg, all_cfgs)`; `run_extraction`'s per-group context moved out
+  VERBATIM into `_group_context(configs, disc, cat)`, which resolves the alias FIRST so every per-discipline
+  catalogue read (`catalog_values`, `build_attribute_defs`, `build_slot_spec`, `breaker_catalog_for`) uses the TARGET
+  discipline; `batch_prompt_content(...)` = the content assembly of `_extract_batch`, moved out verbatim and called
+  from it. Every removed line of `extraction.py` reappears in the moved bodies (checked whitespace-insensitively; the
+  only true deletions are the replaced lookup / loader / eligibility lines). NEW `data/rate_master_hvac_all_v4.json`
+  = v3 UNCHANGED + `hvac_cables` -> Electrical `wiring_cabling` and `hvac_raceway` -> Electrical `cabletray_raceway`
+  (`item_kinds: []`, `attribute_definitions: []`, `pipelines: {}`, `alias_of`, `discipline` stamped), minted by the
+  untracked `_mint_hvac_v4_tmp.py`. Loaded LIVE, HVAC scope, `replace=True`: batch **`rmbulk-48199026e1ac`**, 95
+  active items (items-only checksum `17f11618...559a` unchanged, uids == v3), 7 active configs; Electrical 1,367 / 12 /
+  `77a70755...f0db` unchanged.
+- **Frontend.** `rateMasterTypes`: `alias_of?`. `rateMasterRegistry`: `hvac_cables` "Cables" and `hvac_raceway`
+  "Raceway" with `holds_items: false`. `pricingSheetHelper`: `resolveAliasConfig` (ONE HOP; the config itself when
+  the target is absent), `isAliasConfig`, `resolveConfig` reads it, `disciplineHasNothingToRun` (replaces
+  `disciplineHasNothingToPrice`; an alias never counts as the discipline's own), `makePreRunHelper` +
+  `EMPTY_EXTRACTION_MAP` (replaces `makeDeclineOnlyHelper`). `SheetPricingPage`: `preRunHelper` /
+  `panelHelpers` on the new rule (panel-only; badge effect untouched). `PricingCalculator`: `aliasTargetConfigs`,
+  `aliasTargetDisciplines`, `mergeItemsByName`, `RateItemsFetcher` child, layout reads through `resolveAliasConfig`.
+  `PricingGrid`: the mark is drawn ONLY in the editable rate branch (the grid's own condition
+  `onSaveRate && formulasComplete && categoryGateOpen && isRateDescriptor && isRateEditableRow`); the read-only call
+  is gone.
+
+### THE L4 BYTE-IDENTICAL COMPARISON (no AI call)
+`test_al_02`: with the current Electrical (v63) and HVAC (v4) configs stamped as the loader stores them, and a fixture
+cable row ("3.5 C x 400 sq.mm (XLPE) AL.Armoured cable" under a CABLES/TERMINATIONS preamble),
+`_group_context(cfgs, "HVAC", "hvac_cables") == _group_context(cfgs, "Electrical", "wiring_cabling")` (deep-equal:
+attribute definitions incl. the live `values_from` catalogue reads, prompt template, synonyms, defaults, none
+guidance, slot spec, rules, conductor groups, paired fill, module-count attrs, code attrs, absent rules, inch
+tables) and `batch_prompt_content(...)` on both contexts returns the SAME string (asserted equal, non-vacuous: the
+definitions are non-empty and the row payload is inside). Same for `hvac_raceway` vs `cabletray_raceway`. NEGATIVE:
+`hvac_adp`'s context is its own, and an Electrical context is identical whether or not aliases sit in the map.
+`test_al_03` pins that `_extract_batch` sends exactly `batch_prompt_content(...)` (a fake client captures the message).
+
+### DEDUPE BY NAME -- WHAT HAPPENS ON A COLLISION (pinned)
+`mergeItemsByName(own, ...targets)` keeps the FIRST occurrence of an item `name` (Frappe docname; unique in the
+table today, so nothing is dropped and the merged live set is the plain concatenation). If two disciplines ever held
+the same name, the OWN discipline's row would win and the target's row would be silently dropped -- pinned in
+`pricingCalculator.test.ts` so that day is loud. Asset items carry no `name`; the fallback key is
+discipline / kind / uid-or-attributes.
+
+### TESTS (positive AND negative)
+Backend `TestHvacAliasSlice3` (a01-a05, `test_rate_master.py`): a01 alias accepted on both validators; NEGATIVE
+non-object / missing or blank discipline or category_id / unknown alias key / self-alias / own pipelines / own
+definitions each refused by name; a02 the asset sweep (51 files, 571 configs; the one v12 refusal); a03 v4 = v3 + two,
+targets exist, eligibility by target, NEGATIVE alias alone / missing target / CHAIN (one hop) not eligible; a04 the
+load (95 / 7), the endpoint hands `alias_of` verbatim, the alias-aware loader pulls Electrical alongside
+(7 + 12 keys), aliased keys eligible, every non-aliased HVAC key not, a no-alias discipline loads exactly as before,
+Electrical checksum unchanged; a05 no alias id in `extraction.py` or the four frontend sources, the tray target named
+nowhere, the ONE pre-existing wiring literal. `TestAliasResolutionSlice3` (al_01-al_03, `test_extraction_coercion.py`):
+one-hop / never-errors, THE L4 PROOF, the `_extract_batch` string pin. INVERTED (authorised): `CURRENT_HVAC_ASSET` ->
+v4; h01 seven configs; h07 series [v1..v4], v1..v3 byte-identical to HEAD, no "v4" text; slice-2 s03 / s04 config
+lists + counts (5 -> 7).
+Vitest: `pricingCalculator.test.ts` -- the v4 alias shape, registry seven entries (six `holds_items: false`), targets
+19, page view drops all six, per-golden EQUALITY (5 wiring, 3 tray: values, headlines, figures, attribute ids) of the
+HVAC alias vs the Electrical category on the SAME picks, the M1-defect pin (HVAC-only map declines; target landing
+resolves; source pins), NEGATIVE HVAC-only items, `mergeItemsByName` first-wins collision, calculator source pins,
+plumbing has no "alias". `pricingSheetHelper.test.ts` -- `resolveAliasConfig` (target / own / missing / chain one hop /
+null), `isAliasConfig`, eligibility by target with the coming-soon card for data-only / missing / chain targets, an
+aliased in-run row prices EXACTLY as the wiring row incl. the TWO-headline Cable | Termination pairing, source pins
+(resolveConfig reads the one resolution; no alias id named); `disciplineHasNothingToRun` TRUE / FALSE, the ordered
+NEGATIVES (alias-only still "nothing to run"; THE FLIP on an own eligible config; Electrical unchanged), the settle
+guards; `makePreRunHelper` (vendor / coming-soon byte-identical to slice 2; eligible + aliased show fields; never
+badges); page source pins incl. the L5 Use-event line. `PricingGrid.test.ts` -- the mark call count is 1, absent from
+the read-only render, positioned inside the editable branch.
+
+### VACUITY (each: break, expected red, restore, sha256 verified)
+V1 `alias_of` off the allowlist: a01 + a02 FAIL. V2 own-pipelines refusal removed: a01 FAIL. V3 `resolve_alias`
+never follows: al_01 + al_02 FAIL. V4 alias-aware loader stops loading targets: a04 FAIL. V5 `_extract_batch` sends
+a different string: al_03 FAIL. V6 one alias target id altered in the v4 file: a03 FAIL. V7 `resolveAliasConfig`
+returns the alias itself: 9 vitest FAIL (calculator + helper). V8 (first variant, `isEligibleConfig(cfg)` on the raw
+alias) -- NOT red: the raw alias config is empty either way, so that line is not where the rule lives; **V8b** (alias
+resolved before the own-eligibility test): the FLIP pin FAILS. V9 calculator stops merging target items: 1 FAIL.
+V10 read-only rate cell draws the mark again: 1 FAIL. V11 one alias registry entry removed: 3 FAIL. All green after
+restore.
+
+### TWO PRE-EXISTING SOURCE PINS RE-HOMED (my refactor, NOT an owner ruling -- ruled after a STOP)
+`test_extraction_coercion.py` lines 1485-1487 and 1720-1722 read `inspect.getsource(extraction.run_extraction)` and
+assert TWO facts each: the plan is BUILT from the config (`"paired_fill": paired_fill_plan(cfg)` /
+`"module_count_attrs": zero_path_stated_attrs(cfg)`) and the plan is THREADED into every batch call
+(`_gc["paired_fill"]` / `_gc["module_count_attrs"]`). The `_group_context` factor-out (kept -- it IS the L4 proof, the
+guarantee HVAC and Electrical can never drift) moved the first fact into `_group_context` while the second stayed in
+`run_extraction`, so the pins went red in the AFTER run. Ruled fix, one line per test, every assertion untouched:
+`src2 = inspect.getsource(extraction._group_context) + inspect.getsource(extraction.run_extraction)`. Exactness: each
+of the four literals occurs EXACTLY ONCE in `extraction.py` (grep 1 / 1 / 1 / 1), so the concatenation pins the same
+two facts, not looser. Byte-identity: md5 of the two guarded lines is identical at HEAD and in the working tree
+(`b64d70a1...` / `e4fd58e8...`). Verbatim move: a unified diff of HEAD's `run_extraction` loop body (dedented) against
+the `_group_context` body changes 2 lines of 46 -- `cfg = configs.get((disc, cat)) or {}` ->
+`disc, cat, cfg = resolve_alias(configs, disc, cat)` and `group_ctx[(disc, cat)] = {` -> `return {`. No bypass:
+`_group_context` is the only builder of a group context; the only write into `group_ctx` is
+`group_ctx[(disc, cat)] = _group_context(configs, disc, cat)`; every batch reads `group_ctx[...]`.
+`test_extraction_coercion` after the fix: 163 OK.
+
+### COUNTS (measured in-session)
+Backend: `test_rate_master` 406 OK -> 411 OK (406 + 5 new); `test_extraction_coercion` 160 OK -> 163 OK (160 + 3 new; two pre-existing source pins re-homed -- below);
+`test_rate_suggest` 71 OK -> 71 OK. Vitest: 3,466 passed / 1 failed (3,467) -> 3,486 passed / 1 failed (3,487), +20 = the 20 new tests (the one failure is the
+known `writeOffControl`). tsc: 3,229 -> 3,229 repo-wide; touched source files 0 / 0 (the pre-existing test-file
+error at `pricingSheetHelper.test.ts` is unchanged). In-container `yarn build`: EXIT 0 ("built in 2m 11s", 157 s), 0 error lines, tracked tree unchanged.
+
+### THE CERT (live, :8080; web + worker + socketio + vite restarted by PID, vite cache wiped; markers
+`resolveAliasConfig` x2, `RateItemsFetcher` x5, `hvac_raceway` x1, `aliasTargetConfigs` x2 in the served modules and
+the removed read-only mark call x0; driven tab VISIBLE -- the first M0 attempt ran with the tab hidden and rendered
+13 rows until the owner raised the window; owner tip: "Fast render: off" disables the virtualiser, used for M4)
+- **M0** BOQ-26-00224 / ELECTRICAL: 354 rows, 200 badged, {"1|1":77,"used|1":4,"used|used":119}, hash b33ad24c,
+  rows 10 / 100 / 216 per-cell hashes == slice 2's record. BOQ-26-00153 / BOQ rows 233 / 58 / 800: the two static
+  cards, verbatim as slice 2.
+- **M1** HVAC calculator lists ADP, AHU, DX Unit, Panels, Pumps, Cables, Raceway. Cables @ Material COPPER,
+  Insulation ARMOURED, Core 4, Runs 1, Thickness 6, Conduit included None, Conduit type None, Conduit size None:
+  header Cable -- per Mtr **440**, Termination -- per Set **100**; Cable: Supply 440, Install 30, Combined 470;
+  Termination: Supply 100, Install 30, Combined 130. Raceway @ Perforated, GI, 1.6 mm, 100 mm, Cover Yes, Floor,
+  Floor Cutting No, Floor Refilling No: header **431**; CableTray & Raceway -- Supply 431; -- Install 120.
+- **M2** Electrical calculator, Wiring, Cabling & Termination, SAME picks: 440 / 100; 440 / 30 / 470; 100 / 30 / 130
+  -- IDENTICAL. CableTray & Raceway, SAME picks: 431; 431 / 120 -- IDENTICAL. Basis lines identical
+  ("Rate master: Wiring, Cabling & Termination @ ..." / "Rate master: CableTray & Raceway @ ...").
+- **M3** BOQ-26-00003 / "PUNE HVAC BOQ" (10 cable + 5 raceway rows, NO run, 0 badges): row 268 [Cables] and row 275
+  [Raceway] show "Pricing sheet / Fill the attributes to price / -- / Previously priced BoQs / ... / Qty breakdown +
+  live data / Helper not built -- planned" -- the helper card, not coming soon.
+- **M4** BOQ-26-00234 (Fast render off, all 527 rows in the DOM): marks **AHU 72 / Panels 25 / Pumps 1 = 98**
+  (slice 2: 81 / 30 / 1 = 112); every marked row is an Item row with the rate-helper opener (editable); 0 marks on
+  non-editable rows; ADP / Ducting 0. The 14 fewer are the 9 AHU + 5 Panels heading / preamble rows whose read-only "0"
+  cell carried the mark in slice 2 (Q-c). The slice-2 cards on the same sheet are unchanged: row 9 [AHU] "Take Vendor
+  Quotation", rows 446 [ADP] and 418 [Ducting] "coming soon".
+- **M5** Rate Master -> HVAC: category picker lists ONLY "ADP (Air Distribution Products)", 95 items, batch
+  `rmbulk-48199026e1ac`; Electrical: the same 12 categories.
+- **M6** BOQ-26-00224 after: 354 rows, 200 badged, identical split, hash b33ad24c; rows 10 / 100 / 216 per-cell
+  hashes IDENTICAL to M0; BOQ-26-00153 rows 233 / 58 / 800 panel text IDENTICAL to M0; Electrical calculator: the same
+  12 options and the M2 figures.
+- **M7** DB: HVAC 95 active / 7 configs, uids == v4 (== v3), items-only checksum `17f11618...559a` unchanged;
+  Electrical 1,367 / 12 / `77a70755...f0db`; 0 `BoQ Rate Suggestion Run` rows created (78 in all, none new) and 0
+  classify rows -- zero AI calls; 0 TEST_RM residue.
+
+### ANOMALIES (disclosed)
+- The M1 defect (calculator alias target config never fetched), found live and fixed in-slice; the merged-map unit
+  test that hid it was strengthened with the HVAC-only shape.
+- BOQ-26-00234 row 9 carries a `BoQ Cell Pricing` row (rate 1000, `BPRC-26-37700`, created 2026-09-22 23:03:27 by
+  the shared `admins@nirmaan.app` session) -- NOT written by this slice (slice 2 had restored the cell to "no
+  record"; nothing in this slice typed on that sheet). Left in place, reported here.
+- The items+config HVAC checksum moved (`89f0449f...` -> `f247d6ad...`) because two configs were added; the
+  items-only checksum and every uid are unchanged.
+- V8's first vacuity variant was a non-break by construction (disclosed above); V8b is the real one.
+- The driven tab was HIDDEN at the first M0 attempt (window behind another); stopped, owner raised it, re-run.
+- A first read of the served calculator module right after the vite restart returned 0 for the new marker (vite
+  still starting); the next read returned 2 and the container file was current.
+
+### FILES
+`nirmaan_stack/services/boq_rate_master/config_validation.py`, `extraction.py`, NEW
+`data/rate_master_hvac_all_v4.json`, `nirmaan_stack/api/boq/test_rate_master.py`,
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`; `frontend/src/pages/pricing/rate-master/
+rateMasterTypes.ts`, `rateMasterRegistry.ts`, `frontend/src/pages/pricing/PricingCalculator.tsx` (+ test),
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (+ test), `frontend/src/pages/boq-wizard/
+SheetPricingPage.tsx` (the pre-run rule's helper construction -- the ruling), `PricingGrid.tsx` (+ test); this
+record; root `CLAUDE.md` (one rule). Untouched: `rateHelperPlumbing.tsx` (not needed: the calculator's fetcher
+children live in `PricingCalculator.tsx`), `RateMasterPage.tsx`, the loader, the exporter, the interpreter, the
+upload / spec-reader code, every Electrical asset, v1 / v2 / v3, `components/ui/*`, every doctype JSON,
+`patches.txt`; the modified `.claude/settings.local.json` and the root untracked files are declared noise, not staged;
+`_mint_hvac_v4_tmp.py` is a temporary build tool, never committed. Feat commit `103f17ce`; this record's commit
+follows it. NOT pushed.

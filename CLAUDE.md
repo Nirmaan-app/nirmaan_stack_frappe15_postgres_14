@@ -690,6 +690,28 @@ among that discipline's fetched configs, `disciplineHasNothingToPrice`); a disci
 (Electrical) keeps its before-run panel exactly as it was, and the decline-only helper feeds the panel alone, never
 the badge map.
 
+**A CATEGORY MAY DECLARE `alias_of`; ITS ROWS RESOLVE TO THE TARGET DISCIPLINE'S CONFIG, ITEMS AND CATALOGUE --
+NOTHING IS EVER COPIED BETWEEN DISCIPLINES (owner-locked: "all logic all pricing must be same exactly"; stored ONCE,
+shared at lookup, because production edits rates by CSV and a copy would drift).** A rate-master category config may
+carry `alias_of: {discipline, category_id}`. Such a config holds NO items, NO pipelines and NO attribute definitions of
+its own (the validator refuses any of those beside the key, and a self-alias); every consumer resolves it ONE HOP --
+`extraction.resolve_alias` (called by `config_is_eligible(cfg, configs)`, `assemble_population` and `_group_context`,
+with `load_configs_with_alias_targets` pulling the target discipline's configs alongside) and the frontend
+`pricingSheetHelper.resolveAliasConfig` (used by the helper's `resolveConfig` AND the calculator's layout reads). A
+target that is missing, or itself an alias (a chain), has nothing of its own and is NOT eligible: the row shows the
+coming-soon card, never an error. An aliased row's extraction context and assembled prompt are BYTE-IDENTICAL to the
+target's (pinned), and the calculator gives the SAME figures for the same picks (pinned per golden). Because the
+calculator fetches configs and items PER DISCIPLINE, it also fetches each alias target's config and each target
+discipline's items (`aliasTargetConfigs` / `aliasTargetDisciplines`, merged behind its own items and deduplicated by
+item name -- a shared name would let the own discipline's row win silently, pinned); the BoQ page already fetches every
+registry target and Electrical items. Alias entries sit in the registry with `holds_items: false` (calculator-listed,
+never on the Rate Master page). **The pre-run rule keys on a discipline having NO eligible config OF ITS OWN
+(`disciplineHasNothingToRun`) -- an alias never counts as its own, whatever its target -- and such a discipline's
+before-run panel is the REAL helper over an EMPTY extraction map, so vendor / coming-soon cards stay as they were and an
+aliased row shows its fields; a discipline with an own eligible config (Electrical) keeps today's before-run panel.**
+No discipline or category id is named in code for any of this. The pending mark (`pending_label`) is drawn ONLY in the
+grid's editable rate branch -- a heading / preamble row that cannot take a rate shows nothing.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
