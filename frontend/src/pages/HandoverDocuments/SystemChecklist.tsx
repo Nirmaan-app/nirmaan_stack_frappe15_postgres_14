@@ -38,7 +38,12 @@ import {
   hodPdfFilename,
   usePdfDownload,
 } from "./hodDownloads";
-import { orderRows, printedNumbers, rowEditable } from "./hodRules";
+import {
+  documentChip,
+  orderRows,
+  printedNumbers,
+  rowEditable,
+} from "./hodRules";
 import type {
   HodCounts,
   HodDocumentMeta,
@@ -48,12 +53,6 @@ import type {
   HodSystemOption,
 } from "./types";
 import type { BinderProgress, HodJob } from "./useHodBinder";
-
-const KIND_LABEL: Record<string, { label: string; className: string }> = {
-  form: { label: "Form", className: "bg-blue-50 text-blue-700" },
-  template: { label: "Library", className: "bg-purple-50 text-purple-700" },
-  app: { label: "From Nirmaan", className: "bg-teal-50 text-teal-700" },
-};
 
 const STATUS_STYLE: Record<HodStatus, string> = {
   Pending: "bg-gray-100 text-gray-600",
@@ -338,7 +337,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               if (!meta) return null;
               const off = !!row.disabled;
               const editable = rowEditable(row, canEdit);
-              const kind = KIND_LABEL[meta.kind];
+              const kind = documentChip(meta);
               const contentBusy =
                 job?.hodSystem === system.name && job.document === row.document;
               const rowBusy =

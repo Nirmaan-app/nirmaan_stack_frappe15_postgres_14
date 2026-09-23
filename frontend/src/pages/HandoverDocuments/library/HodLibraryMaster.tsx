@@ -33,6 +33,7 @@ import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 
+import { documentChip } from "../hodRules";
 import type { HodDocumentMeta } from "../types";
 import { ContentDialog } from "./ContentDialog";
 import { DocumentSetupDialog } from "./DocumentSetupDialog";
@@ -50,12 +51,6 @@ import {
 import { SystemDialog } from "./SystemDialog";
 
 /** The same three kinds the project checklist shows, so one document reads the same on both screens. */
-const KIND_LABEL: Record<string, { label: string; className: string }> = {
-  form: { label: "Form", className: "bg-blue-50 text-blue-700" },
-  template: { label: "Library", className: "bg-purple-50 text-purple-700" },
-  app: { label: "From Nirmaan", className: "bg-teal-50 text-teal-700" },
-};
-
 type Deleting =
   | { kind: "system"; system: HodSystemAdmin }
   | { kind: "block"; block: HodLibraryBlockAdmin };
@@ -270,7 +265,7 @@ export const HodLibraryMaster: React.FC = () => {
                     {library.documents.map((d) => {
                       const setup = documentSetup(d, s);
                       const off = s.default_disabled.includes(d.key);
-                      const kind = KIND_LABEL[d.kind];
+                      const kind = documentChip(d);
                       return (
                         <tr
                           key={d.key}

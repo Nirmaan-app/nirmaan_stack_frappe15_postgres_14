@@ -64,7 +64,7 @@ const KINDS: Array<{
     kind: "You fill it",
     tone: "bg-blue-50 text-blue-700",
     documents:
-      "1 Escalation Chart · 5 O&M Manual (blanks + project pictures) · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List · 9 Recommended Tools (remarks) · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
+      "1 Escalation Chart · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List · 9 Recommended Tools (remarks) · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
     todo: (
       <>
         <b>Fill Form</b> → <b>Download</b> → get it signed →{" "}
@@ -76,7 +76,7 @@ const KINDS: Array<{
     kind: "Same for every project",
     tone: "bg-violet-50 text-violet-700",
     documents:
-      "6 Do's & Don'ts — and the text inside the O&M Manual, the Maintenance Checklist and the Tools list",
+      "5 O&M Manual and 6 Do's & Don'ts — and the items inside the Maintenance Checklist and the Tools list",
     todo: (
       <>
         Nothing to fill: <b>Download</b> → sign → <b>Upload Signed</b>
@@ -252,9 +252,6 @@ export const HodGuideDialog: React.FC<{
             <li>
               Dates default to the day you download, except the Maintenance
               Checklist, which stays blank unless you set the date of the check.
-            </li>
-            <li>
-              O&amp;M pictures are uploaded per project, in the O&amp;M form.
             </li>
             <li>
               The Escalation Chart starts with three levels; <b>Add level</b> in

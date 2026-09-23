@@ -12,34 +12,42 @@ Legend: **Owner** = who has to act (Team = site/owner team, Dev = code change).
 | # | What | Owner | Notes |
 |---|---|---|---|
 | P1 | ~~Paste both print formats again~~ **Done** | Team | Pasted 2026-09-22 15:00; the saved "HOD Document" and "HOD Checklist" match the repo files exactly. |
-| P2 | ~~Paste the O&M table pictures~~ **Done on localhost 2026-09-23** | Dev | 18 pictures pulled out of the owner's workbooks and put into the library: each is a private File **attached to its HOD Library Content record**, with the `<img>` inside that record's `content`. Live needs its own copy (the file lives in this site's bucket) — see §2. |
+| P2 | ~~Paste the O&M table pictures~~ **Done differently 2026-09-23** | Dev | The 18 pictures were extracted from the workbooks and **transcribed into real HTML tables** in the library (17 tables, 0 images left), so they are editable on screen and print as text. Nothing has to be pasted on live — the tables travel as library content. |
 | P3 | **Browser walk-through** of the tab | Dev + Team | Never seen in a browser: Actions cell + ⋮ menu, Fill Form dialogs, Select & Download pickers (all 6 From Nirmaan), progress window + polling, remove-system warning, Details guide, O&M pictures upload. Needs a test login. |
 | P4 | ~~Full binder from the button~~ **Fixed + verified 2026-09-23** | Dev | It never finished on screen: `job_id` is a parameter of `frappe.enqueue` ITSELF, so the job's own id never reached `_run_binder_job` — every event and the cached status were written for job `None` while the screen polled its own id. The id now travels as `hod_job_id`. Verified through `enqueue_binder` + the 2-second poll: 73 steps, 168 pages, ready with its token. Clicking it in a browser is still unseen (P3). |
 | P5 | ~~Commit~~ **Done** | Team | Committed 2026-09-22 on `hod/feature` in four commits (backend, tab, docs, print-format fixture); not pushed. |
-| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; status options Pending/Form Filled/Completed); the two print formats arrive with the `Print Format` fixture; create the library (HOD Systems + content) on live under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
+| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; status options Pending/Form Filled/Completed); the two print formats arrive with the `Print Format` fixture; load the library with `bench --site <site> import-doc` (systems first, then content) or enter it under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
 
 ---
 
-## 2. O&M pictures to paste (P2)
+## 2. The O&M tables (was: pictures to paste)
 
-All 11 are **tables pasted into Excel as pictures**. Paste each under its heading in the system's O&M block.
+The workbooks hold 18 of their O&M tables as PICTURES. All of them were extracted, transcribed and written
+back into the library as real HTML tables on 2026-09-23 (owner: "all things table only"), and the picture
+files were deleted — the library now has **17 tables and 0 images** (Sprinkler's two pictures are one grouped
+table). So a value is corrected in the library screen, the text is searchable, and nothing has to be pasted
+on another site.
 
-| # | System | Excel sheet | Heading in the manual | Picture |
-|---|---|---|---|---|
-| 1 | Electrical | 5.1 Electrical Panel O&M | 2. Panel Overview | Panel specification table |
-| 2 | Electrical | 5.1 Electrical Panel O&M | 5.1 Preventive Maintenance Schedule | Task / frequency / description schedule |
-| 3 | Electrical | 5.1 Electrical Panel O&M | 6. Troubleshooting Guide | Issue / cause / action |
-| 4 | HVAC | 5.1 DX Unit | 5. Troubleshooting Guide | Issue / cause / solution |
-| 5 | HVAC | 5.3 CWS HVAC | 4. Troubleshooting Guidelines | Chilled-water troubleshooting |
-| 6 | HVAC | VRF System | 5.1 Common Issues and Solutions | VRF troubleshooting |
-| 7 | CCTV | 5.1 CCTV O&M Manual | 5.1 Common Issues and Solutions | CCTV troubleshooting |
-| 8 | ACS | 5.1 ACS O&M Manual | System components (top) | Component / description table |
-| 9 | ACS | 5.1 ACS O&M Manual | 5.4 Emergency Release | Symptom / cause / remedy |
-| 10 | VESDA | 5.1 VESDA O&M Manual | 4. Troubleshooting | Issue / cause / corrective action |
-| 11 | WLD & RRS | 5.1 RRS O&M Manual (2) | 5.4 Panel Maintenance | RRS troubleshooting |
+| System | Tables now in the library |
+|---|---|
+| Electrical (Panel) | Panel Overview · Preventive maintenance schedule · Troubleshooting |
+| HVAC | DX troubleshooting · Chilled Water troubleshooting (grouped) · VRF common issues |
+| WLD & RRS | routine maintenance + troubleshooting, one pair per manual |
+| ACS | System components · Troubleshooting |
+| Sprinkler | one grouped troubleshooting table (14 rows in 5 groups) |
+| VESDA | Maintenance schedule · Troubleshooting |
+| CCTV · Networking | Common issues |
 
-Pictures pasted in Desk are stored as **private** files and embedded in the PDF at print time. On live they only open
-on the site they were pasted on — the library is NOT shipped as fixtures (owner 2026-09-22), so paste them on live directly.
+Writing a table into library content (learned the hard way):
+- state the borders inline — the content keeps `style` attributes;
+- state `color: #000` on `<th>`: Frappe's print CSS greys header text;
+- **state the padding `!important`** — `.print-format td {padding: 6px !important}` beats a plain inline
+  padding, which is why the first tables printed tall (`padding: 1px 6px !important`);
+- put the header row in `<thead>` so it repeats when a table breaks across a page.
+
+The extracted pictures are kept at `~/Downloads/HOD FORMATS/_images/` for comparison; the transcription was
+done by eye (no OCR on this machine), so spot-check against the workbook. Two typos were corrected on the way:
+"Quartely" → "Quarterly" (VESDA) and "eaking around valve connections" → "Leaking…" (Sprinkler).
 
 ---
 
@@ -79,7 +87,7 @@ on the site they were pasted on — the library is NOT shipped as fixtures (owne
 
 | # | Gap | Effect | Possible fix |
 |---|---|---|---|
-| G13 | **Library is not in fixtures** | Live starts with no HOD Systems or library content (owner 2026-09-22); everything entered on localhost has to be entered again on live | Enter it on live under Packages Settings → Handover Documents (or Desk Data Import) |
+| G13 | **The library is loaded by hand, not by migrate** | It is exported to `fixtures/hod_system.json` + `hod_library_content.json`, but NOT listed in the hooks `fixtures` (owner 2026-09-23), so a migrate neither imports nor overwrites it | Load it deliberately: `bench --site <site> import-doc …/hod_system.json` then `…/hod_library_content.json`; re-export after on-screen edits |
 
 Intentional (not gaps): the **Download binder button is hidden** (`SHOW_BINDER_BUTTON` in `hodApi.ts`,
 owner 2026-09-23) — the binder itself works, and the flag brings the button back; anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints

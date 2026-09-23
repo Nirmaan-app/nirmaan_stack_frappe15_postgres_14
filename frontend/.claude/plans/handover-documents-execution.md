@@ -43,7 +43,8 @@ formats in Desk, give a browser test login and commit; **owner** makes the rulin
 Owner rulings made during the build (2026-09-22), all built:
 - No bench command or import button. The library is created on each site; it is NOT shipped as fixtures
   (owner 2026-09-22). Since 2026-09-23 it is managed in the app, under Packages Settings → Handover Documents (owner).
-- O&M pictures are uploaded by users per project and system, not kept in the library.
+- The O&M Manual is a library document: no form, no project pictures (owner 2026-09-23). Its blanks and part
+  ticks are still edited from the row's ⋮ menu.
 - Empty state is a Commission-style "Not Found" card. Its dialog adds several systems at once.
 - The checklist fits on one page with Commission-style signature columns.
 - The VENDOR / PROJECT / LOCATION / DATE / PACKAGE header block goes only on Checklist, Escalation Matrix,
@@ -55,6 +56,9 @@ Owner rulings made during the build (2026-09-22), all built:
 - Status is derived from actions: Pending / Form Filled / Completed. The Actions cell follows the Commission Report.
 - A "Details" guide sits beside Edit library.
 - All six From Nirmaan documents get "Select & Download".
+- A document the project FILLS is labelled "Form" wherever its text comes from (`hodRules.documentChip`, used
+  by the checklist and the library screen): the Recommended Tools List and the Maintenance Checklist are Forms,
+  the O&M Manual and Do's & Don'ts are Library.
 - The Recommended Tools List has Remarks per tool, filled on screen (owner 2026-09-22).
 - The binder downloads only when every switched-on document is Completed, with no dialogs (progress runs on
   the button). Its button is then HIDDEN for now: one flag, `SHOW_BINDER_BUTTON` in `hodApi.ts`, hides the
@@ -88,7 +92,7 @@ What each document keeps in `form_data`:
 | Inventory List | `date`, `materials` (column names), `locations` (`name`, `qty[]`) |
 | Attic Stock List | `date`, `rows` |
 | Key List | `date`, `rows`, `receiver`, `belongs_to` (default the project customer) |
-| O&M Manual | `included` (sub-systems), `blanks` (name → value), `pictures` (`url`, `caption`) |
+| O&M Manual | `included` (sub-systems), `blanks` (name → value) |
 | Maintenance Checklist | `included`, `date` (of the check; empty prints blank), `checks` (per part and period: `results` = item text → `result` OK / Not OK / NA + `remarks`; `comments`) |
 | Equipment Warranty | `equipment` (default the system's list), `commissioning_date` |
 | Completion Certificate | `commissioning_date`, `handed_over_to` (default the project customer) |
@@ -102,9 +106,11 @@ What each document keeps in `form_data`:
 and the API runs it again on read.
 
 - **Completed**: a signed copy is uploaded (`attachment`).
-- **Form Filled**: the document has something to fill (`fill` in the index: Escalation, O&M, Maintenance,
-  Inventory, Recommended Tools, Attic, Key List, Warranty, Completion) and its saved `form_data` holds real input.
-- **Pending**: anything else. Do's & Don'ts and the From Nirmaan documents go straight from Pending to Completed.
+- **Form Filled**: the document has something to fill (`fill` in the index: Escalation, Maintenance, Inventory,
+  Recommended Tools, Attic, Key List, Warranty, Completion) and its saved `form_data` holds real input.
+- **Pending**: anything else. The O&M Manual, Do's & Don'ts and the From Nirmaan documents go straight from
+  Pending to Completed (owner 2026-09-23: the O&M Manual is a library document; its blanks and part ticks are
+  still edited from the row's ⋮ menu).
 
 Nobody picks a status by hand. `update_row` does not accept one.
 
@@ -139,8 +145,12 @@ Nobody picks a status by hand. `update_row` does not accept one.
 - `api/hod/binder.py`:
   - `check_binder`, `enqueue_binder(project, hod_system, document=None)`, `get_job_status(job_id)`;
   - the job runs on the `long` queue with a per-user lock and a 15-minute timeout.
-- Fixtures: only the two print formats, added to `fixtures/print_format.json` (`Print Format` was already an
-  unfiltered fixture). `HOD System` / `HOD Library Content` are NOT shipped as fixtures (owner 2026-09-22).
+- Fixtures: the two print formats ride the existing unfiltered `Print Format` fixture. The library is
+  exported to `fixtures/hod_system.json` + `fixtures/hod_library_content.json` with
+  `bench --site localhost export-json "<doctype>" <path>` (NEVER `bench export-fixtures`: it rewrites every
+  fixture file, Expense Type included), but it is deliberately NOT in the hooks `fixtures` list
+  (owner 2026-09-23) — a migrate neither imports nor overwrites it, and another site loads it with
+  `bench --site <site> import-doc`, systems first.
 
 ### Screen (`frontend/src/pages/HandoverDocuments/`)
 
@@ -167,7 +177,8 @@ Nobody picks a status by hand. `update_row` does not accept one.
   - `forms/TemplateForms`: O&M blanks + part ticks, Do's & Don'ts, Tools (Remarks per tool), Warranty, Completion;
   - `forms/MaintenanceForm`: part ticks, date of the check, Result (OK / Not OK / NA) + Remarks per item and
     Comments per sheet;
-  - `forms/PicturesField`: O&M project pictures;
+  - the O&M "Pictures for this project" field is REMOVED (owner 2026-09-23); the print side can still show
+    `form_data.pictures` if a row ever holds any, but nothing writes them now;
   - `forms/SourcesView`: tick tables for the From Nirmaan records. Each row has a View action, and the footer
     has "Download selected (N)".
 - Supporting modules:
@@ -229,21 +240,26 @@ Nothing is written to those features. The ticks are saved in `form_data.selected
   - The footer uses `class="letter-head-footer"`.
   - Inside `#header-html` / `#footer-html` use a Jinja comment `{# #}`, because an HTML comment prints as text.
   - The Jinja environment is DebugUndefined, so every value goes through the `v()` macro.
-- Library pictures are private files. They are embedded as data URIs at print time (`embed_stored_images`). O&M
-  project pictures print only if the File is attached to that row; they are shrunk to 1600 px JPEG and printed
-  two per row.
+- A picture pasted into library content would be a private file, embedded as a data URI at print time
+  (`embed_stored_images`); the library holds none today — its tables are HTML.
+- Writing a table into library content: borders inline, `color:#000` on `<th>` (the print CSS greys it),
+  padding `!important` (`.print-format td{padding:6px !important}` beats a plain inline padding and printed the
+  rows tall), and the header row in `<thead>` so it repeats across a page break.
 
 ### Library
 
-- Created and edited on each site under Packages Settings → Handover Documents (Desk still works). It is NOT shipped as fixtures (owner 2026-09-22),
-  so live needs its systems and content entered there.
+- Created and edited under Packages Settings → Handover Documents (Desk still works). It travels as the two
+  exported fixture files, loaded on another site with `import-doc` — never by migrate (see Fixtures above).
 - On localhost, 11 HOD Systems and 44 HOD Library Content blocks were inserted directly from the owner's Excel
   formats by a one-off script that is not in the repo. `hod_seed/`, `scripts/hod_build_seed.py` and
   `api/hod/import_formats.py` are deleted.
-- The O&M table pictures (tables pasted as pictures in the workbooks) are IN the library since 2026-09-23:
-  18 of them, each a private File attached to its `HOD Library Content` record with the `<img>` inside that
-  record's `content`, placed under the heading it sits under in the workbook (e.g. Electrical "2. PANEL
-  OVERVIEW"). `print_context.embed_stored_images` embeds them at print time. Live needs its own upload.
+- The O&M tables that the workbooks hold as PICTURES are now REAL TABLES in the library (owner 2026-09-23):
+  all 18 were extracted, transcribed and written back as HTML tables under their own heading, and the picture
+  files were deleted — the library has 17 tables and 0 images (Sprinkler's two pictures are one grouped table).
+  So a value can be corrected in the library screen instead of in the workbook, and the text is searchable and
+  printable rather than a screenshot. Each table carries inline borders (the library content keeps them), states
+  its header colour (Frappe's print CSS greys `th`) and puts the header row in `<thead>` so it repeats when a
+  table breaks across pages. The extracted pictures are kept at `~/Downloads/HOD FORMATS/_images/`.
 
 ### Verified (localhost, real data)
 

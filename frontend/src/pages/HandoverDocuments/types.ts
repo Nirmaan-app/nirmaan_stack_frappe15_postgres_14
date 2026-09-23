@@ -188,8 +188,3 @@ export interface InventoryLocation {
   qty?: Array<number | string | null>;
 }
 
-/** An O&M picture uploaded for one project and system (a private File attached to the row). */
-export interface HodPicture {
-  url: string;
-  caption?: string;
-}

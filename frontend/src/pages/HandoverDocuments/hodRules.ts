@@ -5,6 +5,20 @@
 
 import type { HodDocumentMeta, HodRow } from "./types";
 
+/** What a document is called on screen. A document the project FILLS is a Form, whatever its text comes
+ *  from — the Recommended Tools List and the Maintenance Checklist read their items from the library but
+ *  the project fills remarks and results, so calling them "Library" hid the work (owner 2026-09-23).
+ *  Everything else is named by where its content comes from. */
+export function documentChip(meta: Pick<HodDocumentMeta, "kind" | "fill">): {
+  label: string;
+  className: string;
+} {
+  if (meta.fill) return { label: "Form", className: "bg-blue-50 text-blue-700" };
+  if (meta.kind === "app")
+    return { label: "From Nirmaan", className: "bg-teal-50 text-teal-700" };
+  return { label: "Library", className: "bg-purple-50 text-purple-700" };
+}
+
 /** Rows in index order (the server already sorts; this keeps the screen honest if it ever doesn't). */
 export function orderRows(
   rows: HodRow[],

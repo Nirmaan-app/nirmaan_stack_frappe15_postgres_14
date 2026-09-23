@@ -5,6 +5,7 @@ import {
   compactRows,
   compactTextMap,
   dlpEnd,
+  documentChip,
   levelLabel,
   inventoryTotals,
   printedNumbers,
@@ -134,5 +135,15 @@ describe("levelLabel (mirrors services/hod/escalation.level_label)", () => {
       "5th Level",
     ]);
     expect(levelLabel(10)).toBe("11th Level");
+  });
+});
+
+describe("documentChip", () => {
+  it("calls anything the project fills a Form, wherever its text comes from", () => {
+    // Recommended Tools / Maintenance Checklist: library text, but the project fills it
+    expect(documentChip({ kind: "template", fill: true }).label).toBe("Form");
+    expect(documentChip({ kind: "form", fill: true }).label).toBe("Form");
+    expect(documentChip({ kind: "template", fill: false }).label).toBe("Library");
+    expect(documentChip({ kind: "app", fill: false }).label).toBe("From Nirmaan");
   });
 });

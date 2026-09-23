@@ -32,7 +32,6 @@ import {
   WarrantyForm,
 } from "./forms/TemplateForms";
 import { MaintenanceForm } from "./forms/MaintenanceForm";
-import { PicturesField } from "./forms/PicturesField";
 import { SourcesView } from "./forms/SourcesView";
 import { useSystemLibrary } from "./hodApi";
 import {
@@ -80,16 +79,6 @@ function finalize(
       .map(asString)
       .map((s) => s.trim())
       .filter(Boolean);
-  }
-  if (key === "om_manual" && Array.isArray(out.pictures)) {
-    out.pictures = asObjectList<{ url?: string; caption?: string }>(
-      out.pictures,
-    )
-      .filter((p) => asString(p.url))
-      .map((p) => ({
-        url: asString(p.url),
-        caption: asString(p.caption).trim(),
-      }));
   }
   if (key === "recommended_tools" && out.tool_remarks !== undefined) {
     out.tool_remarks = compactTextMap(out.tool_remarks);
@@ -250,18 +239,13 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
       default: {
         const lib = meta.library ?? "";
         body = (
-          <div className="space-y-4">
-            <LibraryForm
-              {...formProps}
-              blocks={library?.contents[lib] ?? []}
-              defaultIncluded={library?.default_included[lib] ?? []}
-              withBlanks={meta.key === "om_manual"}
-              listLabels={LIST_LABELS[meta.key] ?? ["", ""]}
-            />
-            {meta.key === "om_manual" && (
-              <PicturesField {...formProps} rowName={row.name} />
-            )}
-          </div>
+          <LibraryForm
+            {...formProps}
+            blocks={library?.contents[lib] ?? []}
+            defaultIncluded={library?.default_included[lib] ?? []}
+            withBlanks={meta.key === "om_manual"}
+            listLabels={LIST_LABELS[meta.key] ?? ["", ""]}
+          />
         );
       }
     }

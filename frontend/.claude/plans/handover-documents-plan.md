@@ -50,7 +50,7 @@ proposal, `{{Blank Name}}` with self-filling `{{Project}}` / `{{Date}}`, was not
 | 2 | Demo & Training Certificate | From app | Commission Report → "… Training Report" tasks |
 | 3 | Commissioning Report | From app | Commission Report → "… Commissioning Report" tasks |
 | 4 | Material Technical Data Sheet | From app | Project TDS (`Project TDS Item List`) |
-| 5 | Operations & Maintenance Manual | Template + blanks + project pictures | library per system (all 11 workbooks); `[blanks]`; pictures uploaded per project |
+| 5 | Operations & Maintenance Manual | Template + blanks | library per system (all 11 workbooks); `[blanks]`; a library document again since 2026-09-23 (no form, no project pictures) |
 | 6 | Do's & Don'ts | Template | library per system |
 | 7 | Maintenance Checklist | Template + results | check items from the library; filled on screen (owner 2026-09-22): Result + Remarks per check, Comments per sheet, date of the check |
 | 8 | Inventory List | Form — Location rows × extendable Material columns, qty cells, Total row; LANDSCAPE | layout received — Appendix F |
@@ -89,8 +89,8 @@ all (site-wide today: 46 of 894 commission tasks, 268 of 722 handover drawings, 
 
 All 11 systems from the owner's workbooks are in the library on localhost: 11 `HOD System` records (tools,
 warranty equipment) and 44 `HOD Library Content` blocks (18 O&M manuals, 12 Do's & Don'ts, 14 maintenance
-checklists). They were inserted directly (2026-09-22); the 11 table-pictures inside the O&M sheets were left
-out and are to be pasted in Desk (gaps §2). A new system is a new library record, no code.
+checklists). They were inserted directly (2026-09-22), and the 18 tables the workbooks hold as pictures were
+transcribed into the content on 2026-09-23 (gaps §2). A new system is a new library record, no code.
 
 ### Form layouts
 
@@ -185,8 +185,8 @@ varies:
    which documents apply, its O&M manuals (rich text + images + `[blanks]`), Do's / Don'ts lists, maintenance
    checklists (half-yearly + yearly items), tool list, warranty equipment list. **As built:** created and edited
    on screen (Desk); on localhost the 11 workbooks were inserted directly, once (no import script, no import
-   button — owner 2026-09-22); the library is NOT shipped as fixtures (owner 2026-09-22): each site creates it
-   under Packages Settings → Handover Documents (owner 2026-09-23; Desk still works). A new system (e.g. BMS) = a new
+   button — owner 2026-09-22); the library is edited under Packages Settings → Handover Documents (owner
+   2026-09-23; Desk still works) and travels as exported JSON loaded with `import-doc`, never by migrate. A new system (e.g. BMS) = a new
    library record, **zero code**.
 2. **Company settings** (admin, once): legal name, addresses, CIN, logo, authorized signature. **As built:** kept
    in the print formats (as the Commission Report does), not as a record.
@@ -258,7 +258,7 @@ Nobody picks a status. `services/hod/checklist.derive_status` decides it on ever
 | Status | When |
 |---|---|
 | **Pending** | nothing done yet |
-| **Form Filled** | the document has something to fill (Escalation, O&M, Maintenance, Inventory, Recommended Tools, Attic, Key List, Warranty, Completion) and its saved form holds real input |
+| **Form Filled** | the document has something to fill (Escalation, Maintenance, Inventory, Recommended Tools, Attic, Key List, Warranty, Completion) and its saved form holds real input |
 | **Completed** | the signed copy is uploaded |
 
 Do's & Don'ts and the From-app documents go Pending → Completed: there is nothing for the user to fill. The
@@ -411,7 +411,7 @@ values that are still needed went:
    Completed, derived on every save) · `disabled` (Check — the switch) · `remarks` (Small Text) · `attachment`
    (Attach — the signed copy) · `form_data` (JSON — the document's own values: escalation levels, inventory
    matrix, attic rows, key list + receiver, warranty equipment + commissioning date, completion commissioning
-   date + handed-over-to, O&M included parts + blank values + project pictures, maintenance included parts + results + comments, the
+   date + handed-over-to, O&M included parts + blank values, maintenance included parts + results + comments, the
    From-app records ticked for download, each form's date). Write: System Manager, PMO Executive, Project Lead,
    Project Manager; the other Nirmaan roles read.
 
@@ -435,9 +435,11 @@ frontend/src/pages/HandoverDocuments/     tab → system tabs → checklist + Ac
 frontend/src/pages/HandoverDocuments/print-formats/   source of the two print formats (pasted in Desk)
 ```
 
-No import script, and the library is NOT shipped as fixtures (owner 2026-09-22): each site creates it under
-Packages Settings → Handover Documents (owner 2026-09-23). Only the two
-print formats ship, through the existing `Print Format` fixture.
+No import script: the library is edited under Packages Settings → Handover Documents and exported to
+`fixtures/hod_system.json` + `hod_library_content.json` with `bench export-json`. Those files are NOT in the
+hooks `fixtures` list (owner 2026-09-23), so a migrate leaves them alone and another site loads them with
+`bench --site <site> import-doc`, systems first. The two print formats DO ship, through the existing
+`Print Format` fixture.
 
 **Address (settled):** the Commission print format's corporate address "No.234, 1st Floor, 9th Main, 16th Cross,
 6th Sector, HSR Layout" — the HOD Excel's "No L-376/A, 17th Cross" was outdated.
@@ -451,11 +453,11 @@ print formats ship, through the existing `Print Format` fixture.
 | 2 | From-app rows: Commission Report (2, 3, 14), TDS (4), Snag List (15), As Built (16) + Select & Download | built |
 | 3 | Header block + Escalation Chart + Attic Stock List + Key List, form + PDF | built |
 | 3b | Inventory List — matrix editor + landscape PDF | built |
-| 4 | Library + template documents (O&M with `[blanks]` + pictures, Do's & Don'ts, Maintenance, Tools, Warranty, Completion) | built; library filled for all 11 systems |
+| 4 | Library + template documents (O&M with `[blanks]`, Do's & Don'ts, Maintenance, Tools, Warranty, Completion) | built; library filled for all 11 systems, tables and all |
 | 5 | Binder + content download, pre-check, progress | built; not yet run from the button |
 | 5+ | A new system → a library record (no code); a new FORM layout → a form + a print-format block | — |
 
-Remaining work (pictures, browser walk-through, commit, go-live) is tracked in `handover-documents-gaps.md`.
+Remaining work (browser walk-through, go-live) is tracked in `handover-documents-gaps.md`.
 
 ## Decisions (all settled)
 
@@ -465,7 +467,7 @@ Remaining work (pictures, browser walk-through, commit, go-live) is tracked in `
 3. Who can edit — System Manager, PMO Executive, Project Lead, Project Manager (doctype permissions); everyone
    else view-only.
 4. ~~Kinds marked `?`~~ — settled by the owner's notes 2026-09-21.
-5. A project cannot edit its template text beyond the `[blanks]` (and the O&M pictures / part ticks); library
+5. A project cannot edit its template text beyond the `[blanks]` (and the part ticks); library
    text is changed in the library, for every project at once.
 6. Package name on PDFs — the system's `display_name` ("ELECTRICAL SYSTEM"), as in the workbooks.
 7. Project line under each title — the header block, on the 7 documents listed under "Form layouts".

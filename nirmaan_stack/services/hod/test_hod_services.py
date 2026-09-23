@@ -105,7 +105,7 @@ class TestChecklist(unittest.TestCase):
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):
 		self.assertEqual(
 			{d["key"] for d in index.DOCUMENTS if d.get("fill")},
-			{"escalation_chart", "om_manual", "maintenance_checklist", "inventory_list", "recommended_tools",
+			{"escalation_chart", "maintenance_checklist", "inventory_list", "recommended_tools",
 			 "attic_stock_list", "key_list", "equipment_warranty", "completion_certificate"},
 		)
 
