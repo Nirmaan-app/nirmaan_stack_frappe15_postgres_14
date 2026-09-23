@@ -41162,3 +41162,68 @@ owner's list keeps width / height as text, so those keep today's behaviour (an u
 `extraction.py`, the prompt assets, the loader, the exporter, every Electrical asset, HVAC v1..v8, the grid,
 `components/ui/*`, every doctype JSON, `patches.txt`. The cert, the counts, the vacuity and the anomalies are in the
 slice report `2026-09-24_Slice6b_Report.md`.
+
+## HVAC PRICING, SLICE 6c STEP 1 -- AN ASSUMED PER-ITEM QUANTITY IS MARKED AS A DEFAULT (2026-09-24) -- SHIPPED
+
+**The risk this closes.** The block quantity is the ONLY field that never refuses: a blank attribute stops the
+row, but 1 is a real number, so a row needing 2 of something prices low and looks complete.
+
+**The owner's ruling (2026-09-24), after the corpus evidence below: "ship the amber and then do the check run
+and then we decide if we build it."** So this step ships the MARKING only -- the quantity stays 1 and stays the
+pricer's to type; no question is asked of the model, no `qty_per_row_unit` attribute, no `qty_attribute_id`, no
+prompt change and NO NEW ASSET VERSION. The marking needs no configuration: "assumed" is not a fact about the
+catalogue but about this panel session -- whether the pricer typed a value -- and that already lives in the
+edit state.
+
+**THE CORPUS EVIDENCE that produced the ruling (read-only, no AI).** The whole live ADP corpus was searched:
+3,519 rows classified `hvac_adp` across 100 committed sheets.
+- A strict count phrasing (`N nos/no./pcs/sets of <item noun>`, `with / for / complete with N <item noun>`)
+  matches **17 rows in 3,519**, and every one, hand-read with its neighbours, is a capacity, a slot count or a
+  feature -- never a count of items the row pays for: eight "Plenum Box for 3 Slot Linear Diffuser" rows and
+  one more are SLOT counts; "Master Controller up to 5 Nos of dampers" is a CAPACITY; two control-panel rows
+  say how many actuators ONE panel serves ("distribution for 10 no damper actuators"); "Slot Air Grill with 2
+  air flow outlets" is a feature; and `BOQ-26-00231 / HVAC BOQ / 226-229` ("For 8 / 6 / 4 / 2 no. fire
+  dampers") are four VARIANTS of row 225, "common control panel for fire dampers grouping the fire dampers
+  near by" -- the panel's size.
+- The phrasings the plan's own example used: "with N plenum box(es)" **0 rows**, "N sets of" 0, "qty N" 0,
+  "N x <damper/diffuser/grille/plenum/actuator/valve>" 0, "each with N" 0.
+- **TWO PREMISE CORRECTIONS, owner-accepted.** (1) `BOQ-26-00098 / Lowside / 88` was cited as a row stating a
+  count; its full text is "Master Controller **up to** 5 Nos of dampers" -- a capacity. (2) Slice 6b's X7
+  reported "1 row of 199 states a per-item count", and that one row was this same row: corrected to **0 of
+  199**, and **0 of 3,519** corpus-wide.
+
+### AS BUILT (three files, no asset, no backend)
+- **`pricingSheetHelper.ts`:** `ItemEdit.qty` is now OPTIONAL and present ONLY when the pricer typed one --
+  exactly how `attrs` has always worked. `initialItemEdits`, `applyItemEdit`'s `add` and `change_family` create
+  blocks without it; `decodeItemEdits` keeps it only for a string; `assembleItems` passes `qtyPerRowUnit` only
+  when present, and the module has ALWAYS priced an absent quantity as 1 -- **so the marking changes no rate
+  anywhere**. `ItemBlockView` gains `qtyDefaulted` (`edit.qty === undefined`) and shows `edit.qty ?? "1"`.
+- **`RateHelperPanel.tsx`:** the quantity field carries the amber fill and the SAME "default" tag every other
+  assumed value carries, with a title in the owner's terms ("Assumed: one of this item per unit of the row").
+  Three tag sites now share one look: Electrical's attribute default, the item block's field default, and this.
+- **`pricingSheetHelper.test.ts`:** the tests below.
+- Unchanged and pinned so: the row's own quantity still never enters the rate; a cleared quantity still
+  refuses; `itemsOnScreen` still reports the shown "1" in the Use payload.
+
+### TESTS (positive AND negative)
++5 in `pricingSheetHelper.test.ts`: the marking on a model-detected block, a hand-added block and a CHANGED
+block; NEGATIVE a typed quantity is the pricer's, including a typed 1 (which looks identical and is not an
+assumption); THE RATE IS UNCHANGED -- an untyped quantity prices exactly as a typed 1, on one item and on
+three, and slice 6b's 1 / 2 / 4 arithmetic is untouched, and a cleared quantity still refuses; the edit state
+carries a quantity only when typed and the Use payload still reports the shown 1; a source pin on the panel's
+amber tone and tag (with the Electrical branch's own strings pinned present).
+INVERTED, never deleted: slice 6's S3 garbage-decode pin -- a NUMBER `qty: 1` in an override is not a typed
+value, so the key is now ABSENT rather than falling back to the string "1"; the negative half (garbage is
+ignored) is kept and the absence is asserted outright.
+
+### VACUITY
+Six breaks, each ONE line, restored byte-identically (sha256 equal), every named test red and green after:
+the marking itself; the decode's typed-only rule; a fresh block's missing quantity; a hand-added block's; the
+panel's amber tone; the panel's tag.
+
+### STEP 2 (held, its own report)
+The check run: ~40 rows through the slice-4 pilot path, writing nothing, asking the count question ONLY in a
+temporary spec -- the 17 count-like traps in full, ~15 decoys carrying gauges, thicknesses, torques, necks and
+area bands, the remainder at random, plus 6 to 8 clearly labelled INVENTED rows that do state a count. It
+reports false counts, correct reads on the invented rows, misses and the cost, and recommends nothing: the
+owner decides whether the question is ever asked.

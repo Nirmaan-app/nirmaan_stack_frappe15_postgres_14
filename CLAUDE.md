@@ -794,6 +794,23 @@ quantity means HOW MANY OF THAT ITEM ARE IN ONE UNIT OF THE ROW -- the row's own
 has. Measured on the stored stage-2 replies: the model states a per-item count almost never and is never asked for
 one; the quantity is the pricer's to fill.
 
+**⚠️ A PER-ITEM QUANTITY THE PRICER HAS NOT TYPED IS AN ASSUMPTION, AND THE PANEL MARKS IT AS ONE; NOTHING
+READS A COUNT FROM THE ROW (owner-locked).** On a list-mode row every block carries a quantity meaning how many
+of that item make ONE UNIT of the row, and it is **the only field that never refuses** -- a blank attribute
+stops the row, but 1 is a real number, so a row needing 2 of something prices low and looks complete. The
+assumed 1 therefore carries the amber fill and the same "default" tag every other assumed value carries. The
+mechanism is the edit state, not config: an edit holds a `qty` ONLY when the pricer typed one (exactly as
+`attrs` does), so an absent quantity is the assumption and the module has always priced an absent quantity as
+1 -- **the marking changes no rate anywhere**. A typed 1 is the pricer's and is not marked.
+**The model is NOT asked for a count, and the corpus is why:** of 3,519 rows classified `hvac_adp` across the
+committed sheets, **0 state a per-item count**. Seventeen carry a count-like phrase and every one is something
+else -- a panel's CAPACITY ("up to 5 Nos of dampers", "distribution for 10 no damper actuators", four "For N
+no. fire dampers" variants of one control-panel row), a SLOT COUNT ("Plenum Box for 3 Slot Linear Diffuser") or
+a FEATURE ("with 2 air flow outlets") -- so asking would buy nothing and risk a false count on the ~2,000 rows
+carrying a misreadable number. **Before any future change here, re-measure rather than assume:** a count is
+never to be inferred from a gauge, a thickness, a size, a slot count, a neck, a torque, an area band or the
+row's own quantity.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
