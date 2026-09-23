@@ -13,7 +13,9 @@ import {
   asObjectList,
   asString,
   asStringList,
+  DEFAULT_ESCALATION_LEVELS,
   inventoryTotals,
+  levelLabel,
 } from "../hodRules";
 import type {
   AtticRow,
@@ -34,8 +36,10 @@ const th =
   "border-b bg-gray-50 px-2 py-1.5 text-left text-xs font-semibold text-gray-600";
 
 // ------------------------------------------------------------------------- Escalation Chart
+//
+// The number of levels is the project's own: three to start with, "Add level" for a fourth when the
+// client needs one. The label is the row's position, so nothing has to be typed (services/hod/escalation).
 
-const LEVELS = ["1st Level", "2nd Level", "3rd Level"];
 const LEVEL_FIELDS: Array<[keyof EscalationLevel, string]> = [
   ["name", "Contact person"],
   ["designation", "Designation"],
@@ -48,45 +52,85 @@ export const EscalationForm: React.FC<FormProps> = ({
   onChange,
   readOnly,
 }) => {
-  const levels = asObjectList<EscalationLevel>(value.levels);
-  const setField = (i: number, field: keyof EscalationLevel, v: string) => {
-    const next = LEVELS.map((_, j) => ({ ...(levels[j] || {}) }));
-    next[i][field] = v;
+  const saved = asObjectList<EscalationLevel>(value.levels);
+  const count = Math.max(saved.length, DEFAULT_ESCALATION_LEVELS);
+  const rows = Array.from({ length: count }, (_, i) => saved[i] || {});
+
+  const write = (next: EscalationLevel[]) =>
     onChange({ ...value, levels: next });
+
+  const setField = (i: number, field: keyof EscalationLevel, v: string) => {
+    const next = rows.map((r) => ({ ...r }));
+    next[i][field] = v;
+    write(next);
   };
+
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full min-w-[640px] border-collapse">
-        <thead>
-          <tr>
-            <th className={`${th} w-24`}>Escalation</th>
-            {LEVEL_FIELDS.map(([, label]) => (
-              <th key={label} className={th}>
-                {label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {LEVELS.map((label, i) => (
-            <tr key={label} className="border-b last:border-b-0">
-              <td className="px-2 py-1 text-sm font-medium text-gray-700">
-                {label}
-              </td>
-              {LEVEL_FIELDS.map(([field]) => (
-                <td key={field} className="px-1 py-1">
-                  <Input
-                    className={cell}
-                    value={asString(levels[i]?.[field])}
-                    disabled={readOnly}
-                    onChange={(e) => setField(i, field, e.target.value)}
-                  />
-                </td>
+    <div className="space-y-2">
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full min-w-[640px] border-collapse">
+          <thead>
+            <tr>
+              <th className={`${th} w-24`}>Escalation</th>
+              {LEVEL_FIELDS.map(([, label]) => (
+                <th key={label} className={th}>
+                  {label}
+                </th>
               ))}
+              {!readOnly && <th className={`${th} w-10`} />}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="border-b last:border-b-0">
+                <td className="px-2 py-1 text-sm font-medium text-gray-700">
+                  {levelLabel(i)}
+                </td>
+                {LEVEL_FIELDS.map(([field]) => (
+                  <td key={field} className="px-1 py-1">
+                    <Input
+                      className={cell}
+                      value={asString(row[field])}
+                      disabled={readOnly}
+                      onChange={(e) => setField(i, field, e.target.value)}
+                    />
+                  </td>
+                ))}
+                {!readOnly && (
+                  <td className="px-1 py-1 text-center">
+                    {/* The first three are the standard sheet; only the extra ones can be removed. */}
+                    {i >= DEFAULT_ESCALATION_LEVELS && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-gray-400 hover:text-red-600"
+                        title={`Remove ${levelLabel(i)}`}
+                        onClick={() => write(rows.filter((_, j) => j !== i))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!readOnly && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => write([...rows, {}])}
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add level
+        </Button>
+      )}
+      <p className="text-[11px] text-gray-500">
+        Three levels print by default; an added level prints as a further row on
+        the chart and on the warranty certificate.
+      </p>
     </div>
   );
 };

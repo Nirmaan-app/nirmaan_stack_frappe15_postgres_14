@@ -326,8 +326,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
                   <th className={`${th} w-10`}>#</th>
                   <th className={th}>Snag list</th>
                   <th className={th}>Uploaded</th>
-                  <th className={th}>Snags</th>
-                  <th className={th}>By status</th>
+                  <th className={th}>Completed snags</th>
                   <th className={th}>Open</th>
                 </tr>
               </thead>
@@ -344,11 +343,14 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
                       <td className={td}>
                         {b.uploaded_on ? formatDate(b.uploaded_on) : "—"}
                       </td>
-                      <td className={td}>{b.count}</td>
-                      <td className={`${td} text-xs`}>
-                        {Object.entries(b.by_status)
-                          .map(([st, n]) => `${st} ${n}`)
-                          .join(" · ")}
+                      <td className={td}>
+                        {b.count}
+                        {b.total > b.count && (
+                          <span className="text-xs text-gray-500">
+                            {" "}
+                            of {b.total}
+                          </span>
+                        )}
                       </td>
                       <td className={td}>
                         <div className="flex items-center gap-1">

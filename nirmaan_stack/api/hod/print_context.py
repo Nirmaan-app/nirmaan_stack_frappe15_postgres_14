@@ -24,14 +24,13 @@ from frappe.utils import formatdate, getdate, today
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import VENDOR, as_dict, project_info
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
-from nirmaan_stack.services.hod import blanks, checklist, dates, index, maintenance
+from nirmaan_stack.services.hod import blanks, checklist, dates, escalation, index, maintenance
 
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
 
 # Blank rows printed when nothing is entered -- sized so the sheet + header block + signatures fit one page.
 BLANK_ROWS = {"attic_stock_list": 14, "key_list": 8, "inventory_list": 8}
-LEVEL_LABELS = ("1st Level", "2nd Level", "3rd Level")
 
 
 def _fmt(value) -> str:
@@ -51,23 +50,6 @@ def _header(info: dict, system, date_value) -> dict:
 		"date": _fmt(date_value) if date_value is not None else "",
 		"package": system.display_name,
 	}
-
-
-def _levels(form_data: dict) -> list:
-	levels = form_data.get("levels") if isinstance(form_data.get("levels"), list) else []
-	out = []
-	for i, label in enumerate(LEVEL_LABELS):
-		lv = levels[i] if i < len(levels) and isinstance(levels[i], dict) else {}
-		out.append(
-			{
-				"label": label,
-				"name": lv.get("name") or "",
-				"designation": lv.get("designation") or "",
-				"phone": lv.get("phone") or "",
-				"email": lv.get("email") or "",
-			}
-		)
-	return out
 
 
 def _pad(rows, n: int) -> list:
@@ -225,7 +207,7 @@ def hod_print_context(doc) -> dict:
 	}
 
 	if key == "escalation_chart":
-		ctx["levels"] = _levels(fd)
+		ctx["levels"] = escalation.levels(fd)
 	elif key == "attic_stock_list":
 		ctx["rows"] = _pad(fd.get("rows"), BLANK_ROWS[key])
 	elif key == "key_list":
@@ -255,7 +237,7 @@ def hod_print_context(doc) -> dict:
 		equipment = fd.get("equipment") if isinstance(fd.get("equipment"), list) else None
 		ctx["equipment"] = equipment if equipment is not None else checklist.parse_lines(system.warranty_equipment)
 		ctx["commissioning_date"] = _fmt(fd.get("commissioning_date"))
-		ctx["levels"] = _levels(_row_form(doc.project, doc.hod_system, "escalation_chart"))
+		ctx["levels"] = escalation.levels(_row_form(doc.project, doc.hod_system, "escalation_chart"))
 	elif key == "completion_certificate":
 		start = fd.get("commissioning_date")
 		ctx["handed_over_to"] = (fd.get("handed_over_to") if fd.get("handed_over_to") is not None else info["customer_name"]) or ""

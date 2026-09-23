@@ -5,6 +5,7 @@ import {
   compactRows,
   compactTextMap,
   dlpEnd,
+  levelLabel,
   inventoryTotals,
   printedNumbers,
   maintenanceSheet,
@@ -120,5 +121,18 @@ describe("compactTextMap", () => {
     });
     expect(compactTextMap(null)).toEqual({});
     expect(compactTextMap(["x"])).toEqual({});
+  });
+});
+
+describe("levelLabel (mirrors services/hod/escalation.level_label)", () => {
+  it("names a level by its position", () => {
+    expect([0, 1, 2, 3, 4].map(levelLabel)).toEqual([
+      "1st Level",
+      "2nd Level",
+      "3rd Level",
+      "4th Level",
+      "5th Level",
+    ]);
+    expect(levelLabel(10)).toBe("11th Level");
   });
 });

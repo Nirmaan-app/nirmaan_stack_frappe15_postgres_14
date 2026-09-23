@@ -68,7 +68,10 @@ def _categories_for(doctype: str, work_package: str) -> list:
 
 
 def commission_tasks(project: str, system, bucket: str | None = None) -> list:
-	"""The project's Commission Report tasks for this system (Not Applicable tasks left out)."""
+	"""The project's FINISHED Commission Report tasks for this system.
+
+	Only Submitted / Client Accepted tasks are offered for handover (owner 2026-09-23): a task still being
+	worked on has no report the client can be given."""
 	categories = _categories_for("Commission Report Category", system.work_package)
 	if not categories:
 		return []
@@ -91,7 +94,7 @@ def commission_tasks(project: str, system, bucket: str | None = None) -> list:
 	formats = commission_print_formats({r.commission_category for r in rows})
 	out = []
 	for r in rows:
-		if (r.task_status or "") == NOT_APPLICABLE:
+		if not sources.commission_is_done(r.task_status):
 			continue
 		if not sources.matches_keywords(r.task_name, system.keywords):
 			continue
@@ -135,28 +138,38 @@ def tds_items(project: str, system) -> list:
 
 
 def snag_batches(project: str) -> list:
-	"""The project's snag batches (each uploaded snag list), newest first, with their counts by status.
-	These are what the user ticks for the Snag List download; each ticked batch prints as its own snag list,
-	like the Snag List tab's "Download All"."""
+	"""The project's snag batches with their COMPLETED snags, newest first.
+
+	Only completed snags go into a handover (owner 2026-09-23), so `count` counts those and a batch with
+	none is not offered at all. The printed list is filtered the same way (`binder._content_steps` sends
+	`statuses=["Completed"]` to the Snag List format), so what prints is what the count promises."""
 	rows = frappe.db.sql(
 		"""
-		select b.name, b.batch_name, b.uploaded_on, coalesce(s.status, 'Pending') as status, count(s.name) as n
+		select b.name, b.batch_name, b.uploaded_on,
+		       count(s.name) filter (where s.status = %(done)s) as done,
+		       count(s.name) as total
 		from "tabProject Snag Batch" b
 		left join "tabProject Snag" s on s.batch = b.name
-		where b.project = %s
-		group by b.name, b.batch_name, b.uploaded_on, coalesce(s.status, 'Pending')
+		where b.project = %(project)s
+		group by b.name, b.batch_name, b.uploaded_on
 		order by b.uploaded_on desc, b.name desc
 		""",
-		(project,),
+		{"project": project, "done": sources.SNAG_DONE},
 		as_dict=True,
 	)
-	out = {}
-	for r in rows:
-		b = out.setdefault(r.name, frappe._dict(name=r.name, batch_name=r.batch_name or r.name, uploaded_on=r.uploaded_on, count=0, by_status={}))
-		if r.n:
-			b.by_status[r.status] = r.n
-			b.count += r.n
-	return [b for b in out.values() if b.count]
+	return [
+		frappe._dict(
+			name=r.name,
+			batch_name=r.batch_name or r.name,
+			uploaded_on=r.uploaded_on,
+			count=r.done,
+			by_status={sources.SNAG_DONE: r.done},
+			# what the batch holds in all, so the screen can say "12 of 124 completed"
+			total=r.total,
+		)
+		for r in rows
+		if r.done
+	]
 
 
 def snag_summary(project: str) -> dict:
@@ -171,7 +184,9 @@ def snag_summary(project: str) -> dict:
 
 
 def design_handover_tasks(project: str, system) -> list:
-	"""Design Tracker tasks in the Handover phase for this system (the as-built layouts)."""
+	"""The FINISHED Design Tracker tasks in the Handover phase for this system (the as-built layouts).
+
+	Submitted / Approved only (owner 2026-09-23); a drawing still in progress is not part of the handover."""
 	rows = frappe.db.sql(
 		"""
 		select t.name, t.parent, t.design_category, t.task_name, t.task_status, t.file_link,
@@ -192,7 +207,7 @@ def design_handover_tasks(project: str, system) -> list:
 	}
 	out = []
 	for r in rows:
-		if (r.task_status or "") == NOT_APPLICABLE:
+		if not sources.design_is_done(r.task_status):
 			continue
 		r.download_url = sources.drawing_download_url(r.file_link)
 		if r.design_category in own:

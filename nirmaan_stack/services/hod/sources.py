@@ -58,6 +58,21 @@ def default_included(sub_systems, categories) -> list:
 	return ticked or subs
 
 
+# Only FINISHED records belong in a handover pack (owner 2026-09-23): an unfinished report, drawing or
+# snag is still being worked on, so it is not offered for download and not counted as missing content.
+COMMISSION_DONE = ("Submitted", "Client Accepted")  # approved report, and the client-signed one
+DESIGN_DONE = ("Submitted", "Approved")  # the drawing has been issued
+SNAG_DONE = "Completed"  # Project Snag.status: Not Applicable / Pending / WIP / Completed
+
+
+def commission_is_done(status) -> bool:
+	return str(status or "").strip() in COMMISSION_DONE
+
+
+def design_is_done(status) -> bool:
+	return str(status or "").strip() in DESIGN_DONE
+
+
 # What the binder takes for one Commission Report task, best first.
 COMMISSION_SIGNED = "signed"  # the client-signed copy in `approval_proof`
 COMMISSION_REPORT = "report"  # the filled report, rendered with the Commission print format

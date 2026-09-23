@@ -12,7 +12,7 @@ import os
 import unittest
 from datetime import date
 
-from nirmaan_stack.services.hod import blanks, checklist, dates, index, maintenance, sources
+from nirmaan_stack.services.hod import blanks, checklist, dates, escalation, index, maintenance, sources
 
 _DOCTYPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stack", "doctype")
 
@@ -267,3 +267,34 @@ class TestMaintenance(unittest.TestCase):
 		for fd in (None, "x", {"checks": []}, {"checks": {"b1": "x"}}, {"checks": {"b1": {"list_1": {"results": ["x"]}}}}):
 			rows = maintenance.sheets([self.BLOCK], fd)[0]["rows"]
 			self.assertEqual({r["result"] for r in rows}, {""})
+
+
+class TestEscalation(unittest.TestCase):
+	def test_label_is_the_position(self):
+		self.assertEqual(
+			[escalation.level_label(i) for i in range(5)],
+			["1st Level", "2nd Level", "3rd Level", "4th Level", "5th Level"],
+		)
+		self.assertEqual(escalation.level_label(10), "11th Level")  # not "11st"
+
+	def test_three_blank_levels_when_nothing_is_filled(self):
+		for fd in (None, {}, {"levels": "junk"}, {"levels": []}):
+			rows = escalation.levels(fd)
+			self.assertEqual([r["label"] for r in rows], ["1st Level", "2nd Level", "3rd Level"])
+			self.assertEqual({r["name"] for r in rows}, {""})
+
+	def test_a_project_can_add_a_fourth_level(self):
+		fd = {"levels": [{"name": "Ravi", "phone": " 98 "}, {}, {}, {"name": "Client PM", "email": "pm@x.com"}]}
+		rows = escalation.levels(fd)
+		self.assertEqual(len(rows), 4)
+		self.assertEqual(rows[3], {"label": "4th Level", "name": "Client PM", "designation": "", "phone": "", "email": "pm@x.com"})
+		self.assertEqual(rows[0]["phone"], "98")
+
+	def test_only_finished_records_are_handed_over(self):
+		# owner 2026-09-23: an unfinished report / drawing is not offered for download
+		done, not_done = sources.commission_is_done, lambda x: not sources.commission_is_done(x)
+		self.assertTrue(all(done(x) for x in ("Submitted", "Client Accepted", " Submitted ")))
+		self.assertTrue(all(not_done(x) for x in ("Pending", "Pending Approval", "Not Applicable", "", None)))
+		self.assertTrue(all(sources.design_is_done(x) for x in ("Submitted", "Approved")))
+		self.assertTrue(not any(sources.design_is_done(x) for x in ("Pending", "WIP", "Not Applicable", None)))
+		self.assertEqual(sources.SNAG_DONE, "Completed")

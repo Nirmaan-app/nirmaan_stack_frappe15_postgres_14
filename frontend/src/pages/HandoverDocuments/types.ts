@@ -134,12 +134,14 @@ export interface HodDesignTask {
   download_url: string | null;
 }
 
-/** One uploaded snag list of the project (a Project Snag Batch) with its counts. */
+/** One uploaded snag list of the project (a Project Snag Batch). Only COMPLETED snags are handed over,
+ *  so `count` counts those and `total` is what the list holds in all. */
 export interface HodSnagBatch {
   name: string;
   batch_name: string;
   uploaded_on: string | null;
   count: number;
+  total: number;
   by_status: Record<string, number>;
 }
 

@@ -33,6 +33,21 @@ export function rowEditable(row: HodRow, canEdit: boolean): boolean {
   return canEdit && !row.disabled;
 }
 
+/** What a project starts with on the Escalation Chart, and the fewest rows the sheet prints
+ *  (services/hod/escalation.DEFAULT_LEVELS). */
+export const DEFAULT_ESCALATION_LEVELS = 3;
+
+/** 0 → "1st Level", 3 → "4th Level" (mirrors services/hod/escalation.level_label). */
+export function levelLabel(index: number): string {
+  const n = index + 1;
+  const suffix =
+    n % 100 >= 11 && n % 100 <= 13
+      ? "th"
+      : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ??
+        "th";
+  return `${n}${suffix} Level`;
+}
+
 /** A form_data value as a list of plain objects (anything else becomes []). */
 export function asObjectList<T extends object>(value: unknown): T[] {
   return Array.isArray(value)
