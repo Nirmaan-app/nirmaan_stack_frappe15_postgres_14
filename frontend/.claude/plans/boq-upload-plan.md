@@ -40880,3 +40880,180 @@ number` · `<name> 'text' is not a single square size` · `no number in 'text' f
 
 ### VACUITY, COUNTS, CERT, ANOMALIES, FILES -- see the slice report `2026-09-24_Slice5_Report.md` (Desktop); the
 counts are recorded there, measured in-session before and after.
+
+
+## HVAC PRICING, SLICE 6 -- THE ADP PANEL AND CALCULATOR: ITEM BLOCKS, CHANGE / ADD / REMOVE; ADP GOES LIVE; UL AND MIXING-BOX FIXES; SECOND OPINION OFF; HVAC v8 (2026-09-24) -- SHIPPED
+
+Owner rulings (quoted in the slice prompt): **S1** the panel shows the model's items with their attributes, all
+editable; a dedicated button changes an item; the user adds and removes items; **S2** full build ("we will go with A
+only"); **S3** edits are session-only, as Electrical, and the correction record captures what was on screen at Use;
+**S4** all or nothing; **S5** the calculator is built alongside; **S6** UL: an absent UL answer is NOT MENTIONED (the
+non-UL default fires) -- UL ONLY, damper and insulation keep absent = blank; **S7** mixing box / LP plenum at ANY
+stated size: cost = per-sq.m cost x 2(WH + HD + WD) + 150, rounded up, then the SKU's markup, all three dimensions
+needed; **S8** the second opinion is a BUILD-TIME instrument -- OFF for ADP now; **S9** rows whose unit cannot match
+the SKU's stay BLANK (reviewed on a larger corpus in slice 7). The approved mockup: the "Electrical style" artboard.
+Handover line: **Electrical v63 / HVAC v8.**
+
+### STANDING RULE (S8, recorded here as the owner asked)
+**The second opinion (`list_spec.second_opinion`) is a build-time instrument: ON while a category's extraction is
+being built and measured, OFF before the category goes live.** ADP shipped with it ON through slices 4 and 5 (the
+stage-2 and re-measure numbers in the slice-4 proof) and goes live with it OFF at v8. The mechanism itself is
+untouched (`il_13` pins that a config turning it on still gets it); the switch is the config's, never code's.
+
+### PREMISES VERIFIED, CORRECTIONS
+- The recon named in the prompt (`2026-09-21_Electrical_Helper_Panel_Recon.md`) and the slice-3 / slice-4 reports
+  are NOT on the Desktop any more (OneDrive lists only the slice-5 report and two unrelated recons); the panel's
+  parts were read from `RateHelperPanel.tsx` / `rateHelperTypes.ts` themselves and the mockup from the artifact.
+- "extend the JSON, NOT the doctype" (T5): `record_rate_suggestion_event` already stores any JSON value through
+  `_as_text`, so NO backend change was needed for the items -- `api/boq/rate_master.py` is untouched; the JSON shape
+  gained an `items` key on both sides, added by the page only when the row carries items (a non-list row's payload
+  is byte-identical, pinned).
+- `buildRowContext` (the row context builder) lives in `rateSuggestionModel.ts`, OUTSIDE this slice's scope, and
+  `RateHelperRowContext` / `ExtractionRow` / `Suggestion` live in `rateHelperTypes.ts`, also outside it. The row's
+  UNIT, the run's ITEMS and the panel's item-list VIEW therefore ride as OPTIONAL EXTENSIONS declared in the in-scope
+  files (`RowContextWithUnit`, `ExtractionRowWithItems`, `ItemListSuggestion` in `pricingSheetHelper.ts`), attached
+  by the page (`{ ...buildRowContext(...), unit: row.unit ?? "" }`) and read through the alias. No out-of-scope file
+  changed.
+- Making a list-mode config eligible WITHOUT touching `extraction.py` (out of scope): both eligibility predicates
+  read `pipelines` and `attribute_definitions` and neither changed. v8 gives the ADP config a REAL `pipelines`
+  entry -- the shared per-item default (`item_supply` / `item_install`) that every plain unit block of the pricing
+  block now runs instead of carrying its own copy (29 blocks dropped theirs; the validator requires the config's
+  pipelines whenever a block declares none, so the key can never be inert). That is the switch, on both sides.
+- The Electrical LMS config is eligible today (it gained pipelines at an earlier slice); a first draft of q04 assumed
+  it was still data-only and was corrected before the suite ran.
+- The smallest dev HVAC sheet with ADP rows: `BOQ-26-00113 / HVAC - Toilet Exhaust ` (12 nodes, 7 line items, 5 ADP
+  rows) -- named before the run; well under the 150-row ceiling.
+
+### AS BUILT
+- **`itemListPricing.ts`:** `default_pipelines` (filled by `itemListPricingSpec` from the config's own `pipelines`;
+  a unit block without `pipelines` runs it; a spec with neither refuses "no pricing pipelines declared for this
+  family and unit"); `DefaultSpec.absent_as_none` (S6: an absent answer reads as "None" so the default fires -- UL only
+  BY CONFIG; damper / insulation / variant unchanged); `ExtractedListItem.qtyPerRowUnit` (T4: absent = 1; blank /
+  zero / non-numeric refuses the item with its reason; `finals` x qty = `figures`, and the row sums `figures`); the
+  panel-facing helpers `listSpecDefs`, `familyChoices` (the 25 priceable families with their unit words -- aliases and
+  no-SKU families are not offered) and `itemFieldDefs` (a block's fields: the family's needs for the row's unit class,
+  the conversion needs when the row converts, the R13 source attribute; labelled from the list_spec; a choice's
+  options with "None" first when allow_none; `values_by_family` honoured).
+- **`pricingSheetHelper.ts`:** the ITEM-LIST PATH in `compute` (before any row-level attribute is read): the model's
+  items (`ExtractionRowWithItems.items`, carried by `buildExtractionByRow` only when present) overlaid with the
+  panel's session edits -- ONE override key `__items__` holding a JSON `ItemListEditState` ({items: [{base, family,
+  attrs, qty}]}; a changed or added item has `base: null` and starts BLANK from its family alone), decoded by
+  `decodeItemEdits` (garbage => the initial state), assembled by `assembleItems`, priced by `priceItemList`, shaped
+  into `ItemListSuggestion.itemList` (`ItemListView`: unit, unitClass, `unitPickable` + `unitChoices` for the
+  calculator, rowPriced, reason, one `ItemBlockView` per item -- source model / user, family, the R3 `familyRaw`,
+  `ItemFieldView`s with value / defaulted + rule / userEdited / note / blank, qty, state, reason, skuLine, working,
+  figures -- families, editState, modelCount). `values` are filled ONLY when every item priced (S4); basis "Rate
+  master: ADP (Air Distribution Products) · N items" / "Complete the missing attributes to price" / "Add an item to
+  price". The PURE edit operations `applyItemEdit` (set_attr / undo_attr / set_qty / change_family / add / remove),
+  `itemsOnScreen` (the correction record's shape) and `rowTotals`. The row unit: the context's `unit` (the page) or
+  the `__row_unit__` override (the calculator; default = the first spelling of the first declared class).
+  **`rowUsesPreRunHelper`** (U5 + U6): PER ROW -- the discipline has nothing to run OR (the row ITSELF has nothing to
+  run -- no config, an alias, a message-only / not-eligible config -- AND its discipline DECLARES before-run cards,
+  `disciplineDeclaresPreRunCards`: at least one fetched config of the discipline is an alias or not eligible). The
+  opt-in is what keeps BOTH histories intact without naming a discipline: HVAC declares cards (AHU / DX / Panels /
+  Pumps message-only, cables an alias), so its no-config rows (fans, ducting) keep the coming-soon card they had;
+  Electrical declares none, so its no-config rows (`panels`, `ups`, `light_fixtures`) keep the plain before-run panel
+  they had. The first cut of this rule sent an unknown-category row down the normal path and was caught LIVE (the
+  fan and ducting rows of the cert sheet lost their card) -- corrected before the cert continued. The page's
+  `panelHelpers` reads it (the slice-3 discipline-only call is gone from the page).
+- **`RateHelperPanel.tsx`:** `ItemListBlocks` (the mockup): per item a block with "Item N · identified by model /
+  added by you", the family, "Change item" (the family list from the CONFIG, with unit words, + Cancel), a remove X,
+  the R3 note in amber, the fields (red border = blank input the row needs; amber fill + "default" tag + the rule
+  under the field; the undo arrow on an edited field; a ladder-hop note), "Qty per 1 {unit} of row", the SKU line +
+  working lines + the three figures with copy controls -- or "Not priced — {reason}" in red; then "+ Add item" (a
+  dashed button; the picker "Add an item" + Cancel), the row total box (green "Row total per 1 {unit}" with the three
+  figures; red "N of M items need a person before the row can price." / "No items yet."), and on the calculator a
+  "Row unit" select. `FiguresRow` is now the ONE renderer of a line's three figures (the section block, the item
+  block and the row total all mount it -- the calculator pin "no second figure render anywhere" is kept true). "Use
+  this value" is disabled unless every item priced; `UseMeta.itemsOnScreen` carries the items at Use.
+- **`SheetPricingPage.tsx`:** the panel context carries `unit`; `panelHelpers` reads `rowUsesPreRunHelper`; the Use
+  event's `extracted_attributes` gains `items` (the run's items, each item's attribute values) and
+  `corrected_attributes` gains `items` (what was on screen) -- ONLY on an item-list row.
+- **`PricingCalculator.tsx`:** `calculatorBlockLabels` returns [] for a list-mode config (no placeholder blocks; the
+  panel draws one block per added item); everything else is the shared panel.
+- **HVAC v8** (`_mint_hvac_v8_tmp.py`, untracked) = v7 + four deltas: `pipelines` = the shared per-item default
+  (T7); `defaults.ul.absent_as_none = true` + its rule wording (S6); the mixing box's per-number block replaced by a
+  CONVERSION from its per-sq.m rows at any size -- supply `base*2*(w*h+h*d+w*d)/1000000+150` then ROUNDUP 0 then the
+  markup, install the same geometry without the +150 (the sheet's typed 0 today) (S7); `second_opinion: false` (S8).
+  Items byte-identical (sha256 `772b7454...a61f`); the six other configs byte-identical; the notes suffix.
+- **`config_validation.py`:** `absent_as_none` (bool) on a default; a unit block's `pipelines` optional when the
+  config's own `pipelines` are declared (refused by name otherwise); the config's own pipelines of a list-mode config
+  validated as item-list pipelines too.
+- **The prompt asset** (`boq_rate_item_list_prompt.md`): a `ul` sentence -- when the text says nothing about UL /
+  UL 555 / a UL listing, answer "None", never leave `ul` out; "yes" only when a listing is stated for THAT item, "no"
+  only when the text says not UL listed. So S6's pricing rule is not covering a prompt defect.
+
+### TESTS (positive AND negative)
+- `itemListPricing.test.ts` +12: v8 = v7 + the four deltas and nothing else (a structural strip-and-compare); T7 on
+  both predicates (v8 eligible, v7 not, every other HVAC config unmoved, the reader hands the default pipelines);
+  the plain families price EXACTLY as on v7 (94 of 95, row 33 blank) through the config's pipelines (trace ids
+  `item_supply` / `item_install`); NEGATIVE a spec with no default and a block without its own refuses by name; S6
+  (absent UL -> non-UL, marked with the S6 rule; a stated UL still UL; absent damper / insulation STILL refuse; v7
+  still refuses an absent UL); S7 (450x450x350 -> 2,065 with cost 1,424 in the working; 750x150x350 -> 1,743 /
+  1,310; 1000^3 -> 10,919; a missing dimension refuses naming the needs; the per-sq.m row still per sq.m; v7 refuses
+  450x450x350); T4 (absent = 1; 2 doubles; a blank / zero / word refuses); the panel-facing helpers (25 families
+  with unit words; the fields of round diffuser / linear grille / VCD / actuator; no family / unknown / no list_spec).
+- `pricingSheetHelper.test.ts` +14: N blocks for N items with figures, SKU line, the row total, the basis, the
+  defaulted UL field; a refused item's reason + no Use-able value + the other item's figures; NEGATIVE a single-item
+  row is one block (no stacked headlines) and a non-list category carries no `itemList`; change (blank, then filled),
+  add, remove, remove-to-empty; an attribute edit on a model item + undo; the quantity; S3 edits never persist +
+  garbage decoding; T5 `itemsOnScreen`; R12 through the panel (the row's unit; ""; the calculator's pick and override,
+  per sq.m vs per number figures); `assembleItems`; the extraction row carries `items` only when present; U6
+  `rowUsesPreRunHelper` (vendor / alias / ADP / Electrical / unknown / a discipline with nothing to run); the page
+  source pins (unit on the context; both item lists on Use).
+- `pricingCalculator.test.ts` +3: no placeholder block for a list-mode category (an Electrical one still announces
+  its blocks); ADP starts empty, the unit is a pick, an added spigot prices 211 / 64 / 275 EXACTLY as an in-run BoQ
+  row with the same item; the vendor-quote categories still decline with their message.
+- `test_rate_master.py` `TestHvacAdpLiveSlice6` q01..q05 (+5): the validator (absent_as_none; a block without
+  pipelines refused when the config's are empty; the config's own pipelines checked as item-list pipelines); the asset
+  sweep (>=54 files, exactly today's one refusal); v8 = v7 + the four deltas (the shared pipelines' exact steps; S8
+  off; S6 UL only; S7's two formulas; the 29 dropped blocks, cross-talk the one keeping its own); eligibility on both
+  sides + every Electrical config's eligibility = its own two facts; the load (95 / 7), the endpoint verbatim, the
+  alias-aware map admitting exactly ADP + the two aliases, Electrical checksum unchanged, the event endpoint storing
+  `items` inside its JSON fields and a plain payload exactly as before. `test_extraction_coercion.py` +2: il_12 the UL
+  sentence (NEGATIVE: UL only); il_13 the second opinion off for ADP and still switchable.
+- INVERTED, never deleted (each failing SOLELY under T7 / the v8 bump; negative halves kept): `CURRENT_HVAC_ASSET`
+  v7 -> v8; h06 (ADP eligible; the emptiness gate proven on an emptied copy); h07 (series v1..v8, no "v8" token);
+  s03 / a03 (the current ADP config carries the shared pipelines); s04 / a03's alias-map negatives (ADP eligible, the
+  vendor four not); il_08 (eligible with its list shape; the emptied copy not); p03's P8 source pin (the helper and
+  the calculator import the module; grid / page / plumbing do not); the slice-5 class loads v7 by name; the slice-5
+  vitest P8 pin (same inversion); the slice-3 page pin (`rowUsesPreRunHelper` replaces the discipline-only call).
+
+### THREE DEFECTS FOUND ONLY BY THE LIVE CERT (fixed in this slice; the owner said "trynow" for the out-of-scope one)
+Every one of them sat on a seam that both sides' tests had passed -- the standing rule ("a test on each side of a
+boundary is not a test of the boundary") measured three times in one cert.
+1. **The per-row pre-run rule dropped the coming-soon card on HVAC no-config rows.** The first cut sent an
+   unknown-category row (fans, ducting) down the normal path once its discipline had something to run, so those rows
+   lost the card slice 5 recorded. Widening to "every no-config row" would have changed Electrical (`panels`, `ups`,
+   `light_fixtures` rows carry no config and show the plain before-run panel -- 00153 row 58 IS a `panels` row).
+   The rule that meets U5 and U6 verbatim: a row with nothing to run keeps the pre-run helper ONLY in a discipline
+   that DECLARES before-run cards (`disciplineDeclaresPreRunCards`: some fetched config of it is an alias or not
+   eligible). HVAC declares (AHU / DX / Panels / Pumps message-only, cables an alias); Electrical declares none.
+   Measured live both ways before the fix and after.
+2. **`extraction._row_result` emptied the batch output between its two callers.** `run_extraction` calls the nested
+   `_row_result` at the SR-1 checkpoint AND again for the final envelope, on the SAME `ai_out` entry; it popped
+   `__items__` in place, so the envelope's rows arrived with `attributes: {}` and no `items`, and the api layer's
+   final write overwrote the checkpointed rows. Run `BRSR-26-01129` (the cert's first run) stored exactly that while
+   its capture held five parsed item lists and zero drops. The slice-4 pilot called `_extract_batch` directly and
+   never crossed the seam. Fix: copy before popping (6 lines in `extraction.py` -- OUT OF SCOPE, applied on the
+   owner's "trynow"). Pinned by `test_rate_suggest.TestItemListRowsSurviveTheCheckpoint` (two tests on an HVAC ADP
+   fixture, one fake reply, both sides asserted; RED before the copy, GREEN after). Run `BRSR-26-01155` (the second
+   run, same 4,708 / 739 tokens) carries every row's items.
+3. **The pricing page held Electrical's rate-master items only.** `useRateMasterItems(RATE_HELPER_ENABLED)` took the
+   default discipline, so the ADP SKUs never reached the matcher and the first live pick said "no SKU for this
+   combination (disc valve)" against a catalogue the page had never fetched (the calculator, which fetches per
+   discipline, priced the same pick). `mergeItemsByName` and `RateItemsFetcher` moved from the calculator into
+   `rateHelperPlumbing.tsx` (one definition; the calculator re-exports the merge so its importers are unchanged) beside
+   the new `RATE_MASTER_ITEM_DISCIPLINES` (the registry's disciplines, once each); the page mounts one fetcher per
+   discipline and merges behind its default fetch. Source-pinned in `pricingSheetHelper.test.ts`; the calculator's
+   own pins are byte-unchanged.
+
+### FILES
+`itemListPricing.ts` (+test), `pricingSheetHelper.ts` (+test), `RateHelperPanel.tsx`, `SheetPricingPage.tsx`,
+`rateHelperPlumbing.tsx` (fix 3: the shared items fetcher / merge / discipline list -- the "only if the item list
+needs it" file; it did), `PricingCalculator.tsx` (+test), NEW `data/rate_master_hvac_all_v8.json`,
+`config_validation.py`, `prompts/boq_rate_item_list_prompt.md`, `test_rate_master.py`, `test_extraction_coercion.py`,
+`extraction.py` (fix 2, out of scope, owner "trynow"), `test_rate_suggest.py` (fix 2's seam tests -- the blast-radius
+rule). NOT touched: `rateHelperTypes.ts`, `rateSuggestionModel.ts`, `api/boq/rate_master.py`, the loader, the
+exporter, every Electrical asset, HVAC v1..v7, `components/ui/*`, every doctype JSON, `patches.txt`.
+The cert, the counts, the vacuity and the anomalies are in the slice report `2026-09-24_Slice6_Report.md`.

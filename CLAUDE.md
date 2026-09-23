@@ -742,8 +742,41 @@ written back) so a family's SQM row and its Nos rows are distinct SKUs; a per-nu
 per-sq.m SKU converts by a config `convert` option (W x H, an area band's MAXIMUM, height) on BOTH sides BEFORE the
 ROUNDUP(cost x (1 + markup), 0) markup. Derived SKUs (cross-talk sizes, the 750 x 150 x 350 mixing boxes) read their
 base per-sq.m row LIVE through `component_ref`, so a CSV edit flows through. ⚠️ **The stored replies return
-`ul` as ABSENT on most actuator rows that say nothing about UL, where the prompt asked for "None"; pricing follows
-R2 and refuses them -- an extraction behaviour, never to be "fixed" by defaulting an absent value.**
+`ul` as ABSENT on most actuator rows that say nothing about UL, where the prompt asked for "None". OWNER RULING S6
+(ADP live) REVERSED the earlier stance FOR UL ONLY: an absent UL answer is read as NOT MENTIONED and the non-UL
+default fires -- declared in config (`defaults.ul.absent_as_none`), and the prompt asset was fixed in the same change
+so the rule is not covering a prompt defect. Damper and insulation keep absent = blank; do not widen the key to them
+without a ruling.**
+
+**⚠️ A LIST-MODE ROW PRICES A LIST OF ITEMS; THE PANEL SHOWS ONE BLOCK PER ITEM; EDITS ARE SESSION-ONLY AND RECORDED
+AT USE (owner rulings S1-S9 on ADP, owner-locked).** The pricing-sheet helper's item-list path prices the model's
+items overlaid with the panel's session edits -- ONE override key (`__items__`, a JSON edit state; `__row_unit__`
+where no row supplies a unit) that the helper decodes -- and shapes them into `ItemListSuggestion.itemList`, which the
+panel renders as one block per item (family, model-identified or user-added, its fields with the same blank / default
+/ edited tones as every other field, a quantity per row unit, its own working and figures or its own refusal), with
+"Change item" and "+ Add item" drawn from the CONFIG's families and a remove control per block. A changed or added
+item starts BLANK. All or nothing: `values` is filled and "Use this value" enabled ONLY when every item priced. Nothing
+is written to the row; re-opening the panel shows the model's answers again; the Use event carries `items` on BOTH
+sides of the existing JSON fields (what the model returned, what was on screen) -- no doctype change. **A list-mode
+category is eligible by the SAME two facts as every other** (non-empty `pipelines` and definitions): its `pipelines`
+hold the shared per-item default that every unit block without pipelines of its own runs, so the switch is real code
+path, never an inert key. **The second opinion is a BUILD-TIME instrument: ON while a category's extraction is being
+built, OFF before it goes live.** The pre-run panel rule is PER ROW (`rowUsesPreRunHelper`): a row with nothing to run
+of its own (no config, an alias, a message-only config) keeps the pre-run helper even when its discipline has something
+to run -- but ONLY in a discipline that DECLARES before-run cards (`disciplineDeclaresPreRunCards`: some fetched config
+of it is an alias or not eligible). That opt-in is load-bearing and names no discipline: HVAC declares cards, so a
+vendor-quote, alias or no-config row's card never changes because a sibling category went live; Electrical declares
+none, so its no-config rows keep the plain before-run panel they always had. Widening the rule to every no-config row
+changes Electrical (`panels`, `ups`, `light_fixtures` rows); narrowing it to configs-that-exist drops HVAC's coming-soon
+cards -- both were measured live. `rateHelperTypes.ts` and `rateSuggestionModel.ts` were deliberately NOT widened for
+this: the unit, the items and the item-list view ride as optional extensions declared in the helper. **Two seams the
+live cert broke on, both now pinned: (a) `extraction._row_result` runs TWICE on the same batch-output entry (the SR-1
+checkpoint, then the final envelope) and must NEVER mutate its input -- popping `__items__` in place emptied every
+list-mode row before the envelope and the api layer's final write overwrote the checkpointed rows
+(`test_rate_suggest.TestItemListRowsSurviveTheCheckpoint`); (b) the BoQ pricing page must hold EVERY registry
+discipline's rate-master items (`RATE_MASTER_ITEM_DISCIPLINES` + the shared `RateItemsFetcher` / `mergeItemsByName`
+in `rateHelperPlumbing.tsx`), because a list-mode category prices from ITS discipline's SKUs -- with the default
+discipline's items alone every pick reports "no SKU".**
 
 ## BoQ Rate Suggestion (RM-3)
 
