@@ -1151,10 +1151,24 @@ function ItemListBlocks({
           })}
           <label className="flex items-center justify-between gap-2 text-xs">
             {/* SLICE 6b (owner V7): how many of THIS item make up ONE unit of the row -- the row's own quantity
-                plays no part in the rate (the module never reads it) */}
-            <span className="text-muted-foreground">How many in one {view.unit} of this row</span>
+                plays no part in the rate (the module never reads it).
+                SLICE 6c (owner ruling, 2026-09-24): a quantity the pricer has NOT typed is an ASSUMPTION, and it
+                is the one field that never refuses -- a blank attribute stops the row, but 1 is a real number, so
+                a row needing 2 of something prices low and looks complete. Marked amber with the same "default"
+                tag every other assumed value carries. Nothing reads a quantity from the row. */}
+            <span className="flex items-center gap-1 text-muted-foreground">
+              How many in one {view.unit} of this row
+              {b.qtyDefaulted && (
+                <span
+                  className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                  title="Assumed: one of this item per unit of the row. The row does not say -- change it if it means more."
+                >
+                  default
+                </span>
+              )}
+            </span>
             <Input
-              className="h-7 w-28 text-xs"
+              className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}
               value={b.qty}
               inputMode="decimal"
               onChange={(e) => onEdit({ op: "set_qty", index: i, qty: e.target.value })}

@@ -1542,7 +1542,10 @@ export interface ItemEdit {
   base: number | null;
   family: string | null;
   attrs: Record<string, string>;
-  qty: string;
+  /** SLICE 6c (owner ruling, 2026-09-24): present ONLY when the PRICER typed a quantity -- exactly like
+   * `attrs`. Absent means "not typed", so the assumed 1 stands and the panel marks it as a default. Nothing
+   * reads a quantity from the row or the model: the quantity is the pricer's, and 1 is the assumption. */
+  qty?: string;
 }
 export interface ItemListEditState {
   items: ItemEdit[];
@@ -1551,7 +1554,7 @@ export interface ItemListEditState {
 /** PURE. The edit state that means "exactly what the model returned": one untouched entry per model item. */
 export function initialItemEdits(modelCount: number): ItemListEditState {
   const items: ItemEdit[] = [];
-  for (let i = 0; i < modelCount; i++) items.push({ base: i, family: null, attrs: {}, qty: "1" });
+  for (let i = 0; i < modelCount; i++) items.push({ base: i, family: null, attrs: {} });
   return { items };
 }
 
@@ -1566,7 +1569,7 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number): It
         base: typeof e.base === "number" && e.base >= 0 && e.base < modelCount ? e.base : null,
         family: typeof e.family === "string" && e.family !== "" ? e.family : null,
         attrs: e.attrs && typeof e.attrs === "object" ? { ...e.attrs } : {},
-        qty: typeof e.qty === "string" ? e.qty : "1",
+        ...(typeof e.qty === "string" ? { qty: e.qty } : {}),
       })),
     };
   } catch {
@@ -1586,7 +1589,9 @@ export function assembleItems(edits: ItemListEditState, modelItems: ExtractedLis
       attributes.family = { value: e.family };
     }
     for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v };
-    return { attributes, qtyPerRowUnit: e.qty };
+    // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
+    // marking changes no rate anywhere.
+    return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}) };
   });
 }
 
@@ -1614,6 +1619,10 @@ export interface ItemBlockView {
   familyRaw: string | null;
   fields: ItemFieldView[];
   qty: string;
+  /** SLICE 6c: the quantity shown is the ASSUMED 1 -- the pricer typed nothing -- so the panel marks it amber
+   * with the same "default" tag every other assumed value carries. It is the one field that never refuses, so
+   * an unmarked 1 reads as a fact the row stated. */
+  qtyDefaulted: boolean;
   state: "priced" | "blank";
   reason?: string;
   skuLine?: string;
@@ -1712,7 +1721,8 @@ function itemBlockView(
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
     fields,
-    qty: edit.qty,
+    qty: edit.qty ?? "1",
+    qtyDefaulted: edit.qty === undefined,
     state: res.state,
     ...(res.reason ? { reason: res.reason } : {}),
     ...(res.sku ? { skuLine: `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
@@ -1810,10 +1820,10 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       return { items };
     case "change_family":
       if (!at(op.index)) return state;
-      items[op.index] = { base: null, family: op.family, attrs: {}, qty: "1" };
+      items[op.index] = { base: null, family: op.family, attrs: {} };
       return { items };
     case "add":
-      items.push({ base: null, family: op.family, attrs: {}, qty: "1" });
+      items.push({ base: null, family: op.family, attrs: {} });
       return { items };
     case "remove":
       if (!at(op.index)) return state;

@@ -5183,7 +5183,10 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
     expect(again.v.editState).toEqual(initialItemEdits(2));
     expect(decodeItemEdits("not json", 2)).toEqual(initialItemEdits(2));
     expect(decodeItemEdits('{"items":"x"}', 2)).toEqual(initialItemEdits(2));
-    expect(decodeItemEdits(JSON.stringify({ items: [{ base: 9, family: "", attrs: null, qty: 1 }] }), 2).items).toEqual([{ base: null, family: null, attrs: {}, qty: "1" }]);
+    // slice 6c INVERSION (the owner's marking ruling): an edit carries `qty` ONLY when the PRICER typed a
+    // string, so a garbage qty (here the NUMBER 1) leaves the key ABSENT -- the assumed 1 stands and is marked.
+    expect(decodeItemEdits(JSON.stringify({ items: [{ base: 9, family: "", attrs: null, qty: 1 }] }), 2).items).toEqual([{ base: null, family: null, attrs: {} }]);
+    expect(decodeItemEdits(JSON.stringify({ items: [{ base: 9, family: "", attrs: null, qty: 1 }] }), 2).items[0].qty).toBeUndefined();
   });
   it("T5: the items ON SCREEN for the correction record -- family, source, every field as shown, the quantity", () => {
     const h = runWith([{ excel_row: 14, items: [ACT, PANEL] }]);
@@ -5389,5 +5392,105 @@ describe("SLICE 6b / the item-list view under v9 -- controls from config, option
     const panel = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8");
     expect(panel).toContain("How many in one {view.unit} of this row");
     expect(panel).not.toContain("Qty per 1 {view.unit} of row");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6c STEP 1 (owner ruling, 2026-09-24) -- an ASSUMED per-item quantity is marked as a default. The
+// quantity stays 1 and stays the pricer's to type; nothing is read from the row or asked of the model. It is
+// the one field that never refuses -- a blank attribute stops the row, but 1 is a real number -- so an unmarked
+// 1 reads as a fact the row stated.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6c / the assumed quantity is marked as a default", () => {
+  const V9 = HVAC_V9 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS = new Map<string, RateCategoryConfig>(V9.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS: RateMasterItem[] = V9.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const ctx6c = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const DV = li({ family: "disc valve", dia_mm: "100" });          // 551 / 176 / 727
+  const SPG = li({ family: "spigot", dia_mm: "150" });             // 211 / 64 / 275
+
+  it("a model-detected block shows 1 MARKED as a default; a hand-added block does too; a CHANGED block does too", () => {
+    const h = runWith([{ excel_row: 20, items: [DV] }]);
+    const c = ctx6c(20, "Nos");
+    const { v } = list(h.compute(c));
+    expect(v.items[0]).toMatchObject({ source: "model", qty: "1", qtyDefaulted: true });
+    // + Add item -> a hand-added block, 1, marked (the owner's Y4 reading of the same rule)
+    const added = applyItemEdit(v.editState, { op: "add", family: "spigot" });
+    const { v: v2 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(added) }));
+    expect(v2.items[1]).toMatchObject({ source: "user", qty: "1", qtyDefaulted: true });
+    // Change item -> the new block is likewise an assumption
+    const changed = applyItemEdit(v.editState, { op: "change_family", index: 0, family: "spigot" });
+    const { v: v3 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(changed) }));
+    expect(v3.items[0]).toMatchObject({ source: "user", qty: "1", qtyDefaulted: true });
+  });
+  it("NEGATIVE: a quantity the PRICER typed is theirs, not a default -- including a typed 1", () => {
+    const h = runWith([{ excel_row: 21, items: [DV] }]);
+    const c = ctx6c(21, "Nos");
+    const typed2 = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "2" });
+    expect(list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(typed2) })).v.items[0]).toMatchObject({ qty: "2", qtyDefaulted: false });
+    // a typed 1 looks the same as the assumed 1 but is NOT an assumption -- the pricer said so
+    const typed1 = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "1" });
+    expect(list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(typed1) })).v.items[0]).toMatchObject({ qty: "1", qtyDefaulted: false });
+  });
+  it("THE RATE IS UNCHANGED by the marking: an untyped quantity prices exactly as a typed 1, on one item and on three", () => {
+    const h = runWith([{ excel_row: 22, items: [DV, SPG] }]);
+    const c = ctx6c(22, "Nos");
+    const untyped = list(h.compute(c));
+    expect(untyped.r.values).toEqual({ supply_rate: 551 + 211, install_rate: 176 + 64, combined_rate: 727 + 275 });
+    const ones = applyItemEdit(applyItemEdit(untyped.v.editState, { op: "set_qty", index: 0, qty: "1" }), { op: "set_qty", index: 1, qty: "1" });
+    const typed = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(ones) }));
+    expect(typed.r.values).toEqual(untyped.r.values);
+    expect(typed.v.items.map((b) => b.figures)).toEqual(untyped.v.items.map((b) => b.figures));
+    // slice 6b's three-block arithmetic is untouched: 1 / 2 / 4 still sums rate x quantity
+    const s = applyItemEdit(applyItemEdit(untyped.v.editState, { op: "set_qty", index: 1, qty: "2" }), { op: "add", family: "butterfly damper" });
+    const s2 = applyItemEdit(applyItemEdit(s, { op: "set_attr", index: 2, id: "dia_mm", value: "150" }), { op: "set_qty", index: 2, qty: "4" });
+    const three = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s2) }));
+    const bf = three.v.items[2].figures;
+    expect(three.r.values!.supply_rate).toBe(551 + 211 * 2 + bf.supply_rate! );
+    expect(three.v.items.map((b) => b.qtyDefaulted)).toEqual([true, false, false]);
+    // and a CLEARED quantity still refuses, exactly as slice 6 built it
+    const cleared = applyItemEdit(untyped.v.editState, { op: "set_qty", index: 0, qty: "" });
+    const b = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(cleared) }));
+    expect(b.v.items[0]).toMatchObject({ state: "blank", reason: "quantity per row unit is blank", qtyDefaulted: false });
+    expect(b.r.values).toEqual({});
+  });
+  it("the edit state carries a quantity ONLY when typed, and the Use payload still reports the shown 1", () => {
+    const h = runWith([{ excel_row: 23, items: [DV] }]);
+    const c = ctx6c(23, "Nos");
+    const { v } = list(h.compute(c));
+    expect(v.editState.items[0].qty).toBeUndefined();
+    expect(initialItemEdits(2).items.every((e) => e.qty === undefined)).toBe(true);
+    expect(assembleItems(v.editState, [DV])[0].qtyPerRowUnit).toBeUndefined();   // absent => the module's 1
+    expect(itemsOnScreen(v).map((it) => it.qty)).toEqual(["1"]);
+    // a decoded state keeps a typed value and drops nothing else
+    const typed = applyItemEdit(v.editState, { op: "set_qty", index: 0, qty: "3" });
+    expect(decodeItemEdits(JSON.stringify(typed), 1).items[0].qty).toBe("3");
+    expect(decodeItemEdits(JSON.stringify(v.editState), 1).items[0].qty).toBeUndefined();
+    expect(assembleItems(typed, [DV])[0].qtyPerRowUnit).toBe("3");
+  });
+  it("(source) the panel marks the assumed quantity amber with the shared 'default' tag, and marks nothing when it is typed", () => {
+    const panel = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8");
+    expect(panel).toContain("{b.qtyDefaulted && (");
+    expect(panel).toContain('className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}');
+    // the SAME tag the attribute fields use -- one look for every assumed value
+    // THREE tag sites now, all the same look: Electrical's attribute default, the item block's field default,
+    // and the quantity's -- one appearance for every assumed value, wherever it is assumed
+    expect(panel.match(/rounded bg-amber-100 px-1 text-\[9px\] font-medium leading-none text-amber-800/g)!.length).toBe(3);
+    // NEGATIVE: Electrical's own attribute rendering is untouched -- its select / input branch and its own
+    // defaulted tone are the strings slice 2c shipped
+    expect(panel).toContain("{a.options ? (");
+    expect(panel).toContain("Filled from a ruled default -- the row text gave no positive identification");
   });
 });
