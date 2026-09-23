@@ -712,6 +712,20 @@ aliased row shows its fields; a discipline with an own eligible config (Electric
 No discipline or category id is named in code for any of this. The pending mark (`pending_label`) is drawn ONLY in the
 grid's editable rate branch -- a heading / preamble row that cannot take a rate shows nothing.
 
+**⚠️ A RATE-MASTER CATEGORY MAY ASK THE MODEL FOR A LIST OF ITEMS PER ROW (`matching_mode: "item_list"` +
+`list_spec`), AND ITS ANSWER HAS THREE STATES THAT CODE MUST KEEP APART (owner-locked, 2026-09-23).** A VALUE means
+the text (row or ancestors) states it; the string `"None"` means NOT MENTIONED and is allowed only on an
+`allow_none` def -- it is what lets CODE apply the owner's default later; an ABSENT / null value means COULD NOT
+TELL and prices nothing. A row is COMPOSITE only when THAT ROW pays for more than one thing; a part built into a
+priced variant (a motorised damper's actuator) is never a second item. Sizes, torques and area bands come back AS
+STATED in `text` defs and are never parsed by the model; a `values_by_family` choice is enforced in the parse; a
+def's `note` is projected into ITEMS_SPEC (catalogue facts reach the model that way -- the item WORDING does not,
+the model picks from the family list). Two checks ride the batch: the TEXT CHECK flags an as-stated string absent
+from the row's own payload and NEVER drops it; the SECOND OPINION (`list_spec.second_opinion`, OFF unless declared)
+is one review call per row that only FLAGS -- it never rewrites, never drops, never halts, and its cost is counted
+apart. The stage-2 proof found that a batch drawn across many BoQs collides on `excel_row` (replies are keyed by it)
+-- a real batch is one sheet, so never measure with mixed-BoQ batches without ordering them collision-free.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

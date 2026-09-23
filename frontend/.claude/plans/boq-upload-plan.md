@@ -40614,3 +40614,121 @@ upload / spec-reader code, every Electrical asset, v1 / v2 / v3, `components/ui/
 `patches.txt`; the modified `.claude/settings.local.json` and the root untracked files are declared noise, not staged;
 `_mint_hvac_v4_tmp.py` is a temporary build tool, never committed. Feat commit `103f17ce`; this record's commit
 follows it. NOT pushed.
+
+
+## HVAC PRICING, SLICE 4 -- ADP: THE MODEL'S QUESTIONS, THE ITEM LIST, AND WHAT IT RETURNS (NO UI, NO PRICING); HVAC v5 + v6 (2026-09-23) -- SHIPPED
+
+Owner rulings (quoted in the slice prompt): **W-a** composite rows, "we will go with A only" -- a row yields a LIST of
+items; **W-b** a three-state answer (a VALUE / "None" = not mentioned / absent = could not tell); **W-c** defaults live
+in CODE (slice 5), the model only makes the distinction; **W-d** sizes and torques AS STATED ("10-12 NM", "3.5, 7.9 &
+15.9"); **W-e** the payload is unchanged; **W-f** a PAID proof run in two stages -- a pilot, STOP, then ~200 rows,
+"we dont need to keep it small we should have a robust data set". After the pilot: **A/D/E** fixes (the model must say
+"None"; no quantity is asked -- "unit rates, code uses 1"; each row from its own text); **4** a row is COMPOSITE only
+when THIS ROW pays for more than one thing ("if both plenum box and diffuser are being priced in the same row then it
+is a composite row"); a built-in part (a motorised damper's actuator) is NOT a separate item; **5** "maximum 6 outgoing
+feeders" maps to the 1:6 panel; **6a** single skin plenum = the LP plenum / mixing box; **6b** no SKU = blank, "the
+user will decide"; **6c** an area band is returned AS STATED and code takes its maximum (slice 5); the variant is a
+CLOSED per-family choice; insulation thickness is its own attribute. After the re-pilot: **CHECK 1** (text) -- an
+as-stated string must be in the row's own payload; **CHECK 2** (second opinion) -- one extra call per row that only
+FLAGS, config-switched; **CHECK 3** notes reach the model, then revised: the single-skin case lives in the ITEM WORDING
+(3a) + the master sheet (3b), notes stay projected for 6b and 5 (3c); **two variants stated** = blank. After stage 2:
+**1** the wording belongs in the ITEM column, not ITEM DETAIL; **2** the text check FLAGS, never drops; **3a-d** the
+four causes behind the second opinion's numbers (family aliases in the projected note; the reviewer gets the labels and
+notes; `air` only when stated; no attribute carried across items); **4** the two `getsource` pins re-homed by
+concatenation, never by inlining the split. Handover line: **Electrical v63 / HVAC v6.**
+
+### AS BUILT
+- **Config (`config_validation.py`):** `matching_mode: "item_list"` + `list_spec` {`attribute_definitions` (per-item
+  defs: choice / number / text, `allow_none`, `note`, and on a choice `values_by_family`), `family_attribute_id`
+  (required, a choice), `qty_attribute_id` (OPTIONAL, a number -- ADP declares none), `second_opinion` (bool)};
+  every malformed shape refused by name; `list_spec` without the mode and the mode without a spec both refused.
+- **Extraction (`extraction.py`):** `select_prompt_text` picks the FOURTH asset `boq_rate_item_list_prompt.md` for the
+  mode; `build_items_spec` projects the per-item defs (id, label, type, values, `values_by_family`, `allow_none`,
+  `note`) + `family_attribute_id` (+ `qty_attribute_id` when declared) + `second_opinion`; `batch_prompt_content`
+  appends an `ITEMS_SPEC:` block after `ROW_CONTEXT_SHAPE` and before `ROWS` ONLY when given; `_group_context` empties
+  `defs` for the list mode (the row-level ATTRIBUTE_DEFINITIONS block is `[]`); `parse_item_list` stores every item
+  with EVERY def present (the three states legible), enforces `values_by_family` in code (an off-list pick -> None,
+  reason `not_in_family_list`), keeps an unknown family as `None` and records it; `_row_result` lifts `items` +
+  `item_flags` onto the result row (a non-list batch never carries either key). **CHECK 1** `apply_row_text_check`:
+  every `text` def's returned string must be a casefold / whitespace-collapsed substring of the row's own payload
+  (`_ai_item` projection: text, notes, ancestors); a miss FLAGS the row (`value_not_found_in_row_text`) and KEEPS the
+  value. **CHECK 2** `second_opinion_review`: when the spec carries `second_opinion`, ONE extra call PER ROW after the
+  batch reply, content = the fifth asset `boq_rate_item_list_review_prompt.md` + the SAME `ITEMS_SPEC` + that row's
+  payload + its items (no other row's text -- the reason it is per row, never batched); the reply is ONE JSON object
+  parsed by `_parse_review_object` (NOT the shared array parser, which would return the inner `issues` list and lose
+  the verdict); a "disagree" flags with the reason, NEVER rewrites a value, never drops an item; a failed call or an
+  unparseable reply is recorded (`second_opinion_failed`) and never halts; usage accumulates SEPARATELY
+  (`second_opinion_usage`). New drops keys: `items_rows_without_list`, `items_empty_rows`, `items_not_objects`,
+  `items_family_unrecognised`, `items_coerce_failed`, `items_not_in_row_text`, `second_opinion_verdicts`,
+  `second_opinion_failed`, `second_opinion_usage`.
+- **Prompts:** `boq_rate_item_list_prompt.md` (own-text-only; "None" REQUIRED on a silent allow_none attribute;
+  composite = this row pays for it; a built-in part is not an item; "provided by others" left out; a `values_by_family`
+  choice from the family's own list; two stated values of one choice -> leave it out; an attribute belongs to the
+  item it describes; `air` only when stated; sizes / bands / torques copied EXACTLY as written) and
+  `boq_rate_item_list_review_prompt.md` (ITEMS_SPEC, ROW, ITEMS; judge by LABEL and NOTE; agree / disagree with
+  issues; do not rewrite). The three existing prompt assets are byte-identical to `f9d63ffc` (pinned).
+- **HVAC v5** = v4 + the ADP config's shape: `matching_mode: "item_list"`, `list_spec` with 17 per-item defs (family
+  27 values = the reader's 25 + "grille, type not stated" + "none of these", with the alias note; damper, insulated,
+  air, ul, variant allow_none; variant `values_by_family` READ FROM THE CATALOGUE's stored variants -- fire damper
+  without sleeve / UL / motorised / with sleeve, VCD GI oval / motorised / GI rectangular; text defs neck / face_w /
+  face_h / depth / dia / slot_count / torque / panel_ratio / thickness_mm / insulation_thickness_mm / area_band;
+  NO quantity def), `second_opinion: true`; items and the six other configs byte-equal to v4; pipelines still `{}`
+  (hvac_adp NOT eligible). **HVAC v6** = v5 + the four 'Low Pressure Plenum / Mixing Box' items' ITEM NAME gaining
+  " / Single Skin Plenum" after "Mixing Box" (item_detail untouched, uids unchanged, the spec reader reproduces all 95
+  items before and after); loaded live as `rmbulk-b7afa9f5dde9`; Electrical `77a70755...f0db` untouched. The owner's
+  master sheet `HVAC_BOQ_BCS PRICING_ Nitesh EditsV2.xlsx` carries the same insertion in ADP!A88:A91, written
+  SURGICALLY (two shared strings appended, four cell pointers changed, every other zip member byte-identical; an
+  openpyxl full save was tried first, found to rewrite 7 unrelated VAV Box float cells, and reverted).
+- **NOT built, by design:** no frontend file changed (N8); no pricing; `run_extraction`'s population still excludes
+  ADP; the four owner defaults (R1 / R5 / R14) and the ruling-5 / 6c code mappings are slice 5.
+
+### THE PAID PROOF (N7), IN THE DESKTOP REPORT `2026-09-23_ADP_Extraction_Proof.md`
+- **Stage 1** (32 rows, 27 BoQs, seed 20260923): "None" never produced (0 of 32 rows), qty on 1 row, one cross-row
+  leak (#14 took #16's size), 3 composite misses, variant / ladder losses. **Stage 1b** (same 32 rows after A/D/E and
+  the design fixes): 61 "None" answers on 26 rows, qty gone, the ladder survives as a closed pick, ruling-4 composites
+  right on 4 of 5, the #14 leak RECURRED with the own-text rule in place.
+- **Stage 2** (200 rows, 62 BoQs, seed 20260923, pilot rows excluded; 187 clean after a harness artefact): the text
+  check fired on 1 clean row and it was a false drop (the model condensed the row's own words); the second opinion
+  flagged 78 of 187 (41.7%) -- 43 genuine / 31 false alarm / 4 judgement; "None" 28% of allow_none cells; 13
+  multi-item rows (11 right under ruling 4, 2 over-split, 1 missed); cost main 10 calls 108,813 in / 28,533 out,
+  review 200 calls 182,750 in / 12,988 out. **The artefact:** `_extract_batch` keys replies by `excel_row`, unique in a
+  real batch (one sheet) but not in a 20-row batch drawn across 62 BoQs -- 6 collisions contaminated 12 rows (both
+  rows of a pair received the last reply); every leak the checks caught sat on those rows. A real run cannot do this.
+- **Re-measure** (50 rows from the stage-2 sample: all 19 single-skin, 10 gauge, 11 air and 5 inheritance rows + 11
+  random; collision-free batches): second opinion 15 of 50 (30%) -- 5 genuine / 6 false alarm / 4 judgement; the
+  four targeted causes at ZERO on their rows (no 'double-skin plenum' on the 19, no gauge flag on the 10, `air`
+  'None' on 10 of 11, no inherited `ul`); text check 1 of 50 (the same condensed torque, flagged and kept); cost
+  main 3 calls 31,533 in / 11,286 out, review 50 calls 146,139 in / 2,469 out. **Whether the second opinion stays
+  on is the owner's call (it is a config switch).**
+- The report also documents the payload structure, the envelope, the batching and one verbatim assembled call per
+  discipline (owner request A/B/C), with file:line citations.
+
+### TESTS
+- `test_extraction_coercion.py` +11 (`TestItemListSlice4` il_01..il_11: prompt selection + the three old assets
+  byte-identical; spec build incl. `values_by_family`, notes, the switch; ITEMS_SPEC only when given; the N6 hard
+  proof executing the PRE-SLICE module from `git show` for four Electrical categories; the parse with three states +
+  negatives; sizes as stated; the result-row lift; ADP ineligible; CHECK 1 flag-not-drop with a leaked value, an
+  ancestor value and a row-text value; CHECK 2 off = one call, on = per-row isolation, disagree flags without a
+  rewrite, garbage recorded, usage separate; CHECK 3 notes in the assembled spec, payload untouched): 163 -> **174**.
+  The two owner-ruled `getsource` pins now concatenate `_group_context` + `_group_context_body` + `run_extraction`
+  (each guarded literal occurs once; the body has one caller).
+- `test_rate_master.py` +5 (`TestHvacItemListSlice4` v01 validator negatives by name, v02 the asset sweep, v03 v5 =
+  v4 + the shape, v04 the load + endpoint verbatim + Electrical checksum, v05 v6 = v5 + the wording with the reader
+  reproduction over all 95 items); h07 series v1..v6; the s03 / a03 / v03 version-chain pins compare items through
+  `_items_without_3a_wording`; `CURRENT_HVAC_ASSET` = v6: 411 -> **416**.
+- Counts after: extraction **174 OK**; rate-master **416 OK**; vitest **3,486 passed / 1 failed (3,487; the known writeOffControl) -- identical to the baseline**; build **OK (built in 2m 20s)**; tsc
+  **3,229 pre-existing errors -- identical to the baseline**. Vacuity V1-V27 all red-then-green with files restored (V11, V22 and V25 needed their break lines
+  corrected before they were red; each is recorded in the slice report).
+- Mint gate `--latest`: PASS on v6 (uncommitted at the walk; walk again after the commit).
+
+### CERT (browser, tab VISIBLE)
+- N-1 `BOQ-26-00003 / PUNE HVAC BOQ` (fast render off, 490 rows): ADP rows 60 (collar dampers) and 109 (linear bar grille) load the 'Rate attributes for this category haven't been defined yet -- coming soon' card; cable row 268 (2core 1.5 Sqmm twisted pair) loads the helper card 'Fill the attributes to price' (the alias to Electrical wiring). `BOQ-26-00234 / (CHW BOQ) AHU & Low Side`: AHU row 10 loads 'Take Vendor Quotation'. N-2 the same sheet: 98 'Awaiting vendor quote' marks on 98 rows (527 rows rendered) -- unchanged. N-3 `BOQ-26-00224 / ELECTRICAL`: 354 rows (unchanged); 242 'Suggested value used' badges on 123 rows (slice 3 counted 'badged' on a different basis, its collector is not in this session -- the row count is the like-for-like number); row 216's badge loads the Electrical helper with the rate-master attributes (Switches and Sockets @ Switch = 10A 1 WAY SWITCH ... Back box = No, 260). `BOQ-26-00153 / BOQ` rows 233 / 58 / 800: NOT re-probed -- the renderer froze on rendering the whole sheet with fast render off (CDP timeout) and the extension disconnected once before that; the code-level proof (`test_il_04`: the Electrical group context and assembled content are byte-identical to the pre-slice module) stands in for it. N-4 live DB: HVAC 95 items / 7 configs, items-only checksum `bde5a8ca...` (moved by the four item names, by design), batch `rmbulk-b7afa9f5dde9`; Electrical 1,367 / 12, checksum `77a70755...f0db` unchanged; `BoQ Rate Suggestion Run` count 78, latest 2026-09-10 -- no run row written; the only AI calls were N7's (2 + 2 + 210 + 53). The driven tab reported `visibilityState: hidden` at times while the grid still rendered; the owner raised the window on request.
+
+### FILES
+`config_validation.py`, `extraction.py`, `test_extraction_coercion.py`, `test_rate_master.py`, NEW
+`prompts/boq_rate_item_list_prompt.md`, NEW `prompts/boq_rate_item_list_review_prompt.md`, NEW
+`data/rate_master_hvac_all_v5.json`, NEW `data/rate_master_hvac_all_v6.json`. NOT touched: every frontend file, every
+Electrical asset, v1..v4, `components/ui/*`, every doctype JSON, `patches.txt`; the modified
+`.claude/settings.local.json` and the root untracked files are declared noise, not staged; `_mint_hvac_v5_tmp.py`,
+`_mint_hvac_v6_tmp.py` and `_adp_pilot_run_tmp.py` are temporary tools, never committed. Feat commit `bda3dd1d`; this
+record's commit follows it. NOT pushed.
