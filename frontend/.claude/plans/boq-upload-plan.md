@@ -40732,3 +40732,151 @@ Electrical asset, v1..v4, `components/ui/*`, every doctype JSON, `patches.txt`; 
 `.claude/settings.local.json` and the root untracked files are declared noise, not staged; `_mint_hvac_v5_tmp.py`,
 `_mint_hvac_v6_tmp.py` and `_adp_pilot_run_tmp.py` are temporary tools, never committed. Feat commit `bda3dd1d`; this
 record's commit follows it. NOT pushed.
+
+
+## HVAC PRICING, SLICE 5 -- ADP PRICING: ITEMS, DEFAULTS, LADDERS, CONVERSIONS, REFUSALS (NO PANEL, NOT YET ELIGIBLE); HVAC v7 (2026-09-24) -- SHIPPED
+
+Owner rulings (quoted in the slice prompt) **R1-R22**: R1 damper not mentioned = WITHOUT; R2 the model leaves an
+attribute blank when it cannot tell and the row is not priced ("None" = not mentioned, absent = could not tell); R3
+a grille whose type cannot be told prices as LINEAR; R4 per-metre grilles = sq.m rate x height in metres, no height =
+blank; R5 flexible duct not mentioned = INSULATED; R6 off-ladder sizes and torques = NEXT SIZE UP, above the largest
+= refuse, a range = its TOP, several values = blank, diffusers match on NECK never the outer size; R7 torque not
+mentioned = blank; R8 panel ratio / diameter / neck / slot count missing = blank, no ADP kind = blank; R9 plenum with
+no thickness = blank; R10 damper with no type = blank; R11 per-number rows with W x H = sq.m rate x area, supply AND
+install; R12 no unit = refuse with the reason; R13 "supply air" = with damper on LINEAR and PLAIN grilles only, an
+explicit damper word wins; R14 VCD = GI rectangular, fire damper = without sleeve, UL = non-UL, mixing box = with
+insulation; R15 price = ROUNDUP(cost x (1 + that item's markup), 0) per side per SKU; R16 an area band's MAXIMUM is
+the area; R17 "maximum 6 outgoing feeders" = 1:6; R18 no SKU = blank, two closed-list values with no SKU for the pair
+= blank; R19 composite = this row pays for more than one thing; R20 derived items keep the sheet's formulas; R21 all
+or nothing; R22 the second opinion stays ON while building (slice 6 turns it OFF). Handover line: **Electrical v63 /
+HVAC v7.**
+
+### PREMISES VERIFIED, CORRECTIONS
+- Price is computed in the FRONTEND interpreter (recon 7) -- verified; the new module calls `runPipeline` unchanged
+  and the interpreter file has a ZERO-LINE diff. The step vocabulary needed NO new step: the ladders use the
+  interpreter's EXPORTED `buildModuleLadder` / `fitModuleLadder`, the arithmetic is `match_master_row` /
+  `component_ref` (assembly shape, `qty: 1`) / `sum_components` / `scale` / `roundup`.
+- The catalogue (v6) carries 95 SKUs in 25 families; rows 34 / 38 / 94 carry the OWNER'S R-e costs (slice 1b), which
+  the workbook still does not (the prompt's "the sheet's own BoQ figure" for those three IS the R-e figure, as
+  `test_h02` pins); the sheet's I9 cell holds the text `would`, pinned as ROUNDUP(500 x 1.6) = 800 exactly as
+  `test_h02` does. The 1200 x 300 diffuser (row 33) carries NO neck, so under R6 + R8 it is UNREACHABLE from a
+  stated neck and BLANK from a stated outer size -- 94 of 95 SKUs price to the sheet through the interpreter; row
+  33 is pinned as blank-by-rule, not mis-priced.
+- The model's stored replies (stage 2, 199 rows) return `ul` as ABSENT (could not tell) on most actuator rows that
+  say nothing about UL, where the prompt asked for "None": pricing follows R2 and refuses those rows ("could not
+  tell whether it is UL listed", 14 rows) -- the single largest refusal cause, and an EXTRACTION behaviour, not a
+  pricing one; reported for the owner, not extended.
+- Where the block lives: `list_spec.pricing` -- INSIDE `list_spec`, because both eligibility predicates
+  (`extraction.config_is_eligible`, `pricingSheetHelper.isEligibleConfig`) read `pipelines`, which stays `{}` (P8).
+  The validator's closed `list_spec` key allowlist needed the one new key (`config_validation.py` is in scope for
+  exactly that); the block itself is validated in its own namespace by `_validate_list_pricing`.
+
+### AS BUILT
+- **`frontend/src/pages/boq-wizard/rate-helper/itemListPricing.ts` (NEW, PURE):** `priceItemList(spec, items,
+  rowUnit, extractedItems) -> RowPriceResult`. Per row: the unit class (R12) from the config's `unit_classes`
+  table; no items = its own honest state. Per item: the family (absent = no ADP kind, R8; `family_alias` R3;
+  `no_sku_families` R18) -> the facts read over `match_attrs` (a stated value as stated; `"None"` -> the config
+  `defaults` value or `by_family` value, recorded in `defaulted` with its rule -- R1 / R5 / R14; absent -> omitted,
+  R2; `derive_when_none` R13 over a "None" only) -> the SKU unit class (the family's own `units[rowClass]`, else the
+  first `convert[rowClass]` option whose `needs` are stated -- R4 / R11 / R16 -- else "no SKU per <unit> for
+  <family>") -> the `needs` (the first missing names the blank: "no torque stated", "could not tell whether it is
+  UL listed", or the reader's own reason) -> the ladders (R6: `buildModuleLadder` over the family's rows of that
+  class that CARRY the attribute, narrowed by the other needed keys those rows carry; exact else next up, recorded
+  as a `ladderHop` and in the working; above the largest -> "<name> N is above the largest size on the sheet (M)";
+  a SKU without the ladder attribute is dropped from the candidates) -> ONLY the needed facts reach the matcher (R6
+  "never the outer size" falls out of this) -> the declared pipelines over the READ-TIME PROJECTED items (each
+  SKU's `unit` class copied into `attributes.unit_class` on a COPY; nothing written back) -> `finals`. Row (R21):
+  every item priced -> supply / install summed; else `priced: false` with "item N (family): <reason>" and every
+  item's own state kept.
+- **The number readers (`readNumber`, code never prompt):** parenthesised qualifiers dropped ("10NM (up to 1.6
+  sqm)" -> 10); a range takes its TOP (R6 / R16: "10-12 NM" -> 12, "40-45mm" -> 45, "up to 0.5 sqm" is one number);
+  several values = blank ("4, 8, 10", "9/10", "10/12 Module", "350/400"); a dimension pair is a single SQUARE size
+  only on a `square` reader ("300 x 300" -> 300; "300 x 450" blank); "1:6" -> 6 and a bare count "maximum 6
+  outgoing feeders" -> 6 (R17); a number followed by "m" reads x1000 into mm ("1.2m (L)" -> 1200); inches and
+  square feet are blank with the reason; a plenum thickness rejects gauge tokens ("26 GI", "20G", "22 Guage",
+  "SWG") and any figure below 5 mm (a 0.8 mm sheet gauge is not a plenum thickness) and reads
+  `insulation_thickness_mm` first, `thickness_mm` second.
+- **HVAC v7** (`data/rate_master_hvac_all_v7.json`, minted by the untracked `_mint_hvac_v7_tmp.py` from v6) = v6 +
+  `list_spec.pricing` on the ADP config (items byte-identical, sha256 of the items unchanged; the six other configs
+  byte-identical; `pipelines` still `{}`): `kind`, `unit_class_attr`, `unit_classes` (count / area / length
+  spellings), `unit_words`, `family_alias`, `no_sku_families`, `defaults`, `derive_when_none`, `numbers`,
+  `ladders`, `match_attrs`, `choice_attrs`, `reason_names`, `families` (25: `needs`, `units[class] = {needs,
+  pipelines{supply, install}}`, `convert[rowClass] = [{to, needs, rule, pipelines}]`). 118 pipelines, all of the five
+  existing steps. The derived rows (R20) are `component_ref` (assembly shape, `qty: 1`, `"@insulated"` for the
+  mixing box) on the family's SQM row + `sum_components` + the sheet's formula as a `scale` (`base*2*(w+h)*depth/
+  1000000` at depth 300; `base*2*(w*h+h*d+w*d)/1000000+150` then ROUNDUP 0) + the R15 markup -- so a CSV edit to
+  the base row flows through (pinned). Conversions: `base*w*h/1000000` (R11), `base*a` (R16), `base*h/1000` (R4,
+  the four grille families only), each on BOTH sides, BEFORE the R15 markup (the sheet's own derived-row order:
+  cost first, then ROUNDUP(cost x (1 + markup), 0)); the other reading -- the marked-up per-sq.m rate x area --
+  differs by the rounding (VCD 600 x 600: 2819 vs 7830 x 0.36 = 2818.8) and is NOT what shipped; owner to confirm.
+- **`config_validation.py`:** `"pricing"` joins the `list_spec` allowlist; `_validate_list_pricing` (+
+  `_validate_pricing_pipelines`) refuses BY NAME every malformed shape (closed key allowlists at every level; a
+  kind outside `item_kinds`; a reader fed from a non-text def; a family that is not a family value / an alias / a
+  no-SKU family; an unknown unit class; a conversion FROM a class the family already prices; a default on a
+  non-allow_none attribute or off the attribute's values; an R13 rule off-list; a step outside the five; a match on
+  another kind; a `_from_attr` or a component_ref key outside the SKU attributes; a component_ref without the
+  numeric `qty`). The `_KNOWN_STEP_TYPES` set is UNTOUCHED (no new step).
+- **NOT built, by design (P8):** no frontend file other than the new module + its test changed;
+  `pricingSheetHelper.ts` / the panel / the calculator / the grid do not import the module (pinned from both
+  sides); `isEligibleConfig` and `config_is_eligible` still read `pipelines`; the extraction population still
+  excludes ADP. Slice 6 wires the panel and flips eligibility.
+
+### THE P9 HARNESS (offline, ZERO AI calls) -- `2026-09-24_ADP_Pricing_Harness.md` on the Desktop
+- Stage 2's 199 stored replies replayed through the module: **120 priced / 79 blank**. Blank causes (top): could
+  not tell whether it is UL listed 14; per-number row with no W x H or area 14; no diameter stated 6; no neck size
+  stated 4; no torque stated 3; several values stated (height 3, panel ratio 3, width 1, depth 1); diameter above
+  the largest 3; a unit outside count / area / length 3; no unit 2; no SKU per sq.m for an actuator 2; a mixing box
+  at a size other than 750 x 150 x 350 3; a fire damper 'motorised' + UL (no such pair) 1; 'none of these' 1; a
+  gauge, not a thickness 1. Defaults applied: damper=without 11, ul=no 4, insulated=with 3, variant=GI rectangular
+  3, variant=without sleeve 1; conversions: R11 x14; ladder hops (next size up): 20. Per family: linear grille
+  11/0, curved 5/0, sound attenuator 6/0, cross-talk 4/0, spigot 4/0, canvas 4/0, NRD 3/0, door grille 2/0,
+  flexible duct 16/2, square diffuser 12/7, double-skin plenum 12/11, butterfly 10/1, intake louvre 9/1, VCD 7/5,
+  round diffuser 5/7, fire damper 4/3, collar damper 4/1, slot diffuser 3/3, control panel 3/13, actuator 1/19,
+  disc valve 1/2, mixing box 0/4.
+- The 50-row re-measure file: 20 priced / 30 blank -- 9 of the 19 single-skin rows are mixing boxes at a size the
+  sheet does not derive (R20 keeps only the two sizes), 5 no width stated.
+
+### REFUSAL REASONS (every one the module can emit, in the owner's language)
+`no unit on this row (R12)` · `unit 'X' is not a count, area or length unit (R12)` · `no items were read on this
+row` · `no ADP kind could be told for this item` · `no SKU in the catalogue for 'X' -- the user decides (R18)` ·
+`could not tell whether it is with or without a damper | whether it is insulated | whether it is UL listed | the
+damper type` · `no <torque | diameter | neck size | panel ratio | slot count | plenum thickness | width | height |
+depth | area> stated` · `several values stated for <name> ('text')` · `<name> stated as a size 'text', not a single
+number` · `<name> 'text' is not a single square size` · `no number in 'text' for <name>` · `<name> stated in inches
+('text')` · `area stated in square feet ('text')` · `plenum thickness stated as 'text' -- a gauge, not a thickness`
+(token, or below 5 mm) · `<name> N is above the largest size on the sheet (M)` · `no SKU for this combination
+(family: key value, ...)` · `per-<unit> row: no <needs> stated to convert the per-sq.m rate` · `no SKU per
+<number | sq.m | metre> for <family>` · `no base per-sq.m SKU for <family> to derive from` · `the SKU carries no
+<supply | install> cost` · `could not compute (<trace>)` (the fallback). A multi-item row prefixes `item N
+(family): `.
+
+### TESTS (positive AND negative)
+- `itemListPricing.test.ts` (NEW, 50): P8 (block read; `isEligibleConfig` false; no panel / helper / calculator /
+  grid import; v7 = v6 + the block); the projection never writes back; R12 (14 real unit spellings; no unit; Lot /
+  Cum); R1 (None -> without, marked; absent -> blank; stated wins); R2 (the three states on UL; a stray null never
+  blocks); R3 (alias; stated types keep theirs); R4 (300 mm height -> 1449 / 264; no height; a non-grille per
+  metre); R5; R6 (180 -> 200 with the hop; 400 above 350; neck 525 above 450; range 10-12 -> 12 -> 20; three
+  several-value forms; neck 300 with outer 600 x 600 prices 1972 / 576 and the selection carries no outer size; outer
+  alone = blank; 300 x 450 not square); R7; R8 (five keys); R9 (25 / 45 -> 50 / 50 mm thick; no thickness; 26 GI; 20G;
+  0.8mm); R10; R11 (600 x 600 -> 2819 / 692; "1.2m (L)" -> 1200; no size; a family with its own per-number rows never
+  converts); R13 (with, marked; the untyped grille too; explicit without wins; curved ignores; return / null stay
+  without); R14 (all four, marked; stated wins on each); R15 (the .5 ROUNDUP; the markup comes off the SKU -- bump
+  it and the figure follows); R16 (0.5 / 2.0; W x H preferred over a band; square feet; nothing); R17 (feeder
+  count; 1:N; 8 -> 12; 8-10 -> 12; 10/12 blank; 1:16 above 12); R18 (both halves + the stocked pair); R19 + R21 (two
+  SKUs summed; a blank second item blanks the row while item 1 keeps its figures; the single-item reason carries no
+  prefix; an empty list); R20 (the eight derived rows; the base-row edit flows through on both families; an
+  underived size is blank; the base row prices per sq.m); the reader (corpus spellings; every unusable form's
+  reason); the 95 SKUs (94 exact, row 33 blank-by-rule, ZERO wrong); the Electrical goldens hash (91 pipeline
+  results through `runPipeline`) pinned to the value measured BEFORE the slice.
+- `test_rate_master.py` `TestHvacAdpPricingSlice5` p01..p04 (+4): the validator's 33 refusals by name and the
+  block-less configs untouched; the asset sweep (>=53 files, exactly today's one refusal); v7 = v6 + the block AND
+  the block is the owner's rulings (defaults, alias, no-SKU, R13, the ladder list, R17, R16, the 25 families ==
+  the catalogue's with the catalogue's unit classes, every need carried by the family's SKUs, the derived refs on
+  the same family, the five steps only) with P8 pinned from the backend side (pipelines {}, not eligible, no
+  frontend import, the module has no React / SDK import); the load + endpoint verbatim + no eligible HVAC config +
+  Electrical checksum unchanged. INVERTED, never deleted (each failing SOLELY because the series moved to v7):
+  `CURRENT_HVAC_ASSET` v6 -> v7; h07 (series v1..v7, priors v1..v6 byte-identical to HEAD, no "v7" token);
+  the slice-4 class loads v6 BY NAME.
+
+### VACUITY, COUNTS, CERT, ANOMALIES, FILES -- see the slice report `2026-09-24_Slice5_Report.md` (Desktop); the
+counts are recorded there, measured in-session before and after.

@@ -726,6 +726,25 @@ is one review call per row that only FLAGS -- it never rewrites, never drops, ne
 apart. The stage-2 proof found that a batch drawn across many BoQs collides on `excel_row` (replies are keyed by it)
 -- a real batch is one sheet, so never measure with mixed-BoQ batches without ordering them collision-free.
 
+**⚠️ A ROW MAY PRICE A LIST OF ITEMS; EVERY DEFAULT, LADDER AND CONVERSION IS CODE, NEVER THE MODEL; ONE
+UNPRICEABLE ITEM MEANS THE ROW HAS NO PRICE (owner rulings R1-R21 on ADP, owner-locked).** An `item_list` category's
+pricing rules live in `list_spec.pricing` (validated by `config_validation._validate_list_pricing`) and are executed
+by the PURE frontend module `rate-helper/itemListPricing.ts` through the interpreter's EXISTING steps -- the block
+sits INSIDE `list_spec` precisely because both eligibility predicates read `pipelines`, so a category can carry its
+whole pricing rule set while staying NOT eligible. Each item is priced on its own and the row is the SUM; the three
+states are kept apart in code: a STATED value is used as stated, `"None"` (not mentioned) takes the config default
+and is MARKED `defaulted` (the amber mechanism), an ABSENT value refuses with a reason in the owner's language
+("no torque stated", "neck 525 is above the largest size on the sheet (450)", "no unit on this row"). Ladders are
+next-size-up and refuse above the largest; a range reads as its top; several values refuse; a diffuser matches on
+its NECK, never the outer size -- which falls out of ONLY THE NEEDED FACTS reaching the matcher. The catalogue's
+`unit` is projected at READ TIME into a copy (`attributes.unit_class`, the brand-projection precedent -- nothing is
+written back) so a family's SQM row and its Nos rows are distinct SKUs; a per-number or per-metre row against a
+per-sq.m SKU converts by a config `convert` option (W x H, an area band's MAXIMUM, height) on BOTH sides BEFORE the
+ROUNDUP(cost x (1 + markup), 0) markup. Derived SKUs (cross-talk sizes, the 750 x 150 x 350 mixing boxes) read their
+base per-sq.m row LIVE through `component_ref`, so a CSV edit flows through. ⚠️ **The stored replies return
+`ul` as ABSENT on most actuator rows that say nothing about UL, where the prompt asked for "None"; pricing follows
+R2 and refuses them -- an extraction behaviour, never to be "fixed" by defaulting an absent value.**
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
