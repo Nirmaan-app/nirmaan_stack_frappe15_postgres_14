@@ -10854,7 +10854,9 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v6.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v7.json"
+# SLICE 5 (owner R1-R21, 2026-09-24): v7 = v6 + the ADP config's `list_spec.pricing` block (items and the six other
+# configs byte-identical; pipelines still {} -- NOT eligible). The v05 pin loads v6 BY NAME below.
 # CHECK 3a (owner 2026-09-23, corrected by the stage-2 ruling 1): v6 = v5 with " / Single Skin Plenum" inserted
 # into the ITEM NAME of the FOUR 'Low Pressure Plenum / Mixing Box' items, right after "Mixing Box" (uids
 # unchanged; ITEM DETAIL untouched). Every older "current = prior + known deltas" pin compares items through this
@@ -11226,10 +11228,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_to_v6_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v7_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 4 (owner W-a..W-e + check 3a, inverting the slice-3 pin): the HVAC series now holds EXACTLY v1..v6
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v6.json")
+        # slice 5 (owner R1-R21, inverting the slice-4 pin): the HVAC series now holds EXACTLY v1..v7
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v7.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11239,11 +11241,12 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # pinned current asset -- no slice created an Electrical file at any newer N
         self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
                          ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json",
-                          "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", CURRENT_HVAC_ASSET])
+                          "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
+                          "rate_master_hvac_all_v6.json", CURRENT_HVAC_ASSET])
         import subprocess
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
-                      "rate_master_hvac_all_v4.json"):
+                      "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
@@ -11264,6 +11267,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertNotIn("v4", raw)
         self.assertNotIn("v5", raw)
         self.assertNotIn("v6", raw)
+        self.assertNotIn("v7", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
@@ -11725,7 +11729,8 @@ class TestHvacItemListSlice4(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v5.json"), "r", encoding="utf-8") as fh:
             cls.v5 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # slice 5: v6 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v7); the v05 pin is v6 = v5 + the wording
+        with open(_asset_path("rate_master_hvac_all_v6.json"), "r", encoding="utf-8") as fh:
             cls.v6 = json.load(fh)
         with open(_asset_path("rate_master_hvac_all_v4.json"), "r", encoding="utf-8") as fh:
             cls.v4 = json.load(fh)
@@ -11933,3 +11938,256 @@ class TestHvacItemListSlice4(FrappeTestCase):
         active = extraction.load_configs_with_alias_targets({disc})
         self.assertFalse(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
         self.assertEqual(_electrical_active_checksum(), before)
+
+
+# ==================================================================================================
+# SLICE 5 (2026-09-24, owner rulings R1-R21) -- ADP PRICING AS CONFIG: the `list_spec.pricing` block on HVAC v7.
+# The block is DATA the frontend `rate-helper/itemListPricing.ts` module executes through the existing interpreter
+# steps; this suite pins the validator, the asset sweep, v7 = v6 + the block, the load / endpoint and the P8
+# invariant (ADP still NOT eligible; no panel / calculator / helper file imports the module).
+# ==================================================================================================
+class TestHvacAdpPricingSlice5(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_p01  THE VALIDATOR: v7's ADP config passes both validators; NEGATIVE: every malformed pricing shape is
+                refused BY NAME -- an unknown block key, a kind outside item_kinds, a number reader fed from a
+                non-text def, a family that is not a family value / an alias / a no-SKU family, an unknown unit
+                class, a conversion FROM a class the family already prices, a default on a non-allow_none attr, an
+                R13 rule whose `then` is off-list, a pipeline step outside the five item-list steps (catalog_fit),
+                a match on another kind, a scale `_from_attr` on a non-SKU attribute, a component_ref without qty
+                / with a foreign ref key, ladders naming an unknown attribute, a self-alias.
+      test_p02  THE ASSET SWEEP (A8): every asset file on disk validates with exactly today's outcome (v7 included).
+      test_p03  v7 = v6 + the block: items deep-equal (uids identical), the six other configs deep-equal, the ADP
+                config equal to v6's once `list_spec.pricing` (and the notes suffix) is set aside; the block's content
+                is the OWNER'S RULINGS (R1 / R3 / R5 / R13 / R14 / R18 / the R6 ladders / R20's base refs), its
+                families are exactly the catalogue's 25 with exactly the catalogue's unit classes per family, and every
+                needed key is one the family's SKUs carry; NEGATIVE (P8): pipelines still {}, still not eligible on
+                the backend predicate, and NO frontend panel / helper / calculator / grid file imports the module.
+      test_p04  THE LOAD under a fresh discipline (95 / 7) and the config endpoint hands `list_spec.pricing` VERBATIM;
+                the alias-aware eligibility map still admits NO HVAC config; Electrical byte-identical before / after.
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v6.json"), "r", encoding="utf-8") as fh:
+            cls.v6 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v7 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _adp(self):
+        return loader._loaded_config(self.v7["category_configs"][0], "HVAC", self.v7.get("goldens") or {})
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- p01 ----------------------------------------------------------------------------------------
+    def test_p01_the_pricing_block_is_validated_and_every_malformed_shape_is_refused_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(self.v7["category_configs"][0], "x")
+        pr = base["list_spec"]["pricing"]
+        self.assertEqual(set(pr), config_validation._PRICING_KEYS)
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda p: p.__setitem__("extra", 1), "list_spec.pricing: unknown key(s): extra")
+        refused(lambda p: p.__setitem__("kind", "cable"), "is not one of the config's item_kinds")
+        refused(lambda p: p.__setitem__("unit_class_attr", "damper"), "collides with an item attribute definition")
+        refused(lambda p: p.__setitem__("unit_classes", {}), "unit_classes must map each class")
+        refused(lambda p: p["numbers"]["dia_mm"].__setitem__("from", ["damper"]), "numbers['dia_mm'].from must list text item attribute definitions")
+        refused(lambda p: p["numbers"]["dia_mm"].__setitem__("bogus", 1), "numbers['dia_mm']: unknown key(s): bogus")
+        refused(lambda p: p["numbers"]["thickness_mm"].__setitem__("reject_below", "5"), "reject_below must be a finite number")
+        refused(lambda p: p.__setitem__("choice_attrs", ["torque"]), "choice_attrs must list choice item attribute definitions")
+        refused(lambda p: p.__setitem__("ladders", ["torque"]), "ladders must list SKU attributes")
+        refused(lambda p: p.__setitem__("match_attrs", ["item_name"]), "match_attrs must list SKU attributes")
+        refused(lambda p: p.__setitem__("reason_names", {"nope": "x"}), "reason_names must name SKU attributes only")
+        refused(lambda p: p.__setitem__("family_alias", {"VCD": "VCD"}), "family_alias must map family values to other family values")
+        refused(lambda p: p.__setitem__("no_sku_families", ["widgets"]), "no_sku_families must list family values")
+        refused(lambda p: p["families"].__setitem__("widgets", p["families"]["VCD"]), "families['widgets']: not a priceable family value")
+        refused(lambda p: p["families"].__setitem__("none of these", p["families"]["VCD"]), "not a priceable family value")
+        refused(lambda p: p["families"]["VCD"].__setitem__("needs", ["item_name"]), "families['VCD'].needs must list SKU attributes")
+        refused(lambda p: p["families"]["VCD"]["units"].__setitem__("volume", p["families"]["VCD"]["units"]["area"]), "'volume' is not a unit class")
+        refused(lambda p: p["families"]["VCD"]["convert"].__setitem__("area", p["families"]["VCD"]["convert"]["count"]), "already prices per area; a conversion from it is unreachable")
+        refused(lambda p: p["families"]["VCD"]["convert"]["count"][0].__setitem__("to", "length"), "must name a unit class the family prices")
+        refused(lambda p: p["families"]["VCD"]["convert"]["count"][0].__setitem__("needs", []), "needs must be a non-empty list of SKU attributes")
+        refused(lambda p: p["defaults"].__setitem__("family", {"value": "VCD", "rule": "x"}), "only an allow_none choice attribute may carry a default")
+        refused(lambda p: p["defaults"]["damper"].__setitem__("value", "maybe"), "defaults['damper'].value must be one of the attribute's values")
+        refused(lambda p: p["defaults"]["variant"].__setitem__("by_family", {"widgets": "GI oval"}), "by_family must map priceable families")
+        refused(lambda p: p["defaults"]["damper"].__setitem__("by_family", {"VCD": "with"}), "must carry exactly one of value / by_family")
+        refused(lambda p: p["derive_when_none"][0].__setitem__("then", "maybe"), "then must be one of the attribute's values")
+        refused(lambda p: p["derive_when_none"][0].__setitem__("families", ["widgets"]), "families must list priceable families")
+        refused(lambda p: p["derive_when_none"][0].__setitem__("when", {"attr": "air", "equals": "sideways"}), "when must be {attr: a choice attribute")
+        # the pipelines: existing steps only, on the pricing kind, reading SKU attributes
+        def pipe(p):
+            return p["families"]["VCD"]["units"]["area"]["pipelines"]["supply"]["steps"]
+        refused(lambda p: pipe(p).append({"step": "catalog_fit", "params": {}}), "is not one of the item-list pricing steps")
+        refused(lambda p: pipe(p).__setitem__(0, {"step": "match_master_row", "params": {"kind": "cable"}}), "must match the pricing kind")
+        refused(lambda p: pipe(p)[1]["params"].__setitem__("w_from_attr", "item_name"), "names 'item_name', which is not a SKU attribute")
+        def ct(p):
+            return p["families"]["cross-talk"]["units"]["count"]["pipelines"]["supply"]["steps"]
+        refused(lambda p: ct(p)[1].pop("qty"), "carries a numeric qty")
+        refused(lambda p: ct(p)[1]["ref"].__setitem__("item_name", "x"), "ref key 'item_name' is not a SKU attribute")
+        refused(lambda p: ct(p)[1]["ref"].__setitem__("insulated", "@item_name"), "reads '@item_name', which is not a SKU attribute")
+        refused(lambda p: p["families"]["VCD"]["units"]["area"].__setitem__("pipelines", {}), "pipelines must be a non-empty object")
+        # NEGATIVE: a config WITHOUT the block (v6's ADP, the vendor and alias configs) is untouched by the check
+        for c in self.v6["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+        for c in self.v7["category_configs"][1:]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    # -- p02 ----------------------------------------------------------------------------------------
+    def test_p02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertIn(os.path.join(data_dir, CURRENT_HVAC_ASSET), files)
+        self.assertGreaterEqual(len(files), 53)
+        n_configs, full_refusals = 0, []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc, gold = d.get("discipline") or "Electrical", d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 585)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- p03 ----------------------------------------------------------------------------------------
+    def test_p03_v7_is_v6_plus_the_pricing_block_which_is_the_owners_rulings_and_adp_stays_ineligible(self):
+        self.assertEqual(self.v7["items"], self.v6["items"])
+        self.assertEqual([i["item_uid"] for i in self.v7["items"]], [i["item_uid"] for i in self.v6["items"]])
+        self.assertEqual(self.v7["category_configs"][1:], self.v6["category_configs"][1:])
+        a7, a6 = dict(self.v7["category_configs"][0]), dict(self.v6["category_configs"][0])
+        ls7, ls6 = dict(a7.pop("list_spec")), dict(a6.pop("list_spec"))
+        pr = ls7.pop("pricing")
+        self.assertEqual(ls7, ls6)
+        self.assertTrue(a7.pop("notes").startswith(a6.pop("notes")))
+        self.assertEqual(a7, a6)
+        # the block IS the owner's rulings
+        self.assertEqual(pr["kind"], "hvac_adp_item")
+        self.assertEqual(pr["family_alias"], {"grille, type not stated": "linear grille"})                   # R3
+        self.assertEqual(pr["no_sku_families"], ["none of these"])                                           # R18
+        self.assertEqual({k: v.get("value") or v.get("by_family") for k, v in pr["defaults"].items()},
+                         {"damper": "without", "insulated": "with", "ul": "no",
+                          "variant": {"VCD": "GI rectangular", "fire damper": "without sleeve"}})            # R1 / R5 / R14
+        self.assertEqual(pr["derive_when_none"], [{"attr": "damper", "families": ["linear grille"],
+                                                   "when": {"attr": "air", "equals": "supply"}, "then": "with",
+                                                   "rule": "R13 supply-air linear / plain grille = with damper"}])   # R13
+        self.assertEqual(pr["ladders"], ["dia_mm", "neck_mm", "torque_nm", "panel_ratio", "thickness_mm"])   # R6
+        self.assertEqual(pr["numbers"]["panel_ratio"]["ratio"], True)                                        # R17
+        self.assertEqual(pr["numbers"]["area_sqm"], {"from": ["area_band"], "name": "area", "unit": "sqm", "range": "max"})  # R16
+        # the families are EXACTLY the catalogue's 25, each with exactly the catalogue's unit classes, and every
+        # needed key is one the family's SKUs of that class carry (a need no SKU carries could never match)
+        def unit_class(u):
+            u = (u or "").strip().lower().rstrip(".")
+            for cls, sp in pr["unit_classes"].items():
+                if u in [x.rstrip(".") for x in sp]:
+                    return cls
+            self.fail("unclassified unit %r" % u)
+        by_fam = {}
+        for it in self.v7["items"]:
+            by_fam.setdefault(it["attributes"]["family"], {}).setdefault(unit_class(it["unit"]), []).append(it)
+        self.assertEqual(set(pr["families"]), set(by_fam))
+        self.assertEqual(len(pr["families"]), 25)
+        for fam, f in pr["families"].items():
+            self.assertEqual(set(f["units"]), set(by_fam[fam]), fam)
+            for cls, u in f["units"].items():
+                carried = {k for it in by_fam[fam][cls] for k in it["attributes"]}
+                for n in f["needs"] + (u.get("needs") or []):
+                    self.assertIn(n, carried, (fam, cls, n))
+                self.assertEqual(set(u["pipelines"]), {"supply", "install"}, (fam, cls))
+            for cls, opts in (f.get("convert") or {}).items():
+                self.assertNotIn(cls, f["units"], (fam, cls))
+                for o in opts:
+                    self.assertIn(o["to"], f["units"], (fam, cls))
+        # R20: the derived count rows read their base per-sq.m SKU LIVE through a component_ref on the SAME family
+        for fam in ("cross-talk", "mixing box / LP plenum"):
+            steps = pr["families"][fam]["units"]["count"]["pipelines"]["supply"]["steps"]
+            ref = [st for st in steps if st["step"] == "component_ref"][0]["ref"]
+            self.assertEqual((ref["kind"], ref["family"], ref["unit_class"]), ("hvac_adp_item", fam, "area"))
+        self.assertEqual([st for st in pr["families"]["mixing box / LP plenum"]["units"]["count"]["pipelines"]["supply"]["steps"]
+                          if st["step"] == "component_ref"][0]["ref"]["insulated"], "@insulated")
+        # every step in the block is one of the FIVE existing steps -- no new interpreter vocabulary this slice
+        used = set()
+        def walk(pipes):
+            for pl in pipes.values():
+                for st in pl["steps"]:
+                    used.add(st["step"])
+        for f in pr["families"].values():
+            for u in f["units"].values():
+                walk(u["pipelines"])
+            for opts in (f.get("convert") or {}).values():
+                for o in opts:
+                    walk(o["pipelines"])
+        self.assertEqual(used, {"match_master_row", "component_ref", "sum_components", "scale", "roundup"})
+        # NEGATIVE (P8): still NOT eligible -- empty pipelines on the backend predicate
+        self.assertEqual(self.v7["category_configs"][0]["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(self._adp()))
+        # NEGATIVE (P8): no panel / helper / calculator / grid file imports the module; the module exists and is pure
+        for parts in (("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"),
+                      ("pages", "boq-wizard", "rate-helper", "RateHelperPanel.tsx"),
+                      ("pages", "boq-wizard", "rate-helper", "rateHelperPlumbing.tsx"),
+                      ("pages", "boq-wizard", "PricingGrid.tsx"),
+                      ("pages", "boq-wizard", "SheetPricingPage.tsx"),
+                      ("pages", "pricing", "PricingCalculator.tsx")):
+            self.assertNotIn("itemListPricing", self._frontend_src(*parts), parts[-1])
+        mod = self._frontend_src("pages", "boq-wizard", "rate-helper", "itemListPricing.ts")
+        self.assertNotIn("from \"react\"", mod)
+        self.assertNotIn("useFrappe", mod)
+        self.assertIn("export function priceItemList(", mod)
+
+    # -- p04 ----------------------------------------------------------------------------------------
+    def test_p04_the_load_and_the_endpoint_hand_the_pricing_block_verbatim_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v7)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual((r["items_total"], r["configs_loaded"]), (95, 7))
+        out = api.get_rate_category_config(discipline=disc, category_id="hvac_adp")["config"]
+        self.assertEqual(out["matching_mode"], "item_list")
+        self.assertEqual(out["list_spec"], self.v7["category_configs"][0]["list_spec"])
+        self.assertEqual(out["list_spec"]["pricing"]["families"]["VCD"]["needs"], ["variant"])
+        self.assertEqual(out["pipelines"], {})
+        active = extraction.load_configs_with_alias_targets({disc})
+        self.assertFalse(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
+        # no HVAC config OF ITS OWN is eligible (the two alias configs follow their Electrical targets one hop,
+        # exactly as slice 3 pinned -- that is the alias mechanism, not ADP)
+        own = {k for k, v in active.items() if k[0] == disc and not extraction.alias_target(v)}
+        self.assertEqual({k for k in own if extraction.config_is_eligible(active[k], active)}, set())
+        self.assertEqual({k[1] for k in active if k[0] == disc and extraction.alias_target(active[k])}, {"hvac_cables", "hvac_raceway"})
+        self.assertEqual(_electrical_active_checksum(), before)
+

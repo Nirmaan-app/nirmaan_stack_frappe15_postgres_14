@@ -171,7 +171,7 @@ def _validate_list_spec(cfg):
     spec = cfg.get("list_spec")
     if not isinstance(spec, dict):
         _vthrow("matching_mode 'item_list' needs a list_spec object.")
-    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion"}
+    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing"}
     if unknown:
         _vthrow(f"list_spec: unknown key(s): {', '.join(sorted(unknown))}.")
     if "second_opinion" in spec and not isinstance(spec["second_opinion"], bool):
@@ -232,6 +232,248 @@ def _validate_list_spec(cfg):
                 _vthrow(f"list_spec item attribute '{did}': values_by_family key '{fam}' is not a family value.")
             if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v in d["values"] for v in vals):
                 _vthrow(f"list_spec item attribute '{did}': values_by_family['{fam}'] must list values from the attribute's own values.")
+    # SLICE 5 (2026-09-24, owner R1-R21): the item-list PRICING block, validated in its own namespace below
+    if "pricing" in spec:
+        _validate_list_pricing(spec, by_id, family_vals, cfg)
+
+
+# SLICE 5 -- the keys `list_spec.pricing` may carry. The block is DATA the frontend `itemListPricing` module
+# executes; a misspelled key here would ship a silently inert rule, so the allowlists are closed (the
+# `_KNOWN_DEF_KEYS` precedent).
+_PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "family_alias", "no_sku_families", "defaults",
+                 "derive_when_none", "numbers", "ladders", "match_attrs", "choice_attrs", "reason_names", "families"}
+_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range"}
+_PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
+_PRICING_UNIT_KEYS = {"needs", "pipelines"}
+_PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
+_PRICING_DEFAULT_KEYS = {"value", "by_family", "rule"}
+_PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
+# the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
+_PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
+
+
+def _validate_list_pricing(spec, by_id, family_vals, cfg):
+    """SLICE 5: the shape of `list_spec.pricing` -- the ADP pricing rules as CONFIG. Every attribute a rule names
+    is checked in the namespace it reads from: a SKU attribute (a `numbers` key, a `choice_attrs` entry or the
+    projected `unit_class_attr`), a model text attribute (`numbers[*].from` must name a `text` item def), a family
+    (a family-attribute value, or an alias target that is one), a unit class (a `unit_classes` key). Every pipeline
+    step is one of the existing interpreter steps, with the same per-step shape checks the config-level pipelines
+    get. A block that names nothing wrong but is absent is byte-identical to before (the key is optional)."""
+    pr = spec.get("pricing")
+    if not isinstance(pr, dict):
+        _vthrow("list_spec.pricing must be an object.")
+    unknown = set(pr.keys()) - _PRICING_KEYS
+    if unknown:
+        _vthrow(f"list_spec.pricing: unknown key(s): {', '.join(sorted(unknown))}.")
+    for key in ("kind", "unit_class_attr"):
+        if not isinstance(pr.get(key), str) or not pr.get(key).strip():
+            _vthrow(f"list_spec.pricing.{key} must be a non-empty string.")
+    kinds = cfg.get("item_kinds") or []
+    if pr["kind"] not in kinds:
+        _vthrow(f"list_spec.pricing.kind '{pr['kind']}' is not one of the config's item_kinds.")
+    ucls = pr.get("unit_classes")
+    if not isinstance(ucls, dict) or not ucls or not all(
+        isinstance(k, str) and isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v) for k, v in ucls.items()
+    ):
+        _vthrow("list_spec.pricing.unit_classes must map each class to a non-empty list of unit spellings.")
+    if pr["unit_class_attr"] in by_id:
+        _vthrow(f"list_spec.pricing.unit_class_attr '{pr['unit_class_attr']}' collides with an item attribute definition.")
+    uw = pr.get("unit_words")
+    if uw is not None and (not isinstance(uw, dict) or set(uw) - set(ucls) or not all(isinstance(v, str) and v for v in uw.values())):
+        _vthrow("list_spec.pricing.unit_words must name unit classes only, each with a word.")
+    # numbers: SKU attribute <- the model's text attributes
+    numbers = pr.get("numbers")
+    if not isinstance(numbers, dict) or not numbers:
+        _vthrow("list_spec.pricing.numbers must be a non-empty object.")
+    text_ids = {i for i, d in by_id.items() if d.get("type") == "text"}
+    for nid, rd in numbers.items():
+        if not isinstance(rd, dict):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'] must be an object.")
+        unk = set(rd) - _PRICING_NUMBER_KEYS
+        if unk:
+            _vthrow(f"list_spec.pricing.numbers['{nid}']: unknown key(s): {', '.join(sorted(unk))}.")
+        frm = rd.get("from")
+        if not isinstance(frm, list) or not frm or not all(isinstance(f, str) and f in text_ids for f in frm):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].from must list text item attribute definitions.")
+        if not isinstance(rd.get("name"), str) or not rd.get("name"):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'] needs a name.")
+        for bkey in ("square", "ratio"):
+            if bkey in rd and not isinstance(rd[bkey], bool):
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].{bkey} must be true or false.")
+        if "reject_tokens" in rd and (not isinstance(rd["reject_tokens"], list) or not all(isinstance(t, str) and t for t in rd["reject_tokens"])):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_tokens must be a list of strings.")
+        if "reject_below" in rd and not _is_finite_number(rd["reject_below"]):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_below must be a finite number.")
+        if "range" in rd and rd["range"] != "max":
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].range must be 'max'.")
+    choice_attrs = pr.get("choice_attrs")
+    if not isinstance(choice_attrs, list) or not all(isinstance(c, str) and by_id.get(c, {}).get("type") == "choice" for c in choice_attrs):
+        _vthrow("list_spec.pricing.choice_attrs must list choice item attribute definitions.")
+    sku_attrs = set(numbers) | set(choice_attrs)
+    if set(numbers) & set(choice_attrs):
+        _vthrow("list_spec.pricing: an attribute cannot be both a number reader and a choice.")
+    for key in ("ladders", "match_attrs"):
+        lst = pr.get(key)
+        if not isinstance(lst, list) or not all(isinstance(a, str) and a in sku_attrs for a in lst):
+            _vthrow(f"list_spec.pricing.{key} must list SKU attributes (a numbers key or a choice_attrs entry).")
+    rn = pr.get("reason_names")
+    if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
+        _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")
+    # families: the family attribute's values, through the alias
+    alias = pr.get("family_alias") or {}
+    if not isinstance(alias, dict) or not all(isinstance(k, str) and isinstance(v, str) and k in family_vals and v in family_vals and k != v for k, v in alias.items()):
+        _vthrow("list_spec.pricing.family_alias must map family values to other family values.")
+    nsf = pr.get("no_sku_families") or []
+    if not isinstance(nsf, list) or not all(isinstance(f, str) and f in family_vals for f in nsf):
+        _vthrow("list_spec.pricing.no_sku_families must list family values.")
+    fams = pr.get("families")
+    if not isinstance(fams, dict) or not fams:
+        _vthrow("list_spec.pricing.families must be a non-empty object.")
+    for fname, f in fams.items():
+        loc = f"list_spec.pricing.families['{fname}']"
+        if fname not in family_vals or fname in alias or fname in nsf:
+            _vthrow(f"{loc}: not a priceable family value (must be a family value that is neither an alias nor a no-SKU family).")
+        if not isinstance(f, dict):
+            _vthrow(f"{loc} must be an object.")
+        unk = set(f) - _PRICING_FAMILY_KEYS
+        if unk:
+            _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+        needs = f.get("needs")
+        if not isinstance(needs, list) or not all(isinstance(n, str) and n in sku_attrs for n in needs):
+            _vthrow(f"{loc}.needs must list SKU attributes.")
+        units = f.get("units")
+        if not isinstance(units, dict) or not units:
+            _vthrow(f"{loc}.units must be a non-empty object keyed by unit class.")
+        for cls, u in units.items():
+            uloc = f"{loc}.units['{cls}']"
+            if cls not in ucls:
+                _vthrow(f"{uloc}: '{cls}' is not a unit class.")
+            if not isinstance(u, dict) or set(u) - _PRICING_UNIT_KEYS:
+                _vthrow(f"{uloc} must be an object with needs / pipelines only.")
+            if "needs" in u and (not isinstance(u["needs"], list) or not all(isinstance(n, str) and n in sku_attrs for n in u["needs"])):
+                _vthrow(f"{uloc}.needs must list SKU attributes.")
+            _validate_pricing_pipelines(u.get("pipelines"), uloc, pr, sku_attrs)
+        conv = f.get("convert")
+        if conv is not None:
+            if not isinstance(conv, dict):
+                _vthrow(f"{loc}.convert must be an object keyed by the ROW's unit class.")
+            for cls, opts in conv.items():
+                cloc = f"{loc}.convert['{cls}']"
+                if cls not in ucls:
+                    _vthrow(f"{cloc}: '{cls}' is not a unit class.")
+                if cls in units:
+                    _vthrow(f"{cloc}: the family already prices per {cls}; a conversion from it is unreachable.")
+                if not isinstance(opts, list) or not opts:
+                    _vthrow(f"{cloc} must be a non-empty list of options.")
+                for oi, o in enumerate(opts):
+                    oloc = f"{cloc}[{oi}]"
+                    if not isinstance(o, dict) or set(o) - _PRICING_CONVERT_KEYS:
+                        _vthrow(f"{oloc} must be an object with to / needs / rule / pipelines only.")
+                    if o.get("to") not in units:
+                        _vthrow(f"{oloc}.to must name a unit class the family prices.")
+                    if not isinstance(o.get("needs"), list) or not o["needs"] or not all(isinstance(n, str) and n in sku_attrs for n in o["needs"]):
+                        _vthrow(f"{oloc}.needs must be a non-empty list of SKU attributes.")
+                    if not isinstance(o.get("rule"), str) or not o["rule"]:
+                        _vthrow(f"{oloc}.rule must be a non-empty string.")
+                    _validate_pricing_pipelines(o.get("pipelines"), oloc, pr, sku_attrs)
+    # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
+    dfl = pr.get("defaults") or {}
+    if not isinstance(dfl, dict):
+        _vthrow("list_spec.pricing.defaults must be an object.")
+    for attr, d in dfl.items():
+        dloc = f"list_spec.pricing.defaults['{attr}']"
+        if attr not in choice_attrs or not by_id[attr].get("allow_none"):
+            _vthrow(f"{dloc}: only an allow_none choice attribute may carry a default.")
+        if not isinstance(d, dict) or set(d) - _PRICING_DEFAULT_KEYS or not isinstance(d.get("rule"), str) or not d["rule"]:
+            _vthrow(f"{dloc} must be an object with rule and value / by_family.")
+        vals = by_id[attr]["values"]
+        if ("value" in d) == ("by_family" in d):
+            _vthrow(f"{dloc} must carry exactly one of value / by_family.")
+        if "value" in d and d["value"] not in vals:
+            _vthrow(f"{dloc}.value must be one of the attribute's values.")
+        if "by_family" in d and (not isinstance(d["by_family"], dict) or not d["by_family"] or not all(
+                k in fams and v in vals for k, v in d["by_family"].items())):
+            _vthrow(f"{dloc}.by_family must map priceable families to the attribute's values.")
+    dwn = pr.get("derive_when_none") or []
+    if not isinstance(dwn, list):
+        _vthrow("list_spec.pricing.derive_when_none must be a list.")
+    for i, r in enumerate(dwn):
+        rloc = f"list_spec.pricing.derive_when_none[{i}]"
+        if not isinstance(r, dict) or set(r) - _PRICING_DERIVE_KEYS or set(_PRICING_DERIVE_KEYS) - set(r):
+            _vthrow(f"{rloc} must carry attr / families / when / then / rule.")
+        if r["attr"] not in choice_attrs or not by_id[r["attr"]].get("allow_none"):
+            _vthrow(f"{rloc}.attr must be an allow_none choice attribute.")
+        if r["then"] not in by_id[r["attr"]]["values"]:
+            _vthrow(f"{rloc}.then must be one of the attribute's values.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        w = r["when"]
+        if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in by_id or by_id[w["attr"]].get("type") != "choice" or w["equals"] not in by_id[w["attr"]]["values"]:
+            _vthrow(f"{rloc}.when must be {{attr: a choice attribute, equals: one of its values}}.")
+        if not isinstance(r["rule"], str) or not r["rule"]:
+            _vthrow(f"{rloc}.rule must be a non-empty string.")
+
+
+def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
+    """The pipelines an item-list unit block / conversion option declares: existing steps only, with the shape
+    checks the config-level pipelines get; every `_from_attr` names a SKU attribute; a component_ref's ref
+    names the pricing kind and, beyond kind / qty, only SKU attributes or the projected unit-class key."""
+    if not isinstance(pipelines, dict) or not pipelines:
+        _vthrow(f"{loc}.pipelines must be a non-empty object.")
+    readable = set(sku_attrs) | {pr["unit_class_attr"], "family"}
+    for pid, p in pipelines.items():
+        ploc = f"{loc}.pipelines['{pid}']"
+        if not isinstance(p, dict):
+            _vthrow(f"{ploc} must be an object.")
+        if not isinstance(p.get("output"), list) or not p["output"] or not all(isinstance(o, str) and o for o in p["output"]):
+            _vthrow(f"{ploc}: output must be a non-empty list of strings.")
+        steps = p.get("steps")
+        if not isinstance(steps, list) or not steps:
+            _vthrow(f"{ploc}: steps must be a non-empty list.")
+        for si, s in enumerate(steps):
+            where = f"{ploc} step {si}"
+            if not isinstance(s, dict):
+                _vthrow(f"{where}: must be an object.")
+            st = s.get("step")
+            if st not in _PRICING_STEP_TYPES:
+                _vthrow(f"{where}: step '{st}' is not one of the item-list pricing steps ({', '.join(sorted(_PRICING_STEP_TYPES))}).")
+            if st == "match_master_row":
+                params = s.get("params")
+                if not isinstance(params, dict) or params.get("kind") != pr["kind"]:
+                    _vthrow(f"{where}: match_master_row must match the pricing kind '{pr['kind']}'.")
+            elif st == "scale":
+                for key in ("target", "result", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: scale needs a string '{key}'.")
+                _validate_params(s.get("params"), where)
+                for pk, pv in (s.get("params") or {}).items():
+                    if pk.endswith(_FROM_ATTR_SUFFIX) and pv not in sku_attrs:
+                        _vthrow(f"{where}: '{pk}' names '{pv}', which is not a SKU attribute.")
+            elif st == "roundup":
+                if not isinstance(s.get("target"), str) or not s.get("target"):
+                    _vthrow(f"{where}: roundup needs a string 'target'.")
+                params = s.get("params")
+                if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
+                    _vthrow(f"{where}: roundup needs params.digits (a finite number).")
+            elif st == "sum_components":
+                if not isinstance(s.get("result"), str) or not s.get("result"):
+                    _vthrow(f"{where}: sum_components needs a string 'result'.")
+            elif st == "component_ref":
+                for key in ("name", "target"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component_ref needs a string '{key}'.")
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or ref.get("kind") != pr["kind"]:
+                    _vthrow(f"{where}: component_ref.ref must name the pricing kind '{pr['kind']}'.")
+                if "qty" not in s or not _is_finite_number(s.get("qty")):
+                    _vthrow(f"{where}: an item-list component_ref carries a numeric qty (the assembly shape).")
+                for rk, rv in ref.items():
+                    if rk == "kind":
+                        continue
+                    if rk not in readable:
+                        _vthrow(f"{where}: component_ref.ref key '{rk}' is not a SKU attribute.")
+                    if isinstance(rv, str) and rv.startswith("@") and rv[1:] not in readable:
+                        _vthrow(f"{where}: component_ref.ref '{rk}' reads '{rv}', which is not a SKU attribute.")
 
 
 def _validate_alias_of(cfg):
