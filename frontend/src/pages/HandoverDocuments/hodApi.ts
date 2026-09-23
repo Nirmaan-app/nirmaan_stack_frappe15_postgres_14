@@ -17,11 +17,14 @@ export const HOD_METHODS = {
   getSystemLibrary: `${API}.project_hod.get_system_library`,
   getFromAppSources: `${API}.from_app.get_from_app_sources`,
   enqueueBinder: `${API}.binder.enqueue_binder`,
-  checkBinder: `${API}.binder.check_binder`,
   jobStatus: `${API}.binder.get_job_status`,
 } as const;
 
 /** Realtime event the server publishes after any row change on a project. */
+/** Owner 2026-09-23: the binder works, but it is hidden on the screen for now. Set it back to true to
+ *  bring back the "Download binder" button and its part of the Details guide; nothing else changes. */
+export const SHOW_BINDER_BUTTON = false;
+
 export const HOD_ROWS_CHANGED_EVENT = "hod:rows_changed";
 
 export const HOD_DOCTYPE = "Project HOD Document";

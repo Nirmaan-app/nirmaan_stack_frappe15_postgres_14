@@ -72,11 +72,11 @@ PREFETCH_WORKERS = 6
 
 # Why a switched-on document has nothing to put in a PDF (shown to the user).
 EMPTY_REASON = {
-	index.SRC_COMMISSION: "no filled or signed report in the Commission Report yet",
+	index.SRC_COMMISSION: "no completed report in the Commission Report yet",
 	index.SRC_TDS: "no data sheet attached in the TDS list yet",
 	"none_selected": "no report ticked for download",
-	index.SRC_SNAG: "no snag recorded on this project",
-	index.SRC_DESIGN: "no As Built drawing with a downloadable file in the Design Tracker yet",
+	index.SRC_SNAG: "no completed snag on this project yet",
+	index.SRC_DESIGN: "no issued As Built drawing with a downloadable file in the Design Tracker yet",
 	index.LIB_OM: "no O&M manual part or picture selected",
 	index.LIB_DOS: "no Do's & Don'ts text in the library",
 	index.LIB_MAINT: "no maintenance checklist in the library",
@@ -166,7 +166,14 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 			for b in src.get("items") or []:
 				if chosen(b.name):
 					steps.append(
-						_print_step(f"{title}: {b.batch_name}", "Projects", project, PF_SNAG, {"batches": json.dumps([b.name])})
+						_print_step(
+							f"{title}: {b.batch_name}",
+							"Projects",
+							project,
+							PF_SNAG,
+							# Completed snags only, exactly what the screen offered (owner 2026-09-23).
+							{"batches": json.dumps([b.name]), "statuses": json.dumps([sources.SNAG_DONE])},
+						)
 					)
 	elif src_kind == index.SRC_DESIGN:
 		for t in src.get("items") or []:
@@ -217,7 +224,11 @@ def _require(project: str, hod_system: str):
 
 @frappe.whitelist()
 def check_binder(project: str, hod_system: str) -> dict:
-	"""Before building: which switched-on documents have nothing to include, and how many steps it takes."""
+	"""Which switched-on documents have nothing to include, and how many steps a build takes.
+
+	The screen no longer pre-checks (owner 2026-09-23: the binder button waits until every document is
+	Completed, and a Completed document always has its uploaded copy to put in). `enqueue_binder` still
+	refuses an empty document on its own; this stays as the read that says WHICH one and why."""
 	_require(project, hod_system)
 	sections, empty = build_plan(project, hod_system)
 	return {"empty": empty, "steps": 2 + sum(len(s["steps"]) for s in sections)}
@@ -253,8 +264,12 @@ def enqueue_binder(project: str, hod_system: str, document: str | None = None) -
 			"nirmaan_stack.api.hod.binder._run_binder_job",
 			queue="long",
 			timeout=LOCK_TTL_SECONDS,
-			user=user,
+			# `job_id` is a parameter of enqueue ITSELF (the RQ job id), so it never reaches the function:
+			# the job's own id has to travel under another name, or every event is published for job None
+			# and the screen -- which polls its own id -- never learns the file is ready.
 			job_id=job_id,
+			hod_job_id=job_id,
+			user=user,
 			project=project,
 			hod_system=hod_system,
 			document=document,
@@ -383,7 +398,8 @@ def _render(step: dict, futures: dict) -> bytes:
 	return _file_pdf(url, futures.get(url))
 
 
-def _run_binder_job(project=None, hod_system=None, document=None, user=None, job_id=None):
+def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod_job_id=None):
+	job_id = hod_job_id
 	frappe.set_user(user or "Administrator")
 	try:
 		system = system_meta(hod_system)

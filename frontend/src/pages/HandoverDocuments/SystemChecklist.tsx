@@ -31,8 +31,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 
 import { DocumentDialog } from "./DocumentDialog";
 import { HodActionCell } from "./HodActionCell";
-import { EmptyDocumentsDialog } from "./HodDownloadDialogs";
-import { HOD_DOCTYPE, type HodRowPatch } from "./hodApi";
+import { HOD_DOCTYPE, SHOW_BINDER_BUTTON, type HodRowPatch } from "./hodApi";
 import {
   hodChecklistPdfUrl,
   hodDocumentPdfUrl,
@@ -48,7 +47,7 @@ import type {
   HodStatus,
   HodSystemOption,
 } from "./types";
-import type { BinderProgress, EmptyDocument, HodJob } from "./useHodBinder";
+import type { BinderProgress, HodJob } from "./useHodBinder";
 
 const KIND_LABEL: Record<string, { label: string; className: string }> = {
   form: { label: "Form", className: "bg-blue-50 text-blue-700" },
@@ -102,9 +101,6 @@ export interface SystemChecklistProps {
   progress: BinderProgress | null;
   /** Start a build: the binder (`document` null) or one document's content. */
   onBuild: (document: string | null, title: string) => void;
-  /** Switched-on documents with nothing to include (the binder refuses while there are any). */
-  onCheck: () => Promise<{ empty: EmptyDocument[]; steps: number }>;
-  onShowProgress: () => void;
 }
 
 export const SystemChecklist: React.FC<SystemChecklistProps> = ({
@@ -119,8 +115,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   job,
   progress,
   onBuild,
-  onCheck,
-  onShowProgress,
 }) => {
   const metaByKey = React.useMemo(
     () => new Map(documents.map((d) => [d.key, d])),
@@ -138,14 +132,17 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   const [openRow, setOpenRow] = React.useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
-  const [checking, setChecking] = React.useState(false);
-  const [emptyDocs, setEmptyDocs] = React.useState<EmptyDocument[]>([]);
   const { busyKey, download } = usePdfDownload();
   const { upload } = useFrappeFileUpload();
 
   const building = job !== null;
   const buildingBinderHere = job?.hodSystem === system.name && !job.document;
   const binderTitle = `${system.display_name} — ${project.project_name}`;
+  // Owner 2026-09-23: the binder is the client's finished set, so it downloads only once every
+  // switched-on document is Completed (its signed copy uploaded). Until then the button says how many
+  // are left. A document the project does not need is switched off and stops counting.
+  const remaining = counts ? counts.needed - counts.completed : 0;
+  const binderReady = !!counts && counts.needed > 0 && remaining === 0;
   const touched = counts?.touched ?? 0;
 
   const patch = React.useCallback(
@@ -197,7 +194,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     if (meta.kind === "app") {
       const mine =
         job?.hodSystem === system.name && job.document === row.document;
-      if (mine) return onShowProgress();
+      if (mine) return; // already being prepared for this row; the button shows it
       // Pick which reports / sheets / snag batches / drawings first (owner 2026-09-22), in the records window.
       return setOpenRow(row.name);
     }
@@ -235,34 +232,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     }
     setOpenRow(null);
     onBuild(row.document, meta.title);
-  };
-
-  // Owner 2026-09-22: never start a binder that would carry an empty document; say which ones first.
-  const startBinder = async () => {
-    if (buildingBinderHere) return onShowProgress();
-    setChecking(true);
-    try {
-      const res = await onCheck();
-      if (res.empty.length) setEmptyDocs(res.empty);
-      else onBuild(null, binderTitle);
-    } catch (error) {
-      toast({
-        title: "Could not check the documents",
-        description: getFrappeError(error),
-        variant: "destructive",
-      });
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const switchOffAndBuild = async () => {
-    for (const e of emptyDocs) {
-      const row = rows.find((r) => r.document === e.document);
-      if (row && !row.disabled) await updateRow(row.name, { disabled: true });
-    }
-    setEmptyDocs([]);
-    onBuild(null, binderTitle);
   };
 
   const openRowData = openRow
@@ -312,25 +281,32 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             )}
             Checklist PDF
           </Button>
-          <Button
-            size="sm"
-            className="h-8"
-            disabled={checking || (building && !buildingBinderHere)}
-            onClick={startBinder}
-          >
-            {checking || buildingBinderHere ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <BookOpenText className="mr-1 h-3.5 w-3.5" />
-            )}
-            {checking
-              ? "Checking…"
-              : buildingBinderHere
+          {SHOW_BINDER_BUTTON && (
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={!binderReady || (building && !buildingBinderHere)}
+              title={
+                binderReady
+                  ? "Cover, checklist and every document in one PDF"
+                  : `The binder is ready once every document is Completed — ${remaining} to go`
+              }
+              onClick={() => onBuild(null, binderTitle)}
+            >
+              {buildingBinderHere ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <BookOpenText className="mr-1 h-3.5 w-3.5" />
+              )}
+              {buildingBinderHere
                 ? progress
                   ? `Building ${progress.done}/${progress.total}`
                   : "Starting…"
-                : "Download binder"}
-          </Button>
+                : binderReady
+                  ? "Download binder"
+                  : `Download binder (${remaining} to go)`}
+            </Button>
+          )}
           {canEdit && (
             <Button
               variant="ghost"
@@ -483,13 +459,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
         />
       )}
 
-      <EmptyDocumentsDialog
-        open={emptyDocs.length > 0}
-        empty={emptyDocs}
-        canEdit={canEdit}
-        onCancel={() => setEmptyDocs([])}
-        onSwitchOffAndBuild={switchOffAndBuild}
-      />
 
       <AlertDialog
         open={confirmRemove}

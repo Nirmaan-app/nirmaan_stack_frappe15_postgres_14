@@ -9,8 +9,9 @@
  */
 
 import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
-import { ExternalLink, Info, Loader2, Plus } from "lucide-react";
+import { BookOpenText, Info, Loader2, Plus } from "lucide-react";
 import * as React from "react";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,7 +27,6 @@ import {
 import { HodGuideDialog } from "./HodGuideDialog";
 import { NoHandoverDocumentsView } from "./NoHandoverDocumentsView";
 import { SystemChecklist } from "./SystemChecklist";
-import { DownloadProgressDialog } from "./HodDownloadDialogs";
 import { useHodBinder } from "./useHodBinder";
 
 export interface HandoverDocumentsTabProps {
@@ -40,8 +40,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
 }) => {
   const { payload, isLoading, error, mutate } = useProjectHod(projectId);
   const { addSystems, removeSystem, updateRow } = useHodMutations();
-  const { build, check, job, progress } = useHodBinder();
-  const [showProgress, setShowProgress] = React.useState(false);
+  const { build, job, progress } = useHodBinder();
   const [showGuide, setShowGuide] = React.useState(false);
   const { socket } = React.useContext(FrappeContext) as FrappeConfig;
   const [active, setActive] = React.useState<string>("");
@@ -163,9 +162,10 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                 className="h-9 text-gray-600"
                 asChild
               >
-                <a href="/app/hod-system" target="_blank" rel="noreferrer">
-                  <ExternalLink className="mr-1 h-4 w-4" /> Edit library
-                </a>
+                {/* Packages Settings → Handover Documents: the library, in the app. */}
+                <Link to="/packages-settings?tab=handover-documents">
+                  <BookOpenText className="mr-1 h-4 w-4" /> Edit library
+                </Link>
               </Button>
             )}
             {canEdit && (
@@ -225,25 +225,15 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                   onRemoveSystem={(force) => handleRemove(name, force)}
                   job={job}
                   progress={job?.hodSystem === name ? progress : null}
-                  onBuild={(document, title) => {
-                    setShowProgress(true);
-                    build(projectId, name, title, document);
-                  }}
-                  onCheck={() => check(projectId, name)}
-                  onShowProgress={() => setShowProgress(true)}
+                  onBuild={(document, title) =>
+                    build(projectId, name, title, document)
+                  }
                 />
               </TabsContent>
             );
           })}
         </Tabs>
       )}
-
-      <DownloadProgressDialog
-        open={showProgress}
-        job={job}
-        progress={progress}
-        onHide={() => setShowProgress(false)}
-      />
 
       <HodGuideDialog open={showGuide} onOpenChange={setShowGuide} />
 

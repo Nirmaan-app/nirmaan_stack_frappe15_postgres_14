@@ -37,13 +37,6 @@ export interface HodJob {
   title: string;
 }
 
-/** A switched-on document with nothing to put in the binder (from `check_binder`). */
-export interface EmptyDocument {
-  document: string;
-  title: string;
-  reason: string;
-}
-
 type JobEvent = { job_id?: string } & Record<string, any>;
 
 export function useHodBinder() {
@@ -54,9 +47,6 @@ export function useHodBinder() {
   const statusCall = useFrappePostCall<{
     message: JobEvent & { state: string };
   }>(HOD_METHODS.jobStatus);
-  const checkCall = useFrappePostCall<{
-    message: { empty: EmptyDocument[]; steps: number };
-  }>(HOD_METHODS.checkBinder);
   const [job, setJob] = useState<HodJob | null>(null);
   const [progress, setProgress] = useState<BinderProgress | null>(null);
   const jobIdRef = useRef<string | null>(null);
@@ -174,11 +164,6 @@ export function useHodBinder() {
   }, [running, handle]);
 
   /** Switched-on documents with nothing to include (the binder refuses to start while there are any). */
-  const check = useCallback(
-    async (project: string, hodSystem: string) =>
-      (await checkCall.call({ project, hod_system: hodSystem })).message,
-    [checkCall],
-  );
 
   /** Build the binder of `hodSystem`, or — with `document` — that document's content. */
   const build = useCallback(
@@ -216,5 +201,5 @@ export function useHodBinder() {
     [job, enqueue, arm, handle, reset],
   );
 
-  return { build, check, job, progress };
+  return { build, job, progress };
 }
