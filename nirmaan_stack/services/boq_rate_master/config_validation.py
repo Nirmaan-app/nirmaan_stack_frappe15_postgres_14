@@ -146,7 +146,92 @@ _KNOWN_CONFIG_KEYS = {
     # here (one config at a time) and is resolved ONE HOP ONLY by the consumers: the target's own
     # emptiness makes it ineligible, so the row shows the coming-soon card, never an error.
     "alias_of",
+    # SLICE 4 (2026-09-23, owner W-a..W-e): `matching_mode: "item_list"` asks the model for a LIST of
+    # items per row, each with its own attributes; `list_spec` declares the PER-ITEM attribute
+    # definitions (types choice | number | text -- text keeps sizes and torques AS STATED, W-d), the
+    # family attribute and the per-row-unit quantity attribute. Validated below (`_validate_list_spec`).
+    # "None" on an allow_none item attribute means NOT MENTIONED (code applies the owner's default
+    # later, W-c); an absent value means COULD NOT TELL (the row is not priced, W-b).
+    "list_spec",
 }
+
+_LIST_MODE = "item_list"
+_LIST_DEF_TYPES = ("choice", "number", "text")
+_LIST_DEF_KEYS = {"id", "label", "type", "values", "allow_none", "note", "values_by_family"}
+
+
+def _validate_list_spec(cfg):
+    """SLICE 4: the shape of `list_spec` and its coupling to the item_list mode. Absent key and a mode
+    other than item_list => nothing to check (byte-identical to before)."""
+    mode = cfg.get("matching_mode")
+    if "list_spec" not in cfg and mode != _LIST_MODE:
+        return
+    if mode != _LIST_MODE:
+        _vthrow("list_spec is only meaningful with matching_mode 'item_list'.")
+    spec = cfg.get("list_spec")
+    if not isinstance(spec, dict):
+        _vthrow("matching_mode 'item_list' needs a list_spec object.")
+    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion"}
+    if unknown:
+        _vthrow(f"list_spec: unknown key(s): {', '.join(sorted(unknown))}.")
+    if "second_opinion" in spec and not isinstance(spec["second_opinion"], bool):
+        _vthrow("list_spec.second_opinion must be true or false.")   # CHECK 2 switch (owner 2026-09-23)
+    defs = spec.get("attribute_definitions")
+    if not isinstance(defs, list) or not defs:
+        _vthrow("list_spec.attribute_definitions must be a non-empty list.")
+    by_id = {}
+    for i, d in enumerate(defs):
+        if not isinstance(d, dict):
+            _vthrow(f"list_spec.attribute_definitions[{i}] must be an object.")
+        did = d.get("id")
+        if not isinstance(did, str) or not did.strip():
+            _vthrow(f"list_spec.attribute_definitions[{i}] needs a non-empty string id.")
+        if did in by_id:
+            _vthrow(f"list_spec: duplicate item attribute id '{did}'.")
+        unknown_def = set(d.keys()) - _LIST_DEF_KEYS
+        if unknown_def:
+            _vthrow(f"list_spec item attribute '{did}': unknown key(s) {', '.join(sorted(unknown_def))}.")
+        if not isinstance(d.get("label"), str) or not d.get("label"):
+            _vthrow(f"list_spec item attribute '{did}' needs a label.")
+        if d.get("type") not in _LIST_DEF_TYPES:
+            _vthrow(f"list_spec item attribute '{did}': type must be one of {', '.join(_LIST_DEF_TYPES)}.")
+        if d["type"] == "choice":
+            vals = d.get("values")
+            if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v.strip() for v in vals):
+                _vthrow(f"list_spec item attribute '{did}': a choice needs a non-empty list of string values.")
+        elif "values" in d:
+            _vthrow(f"list_spec item attribute '{did}': only a choice carries values.")
+        if "allow_none" in d and not isinstance(d["allow_none"], bool):
+            _vthrow(f"list_spec item attribute '{did}': allow_none must be true or false.")
+        if "values_by_family" in d and d.get("type") != "choice":
+            _vthrow(f"list_spec item attribute '{did}': only a choice carries values_by_family.")
+        by_id[did] = d
+    # the family reference is REQUIRED; the qty reference is OPTIONAL (owner ruling D, 2026-09-23: unit
+    # rates -- code uses 1, the user changes it in the panel -- so a spec need not ask for a quantity)
+    for key, want, required in (("family_attribute_id", "choice", True), ("qty_attribute_id", "number", False)):
+        ref = spec.get(key)
+        if ref is None and not required:
+            continue
+        if not isinstance(ref, str) or ref not in by_id:
+            _vthrow(f"list_spec.{key} must name one of the item attribute definitions.")
+        if by_id[ref]["type"] != want:
+            _vthrow(f"list_spec.{key} must name a {want} attribute.")
+    # values_by_family (owner design fix, 2026-09-23): a per-family CHOICE list -- every key names one of
+    # the family attribute's values, every listed value is one of the def's own values (the union), so the
+    # sheet's ladder distinction (fire damper with sleeve / without sleeve / motorised / UL) survives as a
+    # closed pick and never as free text
+    family_vals = set(by_id[spec["family_attribute_id"]].get("values") or [])
+    for did, d in by_id.items():
+        vbf = d.get("values_by_family")
+        if vbf is None:
+            continue
+        if not isinstance(vbf, dict) or not vbf:
+            _vthrow(f"list_spec item attribute '{did}': values_by_family must be a non-empty object.")
+        for fam, vals in vbf.items():
+            if fam not in family_vals:
+                _vthrow(f"list_spec item attribute '{did}': values_by_family key '{fam}' is not a family value.")
+            if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v in d["values"] for v in vals):
+                _vthrow(f"list_spec item attribute '{did}': values_by_family['{fam}'] must list values from the attribute's own values.")
 
 
 def _validate_alias_of(cfg):
@@ -260,6 +345,7 @@ def _validate_config(cfg):
     if unknown:
         _vthrow(f"Unknown top-level config key(s): {', '.join(sorted(unknown))}.")
     _validate_alias_of(cfg)  # SLICE 3: shape of the alias key; a no-op for every config without it
+    _validate_list_spec(cfg)  # SLICE 4: the item-list mode's per-item schema; a no-op for every other config
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")

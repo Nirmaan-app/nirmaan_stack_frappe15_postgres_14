@@ -1486,7 +1486,12 @@ class TestFillPairedSlotDefaults(FrappeTestCase):
         # two guarded facts now live in two functions -- the plan BUILT from the config (below, in _group_context)
         # and the plan THREADED into every batch call (`_gc[...]`, still in run_extraction). Each literal occurs
         # exactly once in extraction.py, so pinning the concatenation is exact, not looser.
-        src2 = inspect.getsource(extraction._group_context) + inspect.getsource(extraction.run_extraction)
+        # SLICE 4 (owner ruling 4 on stage 2, same fix as before): the dict literal moved VERBATIM from _group_context
+        # into _group_context_body (the split that makes the N6 byte-identical proof possible), so the concatenation
+        # now spans the three functions the guarded lines live in; each literal still occurs exactly once in
+        # extraction.py, so the pin stays exact, and every assertion below is untouched.
+        src2 = (inspect.getsource(extraction._group_context) + inspect.getsource(extraction._group_context_body)
+                + inspect.getsource(extraction.run_extraction))
         self.assertIn('"paired_fill": paired_fill_plan(cfg)', src2)
         self.assertIn('_gc["paired_fill"]', src2)
 
@@ -1725,7 +1730,12 @@ class TestModuleCountAtTheBatchSite(FrappeTestCase):
         # two guarded facts now live in two functions -- the plan BUILT from the config (below, in _group_context)
         # and the plan THREADED into every batch call (`_gc[...]`, still in run_extraction). Each literal occurs
         # exactly once in extraction.py, so pinning the concatenation is exact, not looser.
-        src2 = inspect.getsource(extraction._group_context) + inspect.getsource(extraction.run_extraction)
+        # SLICE 4 (owner ruling 4 on stage 2, same fix as before): the dict literal moved VERBATIM from _group_context
+        # into _group_context_body (the split that makes the N6 byte-identical proof possible), so the concatenation
+        # now spans the three functions the guarded lines live in; each literal still occurs exactly once in
+        # extraction.py, so the pin stays exact, and every assertion below is untouched.
+        src2 = (inspect.getsource(extraction._group_context) + inspect.getsource(extraction._group_context_body)
+                + inspect.getsource(extraction.run_extraction))
         self.assertIn('"module_count_attrs": zero_path_stated_attrs(cfg)', src2)
         self.assertIn('_gc["module_count_attrs"]', src2)
 
@@ -2016,3 +2026,577 @@ class TestAliasResolutionSlice3(FrappeTestCase):
                                                    synonyms=ctx["synonyms"], defaults=ctx["defaults"], none_guidance=ctx["none_guidance"],
                                                    slot_spec=ctx["slot_spec"], resolution_rules=ctx["resolution_rules"], rules=ctx["rules"])
         self.assertEqual(seen.get("content"), expected)
+
+
+class TestItemListSlice4(FrappeTestCase):
+    """SLICE 4 (2026-09-23, owner W-a..W-e) -- the item_list extraction mode: the FOURTH prompt asset, the
+    ITEMS_SPEC block, the sibling reply parse and the three-state answer. NO pricing, NO UI. Plain-English
+    coverage:
+
+      test_il_01  PROMPT SELECTION: item_list picks the new asset; NEGATIVE: the three existing modes pick
+                  exactly today's assets, and all three asset files are BYTE-IDENTICAL to the pre-slice commit.
+      test_il_02  ITEMS_SPEC: built from list_spec only in item_list mode (defs projected with type / values /
+                  allow_none; family + qty ids); None for every other mode; the ADP v5 spec's text-vs-number split.
+      test_il_03  THE CONTENT: ITEMS_SPEC is emitted only when given; NEGATIVE: without it `batch_prompt_content`
+                  is byte-identical whether or not the kwarg is passed.
+      test_il_04  N6 -- ELECTRICAL UNCHANGED, the hard proof: for wiring_cabling, switches_sockets, db_switchgear
+                  and point_wiring the group context (prompt, attribute defs, catalogue, slot spec, every key)
+                  AND the assembled batch prompt are BYTE-IDENTICAL to the PRE-SLICE commit's code, executed
+                  side by side from `git show`.
+      test_il_05  THE PARSE (N5): a list reply stores every item's attributes with the three states (stated
+                  value / "None" / absent); NEGATIVE: empty list, missing items key, unknown family, non-object
+                  item -- each handled as named, no exception, nothing stored wrongly; a non-JSON reply still
+                  raises through the existing path.
+      test_il_06  W-d: sizes and torques stored AS STATED ("10-12 NM", "3.5, 7.9 & 15.9", "1 5/8", "40-45mm");
+                  NEGATIVE: nothing coerces a text def to a number, and a number def refuses text.
+      test_il_07  THE RESULT ROW: an item-list batch returns {ITEMS_KEY: [...]} per row and `_row_result` lifts
+                  it onto the result row as `items` (source pin); NEGATIVE: a non-list batch never carries the key.
+      test_il_08  ADP STAYS INELIGIBLE: the v5 config has empty pipelines, `config_is_eligible` is False with and
+                  without the map, and the frontend predicate still reads pipelines (source pin).
+      test_il_09  CHECK 1 -- THE TEXT CHECK (owner 2026-09-23, code, no AI): an as-stated string must be in THAT
+                  row's own payload. POSITIVE: a row-text value and a legitimate ANCESTOR value are KEPT; NEGATIVE: a
+                  value taken from ANOTHER ROW in the batch is DROPPED (reason not_in_row_text), recorded, and the
+                  row FLAGGED; choice values and "None" are never touched; the flags are lifted onto the result row.
+      test_il_10  CHECK 2 -- THE SECOND OPINION (owner 2026-09-23): OFF unless the config declares
+                  list_spec.second_opinion (exactly ONE model call); ON: one extra call PER ROW whose content holds
+                  ONLY that row's payload and its items (no other row's text); a "disagree" FLAGS the row with the
+                  reason and NEVER rewrites a value or drops an item; "agree" flags nothing; a review that does not
+                  parse is recorded and never halts; its usage is counted SEPARATELY from the main call.
+      test_il_11  CHECK 3 -- CONFIG NOTES REACH THE MODEL: a def's `note` is projected into ITEMS_SPEC and appears
+                  in the assembled batch content; the row payload is untouched by it.
+    """
+    PRE_SLICE_COMMIT = "f9d63ffc"   # slice 3's fix commit -- the last code before this slice
+    ELECTRICAL_CATS = ("wiring_cabling", "switches_sockets", "db_switchgear", "point_wiring")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_rate_master import loader
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            hvac = json.load(fh)
+        cls.cfgs = {}
+        for c in eall["category_configs"]:
+            cls.cfgs[("Electrical", c["category_id"])] = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+        for c in hvac["category_configs"]:
+            cls.cfgs[("HVAC", c["category_id"])] = loader._loaded_config(c, "HVAC", hvac.get("goldens") or {})
+        cls.adp = cls.cfgs[("HVAC", "hvac_adp")]
+        cls.repo = os.path.abspath(os.path.join(os.path.dirname(extraction.__file__), "..", "..", ".."))
+
+    def _git_show(self, path):
+        import subprocess
+        return subprocess.run(["git", "-c", "safe.directory=*", "-C", self.repo, "show", f"{self.PRE_SLICE_COMMIT}:{path}"],
+                              capture_output=True, check=True).stdout
+
+    def _pre_slice_extraction(self):
+        """The PRE-SLICE extraction module, executed from `git show` as its own module object."""
+        import types
+        src = self._git_show("nirmaan_stack/services/boq_rate_master/extraction.py").decode("utf-8")
+        mod = types.ModuleType("extraction_pre_slice_4")
+        mod.__file__ = extraction.__file__   # the prompt dir resolves relative to the file's location
+        exec(compile(src, extraction.__file__, "exec"), mod.__dict__)
+        return mod
+
+    @staticmethod
+    def _row(excel_row, description):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "S",
+                "ancestors": [{"node_type": "Preamble", "description": "AIR DISTRIBUTION"}],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    @staticmethod
+    def _fake_client(reply_text, seen):
+        class _Block:
+            def __init__(self, t): self.text = t
+        class _Resp:
+            def __init__(self, t): self.content = [_Block(t)]; self.stop_reason = "end_turn"; self.usage = None
+        class _Msgs:
+            def create(self, **kw):
+                c = kw["messages"][0]["content"]
+                seen.setdefault("content", c)                 # the FIRST call (the batch)
+                seen.setdefault("contents", []).append(c)     # every call, in order
+                return _Resp(reply_text)
+        class _Client:
+            messages = _Msgs()
+        return _Client()
+
+    @staticmethod
+    def _fake_client_scripted(batch_reply, review_replies, seen, usage=(11, 7)):
+        """CHECK 2: the batch call answers `batch_reply`; each per-row review call answers
+        `review_replies[<row id in the ROW json>]` (a string), so a test can script agree / disagree /
+        garbage per row. Records every call's content in order."""
+        import re as _re
+        class _Usage:
+            input_tokens, output_tokens = usage
+        class _Block:
+            def __init__(self, t): self.text = t
+        class _Resp:
+            def __init__(self, t): self.content = [_Block(t)]; self.stop_reason = "end_turn"; self.usage = _Usage()
+        class _Msgs:
+            def create(self, **kw):
+                c = kw["messages"][0]["content"]
+                seen.setdefault("contents", []).append(c)
+                m = _re.search(r'ROW:\n\{"id": (\d+)', c)
+                if m:
+                    return _Resp(review_replies[int(m.group(1))])
+                return _Resp(batch_reply)
+        class _Client:
+            messages = _Msgs()
+        return _Client()
+
+    @staticmethod
+    def _row_with(excel_row, description, ancestor_descriptions):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "S",
+                "ancestors": [{"node_type": "Preamble", "description": a} for a in ancestor_descriptions],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    def _spec_off(self):
+        """The ADP context with the second opinion switched OFF (a deep copy; the live config is untouched)."""
+        import copy
+        cfgs = copy.deepcopy(self.cfgs)
+        cfgs[("HVAC", "hvac_adp")]["list_spec"]["second_opinion"] = False
+        return cfgs
+
+    def _collect_captures(self):
+        """Monkeypatch `extraction._capture_write` to collect records; returns (records, restore)."""
+        records = []
+        orig = extraction._capture_write
+        extraction._capture_write = lambda rec: records.append(rec)
+        return records, (lambda: setattr(extraction, "_capture_write", orig))
+
+    def _run_list_batch(self, reply, rows):
+        ctx = extraction._group_context(self.cfgs, "HVAC", "hvac_adp")
+        seen = {}
+        out = extraction._extract_batch(self._fake_client(json.dumps(reply), seen), "m", ctx["prompt"], ctx["defs"], rows,
+                                        ctx["synonyms"], ctx["defaults"], ctx["none_guidance"], ctx["slot_spec"],
+                                        ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                        ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"],
+                                        ctx["module_count_attrs"], ctx["inch_trade"], ctx["items_spec"])
+        return out, seen, ctx
+
+    # -- il_01 ----------------------------------------------------------------------------------------
+    def test_il_01_the_fourth_asset_is_selected_only_by_item_list_and_the_three_others_are_untouched(self):
+        new_path = os.path.join(extraction._PROMPT_DIR, "boq_rate_item_list_prompt.md")
+        with open(new_path, "r", encoding="utf-8") as fh:
+            new_text = fh.read()
+        self.assertEqual(extraction.select_prompt_text({"matching_mode": "item_list"}), new_text)
+        for needle in ("COMPOSITE only when THIS ROW pays for", '"None"', "LEAVE THE ATTRIBUTE OUT", "Never invent a size", "EXACTLY", '"items"',
+                       "type not stated", "none of these",
+                       # the re-pilot rulings (owner 2026-09-23): E -- one row from its own text only; A -- "None" is
+                       # REQUIRED on a silent allow_none attribute; ruling 4 -- a built-in part is not a second item;
+                       # the per-family choice list
+                       "FROM ITS OWN TEXT ONLY", "Never take a size, a type, a family or any value from\n  another row",
+                       "REQUIRED whenever the text is silent", "A part built into a priced variant is NOT a separate item",
+                       "contributes NOTHING to this row", "values_by_family", "provided by others",
+                       # checks 3 + the two-variants ruling (owner 2026-09-23)
+                       "a catalogue fact about how", "TWO of a choice's allowed values", "LEAVE THE\n  ATTRIBUTE OUT",
+                       # owner rulings 3c / 3d on stage 2
+                       "AN ATTRIBUTE BELONGS TO THE ITEM IT DESCRIBES", "Never carry one item's\n  attribute onto another item",
+                       "answer it ONLY when the row\n  or its ancestors state it"):
+            self.assertIn(needle, new_text, needle)
+        # CHECK 2: the fifth asset, read by its own reader (never by select_prompt_text)
+        with open(os.path.join(extraction._PROMPT_DIR, "boq_rate_item_list_review_prompt.md"), "r", encoding="utf-8") as fh:
+            review = fh.read()
+        self.assertEqual(extraction._read_review_prompt(), review)
+        for needle in ("SECOND OPINION", "ONE construction BoQ row on its own", '"agree" | "disagree"', "Do not rewrite values",
+                       "(0) ITEMS_SPEC", "Judge\nevery value by its LABEL and NOTE", "carried onto ANOTHER item"):
+            self.assertIn(needle, review, needle)
+        self.assertNotEqual(review, new_text)
+        # NEGATIVE (ruling D): the prompt no longer asks for a quantity
+        for gone in ("quantity attribute", "ONE unit of the row buys", "qty"):
+            self.assertNotIn(gone, new_text, gone)
+        # NEGATIVE: every existing mode picks exactly today's asset ...
+        pairs = {"item_identity": "boq_rate_item_identity_prompt.md", "composite_decomposition": "boq_composite_decomposition_prompt.md",
+                 None: "boq_rate_attr_extraction_prompt.md", "anything_else": "boq_rate_attr_extraction_prompt.md"}
+        for mode, fname in pairs.items():
+            with open(os.path.join(extraction._PROMPT_DIR, fname), "r", encoding="utf-8") as fh:
+                self.assertEqual(extraction.select_prompt_text({"matching_mode": mode} if mode else {}), fh.read(), fname)
+        # ... and the three asset FILES are byte-identical to the pre-slice commit
+        for fname in ("boq_rate_item_identity_prompt.md", "boq_composite_decomposition_prompt.md", "boq_rate_attr_extraction_prompt.md"):
+            with open(os.path.join(extraction._PROMPT_DIR, fname), "rb") as fh:
+                self.assertEqual(fh.read(), self._git_show("nirmaan_stack/services/boq_category/prompts/" + fname), fname)
+
+    # -- il_02 ----------------------------------------------------------------------------------------
+    def test_il_02_items_spec_is_built_from_list_spec_in_item_list_mode_only(self):
+        spec = extraction.build_items_spec(self.adp)
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec["family_attribute_id"], "family")
+        self.assertNotIn("qty_attribute_id", spec)                       # ruling D: no quantity is asked for
+        by_id = {d["id"]: d for d in spec["attribute_definitions"]}
+        text_defs = sorted(i for i, d in by_id.items() if d["type"] == "text")
+        self.assertEqual(text_defs, ["area_band", "depth_mm", "dia_mm", "face_h_mm", "face_w_mm", "insulation_thickness_mm", "neck_mm",
+                                     "panel_ratio", "slot_count", "thickness_mm", "torque"])
+        self.assertEqual([i for i, d in by_id.items() if d["type"] == "number"], [])
+        self.assertEqual(sorted(i for i, d in by_id.items() if d.get("allow_none")), ["air", "damper", "insulated", "ul", "variant"])
+        self.assertIn("grille, type not stated", by_id["family"]["values"])
+        self.assertIn("none of these", by_id["family"]["values"])
+        self.assertEqual(len(by_id["family"]["values"]), 27)
+        # the per-family choice list (owner design fix): projected VERBATIM from the config, on the variant only
+        self.assertEqual(by_id["variant"]["type"], "choice")
+        self.assertEqual(by_id["variant"]["values_by_family"],
+                         [d for d in self.adp["list_spec"]["attribute_definitions"] if d["id"] == "variant"][0]["values_by_family"])
+        self.assertEqual(set(by_id["variant"]["values_by_family"]), {"VCD", "fire damper"})
+        self.assertEqual([i for i, d in by_id.items() if "values_by_family" in d], ["variant"])
+        for d in spec["attribute_definitions"]:
+            self.assertEqual(set(d.keys()) <= {"id", "label", "type", "values", "allow_none", "values_by_family", "note"}, True, d)
+        # CHECK 3: every configured note is projected VERBATIM (6a / 6b on the family, ruling 5 on the panel ratio)
+        cfg_defs = {d["id"]: d for d in self.adp["list_spec"]["attribute_definitions"]}
+        for aid, d in cfg_defs.items():
+            if d.get("note"):
+                self.assertEqual(by_id[aid]["note"], d["note"].strip(), aid)
+            else:
+                self.assertNotIn("note", by_id[aid], aid)
+        self.assertIn("no SKU", by_id["family"]["note"])                  # 6b lives in the note ...
+        self.assertIn("single skin plenum", by_id["family"]["note"].lower())   # ... and so does the 3a ALIAS (stage-2 ruling 3a: the model picks from the list, so the alias must reach it here)
+        self.assertIn("thickness or gauge (as written)", by_id["thickness_mm"]["label"])
+        self.assertIn("1:N", by_id["panel_ratio"]["note"])                 # ruling 5 lives in the note
+        # CHECK 2: the switch is carried on the spec -- True for ADP v5, False when a spec does not declare it
+        self.assertIs(spec["second_opinion"], True)
+        # a spec that DOES declare a qty id still projects it (the key is optional, not removed)
+        with_qty = {"matching_mode": "item_list", "list_spec": {"attribute_definitions": [
+            {"id": "family", "label": "F", "type": "choice", "values": ["a"]}, {"id": "n", "label": "N", "type": "number"}],
+            "family_attribute_id": "family", "qty_attribute_id": "n"}}
+        self.assertEqual(extraction.build_items_spec(with_qty)["qty_attribute_id"], "n")
+        self.assertIs(extraction.build_items_spec(with_qty)["second_opinion"], False)
+        # NEGATIVE: every other mode yields None
+        for key in self.cfgs:
+            if key != ("HVAC", "hvac_adp"):
+                self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
+        self.assertIsNone(extraction.build_items_spec({"matching_mode": "item_list"}))   # mode without a spec
+
+    # -- il_03 ----------------------------------------------------------------------------------------
+    def test_il_03_items_spec_is_emitted_only_when_given(self):
+        payload = [extraction._ai_item(self._row(3, "600 x 600 square diffuser with plenum box"))]
+        spec = extraction.build_items_spec(self.adp)
+        with_spec = extraction.batch_prompt_content("P", [], payload, items_spec=spec)
+        self.assertIn("\n\nITEMS_SPEC:\n" + json.dumps(spec, ensure_ascii=False), with_spec)
+        self.assertLess(with_spec.index("ITEMS_SPEC"), with_spec.index("\n\nROWS:\n"))
+        # NEGATIVE: absent -> byte-identical whether the kwarg is passed or not
+        self.assertEqual(extraction.batch_prompt_content("P", [], payload), extraction.batch_prompt_content("P", [], payload, items_spec=None))
+        self.assertNotIn("ITEMS_SPEC", extraction.batch_prompt_content("P", [], payload))
+
+    # -- il_04 ----------------------------------------------------------------------------------------
+    def test_il_04_n6_the_four_electrical_categories_are_byte_identical_to_the_pre_slice_code(self):
+        pre = self._pre_slice_extraction()
+        row = self._row(41, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")
+        checked = 0
+        for cat in self.ELECTRICAL_CATS:
+            self.assertIn(("Electrical", cat), self.cfgs, cat)
+            now = extraction._group_context(self.cfgs, "Electrical", cat)
+            before = pre._group_context(self.cfgs, "Electrical", cat)
+            self.assertIsNone(now.pop("items_spec"), cat)          # the ONE new key, and it is None
+            self.assertEqual(now, before, cat)                      # prompt, defs, catalogue, slot spec, every key
+            self.assertTrue(now["defs"], cat)                       # non-vacuous: the defs are there
+            payload = [extraction._ai_item(row)]
+            kw = dict(synonyms=now["synonyms"], defaults=now["defaults"], none_guidance=now["none_guidance"],
+                      slot_spec=now["slot_spec"], resolution_rules=now["resolution_rules"], rules=now["rules"])
+            self.assertEqual(extraction.batch_prompt_content(now["prompt"], now["defs"], payload, **kw),
+                             pre.batch_prompt_content(before["prompt"], before["defs"], payload, **kw), cat)
+            checked += 1
+        self.assertEqual(checked, 4)
+        # and the pre-slice module really is different code: it has no list mode at all
+        self.assertFalse(hasattr(pre, "build_items_spec"))
+
+    # -- il_05 ----------------------------------------------------------------------------------------
+    def test_il_05_the_list_parse_stores_every_item_with_the_three_states_and_never_raises(self):
+        rows = [self._row(3, "600 x 600 square diffuser with plenum box"), self._row(4, "actuator"), self._row(5, "x"),
+                self._row(6, "y"), self._row(7, "z"), self._row(8, "dampers")]
+        reply = [
+            {"id": 3, "items": [
+                {"attributes": {"family": {"value": "square diffuser", "confidence": 0.9}, "damper": {"value": "None", "confidence": 0.8},
+                                "face_w_mm": {"value": "600", "confidence": 0.9}, "face_h_mm": {"value": "600", "confidence": 0.9},
+                                "variant": {"value": "motorised", "confidence": 0.9}}},          # a family with NO variant list
+                {"attributes": {"family": {"value": "double-skin plenum", "confidence": 0.7}, "thickness_mm": {"value": None, "confidence": 0.1},
+                                "variant": {"value": "None", "confidence": 0.6}}},
+            ]},
+            {"id": 4, "items": []},                                    # empty list
+            {"id": 5, "attributes": {"family": {"value": "x"}}},       # missing items key (an attribute reply)
+            {"id": 6, "items": [{"attributes": {"family": {"value": "widget", "confidence": 0.9}, "torque": {"value": "  "}}}]},
+            {"id": 7, "items": ["not an object", {"attributes": {"family": {"value": "actuator", "confidence": 0.9}}}]},
+            {"id": 8, "items": [                                       # the per-family choice list, enforced in code
+                {"attributes": {"family": {"value": "fire damper", "confidence": 0.9}, "variant": {"value": "GI oval", "confidence": 0.9}}},
+                {"attributes": {"family": {"value": "fire damper", "confidence": 0.9}, "variant": {"value": "with sleeve", "confidence": 0.9}}},
+                {"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "GI oval", "confidence": 0.9}}},
+                {"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "None", "confidence": 0.9}}},
+                {"attributes": {"variant": {"value": "GI oval", "confidence": 0.9}}},                     # no family answer at all
+            ]},
+        ]
+        out, seen, ctx = self._run_list_batch(reply, rows)
+        self.assertIn("ITEMS_SPEC", seen["content"])
+        # the list mode asks NO row-level question: the ATTRIBUTE_DEFINITIONS block is EMPTY and the row's
+        # spec-reader definitions (family, damper, ...) are never projected as row attributes
+        self.assertEqual(ctx["defs"], [])
+        self.assertIn("ATTRIBUTE_DEFINITIONS:" + chr(10) + "[]", seen["content"])
+        self.assertEqual(seen["content"], extraction.batch_prompt_content(ctx["prompt"], ctx["defs"], [extraction._ai_item(r) for r in rows],
+                         synonyms=ctx["synonyms"], defaults=ctx["defaults"], none_guidance=ctx["none_guidance"], slot_spec=ctx["slot_spec"],
+                         resolution_rules=ctx["resolution_rules"], rules=ctx["rules"], items_spec=ctx["items_spec"]))
+        K = extraction.ITEMS_KEY
+        n_defs = len(ctx["items_spec"]["attribute_definitions"])
+        # row 3: two items, every def present on each, the three states legible
+        items = out[3][K]
+        self.assertEqual(len(items), 2)
+        a0 = items[0]["attributes"]
+        self.assertEqual(set(a0.keys()).__len__(), n_defs)
+        self.assertEqual(a0["family"]["value"], "square diffuser")           # stated
+        self.assertEqual(a0["damper"]["value"], "None")                      # not mentioned (allow_none)
+        self.assertIsNone(a0["insulated"]["value"])                          # left out -> could not tell
+        self.assertEqual(a0["face_w_mm"]["value"], "600")                    # text, as stated
+        self.assertIsNone(a0["variant"]["value"])                            # a square diffuser has no variant list: the pick is dropped
+        self.assertNotIn("qty_per_unit", a0)                                 # ruling D: never asked, never stored
+        a1 = items[1]["attributes"]
+        self.assertEqual(a1["family"]["value"], "double-skin plenum")
+        self.assertIsNone(a1["thickness_mm"]["value"])                       # null -> could not tell
+        self.assertEqual(a1["variant"]["value"], "None")                     # "None" passes the per-family check untouched
+        self.assertEqual(set(out[3].keys()), {K, extraction.ITEM_FLAGS_KEY})  # no row-level attribute at all
+        # NEGATIVE: empty list -> [] stored; missing items key -> [] stored (never the attributes map)
+        self.assertEqual(out[4][K], [])
+        self.assertEqual(out[5][K], [])
+        # NEGATIVE: unknown family -> the item is KEPT with family None; a blank text -> None
+        self.assertEqual(len(out[6][K]), 1)
+        self.assertIsNone(out[6][K][0]["attributes"]["family"]["value"])
+        self.assertIsNone(out[6][K][0]["attributes"]["torque"]["value"])
+        # the per-family choice list (owner design fix), enforced in CODE: off-list -> None; on-list kept;
+        # "None" kept; an item with no family answer keeps the coerced value (nothing to check it against)
+        v8 = [it["attributes"]["variant"]["value"] for it in out[8][K]]
+        self.assertEqual(v8, [None, "with sleeve", "GI oval", "None", "GI oval"])
+        # NEGATIVE: a non-object element is skipped, the object beside it is kept
+        self.assertEqual(len(out[7][K]), 1)
+        self.assertEqual(out[7][K][0]["attributes"]["family"]["value"], "actuator")
+        # and every observation landed in a drops key that exists (the parse recorded, never raised)
+        drops = {"items_rows_without_list": [], "items_empty_rows": [], "items_not_objects": {}, "items_family_unrecognised": {}, "items_coerce_failed": {}}
+        extraction.parse_item_list(reply[1], ctx["items_spec"], drops, 4)
+        extraction.parse_item_list(reply[2], ctx["items_spec"], drops, 5)
+        extraction.parse_item_list(reply[3], ctx["items_spec"], drops, 6)
+        extraction.parse_item_list(reply[4], ctx["items_spec"], drops, 7)
+        extraction.parse_item_list(reply[5], ctx["items_spec"], drops, 8)
+        self.assertEqual(drops["items_empty_rows"], [4])
+        self.assertEqual([d["excel_row"] for d in drops["items_rows_without_list"]], [5])
+        self.assertEqual(drops["items_family_unrecognised"], {"6": [{"item": 0, "raw": "widget"}]})
+        self.assertEqual(drops["items_not_objects"], {"7": [0]})
+        self.assertIn({"item": 0, "attr": "family", "raw": "widget", "reason": extraction.COERCE_NOT_ALLOWED}, drops["items_coerce_failed"]["6"])
+        self.assertEqual(drops["items_coerce_failed"]["8"],
+                         [{"item": 0, "attr": "variant", "raw": "GI oval", "reason": extraction.COERCE_NOT_IN_FAMILY_LIST}])
+        # NEGATIVE: a malformed (non-JSON) reply still raises through the shared parser, as for every mode
+        with self.assertRaises(ValueError):
+            extraction._extract_json_array("this is not json at all")
+
+    # -- il_06 ----------------------------------------------------------------------------------------
+    def test_il_06_sizes_and_torques_are_stored_as_stated_never_as_numbers(self):
+        spec = extraction.build_items_spec(self.adp)
+        by_id = {d["id"]: d for d in spec["attribute_definitions"]}
+        for aid, raw in (("torque", "10-12 NM"), ("torque", "3.5, 7.9 & 15.9"), ("dia_mm", "1 5/8"), ("neck_mm", "40-45mm"), ("face_w_mm", "600 x 600")):
+            value, reason = extraction._coerce_item_value(by_id[aid], raw)
+            self.assertEqual(value, raw, aid)
+            self.assertIsInstance(value, str)
+            self.assertEqual(reason, extraction.COERCE_OK)
+        # through the batch as well: the stored cell keeps the text verbatim
+        rows = [self._row(9, "actuator 10-12 NM, dia 3.5, 7.9 & 15.9")]
+        reply = [{"id": 9, "items": [{"attributes": {"family": {"value": "actuator", "confidence": 0.9}, "torque": {"value": "10-12 NM", "confidence": 0.9},
+                                                     "dia_mm": {"value": "3.5, 7.9 & 15.9", "confidence": 0.5}}}]}]
+        out, _seen, _ctx = self._run_list_batch(reply, rows)
+        a = out[9][extraction.ITEMS_KEY][0]["attributes"]
+        self.assertEqual(a["torque"]["value"], "10-12 NM")
+        self.assertEqual(a["dia_mm"]["value"], "3.5, 7.9 & 15.9")
+        # NEGATIVE: a text def is never a number; a number def refuses text; a blank text is absent
+        self.assertEqual(extraction._coerce_item_value(by_id["torque"], 8), ("8", extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_item_value({"id": "n", "type": "number"}, "10-12 NM"), (None, extraction.COERCE_NOT_A_NUMBER))
+        self.assertEqual(extraction._coerce_item_value({"id": "n", "type": "number"}, "1"), (1, extraction.COERCE_OK))
+        # the new text defs keep a stated band / insulation thickness verbatim (owner rulings 6c + the thickness split)
+        self.assertEqual(extraction._coerce_item_value(by_id["area_band"], "up to 0.5 Sqmt"), ("up to 0.5 Sqmt", extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_item_value(by_id["insulation_thickness_mm"], "25mm"), ("25mm", extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_item_value(by_id["torque"], "   "), (None, extraction.COERCE_ABSENT))
+        self.assertEqual(extraction._coerce_item_value(by_id["damper"], "None"), ("None", extraction.COERCE_OK_NONE))
+        self.assertEqual(extraction._coerce_item_value(by_id["family"], "None"), (None, extraction.COERCE_NOT_ALLOWED))   # not allow_none
+
+    # -- il_07 ----------------------------------------------------------------------------------------
+    def test_il_07_the_result_row_lifts_items_and_a_non_list_batch_never_carries_the_key(self):
+        import inspect
+        src = inspect.getsource(extraction.run_extraction)
+        self.assertIn("items = row_attrs.pop(ITEMS_KEY, None) if isinstance(row_attrs, dict) else None", src)
+        self.assertIn('res["items"] = items', src)
+        self.assertIn('_gc["inch_trade"], _gc.get("items_spec"),', src)   # threaded into every batch call, positionally
+        # NEGATIVE: an ordinary (attribute-mode) batch returns rows WITHOUT the key
+        ctx = extraction._group_context(self.cfgs, "Electrical", "wiring_cabling")
+        rows = [self._row(11, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")]
+        seen = {}
+        reply = [{"id": 11, "attributes": {"material": {"value": "ALUMINIUM", "confidence": 0.9}}}]
+        out = extraction._extract_batch(self._fake_client(json.dumps(reply), seen), "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"],
+                                        ctx["none_guidance"], ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                        ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"], ctx["inch_trade"], ctx["items_spec"])
+        self.assertNotIn(extraction.ITEMS_KEY, out[11])
+        self.assertNotIn("ITEMS_SPEC", seen["content"])
+        self.assertEqual(out[11]["material"]["value"], "ALUMINIUM")
+
+    # -- il_09 (CHECK 1) --------------------------------------------------------------------------------
+    def test_il_09_check1_an_as_stated_string_must_be_in_the_rows_own_payload(self):
+        F = extraction.ITEM_FLAGS_KEY
+        rows = [self._row_with(21, "Spot grille with end flange 150 mm width with collar damper (750 x 150 mm)", ["AIR TERMINALS"]),
+                self._row_with(22, "250 mm dia", ["Supply Air Round Diffuser"]),
+                self._row_with(23, "150 x 150 MM", ["Return air square diffuser without Collar Damper. Outer 600 x 600 mm 18G AL"])]
+        reply = [
+            {"id": 21, "items": [{"attributes": {"family": {"value": "grille, type not stated", "confidence": 0.7},
+                                                 "damper": {"value": "with", "confidence": 0.8},
+                                                 "face_w_mm": {"value": "750 x 150 mm", "confidence": 0.8}}}]},
+            # the LEAK: #16's size and family copied onto the 250 mm round diffuser row
+            {"id": 22, "items": [{"attributes": {"family": {"value": "grille, type not stated", "confidence": 0.6},
+                                                 "damper": {"value": "None", "confidence": 0.5},
+                                                 "dia_mm": {"value": "250 mm", "confidence": 0.9},
+                                                 "face_w_mm": {"value": "750 x 150 mm", "confidence": 0.7},
+                                                 "torque": {"value": "20 Nm", "confidence": 0.7}}}]},
+            # a legitimate ANCESTOR value
+            {"id": 23, "items": [{"attributes": {"family": {"value": "square diffuser", "confidence": 0.9},
+                                                 "neck_mm": {"value": "150 x 150 mm", "confidence": 0.9},
+                                                 "face_w_mm": {"value": "600 X 600 MM", "confidence": 0.7}}}]},
+        ]
+        records, restore = self._collect_captures()
+        try:
+            out, seen, ctx = self._run_list_batch(reply, rows)   # second opinion is ON for ADP: the fake answers "agree"-less objects
+        finally:
+            restore()
+        K = extraction.ITEMS_KEY
+        # POSITIVE: the row's own strings are kept (case / whitespace insensitive substring)
+        a21 = out[21][K][0]["attributes"]; a22 = out[22][K][0]["attributes"]; a23 = out[23][K][0]["attributes"]
+        self.assertEqual(a21["face_w_mm"]["value"], "750 x 150 mm")
+        self.assertEqual(a22["dia_mm"]["value"], "250 mm")
+        self.assertEqual(a23["neck_mm"]["value"], "150 x 150 mm")
+        self.assertEqual(a23["face_w_mm"]["value"], "600 X 600 MM")          # from the ANCESTOR -> kept
+        self.assertEqual(out[21][F], []); self.assertEqual(out[23][F], [])
+        # NEGATIVE: the strings not in the row's text are FLAGGED and recorded -- and KEPT (owner ruling 2: never a drop)
+        self.assertEqual(a22["face_w_mm"]["value"], "750 x 150 mm"); self.assertEqual(a22["torque"]["value"], "20 Nm")
+        self.assertEqual(a22["family"]["value"], "grille, type not stated")   # a choice is not the text check's business
+        self.assertEqual(a22["damper"]["value"], "None")
+        flags = [f for f in out[22][F] if f["check"] == "text"]
+        self.assertEqual([(f["attr"], f["reason"], f["raw"]) for f in flags],
+                         [("face_w_mm", extraction.COERCE_NOT_IN_ROW_TEXT, "750 x 150 mm"), ("torque", extraction.COERCE_NOT_IN_ROW_TEXT, "20 Nm")])
+        batch = [r for r in records if r.get("kind") == "batch" or "drops" in r][-1]
+        self.assertEqual(batch["drops"]["items_not_in_row_text"], {"22": [{"item": 0, "attr": "face_w_mm", "raw": "750 x 150 mm"},
+                                                                          {"item": 0, "attr": "torque", "raw": "20 Nm"}]})
+        # the unit itself, on a payload item: value in row text / in an ancestor / nowhere
+        spec = ctx["items_spec"]; drops = {"items_not_in_row_text": {}}
+        p = extraction._ai_item(rows[2])
+        items = [{"attributes": {"neck_mm": {"value": "150x150 mm", "confidence": 1}, "face_w_mm": {"value": "600 x 600", "confidence": 1},
+                                 "dia_mm": {"value": "300 mm", "confidence": 1}, "damper": {"value": "with", "confidence": 1}}}]
+        fl = extraction.apply_row_text_check(items, p, spec, drops, 23)
+        self.assertEqual(items[0]["attributes"]["neck_mm"]["value"], "150x150 mm")   # "150x150" is NOT a substring of "150 x 150": flagged, KEPT
+        self.assertEqual(items[0]["attributes"]["face_w_mm"]["value"], "600 x 600")
+        self.assertEqual(items[0]["attributes"]["dia_mm"]["value"], "300 mm")        # flagged, KEPT
+        self.assertEqual(items[0]["attributes"]["damper"]["value"], "with")
+        self.assertEqual([f["attr"] for f in fl], ["neck_mm", "dia_mm"])
+        self.assertEqual({f["reason"] for f in fl}, {"value_not_found_in_row_text"})
+        self.assertEqual(sorted(drops["items_not_in_row_text"]["23"], key=lambda x: x["attr"]),
+                         [{"item": 0, "attr": "dia_mm", "raw": "300 mm"}, {"item": 0, "attr": "neck_mm", "raw": "150x150 mm"}])
+        # the result row carries the flags (source pin on the lift; the key never reaches `attributes`)
+        import inspect
+        src = inspect.getsource(extraction.run_extraction)
+        self.assertIn('item_flags = row_attrs.pop(ITEM_FLAGS_KEY, None) if isinstance(row_attrs, dict) else None', src)
+        self.assertIn('res["item_flags"] = list(item_flags or [])', src)
+
+    # -- il_10 (CHECK 2) --------------------------------------------------------------------------------
+    def test_il_10_check2_the_second_opinion_is_config_switched_per_row_isolated_and_only_flags(self):
+        K, F = extraction.ITEMS_KEY, extraction.ITEM_FLAGS_KEY
+        rows = [self._row_with(31, "600 x 600 square diffuser with plenum box", ["AIR DISTRIBUTION"]),
+                self._row_with(32, "Actuator 8 Nm", ["ACTUATORS"]),
+                self._row_with(33, "VCD 750X450", ["VOLUME CONTROL DAMPER"])]
+        batch_reply = json.dumps([
+            {"id": 31, "items": [{"attributes": {"family": {"value": "square diffuser", "confidence": 0.9}, "damper": {"value": "None", "confidence": 0.6},
+                                                 "face_w_mm": {"value": "600 x 600", "confidence": 0.9}}},
+                                 {"attributes": {"family": {"value": "mixing box / LP plenum", "confidence": 0.7}}}]},
+            {"id": 32, "items": [{"attributes": {"family": {"value": "actuator", "confidence": 0.9}, "torque": {"value": "8 Nm", "confidence": 0.9}}}]},
+            {"id": 33, "items": [{"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "None", "confidence": 0.5}}}]},
+        ])
+        review = {
+            31: json.dumps({"id": 31, "verdict": "disagree", "issues": [{"item": 0, "attribute": "damper", "reason": "the plenum text implies no damper"}]}),
+            32: json.dumps({"id": 32, "verdict": "agree", "issues": []}),
+            33: "this is not json at all",
+        }
+        # OFF: exactly ONE model call, no flags at all
+        seen = {}
+        cfgs_off = self._spec_off()
+        ctx = extraction._group_context(cfgs_off, "HVAC", "hvac_adp")
+        self.assertIs(ctx["items_spec"]["second_opinion"], False)
+        client = self._fake_client_scripted(batch_reply, review, seen)
+        out = extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
+                                        ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                        ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"],
+                                        ctx["inch_trade"], ctx["items_spec"])
+        self.assertEqual(len(seen["contents"]), 1)
+        self.assertEqual({rid: out[rid][F] for rid in (31, 32, 33)}, {31: [], 32: [], 33: []})
+        off_items = {rid: out[rid][K] for rid in (31, 32, 33)}
+        # ON (ADP v5 declares it): one extra call PER ROW, each holding ONLY that row's payload + items
+        seen = {}
+        records, restore = self._collect_captures()
+        try:
+            ctx = extraction._group_context(self.cfgs, "HVAC", "hvac_adp")
+            self.assertIs(ctx["items_spec"]["second_opinion"], True)
+            client = self._fake_client_scripted(batch_reply, review, seen)
+            out = extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
+                                            ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                            ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"],
+                                            ctx["inch_trade"], ctx["items_spec"])
+        finally:
+            restore()
+        self.assertEqual(len(seen["contents"]), 4)                          # 1 batch + 3 reviews
+        review_prompt = extraction._read_review_prompt()
+        texts = {31: "600 x 600 square diffuser with plenum box", 32: "Actuator 8 Nm", 33: "VCD 750X450"}
+        for c in seen["contents"][1:]:
+            self.assertTrue(c.startswith(review_prompt))
+            rid = int(__import__("re").search(r'ROW:\n\{"id": (\d+)', c).group(1))
+            self.assertIn(texts[rid], c)
+            for other, t in texts.items():
+                if other != rid:
+                    self.assertNotIn(t, c, (rid, other))                     # ISOLATION: no other row's content
+            self.assertIn('"ITEMS:', c.replace("\n", '"'))                   # the row's items are shown
+            # 3b: the reviewer is given the SAME ITEMS_SPEC (ids, labels, notes) the extraction call carried
+            self.assertIn("\n\nITEMS_SPEC:\n" + json.dumps(ctx["items_spec"], ensure_ascii=False), c)
+            self.assertIn("thickness or gauge (as written)", c)
+        self.assertNotIn("ROW_CONTEXT_SHAPE", seen["contents"][1])          # the review is not the batch prompt
+        self.assertNotIn("ATTRIBUTE_DEFINITIONS", seen["contents"][1])
+        self.assertEqual(extraction.second_opinion_content("P", {"id": 1}, []), "P\n\nROW:\n{\"id\": 1}\n\nITEMS:\n[]")   # no spec -> no block
+        # a disagree FLAGS with the reason; an agree flags nothing; garbage is recorded and flags nothing
+        self.assertEqual(out[31][F], [{"check": "second_opinion", "item": 0, "attr": "damper", "reason": "the plenum text implies no damper"}])
+        self.assertEqual(out[32][F], [])
+        self.assertEqual(out[33][F], [])
+        # NEVER a rewrite, never a dropped item: the stored items are IDENTICAL to the OFF run
+        self.assertEqual({rid: out[rid][K] for rid in (31, 32, 33)}, off_items)
+        self.assertEqual(len(out[31][K]), 2)
+        self.assertEqual(out[31][K][0]["attributes"]["damper"]["value"], "None")
+        batch = [r for r in records if "drops" in r][-1]
+        d = batch["drops"]
+        self.assertEqual(d["second_opinion_verdicts"], {"31": "disagree", "32": "agree"})
+        self.assertEqual([x["excel_row"] for x in d["second_opinion_failed"]], [33])
+        self.assertEqual(d["second_opinion_usage"], {"calls": 3, "input": 33, "output": 21})   # every review CALL made, counted SEPARATELY (the garbage reply still cost a call)
+        self.assertEqual(batch["usage"]["input_tokens"], 11)                                   # the batch call counted once, on its own
+
+    # -- il_11 (CHECK 3) --------------------------------------------------------------------------------
+    def test_il_11_check3_config_notes_reach_the_model_through_items_spec_only(self):
+        spec = extraction.build_items_spec(self.adp)
+        by_id = {d["id"]: d for d in spec["attribute_definitions"]}
+        note = [d for d in self.adp["list_spec"]["attribute_definitions"] if d["id"] == "panel_ratio"][0]["note"]
+        self.assertIn("1:N", note)                                                        # ruling 5, a catalogue fact
+        self.assertEqual(by_id["panel_ratio"]["note"], note.strip())
+        fam_note = by_id["family"]["note"]
+        self.assertIn("no SKU", fam_note)                                                 # ruling 6b
+        row = self._row(3, "Control panel with maximum 6 outgoing feeders")
+        payload = [extraction._ai_item(row)]
+        content = extraction.batch_prompt_content("P", [], payload, items_spec=spec)
+        self.assertIn(json.dumps(note.strip(), ensure_ascii=False)[1:-1][:40], content)   # the note is in the assembled spec ...
+        self.assertIn(json.dumps(fam_note, ensure_ascii=False)[1:-1][:40], content)
+        self.assertNotIn("1:N", json.dumps(payload, ensure_ascii=False))                  # ... and the row payload is untouched
+        self.assertNotIn("no SKU", json.dumps(payload, ensure_ascii=False))
+        # NEGATIVE: a def without a note projects no note key
+        self.assertNotIn("note", by_id["neck_mm"])
+
+    # -- il_08 ----------------------------------------------------------------------------------------
+    def test_il_08_adp_stays_ineligible_with_its_list_shape(self):
+        self.assertEqual(self.adp["matching_mode"], "item_list")
+        self.assertEqual(self.adp["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(self.adp))
+        self.assertFalse(extraction.config_is_eligible(self.adp, self.cfgs))
+        eligible = {k: v for k, v in self.cfgs.items() if extraction.config_is_eligible(v, self.cfgs)}
+        self.assertNotIn(("HVAC", "hvac_adp"), eligible)
+        helper = os.path.join(self.repo, "frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        with open(helper, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        body = src[src.index("export function isEligibleConfig("):]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body[:body.index("\n}")])
