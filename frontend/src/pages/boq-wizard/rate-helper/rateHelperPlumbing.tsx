@@ -24,6 +24,47 @@ export const RATE_MASTER_CONFIG_TARGETS: Array<{ discipline: string; categoryId:
     d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id })),
   );
 
+/** SLICE 6: every discipline the registry knows, once each, in registry order -- the disciplines whose
+ * rate-master ITEMS the BoQ pricing page must hold. A list-mode category (HVAC ADP) prices from ITS
+ * discipline's SKUs, so the page can no longer hold the default discipline's items alone; a new
+ * discipline in the registry flows through with no code change here. */
+export const RATE_MASTER_ITEM_DISCIPLINES: readonly string[] = Array.from(
+  new Set(RATE_MASTER_DISCIPLINES.map((d) => d.discipline)),
+);
+
+/**
+ * SLICE 3 (L6) -- PURE, moved here at slice 6 so the page and the calculator share ONE definition. The
+ * merged item set: the FIRST set's items first, then each further set's, DEDUPLICATED BY ITEM NAME with
+ * the first occurrence winning. Two disciplines never hold the same item name today (names are Frappe
+ * autonames, unique in the table), so nothing is dropped; if they ever did, the earlier set's row would
+ * win and the other would be silently dropped -- pinned in the calculator's test so that day is loud.
+ */
+export function mergeItemsByName(...sets: ReadonlyArray<ReadonlyArray<RateMasterItem>>): RateMasterItem[] {
+  const seen = new Set<string>();
+  const out: RateMasterItem[] = [];
+  for (const set of sets) {
+    for (const it of set) {
+      const key = it.name ?? `${it.discipline}\u0000${it.kind}\u0000${it.item_uid ?? JSON.stringify(it.attributes)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(it);
+    }
+  }
+  return out;
+}
+
+/** SLICE 3 (L6), shared since slice 6: fetch ONE discipline's items and report them up -- the hook-safe
+ * N-fetch child shape `RateConfigFetcher` uses; one hook per instance. Renders no DOM. The SWR key is
+ * `useRateMasterItems`' per-discipline key, so a discipline the page already fetched costs no request. */
+export function RateItemsFetcher({ discipline, onLoaded }: { discipline: string; onLoaded: (discipline: string, items: RateMasterItem[]) => void }) {
+  const { data } = useRateMasterItems(true, discipline);
+  const items = data?.message?.items;
+  useEffect(() => {
+    if (items) onLoaded(discipline, items);
+  }, [items, discipline, onLoaded]);
+  return null;
+}
+
 /** EA-2: fetch ONE category's rate config and report it up. Renders no DOM; one hook per instance --
  * the same hook-safe N-fetch shape as the BoQ page's EngineCatalogFetcher. */
 export function RateConfigFetcher({

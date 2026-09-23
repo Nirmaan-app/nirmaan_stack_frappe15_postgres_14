@@ -48,8 +48,11 @@ import {
   RateConfigFetcher,
   useConfigsByCategory,
   useRateMasterItems,
+  mergeItemsByName,
+  RateItemsFetcher,
 } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { categoryLabel, makePricingSheetHelper, nonBcsPipelines, pipelineLabel, resolveAliasConfig } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import type { RateMasterItem } from "./rate-master/rateMasterTypes";
 import { RateHelperPanel } from "@/pages/boq-wizard/rate-helper/RateHelperPanel";
 import { DISPLAY_RATE_KINDS, type RateHelper, type RateHelperRowContext } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
@@ -104,37 +107,9 @@ export function aliasTargetConfigs(
   return [...out.values()].sort((x, y) => (x.discipline + x.categoryId).localeCompare(y.discipline + y.categoryId));
 }
 
-/**
- * SLICE 3 (L6) -- PURE. The merged item set: the calculator's OWN discipline's items first, then each
- * alias target discipline's, DEDUPLICATED BY ITEM NAME with the FIRST occurrence winning. Two
- * disciplines never hold the same item name today (names are Frappe autonames, unique in the table),
- * so nothing is dropped; if they ever did, the own discipline's row would win and the other would be
- * silently dropped -- pinned in the test so that day is loud, not silent.
- */
-export function mergeItemsByName(...sets: ReadonlyArray<ReadonlyArray<RateMasterItem>>): RateMasterItem[] {
-  const seen = new Set<string>();
-  const out: RateMasterItem[] = [];
-  for (const set of sets) {
-    for (const it of set) {
-      const key = it.name ?? `${it.discipline}\u0000${it.kind}\u0000${it.item_uid ?? JSON.stringify(it.attributes)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(it);
-    }
-  }
-  return out;
-}
-
-/** SLICE 3 (L6): fetch ONE extra discipline's items and report them up -- the hook-safe N-fetch child
- * shape `RateConfigFetcher` uses; one hook per instance. Renders no DOM. */
-function RateItemsFetcher({ discipline, onLoaded }: { discipline: string; onLoaded: (discipline: string, items: RateMasterItem[]) => void }) {
-  const { data } = useRateMasterItems(true, discipline);
-  const items = data?.message?.items;
-  useEffect(() => {
-    if (items) onLoaded(discipline, items);
-  }, [items, discipline, onLoaded]);
-  return null;
-}
+// SLICE 6: `mergeItemsByName` and `RateItemsFetcher` moved into the shared plumbing (the BoQ page now
+// needs both); re-exported here so every existing importer of the calculator's merge keeps working.
+export { mergeItemsByName };
 
 /** PURE. The calculator discipline for a route path (first segment), or null when the page has no tab. */
 export function calculatorDisciplineForPath(pathname: string): string | null {
@@ -190,6 +165,9 @@ export function calculatorCtx(discipline: string, categoryId: string): RateHelpe
  * first render instead of appearing when the first price lands.
  */
 export function calculatorBlockLabels(config: RateCategoryConfig): string[] {
+  // SLICE 6 (T6): an ITEM-LIST category has no fixed blocks -- the panel draws one block per item the pricer
+  // adds, so no placeholder block is announced ahead (its `pipelines` are the shared per-item default).
+  if (itemListPricingSpec(config)) return [];
   return nonBcsPipelines(config).map(([id]) => pipelineLabel(config, id));
 }
 

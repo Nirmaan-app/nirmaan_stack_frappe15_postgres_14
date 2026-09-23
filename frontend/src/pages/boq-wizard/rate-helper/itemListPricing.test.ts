@@ -21,7 +21,10 @@ import {
   readNumber,
   unitClassOf,
   type ExtractedListItem,
+  type ItemListPricingSpec,
 } from "./itemListPricing";
+import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
+import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
 const asset = HVAC_V7 as unknown as Asset;
@@ -53,13 +56,17 @@ describe("slice 5 / the block is read off the config and ADP stays NOT eligible 
     expect(itemListPricingSpec(adp6)).toBeNull();
     expect(itemListPricingSpec(null)).toBeNull();
   });
-  it("NEGATIVE (P8): the helper does not import this module, and no panel / calculator / grid file does", () => {
+  it("SLICE 6 (T7, INVERTING the slice-5 P8 pin): the helper and the calculator import this module; the grid, the page and the plumbing still do not", () => {
     const dir = __dirname;
-    const files = [
-      join(dir, "pricingSheetHelper.ts"), join(dir, "RateHelperPanel.tsx"), join(dir, "rateHelperPlumbing.tsx"),
-      join(dir, "../SheetPricingPage.tsx"), join(dir, "../PricingGrid.tsx"), join(dir, "../../pricing/PricingCalculator.tsx"),
-    ];
-    for (const f of files) expect(readFileSync(f, "utf8")).not.toMatch(/itemListPricing/);
+    // slice 5 pinned NO importer at all (ADP not eligible). Slice 6 wires the helper (the list path) and the
+    // calculator (no placeholder blocks for a list-mode category) -- the two surfaces the owner asked for.
+    expect(readFileSync(join(dir, "pricingSheetHelper.ts"), "utf8")).toMatch(/from "\.\/itemListPricing"/);
+    expect(readFileSync(join(dir, "../../pricing/PricingCalculator.tsx"), "utf8")).toMatch(/itemListPricingSpec/);
+    // NEGATIVE (kept): the arithmetic reaches the panel ONLY through the helper's suggestion -- the panel, the
+    // grid, the page and the plumbing never call the module themselves
+    for (const f of [join(dir, "RateHelperPanel.tsx"), join(dir, "rateHelperPlumbing.tsx"), join(dir, "../SheetPricingPage.tsx"), join(dir, "../PricingGrid.tsx")]) {
+      expect(readFileSync(f, "utf8")).not.toMatch(/from "\.\/itemListPricing"|from "@\/pages\/boq-wizard\/rate-helper\/itemListPricing"/);
+    }
   });
   it("v7 = v6 + the block: items and the six other configs byte-identical, the ADP config equal once the block is set aside", () => {
     const v6 = HVAC_V6 as unknown as Asset;
@@ -545,3 +552,191 @@ describe("slice 5 / every existing Electrical pipeline result is UNCHANGED (the 
     expect(createHash("sha256").update(lines.join("\n")).digest("hex")).toBe("de5f4348fc8422cc407dd67ae5bcb8ec0939846bbf697955880f4fab48189fc8");
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6 (2026-09-24, owner S6 / S7 / T4 / T7) -- HVAC v8: the eligibility switch, UL absent = not mentioned,
+// the mixing box at any size, the quantity per row unit, the panel-facing helpers.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+const asset8 = HVAC_V8 as unknown as Asset;
+const items8: RateMasterItem[] = asset8.items.map((i) => ({ ...i, discipline: "HVAC" }));
+const adp8 = asset8.category_configs.find((c) => c.category_id === "hvac_adp")!;
+const spec8 = itemListPricingSpec(adp8)!;
+const price8 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec8, items8, unit, its);
+const one8 = (unit: string, attrs: Record<string, string | null>) => price8(unit, ext(attrs));
+
+describe("slice 6 / v8 = v7 + the four deltas, and NOTHING else", () => {
+  it("items and the six other configs byte-identical; the ADP config differs ONLY in pipelines, second_opinion, ul's default, the mixing-box block and the dropped plain-block pipelines", () => {
+    expect(asset8.items).toEqual(asset.items);
+    expect(asset8.category_configs.slice(1)).toEqual(asset.category_configs.slice(1));
+    // T7: the shared per-item default lives in `pipelines` (the eligibility switch)
+    expect(Object.keys(adp8.pipelines)).toEqual(["item_supply", "item_install"]);
+    expect(adp8.pipelines.item_supply.steps.map((s) => (s as { step: string }).step)).toEqual(["match_master_row", "scale", "roundup"]);
+    // S8: the second opinion is OFF
+    expect((adp8 as unknown as { list_spec: { second_opinion: boolean } }).list_spec.second_opinion).toBe(false);
+    expect((adp as unknown as { list_spec: { second_opinion: boolean } }).list_spec.second_opinion).toBe(true);   // v7 stays as it was
+    // S6: UL only
+    expect(spec8.defaults!.ul.absent_as_none).toBe(true);
+    expect(spec8.defaults!.damper.absent_as_none).toBeUndefined();
+    expect(spec8.defaults!.insulated.absent_as_none).toBeUndefined();
+    expect(spec8.defaults!.variant.absent_as_none).toBeUndefined();
+    // S7: the mixing box prices per number by CONVERSION from its per-sq.m rows
+    const mb = spec8.families["mixing box / LP plenum"];
+    expect(Object.keys(mb.units)).toEqual(["area"]);
+    expect(mb.convert!.count[0].needs).toEqual(["face_w_mm", "face_h_mm", "depth_mm"]);
+    expect(mb.convert!.count[0].to).toBe("area");
+    // the plain blocks dropped their pipelines (29), every other block kept its own
+    let without = 0, withOwn = 0;
+    for (const f of Object.values(spec8.families)) for (const u of Object.values(f.units)) { if (u.pipelines) withOwn++; else without++; }
+    expect(without).toBe(29);
+    expect(withOwn).toBe(1);   // cross-talk's derived per-number block is the ONE unit block with its own pipelines
+    // everything else in the block is v7's
+    const strip = (s: ItemListPricingSpec) => {
+      const c = JSON.parse(JSON.stringify(s)) as ItemListPricingSpec & { default_pipelines?: unknown };
+      delete c.default_pipelines;
+      delete c.defaults!.ul.absent_as_none;
+      c.defaults!.ul.rule = spec.defaults!.ul.rule;
+      delete c.families["mixing box / LP plenum"].convert;
+      for (const f of Object.values(c.families)) for (const u of Object.values(f.units)) delete u.pipelines;
+      return c;
+    };
+    const v7s = JSON.parse(JSON.stringify(spec)) as ItemListPricingSpec & { default_pipelines?: unknown };
+    delete v7s.default_pipelines;
+    delete v7s.families["mixing box / LP plenum"].units.count;
+    for (const f of Object.values(v7s.families)) for (const u of Object.values(f.units)) delete u.pipelines;
+    expect(strip(spec8)).toEqual(v7s);
+  });
+  it("T7 -- ADP is ELIGIBLE on v8 by the SAME predicate every category answers; NEGATIVE: v7's ADP is not, and no other HVAC config moved", () => {
+    expect(isEligibleConfig(adp8)).toBe(true);
+    expect(isEligibleConfig(adp)).toBe(false);
+    for (let i = 1; i < asset8.category_configs.length; i++) {
+      expect(isEligibleConfig(asset8.category_configs[i])).toBe(isEligibleConfig(asset.category_configs[i]));
+      expect(isEligibleConfig(asset8.category_configs[i])).toBe(false);   // vendor-quote + alias configs: not eligible OF THEIR OWN
+    }
+    // the reader hands the module the config's pipelines as the shared default
+    expect(Object.keys(spec8.default_pipelines!)).toEqual(["item_supply", "item_install"]);
+    expect(Object.keys(spec.default_pipelines!)).toEqual([]);
+  });
+});
+
+describe("slice 6 / T7 -- a block without pipelines runs the config's shared per-item default", () => {
+  it("POSITIVE: every plain family prices EXACTLY as on v7 (the same 94 of 95 SKUs, row 33 blank by rule)", () => {
+    const adpItems = items8.filter((i) => i.kind === spec8.kind);
+    let exact = 0; const blanks: string[] = [];
+    for (const it of adpItems) {
+      const row = (it as unknown as { source: { row: number } }).source.row;
+      const attrs: Record<string, string | null> = {};
+      for (const [k, v] of Object.entries(it.attributes)) {
+        if (k === "item_name" || k === "item_detail") continue;
+        attrs[k === "torque_nm" ? "torque" : k] = String(v);
+      }
+      const r7 = priceItemList(spec, items, it.unit ?? "", [ext(attrs)]);
+      const r8 = priceItemList(spec8, items8, it.unit ?? "", [ext(attrs)]);
+      expect([r8.priced, r8.supply, r8.install]).toEqual([r7.priced, r7.supply, r7.install]);
+      if (r8.priced) exact++; else blanks.push(`${row}: ${r8.reason}`);
+    }
+    expect(exact).toBe(94);
+    expect(blanks).toEqual(["33: no neck size stated"]);
+    // and the trace names the CONFIG's pipeline, not a block copy
+    const r = one8("Nos", { family: "spigot", dia_mm: "150" });
+    expect(r.items[0].pipelineResults.map((p) => p.pipelineId)).toEqual(["item_supply", "item_install"]);
+  });
+  it("NEGATIVE: a spec with NO default pipelines and a block without its own refuses with a named reason", () => {
+    const bare: ItemListPricingSpec = { ...spec8, default_pipelines: {} };
+    const r = priceItemList(bare, items8, "Nos", [ext({ family: "spigot", dia_mm: "150" })]);
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("no pricing pipelines declared for this family and unit");
+    // a block WITH its own pipelines is untouched by the default's absence (cross-talk's derived block)
+    expect(figures(priceItemList(bare, items8, "Nos", [ext({ family: "cross-talk", face_w_mm: "200", face_h_mm: "200" })]))).toEqual([true, 557, 192]);
+  });
+});
+
+describe("slice 6 / S6 -- an ABSENT UL answer is NOT MENTIONED (the non-UL default fires); UL only", () => {
+  it("POSITIVE: an actuator with no UL answer prices the non-UL SKU, marked defaulted by the S6 rule", () => {
+    const r = one8("Nos", { family: "actuator", torque: "8 NM" });   // no `ul` key at all
+    expect(figures(r)).toEqual([true, 9570, 800]);
+    expect(r.items[0].defaulted).toEqual([{ attr: "ul", value: "no", rule: "R14 / S6 UL not mentioned (or not answered) = non-UL" }]);
+    const nul = one8("Nos", { family: "actuator", ul: null, torque: "8 NM" });   // an explicit null (could not tell)
+    expect(figures(nul)).toEqual([true, 9570, 800]);
+    // a fire damper too: absent UL -> non-UL
+    expect(figures(one8("Sqm", { family: "fire damper", variant: "without sleeve" }))).toEqual([true, 14138, 1920]);
+  });
+  it("NEGATIVE: a STATED UL still prices UL; absent damper and absent insulation STILL refuse; v7 still refuses an absent UL", () => {
+    expect(figures(one8("Nos", { family: "actuator", ul: "yes", torque: "8 NM" }))).toEqual([true, 23925, 800]);
+    expect(one8("Nos", { family: "round diffuser", damper: null, dia_mm: "200" }).reason).toBe("could not tell whether it is with or without a damper");
+    expect(one8("Nos", { family: "round diffuser", dia_mm: "200" }).reason).toBe("could not tell whether it is with or without a damper");
+    expect(one8("Rmt", { family: "flexible duct", insulated: null, dia_mm: "150" }).reason).toBe("could not tell whether it is insulated");
+    expect(one8("Rmt", { family: "flexible duct", dia_mm: "150" }).reason).toBe("could not tell whether it is insulated");
+    expect(one("Nos", { family: "actuator", ul: null, torque: "8 NM" }).reason).toBe("could not tell whether it is UL listed");   // v7: no key, no change
+  });
+});
+
+describe("slice 6 / S7 -- the mixing box / LP plenum prices at ANY stated size from the per-sq.m rows", () => {
+  it("POSITIVE: 450 x 450 x 350 -> cost 1,424 / priced 2,065; 750 x 150 x 350 still 1,743 (with) and 1,310 (without)", () => {
+    const r = one8("Nos", { family: "mixing box / LP plenum", insulated: "None", face_w_mm: "450", face_h_mm: "450", depth_mm: "350" });
+    expect(figures(r)).toEqual([true, 2065, 0]);
+    expect(r.items[0].working.some((w) => w.includes("= 1424"))).toBe(true);   // the rounded-up cost before the markup
+    expect(r.items[0].conversion?.rule).toContain("S7");
+    expect(figures(one8("Nos", { family: "mixing box / LP plenum", insulated: "None", face_w_mm: "750", face_h_mm: "150", depth_mm: "350" }))).toEqual([true, 1743, 0]);
+    expect(figures(one8("Nos", { family: "mixing box / LP plenum", insulated: "without", face_w_mm: "750", face_h_mm: "150", depth_mm: "350" }))).toEqual([true, 1310, 0]);
+    // the two derived SKUs of the sheet reproduce from their own attributes through the SAME conversion
+    expect(figures(one8("Nos", { family: "mixing box / LP plenum", insulated: "with", face_w_mm: "750", face_h_mm: "150", depth_mm: "350" }))).toEqual([true, 1743, 0]);
+    // the flat 150 carries to every size: 1000 x 1000 x 1000 -> 1230 x 6 + 150 = 7530 -> x1.45 = 10918.5 -> 10919
+    expect(figures(one8("Nos", { family: "mixing box / LP plenum", insulated: "None", face_w_mm: "1000", face_h_mm: "1000", depth_mm: "1000" }))).toEqual([true, 10919, 0]);
+  });
+  it("NEGATIVE: a missing dimension refuses naming it; the per-sq.m row still prices per sq.m; v7 (exact sizes only) still refuses 450 x 450 x 350", () => {
+    expect(one8("Nos", { family: "mixing box / LP plenum", insulated: "None", face_w_mm: "450", face_h_mm: "450" }).reason).toBe("per-number row: no width and height and depth stated to convert the per-sq.m rate");
+    expect(one8("Nos", { family: "mixing box / LP plenum", insulated: "None", face_h_mm: "450", depth_mm: "350" }).reason).toBe("per-number row: no width and height and depth stated to convert the per-sq.m rate");
+    expect(figures(one8("Sqm", { family: "mixing box / LP plenum", insulated: "None" }))).toEqual([true, 1784, 0]);
+    expect(one("Nos", { family: "mixing box / LP plenum", insulated: "None", face_w_mm: "450", face_h_mm: "450", depth_mm: "350" }).priced).toBe(false);
+  });
+});
+
+describe("slice 6 / T4 -- a quantity per row unit per item, default 1", () => {
+  it("POSITIVE: absent = 1; a stated 2 doubles the item's figures and the row total; the working says so", () => {
+    const base = one8("Nos", { family: "spigot", dia_mm: "150" });
+    expect(figures(base)).toEqual([true, 211, 64]);
+    expect(base.items[0].qty).toBe(1);
+    const r = price8("Nos", { ...ext({ family: "spigot", dia_mm: "150" }), qtyPerRowUnit: "2" });
+    expect(figures(r)).toEqual([true, 422, 128]);
+    expect(r.items[0].finals).toEqual({ supply: 211, install: 64 });
+    expect(r.items[0].figures).toEqual({ supply: 422, install: 128 });
+    expect(r.items[0].working).toContain("x 2 per row unit");
+    // two items, one doubled: the row sums the figures
+    const two = price8("Nos", { ...ext({ family: "actuator", ul: "None", torque: "8 NM" }), qtyPerRowUnit: 2 }, ext({ family: "control panel", panel_ratio: "1:6" }));
+    expect(figures(two)).toEqual([true, 9570 * 2 + 16791, 800 * 2 + 800]);
+  });
+  it("NEGATIVE: a blank, a zero or a non-numeric quantity refuses the item with its reason", () => {
+    expect(price8("Nos", { ...ext({ family: "spigot", dia_mm: "150" }), qtyPerRowUnit: "" }).reason).toBe("quantity per row unit is blank");
+    expect(price8("Nos", { ...ext({ family: "spigot", dia_mm: "150" }), qtyPerRowUnit: "0" }).reason).toBe("quantity per row unit '0' is not a positive number");
+    expect(price8("Nos", { ...ext({ family: "spigot", dia_mm: "150" }), qtyPerRowUnit: "two" }).reason).toBe("quantity per row unit 'two' is not a positive number");
+  });
+});
+
+describe("slice 6 / the panel-facing helpers read the CONFIG -- no family, label or option is hard-coded", () => {
+  it("familyChoices: the 25 priceable families with their unit words; aliases and no-SKU families are not offered", () => {
+    const fams = familyChoices(spec8);
+    expect(fams).toHaveLength(25);
+    expect(fams.find((f) => f.family === "VCD")).toEqual({ family: "VCD", units: "per sq.m" });
+    expect(fams.find((f) => f.family === "canvas connection")!.units).toBe("per sq.m / per number / per metre");
+    expect(fams.some((f) => f.family === "grille, type not stated" || f.family === "none of these")).toBe(false);
+  });
+  it("itemFieldDefs: the family's needs for the row's unit class, labelled from the list_spec, options from the def (None first when allow_none)", () => {
+    const defs = listSpecDefs(adp8);
+    expect(itemFieldDefs(spec8, defs, "round diffuser", "count")).toEqual([
+      { id: "damper", label: "Damper", options: ["None", "with", "without"], allowNone: true, skuAttr: "damper" },
+      { id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm" },
+    ]);
+    // the R13 source (air) rides along on a linear grille; a per-number VCD shows the conversion needs
+    expect(itemFieldDefs(spec8, defs, "linear grille", "area").map((f) => f.id)).toEqual(["damper", "air"]);
+    expect(itemFieldDefs(spec8, defs, "VCD", "count").map((f) => f.id)).toEqual(["variant", "face_w_mm", "face_h_mm", "area_band"]);
+    // the variant's options come from values_by_family
+    expect(itemFieldDefs(spec8, defs, "VCD", "area")[0].options).toEqual(["None", "GI oval", "motorised", "GI rectangular"]);
+    expect(itemFieldDefs(spec8, defs, "actuator", "count").map((f) => f.id)).toEqual(["ul", "torque"]);
+    // NEGATIVE: no family / an unknown family / a config without a list_spec
+    expect(itemFieldDefs(spec8, defs, null, "count")).toEqual([]);
+    expect(itemFieldDefs(spec8, defs, "widget", "count")).toEqual([]);
+    expect(listSpecDefs(null)).toEqual([]);
+  });
+});
+

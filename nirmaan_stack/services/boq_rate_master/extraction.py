@@ -3424,6 +3424,12 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
         # SLICE 4: an item-list row carries its parsed items under ITEMS_KEY -- lifted onto the result
         # row as `items` (a row-level key beside `attributes`, so the attributes map keeps its
         # {attr_id: cell} shape); absent for every other mode, whose result row is byte-identical.
+        # SLICE 6 (live defect, run BRSR-26-01129): this function runs TWICE on the same `ai_out` entry
+        # -- at the SR-1 checkpoint and again for the final envelope -- so it must NEVER mutate its
+        # input. Popping in place emptied the dict for the second call and every list-mode row reached
+        # the run document with `attributes: {}` and no `items`. Copy first; pop the copy.
+        if isinstance(row_attrs, dict):
+            row_attrs = dict(row_attrs)
         items = row_attrs.pop(ITEMS_KEY, None) if isinstance(row_attrs, dict) else None
         item_flags = row_attrs.pop(ITEM_FLAGS_KEY, None) if isinstance(row_attrs, dict) else None
         _corroborate(r, row_attrs)

@@ -11,6 +11,7 @@ The function is PURE (a definition dict + a raw value in, a stored value out), s
 a direct call -- no DB, no AI, no fixtures.
 """
 
+import copy
 import json
 import os
 
@@ -2251,8 +2252,11 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertIn("single skin plenum", by_id["family"]["note"].lower())   # ... and so does the 3a ALIAS (stage-2 ruling 3a: the model picks from the list, so the alias must reach it here)
         self.assertIn("thickness or gauge (as written)", by_id["thickness_mm"]["label"])
         self.assertIn("1:N", by_id["panel_ratio"]["note"])                 # ruling 5 lives in the note
-        # CHECK 2: the switch is carried on the spec -- True for ADP v5, False when a spec does not declare it
-        self.assertIs(spec["second_opinion"], True)
+        # CHECK 2: the switch is carried on the spec -- SLICE 6 (owner S8, INVERTING): OFF for the current ADP (it
+        # went live); a copy that declares it ON still projects True, and a spec that does not declare it False
+        self.assertIs(spec["second_opinion"], False)
+        on_cfg = copy.deepcopy(self.adp); on_cfg["list_spec"]["second_opinion"] = True
+        self.assertIs(extraction.build_items_spec(on_cfg)["second_opinion"], True)
         # a spec that DOES declare a qty id still projects it (the key is optional, not removed)
         with_qty = {"matching_mode": "item_list", "list_spec": {"attribute_definitions": [
             {"id": "family", "label": "F", "type": "choice", "values": ["a"]}, {"id": "n", "label": "N", "type": "number"}],
@@ -2527,7 +2531,10 @@ class TestItemListSlice4(FrappeTestCase):
         seen = {}
         records, restore = self._collect_captures()
         try:
-            ctx = extraction._group_context(self.cfgs, "HVAC", "hvac_adp")
+            # SLICE 6 (owner S8, INVERTING): the current ADP config ships with the switch OFF, so the ON path runs on
+            # a copy that turns it on -- the mechanism is what this test pins, not the shipped setting
+            cfgs_on = copy.deepcopy(self.cfgs); cfgs_on[("HVAC", "hvac_adp")]["list_spec"]["second_opinion"] = True
+            ctx = extraction._group_context(cfgs_on, "HVAC", "hvac_adp")
             self.assertIs(ctx["items_spec"]["second_opinion"], True)
             client = self._fake_client_scripted(batch_reply, review, seen)
             out = extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
@@ -2588,15 +2595,44 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertNotIn("note", by_id["neck_mm"])
 
     # -- il_08 ----------------------------------------------------------------------------------------
-    def test_il_08_adp_stays_ineligible_with_its_list_shape(self):
+    def test_il_08_adp_is_eligible_since_v8_with_its_list_shape(self):
+        # SLICE 6 (owner T7, INVERTING the slice-4 pin): the current ADP config keeps its list shape AND carries the
+        # shared per-item default pipelines, so it is eligible on the extraction side; the emptiness gate is proven
+        # on a copy with the pipelines removed (the negative half, kept).
         self.assertEqual(self.adp["matching_mode"], "item_list")
-        self.assertEqual(self.adp["pipelines"], {})
-        self.assertFalse(extraction.config_is_eligible(self.adp))
-        self.assertFalse(extraction.config_is_eligible(self.adp, self.cfgs))
+        self.assertEqual(list(self.adp["pipelines"]), ["item_supply", "item_install"])
+        self.assertTrue(extraction.config_is_eligible(self.adp))
+        self.assertTrue(extraction.config_is_eligible(self.adp, self.cfgs))
         eligible = {k: v for k, v in self.cfgs.items() if extraction.config_is_eligible(v, self.cfgs)}
-        self.assertNotIn(("HVAC", "hvac_adp"), eligible)
+        self.assertIn(("HVAC", "hvac_adp"), eligible)
+        emptied = dict(self.adp); emptied["pipelines"] = {}
+        self.assertFalse(extraction.config_is_eligible(emptied))
         helper = os.path.join(self.repo, "frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
         with open(helper, "r", encoding="utf-8") as fh:
             src = fh.read()
         body = src[src.index("export function isEligibleConfig("):]
         self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body[:body.index("\n}")])
+
+    # -- il_12 (slice 6, S6) ----------------------------------------------------------------------------
+    def test_il_12_the_prompt_asks_for_none_on_ul_when_the_text_is_silent(self):
+        """S6: the pricing side reads an absent UL as not mentioned; the prompt is fixed too, so the rule is not
+        covering a defect -- the asset now says, for ul, answer "None" when the text is silent and never leave it
+        out. The three other prompt assets are untouched (il_01 pins them)."""
+        text = extraction.select_prompt_text({"matching_mode": "item_list"})
+        self.assertIn("- ul (UL listed): when the text says NOTHING about UL", text)
+        self.assertIn('answer "None" -- never leave ul out', text)
+        self.assertIn('Answer "yes" only when a\n  UL listing is stated for THAT item', text)
+        # NEGATIVE: the sentence names UL only -- damper and insulation keep the general rule
+        self.assertNotIn("- damper (", text)
+        self.assertNotIn("- insulated (", text)
+
+    # -- il_13 (slice 6, S8) ----------------------------------------------------------------------------
+    def test_il_13_the_second_opinion_is_off_for_adp_and_the_mechanism_still_switches_on(self):
+        spec = extraction.build_items_spec(self.adp)
+        self.assertIs(spec["second_opinion"], False)
+        # NEGATIVE: a config that turns it on gets it (the mechanism is a switch, not removed)
+        on = dict(self.adp); on["list_spec"] = dict(self.adp["list_spec"]); on["list_spec"]["second_opinion"] = True
+        self.assertIs(extraction.build_items_spec(on)["second_opinion"], True)
+        absent = dict(self.adp); absent["list_spec"] = dict(self.adp["list_spec"]); absent["list_spec"].pop("second_opinion")
+        self.assertIs(extraction.build_items_spec(absent)["second_opinion"], False)
+

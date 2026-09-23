@@ -60,6 +60,10 @@ Rules:
 - air (supply / return / exhaust / fresh): answer it ONLY when the row
   or its ancestors state it; otherwise "None". Never infer it from the
   kind of item.
+- ul (UL listed): when the text says NOTHING about UL, UL 555 or a UL
+  listing, answer "None" -- never leave ul out. Answer "yes" only when a
+  UL listing is stated for THAT item, "no" only when the text says it is
+  not UL listed.
 - A choice with values_by_family is answered ONLY from the list for the
   item's own family; for a family that has no list there, answer "None"
   if the attribute is marked allow_none, otherwise leave it out.

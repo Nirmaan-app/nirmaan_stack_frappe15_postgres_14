@@ -2014,3 +2014,121 @@ class TestOptionBCapture(FrappeTestCase):
             extraction._capture_roll(self.path)
         self.assertTrue(os.path.exists(self.path + ".1"), "the oversized file must be rolled aside")
         self.assertFalse(os.path.exists(self.path), "... and the live path freed")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6 (owner "trynow", 2026-09-24) -- THE SEAM THE LIVE CERT BROKE ON.
+#
+# The first live ADP run (BRSR-26-01129) stored every row with `attributes: {}` and NO `items`,
+# while its capture held five parsed item lists and zero drops. `run_extraction` calls its nested
+# `_row_result` TWICE on the same batch-output dict -- once at the SR-1 checkpoint, once for the
+# final envelope -- and `_row_result` popped `__items__` out of that dict IN PLACE, so the second
+# call found nothing and the envelope's empty rows overwrote the checkpointed ones in the api layer.
+# The slice-4 pilot called `_extract_batch` directly and never crossed this seam. A test on each
+# side of a boundary is not a test of the boundary (CLAUDE.md standing rule): this one asserts the
+# value ARRIVES on BOTH sides -- the checkpoint rows AND the envelope -- from ONE fake reply.
+# ══════════════════════════════════════════════════════════════════════════════════════════
+class TestItemListRowsSurviveTheCheckpoint(FrappeTestCase):
+    """An item-list row's `items` must reach the checkpoint AND the final envelope (the two readers
+    of one batch output). Needs the live `hvac_adp` config (eligible since HVAC v8)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, f"RM3IL_{frappe.generate_hash(length=6)}")
+        cls.sheet_name = "ADP"
+        cls.cv = 1
+        cls.sheet_doc = _new_sheet(cls.boq, cls.sheet_name, commit_version=cls.cv)
+        cls.header = _node(cls.boq, cls.sheet_doc, "Preamble", 1, None, "AIR DISTRIBUTION", 1)
+        _node(cls.boq, cls.sheet_doc, "Line Item", 2, cls.header, "Spigot 150 mm dia", 2, qty=1)
+        _node(cls.boq, cls.sheet_doc, "Line Item", 3, cls.header, "Canvas connection for fan", 3, qty=1)
+        frappe.db.commit()
+        _insert_cat(cls.boq, cls.sheet_name, cls.cv, 2, "hvac_adp", discipline="HVAC")
+        _insert_cat(cls.boq, cls.sheet_name, cls.cv, 3, "hvac_adp", discipline="HVAC")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt in (_EVENT, _RUN, _ROW_CATEGORY, "BOQ Nodes", "BoQ Sheet"):
+            frappe.db.delete(dt, {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    @staticmethod
+    def _items_reply(ids):
+        return _Resp(json.dumps([
+            {"id": rid, "items": [{"attributes": {
+                "family": {"value": "spigot" if rid == 2 else "canvas connection", "confidence": 0.95},
+                "dia_mm": {"value": "150 mm dia", "confidence": 0.9},
+                "air": {"value": "None", "confidence": 0.9},
+                "damper": {"value": "None", "confidence": 0.9},
+                "insulated": {"value": "None", "confidence": 0.9},
+                "ul": {"value": "None", "confidence": 0.9},
+            }}]}
+            for rid in ids
+        ]))
+
+    def test_il_seam_01_items_reach_the_checkpoint_AND_the_envelope_from_one_reply(self):
+        cfgs = extraction._load_active_configs({"HVAC"})
+        adp = cfgs.get(("HVAC", "hvac_adp"))
+        if not adp or not extraction.config_is_eligible(adp, cfgs):
+            self.skipTest("hvac_adp is not an eligible live config on this site (needs HVAC v8+)")
+
+        def responder(call, kwargs):
+            return self._items_reply([2, 3])
+
+        seen = []
+        env = extraction.run_extraction(
+            self.boq, self.sheet_name, client=_FakeClient(responder),
+            checkpoint_cb=lambda rows_, attempted: seen.append([dict(r) for r in rows_]),
+        )
+        self.assertEqual(env["ai_status"], "ran")
+        self.assertTrue(env["complete"])
+        # side 1: the checkpoint rows carry the items
+        self.assertEqual(len(seen), 1, "one batch -> one checkpoint")
+        ck = {r["excel_row"]: r for r in seen[0]}
+        self.assertEqual(sorted(ck), [2, 3])
+        for rid in (2, 3):
+            self.assertIn("items", ck[rid], f"checkpoint row {rid} must carry items")
+            self.assertEqual(ck[rid]["attributes"], {}, "a list-mode row asks no row-level question")
+            self.assertEqual(ck[rid]["items"][0]["attributes"]["family"]["value"],
+                             "spigot" if rid == 2 else "canvas connection")
+        # side 2 -- THE SEAM: the final envelope carries the SAME items (the second `_row_result`
+        # call must not find a dict the first one emptied)
+        fin = {r["excel_row"]: r for r in env["results"]}
+        self.assertEqual(sorted(fin), [2, 3])
+        for rid in (2, 3):
+            self.assertIn("items", fin[rid], f"envelope row {rid} lost its items across the checkpoint seam")
+            self.assertEqual(fin[rid]["items"], ck[rid]["items"])
+            self.assertEqual(fin[rid]["item_flags"], ck[rid]["item_flags"])
+            self.assertEqual(fin[rid]["attributes"], {})
+
+    def test_il_seam_02_NEGATIVE_a_non_list_row_is_byte_identical_and_carries_no_items(self):
+        """The Electrical fixture path of TestRateSuggest is untouched by the copy: a plain
+        attributes reply still yields the attributes map and NO `items` / `item_flags` key."""
+        cfgs = extraction._load_active_configs({"HVAC"})
+        adp = cfgs.get(("HVAC", "hvac_adp"))
+        if not adp or not extraction.config_is_eligible(adp, cfgs):
+            self.skipTest("hvac_adp is not an eligible live config on this site (needs HVAC v8+)")
+
+        def responder(call, kwargs):
+            # an attributes-shaped reply on a LIST-mode row: the list parser records the row as
+            # having no list; the row still carries an `items` key (empty) -- never a crash
+            return _Resp(json.dumps([{"id": 2, "attributes": {"family": {"value": "spigot", "confidence": 0.9}}},
+                                     {"id": 3, "items": []}]))
+
+        seen = []
+        env = extraction.run_extraction(
+            self.boq, self.sheet_name, client=_FakeClient(responder),
+            checkpoint_cb=lambda rows_, attempted: seen.append([dict(r) for r in rows_]),
+        )
+        self.assertEqual(env["ai_status"], "ran")
+        fin = {r["excel_row"]: r for r in env["results"]}
+        ck = {r["excel_row"]: r for r in seen[0]}
+        for rid in (2, 3):
+            self.assertEqual(fin[rid].get("items"), ck[rid].get("items"),
+                             "checkpoint and envelope must agree on every row, items or not")
+            self.assertNotIn("family", fin[rid]["attributes"],
+                             "a list-mode row never stores a row-level attribute")

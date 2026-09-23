@@ -246,7 +246,9 @@ _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_token
 _PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
 _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
-_PRICING_DEFAULT_KEYS = {"value", "by_family", "rule"}
+# SLICE 6 (owner S6): `absent_as_none` -- an ABSENT answer is read as NOT MENTIONED, so the default fires on it too
+# (declared per attribute; the owner ruled it for UL ONLY, and the config is where that stays).
+_PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none"}
 _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
 # the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
 _PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
@@ -352,7 +354,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                 _vthrow(f"{uloc} must be an object with needs / pipelines only.")
             if "needs" in u and (not isinstance(u["needs"], list) or not all(isinstance(n, str) and n in sku_attrs for n in u["needs"])):
                 _vthrow(f"{uloc}.needs must list SKU attributes.")
-            _validate_pricing_pipelines(u.get("pipelines"), uloc, pr, sku_attrs)
+            # SLICE 6 (owner T7): a block WITHOUT pipelines runs the config's own `pipelines` -- the shared per-item
+            # default -- so the config must declare them (a non-empty `pipelines` is also what makes the list-mode
+            # category eligible). A block WITH pipelines keeps its own (a conversion, a derived family).
+            if "pipelines" in u:
+                _validate_pricing_pipelines(u.get("pipelines"), uloc, pr, sku_attrs)
+            elif not cfg.get("pipelines"):
+                _vthrow(f"{uloc} declares no pipelines and the config's own pipelines are empty -- nothing would price this block.")
         conv = f.get("convert")
         if conv is not None:
             if not isinstance(conv, dict):
@@ -376,6 +384,10 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                     if not isinstance(o.get("rule"), str) or not o["rule"]:
                         _vthrow(f"{oloc}.rule must be a non-empty string.")
                     _validate_pricing_pipelines(o.get("pipelines"), oloc, pr, sku_attrs)
+    # SLICE 6 (T7): the config-level pipelines of a list-mode config ARE per-item pipelines (the shared default), so
+    # they pass the item-list shape checks as well as the generic pipeline checks
+    if cfg.get("pipelines"):
+        _validate_pricing_pipelines(cfg.get("pipelines"), "list_spec.pricing (the config's own pipelines)", pr, sku_attrs)
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):
@@ -389,6 +401,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         vals = by_id[attr]["values"]
         if ("value" in d) == ("by_family" in d):
             _vthrow(f"{dloc} must carry exactly one of value / by_family.")
+        if "absent_as_none" in d and not isinstance(d["absent_as_none"], bool):
+            _vthrow(f"{dloc}.absent_as_none must be true or false.")
         if "value" in d and d["value"] not in vals:
             _vthrow(f"{dloc}.value must be one of the attribute's values.")
         if "by_family" in d and (not isinstance(d["by_family"], dict) or not d["by_family"] or not all(

@@ -70,7 +70,9 @@ export interface ConversionOption {
 
 export interface UnitPricing {
   needs?: string[];
-  pipelines: Record<string, Pipeline>;
+  /** SLICE 6 (T7): OPTIONAL -- a block that declares none runs the config's own `pipelines` (the shared
+   * per-item default, `default_pipelines` below). A conversion option and a derived family keep their own. */
+  pipelines?: Record<string, Pipeline>;
 }
 
 export interface FamilySpec {
@@ -83,6 +85,9 @@ export interface DefaultSpec {
   value?: string;
   by_family?: Record<string, string>;
   rule: string;
+  /** SLICE 6 (owner S6, UL ONLY by config): an ABSENT answer is read as NOT MENTIONED, so this default fires
+   * on it too. Absent / false => an absent answer stays "could not tell" and refuses (R2). */
+  absent_as_none?: boolean;
 }
 
 export interface DeriveWhenNone {
@@ -108,6 +113,9 @@ export interface ItemListPricingSpec {
   choice_attrs: string[];
   reason_names?: Record<string, string>;
   families: Record<string, FamilySpec>;
+  /** SLICE 6 (T7): the config's OWN `pipelines` -- the shared per-item default every unit block without
+   * pipelines of its own runs. Filled by `itemListPricingSpec` from the config; never stored in the block. */
+  default_pipelines?: Record<string, Pipeline>;
 }
 
 /** Read the block off a config; null when the config does not declare it. PURE. */
@@ -116,7 +124,10 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
   if (!spec || typeof spec !== "object") return null;
   const p = spec as Partial<ItemListPricingSpec>;
   if (typeof p.kind !== "string" || !p.unit_classes || !p.families || !p.numbers) return null;
-  return spec as ItemListPricingSpec;
+  // SLICE 6 (T7): the config's own pipelines ride along as the shared per-item default. A copy, so the
+  // block object the config holds is never written into.
+  const pipelines = (config as RateCategoryConfig).pipelines ?? {};
+  return { ...(spec as ItemListPricingSpec), default_pipelines: pipelines };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -126,6 +137,9 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
 /** One extracted item as the run stores it: `items[i].attributes[attr] = {value, confidence}`. */
 export interface ExtractedListItem {
   attributes: Record<string, { value: string | number | null; confidence?: number }>;
+  /** SLICE 6 (T4, the owner's unit-rate ruling): how many of this item ONE row unit pays for. Absent => 1.
+   * Blank / non-numeric / non-positive => the item refuses ("quantity per row unit is blank"). */
+  qtyPerRowUnit?: number | string | null;
 }
 
 export interface DefaultedAttr {
@@ -159,7 +173,12 @@ export interface ItemPriceResult {
   /** The conversion the row's unit needed (R4 / R11 / R16), or null. */
   conversion: { rule: string; to: string } | null;
   sku: { item_uid?: string; item_name?: string; item_detail?: string; unit?: string } | null;
+  /** The per-UNIT figures the pipelines produced (before the quantity). */
   finals: Record<string, number>;
+  /** SLICE 6 (T4): the quantity per row unit applied to `finals` to give `figures` (1 when absent). */
+  qty: number;
+  /** SLICE 6 (T4): `finals` x `qty` -- what this item contributes to the row. */
+  figures: Record<string, number>;
   working: string[];
   pipelineResults: PipelineResult[];
 }
@@ -344,7 +363,7 @@ function priceOneItem(
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, defaulted: [],
-    ladderHops: [], conversion: null, sku: null, finals: {}, working: [], pipelineResults: [],
+    ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, figures: {}, working: [], pipelineResults: [],
   };
   const blank = (reason: string): ItemPriceResult => ({ ...out, state: "blank", reason });
 
@@ -382,7 +401,9 @@ function priceOneItem(
       if (got.note) notes.push(`${reader.name}: ${got.note}`);
       continue;
     }
-    const v = rawValue(item, attr);
+    let v = rawValue(item, attr);
+    // SLICE 6 (S6): a default declaring `absent_as_none` reads an ABSENT answer as "None" -- UL only, by config.
+    if (v === null && spec.defaults?.[attr]?.absent_as_none === true) v = "None";
     if (v === null) continue;
     if (v === "None") {
       noneSaid.add(attr);
@@ -414,6 +435,8 @@ function priceOneItem(
   let needs = [...fam.needs];
   if (unit) {
     needs.push(...(unit.needs ?? []));
+    // SLICE 6 (T7): a block without pipelines of its own runs the config's shared per-item default
+    if (!unit.pipelines) unit = { ...unit, pipelines: spec.default_pipelines };
   } else {
     const options = fam.convert?.[rowUnitClass] ?? [];
     const chosen = options.find((o) => o.needs.every((n) => n in read));
@@ -484,10 +507,26 @@ function priceOneItem(
   out.working.push(...notes);
   for (const d of out.defaulted) out.working.push(`${d.attr} not mentioned -> ${d.value} (${d.rule})`);
 
-  // (6) the arithmetic: the interpreter, unchanged, over the declared pipelines
+  // SLICE 6 (T4): the quantity per row unit -- absent = 1; stated but unreadable / non-positive = blank
+  const qtyRaw = item.qtyPerRowUnit;
+  let qty = 1;
+  if (qtyRaw !== undefined && qtyRaw !== null && String(qtyRaw).trim() !== "") {
+    const q = Number(String(qtyRaw).trim());
+    if (!Number.isFinite(q) || q <= 0) return { ...blank(`quantity per row unit '${String(qtyRaw)}' is not a positive number`), selection: out.selection, defaulted: out.defaulted };
+    qty = q;
+  } else if (qtyRaw === "" || qtyRaw === null) {
+    return { ...blank("quantity per row unit is blank"), selection: out.selection, defaulted: out.defaulted };
+  }
+  out.qty = qty;
+
+  // (6) the arithmetic: the interpreter, unchanged, over the declared pipelines (or the config's default)
   const results: PipelineResult[] = [];
   const finals: Record<string, number> = {};
-  for (const [id, pl] of Object.entries(unit.pipelines)) {
+  const pipelines = unit.pipelines ?? {};
+  if (!Object.keys(pipelines).length) {
+    return { ...blank("no pricing pipelines declared for this family and unit"), selection: out.selection, defaulted: out.defaulted };
+  }
+  for (const [id, pl] of Object.entries(pipelines)) {
     const r = runPipeline(id, pl, candidates, sel);
     results.push(r);
     if (r.status !== "ok") {
@@ -505,7 +544,10 @@ function priceOneItem(
       if (st.produced) out.working.push(`${id}: ${st.label} = ${fmt(st.produced.value)}`);
     }
   }
-  return { ...out, state: "priced", finals, pipelineResults: results };
+  const figures: Record<string, number> = {};
+  for (const [k, v] of Object.entries(finals)) figures[k] = v * qty;
+  if (qty !== 1) out.working.push(`x ${fmt(qty)} per row unit`);
+  return { ...out, state: "priced", finals, figures, pipelineResults: results };
 }
 
 function skuOf(it: RateMasterItem): ItemPriceResult["sku"] {
@@ -544,6 +586,98 @@ export function priceItemList(
     const who = priced.length > 1 ? `item ${firstBlank.index + 1}${firstBlank.family ? ` (${firstBlank.family})` : ""}: ` : "";
     return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced };
   }
-  const sum = (k: string) => priced.reduce((a, p) => a + (p.finals[k] ?? 0), 0);
+  const sum = (k: string) => priced.reduce((a, p) => a + (p.figures[k] ?? 0), 0);
   return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced };
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 6 -- what the PANEL needs to draw one item block, read from the SAME config (never a hard-coded list)
+// ---------------------------------------------------------------------------------------------------------
+
+/** A per-item attribute definition as the list_spec declares it (the model's question). */
+export interface ListSpecDef {
+  id: string;
+  label: string;
+  type: "choice" | "number" | "text";
+  values?: string[];
+  allow_none?: boolean;
+  values_by_family?: Record<string, string[]>;
+}
+
+/** The list_spec's per-item definitions off a config, or [] (never throws). PURE. */
+export function listSpecDefs(config: RateCategoryConfig | null | undefined): ListSpecDef[] {
+  const defs = (config as { list_spec?: { attribute_definitions?: unknown } } | null | undefined)?.list_spec?.attribute_definitions;
+  return Array.isArray(defs) ? (defs as ListSpecDef[]) : [];
+}
+
+/** The families a pricer may pick for an item -- every priceable family the block declares, in the block's
+ * own order, with the unit(s) its SKUs are sold per ("per sq.m"). Aliases and no-SKU families are NOT
+ * offered: they exist for the model's answer, not for a pick. PURE. */
+export function familyChoices(spec: ItemListPricingSpec): Array<{ family: string; units: string }> {
+  return Object.entries(spec.families).map(([family, f]) => ({
+    family,
+    units: Object.keys(f.units).map((cls) => `per ${unitWord(spec, cls)}`).join(" / "),
+  }));
+}
+
+/** One field of an item block: the id the VALUE is read / written under (the model's attribute id -- a
+ * number reader's first `from`), the label, the options of a choice (with "None" first when allow_none,
+ * the Electrical shape), and which SKU attribute it serves. */
+export interface ItemFieldDef {
+  id: string;
+  label: string;
+  options?: string[];
+  allowNone: boolean;
+  /** The SKU attribute this field feeds (a `numbers` key or the choice attribute itself). */
+  skuAttr: string;
+}
+
+/**
+ * The fields ONE item block shows, for its family on a row of this unit class: the family's needs, the
+ * block's (or, when the row converts, every conversion option's) needs, and the source attribute of any
+ * `derive_when_none` rule that applies to the family -- in that order, deduplicated. A family the block
+ * does not price, or no family, gives []. PURE.
+ */
+export function itemFieldDefs(
+  spec: ItemListPricingSpec,
+  defs: ListSpecDef[],
+  family: string | null | undefined,
+  rowUnitClass: string | null | undefined,
+): ItemFieldDef[] {
+  if (!family || !spec.families[family]) return [];
+  const fam = spec.families[family];
+  const ids: string[] = [...fam.needs];
+  const cls = rowUnitClass ?? "";
+  if (fam.units[cls]) ids.push(...(fam.units[cls].needs ?? []));
+  else for (const o of fam.convert?.[cls] ?? []) ids.push(...o.needs);
+  for (const rule of spec.derive_when_none ?? []) {
+    if (rule.families.includes(family) && ids.includes(rule.attr)) ids.push(rule.when.attr);
+  }
+  const seen = new Set<string>();
+  const out: ItemFieldDef[] = [];
+  const defById = new Map(defs.map((d) => [d.id, d]));
+  for (const attr of ids) {
+    if (seen.has(attr)) continue;
+    seen.add(attr);
+    const reader = spec.numbers[attr];
+    if (reader) {
+      const modelId = reader.from[0];
+      const d = defById.get(modelId);
+      out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr });
+      continue;
+    }
+    const d = defById.get(attr);
+    if (!d) continue;
+    let values = d.values ?? [];
+    if (d.values_by_family && d.values_by_family[family]) values = d.values_by_family[family];
+    out.push({
+      id: attr,
+      label: d.label,
+      options: d.type === "choice" ? (d.allow_none ? ["None", ...values] : [...values]) : undefined,
+      allowNone: d.allow_none === true,
+      skuAttr: attr,
+    });
+  }
+  return out;
+}
+

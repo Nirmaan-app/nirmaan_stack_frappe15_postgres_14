@@ -30,6 +30,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import type { RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { BoqPresence } from "./BoqPresence";
 import { AlertTriangle, ArrowDownToLine, ArrowLeft, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import {
@@ -207,7 +208,7 @@ import { RateHelperPanel, type UseMeta } from "./rate-helper/RateHelperPanel";
 import { buildHelperList } from "./rate-helper/rateHelperRegistry";
 import {
   buildExtractionByRow,
-  disciplineHasNothingToRun,
+  rowUsesPreRunHelper,
   isRunForVersion,
   makePreRunHelper,
   makePricingSheetHelper,
@@ -219,7 +220,10 @@ import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helpe
 // arguments, SWR keys and accumulate-once logic.
 import {
   RATE_MASTER_CONFIG_TARGETS,
+  RATE_MASTER_ITEM_DISCIPLINES,
   RateConfigFetcher,
+  RateItemsFetcher,
+  mergeItemsByName,
   useConfigsByCategory,
   useRateMasterItems,
 } from "./rate-helper/rateHelperPlumbing";
@@ -372,6 +376,8 @@ interface SuggestRunResultRow {
   excel_row: number;
   description?: string;
   attributes: Record<string, { value: string | number | null; confidence: number; corroborated?: boolean }>;
+  /** SLICE 6: an item-list row's stored items (slice 4's `results[i].items`); absent on every other row. */
+  items?: Array<{ attributes: Record<string, { value: string | number | null; confidence?: number }> }>;
 }
 interface SuggestStatusResponse {
   state: "running" | "done" | "idle";
@@ -2912,7 +2918,23 @@ const SheetPricingPage = () => {
 
   // RM-3/EA-2: the N-category configs + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single
   // compute source). The helper resolves a config PER row category from configsByCategory.
-  const rmItems = useMemo(() => rmItemsData?.message?.items ?? [], [rmItemsData]);
+  // SLICE 6: a list-mode category (HVAC ADP) prices from ITS discipline's SKUs, so the page holds EVERY
+  // registry discipline's items -- the default fetch above first, then each discipline's set, merged by
+  // name (the calculator's L6 merge, now shared). Found LIVE: the first ADP pick reported "no SKU for
+  // this combination" against a catalogue the page had never fetched.
+  const [extraRmItems, setExtraRmItems] = useState<Map<string, RateMasterItem[]>>(() => new Map());
+  const onExtraRmItemsLoaded = useCallback((disc: string, list: RateMasterItem[]) => {
+    setExtraRmItems((prev) => {
+      if (prev.get(disc) === list) return prev;
+      const next = new Map(prev);
+      next.set(disc, list);
+      return next;
+    });
+  }, []);
+  const rmItems = useMemo(
+    () => mergeItemsByName(rmItemsData?.message?.items ?? [], ...RATE_MASTER_ITEM_DISCIPLINES.map((d) => extraRmItems.get(d) ?? [])),
+    [rmItemsData, extraRmItems],
+  );
   // The run's extraction, keyed by excel_row.
   const extractionByRow = useMemo<Map<number, ExtractionRow>>(
     () => buildExtractionByRow(suggestRun?.results ?? []),
@@ -2946,13 +2968,17 @@ const SheetPricingPage = () => {
     () => (RATE_HELPER_ENABLED && configsByCategory.size > 0 ? makePreRunHelper(configsByCategory, rmItems) : null),
     [configsByCategory, rmItems],
   );
+  // SLICE 6 (owner U6): the rule is now PER ROW -- the discipline has nothing to run, OR the row's OWN config
+  // is not an eligible config of its own (a vendor-quote message, an alias). Once a discipline gains an
+  // eligible category (ADP), its other rows keep the cards they had; an Electrical row is unchanged.
   const panelHelpers = useMemo(() => {
     if (pricingSheetHelper || !preRunHelper || !helperPanel) return helperList;
     const discipline = resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null;
-    return disciplineHasNothingToRun(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
+    const categoryId = liveCategoriesByExcelRow.get(helperPanel.excelRow)?.effective_category_id ?? null;
+    return rowUsesPreRunHelper(discipline, categoryId, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
       ? buildHelperList(preRunHelper)
       : helperList;
-  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, configsByCategory, helperList]);
+  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, liveCategoriesByExcelRow, configsByCategory, helperList]);
 
   // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
   // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).
@@ -3154,7 +3180,19 @@ const SheetPricingPage = () => {
           extractedAttributes[k] = cell.value;
           extractedConfidences[k] = cell.confidence;
         }
+        // SLICE 6 (T5): an item-list row's stored items ride the SAME JSON field -- what the model returned,
+        // each item with its attributes; absent on every other row, whose payload is byte-identical.
+        const extItems = (ext as { items?: SuggestRunResultRow["items"] }).items;
+        if (Array.isArray(extItems)) {
+          extractedAttributes.items = extItems.map((it) => ({
+            attributes: Object.fromEntries(Object.entries(it.attributes ?? {}).map(([k, c]) => [k, c.value])),
+          }));
+        }
       }
+      // SLICE 6 (T5): what was ON SCREEN at Use -- every block's family, source, fields and quantity.
+      const correctedAttributes: Record<string, unknown> = meta.itemsOnScreen
+        ? { ...meta.correctedAttributes, items: meta.itemsOnScreen }
+        : meta.correctedAttributes;
       void recordSuggestEventCall({
         boq: boqId,
         sheet_name: sheetName,
@@ -3166,7 +3204,7 @@ const SheetPricingPage = () => {
         run_id: suggestRun?.runId ?? "",
         extracted_attributes: extractedAttributes,
         extracted_confidences: extractedConfidences,
-        corrected_attributes: meta.correctedAttributes,
+        corrected_attributes: correctedAttributes,
         computed_value: meta.computedValue,
         used_value: value,
       })
@@ -3187,7 +3225,9 @@ const SheetPricingPage = () => {
     const row = rows.find((r) => r.source_row_number === helperPanel.excelRow);
     if (!row) return null;
     const rateKinds = rateKindsOf(columnDescriptors.filter(isRateDescriptor));
-    return buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow));
+    // SLICE 6: the row's UNIT rides the context -- an item-list row prices per its unit (R12); every other
+    // helper ignores it.
+    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow)), unit: row.unit ?? "" };
   }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
@@ -4712,6 +4752,12 @@ const SheetPricingPage = () => {
       {ranDisciplines.map((d) => (
         <EngineCatalogFetcher key={`cat-${d}`} discipline={d} onLoaded={handleCatalogLoaded} />
       ))}
+      {/* SLICE 6: one items fetcher per registry DISCIPLINE (the list-mode SKUs live under their own). */}
+      {RATE_HELPER_ENABLED
+        ? RATE_MASTER_ITEM_DISCIPLINES.map((d) => (
+            <RateItemsFetcher key={`rmitems-${d}`} discipline={d} onLoaded={onExtraRmItemsLoaded} />
+          ))
+        : null}
       {/* EA-2: one rate-config fetcher per registry category (DEV-gated with the whole helper). */}
       {RATE_HELPER_ENABLED
         ? RATE_MASTER_CONFIG_TARGETS.map((t) => (

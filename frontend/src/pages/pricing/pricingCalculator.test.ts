@@ -628,3 +628,48 @@ describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring a
     expect(strip(PLUMBING_SRC)).not.toContain("alias");
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6 (2026-09-24, owner S5 / T6 / T7) -- the HVAC calculator prices ADP the same way as the panel, starting
+// empty; ADP is live on the CURRENT asset (v8); Electrical is untouched.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+import HVAC_ASSET_V8 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
+import { applyItemEdit, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, type ItemListSuggestion } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+
+describe("SLICE 6 / the HVAC calculator prices ADP (v8) -- one item block per added item, the same figures as the panel", () => {
+  const HVAC8 = HVAC_ASSET_V8 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS8 = new Map<string, RateCategoryConfig>(HVAC8.category_configs.map((c) => [c.category_id, c]));
+  const helper8 = () => makePricingSheetHelper({ configsByCategory: CONFIGS8, items: HVAC8.items, extractionByRow: new Map() });
+  it("no placeholder block is announced for a list-mode category; the vendor and alias entries are as before", () => {
+    expect(calculatorBlockLabels(CONFIGS8.get("hvac_adp")!)).toEqual([]);
+    expect(calculatorBlockLabels(CONFIGS8.get("hvac_ahu")!)).toEqual([]);
+    // NEGATIVE: an Electrical category still announces its blocks
+    expect(calculatorBlockLabels(CONFIGS.get("switches_sockets")!).length).toBeGreaterThan(0);
+  });
+  it("ADP starts EMPTY ('Add an item to price'), the row unit is a pick, an added and filled item prices EXACTLY as the panel prices the same inputs", () => {
+    const r0 = helper8().compute(calculatorCtx("HVAC", "hvac_adp"));
+    if (!isSuggestion(r0)) throw new Error("expected a suggestion");
+    const v0 = (r0 as ItemListSuggestion).itemList!;
+    expect(r0.basis).toBe("Add an item to price");
+    expect(v0.items).toEqual([]);
+    expect(v0.unitPickable).toBe(true);
+    // + Add item -> spigot 150 per number
+    const s = applyItemEdit(applyItemEdit(v0.editState, { op: "add", family: "spigot" }), { op: "set_attr", index: 0, id: "dia_mm", value: "150" });
+    const r1 = helper8().compute(calculatorCtx("HVAC", "hvac_adp"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s), [ROW_UNIT_OVERRIDE_KEY]: "nos" });
+    if (!isSuggestion(r1)) throw new Error("expected a suggestion");
+    expect(r1.values).toEqual({ supply_rate: 211, install_rate: 64, combined_rate: 275 });
+    // THE PARITY: a BoQ row in a run with the same item gives the same figures
+    const inRun = makePricingSheetHelper({
+      configsByCategory: CONFIGS8, items: HVAC8.items,
+      extractionByRow: buildExtractionByRow([{ excel_row: 40, attributes: {}, items: [{ attributes: { family: { value: "spigot", confidence: 0.9 }, dia_mm: { value: "150", confidence: 0.9 } } }] }]),
+    }).compute({ excelRow: 40, description: "spigot", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"], unit: "Nos" } as RateHelperRowContext);
+    if (!isSuggestion(inRun)) throw new Error("expected a suggestion");
+    expect(inRun.values).toEqual(r1.values);
+  });
+  it("NEGATIVE: the vendor-quote categories still decline with their message; the Electrical calculator's 34 goldens are untouched (the parity suite above)", () => {
+    for (const id of ["hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"]) {
+      const r = helper8().compute(calculatorCtx("HVAC", id));
+      expect(r).toEqual({ kind: "none", reason: CONFIGS8.get(id)!.helper_message });
+    }
+  });
+});
