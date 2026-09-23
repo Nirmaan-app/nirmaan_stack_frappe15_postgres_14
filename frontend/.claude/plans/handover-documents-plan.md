@@ -281,10 +281,13 @@ guide to the whole flow.
 - **Binder** (not a print format): a background job builds cover + checklist, then for every switched-on
   document a divider + its content. **As built (owner 2026-09-22):**
   - content = the uploaded signed copy if there is one (it REPLACES everything else, From-app documents
-    included); else the HOD Document page; else — for From-app documents — the actual ticked records:
-    Commission reports (signed copy, else the filled report through the Commission print format, else the
-    uploaded file), TDS data sheets, one Snag List print per ticked batch, and As Built drawings **downloaded
-    from their Google Drive links and merged** (~~listed on the divider~~ — superseded). Never a list page.
+    included); else the HOD Document page; for a From-app document that page comes FIRST — the list naming
+    what follows (TDS: item, make, category; Commission: the tasks; As Built: the drawings), showing only the
+    ticked records (owner 2026-09-23) — and behind it the records themselves: Commission reports (signed copy,
+    else the filled report through the Commission print format, else the uploaded file), TDS data sheets, one
+    Snag List print per ticked batch, and As Built drawings **downloaded from their Google Drive links and
+    merged** (~~listed on the divider~~ — superseded). ~~Never a list page~~ — superseded: the list page leads,
+    the records follow it.
   - **Owner 2026-09-23: the binder downloads only when every switched-on document is Completed.** The button
     is disabled until then and says how many are left; a document the project does not need is switched off
     and stops counting. The earlier pre-check dialog ("these documents have nothing to include — switch them

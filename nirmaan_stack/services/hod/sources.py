@@ -73,6 +73,16 @@ def design_is_done(status) -> bool:
 	return str(status or "").strip() in DESIGN_DONE
 
 
+def selected_items(items, selected):
+	"""The records a from-app document includes: the ones ticked on it, or all of them when nothing was
+	ticked (`form_data.selected` absent). The printed list and the binder read this same rule, so the page
+	that introduces the reports lists exactly the reports that follow it."""
+	if not isinstance(selected, list):
+		return list(items or [])
+	keep = {str(s) for s in selected}
+	return [i for i in (items or []) if str(i.get("name")) in keep]
+
+
 # What the binder takes for one Commission Report task, best first.
 COMMISSION_SIGNED = "signed"  # the client-signed copy in `approval_proof`
 COMMISSION_REPORT = "report"  # the filled report, rendered with the Commission print format

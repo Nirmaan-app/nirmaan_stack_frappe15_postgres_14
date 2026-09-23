@@ -24,7 +24,7 @@ from frappe.utils import formatdate, getdate, today
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import VENDOR, as_dict, project_info
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
-from nirmaan_stack.services.hod import blanks, checklist, dates, escalation, index, maintenance
+from nirmaan_stack.services.hod import blanks, checklist, dates, escalation, index, maintenance, sources
 
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
@@ -244,7 +244,10 @@ def hod_print_context(doc) -> dict:
 		ctx["dlp_from"] = _fmt(start)
 		ctx["dlp_to"] = _fmt(dates.dlp_end(getdate(start))) if start else ""
 	elif entry["kind"] == index.FROM_APP:
-		ctx["sources"] = sources_for(doc.project, doc.hod_system, key)
+		src = sources_for(doc.project, doc.hod_system, key)
+		# The page introduces what the binder puts behind it, so it lists the ticked records only.
+		src["items"] = sources.selected_items(src.get("items"), fd.get("selected"))
+		ctx["sources"] = src
 	return ctx
 
 

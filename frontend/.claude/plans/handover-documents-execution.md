@@ -209,7 +209,10 @@ Nothing is written to those features. The ticks are saved in `form_data.selected
 - **One generated document**: Frappe's `download_pdf` with format "HOD Document" on the row.
 - **Checklist PDF**: format "HOD Checklist" on the project, with `&hod_system=`.
 - **One From Nirmaan document's content**: `enqueue_binder(..., document=)`. It is a background job, so large
-  Commission sets do not time out.
+  Commission sets do not time out. It starts with the document's own page — the list that names what follows
+  (TDS: item, make, category, status; Commission: the tasks; As Built: the drawings) — and the page lists only
+  the ticked records, because `services/hod/sources.selected_items` is read by the print context and the binder
+  alike (owner 2026-09-23: a stack of data sheets says nothing about which item each one is for).
 - **Binder**:
   1. The button unlocks only when every switched-on document is Completed (owner 2026-09-23), so nothing in
      it can be empty; there is no pre-check dialog and no progress window — the button counts the steps.

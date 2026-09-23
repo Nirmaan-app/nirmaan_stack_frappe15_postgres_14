@@ -181,6 +181,11 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 				steps.append(_file_step(f"{title}: {t.task_name}", t.download_url))
 	if not steps and isinstance(selected, list) and src.get("items"):
 		return steps, EMPTY_REASON["none_selected"]
+	if steps:
+		# The document's own page first: it says WHICH records follow (item, make, category, report name),
+		# then the records themselves. Without it the binder is a stack of data sheets with nothing naming
+		# what each one is for (owner 2026-09-23).
+		steps.insert(0, _print_step(f"{title} (list)", DOCTYPE, row.name, PF_DOCUMENT))
 	return steps, (None if steps else EMPTY_REASON[src_kind])
 
 

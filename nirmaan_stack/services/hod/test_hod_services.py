@@ -298,3 +298,11 @@ class TestEscalation(unittest.TestCase):
 		self.assertTrue(all(sources.design_is_done(x) for x in ("Submitted", "Approved")))
 		self.assertTrue(not any(sources.design_is_done(x) for x in ("Pending", "WIP", "Not Applicable", None)))
 		self.assertEqual(sources.SNAG_DONE, "Completed")
+
+	def test_selected_items_follows_the_ticks(self):
+		items = [{"name": "a"}, {"name": "b"}, {"name": "c"}]
+		self.assertEqual(sources.selected_items(items, None), items)  # nothing ticked = all of them
+		self.assertEqual(sources.selected_items(items, "junk"), items)
+		self.assertEqual([i["name"] for i in sources.selected_items(items, ["b", "c"])], ["b", "c"])
+		self.assertEqual(sources.selected_items(items, []), [])
+		self.assertEqual(sources.selected_items(None, ["a"]), [])
