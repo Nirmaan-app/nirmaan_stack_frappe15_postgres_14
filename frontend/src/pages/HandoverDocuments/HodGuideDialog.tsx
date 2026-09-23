@@ -1,12 +1,15 @@
-// "Details": how the Handover Documents tab works, in the order a site team uses it.
+// "Details": how the Handover Documents tab works, in the order a site team uses it. The three kinds of
+// document are the thing to understand first, so they are a table rather than prose.
 
 import {
   BookOpenText,
   CheckCircle2,
   ClipboardList,
   Database,
+  Download,
   FileText,
   Library,
+  MousePointerClick,
   Upload,
 } from "lucide-react";
 import * as React from "react";
@@ -15,10 +18,13 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+import { SHOW_BINDER_BUTTON } from "./hodApi";
 
 const Section: React.FC<{
   icon: React.ElementType;
@@ -29,7 +35,7 @@ const Section: React.FC<{
     <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-50">
       <Icon className="h-3.5 w-3.5 text-red-700" />
     </div>
-    <div className="space-y-1 text-sm text-gray-700">
+    <div className="min-w-0 space-y-1.5 text-sm text-gray-700">
       <p className="font-semibold text-gray-900">{title}</p>
       {children}
     </div>
@@ -47,6 +53,50 @@ const Pill: React.FC<{ className: string; children: React.ReactNode }> = ({
   </span>
 );
 
+/** The three kinds, with the documents in each and what the team does with them. */
+const KINDS: Array<{
+  kind: string;
+  tone: string;
+  documents: string;
+  todo: React.ReactNode;
+}> = [
+  {
+    kind: "You fill it",
+    tone: "bg-blue-50 text-blue-700",
+    documents:
+      "1 Escalation Chart · 5 O&M Manual (blanks + project pictures) · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List · 9 Recommended Tools (remarks) · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
+    todo: (
+      <>
+        <b>Fill Form</b> → <b>Download</b> → get it signed →{" "}
+        <b>Upload Signed</b>
+      </>
+    ),
+  },
+  {
+    kind: "Same for every project",
+    tone: "bg-violet-50 text-violet-700",
+    documents:
+      "6 Do's & Don'ts — and the text inside the O&M Manual, the Maintenance Checklist and the Tools list",
+    todo: (
+      <>
+        Nothing to fill: <b>Download</b> → sign → <b>Upload Signed</b>
+      </>
+    ),
+  },
+  {
+    kind: "From Nirmaan",
+    tone: "bg-amber-50 text-amber-700",
+    documents:
+      "2 Demo & Training · 3 Commissioning Report · 4 Material TDS · 14 Factory Test Reports · 15 Snag List · 16 As Built Drawings",
+    todo: (
+      <>
+        <b>Select &amp; Download</b> the records you need → sign →{" "}
+        <b>Upload Signed</b>
+      </>
+    ),
+  },
+];
+
 export const HodGuideDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -55,105 +105,163 @@ export const HodGuideDialog: React.FC<{
     <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
       <DialogHeader>
         <DialogTitle>How Handover Documents work</DialogTitle>
+        <DialogDescription>
+          Every system this project hands over gets the same 16 documents. Fill
+          them, get them signed, upload the signed copies — then download one
+          binder for the client.
+        </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-5">
-        <Section icon={ClipboardList} title="1. Add the systems">
+        <Section icon={ClipboardList} title="1. Add the systems you hand over">
           <p>
             <b>Create Handover Documents</b> (later <b>+ Add system</b>) — tick
-            the systems this project hands over (Electrical, HVAC, …). Each
-            system gets its own tab with the 16 handover documents.
+            the systems: Electrical, HVAC, CCTV… Each one gets its own tab with
+            the same 16 documents.
           </p>
           <p>
-            A document the project does not need: turn its <b>Use</b> switch
-            off. It disappears from the printed checklist (the numbers close up)
-            and from the binder.
+            A document this project does not need: switch <b>Use</b> off. It
+            leaves the printed checklist (the numbers close up) and the binder,
+            and can be switched back on any time. <b>Remove system</b> deletes
+            that system&apos;s 16 rows — it warns first if anything was filled.
           </p>
         </Section>
 
-        <Section icon={CheckCircle2} title="2. Status follows your actions">
-          <p>
-            Nobody picks the status by hand — it moves when the work is done:
-          </p>
+        <Section icon={FileText} title="2. The 16 documents come in three kinds">
+          <div className="overflow-hidden rounded-md border">
+            {KINDS.map((k, i) => (
+              <div
+                key={k.kind}
+                className={`grid gap-1 p-3 ${i > 0 ? "border-t" : ""}`}
+              >
+                <Pill className={`w-fit ${k.tone}`}>{k.kind}</Pill>
+                <p className="text-[13px] leading-relaxed text-gray-600">
+                  {k.documents}
+                </p>
+                <p className="text-[13px] text-gray-700">{k.todo}</p>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section icon={CheckCircle2} title="3. The status follows what you did">
+          <p>Nobody picks it by hand:</p>
           <ul className="ml-4 list-disc space-y-1">
             <li>
               <Pill className="bg-gray-100 text-gray-600">Pending</Pill> nothing
               done yet
             </li>
             <li>
-              <Pill className="bg-blue-50 text-blue-700">Form Filled</Pill> the
-              form was filled and saved (only documents with something to fill)
+              <Pill className="bg-blue-50 text-blue-700">Form Filled</Pill> a
+              form was filled and saved
             </li>
             <li>
               <Pill className="bg-green-50 text-green-700">Completed</Pill> the
               signed copy is uploaded
             </li>
           </ul>
-        </Section>
-
-        <Section icon={FileText} title="3. Documents you fill (Form)">
           <p>
-            Escalation Chart, Inventory List, Attic Stock List, Key List,
-            O&amp;M Manual (blanks + project pictures), Maintenance Checklist
-            (Result + Remarks per check, Comments), Recommended Tools List
-            (Remarks per tool), Equipment Warranty, Completion Certificate.
-          </p>
-          <p>
-            <b>Fill Form</b> → save (<i>Form Filled</i>) → <b>Download</b> → get
-            it signed → <b>Upload Signed</b> (<i>Completed</i>).
+            Only <i>Completed</i> prints YES on the checklist. Documents with
+            nothing to fill go straight from Pending to Completed.
           </p>
         </Section>
 
-        <Section icon={Library} title="4. Library documents">
+        <Section icon={MousePointerClick} title="4. The Actions column">
           <p>
-            Do&apos;s &amp; Don&apos;ts — the text is the same for every
-            project and comes from the HOD library. Nothing to fill:{" "}
-            <b>Download</b> → sign → <b>Upload Signed</b>. The Maintenance
-            Checklist items and the tool list come from the library too.
+            The button on the right is the next step for that row — Fill Form,
+            Download, Select &amp; Download, Upload Signed or View Signed.
           </p>
           <p>
-            To change a system&apos;s library text (or its tools / warranty
-            equipment), use <b>Edit library</b>.
-          </p>
-        </Section>
-
-        <Section icon={Database} title="5. From Nirmaan">
-          <p>
-            Demo &amp; Training, Commissioning Report, Material TDS, Factory
-            Test Reports, Snag List and As Built come from the Commission
-            Report, TDS list, Snag List and Design Tracker — they are fixed
-            there, not here.
-          </p>
-          <p>
-            <b>Select &amp; Download</b> shows everything available for this
-            system — Commission reports, TDS data sheets, each uploaded snag
-            list, and the As Built drawings (downloaded from their Google Drive
-            links). <b>View</b> any of them, tick the ones you need (all are
-            ticked at first) and <b>Download selected</b>. The same ticks are
-            used in the binder. Then upload the signed set (<i>Completed</i>).
+            The <b>⋮</b> menu has the rest: view or edit the form, see the
+            records a From Nirmaan document reads, preview the PDF, download it
+            again, and replace or remove the signed copy.
           </p>
         </Section>
 
-        <Section icon={Upload} title="6. Signed copies">
+        <Section icon={Database} title="5. Documents that come from Nirmaan">
           <p>
-            An uploaded signed copy is what the client receives: it replaces the
-            generated document in the binder. Replace or remove it from the{" "}
-            <b>⋮</b> menu.
+            Demo &amp; Training, Commissioning and Factory Test come from the{" "}
+            <b>Commission Report</b>, Material TDS from the <b>TDS list</b>, the
+            Snag List from <b>Snag List</b> batches, and As Built from the{" "}
+            <b>Design Tracker</b>. They are maintained there, never here.
+          </p>
+          <p>
+            <b>Select &amp; Download</b> lists what is <b>finished</b> for this
+            system — commissioning reports that are Submitted or Client
+            Accepted, As Built drawings that are Submitted or Approved, and the
+            Completed snags of each list. Work still in progress is not listed,
+            and the snag list prints with the same filter. <b>View</b> any of
+            it, tick what belongs in the handover (all ticked at first) and{" "}
+            <b>Download selected</b> — the same ticks are used in the binder.
           </p>
         </Section>
 
-        <Section icon={BookOpenText} title="7. Checklist and binder">
+        <Section icon={Upload} title="6. Signed copies win">
           <p>
-            <b>Checklist PDF</b> — cover page + the checklist (switched-on
-            documents only).
+            An uploaded signed copy is what the client receives: in the binder
+            it replaces the generated page, and for a From Nirmaan document it
+            replaces the reports behind it.
+          </p>
+        </Section>
+
+        <Section
+          icon={Download}
+          title={
+            SHOW_BINDER_BUTTON ? "7. Checklist and binder" : "7. Checklist PDF"
+          }
+        >
+          <p>
+            <b>Checklist PDF</b> — the cover page and the checklist of the
+            switched-on documents.
+          </p>
+          {SHOW_BINDER_BUTTON && (
+          <p>
+            <b>Download binder</b> — one PDF with the cover, the checklist, and
+            every switched-on document behind a divider page. It is the
+            client&apos;s finished set, so it unlocks only once{" "}
+            <b>every document is Completed</b>; until then the button says how
+            many are still to go. Switch off what this project does not need
+            and those stop counting. The button itself counts the steps while
+            it builds, and the PDF downloads by itself — about a minute for a
+            big binder.
+          </p>
+          )}
+        </Section>
+
+        <Section icon={Library} title="8. Where the standard text lives">
+          <p>
+            The O&amp;M manuals, Do&apos;s &amp; Don&apos;ts, maintenance
+            checks, tools and warranty equipment are kept once per system in the
+            library, under <b>Packages Settings → Handover Documents</b> (the{" "}
+            <b>Edit library</b> button opens it).
           </p>
           <p>
-            <b>Download binder</b> — everything in one PDF: cover, checklist,
-            then each document behind a divider page. It first checks every
-            switched-on document; any with nothing to download is listed so you
-            can switch it off (or add its content) before it starts. A progress
-            bar shows each step, and the PDF downloads by itself.
+            An edit there shows on the next download of every project handing
+            that system over — so fix the wording before teams start filling.
+            The <b>Edit library</b> button only appears for the people allowed
+            to change it.
           </p>
+        </Section>
+
+        <Section icon={BookOpenText} title="Good to know">
+          <ul className="ml-4 list-disc space-y-1">
+            <li>
+              Anything you leave empty prints blank, so a sheet can still be
+              filled in by hand on site.
+            </li>
+            <li>
+              Dates default to the day you download, except the Maintenance
+              Checklist, which stays blank unless you set the date of the check.
+            </li>
+            <li>
+              O&amp;M pictures are uploaded per project, in the O&amp;M form.
+            </li>
+            <li>
+              The Escalation Chart starts with three levels; <b>Add level</b> in
+              its form prints a fourth (and the same contacts reach the warranty
+              certificate).
+            </li>
+          </ul>
         </Section>
       </div>
 

@@ -46,7 +46,7 @@ proposal, `{{Blank Name}}` with self-filling `{{Project}}` / `{{Date}}`, was not
 
 | S.No | Document | Kind | Source / layout |
 |---|---|---|---|
-| 1 | Escalation Chart | Form | layout received — Appendix A |
+| 1 | Escalation Chart | Form | layout received — Appendix A; levels are added by the project (3 by default, owner 2026-09-23) |
 | 2 | Demo & Training Certificate | From app | Commission Report → "… Training Report" tasks |
 | 3 | Commissioning Report | From app | Commission Report → "… Commissioning Report" tasks |
 | 4 | Material Technical Data Sheet | From app | Project TDS (`Project TDS Item List`) |
@@ -79,6 +79,11 @@ go in (`form_data.selected`), and the binder uses the same ticks.
 
 Commission tasks that are neither training nor factory test (Earthing Test, LT Cable Megger, Socket Testing,
 pressure tests, Fluke/continuity tests, …) are listed under **3. Commissioning Report** (decision 9, as built).
+
+**Owner 2026-09-23: only FINISHED records are offered.** A Commission task counts when it is Submitted or
+Client Accepted, an As Built drawing when it is Submitted or Approved, and a snag when it is Completed — the
+snag list prints with the same filter, so what is ticked is what prints. Unfinished records are not listed at
+all (site-wide today: 46 of 894 commission tasks, 268 of 722 handover drawings, 194 of 884 snags qualify).
 
 ### Template coverage
 
@@ -180,7 +185,8 @@ varies:
    which documents apply, its O&M manuals (rich text + images + `[blanks]`), Do's / Don'ts lists, maintenance
    checklists (half-yearly + yearly items), tool list, warranty equipment list. **As built:** created and edited
    on screen (Desk); on localhost the 11 workbooks were inserted directly, once (no import script, no import
-   button — owner 2026-09-22); the library is NOT shipped as fixtures (owner 2026-09-22): each site creates it in Desk. A new system (e.g. BMS) = a new
+   button — owner 2026-09-22); the library is NOT shipped as fixtures (owner 2026-09-22): each site creates it
+   under Packages Settings → Handover Documents (owner 2026-09-23; Desk still works). A new system (e.g. BMS) = a new
    library record, **zero code**.
 2. **Company settings** (admin, once): legal name, addresses, CIN, logo, authorized signature. **As built:** kept
    in the print formats (as the Commission Report does), not as a record.
@@ -279,10 +285,13 @@ guide to the whole flow.
     Commission reports (signed copy, else the filled report through the Commission print format, else the
     uploaded file), TDS data sheets, one Snag List print per ticked batch, and As Built drawings **downloaded
     from their Google Drive links and merged** (~~listed on the divider~~ — superseded). Never a list page.
-  - It **refuses to start** while a switched-on document has nothing to include: the screen lists them with the
-    reason and offers to switch them off first.
-  - Progress per step; the screen polls the job status every 2 s (realtime events do not reach the browser on
-    this setup); the PDF downloads by itself.
+  - **Owner 2026-09-23: the binder downloads only when every switched-on document is Completed.** The button
+    is disabled until then and says how many are left; a document the project does not need is switched off
+    and stops counting. The earlier pre-check dialog ("these documents have nothing to include — switch them
+    off") is gone: a Completed document always has its uploaded copy to put in. The server still refuses an
+    empty document on its own.
+  - Progress per step, shown ON the button (no window); the screen polls the job status every 2 s (realtime
+    events do not reach the browser on this setup); the PDF downloads by itself.
   - The same job downloads one From-app document's content alone (the row's Select & Download).
   - Rendering: `frappe.get_print` with the Jinja cache dropped before each render (the formats read
     `form_dict`). `frappe.get_print` COMMITS.
@@ -362,7 +371,7 @@ withdrawn: the workbooks show HOD is per SYSTEM, a package can hold several syst
 O&M / Do's / maintenance blocks (sub-systems).
 
 ```
-LIBRARY (admin, Desk)                              PROJECT (site team, SPA)
+LIBRARY (admin, Packages Settings)                 PROJECT (site team, SPA)
 HOD System ──1:N── HOD Library Content             Project HOD Document
    │  (one per system)   (O&M / Do's / Maint.)        (one per project × system × document,
    │                                                   16 rows created by "+ Add system")
@@ -394,7 +403,7 @@ values that are still needed went:
    Don'ts / Maintenance Checklist) · `sub_system` (Data, optional — VRF, Duct, Panel, WLD, RRS; blank = always
    included) · `display_order` (Int) · `title` (Data) · `content` (Text Editor — O&M body: headings, lists,
    tables, pictures, `[blanks]`) · `list_1` (Do's / half-yearly items) · `list_2` (Don'ts / yearly items).
-   Standalone (not a child table) so each big manual is edited as its own Desk record. Attachments are private
+   Standalone (not a child table) so each big manual is edited as its own record. Attachments are private
    (`make_attachments_public` 0 — public GCS uploads never work on this site); pictures are embedded at print.
 3. **`Project HOD Document`** — standalone, one per project × system × document; all 16 created by "+ Add system"
    (unique triple: controller message + a unique index). `project` (Link Projects) · `hod_system` (Link HOD
@@ -426,7 +435,8 @@ frontend/src/pages/HandoverDocuments/     tab → system tabs → checklist + Ac
 frontend/src/pages/HandoverDocuments/print-formats/   source of the two print formats (pasted in Desk)
 ```
 
-No import script, and the library is NOT shipped as fixtures (owner 2026-09-22): it is created in Desk on each site. Only the two
+No import script, and the library is NOT shipped as fixtures (owner 2026-09-22): each site creates it under
+Packages Settings → Handover Documents (owner 2026-09-23). Only the two
 print formats ship, through the existing `Print Format` fixture.
 
 **Address (settled):** the Commission print format's corporate address "No.234, 1st Floor, 9th Main, 16th Cross,
@@ -456,10 +466,11 @@ Remaining work (pictures, browser walk-through, commit, go-live) is tracked in `
    else view-only.
 4. ~~Kinds marked `?`~~ — settled by the owner's notes 2026-09-21.
 5. A project cannot edit its template text beyond the `[blanks]` (and the O&M pictures / part ticks); library
-   text is changed in Desk for every project.
+   text is changed in the library, for every project at once.
 6. Package name on PDFs — the system's `display_name` ("ELECTRICAL SYSTEM"), as in the workbooks.
 7. Project line under each title — the header block, on the 7 documents listed under "Form layouts".
-8. Escalation Chart levels — none required; unfilled levels print blank.
+8. Escalation Chart levels — none required, and the project adds levels itself ("Add level", owner
+   2026-09-23); unfilled levels print blank.
 9. Other Commission test reports (Earthing, Megger, pressure tests…) — listed under **3. Commissioning Report**.
 10. Snag List — **project-wide**; the user ticks the snag batches to include (gaps G3: not split by system).
 11. As Built — Design Tracker **Handover-phase** tasks (Correction 2), drawings downloaded from Drive; a private

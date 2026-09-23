@@ -23,7 +23,7 @@ formats in Desk, give a browser test login and commit; **owner** makes the rulin
 | 6 | Documents from Nirmaan (read-only) + Select & Download | built |
 | 7 | Print formats "HOD Document" + "HOD Checklist" | built; pasted in Desk on localhost (they match the repo files) |
 | 8 | Binder + single-document content download | built; tested by running the job directly, not yet from the button |
-| 9 | Tests | 32 Python unit tests + 10 vitest pass; endpoints, binder and print have no automated tests (gaps §4) |
+| 9 | Tests | 35 Python unit tests + 11 vitest pass; endpoints, binder and print have no automated tests (gaps §4) |
 | 10 | Rollout | pending: gaps P2–P6 |
 
 ## Decisions
@@ -41,7 +41,8 @@ formats in Desk, give a browser test login and commit; **owner** makes the rulin
 | D9 | Systems that share a package (Critical Room ELV = GSS, VESDA, WLD & RRS) | `HOD System.source_keywords` added |
 
 Owner rulings made during the build (2026-09-22), all built:
-- No bench command or import button. The library is created in Desk on each site; it is NOT shipped as fixtures (owner 2026-09-22).
+- No bench command or import button. The library is created on each site; it is NOT shipped as fixtures
+  (owner 2026-09-22). Since 2026-09-23 it is managed in the app, under Packages Settings → Handover Documents (owner).
 - O&M pictures are uploaded by users per project and system, not kept in the library.
 - Empty state is a Commission-style "Not Found" card. Its dialog adds several systems at once.
 - The checklist fits on one page with Commission-style signature columns.
@@ -55,6 +56,14 @@ Owner rulings made during the build (2026-09-22), all built:
 - A "Details" guide sits beside Edit library.
 - All six From Nirmaan documents get "Select & Download".
 - The Recommended Tools List has Remarks per tool, filled on screen (owner 2026-09-22).
+- The binder downloads only when every switched-on document is Completed, with no dialogs (progress runs on
+  the button). Its button is then HIDDEN for now: one flag, `SHOW_BINDER_BUTTON` in `hodApi.ts`, hides the
+  button and its part of the Details guide; the endpoint and the job are untouched (owner 2026-09-23).
+- Only finished records are offered for handover (owner 2026-09-23): Commission tasks Submitted / Client
+  Accepted, As Built drawings Submitted / Approved, snags Completed — the rule lives in `services/hod/sources`
+  (`commission_is_done`, `design_is_done`, `SNAG_DONE`).
+- The Escalation Chart takes as many levels as a project adds ("Add level"), labelled by position; the
+  Equipment Warranty prints the same list (owner 2026-09-23).
 - The Maintenance Checklist is filled on screen (owner 2026-09-22): Result + Remarks per check, Comments per sheet, date of the check.
 
 ---
@@ -75,7 +84,7 @@ What each document keeps in `form_data`:
 
 | Document | Keys |
 |---|---|
-| Escalation Chart | `date`, `levels` (3 × name / designation / phone / email) |
+| Escalation Chart | `date`, `levels` — as many as the project adds (3 by default), each name / designation / phone / email |
 | Inventory List | `date`, `materials` (column names), `locations` (`name`, `qty[]`) |
 | Attic Stock List | `date`, `rows` |
 | Key List | `date`, `rows`, `receiver`, `belongs_to` (default the project customer) |
@@ -101,11 +110,12 @@ Nobody picks a status by hand. `update_row` does not accept one.
 
 ### Backend
 
-- `services/hod/` (pure, ADR-0010 B1) + `test_hod_services.py` (32 tests):
+- `services/hod/` (pure, ADR-0010 B1) + `test_hod_services.py` (35 tests):
   - `index`: the 16 documents (key, S.No, title, kind, `fill`, `landscape`, library / source).
   - `checklist`: status rule, `is_untouched`, `counts`, S.No close-up (`printable_rows`), `binder_parts`.
   - `blanks`: `[Blank]` find / fill.
   - `dates`: DLP end.
+  - `escalation`: the chart's levels — a project's own list, labelled by position ("4th Level").
   - `maintenance`: the Maintenance Checklist sheets (one per part and period) with the project's results.
   - `sources`: Commission buckets, whole-word keywords, default sub-system ticks, `commission_binder_source`,
     `drawing_download_url`, `design_category_belongs`.
@@ -123,6 +133,9 @@ Nobody picks a status by hand. `update_row` does not accept one.
 - `api/hod/from_app.py`: read-only Commission / TDS / Snag / Design reads, plus `get_from_app_sources`.
 - `api/hod/print_context.py`: the two `hooks.jinja` methods, `hod_print_context(doc)` and `hod_checklist_context()`.
 - `api/hod/project_info.py`: the header values, read in one place.
+- `api/hod/library.py`: `get_hod_library` — one read for the library screen (systems + their blocks + the 16
+  documents + Work Packages + how many projects use each system) and `preview_row` — the newest project row
+  of a document, so the screen can print it as a preview. Its writes are ordinary document calls.
 - `api/hod/binder.py`:
   - `check_binder`, `enqueue_binder(project, hod_system, document=None)`, `get_job_status(job_id)`;
   - the job runs on the `long` queue with a per-user lock and a 15-minute timeout.
@@ -132,7 +145,7 @@ Nobody picks a status by hand. `update_row` does not accept one.
 ### Screen (`frontend/src/pages/HandoverDocuments/`)
 
 - `HandoverDocumentsTab`: the system tabs, "+ Add system", **Details** (the `HodGuideDialog` guide) and **Edit
-  library** (Desk). While no HOD System exists it shows "New HOD system" / "Library content" links instead.
+  library** (opens Packages Settings → Handover Documents). While no HOD System exists it points there instead.
 - `NoHandoverDocumentsView`: the Commission-style "Not Found" card with "Create Handover Documents". It opens
   `AddSystemDialog`, which is multi-select and lists the project's own packages first.
 - `SystemChecklist`: one system's 16 rows showing:
@@ -162,7 +175,10 @@ Nobody picks a status by hand. `update_row` does not accept one.
   - `hodDownloads`: PDF URLs, `usePdfDownload`, `saveUrlAs`.
   - `useHodBinder`: enqueue, socket events + a 2-second `get_job_status` poll, finish-once guard.
   - `HodDownloadDialogs`: the progress window and the "nothing to include" list.
-  - `hodRules` (pure, 10 vitest).
+  - `hodRules` (pure, 11 vitest).
+  - `library/`: the Packages Settings → Handover Documents screen — `HodLibraryMaster` (systems, their settings and text
+    blocks), `SystemDialog` (tools, warranty equipment, default switched-off documents as ticks, keywords),
+    `ContentDialog` (manual text with preview, or the two lists), `hodLibraryApi`.
   - `types`.
 - `handoverIndex.ts` is deleted: titles, kinds and order come from the API.
 
@@ -170,10 +186,10 @@ Nobody picks a status by hand. `update_row` does not accept one.
 
 | # | Document | Reads | What the user ticks | What goes into the PDF |
 |---|---|---|---|---|
-| 2 / 3 / 14 | Demo & Training / Commissioning / Factory Test | Commission Report tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, "factory test" → 14, every other task (incl. Earthing, Megger, pressure tests) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
+| 2 / 3 / 14 | Demo & Training / Commissioning / Factory Test | **Submitted / Client Accepted** tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, "factory test" → 14, every other task (incl. Earthing, Megger, pressure tests) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
 | 4 | Material TDS | `Project TDS Item List` by `tds_work_package` | each item | its attached data sheet |
-| 15 | Snag List | the project's snag batches (whole project) | each batch | the Snag List print of that batch |
-| 16 | As Built | Design Tracker **Handover-phase** tasks (Not Applicable skipped). A category belongs to the system named in it; unclaimed categories (ELV, BMS, Overall Project) go by keywords | each drawing | the drawing, downloaded from its Google Drive link or its stored file |
+| 15 | Snag List | the project's snag batches (whole project), counting their **Completed** snags; a batch with none is not listed | each batch | the Snag List print of that batch, filtered to Completed snags |
+| 16 | As Built | Design Tracker **Handover-phase** tasks that are **Submitted / Approved**. A category belongs to the system named in it; unclaimed categories (ELV, BMS, Overall Project) go by keywords | each drawing | the drawing, downloaded from its Google Drive link or its stored file |
 
 Nothing is written to those features. The ticks are saved in `form_data.selected`, and the binder uses the same ticks.
 
@@ -184,8 +200,10 @@ Nothing is written to those features. The ticks are saved in `form_data.selected
 - **One From Nirmaan document's content**: `enqueue_binder(..., document=)`. It is a background job, so large
   Commission sets do not time out.
 - **Binder**:
-  1. `check_binder` returns every switched-on document with nothing to include, and the reason (`EMPTY_REASON`).
-     The screen lists them and offers to switch them off. `enqueue_binder` refuses on its own too.
+  1. The button unlocks only when every switched-on document is Completed (owner 2026-09-23), so nothing in
+     it can be empty; there is no pre-check dialog and no progress window — the button counts the steps.
+     `check_binder` stays as the read that says which document is empty and why, and `enqueue_binder`
+     refuses an empty one on its own.
   2. The job renders the cover and the checklist, then all divider pages in one pass. For each switched-on
      document, in S.No order, it adds a divider, then the uploaded copy OR the generated page OR the ticked records.
   3. Attached files are prefetched on 6 threads while pages render. Each file is fitted to A4 and everything is
@@ -217,12 +235,15 @@ Nothing is written to those features. The ticks are saved in `form_data.selected
 
 ### Library
 
-- Created and edited in Desk (HOD System, HOD Library Content) on each site. It is NOT shipped as fixtures (owner 2026-09-22),
+- Created and edited on each site under Packages Settings → Handover Documents (Desk still works). It is NOT shipped as fixtures (owner 2026-09-22),
   so live needs its systems and content entered there.
 - On localhost, 11 HOD Systems and 44 HOD Library Content blocks were inserted directly from the owner's Excel
   formats by a one-off script that is not in the repo. `hod_seed/`, `scripts/hod_build_seed.py` and
   `api/hod/import_formats.py` are deleted.
-- The 11 O&M table pictures were left out. Users paste them in Desk; the list is in gaps §2.
+- The O&M table pictures (tables pasted as pictures in the workbooks) are IN the library since 2026-09-23:
+  18 of them, each a private File attached to its `HOD Library Content` record with the `<img>` inside that
+  record's `content`, placed under the heading it sits under in the workbook (e.g. Electrical "2. PANEL
+  OVERVIEW"). `print_context.embed_stored_images` embeds them at print time. Live needs its own upload.
 
 ### Verified (localhost, real data)
 
@@ -237,7 +258,14 @@ Nothing is written to those features. The ticks are saved in `form_data.selected
 ### Not verified yet
 
 - The browser walk-through (needs a test login).
-- A full binder started from the button (queue + 2-second poll).
+
+### Trap found on 2026-09-23 (fixed)
+
+`job_id` is a keyword parameter of `frappe.enqueue` itself (the RQ job id), so passing `job_id=` to
+`frappe.enqueue` does NOT reach the enqueued function. The binder ran fine and wrote its status and its
+ready event for job `None`, while the screen polled its own id and waited forever — the worker log said
+"Job OK" the whole time. The id now travels as `hod_job_id`. Verified end to end through `enqueue_binder`
+plus the 2-second poll: 73 steps, 168 pages, token returned.
 
 ---
 

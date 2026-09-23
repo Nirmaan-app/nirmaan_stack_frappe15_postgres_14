@@ -12,11 +12,11 @@ Legend: **Owner** = who has to act (Team = site/owner team, Dev = code change).
 | # | What | Owner | Notes |
 |---|---|---|---|
 | P1 | ~~Paste both print formats again~~ **Done** | Team | Pasted 2026-09-22 15:00; the saved "HOD Document" and "HOD Checklist" match the repo files exactly. |
-| P2 | **Paste the 11 O&M table pictures** into the library (Edit library → HOD Library Content) | Team | Left out when the library was inserted. List in §2. |
+| P2 | ~~Paste the O&M table pictures~~ **Done on localhost 2026-09-23** | Dev | 18 pictures pulled out of the owner's workbooks and put into the library: each is a private File **attached to its HOD Library Content record**, with the `<img>` inside that record's `content`. Live needs its own copy (the file lives in this site's bucket) — see §2. |
 | P3 | **Browser walk-through** of the tab | Dev + Team | Never seen in a browser: Actions cell + ⋮ menu, Fill Form dialogs, Select & Download pickers (all 6 From Nirmaan), progress window + polling, remove-system warning, Details guide, O&M pictures upload. Needs a test login. |
-| P4 | **Full binder from the button** | Dev | Tested by calling the job directly (141 pages, 46 s). Not yet run through the queue + the 2-second status poll from the screen. |
+| P4 | ~~Full binder from the button~~ **Fixed + verified 2026-09-23** | Dev | It never finished on screen: `job_id` is a parameter of `frappe.enqueue` ITSELF, so the job's own id never reached `_run_binder_job` — every event and the cached status were written for job `None` while the screen polled its own id. The id now travels as `hod_job_id`. Verified through `enqueue_binder` + the 2-second poll: 73 steps, 168 pages, ready with its token. Clicking it in a browser is still unseen (P3). |
 | P5 | ~~Commit~~ **Done** | Team | Committed 2026-09-22 on `hod/feature` in four commits (backend, tab, docs, print-format fixture); not pushed. |
-| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; status options Pending/Form Filled/Completed); the two print formats arrive with the `Print Format` fixture; create the library (HOD Systems + content) in Desk on live — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
+| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; status options Pending/Form Filled/Completed); the two print formats arrive with the `Print Format` fixture; create the library (HOD Systems + content) on live under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
 
 ---
 
@@ -79,9 +79,10 @@ on the site they were pasted on — the library is NOT shipped as fixtures (owne
 
 | # | Gap | Effect | Possible fix |
 |---|---|---|---|
-| G13 | **Library is not in fixtures** | Live starts with no HOD Systems or library content (owner 2026-09-22); everything entered on localhost has to be entered again on live | Enter it on live in Desk (or Data Import) |
+| G13 | **Library is not in fixtures** | Live starts with no HOD Systems or library content (owner 2026-09-22); everything entered on localhost has to be entered again on live | Enter it on live under Packages Settings → Handover Documents (or Desk Data Import) |
 
-Intentional (not gaps): anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
+Intentional (not gaps): the **Download binder button is hidden** (`SHOW_BINDER_BUTTON` in `hodApi.ts`,
+owner 2026-09-23) — the binder itself works, and the flag brings the button back; anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
 blank to fill by hand; Inventory prints 8 blank rows when empty (fits one landscape page); a tool with no remark prints an empty
 Remarks cell; Do's & Don'ts goes Pending → Completed with no "Form Filled"; status is never set by hand.
 
@@ -91,8 +92,8 @@ Remarks cell; Do's & Don'ts goes Pending → Completed with no "Form Filled"; st
 
 | Area | Today | Missing |
 |---|---|---|
-| Pure rules (`services/hod/*`) | 32 unit tests | — |
-| Frontend rules (`hodRules.ts`) | 10 vitest | — |
+| Pure rules (`services/hod/*`) | 35 unit tests | — |
+| Frontend rules (`hodRules.ts`) | 11 vitest | — |
 | Endpoints (`api/hod/project_hod.py`) | manual scripts only | add_systems (all-or-nothing), remove_system (force), update_row (disabled lock, derived status) |
 | Binder (`api/hod/binder.py`) | manual scripts on real data | build_plan / selection / empty reasons with fixtures |
 | Print (`print_context.py` + the two formats) | manual renders through the real print path | a render smoke test (no Jinja leaks, page counts) |
