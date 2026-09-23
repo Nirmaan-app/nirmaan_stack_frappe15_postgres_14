@@ -2,13 +2,14 @@
 // "Not Found" card. "Create Handover Documents" opens the system picker (AddSystemDialog).
 
 import {
+  BookOpenText,
   CirclePlus,
-  ExternalLink,
   FolderArchive,
   Info,
   Lock,
 } from "lucide-react";
 import * as React from "react";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -81,14 +82,12 @@ export const NoHandoverDocumentsView: React.FC<{
             <div className="space-y-2 text-sm text-amber-800">
               <p>No HOD system is set up yet, so there is nothing to add.</p>
               {canEditLibrary && (
-                <a
-                  href="/app/hod-system/new"
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  to="/packages-settings?tab=handover-documents"
                   className="inline-flex items-center gap-1 font-semibold underline"
                 >
-                  Create a HOD system <ExternalLink className="h-3.5 w-3.5" />
-                </a>
+                  <BookOpenText className="h-3.5 w-3.5" /> Set up the library
+                </Link>
               )}
             </div>
           </div>
