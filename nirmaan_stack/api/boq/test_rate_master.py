@@ -10854,7 +10854,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v8.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v9.json"
 # SLICE 6 (owner S6 / S7 / S8 / T7, 2026-09-24): v8 = v7 + the config-level per-item default pipelines (the
 # eligibility switch), UL absent = not mentioned, the mixing box at any size, second_opinion OFF. The slice-5 class
 # loads v7 BY NAME below.
@@ -11236,10 +11236,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_to_v8_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v9_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 6 (owner S6 / S7 / S8 / T7, inverting the slice-5 pin): the HVAC series now holds EXACTLY v1..v8
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v8.json")
+        # slice 6b (owner V1-V5, inverting the slice-6 pin): the HVAC series now holds EXACTLY v1..v9
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v9.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11250,12 +11250,13 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
                          ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
-                          "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", CURRENT_HVAC_ASSET])
+                          "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
+                          CURRENT_HVAC_ASSET])
         import subprocess
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
                       "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
-                      "rate_master_hvac_all_v7.json"):
+                      "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
@@ -11278,6 +11279,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertNotIn("v6", raw)
         self.assertNotIn("v7", raw)
         self.assertNotIn("v8", raw)
+        self.assertNotIn("v9", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
@@ -12030,7 +12032,10 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         config_validation._validate_config(base)
         loader._validate_one_config(self.v7["category_configs"][0], "x")
         pr = base["list_spec"]["pricing"]
-        self.assertEqual(set(pr), config_validation._PRICING_KEYS)
+        # slice 6b (owner V5, INVERTING the slice-5 literal): the validator now also knows `panel_controls`, which v7's
+        # block predates -- v7's keys are exactly the known keys MINUS that one (it is present from v9 on)
+        self.assertEqual(set(pr), config_validation._PRICING_KEYS - {"panel_controls"})
+        self.assertNotIn("panel_controls", pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -12245,7 +12250,8 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v7.json"), "r", encoding="utf-8") as fh:
             cls.v7 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # slice 6b: v8 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v9); the q-pins are v8 = v7 + the four deltas
+        with open(_asset_path("rate_master_hvac_all_v8.json"), "r", encoding="utf-8") as fh:
             cls.v8 = json.load(fh)
         cls._disciplines = set()
         cls._events = []
@@ -12466,3 +12472,97 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
         self.assertEqual((_obj(pdoc.extracted_attributes), _obj(pdoc.corrected_attributes)), ({"core": 1}, {"core": "1"}))
         self.assertNotIn("items", _obj(pdoc.extracted_attributes)); self.assertNotIn("items", _obj(pdoc.corrected_attributes))
 
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6b (2026-09-24, owner V1-V8) -- HVAC v9: `list_spec.pricing.panel_controls`, the panel's control
+# declared PER ATTRIBUTE in config (V5); screen-only (V2): the block sits where the model-side projection
+# never reads.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpPanelControlsSlice6b(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_r01  THE VALIDATOR: v9's ADP config passes both validators; the block is a closed, COMPLETE map over the
+                panel's attribute namespace (numbers + choices + the family attribute + a derive_when_none source).
+                NEGATIVE: an attribute the panel cannot show refused; a control other than dropdown / text refused;
+                a missing attribute refused (naming it); a non-object refused; ABSENT (v8) still accepted.
+      test_r02  v9 = v8 + panel_controls and NOTHING else: items deep-equal; the six other configs deep-equal; the
+                ADP config equal once `panel_controls` is set aside; no version token in the file.
+      test_r03  THE LIST, attribute by attribute, IS the owner's X1 list: every ladder attribute + slot_count + every
+                choice + the family + the air stream are dropdowns; width / height / depth / area band are text.
+      test_r04  ELIGIBILITY unmoved between v8 and v9 for every HVAC config (ADP eligible, the vendor four not, the
+                two aliases not their own) -- the panel key is not an eligibility fact.
+      test_r05  THE ASSET SWEEP admits v9 (every file on disk validates exactly as today).
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v8.json"), "r", encoding="utf-8") as fh:
+            cls.v8 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v9 = json.load(fh)
+
+    def _adp(self, asset=None):
+        asset = asset or self.v9
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def test_r01_the_validator_panel_controls_is_closed_complete_and_optional(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        pc = base["list_spec"]["pricing"]["panel_controls"]
+        self.assertEqual(set(pc.values()), {"dropdown", "text"})
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda c: c["list_spec"]["pricing"]["panel_controls"].__setitem__("item_name", "dropdown"), "cannot show: item_name")
+        refused(lambda c: c["list_spec"]["pricing"]["panel_controls"].__setitem__("dia_mm", "combo"), "each control must be one of")
+        refused(lambda c: c["list_spec"]["pricing"]["panel_controls"].pop("torque_nm"), "missing: torque_nm")
+        refused(lambda c: c["list_spec"]["pricing"].__setitem__("panel_controls", ["dia_mm"]), "must be an object")
+        # ABSENT = today's controls: v8 (no block) still validates
+        config_validation._validate_config(self._adp(self.v8))
+        self.assertNotIn("panel_controls", self._adp(self.v8)["list_spec"]["pricing"])
+
+    def test_r02_v9_is_v8_plus_panel_controls_and_nothing_else(self):
+        self.assertEqual(self.v9["items"], self.v8["items"])
+        self.assertEqual(self.v9["category_configs"][1:], self.v8["category_configs"][1:])
+        a9, a8 = self._adp(self.v9), self._adp(self.v8)
+        self.assertIn("panel_controls", a9["list_spec"]["pricing"])
+        a9["list_spec"]["pricing"].pop("panel_controls")
+        self.assertEqual(a9, a8)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"):
+            self.assertNotIn(f'"{tok}"', text)
+
+    def test_r03_the_declared_list_is_the_owners_x1_list(self):
+        pr = self._adp()["list_spec"]["pricing"]
+        pc = pr["panel_controls"]
+        dropdown = sorted(k for k, v in pc.items() if v == "dropdown")
+        text = sorted(k for k, v in pc.items() if v == "text")
+        self.assertEqual(dropdown, ["air", "damper", "dia_mm", "family", "insulated", "neck_mm", "panel_ratio", "slot_count", "thickness_mm", "torque_nm", "ul", "variant"])
+        self.assertEqual(text, ["area_sqm", "depth_mm", "face_h_mm", "face_w_mm"])
+        for ladder in pr["ladders"]:
+            self.assertEqual(pc[ladder], "dropdown", ladder)
+        for choice in pr["choice_attrs"]:
+            self.assertEqual(pc[choice], "dropdown", choice)
+        # complete over the namespace and nothing beyond it
+        ns = set(pr["numbers"]) | set(pr["choice_attrs"]) | {"family"} | {r["when"]["attr"] for r in pr["derive_when_none"]}
+        self.assertEqual(set(pc), ns)
+
+    def test_r04_eligibility_is_unmoved_between_v8_and_v9(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        def elig(asset):
+            cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in asset["category_configs"]}
+            return {cid: extraction.config_is_eligible(cfg, cfgs) for (_d, cid), cfg in cfgs.items()}
+        self.assertEqual(elig(self.v9), elig(self.v8))
+        self.assertTrue(elig(self.v9)["hvac_adp"])
+        self.assertEqual({k for k, v in elig(self.v9).items() if v}, {"hvac_adp"})
+
+    def test_r05_the_asset_sweep_admits_v9(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        for c in self.v9["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))

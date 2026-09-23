@@ -116,7 +116,14 @@ export interface ItemListPricingSpec {
   /** SLICE 6 (T7): the config's OWN `pipelines` -- the shared per-item default every unit block without
    * pipelines of its own runs. Filled by `itemListPricingSpec` from the config; never stored in the block. */
   default_pipelines?: Record<string, Pipeline>;
+  /** SLICE 6b (owner V1, V4, V5): the panel's control PER SKU ATTRIBUTE -- "dropdown" (options built from the
+   * ACTIVE SKUs of the block's family, or from the definition's closed vocabulary where no SKU carries it) or
+   * "text" (a BoQ measurement the sheet does not stock as a pick). Declared in CONFIG, never in code; absent =
+   * today's controls (a choice def a select, a number a text input). This block never reaches the model. */
+  panel_controls?: Record<string, PanelControl>;
 }
+
+export type PanelControl = "dropdown" | "text";
 
 /** Read the block off a config; null when the config does not declare it. PURE. */
 export function itemListPricingSpec(config: RateCategoryConfig | null | undefined): ItemListPricingSpec | null {
@@ -630,6 +637,70 @@ export interface ItemFieldDef {
   allowNone: boolean;
   /** The SKU attribute this field feeds (a `numbers` key or the choice attribute itself). */
   skuAttr: string;
+  /** SLICE 6b: the control the config declares for this attribute (V5); "text" when it declares none for a
+   * number, "dropdown" when it declares none for a choice -- exactly today's controls. */
+  control: PanelControl;
+  /** SLICE 6b: where a dropdown's options came from -- the active SKUs (V1, V4) or the definition's closed
+   * vocabulary (an attribute no SKU carries, e.g. the air stream). Absent on a text field. */
+  optionSource?: "catalogue" | "definition";
+}
+
+/**
+ * SLICE 6b (V1, V4) -- PURE. The options a dropdown field offers, built from the ACTIVE SKUs of the block's family:
+ * the family's rows of the class the row prices in (or of every class a conversion can reach), that carry the
+ * attribute, NARROWED by the block's other answered dropdown attributes those rows carry -- the same rule the
+ * ladder uses to pick its rungs (`priceOneItem` step 5) -- so a fire damper's torques narrow under UL vs non-UL
+ * exactly as its price does. A narrowing that leaves nothing falls back to the family's full list (never an empty
+ * select the pricer cannot re-pick from). Numbers are formatted as the ladder formats them and sorted ascending;
+ * choices keep the definition's order. Adding a SKU adds its value with no code change.
+ */
+export function fieldOptionsFromSkus(
+  spec: ItemListPricingSpec,
+  items: RateMasterItem[],
+  family: string,
+  rowUnitClass: string | null | undefined,
+  attr: string,
+  answers: Record<string, string | number> = {},
+  defOrder?: string[],
+): string[] {
+  const fam = spec.families[family];
+  if (!fam) return [];
+  const projected = projectUnitClass(spec, items);
+  const cls = rowUnitClass ?? "";
+  const classes = new Set<string>(
+    fam.units[cls] ? [cls] : (fam.convert?.[cls] ?? []).map((o) => o.to),
+  );
+  const famRows = projected.filter(
+    (it) => it.kind === spec.kind && it.attributes.family === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
+  );
+  const carrying = famRows.filter((it) => attr in it.attributes);
+  const isDropdown = (k: string) => (spec.panel_controls?.[k] ?? (spec.choice_attrs.includes(k) ? "dropdown" : "text")) === "dropdown";
+  let rows = carrying;
+  for (const [k, v] of Object.entries(answers)) {
+    if (k === attr || v === "" || v === "None" || v === null || v === undefined || !isDropdown(k)) continue;
+    if (!carrying.some((it) => k in it.attributes)) continue;
+    rows = rows.filter((it) => sameValue(it.attributes[k], v));
+  }
+  if (!rows.length) rows = carrying;
+  const isNumber = attr in spec.numbers;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const it of rows) {
+    const raw = it.attributes[attr];
+    const text = isNumber && typeof raw === "number" ? fmt(raw) : isNumber && !Number.isNaN(Number(raw)) ? fmt(Number(raw)) : String(raw);
+    if (!seen.has(text)) { seen.add(text); out.push(text); }
+  }
+  if (isNumber) return out.sort((a, b) => Number(a) - Number(b));
+  if (defOrder) return [...defOrder.filter((o) => seen.has(o)), ...out.filter((o) => !defOrder.includes(o))];
+  return out.sort();
+}
+
+function sameValue(a: unknown, b: string | number): boolean {
+  if (typeof a === "number" || !Number.isNaN(Number(a)) && String(a).trim() !== "") {
+    const n = Number(b);
+    return !Number.isNaN(n) && Number(a) === n;
+  }
+  return String(a) === String(b);
 }
 
 /**
@@ -643,8 +714,10 @@ export function itemFieldDefs(
   defs: ListSpecDef[],
   family: string | null | undefined,
   rowUnitClass: string | null | undefined,
+  skus?: { items: RateMasterItem[]; answers?: Record<string, string | number> },
 ): ItemFieldDef[] {
   if (!family || !spec.families[family]) return [];
+  const controlOf = (skuAttr: string, fallback: PanelControl): PanelControl => spec.panel_controls?.[skuAttr] ?? fallback;
   const fam = spec.families[family];
   const ids: string[] = [...fam.needs];
   const cls = rowUnitClass ?? "";
@@ -663,19 +736,37 @@ export function itemFieldDefs(
     if (reader) {
       const modelId = reader.from[0];
       const d = defById.get(modelId);
-      out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr });
+      const control = controlOf(attr, "text");
+      if (control === "dropdown" && skus) {
+        // a STOCKED size: the options are the sheet's sizes for this family, narrowed by the block's other answers
+        const options = fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {});
+        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control, options, optionSource: "catalogue" });
+      } else {
+        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control });
+      }
       continue;
     }
     const d = defById.get(attr);
     if (!d) continue;
     let values = d.values ?? [];
     if (d.values_by_family && d.values_by_family[family]) values = d.values_by_family[family];
+    const control = controlOf(attr, d.type === "choice" ? "dropdown" : "text");
+    if (control !== "dropdown") {
+      out.push({ id: attr, label: d.label, allowNone: d.allow_none === true, skuAttr: attr, control });
+      continue;
+    }
+    // a choice: from the SKUs where the family's rows carry the attribute (V1), else the definition's vocabulary
+    const fromSkus = skus ? fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {}, values) : [];
+    const optionSource: "catalogue" | "definition" = fromSkus.length ? "catalogue" : "definition";
+    const base = fromSkus.length ? fromSkus : [...values];
     out.push({
       id: attr,
       label: d.label,
-      options: d.type === "choice" ? (d.allow_none ? ["None", ...values] : [...values]) : undefined,
+      options: d.allow_none ? ["None", ...base] : base,
       allowNone: d.allow_none === true,
       skuAttr: attr,
+      control,
+      optionSource,
     });
   }
   return out;

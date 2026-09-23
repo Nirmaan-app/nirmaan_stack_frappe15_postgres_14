@@ -62,6 +62,7 @@ import {
   familyChoices,
   itemFieldDefs,
   itemListPricingSpec,
+  readNumber,
   listSpecDefs,
   priceItemList,
   unitClassOf,
@@ -1650,11 +1651,16 @@ function itemBlockView(
   assembled: ExtractedListItem,
   res: ItemPriceResult,
   unitClass: string | null,
+  items: RateMasterItem[] = [],
 ): ItemBlockView {
   const family = res.family ?? (typeof assembled.attributes.family?.value === "string" ? assembled.attributes.family.value : null);
-  const fieldDefs = itemFieldDefs(spec, defs, family, unitClass);
+  // SLICE 6b (V1, X2): the block's answers as they reached the matcher (defaults applied, ladders fitted) narrow
+  // each dropdown's options exactly as they narrow the ladder's rungs
+  const answers: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(res.selection)) if (typeof v === "string" || typeof v === "number") answers[k] = v;
+  const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
   const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
-  const hopBy = new Map(res.ladderHops.filter((h) => !h.exact).map((h) => [h.attr, h]));
+  const hopBy = new Map(res.ladderHops.map((h) => [h.attr, h]));
   const fields: ItemFieldView[] = fieldDefs.map((f) => {
     const raw = assembled.attributes[f.id]?.value;
     const stated = raw === null || raw === undefined ? "" : String(raw);
@@ -1663,10 +1669,25 @@ function itemBlockView(
     // a "None" (or an absent-as-none) answer shows the ruled default it became, marked; the pricer's own pick
     // shows as picked
     const defaulted = !!d && !userEdited && (stated === "None" || stated === "");
-    const value = defaulted ? d!.value : stated;
+    let value = defaulted ? d!.value : stated;
     const hop = hopBy.get(f.skuAttr);
+    const isSizeDropdown = f.control === "dropdown" && f.skuAttr in spec.numbers;
+    let note: string | undefined;
+    if (hop && !hop.exact) note = `${hop.name} ${hop.requested} is not on the sheet -> ${hop.fitted} (next size up)`;
+    if (isSizeDropdown) {
+      // SLICE 6b (V3, X3): the field shows the size that will be PRICED -- the ladder result -- with the note naming
+      // the stated size; an exact fit shows the stocked spelling; a size above the largest keeps the refusal and
+      // shows no pick (the stated size stays on the note, never silently replaced)
+      if (hop) value = String(hop.fitted);
+      else if (value !== "" && !(f.options ?? []).includes(value)) {
+        const parsed = readNumber(value, spec.numbers[f.skuAttr]);
+        note = parsed && "value" in parsed ? `stated ${value}: ${res.reason ?? "no stocked size fits"}` : note;
+        value = "";
+      }
+    }
+    const name = spec.numbers[f.skuAttr]?.name ?? "\u0000";
     const needed = res.state === "blank" && !!res.reason && (
-      (res.reason.startsWith("no ") && res.reason.includes(spec.numbers[f.skuAttr]?.name ?? "\u0000")) ||
+      res.reason.includes(name) ||
       res.reason.includes(spec.reason_names?.[f.skuAttr] ?? "\u0000")
     );
     return {
@@ -1675,7 +1696,7 @@ function itemBlockView(
       defaulted,
       ...(defaulted ? { rule: d!.rule } : {}),
       userEdited,
-      ...(hop ? { note: `${hop.name} ${hop.requested} is not on the sheet -> ${hop.fitted} (next size up)` } : {}),
+      ...(note ? { note } : {}),
       blank: value === "" && needed,
     };
   });
@@ -1728,7 +1749,7 @@ function computeItemList(
       index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
       selection: {}, defaulted: [], ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, figures: {}, working: [], pipelineResults: [],
     };
-    return itemBlockView(spec, defs, e, assembled[i], res, unitClass);
+    return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items);
   });
   const values: Record<string, number> = {};
   if (priced.priced) {

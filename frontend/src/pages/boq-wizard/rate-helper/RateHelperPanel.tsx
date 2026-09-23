@@ -1150,7 +1150,9 @@ function ItemListBlocks({
             );
           })}
           <label className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-muted-foreground">Qty per 1 {view.unit} of row</span>
+            {/* SLICE 6b (owner V7): how many of THIS item make up ONE unit of the row -- the row's own quantity
+                plays no part in the rate (the module never reads it) */}
+            <span className="text-muted-foreground">How many in one {view.unit} of this row</span>
             <Input
               className="h-7 w-28 text-xs"
               value={b.qty}

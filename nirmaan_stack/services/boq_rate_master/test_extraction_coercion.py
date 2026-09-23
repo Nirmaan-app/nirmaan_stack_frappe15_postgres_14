@@ -2636,3 +2636,39 @@ class TestItemListSlice4(FrappeTestCase):
         absent = dict(self.adp); absent["list_spec"] = dict(self.adp["list_spec"]); absent["list_spec"].pop("second_opinion")
         self.assertIs(extraction.build_items_spec(absent)["second_opinion"], False)
 
+    # ── SLICE 6b (owner V2, X4): SCREEN-ONLY -- the panel-control declaration never reaches the model ──────────
+    def test_il_14_x4_the_assembled_model_call_for_an_adp_row_is_byte_identical_between_v8_and_v9(self):
+        """V2 / X4. `panel_controls` lives in `list_spec.pricing`, which `build_items_spec` never reads, so the
+        ITEMS_SPEC, the group context and the assembled batch content for an ADP row are BYTE-IDENTICAL between v8
+        (no block) and v9 (the block). NEGATIVE: the key's name appears nowhere in what the model is sent."""
+        import os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+        def asset(name):
+            with open(os.path.join(here, "data", name), "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        v8, v9 = asset("rate_master_hvac_all_v8.json"), asset("rate_master_hvac_all_v9.json")
+        def cfgs_of(a):
+            return {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in a["category_configs"]}
+        c8, c9 = cfgs_of(v8), cfgs_of(v9)
+        self.assertIn("panel_controls", c9[("HVAC", "hvac_adp")]["list_spec"]["pricing"])
+        self.assertNotIn("panel_controls", c8[("HVAC", "hvac_adp")]["list_spec"]["pricing"])
+        self.assertEqual(extraction.build_items_spec(c9[("HVAC", "hvac_adp")]), extraction.build_items_spec(c8[("HVAC", "hvac_adp")]))
+        g8 = extraction._group_context(c8, "HVAC", "hvac_adp")
+        g9 = extraction._group_context(c9, "HVAC", "hvac_adp")
+        self.assertEqual(g9, g8)
+        self.assertTrue(g9.get("items_spec"), "the ADP context must carry an ITEMS_SPEC -- an empty one would be a vacuous match")
+        row = {"excel_row": 13, "description": "Supply, installation, testing and balancing of Al powder coated disc valve for exhaust.",
+               "sheet_name": "S", "ancestors": [{"node_type": "Preamble", "description": "AIR DISTRIBUTION SYSTEM"}],
+               "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        payload = [extraction._ai_item(row)]
+        def content(g):
+            return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                                   none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                                   resolution_rules=g["resolution_rules"], rules=g["rules"],
+                                                   items_spec=g.get("items_spec"))
+        p8, p9 = content(g8), content(g9)
+        self.assertEqual(p9, p8)
+        self.assertIn("ITEMS_SPEC", p9)
+        self.assertNotIn("panel_controls", p9)
+        self.assertNotIn("panel_controls", json.dumps(g9, default=str))
+        self.assertNotIn("dropdown", p9)

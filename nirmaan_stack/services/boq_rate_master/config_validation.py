@@ -241,7 +241,12 @@ def _validate_list_spec(cfg):
 # executes; a misspelled key here would ship a silently inert rule, so the allowlists are closed (the
 # `_KNOWN_DEF_KEYS` precedent).
 _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "family_alias", "no_sku_families", "defaults",
-                 "derive_when_none", "numbers", "ladders", "match_attrs", "choice_attrs", "reason_names", "families"}
+                 "derive_when_none", "numbers", "ladders", "match_attrs", "choice_attrs", "reason_names", "families",
+                 "panel_controls"}
+# SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
+# definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
+# which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
+_PANEL_CONTROLS = {"dropdown", "text"}
 _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range"}
 _PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
@@ -321,6 +326,31 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     rn = pr.get("reason_names")
     if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
         _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")
+    # SLICE 6b: panel_controls -- OPTIONAL as a block (absent = today's controls), but when declared it must be COMPLETE
+    # over every attribute the panel can show (the SKU attributes, the family attribute, a derive_when_none source)
+    # and closed to that namespace, each with a known control. A missing attribute would fall back silently to a
+    # code default, which is the "declared per attribute" rule (V5) failing without a sound.
+    pc = pr.get("panel_controls")
+    if pc is not None:
+        if not isinstance(pc, dict):
+            _vthrow("list_spec.pricing.panel_controls must be an object.")
+        panel_ns = set(sku_attrs)
+        fam_attr = spec.get("family_attribute_id")
+        if isinstance(fam_attr, str) and fam_attr:
+            panel_ns.add(fam_attr)
+        for rule in pr.get("derive_when_none") or []:
+            when = rule.get("when") if isinstance(rule, dict) else None
+            if isinstance(when, dict) and isinstance(when.get("attr"), str):
+                panel_ns.add(when["attr"])
+        unknown_pc = set(pc) - panel_ns
+        if unknown_pc:
+            _vthrow(f"list_spec.pricing.panel_controls names attribute(s) the panel cannot show: {', '.join(sorted(unknown_pc))}.")
+        bad_pc = sorted(k for k, v in pc.items() if v not in _PANEL_CONTROLS)
+        if bad_pc:
+            _vthrow(f"list_spec.pricing.panel_controls: each control must be one of {sorted(_PANEL_CONTROLS)} (bad: {', '.join(bad_pc)}).")
+        missing_pc = panel_ns - set(pc)
+        if missing_pc:
+            _vthrow(f"list_spec.pricing.panel_controls must declare every attribute the panel can show; missing: {', '.join(sorted(missing_pc))}.")
     # families: the family attribute's values, through the alias
     alias = pr.get("family_alias") or {}
     if not isinstance(alias, dict) or not all(isinstance(k, str) and isinstance(v, str) and k in family_vals and v in family_vals and k != v for k, v in alias.items()):

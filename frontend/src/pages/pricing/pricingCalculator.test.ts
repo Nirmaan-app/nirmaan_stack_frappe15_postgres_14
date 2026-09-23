@@ -634,6 +634,7 @@ describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring a
 // empty; ADP is live on the CURRENT asset (v8); Electrical is untouched.
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
 import HVAC_ASSET_V8 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
+import HVAC_ASSET_V9 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import { applyItemEdit, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, type ItemListSuggestion } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 
 describe("SLICE 6 / the HVAC calculator prices ADP (v8) -- one item block per added item, the same figures as the panel", () => {
@@ -670,6 +671,43 @@ describe("SLICE 6 / the HVAC calculator prices ADP (v8) -- one item block per ad
     for (const id of ["hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"]) {
       const r = helper8().compute(calculatorCtx("HVAC", id));
       expect(r).toEqual({ kind: "none", reason: CONFIGS8.get(id)!.helper_message });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6b (2026-09-24, owner V1 / U5) -- the HVAC calculator gets the same controls as the panel (one shared
+// view), the same options from the SKUs, and the same figures for the same picks under v9.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6b / the HVAC calculator under v9 -- dropdowns from the SKUs, the same figures as the panel", () => {
+  const HVAC9 = HVAC_ASSET_V9 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS9 = new Map<string, RateCategoryConfig>(HVAC9.category_configs.map((c) => [c.category_id, c]));
+  const helper9 = () => makePricingSheetHelper({ configsByCategory: CONFIGS9, items: HVAC9.items, extractionByRow: new Map() });
+  it("an added disc valve shows Diameter as a DROPDOWN with the sheet's sizes; picking 150 prices 653 / 176 exactly as an in-run panel row", () => {
+    const r0 = helper9().compute(calculatorCtx("HVAC", "hvac_adp"));
+    const v0 = (r0 as ItemListSuggestion).itemList!;
+    const s = applyItemEdit(v0.editState, { op: "add", family: "disc valve" });
+    const r1 = helper9().compute(calculatorCtx("HVAC", "hvac_adp"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s), [ROW_UNIT_OVERRIDE_KEY]: "nos" });
+    const v1 = (r1 as ItemListSuggestion).itemList!;
+    expect(v1.items[0].fields.map((f) => [f.id, f.control, f.options])).toEqual([["dia_mm", "dropdown", ["100", "150"]]]);
+    expect(v1.items[0]).toMatchObject({ state: "blank", reason: "no diameter stated" });
+    const s2 = applyItemEdit(s, { op: "set_attr", index: 0, id: "dia_mm", value: "150" });
+    const r2 = helper9().compute(calculatorCtx("HVAC", "hvac_adp"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s2), [ROW_UNIT_OVERRIDE_KEY]: "nos" });
+    expect((r2 as ItemListSuggestion).values).toEqual({ supply_rate: 653, install_rate: 176, combined_rate: 829 });
+    const inRun = makePricingSheetHelper({
+      configsByCategory: CONFIGS9, items: HVAC9.items,
+      extractionByRow: buildExtractionByRow([{ excel_row: 40, attributes: {}, items: [{ attributes: { family: { value: "disc valve", confidence: 0.9 }, dia_mm: { value: "150", confidence: 0.9 } } }] }]),
+    }).compute({ excelRow: 40, description: "disc valve", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"], unit: "Nos" } as RateHelperRowContext);
+    expect((inRun as ItemListSuggestion).values).toEqual((r2 as ItemListSuggestion).values);
+    expect((inRun as ItemListSuggestion).itemList!.items[0].fields[0].options).toEqual(["100", "150"]);
+  });
+  it("NEGATIVE: a BoQ measurement is text in the calculator too; the vendor-quote categories still decline; the Electrical calculator is untouched", () => {
+    const s = applyItemEdit((helper9().compute(calculatorCtx("HVAC", "hvac_adp")) as ItemListSuggestion).itemList!.editState, { op: "add", family: "mixing box / LP plenum" });
+    const r = helper9().compute(calculatorCtx("HVAC", "hvac_adp"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s), [ROW_UNIT_OVERRIDE_KEY]: "nos" });
+    expect((r as ItemListSuggestion).itemList!.items[0].fields.map((f) => [f.id, f.control])).toEqual([["insulated", "dropdown"], ["face_w_mm", "text"], ["face_h_mm", "text"], ["depth_mm", "text"]]);
+    for (const cid of ["hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"]) {
+      const d = helper9().compute(calculatorCtx("HVAC", cid));
+      expect(isSuggestion(d)).toBe(false);
     }
   });
 });

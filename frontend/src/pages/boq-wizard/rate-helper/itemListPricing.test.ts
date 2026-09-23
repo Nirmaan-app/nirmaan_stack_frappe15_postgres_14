@@ -24,6 +24,7 @@ import {
   type ItemListPricingSpec,
 } from "./itemListPricing";
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
+import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
@@ -723,9 +724,11 @@ describe("slice 6 / the panel-facing helpers read the CONFIG -- no family, label
   });
   it("itemFieldDefs: the family's needs for the row's unit class, labelled from the list_spec, options from the def (None first when allow_none)", () => {
     const defs = listSpecDefs(adp8);
+    // slice 6b (V5): every field now names its control -- v8 declares none, so a choice is a dropdown from the
+    // definition and a number is text, exactly slice 6's controls
     expect(itemFieldDefs(spec8, defs, "round diffuser", "count")).toEqual([
-      { id: "damper", label: "Damper", options: ["None", "with", "without"], allowNone: true, skuAttr: "damper" },
-      { id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm" },
+      { id: "damper", label: "Damper", options: ["None", "with", "without"], allowNone: true, skuAttr: "damper", control: "dropdown", optionSource: "definition" },
+      { id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" },
     ]);
     // the R13 source (air) rides along on a linear grille; a per-number VCD shows the conversion needs
     expect(itemFieldDefs(spec8, defs, "linear grille", "area").map((f) => f.id)).toEqual(["damper", "air"]);
@@ -740,3 +743,146 @@ describe("slice 6 / the panel-facing helpers read the CONFIG -- no family, label
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6b (2026-09-24, owner V1-V8) -- HVAC v9: the panel's control per attribute is CONFIG (`panel_controls`),
+// a dropdown's options come from the ACTIVE SKUs (narrowed by the block's other answers, the ladder's own rule),
+// a BoQ measurement stays text, the quantity is per block and the row's own quantity never enters.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+const asset9 = HVAC_V9 as unknown as Asset;
+const items9: RateMasterItem[] = asset9.items.map((i) => ({ ...i, discipline: "HVAC" }));
+const adp9 = asset9.category_configs.find((c) => c.category_id === "hvac_adp")!;
+const spec9 = itemListPricingSpec(adp9)!;
+const defs9 = listSpecDefs(adp9);
+const price9 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec9, items9, unit, its);
+/** The stocked values of one SKU attribute for a family, straight from the asset -- the test's own reading. */
+const stocked = (family: string, attr: string, where: Record<string, string> = {}): string[] =>
+  [...new Set(items9
+    .filter((i) => i.kind === "hvac_adp_item" && i.attributes.family === family && attr in i.attributes && Object.entries(where).every(([k, v]) => String(i.attributes[k]) === v))
+    .map((i) => { const v = i.attributes[attr]; return typeof v === "number" ? (Number.isInteger(v) ? String(v) : String(v)) : String(v); }))]
+    .sort((a, b) => Number(a) - Number(b));
+
+describe("slice 6b / v9 = v8 + panel_controls on the ADP config, and NOTHING else (X1, V5)", () => {
+  it("items and the six other configs byte-identical; the ADP config differs ONLY in list_spec.pricing.panel_controls", () => {
+    expect(asset9.items).toEqual(asset8.items);
+    expect(asset9.category_configs.slice(1)).toEqual(asset8.category_configs.slice(1));
+    const strip = (c: RateCategoryConfig) => {
+      const x = JSON.parse(JSON.stringify(c)) as { list_spec: { pricing: { panel_controls?: unknown } } };
+      delete x.list_spec.pricing.panel_controls;
+      return x;
+    };
+    expect(spec9.panel_controls).toBeDefined();
+    expect(spec8.panel_controls).toBeUndefined();
+    expect(strip(adp9)).toEqual(strip(adp8));
+  });
+  it("the declared list, attribute by attribute: every stocked size + every choice is a dropdown; the four BoQ measurements are text; nothing else", () => {
+    const pc = spec9.panel_controls!;
+    const dropdown = Object.entries(pc).filter(([, v]) => v === "dropdown").map(([k]) => k).sort();
+    const text = Object.entries(pc).filter(([, v]) => v === "text").map(([k]) => k).sort();
+    expect(dropdown).toEqual(["air", "damper", "dia_mm", "family", "insulated", "neck_mm", "panel_ratio", "slot_count", "thickness_mm", "torque_nm", "ul", "variant"]);
+    expect(text).toEqual(["area_sqm", "depth_mm", "face_h_mm", "face_w_mm"]);
+    // COMPLETE over the panel's namespace: every number reader, every choice, the family, the derive source
+    const ns = new Set([...Object.keys(spec9.numbers), ...spec9.choice_attrs, "family", ...(spec9.derive_when_none ?? []).map((r) => r.when.attr)]);
+    expect(new Set(Object.keys(pc))).toEqual(ns);
+    // every ladder attribute is a dropdown (a stocked size); every text attribute is a conversion input, never a ladder
+    for (const l of spec9.ladders) expect(pc[l]).toBe("dropdown");
+    for (const t of text) expect(spec9.ladders).not.toContain(t);
+  });
+});
+
+describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, narrowed by the block's other answers (X2)", () => {
+  it("POSITIVE: the disc valve's diameters are the sheet's two; a round diffuser's damper choices and diameters are the sheet's; a control panel's ratios; a plenum's thicknesses", () => {
+    const dv = itemFieldDefs(spec9, defs9, "disc valve", "count", { items: items9 });
+    expect(dv).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown", options: ["100", "150"], optionSource: "catalogue" }]);
+    expect(dv[0].options).toEqual(stocked("disc valve", "dia_mm"));
+    const rd = itemFieldDefs(spec9, defs9, "round diffuser", "count", { items: items9 });
+    expect(rd.map((f) => [f.id, f.control, f.options, f.optionSource])).toEqual([
+      ["damper", "dropdown", ["None", "with", "without"], "catalogue"],
+      ["dia_mm", "dropdown", ["200", "250", "300", "400"], "catalogue"],
+    ]);
+    expect(itemFieldDefs(spec9, defs9, "control panel", "count", { items: items9 })[0].options).toEqual(stocked("control panel", "panel_ratio"));
+    expect(itemFieldDefs(spec9, defs9, "double-skin plenum", "area", { items: items9 })[0].options).toEqual(["25", "50"]);
+    expect(itemFieldDefs(spec9, defs9, "slot diffuser", "length", { items: items9 }).find((f) => f.skuAttr === "slot_count")!.options).toEqual(["2", "3"]);
+  });
+  it("NARROWING: an actuator's torques under UL vs non-UL are exactly the sheet's for that UL (the ladder's own rule); a contradictory answer falls back to the family's full list", () => {
+    const all = stocked("actuator", "torque_nm");
+    const yes = stocked("actuator", "torque_nm", { ul: "yes" });
+    const no = stocked("actuator", "torque_nm", { ul: "no" });
+    expect(all.length).toBeGreaterThan(0);
+    const torque = (answers: Record<string, string>) => itemFieldDefs(spec9, defs9, "actuator", "count", { items: items9, answers }).find((f) => f.skuAttr === "torque_nm")!;
+    expect(torque({}).options).toEqual(all);
+    expect(torque({ ul: "yes" }).options).toEqual(yes);
+    expect(torque({ ul: "no" }).options).toEqual(no);
+    // the measured fact, stated so a future SKU change is loud: do the two UL sides stock the same torques today?
+    expect([yes, no].map((l) => l.join(","))).toEqual([stocked("actuator", "torque_nm", { ul: "yes" }).join(","), stocked("actuator", "torque_nm", { ul: "no" }).join(",")]);
+    // "None" and blank answers never narrow; a value no SKU carries falls back to the full list (never an empty select)
+    expect(torque({ ul: "None" }).options).toEqual(all);
+    expect(torque({ ul: "" }).options).toEqual(all);
+    expect(torque({ ul: "maybe" }).options).toEqual(all);
+    // and the UL choice itself narrows by a picked torque
+    const ul = (answers: Record<string, string>) => itemFieldDefs(spec9, defs9, "actuator", "count", { items: items9, answers }).find((f) => f.skuAttr === "ul")!;
+    expect(ul({}).options).toEqual(["None", ...["yes", "no"].filter((v) => stocked("actuator", "ul").includes(v))]);
+    expect(ul({ torque_nm: "20" }).options).toEqual(["None", ...["yes", "no"].filter((v) => stocked("actuator", "ul", { torque_nm: "20" }).includes(v))]);
+  });
+  it("a newly added SKU appears as an option with NO code change (X2); the family's other options are untouched", () => {
+    const extra: RateMasterItem = { ...items9.find((i) => i.attributes.family === "disc valve")!, name: "TEST-DV-200", item_uid: "test-dv-200", attributes: { item_name: "PVC Disc Valve", item_detail: "200MM DIA", family: "disc valve", dia_mm: 200 } };
+    const dv = itemFieldDefs(spec9, defs9, "disc valve", "count", { items: [...items9, extra] });
+    expect(dv[0].options).toEqual(["100", "150", "200"]);
+    // and it prices through the same pick
+    expect(figures(priceItemList(spec9, [...items9, extra], "Nos", [ext({ family: "disc valve", dia_mm: "200" })]))[0]).toBe(true);
+  });
+  it("NEGATIVE: a BoQ measurement stays free text (no options); an attribute no SKU carries takes the definition's vocabulary; v8 (no panel_controls) keeps today's controls", () => {
+    const vcd = itemFieldDefs(spec9, defs9, "VCD", "count", { items: items9 });
+    expect(vcd.map((f) => [f.id, f.control, f.options === undefined])).toEqual([
+      ["variant", "dropdown", false], ["face_w_mm", "text", true], ["face_h_mm", "text", true], ["area_band", "text", true],
+    ]);
+    // the choice keeps the DEFINITION's family order (values_by_family: GI oval, motorised, GI rectangular), from the SKUs
+    expect(vcd[0].options).toEqual(["None", "GI oval", "motorised", "GI rectangular"]);
+    expect(vcd[0].optionSource).toBe("catalogue");
+    expect(new Set(vcd[0].options!.slice(1))).toEqual(new Set(stocked("VCD", "variant")));
+    // the air stream (a derive source): a closed BoQ vocabulary, no SKU carries it -> the definition's list
+    const lg = itemFieldDefs(spec9, defs9, "linear grille", "area", { items: items9 });
+    expect(lg.find((f) => f.id === "air")).toMatchObject({ control: "dropdown", optionSource: "definition", options: ["None", "supply", "return", "exhaust", "fresh"] });
+    // the mixing box's three dimensions are conversion inputs: text
+    expect(itemFieldDefs(spec9, defs9, "mixing box / LP plenum", "count", { items: items9 }).map((f) => [f.id, f.control])).toEqual([["insulated", "dropdown"], ["face_w_mm", "text"], ["face_h_mm", "text"], ["depth_mm", "text"]]);
+    // v8: a number is a text input, a choice a select from the definition -- exactly slice 6, plus the control key
+    expect(itemFieldDefs(spec8, listSpecDefs(adp8), "disc valve", "count", { items: items8 })).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" }]);
+    // without SKUs handed in, a v9 dropdown size has no options to offer (the caller must pass the catalogue)
+    expect(itemFieldDefs(spec9, defs9, "disc valve", "count")[0]).toEqual({ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown" });
+  });
+});
+
+describe("slice 6b / V3 -- an off-ladder stated size prices at the ladder result (unchanged), above the largest still refuses", () => {
+  it("the pricing itself is byte-identical between v8 and v9 for every stated size (the control is screen-only)", () => {
+    for (const d of ["100", "120", "150", "160", "150MM DIA", "", "abc"]) {
+      const a = price8("Nos", ext({ family: "disc valve", dia_mm: d }));
+      const b = price9("Nos", ext({ family: "disc valve", dia_mm: d }));
+      expect(b).toEqual(a);
+    }
+    expect(figures(price9("Nos", ext({ family: "disc valve", dia_mm: "120" })))).toEqual([true, 653, 176]);
+    expect(price9("Nos", ext({ family: "disc valve", dia_mm: "160" })).reason).toBe("diameter 160 is above the largest size on the sheet (150)");
+  });
+});
+
+describe("slice 6b / V6, V7 -- the same family more than once; the per-block quantity is per ONE row unit and the row's own quantity never enters", () => {
+  it("V6: two disc valves of different sizes price separately and the row sums them", () => {
+    const r = price9("Nos", ext({ family: "disc valve", dia_mm: "100" }), ext({ family: "disc valve", dia_mm: "150" }));
+    expect(r.items.map((i) => [i.family, i.figures.supply, i.figures.install])).toEqual([["disc valve", 551, 176], ["disc valve", 653, 176]]);
+    expect([r.supply, r.install]).toEqual([551 + 653, 176 + 176]);
+  });
+  it("V7: a 3-block row with quantities 1 / 2 / 4 prices to the sum of rate x quantity; NEGATIVE: the module has no row-quantity input at all", () => {
+    const r = price9("Nos",
+      { ...ext({ family: "disc valve", dia_mm: "100" }), qtyPerRowUnit: 1 },
+      { ...ext({ family: "spigot", dia_mm: "150" }), qtyPerRowUnit: "2" },
+      { ...ext({ family: "butterfly damper", dia_mm: "150" }), qtyPerRowUnit: 4 });
+    const bf = price9("Nos", ext({ family: "butterfly damper", dia_mm: "150" })).items[0].finals;
+    expect(r.priced).toBe(true);
+    expect(r.supply).toBe(551 * 1 + 211 * 2 + bf.supply * 4);
+    expect(r.install).toBe(176 * 1 + 64 * 2 + bf.install * 4);
+    // the module's signature carries the unit and the items -- nothing about the row's quantity -- and its source
+    // never reads one (the only quantity it knows is the per-block `qtyPerRowUnit`)
+    expect(priceItemList.length).toBe(4);
+    const src = readFileSync(join(__dirname, "itemListPricing.ts"), "utf8");
+    expect(src).not.toMatch(/row\.(qty|quantity)|rowQty|ctx\.quantity|total_quantity/);
+  });
+});

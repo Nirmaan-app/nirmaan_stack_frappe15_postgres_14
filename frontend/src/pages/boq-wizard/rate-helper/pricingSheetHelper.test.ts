@@ -4248,11 +4248,17 @@ describe("Calculator slice 1 / THREE -- the two blanks (premise CORRECTED by the
 
 describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row and with NO row", () => {
   const FORBIDDEN = ["this row", "the row supplied", "readable in the row", "suggestion run", "Pipeline '"];
-  it("⚠️ NEGATIVE (source): none of the row-assuming phrases survive in the shipped strings of the three shared files", () => {
+  it("⚠️ NEGATIVE (source): none of the row-assuming phrases survive in the shipped strings of the three shared files -- except the ONE owner-worded quantity label (V7 / U4, 2026-09-24)", () => {
+    // slice 6b INVERSION (mechanical authority): the owner ruled the per-block quantity label reads "in one unit of
+    // this row" (U4). That string is the ONE sanctioned "this row" in the panel; it is removed before the check so
+    // every OTHER row-assuming phrase stays forbidden, and its presence is pinned exactly once.
+    const QTY_LABEL = "How many in one {view.unit} of this row";
     for (const [name, raw] of Object.entries(CALC1_SRC)) {
-      const src = stripComments(raw);
+      const src = stripComments(raw).split(QTY_LABEL).join("");
       for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
     }
+    const panel = CALC1_SRC.panel;
+    expect(panel.split(QTY_LABEL).length - 1).toBe(1);
   });
   it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
     const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });
@@ -5034,6 +5040,7 @@ describe("SLICE 3 / alias_of: resolveAliasConfig is one hop; an aliased row pric
 // the pre-run rule per row.
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
+import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import {
   applyItemEdit,
   assembleItems,
@@ -5048,6 +5055,7 @@ import {
   unitChoicesOf,
   type ItemListSuggestion,
   type ItemListEditState,
+  type ItemListView,
 } from "./pricingSheetHelper";
 import { itemListPricingSpec } from "./itemListPricing";
 
@@ -5286,5 +5294,100 @@ describe("SLICE 6 / U6 -- the pre-run rule is PER ROW: a row whose own config is
     expect(page).toContain("extractedAttributes.items = extItems.map((it) => ({");
     expect(page).toContain("? { ...meta.correctedAttributes, items: meta.itemsOnScreen }");
     expect(page).toContain("corrected_attributes: correctedAttributes,");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6b (2026-09-24, owner V1-V7) -- the item-list VIEW under v9: dropdown fields with the sheet's options,
+// the ladder result shown in a size field, the same family twice, the picker still offering a present family,
+// the per-block quantity's meaning, and the panel's label.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6b / the item-list view under v9 -- controls from config, options from the SKUs, the ladder result on screen", () => {
+  const V9 = HVAC_V9 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS9 = new Map<string, RateCategoryConfig>(V9.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS9: RateMasterItem[] = V9.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const adpCtx = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS9, items: ITEMS9, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const field = (v: ItemListView, i: number, id: string) => v.items[i].fields.find((f) => f.id === id)!;
+
+  it("V1 / U1: a disc valve row's Diameter is a DROPDOWN with the sheet's two sizes; a VCD's width / height / area band stay text", () => {
+    const { v } = list(runWith([{ excel_row: 10, items: [li({ family: "disc valve", dia_mm: "100" })] }]).compute(adpCtx(10, "Nos")));
+    expect(field(v, 0, "dia_mm")).toMatchObject({ control: "dropdown", options: ["100", "150"], optionSource: "catalogue", value: "100", blank: false });
+    expect(v.items[0].figures).toEqual({ supply_rate: 551, install_rate: 176, combined_rate: 727 });
+    const { v: vcd } = list(runWith([{ excel_row: 11, items: [li({ family: "VCD", variant: "GI rectangular", face_w_mm: "600", face_h_mm: "600" })] }]).compute(adpCtx(11, "Nos")));
+    expect(vcd.items[0].fields.map((f) => [f.id, f.control, f.options === undefined])).toEqual([["variant", "dropdown", false], ["face_w_mm", "text", true], ["face_h_mm", "text", true], ["area_band", "text", true]]);
+    expect(field(vcd, 0, "face_w_mm").value).toBe("600");
+  });
+  it("V3 / U2: a stated 120 shows the LADDER RESULT 150 in the field with the note naming the stated size; 150MM DIA shows the stocked 150; 160 keeps the refusal, shows no pick and keeps the stated size on the note", () => {
+    const at = (d: string) => list(runWith([{ excel_row: 12, items: [li({ family: "disc valve", dia_mm: d })] }]).compute(adpCtx(12, "Nos")));
+    const f120 = field(at("120").v, 0, "dia_mm");
+    expect(f120).toMatchObject({ value: "150", note: "diameter 120 is not on the sheet -> 150 (next size up)", blank: false });
+    expect(at("120").v.items[0].figures.combined_rate).toBe(829);
+    expect(field(at("150MM DIA").v, 0, "dia_mm")).toMatchObject({ value: "150", blank: false });
+    expect(field(at("150MM DIA").v, 0, "dia_mm").note).toBeUndefined();
+    const r160 = at("160");
+    expect(r160.v.items[0]).toMatchObject({ state: "blank", reason: "diameter 160 is above the largest size on the sheet (150)" });
+    expect(field(r160.v, 0, "dia_mm")).toMatchObject({ value: "", blank: true, note: "stated 160: diameter 160 is above the largest size on the sheet (150)" });
+    expect(r160.r.values).toEqual({});
+    // and the pricer's own pick from the dropdown prices the pick
+    const s = applyItemEdit(initialItemEdits(1), { op: "set_attr", index: 0, id: "dia_mm", value: "150" });
+    const { v } = list(runWith([{ excel_row: 12, items: [li({ family: "disc valve", dia_mm: "120" })] }]).compute(adpCtx(12, "Nos"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
+    expect(field(v, 0, "dia_mm")).toMatchObject({ value: "150", userEdited: true });
+    expect(field(v, 0, "dia_mm").note).toBeUndefined();
+  });
+  it("X2 through the view: an actuator's torque options narrow by ITS UL answer; the disc valve's options never depend on another block", () => {
+    const { v } = list(runWith([{ excel_row: 13, items: [li({ family: "actuator", ul: "yes", torque: "8 NM" }), li({ family: "disc valve", dia_mm: "100" })] }]).compute(adpCtx(13, "Nos")));
+    const yes = [...new Set(ITEMS9.filter((i) => i.attributes.family === "actuator" && String(i.attributes.ul) === "yes").map((i) => String(i.attributes.torque_nm)))].sort((a, b) => Number(a) - Number(b));
+    expect(field(v, 0, "torque").options).toEqual(yes);
+    expect(field(v, 1, "dia_mm").options).toEqual(["100", "150"]);
+  });
+  it("V6 / U3: two blocks of the SAME family with different sizes both price and sum; '+ Add item' still offers that family", () => {
+    const { r, v } = list(runWith([{ excel_row: 14, items: [li({ family: "disc valve", dia_mm: "100" }), li({ family: "disc valve", dia_mm: "150" })] }]).compute(adpCtx(14, "Nos")));
+    expect(v.items.map((b) => [b.family, b.state, b.figures.combined_rate])).toEqual([["disc valve", "priced", 727], ["disc valve", "priced", 829]]);
+    expect(r.values).toEqual({ supply_rate: 551 + 653, install_rate: 176 + 176, combined_rate: 727 + 829 });
+    expect(v.families.filter((f) => f.family === "disc valve")).toHaveLength(1);   // offered, once, while two blocks already carry it
+    // a third of the same family, added by the pricer, prices too and the total is the three
+    const s = applyItemEdit(applyItemEdit(initialItemEdits(2), { op: "add", family: "disc valve" }), { op: "set_attr", index: 2, id: "dia_mm", value: "100" });
+    const { r: r3, v: v3 } = list(runWith([{ excel_row: 14, items: [li({ family: "disc valve", dia_mm: "100" }), li({ family: "disc valve", dia_mm: "150" })] }]).compute(adpCtx(14, "Nos"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
+    expect(v3.items).toHaveLength(3);
+    expect(r3.values!.combined_rate).toBe(727 + 829 + 727);
+    // NEGATIVE: nothing keys a block by family -- an edit to block 2 leaves block 0 (same family) untouched
+    const s2 = applyItemEdit(s, { op: "set_attr", index: 2, id: "dia_mm", value: "150" });
+    const { v: v4 } = list(runWith([{ excel_row: 14, items: [li({ family: "disc valve", dia_mm: "100" }), li({ family: "disc valve", dia_mm: "150" })] }]).compute(adpCtx(14, "Nos"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s2) }));
+    expect(v4.items.map((b) => field(v4, b.index, "dia_mm").value)).toEqual(["100", "150", "150"]);
+    expect(v4.items.map((b) => field(v4, b.index, "dia_mm").userEdited)).toEqual([false, false, true]);
+  });
+  it("V7 / U4: three blocks at 1 / 2 / 4 price to the sum of rate x quantity; NEGATIVE: the row's own quantity is not an input the helper knows -- the same context with any quantity gives the same rate", () => {
+    const base = [li({ family: "disc valve", dia_mm: "100" }), li({ family: "spigot", dia_mm: "150" }), li({ family: "butterfly damper", dia_mm: "150" })];
+    let s = initialItemEdits(3);
+    s = applyItemEdit(s, { op: "set_qty", index: 1, qty: "2" });
+    s = applyItemEdit(s, { op: "set_qty", index: 2, qty: "4" });
+    const h = runWith([{ excel_row: 15, items: base }]);
+    const ov = { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) };
+    const { r, v } = list(h.compute(adpCtx(15, "Nos"), ov));
+    const bf = v.items[2].figures;
+    expect(v.items.map((b) => b.qty)).toEqual(["1", "2", "4"]);
+    expect(r.values!.supply_rate).toBe(551 + 211 * 2 + bf.supply_rate! );
+    expect(r.values!.install_rate).toBe(176 + 64 * 2 + bf.install_rate!);
+    // the row's own quantity: not in the context type, and a stray field of any value changes nothing
+    const withQty = (q: number) => h.compute({ ...adpCtx(15, "Nos"), quantity: q } as unknown as RateHelperRowContext, ov);
+    expect(withQty(5)).toEqual(withQty(500));
+    expect(withQty(5)).toEqual(r);
+  });
+  it("(source) the panel's quantity label says what the owner said it means, and the old label is gone", () => {
+    const panel = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8");
+    expect(panel).toContain("How many in one {view.unit} of this row");
+    expect(panel).not.toContain("Qty per 1 {view.unit} of row");
   });
 });
