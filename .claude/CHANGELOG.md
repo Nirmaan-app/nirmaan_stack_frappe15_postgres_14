@@ -4,6 +4,74 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-09-21: Payments queue — edit & revert, payment summary, raiser skip, in-place delete, expense approval details
+
+**Summary:** Seven owner-requested changes to the unified Payments queue and the dialogs around it, on
+`develop` (one commit each), plus a same-day reversal of the server-side Paid lock. Terms in `CONTEXT.md`
+§ Expense workflow & settlement (*Raiser's own step*, *Revert to Approved*, *Editing a record by status*).
+Expense-side detail in `domain/expenses.md` (2026-09-21).
+
+### What was built
+
+- **Task 1: edit & revert (`0fc6cd146`).** Admin, Accountant and Accountant Lead only
+  (`services/role_profiles.PAYMENT_SETTLE_PROFILES`, mirrored by the frontend `queueRowActions`).
+  - PO / WO payments: no edit in any status. A *Reconciliation Pending* payment can be sent back to
+    *Approved* by the new `api/payments/revert_to_approved.revert_payment_to_approved`, which re-checks the
+    role and the status (row lock) and refuses while a live `Outflow Row Match` settles it. From *Approved*
+    it can be marked paid again or deleted.
+  - Project / Non-Project expenses: a pencil on every queue tab and in the project / customer Financials
+    tables (`QueueRowEditDialog` opens the existing edit dialogs). Editable in every status but *Rejected*.
+    On *Paid*, Amount / Payment Date / Payment Ref are read-only in the dialogs.
+  - The old admin pencil on the Paid tab (`EditFulfilledPaymentDialog`) is unwired: it saved blanks over
+    UTR / date / proof. The component file is still in the tree, imported by nothing.
+- **Server-side Paid lock: added in `0fc6cd146`, REMOVED the same day (owner: "I already block in
+  frontend").** `services/paid_record_lock.py` (+ its tests) is deleted and `Project Payments.validate`
+  is back to its pre-Task-1 form. Every Paid lock is now frontend-only, and Desk / REST can edit any field.
+  ⚠️ **Known consequence:** a Paid payment's amount edited in Desk restates its TDS, but the PO / SR
+  `amount_paid` / `amount_due` do NOT follow, because the controller recomputes only on a transition into
+  or out of *Paid*. `test_document_amount_fields.test_editing_a_paid_payment_amount_updates_amount_paid`
+  is back as an `expectedFailure` pinning that gap.
+- **Task 2: payment summary (`ea2e7dbb5`).** `api/payments/payment_summary.get_payment_summary` over the
+  pure `services/payment_summary.summarise`. It feeds one `PaymentSummaryBlock` in the payment Approve /
+  Reject dialog and both Request Payment dialogs (PO term, WO): value, Paid, Paid not reconciled, Approved,
+  Waiting CEO, Waiting L1, Rejected not deleted, This payment, Left after, plus an alert and a list of the
+  other waiting payments. The figures match the request cap: WO payments count gross of TDS (unless
+  company-borne) and a Rejected payment not yet deleted counts. The WO request is capped at "Left after".
+- **Task 3: raiser skip (`9e73e97ed`).** `approval_tiers.initial_status_for_raiser` /
+  `steps_cleared_by_raiser` (pure) plus `services/approval_raiser` (`raiser_level`, `expense_raiser`).
+  An L1 raiser (Administrator or Admin profile) lands 15k–50k at *Approved* and >50k at *CEO Pending*; the
+  CEO lands everything at *Approved*. This applies on both payment create endpoints and both expense
+  `validate`s. An expense's raiser is its Expense Request's owner, and `convert.target_status` previews the
+  same call. Cleared steps are dated, not `auto_approved`. A payment born *CEO Pending* notifies the CEO
+  directly. Accountants are not L1 here.
+- **Task 4: in-place delete (`39e533510`).** "Payment Raised By Me" deletes a Rejected PO / WO payment in
+  its own dialog (`update_payment_request` delete; `on_trash` resets the PO term), instead of sending the
+  user to the PO / WO page. Admin sees the trash icon on Rejected payments on the PO / WO pages in the
+  summary view too.
+- **Task 5: expense approval details (`fc4a3de42`).** New read-only
+  `api/approvals/expense_detail.get_expense_approval_detail` (row fields, raiser = request owner, the
+  request's labelled answers + reviewer + attachments, same-type-and-amount expenses of the last 60 days).
+  Rendered by `ExpenseApprovalDetails` in `PaymentActionDialog`, which previously showed only the amount.
+  Fixed on the way: the CEO's partial-amount box no longer appears on an expense (it approved the full
+  amount regardless).
+- **Payment Done table (`82b7d93d5`):** the "Reconciled on" column is removed from the table; the CSV
+  export keeps it.
+- **Open PO (`f8d616476`):** the PO popover's "Open PO" link goes to `/purchase-orders/:id` on the tab of
+  the PO's status (`poRoute.poLinkFor`); other statuses keep the project PO summary.
+
+### Verification
+
+- Backend (own modules only, row counts identical before/after every run): `test_revert_to_approved` 6,
+  `test_payment_summary` 10, `test_approval_raiser` 9, `test_approval_tiers` 23, `test_expense_detail` 4,
+  all green. A rolled-back live save confirmed a Paid payment's amount / UTR / date / proof now save.
+- Frontend: vitest `pages/ProjectPayments` + `utils/approvalTiers` (10 files, 145 tests) green; `tsc` shows
+  no errors in the changed files.
+- NOT run: `api/invoices/test_document_amount_fields`. It is an existing suite, and existing suites are not
+  run against the live localhost DB without the owner's OK and a backup (tests have no separate database).
+- Residence check: F5 117/115 and F2 210/207, identical to the committed baseline failures; no new ones.
+
+---
+
 ## 2026-09-19: Project Payments — Mode of Payment (Online / Cheque)
 
 **Summary:** A Project Payment is requested as **Online** or **Cheque** (cheque no + date captured). A cheque

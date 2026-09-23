@@ -1,7 +1,7 @@
 // frontend/src/pages/ProjectDesignTracker/components/TeamPerformanceSummary.tsx
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Users, UserX } from 'lucide-react';
+import { ChevronDown, ChevronRight, UserMinus, Users, UserX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -17,6 +17,7 @@ import { getUnifiedStatusStyle } from '../utils';
 import { formatDate } from '@/utils/FormatDate';
 import {
     UNASSIGNED_SENTINEL,
+    PREVIOUS_USERS_SENTINEL,
     TaskPreviewFilter,
     InlineTaskExpansion,
     StatusCountMap,
@@ -117,16 +118,17 @@ interface ProjectRowProps {
     isLast: boolean;
     onCountClick: (filter: TaskPreviewFilter) => void;
     inlineExpansion: InlineTaskExpansion | null;
+    nested?: boolean;  // under a Previous Users email row
 }
 
 const ProjectRow = React.memo<ProjectRowProps>(
-    ({ project, user, isLast, onCountClick, inlineExpansion }) => {
+    ({ project, user, isLast, onCountClick, inlineExpansion, nested = false }) => {
         const treePrefix = isLast ? '\u2514\u2500' : '\u251C\u2500'; // └─ or ├─
         const expansionIdBase = `expansion-${user.user_id}-${project.project_id}`;
 
         return (
             <tr className="bg-gray-50/50" style={{ height: '32px' }}>
-                <td className="py-1 px-3 text-gray-600 text-sm">
+                <td className={`py-1 ${nested ? 'pl-10 pr-3' : 'px-3'} text-gray-600 text-sm`}>
                     <span className="flex items-center gap-1">
                         <span
                             aria-hidden="true"
@@ -180,18 +182,28 @@ interface UserRowProps {
     onCountClick: (filter: TaskPreviewFilter) => void;
     isDesignLead?: boolean;
     inlineExpansion: InlineTaskExpansion | null;
+    nested?: boolean;  // a former designer's email row under Previous Users
 }
 
 const UserRow = React.memo<UserRowProps>(
-    ({ user, isExpanded, onToggleExpand, onCountClick, isDesignLead, inlineExpansion }) => {
-        const hasProjects = user.projects.length > 0;
+    ({ user, isExpanded, onToggleExpand, onCountClick, isDesignLead, inlineExpansion, nested = false }) => {
+        // Previous Users expands to its people; everyone else to their projects
+        const hasProjects = (user.members ? user.members.length : user.projects.length) > 0;
         const projectsId = `user-projects-${user.user_id}`;
         const expansionIdBase = `expansion-${user.user_id}`;
         const isUnassigned = user.user_id === UNASSIGNED_SENTINEL;
+        const isPreviousUsers = user.user_id === PREVIOUS_USERS_SENTINEL;
+        const rowTone = isUnassigned
+            ? 'bg-amber-50/30 hover:bg-amber-50/50'
+            : isPreviousUsers
+                ? 'bg-red-50/60 hover:bg-red-50'
+                : nested
+                    ? 'bg-red-50/25 hover:bg-red-50/60'
+                    : 'hover:bg-gray-50';
 
         return (
-            <tr className={`transition-colors ${isUnassigned ? 'bg-amber-50/30 hover:bg-amber-50/50' : 'hover:bg-gray-50'}`} style={{ height: '32px' }}>
-                <td className="py-1 px-3 text-gray-900 text-sm font-medium">
+            <tr className={`transition-colors ${rowTone}`} style={{ height: '32px' }}>
+                <td className={`py-1 text-sm ${nested ? 'pl-8 pr-3 text-gray-800' : 'px-3 text-gray-900 font-medium'}`}>
                     <span className="flex items-center gap-1">
                         {hasProjects ? (
                             <button
@@ -200,7 +212,7 @@ const UserRow = React.memo<UserRowProps>(
                                 className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 aria-expanded={isExpanded}
                                 aria-controls={projectsId}
-                                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} project breakdown for ${user.user_name}`}
+                                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${isPreviousUsers ? 'users' : 'project breakdown'} for ${user.user_name}`}
                             >
                                 {isExpanded ? (
                                     <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
@@ -214,10 +226,19 @@ const UserRow = React.memo<UserRowProps>(
                         {isUnassigned && (
                             <UserX className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                         )}
-                        <span className={`truncate max-w-[150px] ${isUnassigned ? 'text-amber-800 italic' : ''}`} title={user.user_name}>
+                        {isPreviousUsers && (
+                            <UserMinus className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                        )}
+                        <span
+                            className={`truncate ${nested ? 'max-w-[240px]' : 'max-w-[150px]'} ${isUnassigned ? 'text-amber-800 italic' : isPreviousUsers ? 'text-red-700 italic' : ''}`}
+                            title={user.user_name}
+                        >
                             {user.user_name}
                         </span>
-                        {!isUnassigned && isDesignLead && (
+                        {isPreviousUsers && !!user.members?.length && (
+                            <span className="text-xs text-red-400 shrink-0">({user.members.length})</span>
+                        )}
+                        {!isUnassigned && !isPreviousUsers && !nested && isDesignLead && (
                             <Badge
                                 variant="outline"
                                 className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-700 border-purple-200"
@@ -298,6 +319,10 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
         setInlineExpansion(null);
     }, [projectsKey, filters.deadlineFrom, filters.deadlineTo]);
 
+    const previousUserIds = summaryData?.summary
+        ?.find(u => u.user_id === PREVIOUS_USERS_SENTINEL)
+        ?.members?.map(m => m.user_id);
+
     // Create filter for the hook (converts InlineTaskExpansion to TaskPreviewFilter)
     // Include filters from summary to ensure inline tasks match summary counts
     const taskFilter: TaskPreviewFilter | null = inlineExpansion ? {
@@ -315,6 +340,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
         deadlineTo: filters.deadlineTo,
         // Inherit phase filter
         taskPhase,
+        memberIds: inlineExpansion.userId === PREVIOUS_USERS_SENTINEL ? previousUserIds : undefined,
     } : null;
 
     // Fetch filtered tasks when inline expansion is open
@@ -366,6 +392,70 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
     // Derived data
     const teamMembers = summaryData?.summary || [];
     const memberCount = teamMembers.length;
+
+    // One member's rows: the member, then its projects (or, for Previous Users, its people)
+    // and any open inline task list. Recursive for the email rows under Previous Users.
+    const renderUserBlock = (user: UserTaskSummary, nested = false): React.ReactNode => (
+        <React.Fragment key={user.user_id}>
+            <UserRow
+                user={user}
+                isExpanded={expandedUsers.has(user.user_id)}
+                onToggleExpand={() => toggleUserExpand(user.user_id)}
+                onCountClick={handleCountClick}
+                isDesignLead={userRoleMap.get(user.user_id) === "Nirmaan Design Lead Profile"}
+                inlineExpansion={inlineExpansion}
+                nested={nested}
+            />
+            {/* Previous Users expands to one row per former designer (email) */}
+            {expandedUsers.has(user.user_id) && user.members?.map((member) => renderUserBlock(member, true))}
+            {/* Render project rows if user is expanded */}
+            {expandedUsers.has(user.user_id) && !user.members && user.projects.length > 0 && (
+                <>
+                    {user.projects.map((project, idx) => (
+                        <React.Fragment key={project.project_id}>
+                            <ProjectRow
+                                project={project}
+                                user={user}
+                                isLast={idx === user.projects.length - 1}
+                                onCountClick={handleCountClick}
+                                inlineExpansion={inlineExpansion}
+                                nested={nested}
+                            />
+                            {/* Inline task list for project-level expansion */}
+                            {inlineExpansion?.userId === user.user_id &&
+                                inlineExpansion?.projectId === project.project_id && (
+                                <InlineTaskList
+                                    filter={inlineExpansion}
+                                    tasks={tasks}
+                                    isLoading={isLoadingTasks}
+                                    onClose={() => setInlineExpansion(null)}
+                                    usersList={usersList || []}
+                                    statusOptions={statusOptions}
+                                    subStatusOptions={subStatusOptions}
+                                    onTaskUpdated={handleTaskUpdated}
+                                    expansionId={`expansion-${user.user_id}-${project.project_id}`}
+                                />
+                            )}
+                        </React.Fragment>
+                    ))}
+                </>
+            )}
+            {/* Inline task list for user-level expansion (no project filter) */}
+            {inlineExpansion?.userId === user.user_id && !inlineExpansion?.projectId && (
+                <InlineTaskList
+                    filter={inlineExpansion}
+                    tasks={tasks}
+                    isLoading={isLoadingTasks}
+                    onClose={() => setInlineExpansion(null)}
+                    usersList={usersList || []}
+                    statusOptions={statusOptions}
+                    subStatusOptions={subStatusOptions}
+                    onTaskUpdated={handleTaskUpdated}
+                    expansionId={`expansion-${user.user_id}`}
+                />
+            )}
+        </React.Fragment>
+    );
 
     // Content rendering based on state
     const renderContent = () => {
@@ -419,63 +509,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {teamMembers.map((user) => (
-                            <React.Fragment key={user.user_id}>
-                                <UserRow
-                                    user={user}
-                                    isExpanded={expandedUsers.has(user.user_id)}
-                                    onToggleExpand={() => toggleUserExpand(user.user_id)}
-                                    onCountClick={handleCountClick}
-                                    isDesignLead={userRoleMap.get(user.user_id) === "Nirmaan Design Lead Profile"}
-                                    inlineExpansion={inlineExpansion}
-                                />
-                                {/* Render project rows if user is expanded */}
-                                {expandedUsers.has(user.user_id) && user.projects.length > 0 && (
-                                    <>
-                                        {user.projects.map((project, idx) => (
-                                            <React.Fragment key={project.project_id}>
-                                                <ProjectRow
-                                                    project={project}
-                                                    user={user}
-                                                    isLast={idx === user.projects.length - 1}
-                                                    onCountClick={handleCountClick}
-                                                    inlineExpansion={inlineExpansion}
-                                                />
-                                                {/* Inline task list for project-level expansion */}
-                                                {inlineExpansion?.userId === user.user_id &&
-                                                    inlineExpansion?.projectId === project.project_id && (
-                                                    <InlineTaskList
-                                                        filter={inlineExpansion}
-                                                        tasks={tasks}
-                                                        isLoading={isLoadingTasks}
-                                                        onClose={() => setInlineExpansion(null)}
-                                                        usersList={usersList || []}
-                                                        statusOptions={statusOptions}
-                                                        subStatusOptions={subStatusOptions}
-                                                        onTaskUpdated={handleTaskUpdated}
-                                                        expansionId={`expansion-${user.user_id}-${project.project_id}`}
-                                                    />
-                                                )}
-                                            </React.Fragment>
-                                        ))}
-                                    </>
-                                )}
-                                {/* Inline task list for user-level expansion (no project filter) */}
-                                {inlineExpansion?.userId === user.user_id && !inlineExpansion?.projectId && (
-                                    <InlineTaskList
-                                        filter={inlineExpansion}
-                                        tasks={tasks}
-                                        isLoading={isLoadingTasks}
-                                        onClose={() => setInlineExpansion(null)}
-                                        usersList={usersList || []}
-                                        statusOptions={statusOptions}
-                                        subStatusOptions={subStatusOptions}
-                                        onTaskUpdated={handleTaskUpdated}
-                                        expansionId={`expansion-${user.user_id}`}
-                                    />
-                                )}
-                            </React.Fragment>
-                        ))}
+                        {teamMembers.map((user) => renderUserBlock(user))}
                     </tbody>
                 </table>
             </div>

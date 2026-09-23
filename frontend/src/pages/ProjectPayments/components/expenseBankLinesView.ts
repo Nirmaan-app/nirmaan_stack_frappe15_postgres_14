@@ -15,6 +15,7 @@
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { LINK_TOLERANCE } from "@/pages/outflow-import/linkLinesView";
+import { ROW_PARTIALLY_ALLOCATED } from "@/pages/outflow-import/outflowImportStatus";
 
 /** One live Settled slip, as `get_expense_bank_lines` returns it. */
 export interface ExpenseBankLine {
@@ -37,6 +38,13 @@ export interface ExpenseBankLine {
      * linked total on a many-line expense.
      */
     amount: number;
+    /** The bank line's own amount -- more than `amount` when the line is split across records. */
+    line_amount?: number;
+    /** The bank line's status; `Partially Allocated` when part of it is not yet used. */
+    line_status?: string;
+    /** What the line's live slips, to ANY record, add up to -- and what is left of it. */
+    line_reconciled?: number;
+    line_pending?: number;
 }
 
 /** The whole card's payload. */
@@ -110,6 +118,51 @@ export const linkedProgress = (figures: LinkedFigures): LinkedProgress => {
         complete,
     };
 };
+
+/** The Amount cell's two figures for a part-reconciled row. */
+export interface PartReconciled {
+    /** What bank lines already cover: "₹5,74,236". */
+    reconciled: string;
+    /** What is still to link: "₹4,25,764". */
+    pending: string;
+}
+
+/**
+ * The queue's Amount cell under the figure: how much is reconciled and how much is pending, for ANY
+ * row -- payment, project or non-project expense -- or `null` when there is nothing part-done to say:
+ * no bank line has reached the row, or the lines already cover it.
+ *
+ * ⚠️ "COVERED" IS `linkedProgress(...).complete`, NOT A SECOND ₹5 TEST, so the cell and the Bank
+ * lines card cannot disagree about the same row. `pending` is the server's `remaining`, for the
+ * reason `linkedProgress` gives.
+ */
+export const partReconciled = (figures: LinkedFigures): PartReconciled | null => {
+    if (paise(figures.linked_total) <= 0) return null;
+    if (linkedProgress(figures).complete) return null;
+    return { reconciled: rupees(figures.linked_total), pending: rupees(figures.remaining) };
+};
+
+/** A bank line only part used, as the card's note under the lines reads it. */
+export interface PartUsedLine {
+    beneficiary: string;
+    lineAmount: string;
+    reconciled: string;
+    pending: string;
+}
+
+/**
+ * The lines on the card that are only PART used -- split across several records with money still
+ * to allocate in Bulk Import -- with the line's own figures. Figures are the server's.
+ */
+export const partUsedLines = (cardLines: readonly ExpenseBankLine[]): PartUsedLine[] =>
+    cardLines
+        .filter((line) => line.line_status === ROW_PARTIALLY_ALLOCATED)
+        .map((line) => ({
+            beneficiary: line.beneficiary_name || line.import_row,
+            lineAmount: rupees(line.line_amount ?? 0),
+            reconciled: rupees(line.line_reconciled ?? 0),
+            pending: rupees(line.line_pending ?? 0),
+        }));
 
 /**
  * The status chip's colours, as a TOTAL map with a fallback -- the idiom

@@ -99,6 +99,8 @@ import {
     highlightSegments,
     importOptionLabel,
     isConfirmable,
+    confirmBlocker,
+    confirmDisabledSentence,
     orderBySuggestion,
     orderPaymentsHref,
     SOURCE_COLUMN_ID,
@@ -856,9 +858,8 @@ describe("the Vendor / Description cell", () => {
 
     it("wraps at 24 and caps at 72 -- INVERTED from 16 / 48 (owner ruling)", () => {
         // ⚠️ INVERTED, not deleted: the old pair is asserted GONE so a revert cannot pass this
-        // file. The wrap and the column width are ONE decision -- 24 characters at `text-sm` is
-        // ~168px, which does not fit a 180px column's 164px content box, so `vendor` widened to
-        // 220px in the same change.
+        // file. The wrap and the column width are ONE decision -- see `VENDOR_DESCRIPTION_WRAP_CHARS`
+        // (24 characters at 11px fits the 165px column's content box).
         expect(VENDOR_DESCRIPTION_WRAP_CHARS).toBe(24);
         expect(VENDOR_DESCRIPTION_MAX_CHARS).toBe(72);
         expect(VENDOR_DESCRIPTION_WRAP_CHARS).not.toBe(16);
@@ -952,12 +953,12 @@ describe("the Vendor / Description cell", () => {
         // matches on and does not move.
         const column = RECORD_COLUMNS.find((c) => c.id === "vendor")!;
         expect(column.title).toBe("Vendor / Description");
-        // ⚠️ 220px, INVERTED from 180px, and it is not a styling tweak. The wrap went to 24
-        // characters (~168px at `text-sm`) and a 180px column has only a 164px content box after
-        // `px-2` a side, so the text would have been wrapped for a box it no longer fits. The 40px
-        // came out of `record`, which lost its document id at D11.
-        expect(column.width).toBe("220px");
-        expect(column.width).not.toBe("180px");
+        // ⚠️ 165px, INVERTED from 220px (owner, 2026-09-22): at 220 the table outgrew the settle
+        // panel and scrolled sideways, cutting AMOUNT. The description still wraps at 24 because it
+        // renders at 11px (~145px), inside a 165px column's 149px content box; the vendor name
+        // wraps onto a second line rather than being cut.
+        expect(column.width).toBe("165px");
+        expect(column.width).not.toBe("220px");
         expect(RECORD_COLUMNS.find((c) => c.id === "record")!.width).toBe("190px");
     });
 });
@@ -1489,6 +1490,43 @@ describe("decisionLinkKeys", () => {
                 linkTargets: new Set(),
             })
         ).toEqual(["Project Payments|PAY-1"]);
+    });
+});
+
+describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", () => {
+    const link: RowDecision = {
+        target: "Project Payments",
+        linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+    };
+
+    it("says nothing exactly where the row IS confirmable -- one rule, not two", () => {
+        const cases: [OutflowImportRow, RowDecision | undefined][] = [
+            [row({ row_status: "Matched" }), link],
+            [row({ row_status: "Partially Allocated" }), link],
+            [row({ row_status: "Pending match run" }), link],
+            [row({ row_status: "Settled" }), link],
+            [row({ row_status: "Mismatched" }), undefined],
+            [row(), {}],
+        ];
+        for (const [r, d] of cases) {
+            expect(confirmBlocker(r, d) === null).toBe(isConfirmable(r, d));
+        }
+    });
+
+    it("names the missing step instead of leaving a dead button", () => {
+        expect(confirmBlocker(row({ row_status: "Pending match run" }), link)).toMatch(/Re-run match/);
+        expect(confirmBlocker(row({ row_status: "Settled" }), link)).toMatch(/Settled/);
+        expect(confirmBlocker(row({ row_status: "Mismatched" }), undefined)).toMatch(/Pick the record/);
+        expect(confirmBlocker(row(), {})).toMatch(/Pick the record/);
+    });
+
+    it("maps every gate reason, and stays silent while busy or live", () => {
+        const r = row({ row_status: "Mismatched" });
+        expect(confirmDisabledSentence(null, r, link)).toBeNull();
+        expect(confirmDisabledSentence("busy", r, link)).toBeNull();
+        expect(confirmDisabledSentence("decision-incomplete", r, undefined)).toMatch(/Pick the record/);
+        expect(confirmDisabledSentence("balance-unknown", r, link)).toMatch(/already settled/);
+        expect(confirmDisabledSentence("over-allocated", r, link)).toMatch(/untick one/);
     });
 });
 
@@ -2968,16 +3006,16 @@ describe("the settleable-record table model", () => {
     });
 
     it("keeps the whole table inside the dialog without horizontal scroll", () => {
-        // The dialog is 960px wide with ~48px of padding and a ~36px radio column. If the columns
-        // outgrow that, Amount is the one that falls off -- which is what this change fixed.
+        // If the columns outgrow the room the table really has, Amount is the one that falls off.
         //
-        // ⚠️ THE CAP IS UNCHANGED; THE SUM MOVED UNDER IT. `vendor` went 180 -> 220 for the 24-char
-        // wrap and `record` went 210 -> 190 to pay for it, so the total is 850 against a budget of
-        // 876. A widening has to be PAID FOR out of another column -- raising the cap instead would
-        // be raising the dialog's width, which nothing here can do.
+        // ⚠️ 850 -> 765 (owner, 2026-09-22): at 850 the table scrolled sideways inside the settle
+        // panel and cut Amount. `vendor` 220 -> 165, `project` 160 -> 145, `date` 130 -> 115. A
+        // widening has to be PAID FOR out of another column.
         const total = RECORD_COLUMNS.reduce((sum, c) => sum + parseInt(c.width, 10), 0);
-        expect(total).toBe(850);
-        expect(total).toBeLessThanOrEqual(960 - 48 - 36);
+        expect(total).toBe(765);
+        expect(total).not.toBe(850);
+        // With the 40px tick column, well inside what the panel leaves.
+        expect(total + 40).toBeLessThanOrEqual(810);
     });
 
     it("gives every column a fixed width, so the header and the scrolling body stay in step", () => {

@@ -145,6 +145,15 @@ def get_list_with_count_enhanced_impl(
             "doctype": doctype, 
             "fields": json.dumps(sorted(parsed_select_fields_str_list)),
             "filters": json.dumps(processed_base_filters),
+            # The `name in` narrowing split out above (a JSON-facet filter becomes one) is NOT in
+            # `processed_base_filters` any more, so it must be keyed here -- without it a filtered
+            # request and an unfiltered one share a key and the cache hands one the other's rows.
+            "name_constraint": (
+                None if base_name_constraint is None
+                # str() first: this runs on EVERY request (cached or not), and sorting a mixed set
+                # (a stray None / int in a `name in` list) would raise and fail the whole request.
+                else hashlib.sha1("\x00".join(sorted(map(str, base_name_constraint))).encode()).hexdigest()
+            ),
             "order_by": _formatted_order_by,
             "start": start, 
             "page_length": page_length, 

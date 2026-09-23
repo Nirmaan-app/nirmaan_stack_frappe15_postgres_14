@@ -374,8 +374,11 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : ("--")}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
-                      {/* Approved: Admin only (owner, 18 Sep) — as on the SR page. Paid: never. */}
-                      {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !estimatesViewing && !summaryPage &&
+                      {/* Approved: Admin only (owner, 18 Sep) — as on the SR page. Paid: never.
+                          A REJECTED payment: Admin also gets the trash in the summary view — the PO
+                          opened from a project or PR page (owner, 2026-09-21). */}
+                      {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !estimatesViewing &&
+                        (!summaryPage || (payment?.status === "Rejected" && role === "Nirmaan Admin Profile")) &&
                         role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
                         (payment?.status !== "CEO Pending" || role === "Nirmaan Admin Profile") &&
                         <Button

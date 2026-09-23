@@ -4,10 +4,12 @@
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.services.approval_raiser import expense_raiser, raiser_level
 from nirmaan_stack.services.approval_tiers import (
 	TIER_L2_ABOVE_EXPENSES,
-	initial_status,
+	initial_status_for_raiser,
 	is_auto_approved,
+	steps_cleared_by_raiser,
 )
 
 # ⚠️ THE LOCAL `AUTO_APPROVE_LIMIT = 10000` IS GONE — the rule now lives in ONE
@@ -40,7 +42,12 @@ class ProjectExpenses(Document):
 		# Rs 9,000 expense to the CEO. The deriver coerces too, but the value is
 		# normalised here so every branch below sees the same number.
 		amount = flt(self.amount)
-		self.status = initial_status(amount, TIER_L2_ABOVE_EXPENSES)
+		# A step the person who RAISED it already holds is not asked again (owner, 2026-09-21):
+		# an L1 approver's expense skips L1, the CEO's skips both. With no level this is the
+		# plain amount rule. `expense_raiser` reads the Expense Request's owner -- this row's own
+		# owner is the reviewer who approved that request. Keep `convert.target_status` in step.
+		level = raiser_level(expense_raiser(self))
+		self.status = initial_status_for_raiser(amount, TIER_L2_ABOVE_EXPENSES, level)
 		if is_auto_approved(amount):
 			# Stamp the approval the same way Project Payments does
 			# (api/payments/project_payments.py:78-81). Without this an
@@ -54,3 +61,11 @@ class ProjectExpenses(Document):
 			# The L1 and CEO counters deliberately exclude auto-approved rows
 			# (`approval_date and not auto_approved`), so this cannot double-count.
 			self.ceo_approval_date = nowdate()
+		else:
+			# Dated like a person's approval -- the raiser's own -- and NOT `auto_approved`, so the
+			# L1 / CEO counters count it as the human approval it stands in for.
+			l1_cleared, ceo_cleared = steps_cleared_by_raiser(amount, TIER_L2_ABOVE_EXPENSES, level)
+			if l1_cleared:
+				self.approval_date = nowdate()
+			if ceo_cleared:
+				self.ceo_approval_date = nowdate()

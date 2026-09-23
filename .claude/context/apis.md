@@ -69,6 +69,10 @@ Backend API endpoints in `nirmaan_stack/api/`.
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
+  - `revert_to_approved.revert_payment_to_approved(name)` - Reconciliation Pending → Approved (Admin / Accountant / Accountant Lead; refused while a bank line is matched)
+  - `payment_summary.get_payment_summary(document_type, document_name, exclude_payment)` - where a PO / WO's money stands (value, paid, waiting at each step, left after), matching the request cap
+- `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions)
+  - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
 - `customers/` - Customer financials

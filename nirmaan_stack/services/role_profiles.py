@@ -95,6 +95,16 @@ INVOICE_APPROVAL_PROFILES = (
     ACCOUNTANT_LEAD_PROFILE,
 )
 
+# Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
+# payment back to Approved, and edit a project / non-project expense on the queue's tabs.
+# Also hold / release an Approved payment (owner, 2026-09-22; `services/payment_hold.py`).
+#
+# The revert endpoint (`api/payments/revert_to_approved.py`) is the ENFORCEMENT boundary for the
+# revert; the expense edits go through the doctype's own permissions. Mirrored client-side by
+# `QUEUE_EDIT_PROFILES` in `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` --
+# keep the two lists in sync.
+PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
 # Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
 #
@@ -166,8 +176,9 @@ BILLING_PROFILES = (
     BILLING_LEAD_PROFILE,
 )
 
-# May delete a DC / MIR (`PO Delivery Documents`) off a PO -- admin, procurement
-# (they file them) and billing (they catch the wrong/duplicate ones).
+# May delete a DC / MIR (`PO Delivery Documents`), whether filed against a PO or
+# an ITM -- admin, PMO, procurement (they file them) and billing (they catch the
+# wrong/duplicate ones).
 #
 # This is the ENFORCEMENT boundary. It has to be, because every write endpoint in
 # `api/po_delivery_documentss.py` saves with `flags.ignore_permissions = True`,
@@ -176,7 +187,9 @@ BILLING_PROFILES = (
 #
 # Mirrored client-side by `frontend/src/constants/roles.ts::PDD_DELETE_PROFILES`,
 # which only decides whether the trash icon renders. Keep the two in sync.
-PDD_DELETE_PROFILES = (ADMIN_PROFILE,) + PROCUREMENT_PROFILES + BILLING_PROFILES
+PDD_DELETE_PROFILES = (
+    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES + BILLING_PROFILES
+)
 
 
 def can_delete_delivery_document(user: str) -> bool:

@@ -8,8 +8,19 @@ from frappe.model.document import Document
 class VendorCategory(Document):
 	pass
 
+def _linkable(categories):
+	"""Only a `Category` name can be a Vendor Category row -- its `category` is a Link.
+
+	A `WO Service Category` name (e.g. "HVAC Ducting Services") stays in Vendors.vendor_category alone.
+	Inserting it here would fail the link check, and on the 04:30 credit job's full vendor save that
+	failure would stop the whole job.
+	"""
+	names = set(categories or [])
+	return names & set(frappe.get_all("Category", pluck="name")) if names else set()
+
+
 def generate_vendor_category(vendor, method=None):
-	categories = vendor.vendor_category["categories"]
+	categories = _linkable(vendor.vendor_category["categories"])
 	for category in categories:
 		doc = frappe.new_doc("Vendor Category")
 		doc.vendor=vendor.name
@@ -47,7 +58,7 @@ def update_vendor_category(vendor, method=None):
     existing_category_names = {doc["category"]: doc["name"] for doc in existing_categories}
 
     # Extract updated categories from vendor data
-    updated_categories = set(vendor.vendor_category["categories"])
+    updated_categories = _linkable(vendor.vendor_category["categories"])
 
     # Find categories to delete (present in DB but not in updated list)
     categories_to_delete = set(existing_category_names.keys()) - updated_categories

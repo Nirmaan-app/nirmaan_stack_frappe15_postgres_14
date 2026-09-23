@@ -80,6 +80,7 @@ import {
     candidateKeySet,
     describeFrappeError,
     decisionLinkKeys,
+    confirmDisabledSentence,
     isConfirmable,
     isCreateTarget,
     isCreditRow,
@@ -963,7 +964,11 @@ export const DecisionDialog = ({
                     <Button variant="ghost" size="sm" onClick={() => onRerun()} disabled={busy}>
                         Re-run match
                     </Button>
-                    <div className="flex-1" />
+                    {/* WHY Confirm is greyed, beside it. A disabled button with no reason reads as
+                        broken; the sentence comes from the same gate that disables it. */}
+                    <p className="min-w-0 flex-1 text-right text-xs text-amber-700">
+                        {confirmDisabledSentence(gate.reason, row, decision)}
+                    </p>
                     {/* ⚠️ GATED ON THE SAME `isConfirmable` THE BULK BAR COUNTS WITH, so
                         the two surfaces can never disagree about whether a row is ready.
                         It also closes a real hole: the ledger now arrives with the chosen
@@ -1197,22 +1202,22 @@ const SettleModeChoice = ({
     locked: boolean;
     onChange: (next: SettleMode) => void;
 }) => (
-    <div className="rounded-md border border-muted-foreground/20">
-        <div className="px-3 py-2.5">
-            <p className="text-sm font-medium">How is this transfer being settled?</p>
-            {locked && (
-                <p className="mt-0.5 text-xs font-medium text-amber-700">
-                    {/* The reason travels WITH the lock, never separately: a frozen control with no
-                        explanation is the dead-button complaint this dialog exists to answer. */}
-                    This transfer already has money allocated against it, so it can only be settled
-                    by splitting. Reverse every allocation above to get the choice back.
-                </p>
-            )}
-        </div>
+    <div className="rounded-md border border-muted-foreground/20 px-3 py-2.5">
+        <p className="text-sm font-medium">How is this transfer being settled?</p>
+        {locked && (
+            <p className="mt-0.5 text-xs font-medium text-amber-700">
+                {/* The reason travels WITH the lock, never separately: a frozen control with no
+                    explanation is the dead-button complaint this dialog exists to answer. */}
+                This transfer already has money allocated against it, so it can only be settled
+                by splitting. Reverse every allocation above to get the choice back.
+            </p>
+        )}
+        {/* Two equal cards side by side (stacked on a narrow screen): the choice reads as a
+            comparison, and the block takes half the height the stacked list did. */}
         <div
             role="radiogroup"
             aria-label="How is this transfer being settled?"
-            className="space-y-2 border-t px-3 py-3"
+            className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2"
         >
             {(["normal", "split"] as const).map((option) => {
                 // ⚠️ ONLY THE *OTHER* OPTION IS DISABLED WHILE LOCKED. Disabling the chosen one too
@@ -1241,7 +1246,7 @@ const SettleModeChoice = ({
                             <span className="block text-sm font-medium text-foreground">
                                 {SETTLE_MODE_LABEL[option]}
                             </span>
-                            <span className="block text-xs text-muted-foreground">
+                            <span className="block text-[11px] leading-snug text-muted-foreground">
                                 {SETTLE_MODE_HINT[option]}
                             </span>
                         </span>

@@ -104,7 +104,7 @@ export const ReasonBreakdown: React.FC<{
         {isCeilingReason(reason.token) && (
             <DetailRow
                 term={RECHECK_TERM}
-                desc="Re-run against the PO as it stands now — press Re-check once the delivery or revision is recorded."
+                desc="Re-run against the PO every morning at 5 AM — or press Re-check to run it now, once the delivery or revision is recorded."
             />
         )}
     </dl>

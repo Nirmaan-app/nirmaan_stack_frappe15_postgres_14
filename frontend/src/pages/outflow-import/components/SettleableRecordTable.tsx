@@ -362,7 +362,11 @@ const RecordRow = ({
                 stands alone there, and the dash survives for exactly one case: the cell would
                 otherwise be entirely empty, which IS something missing. */}
             <td className="px-2 py-2 align-top" title={vendorTitle}>
-                {vendorLabel.vendor && <div className="truncate">{vendorLabel.vendor}</div>}
+                {/* A long vendor name wraps onto a second line rather than being cut: the
+                    column was narrowed so the table fits without scrolling sideways. */}
+                {vendorLabel.vendor && (
+                    <div className="break-words leading-snug">{vendorLabel.vendor}</div>
+                )}
                 {record.vendor_nickname && record.vendor_nickname !== record.vendor_name && (
                     <div className="truncate text-[11px] text-muted-foreground">
                         {record.vendor_nickname}

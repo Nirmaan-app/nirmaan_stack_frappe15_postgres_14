@@ -16,6 +16,8 @@ TASK_STATUSES = [
 ]
 
 UNASSIGNED_SENTINEL = "__unassigned__"
+# Designers who no longer have a Nirmaan Users profile, folded into one row
+PREVIOUS_USERS_SENTINEL = "__previous_users__"
 
 
 def _get_empty_counts():
@@ -64,6 +66,49 @@ def _parse_assigned_designers(assigned_designers_raw):
             user_ids.append(item)
 
     return user_ids
+
+
+def _count_task(user_data, user_id, doc, task_status):
+    """Add one task to user_data[user_id][tracker]."""
+    projects_dict = user_data.setdefault(user_id, {})
+    if doc.name not in projects_dict:
+        projects_dict[doc.name] = {
+            "project_id": doc.project,
+            "project_name": doc.project_name,
+            "tracker_id": doc.name,
+            "counts": _get_empty_counts()
+        }
+    projects_dict[doc.name]["counts"][task_status] += 1
+    projects_dict[doc.name]["counts"]["total"] += 1
+
+
+def _build_entry(user_id, user_name, projects_dict):
+    """One summary row: totals across projects plus the per-project list."""
+    user_totals = _get_empty_counts()
+    projects_list = []
+
+    for project_data in projects_dict.values():
+        projects_list.append({
+            "project_id": project_data["project_id"],
+            "project_name": project_data["project_name"],
+            "tracker_id": project_data["tracker_id"],
+            "counts": project_data["counts"]
+        })
+
+        # Aggregate totals
+        for status in TASK_STATUSES:
+            user_totals[status] += project_data["counts"][status]
+        user_totals["total"] += project_data["counts"]["total"]
+
+    # Sort projects alphabetically by project_name
+    projects_list.sort(key=lambda x: (x.get("project_name") or "").lower())
+
+    return {
+        "user_id": user_id,
+        "user_name": user_name,
+        "totals": user_totals,
+        "projects": projects_list
+    }
 
 
 @frappe.whitelist()
@@ -118,6 +163,10 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None, task_p
 
     # Data structure: {user_id: {project_tracker_name: {"project_id": ..., "counts": {...}}}}
     user_data = {}
+
+    current_user_ids = set(frappe.get_all("Nirmaan Users", pluck="name"))
+    # Same shape as user_data, one entry per designer who has left
+    previous_user_data = {}
 
     # Parse projects filter (JSON array or single value)
     project_filter_set = None
@@ -185,28 +234,25 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None, task_p
                 if not designers:
                     designers = [UNASSIGNED_SENTINEL]
 
-                # Count this task for each assigned designer
+                # Designers who have left count under "Previous Users", once per task
+                # even when several of them are on it, and again under their own email.
+                rows = []
+                previous_on_task = []
                 for user_id in designers:
                     if not user_id:
                         continue
+                    if user_id != UNASSIGNED_SENTINEL and user_id not in current_user_ids:
+                        if user_id not in previous_on_task:
+                            previous_on_task.append(user_id)
+                        user_id = PREVIOUS_USERS_SENTINEL
+                    if user_id not in rows:
+                        rows.append(user_id)
 
-                    # Initialize user entry if not exists
-                    if user_id not in user_data:
-                        user_data[user_id] = {}
-
-                    # Initialize project entry for this user if not exists
-                    tracker_name = doc.name
-                    if tracker_name not in user_data[user_id]:
-                        user_data[user_id][tracker_name] = {
-                            "project_id": doc.project,
-                            "project_name": doc.project_name,
-                            "tracker_id": tracker_name,
-                            "counts": _get_empty_counts()
-                        }
-
-                    # Increment the status count
-                    user_data[user_id][tracker_name]["counts"][task_status] += 1
-                    user_data[user_id][tracker_name]["counts"]["total"] += 1
+                # Count this task for each assigned designer
+                for user_id in rows:
+                    _count_task(user_data, user_id, doc, task_status)
+                for user_id in previous_on_task:
+                    _count_task(previous_user_data, user_id, doc, task_status)
 
         except Exception as e:
             # Log error but continue processing other trackers
@@ -223,40 +269,25 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None, task_p
         # Fetch user full name (with caching)
         if user_id == UNASSIGNED_SENTINEL:
             user_name = "Unassigned"
+        elif user_id == PREVIOUS_USERS_SENTINEL:
+            user_name = "Previous Users"
         elif user_id not in user_names_cache:
             user_name = frappe.db.get_value("User", user_id, "full_name") or user_id
             user_names_cache[user_id] = user_name
         else:
             user_name = user_names_cache[user_id]
 
-        # Calculate user totals across all projects
-        user_totals = _get_empty_counts()
-        projects_list = []
+        entry = _build_entry(user_id, user_name, projects_dict)
+        # Expands to one row per former designer, shown by email
+        if user_id == PREVIOUS_USERS_SENTINEL:
+            entry["members"] = [
+                _build_entry(member_id, member_id, member_projects)
+                for member_id, member_projects in sorted(previous_user_data.items())
+            ]
+        summary.append(entry)
 
-        for tracker_name, project_data in projects_dict.items():
-            projects_list.append({
-                "project_id": project_data["project_id"],
-                "project_name": project_data["project_name"],
-                "tracker_id": project_data["tracker_id"],
-                "counts": project_data["counts"]
-            })
-
-            # Aggregate totals
-            for status in TASK_STATUSES:
-                user_totals[status] += project_data["counts"][status]
-            user_totals["total"] += project_data["counts"]["total"]
-
-        # Sort projects alphabetically by project_name
-        projects_list.sort(key=lambda x: (x.get("project_name") or "").lower())
-
-        summary.append({
-            "user_id": user_id,
-            "user_name": user_name,
-            "totals": user_totals,
-            "projects": projects_list
-        })
-
-    # 4. Sort users alphabetically by user_name
-    summary.sort(key=lambda x: (x.get("user_id") == UNASSIGNED_SENTINEL, (x.get("user_name") or "").lower()))
+    # 4. Sort users alphabetically by user_name; Previous Users, then Unassigned, at the end
+    sentinel_rank = {PREVIOUS_USERS_SENTINEL: 1, UNASSIGNED_SENTINEL: 2}
+    summary.sort(key=lambda x: (sentinel_rank.get(x.get("user_id"), 0), (x.get("user_name") or "").lower()))
 
     return {"summary": summary}

@@ -89,13 +89,23 @@ export interface ApprovalQueueRow {
   reconciled_on: string | null;
   auto_approved: number;
   /**
-   * How many live bank lines settle this expense (ADR-0027 R5, #1303). Always 0 on a payment —
-   * a payment is settled by exactly one line and has no Bank lines card.
+   * How many live bank lines settle this expense or payment (ADR-0027 R5, #1303). On a PO / SR
+   * payment a part payment split, it is the whole split family's.
    *
    * ⚠️ IT DECIDES ONLY WHETHER THE Against CELL OFFERS THE CARD. The lines themselves are fetched
-   * lazily on open, so an expense no line has reached shows no trigger and costs no query.
+   * lazily on open, so a row no line has reached shows no trigger and costs no query.
    */
   bank_line_count: number;
+  /**
+   * What live bank lines already cover of this row — 0 when none has reached it. Every ledger.
+   * ⚠️ On a PO / SR payment a bank line paid only PART of, it is the whole split family's (the
+   * payment was split into a Paid half and a Reconciliation Pending balance), so the balance row
+   * can say how much of the original request is already reconciled.
+   */
+  linked_amount: number;
+  /** What no bank line has covered yet (`amount - linked_amount`, measured server-side); for a
+   *  part-reconciled split family, its Reconciliation Pending balance. */
+  remaining_amount: number;
   tier: "auto" | "l1" | "l1_l2";
   /**
    * Kept under their PAYMENT names deliberately. The bulk-approve engine and the
@@ -111,6 +121,11 @@ export interface ApprovalQueueRow {
   mode_of_payment: string;
   cheque_no: string;
   cheque_date: string | null;
+  /**
+   * 1 while a PO / WO payment is held from payment (`services/payment_hold.py`); always 0 on an
+   * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.
+   */
+  on_hold: number;
 }
 
 /**
@@ -146,27 +161,30 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "actions", "source", "against", "vendor", "project",
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
-  // "Payment Done / Reconciliation Done" — no `select`, no `actions`: there is
-  // nothing left to do to a settled row. The admin Edit pencil that used to sit
-  // here was removed by owner request (2026-09-17).
+  // "Payment Done / Reconciliation Done" — no `select`. `actions` holds ONLY the expense
+  // Edit pencil (owner, 2026-09-21); a Paid PO / WO payment has none (the 17 Sep removal of
+  // the payment pencil stands). The screen drops the column for roles that cannot edit.
+  // `reconciled_on` was removed from the table (owner, 2026-09-21); it stays in the CSV export.
   [PP_TABS.PAYMENTS_DONE]: [
-    "source", "against", "vendor", "project", "amount", "paid_on",
-    "utr_ref", "proof", "reconciled_on", "payment_by",
+    "actions", "source", "against", "vendor", "project", "amount", "paid_on",
+    "utr_ref", "proof", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
-  // only ones where it varies. No bulk action is valid across a mixed selection.
+  // only ones where it varies. No bulk action is valid across a mixed selection;
+  // `actions` is the expense Edit pencil alone, like the Paid tab.
   [PP_TABS.PAYMENTS_PENDING]: [
-    "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "project", "amount", "status",
     "requested_on", "raised_by",
   ],
   [PP_TABS.ALL_PAYMENTS]: [
-    "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "project", "amount", "status",
     "requested_on", "raised_by",
   ],
-  // "Payment By Me" — `actions` holds ONLY a Delete, on REJECTED rows only, "--" on the rest
-  // (owner, 17 Sep 2026). Its dialog deletes an expense after a confirm; for a PO / SR payment
-  // it links to the PO / SR page, whose own payment table does the delete. No `raised_by` for most users, since every
-  // row is their own; an Admin sees EVERY row here, and AllPayments appends `raised_by`.
+  // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
+  // the expense Edit pencil (2026-09-21); "--" otherwise. The Delete removes all three ledgers in
+  // place after a confirm (2026-09-21 — a PO / SR payment used to be sent to its PO / SR page).
+  // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
+  // AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
     "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
   ],

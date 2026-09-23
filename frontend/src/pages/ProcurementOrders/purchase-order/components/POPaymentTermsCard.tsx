@@ -1,4 +1,7 @@
 import { Badge } from "@/components/ui/badge";
+import { PaymentSummaryBlock, usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
+import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -230,10 +233,12 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
     });
   };
 
-  // --- CHANGE 2: Modify the mismatch check ---
-  // Allow submission if the absolute difference is less than 1.
+  // Allow submission when the terms are within ±₹1 of the PO total (above or
+  // below). Rounded to paise first so float noise never tips exactly ₹1 over.
   const isTotalAmountMismatched =
-    Math.abs(totalAmount - Number(po?.total_amount)) >= 1;
+    Math.abs(
+      Math.round((totalAmount - Number(po?.total_amount)) * 100) / 100
+    ) > 1;
   const remainingAmount = Number(po?.total_amount) - totalAmount;
 
   const isCredit = po?.payment_terms?.[0]?.payment_type === "Credit";
@@ -499,7 +504,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
               <div className="flex items-center p-3 text-sm text-red-700 bg-red-50 rounded-lg mt-2">
                 <AlertCircle className="h-5 w-5 mr-2" />
                 The total allocated amount must match the PO total of{" "}
-                {formatToIndianRupee(po.total_amount)}. Current difference is{" "}
+                {formatToIndianRupee(po.total_amount)} (within ±₹1). Current difference is{" "}
                 {formatToIndianRupee(remainingAmount)}.
               </div>
             )}
@@ -715,8 +720,17 @@ const RequestPaymentDialog = ({
   onConfirm,
   isLoading,
   isLocked,
+  poName,
 }) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
+  // The server still enforces the balance on submit; this block only shows it.
+  const { summary, isLoading: summaryLoading } = usePaymentSummary(
+    isOpen ? "Procurement Orders" : null,
+    isOpen ? poName : null
+  );
+  // Where the payment will land when the raiser already holds an approval (owner, 2026-09-21).
+  const { role: raiserRole, user_id: raiserId } = useUserData();
   // A fresh choice for every request: the dialog stays mounted between terms.
   useEffect(() => {
     if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
@@ -749,6 +763,13 @@ const RequestPaymentDialog = ({
               {formatToIndianRupee(Number(term.amount))}
             </div>
           </div>
+        </div>
+        <div className="mb-4 space-y-2">
+          <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={Number(term.amount)} />
+          {(() => {
+            const note = raiserLandingNote(Number(term.amount), TIER_L2_ABOVE, raiserLevelOf(raiserRole, raiserId, CEO_AUTHORIZED_USER));
+            return note ? <p className="text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
+          })()}
         </div>
         <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
         <div className="flex justify-end gap-3 mt-4">
@@ -1277,6 +1298,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         onConfirm={handleConfirmRequestPayment}
         isLoading={CreatePPApiLoading}
         isLocked={isLocked}
+        poName={PO?.name}
       />
     </>
   );

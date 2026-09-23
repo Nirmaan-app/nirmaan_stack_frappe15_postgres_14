@@ -11,6 +11,8 @@ import {
     type LinkedFigures,
     STATUS_TONE,
     linkedProgress,
+    partReconciled,
+    partUsedLines,
     statusTone,
 } from "./expenseBankLinesView";
 
@@ -103,5 +105,58 @@ describe("statusTone", () => {
         expect(statusTone("Approved")).toBe(neutral);
         expect(neutral).not.toBe(STATUS_TONE.Paid);
         expect(neutral).not.toBe(STATUS_TONE["Reconciliation Pending"]);
+    });
+});
+
+describe("partReconciled", () => {
+    // The measured case: PE 1rcjpk80m1, ₹10,00,000, two lines of ₹2,00,000 + ₹3,74,236 linked.
+    it("names what is reconciled and what is pending on a part-covered row", () => {
+        expect(partReconciled(figures(1000000, 574236, 2))).toEqual({
+            reconciled: "₹5,74,236",
+            pending: "₹4,25,764",
+        });
+    });
+
+    it("says nothing when no bank line has reached the row", () => {
+        expect(partReconciled(figures(147913, 0, 0))).toBeNull();
+    });
+
+    // A fully covered row -- a Paid payment or expense -- has nothing part-done to report.
+    it("says nothing once the lines cover the amount, within the same tolerance as the card", () => {
+        expect(partReconciled(figures(147913, 147913, 1))).toBeNull();
+        expect(partReconciled(figures(1000, 1000 - LINK_TOLERANCE, 2))).toBeNull();
+        expect(partReconciled(figures(1000, 1000 - LINK_TOLERANCE - 0.01, 2))).not.toBeNull();
+    });
+});
+
+describe("partUsedLines", () => {
+    const line = (line_status: string) => ({
+        match: "OFM-1",
+        import_row: "OFR-26-002691",
+        import_batch: "OFI-26-00070",
+        added_on: "2026-09-10",
+        beneficiary_name: "XINERGY INNOVATION",
+        reference: "",
+        amount: 107380,
+        line_amount: 147913,
+        line_status,
+        line_reconciled: 133840,
+        line_pending: 14073,
+    });
+
+    // The measured line: 1,47,913 to Xinergy, 1,07,380 + 26,460 of it allocated.
+    it("gives a part-used line's own figures", () => {
+        expect(partUsedLines([line("Partially Allocated")])).toEqual([
+            {
+                beneficiary: "XINERGY INNOVATION",
+                lineAmount: "₹1,47,913",
+                reconciled: "₹1,33,840",
+                pending: "₹14,073",
+            },
+        ]);
+    });
+
+    it("leaves out a line that is fully used", () => {
+        expect(partUsedLines([line("Settled")])).toEqual([]);
     });
 });

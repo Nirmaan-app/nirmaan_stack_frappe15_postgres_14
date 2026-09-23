@@ -93,6 +93,8 @@ export interface RawCategoryData {
 }
 
 export const UNASSIGNED_SENTINEL = '__unassigned__';
+// Team Summary row for designers who no longer have a Nirmaan Users profile
+export const PREVIOUS_USERS_SENTINEL = '__previous_users__';
 
 // ==================== Team Summary Types ====================
 
@@ -123,6 +125,7 @@ export interface UserTaskSummary {
     user_email?: string;
     totals: StatusCountMap;
     projects: ProjectTaskSummary[];
+    members?: UserTaskSummary[];  // Only on the Previous Users row: one row per former designer
 }
 
 // API response type
@@ -142,6 +145,7 @@ export interface TaskPreviewFilter {
     deadlineFrom?: string;
     deadlineTo?: string;
     taskPhase?: string;        // "Onboarding" or "Handover" - phase filter from parent
+    memberIds?: string[];      // Previous Users row: match a task assigned to any of these
 }
 
 // Inline task expansion state (for TeamPerformanceSummary inline display)

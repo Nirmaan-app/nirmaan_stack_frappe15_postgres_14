@@ -37,6 +37,7 @@ import {
   type ExpenseBankLine,
   type ExpenseBankLines,
   linkedProgress,
+  partUsedLines,
   statusTone,
 } from "./expenseBankLinesView";
 
@@ -52,10 +53,13 @@ interface ExpenseBankLinesPopoverProps {
    * doctype through to the server's `EXPENSE_DOCTYPES` throw instead of failing at the call site.
    */
   doctype: ApprovalQueueRow["doctype"];
-  /** The expense document name. */
+  /** The expense or payment document name. */
   name: string;
-  /** Known before the card opens, so the header never flashes an id or an empty line. */
-  expenseType?: string;
+  /**
+   * The line under the name — an expense's type, a payment's PO / WO number. Known before the card
+   * opens, so the header never flashes an id or an empty line.
+   */
+  subtitle?: string;
   /**
    * The expense's FULL description, line breaks and all, plus its comment.
    *
@@ -104,7 +108,7 @@ const LineRow: React.FC<{ line: ExpenseBankLine }> = ({ line }) => (
 export const ExpenseBankLinesPopover: React.FC<ExpenseBankLinesPopoverProps> = ({
   doctype,
   name,
-  expenseType,
+  subtitle,
   description,
   comment,
   status,
@@ -135,8 +139,8 @@ export const ExpenseBankLinesPopover: React.FC<ExpenseBankLinesPopoverProps> = (
           <div className="flex items-start gap-2">
             <div className="min-w-0">
               <p className="break-all font-semibold leading-tight">{name}</p>
-              {expenseType && (
-                <p className="text-[11px] text-muted-foreground">{expenseType}</p>
+              {subtitle && (
+                <p className="text-[11px] text-muted-foreground">{subtitle}</p>
               )}
             </div>
             {shownStatus && (
@@ -176,7 +180,7 @@ export const ExpenseBankLinesPopover: React.FC<ExpenseBankLinesPopoverProps> = (
               "no bank lines", which is the one thing this card exists to deny. */}
           {!isLoading && error && (
             <p className="border-t pt-2 text-destructive">
-              Could not read this expense's bank lines. Try again.
+              Could not read these bank lines. Try again.
             </p>
           )}
 
@@ -231,6 +235,19 @@ export const ExpenseBankLinesPopover: React.FC<ExpenseBankLinesPopoverProps> = (
                   </tbody>
                 </table>
               </div>
+
+              {/* A line split across several records says how much of IT is reconciled and how
+                  much still waits in Bulk Import — the rows above only show this record's share. */}
+              {partUsedLines(card.lines).map((line, i) => (
+                <p key={i} className="text-[11px] tabular-nums">
+                  <span className="text-muted-foreground">
+                    Bank line {line.beneficiary} ({line.lineAmount}) is split across records:{" "}
+                  </span>
+                  <span className="text-green-700">{line.reconciled} reconciled</span>
+                  <span className="text-muted-foreground"> · </span>
+                  <span className="text-orange-600">{line.pending} pending</span>
+                </p>
+              ))}
 
               <p className="text-[11px] text-muted-foreground">
                 Read only. To take a line off, open{" "}

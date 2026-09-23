@@ -33,6 +33,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
 
 interface EditProjectExpenseDialogProps {
@@ -83,8 +84,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     // CEO Hold guard - get project from the expense being edited
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(expenseToEdit?.projects);
 
-    // Payment details are only relevant once the expense leaves the Requested stage.
-    const isRequested = (expenseToEdit?.status || "Requested") === "Requested";
+    // Payment details exist only once the expense is PAID -- "Mark as Paid" moves Approved ->
+    // Reconciliation Pending by status alone, and the date / ref / proof arrive at Mark Reconciled.
+    // On a Paid expense the Amount, Payment Date and Payment Ref are read-only here and never sent
+    // (owner, 2026-09-21); the proof stays replaceable. This screen is the ONLY lock -- the server
+    // leaves Paid expenses editable so they can still be corrected in Desk.
+    const isPaid = isPaidExpense(expenseToEdit?.status);
 
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
     const commandListRef = useRef<HTMLDivElement>(null);
@@ -142,9 +147,6 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         if (!formState.type) errors.type = "Expense Type is required.";
         if (!formState.description.trim()) errors.description = "Description is required.";
         if (formState.vendor === "") errors.vendor = "Please select a vendor or 'Others'.";
-        if (!isRequested && !formState.payment_date) {
-            errors.payment_date = "Payment date is required.";
-        }
         // An invoice attachment (existing or newly staged) requires an Invoice Ref.
         if (hasInvoiceAttachment && !formState.invoice_ref.trim()) {
             errors.invoice_ref = "Invoice reference is required when an invoice is attached.";
@@ -157,7 +159,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
 
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
-    }, [formState, isRequested, hasInvoiceAttachment, expenseTypeOptions]);
+    }, [formState, hasInvoiceAttachment, expenseTypeOptions]);
 
     const handleSubmit = async () => {
         if (isCEOHold) {
@@ -177,13 +179,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 vendor: finalVendor,
                 description: formState.description.trim(),
                 comment: formState.comment.trim(),
-                amount: parseNumber(formState.amount),
                 invoice_date: formState.invoice_date || null,
                 invoice_ref: formState.invoice_ref.trim() || null,
             };
-            if (!isRequested) {
-                dataToUpdate.payment_date = formState.payment_date;
-                dataToUpdate.payment_ref = formState.payment_ref.trim() || null;
+            // Amount only while not Paid; the payment date / ref are never written from here.
+            if (!isPaid) {
+                dataToUpdate.amount = parseNumber(formState.amount);
             }
 
             // Upload replacement attachments (doc exists → docname-linked to the doctype).
@@ -191,7 +192,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 const uploaded = await upload(newInvoiceFile, { doctype: DOCTYPE, docname: expenseToEdit.name, fieldname: "invoice_attachment", isPrivate: true });
                 dataToUpdate.invoice_attachment = uploaded.file_url;
             }
-            if (!isRequested && newPaymentFile) {
+            if (isPaid && newPaymentFile) {
                 const uploaded = await upload(newPaymentFile, { doctype: DOCTYPE, docname: expenseToEdit.name, fieldname: "payment_attachment", isPrivate: true });
                 dataToUpdate.payment_attachment = uploaded.file_url;
             }
@@ -250,8 +251,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="amount_edit" className="text-right">Amount <sup className="text-destructive">*</sup></Label>
                         <div className="col-span-3">
-                            <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={formErrors.amount ? "border-destructive" : ""} disabled={isLoadingOverall} />
+                            <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={formErrors.amount ? "border-destructive" : ""} disabled={isLoadingOverall || isPaid} />
                             {formErrors.amount && <p className="text-xs text-destructive mt-1">{formErrors.amount}</p>}
+                            {isPaid && <p className="text-xs text-muted-foreground mt-1">Paid — the amount can no longer be changed.</p>}
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
@@ -304,21 +306,18 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                         </div>
                     </div>
 
-                    {/* Payment Details — only once past Requested (Approved / Paid) */}
-                    {!isRequested && (
+                    {/* Payment Details — Paid only. Date and ref are read-only; the proof can be replaced. */}
+                    {isPaid && (
                         <>
                             <Separator className="my-1" />
                             <p className="text-sm font-medium">Payment Details</p>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="payment_date_edit" className="text-right col-span-1">Payment Date <sup className="text-destructive">*</sup></Label>
-                                <div className="col-span-3">
-                                    <Input id="payment_date_edit" type="date" value={formState.payment_date} onChange={(e) => handleInputChange('payment_date', e.target.value)} className={formErrors.payment_date ? "border-destructive" : ""} max={formatDateFns(new Date(), 'yyyy-MM-dd')} disabled={isLoadingOverall} />
-                                    {formErrors.payment_date && <p className="text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
-                                </div>
+                                <Label htmlFor="payment_date_edit" className="text-right col-span-1">Payment Date</Label>
+                                <Input id="payment_date_edit" type="date" value={formState.payment_date} className="col-span-3" disabled readOnly />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <Label htmlFor="payment_ref_edit" className="text-right col-span-1">Payment Ref</Label>
-                                <Input id="payment_ref_edit" value={formState.payment_ref} onChange={(e) => handleInputChange('payment_ref', e.target.value)} className="col-span-3" disabled={isLoadingOverall} />
+                                <Input id="payment_ref_edit" value={formState.payment_ref} className="col-span-3" disabled readOnly />
                             </div>
                             <div className="grid grid-cols-4 items-start gap-3">
                                 <Label className="text-right col-span-1 pt-2">Payment Attachment</Label>

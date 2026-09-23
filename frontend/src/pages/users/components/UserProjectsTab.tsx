@@ -13,6 +13,7 @@ import { TailSpin } from "react-loader-spinner";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { isOperational } from "@/components/common/projectStatus";
 import { ProjectCard } from "./ProjectCard";
 import {
   CirclePlus,
@@ -73,10 +74,13 @@ export function UserProjectsTab({
     []
   );
 
-  // Available projects for assignment (not already assigned)
+  // Available projects for assignment (Won only — Tendering/Lost stubs excluded — and not already assigned).
+  // projectList itself stays unfiltered: it also resolves names on the assigned-project cards.
   const options: SelectOption[] = useMemo(() => {
     const filteredProjects = projectList?.filter(
-      (p) => !permissionList?.find((pl) => pl.for_value === p.name)
+      (p) =>
+        isOperational(p.tendering_status) &&
+        !permissionList?.find((pl) => pl.for_value === p.name)
     );
     return (
       filteredProjects?.map((item) => ({

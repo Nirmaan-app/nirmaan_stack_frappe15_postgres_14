@@ -1,5 +1,5 @@
 """Payments dashboard stats -- the Non-Project Inflow (30 days) figure (#1267, ADR-0016 A-D4)
-and Total Unreconciled Outflow (#1286).
+and Total Unreconciled Outflow / Inflow (#1286; since 2026-09-22 the Bulk Import Not Matched tabs).
 
     bench --site localhost run-tests --app nirmaan_stack \
         --module nirmaan_stack.api.payments.test_payment_dashboard_stats
@@ -14,7 +14,13 @@ import unittest
 import frappe
 from frappe.utils import add_days, today
 
-from nirmaan_stack.api.outflow_import.review import get_outflow_summary
+from nirmaan_stack.api.outflow_import.review import (
+    SCOPE_NOT_MATCHED_INFLOW,
+    SCOPE_NOT_MATCHED_OUTFLOW,
+    SCOPE_PARTLY_OUTFLOW,
+    _SCOPE_STATUSES,
+    get_outflow_rows,
+)
 from nirmaan_stack.api.payments.get_project_payment_summary import get_payment_dashboard_stats
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
@@ -106,11 +112,14 @@ class TestNonProjectInflowDashboardFigure(unittest.TestCase):
 class TestTotalUnreconciledOutflow(unittest.TestCase):
     """The card's **Total Unreconciled Outflow** figure (#1286).
 
-    ⚠️ IT MUST EQUAL BULK IMPORT'S OWN *Still open / Paid out* WITH NO FILTERS, and the equality
-    test below is the point of this class -- not the per-status deltas beside it. The two screens
-    are allowed to disagree about nothing, so the assertion is EQUALITY against the real import
-    endpoint, never a re-implementation of the population rule in the test. A test that re-spells
-    the rule to check the rule passes whenever the two spellings agree, which is not the question.
+    ⚠️ IT MUST EQUAL BULK IMPORT'S OWN **Not Matched – Outflow** TAB WITH NO FILTERS, PLUS WHAT IS
+    STILL UNALLOCATED ON EACH **Partly Allocated – Outflow** LINE (owner, 2026-09-22 -- it was
+    *Still open / Paid out*, which also held Matched lines and the WHOLE of a part-used one), and
+    the equality test below is the point of this class -- not the per-status deltas beside it. The
+    two screens are allowed to disagree about nothing, so the assertion is EQUALITY against the real
+    import endpoint, never a re-implementation of the population rule in the test. A test that
+    re-spells the rule to check the rule passes whenever the two spellings agree, which is not the
+    question.
 
     ⚠️ THE PLANTED FIXTURE SPANS SEVERAL STATUSES, BOTH DIRECTIONS AND MORE THAN ONE SOURCE, and
     every one of those axes is load-bearing: the figure is a cut of the open statuses on the Paid
@@ -189,6 +198,23 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
         frappe.db.commit()
         return doc.name
 
+    @staticmethod
+    def _tab_totals(scope, *, unallocated_only=False):
+        """A tab as the screen reads it, unfiltered and successful transfers only, paged to the end:
+        `(amount, rows)`. `unallocated_only` counts each line by what its live slips have not yet
+        taken -- the Partly Allocated tab's share of the figure."""
+        amount, offset = 0.0, 0
+        while True:
+            page = get_outflow_rows(scope=scope, failed="0", limit=200, offset=offset)
+            for row in page["rows"]:
+                taken = (
+                    sum(abs(m["target_amount"]) for m in row["matches"]) if unallocated_only else 0
+                )
+                amount += row["amount"] - taken
+            offset += len(page["rows"])
+            if not page["rows"] or offset >= page["total"]:
+                return amount, page["total"]
+
     def _figure(self):
         stats = get_payment_dashboard_stats()
         return (
@@ -198,8 +224,8 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
 
     # ------------------------------------------------------------------ the equality
 
-    def test_it_equals_bulk_imports_unfiltered_still_open_paid_out(self):
-        """The one assertion the ticket is actually about (#1286).
+    def test_it_equals_bulk_imports_not_matched_outflow_tab(self):
+        """The one assertion this figure is about: the card and the tab it names agree.
 
         The fixture spans five statuses, both directions and two sources, so the two figures are
         compared over a population where every rule this feature has can be got wrong.
@@ -218,26 +244,35 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
         self._row(icici, ROW_PENDING_MATCH, DIRECTION_DEBIT, 9000, status_raw="FAILED")
 
         amount, count = self._figure()
-        totals = get_outflow_summary()["totals"]
+        tab_amount, tab_count = self._tab_totals(SCOPE_NOT_MATCHED_OUTFLOW)
+        partly_amount, partly_count = self._tab_totals(SCOPE_PARTLY_OUTFLOW, unallocated_only=True)
 
-        self.assertAlmostEqual(amount, float(totals["open_paid_value"]), places=2)
-        self.assertEqual(count, totals["open_paid_rows"])
+        self.assertAlmostEqual(amount, tab_amount + partly_amount, places=2)
+        self.assertEqual(count, tab_count + partly_count)
 
     # ------------------------------------------------------------------ what is counted
 
-    def test_every_active_status_is_counted(self):
-        """Pending match run, Matched, Mismatched, Error and Partially Allocated all count.
+    def test_only_the_not_matched_and_partly_allocated_statuses_are_counted(self):
+        """Pending match run, Mismatched, Error and Partially Allocated count; Matched does not.
 
-        Iterated over `ACTIVE_ROW_STATUSES` itself so a status added to that set later cannot
-        quietly fall out of this figure without the test noticing.
+        Iterated over `ACTIVE_ROW_STATUSES` and read against the tabs' OWN status sets, so a status
+        added to either later cannot quietly move this figure without the test noticing. A
+        Partially Allocated line with no slip yet counts at its full amount -- nothing is taken.
         """
+        not_matched = set(_SCOPE_STATUSES[SCOPE_NOT_MATCHED_OUTFLOW])
+        self.assertEqual(not_matched, {ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR})
+        counted = not_matched | set(_SCOPE_STATUSES[SCOPE_PARTLY_OUTFLOW])
+        self.assertEqual(counted - not_matched, {ROW_PARTIALLY_ALLOCATED})
         batch = self._batch("Cashfree")
         for status in sorted(ACTIVE_ROW_STATUSES):
+            expected = 1 if status in counted else 0
             before_amount, before_count = self._figure()
             self._row(batch, status, DIRECTION_DEBIT, 250)
             after_amount, after_count = self._figure()
-            self.assertEqual(after_count - before_count, 1, status)
-            self.assertAlmostEqual(after_amount - before_amount, 250, places=2, msg=status)
+            self.assertEqual(after_count - before_count, expected, status)
+            self.assertAlmostEqual(
+                after_amount - before_amount, 250 * expected, places=2, msg=status
+            )
 
     def test_a_blank_direction_counts_as_paid_out(self):
         """A statement that states no direction is money OUT -- the import's one definition of the
@@ -294,8 +329,8 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
             stats["total_unreconciled_inflow_count"],
         )
 
-    def test_inflow_equals_bulk_imports_unfiltered_still_open_received(self):
-        """Total Unreconciled Inflow is Bulk Import's unfiltered *Still open / Received* --
+    def test_inflow_equals_bulk_imports_not_matched_inflow_tab(self):
+        """Total Unreconciled Inflow is Bulk Import's unfiltered **Not Matched – Inflow** tab --
         the same equality the outflow figure carries, on the other side of the direction axis."""
         cashfree = self._batch("Cashfree")
         icici = self._batch("ICICI Bank Statement")
@@ -308,10 +343,10 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
         self._row(cashfree, ROW_MATCHED, DIRECTION_DEBIT, 6600)
 
         amount, count = self._inflow_figure()
-        totals = get_outflow_summary()["totals"]
+        tab_amount, tab_count = self._tab_totals(SCOPE_NOT_MATCHED_INFLOW)
 
-        self.assertAlmostEqual(amount, float(totals["open_received_value"]), places=2)
-        self.assertEqual(count, totals["open_received_rows"])
+        self.assertAlmostEqual(amount, tab_amount, places=2)
+        self.assertEqual(count, tab_count)
 
     def test_an_open_inflow_line_counts_as_inflow_only(self):
         """An open Credit line moves the inflow figure by exactly its amount and leaves the
