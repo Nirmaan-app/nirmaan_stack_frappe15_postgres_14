@@ -2204,9 +2204,15 @@ class TestItemListSlice4(FrappeTestCase):
                        "(0) ITEMS_SPEC", "Judge\nevery value by its LABEL and NOTE", "carried onto ANOTHER item"):
             self.assertIn(needle, review, needle)
         self.assertNotEqual(review, new_text)
-        # NEGATIVE (ruling D): the prompt no longer asks for a quantity
-        for gone in ("quantity attribute", "ONE unit of the row buys", "qty"):
+        # slice 6d INVERSION (owner "yes ask the question", superseding slice 4's ruling D): the prompt DOES ask
+        # for a per-item count again -- but only as the one attribute, in the wording the check run proved
+        # (0 false counts in 42 chances). The negative half is kept and made SHARPER: the old decomposition
+        # vocabulary stays gone, and the ONLY "qty" in the prompt is that attribute's own id.
+        self.assertIn("qty_per_row_unit (how many of this item make ONE unit of the row)", new_text)
+        self.assertIn("that product's capacity, not a count of items this row pays for.", new_text)
+        for gone in ("quantity attribute", "ONE unit of the row buys", "qty_attr", "switch_qty", "socket_qty"):
             self.assertNotIn(gone, new_text, gone)
+        self.assertEqual(new_text.count("qty"), new_text.count("qty_per_row_unit"))
         # NEGATIVE: every existing mode picks exactly today's asset ...
         pairs = {"item_identity": "boq_rate_item_identity_prompt.md", "composite_decomposition": "boq_composite_decomposition_prompt.md",
                  None: "boq_rate_attr_extraction_prompt.md", "anything_else": "boq_rate_attr_extraction_prompt.md"}
@@ -2223,13 +2229,22 @@ class TestItemListSlice4(FrappeTestCase):
         spec = extraction.build_items_spec(self.adp)
         self.assertIsNotNone(spec)
         self.assertEqual(spec["family_attribute_id"], "family")
-        self.assertNotIn("qty_attribute_id", spec)                       # ruling D: no quantity is asked for
+        # slice 6d INVERSION (owner "yes ask the question", superseding slice 4's ruling D): ADP now DOES ask
+        # how many of each item make one unit of the row, so the id is projected. The negative half -- a spec
+        # that declares none projects none -- is pinned just below on a config built without it.
+        self.assertEqual(spec["qty_attribute_id"], "qty_per_row_unit")
+        no_qty = copy.deepcopy(self.adp)
+        no_qty["list_spec"].pop("qty_attribute_id")
+        self.assertNotIn("qty_attribute_id", extraction.build_items_spec(no_qty))
         by_id = {d["id"]: d for d in spec["attribute_definitions"]}
         text_defs = sorted(i for i, d in by_id.items() if d["type"] == "text")
         self.assertEqual(text_defs, ["area_band", "depth_mm", "dia_mm", "face_h_mm", "face_w_mm", "insulation_thickness_mm", "neck_mm",
                                      "panel_ratio", "slot_count", "thickness_mm", "torque"])
-        self.assertEqual([i for i, d in by_id.items() if d["type"] == "number"], [])
-        self.assertEqual(sorted(i for i, d in by_id.items() if d.get("allow_none")), ["air", "damper", "insulated", "ul", "variant"])
+        # slice 6d INVERSION: the ONE number definition is the count the model is now asked for, and it is
+        # allow_none so "None" can mean "the row says nothing" -- every other definition is unmoved.
+        self.assertEqual([i for i, d in by_id.items() if d["type"] == "number"], ["qty_per_row_unit"])
+        self.assertEqual(sorted(i for i, d in by_id.items() if d.get("allow_none")),
+                         ["air", "damper", "insulated", "qty_per_row_unit", "ul", "variant"])
         self.assertIn("grille, type not stated", by_id["family"]["values"])
         self.assertIn("none of these", by_id["family"]["values"])
         self.assertEqual(len(by_id["family"]["values"]), 27)
@@ -2672,3 +2687,63 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertNotIn("panel_controls", p9)
         self.assertNotIn("panel_controls", json.dumps(g9, default=str))
         self.assertNotIn("dropdown", p9)
+
+    # ── SLICE 6d (owner ruling "yes ask the question"): the count question reaches ITEMS_SPEC, the parse keeps
+    #    its three states apart, and it cannot reach an Electrical call ───────────────────────────────────────
+    def test_il_15_the_count_question_reaches_items_spec_and_the_parse_keeps_its_three_states(self):
+        """v10 projects `qty_attribute_id` + the new NUMBER / allow_none definition into ITEMS_SPEC, the prompt
+        carries the bullet, and `parse_item_list` stores the three answers apart: a number is a number, "None"
+        is the sentinel (the row says nothing, so code's default applies), an unreadable answer and no answer
+        are both null. NEGATIVE: v9 projects neither, and no Electrical config is in item_list mode, so none
+        has an items spec and the question cannot appear in an Electrical call."""
+        QTY = "qty_per_row_unit"
+        ctx = extraction._group_context(self.cfgs, "HVAC", "hvac_adp")
+        self.assertEqual(ctx["items_spec"]["qty_attribute_id"], QTY)
+        d = next(x for x in ctx["items_spec"]["attribute_definitions"] if x["id"] == QTY)
+        self.assertEqual(d, {"id": QTY, "label": "How many of this item make ONE unit of the row",
+                             "type": "number", "allow_none": True})
+        self.assertIn("qty_per_row_unit (how many of this item make ONE unit of the row)", ctx["prompt"])
+        self.assertIn("that product's capacity, not a count of items this row pays for.", ctx["prompt"])
+
+        rows = [self._row(3, "spigot 150 dia")]
+        reply = [{"id": 3, "items": [
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}, QTY: {"value": 2, "confidence": 0.9}}},
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}, QTY: {"value": "None", "confidence": 0.9}}},
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}, QTY: {"value": "two", "confidence": 0.9}}},
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}}},
+        ]}]
+        out, seen, _ = self._run_list_batch(reply, rows)
+        items = out[3][extraction.ITEMS_KEY]
+        self.assertEqual([it["attributes"][QTY]["value"] for it in items], [2, "None", None, None])
+        self.assertIn(QTY, seen["content"])
+
+        # NEGATIVE: v9 asked nothing -- its spec carries neither the id nor the definition
+        import os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+        with open(os.path.join(here, "data", "rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
+            v9 = json.load(fh)
+        adp9 = dict(next(c for c in v9["category_configs"] if c["category_id"] == "hvac_adp"), discipline="HVAC")
+        spec9 = extraction.build_items_spec(adp9)
+        self.assertNotIn("qty_attribute_id", spec9)
+        self.assertFalse(any(x["id"] == QTY for x in spec9["attribute_definitions"]))
+
+        # NEGATIVE: no Electrical config is in item_list mode -> no items spec, and the assembled Electrical
+        # call names neither the attribute nor an ITEMS_SPEC block
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        cfgs = {("Electrical", c["category_id"]): dict(c, discipline="Electrical") for c in eall["category_configs"]}
+        for (_d, cid), cfg in cfgs.items():
+            self.assertIsNone(extraction.build_items_spec(cfg), cid)
+        row = {"excel_row": 41, "description": "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable", "sheet_name": "S",
+               "ancestors": [{"node_type": "Preamble", "description": "CABLES/TERMINATIONS"}],
+               "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        payload = [extraction._ai_item(row)]
+        for cid in sorted({c["category_id"] for c in eall["category_configs"]})[:4]:
+            g = extraction._group_context(cfgs, "Electrical", cid)
+            content = extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"],
+                                                     defaults=g["defaults"], none_guidance=g["none_guidance"],
+                                                     slot_spec=g["slot_spec"], resolution_rules=g["resolution_rules"],
+                                                     rules=g["rules"], items_spec=g.get("items_spec"))
+            self.assertNotIn(QTY, content, cid)
+            self.assertNotIn("ITEMS_SPEC", content, cid)

@@ -64,6 +64,18 @@ Rules:
   listing, answer "None" -- never leave ul out. Answer "yes" only when a
   UL listing is stated for THAT item, "no" only when the text says it is
   not UL listed.
+- qty_per_row_unit (how many of this item make ONE unit of the row):
+  answer a NUMBER only when the row's own text or its ancestors state
+  how many of this item one unit pays for ("with 2 plenum boxes" -> 2,
+  "4 nos dampers" -> 4); answer "None" otherwise. It is NOT the BoQ's
+  own quantity for the row (which you never see) and it is NOT a
+  measurement: never read a gauge ("18 G", "20 SWG"), a thickness or
+  size ("10mm thick", "600 x 600"), a slot count ("3 Slot"), a neck
+  size, a diameter, a torque or an area band as this count. A number
+  that describes WHAT the item is, is an attribute, never a count. A
+  number saying how many items ONE PANEL or ONE CONTROLLER serves is
+  that product's capacity, not a count of items this row pays for.
+  When the text does not plainly say how many, answer "None".
 - A choice with values_by_family is answered ONLY from the list for the
   item's own family; for a family that has no list there, answer "None"
   if the attribute is marked allow_none, otherwise leave it out.

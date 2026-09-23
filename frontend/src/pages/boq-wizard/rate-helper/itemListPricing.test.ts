@@ -25,6 +25,7 @@ import {
 } from "./itemListPricing";
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
+import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
 import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
@@ -884,5 +885,151 @@ describe("slice 6b / V6, V7 -- the same family more than once; the per-block qua
     expect(priceItemList.length).toBe(4);
     const src = readFileSync(join(__dirname, "itemListPricing.ts"), "utf8");
     expect(src).not.toMatch(/row\.(qty|quantity)|rowQty|ctx\.quantity|total_quantity/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6d (owner ruling "yes ask the question") -- HVAC v10: the model is asked, per item, how many of it make
+// ONE unit of the row. A returned number is the quantity and is READ; "None" or absent leaves code's 1, marked
+// as a default. The fixtures below are the slice-6c check run's own rows: the six INVENTED count-stating rows
+// and every count-like TRAP the live corpus contains.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+const asset10 = HVAC_V10 as unknown as Asset;
+const items10: RateMasterItem[] = asset10.items.map((i) => ({ ...i, discipline: "HVAC" }));
+const adp10 = asset10.category_configs.find((c) => c.category_id === "hvac_adp")!;
+const spec10 = itemListPricingSpec(adp10)!;
+const price10 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec10, items10, unit, its);
+const QTY = "qty_per_row_unit";
+/** one item, its attributes plus the count the model answered (undefined = the model was not asked / said nothing) */
+const withCount = (attrs: Record<string, string | null>, count?: number | string | null): ExtractedListItem => {
+  const it = ext(attrs);
+  if (count !== undefined) it.attributes[QTY] = { value: count as string | number | null, confidence: 0.9 };
+  return it;
+};
+
+describe("slice 6d / v10 = v9 + the count question, and NOTHING else", () => {
+  it("items and the six other configs byte-identical; the ADP config differs ONLY by the new definition and qty_attribute_id", () => {
+    expect(asset10.items).toEqual(asset9.items);
+    expect(asset10.category_configs.slice(1)).toEqual(asset9.category_configs.slice(1));
+    const strip = (c: RateCategoryConfig) => {
+      const x = JSON.parse(JSON.stringify(c)) as { list_spec: { attribute_definitions: Array<{ id: string }>; qty_attribute_id?: string } };
+      x.list_spec.attribute_definitions = x.list_spec.attribute_definitions.filter((d) => d.id !== QTY);
+      delete x.list_spec.qty_attribute_id;
+      return x;
+    };
+    expect(strip(adp10)).toEqual(strip(adp9));
+    // the new definition is a NUMBER with allow_none, appended last, and is NOT a SKU attribute
+    const defs = listSpecDefs(adp10);
+    expect(defs[defs.length - 1]).toEqual({ id: QTY, label: "How many of this item make ONE unit of the row", type: "number", allow_none: true });
+    expect((adp10 as unknown as { list_spec: { qty_attribute_id: string } }).list_spec.qty_attribute_id).toBe(QTY);
+    expect(spec10.qty_attribute_id).toBe(QTY);
+    expect(spec10.numbers[QTY]).toBeUndefined();
+    expect(spec10.choice_attrs).not.toContain(QTY);
+    expect(spec10.panel_controls![QTY]).toBeUndefined();
+    // NEGATIVE: v9 asks no such question, so its spec carries no id and its defs end elsewhere
+    expect(spec9.qty_attribute_id).toBeUndefined();
+    expect(listSpecDefs(adp9).some((d) => d.id === QTY)).toBe(false);
+  });
+});
+
+describe("slice 6d / the model's count is the quantity; 'None' and absent leave code's 1, marked", () => {
+  it("POSITIVE: a returned 2 prices rate x 2 and is READ (not defaulted); the working says so", () => {
+    const one = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }, 2));
+    expect(figures(one)).toEqual([true, 422, 128]);
+    expect(one.items[0]).toMatchObject({ qty: 2, qtyDefaulted: false });
+    expect(one.items[0].finals).toEqual({ supply: 211, install: 64 });
+    expect(one.items[0].working).toContain("x 2 per row unit");
+  });
+  it("'None' and ABSENT both leave 1, MARKED as a default -- identical figures, identical everything", () => {
+    const none = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }, "None"));
+    const absent = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }));
+    expect(figures(none)).toEqual([true, 211, 64]);
+    expect(none.items[0]).toMatchObject({ qty: 1, qtyDefaulted: true });
+    expect(absent.items[0]).toMatchObject({ qty: 1, qtyDefaulted: true });
+    expect(none.items[0].figures).toEqual(absent.items[0].figures);
+    // an unreadable or non-positive ANSWER is not a count either: code's 1 stands, marked (it never refuses --
+    // only a value the PRICER typed can refuse)
+    for (const bad of [0, -2, "abc", null]) {
+      const r = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }, bad as number | string | null));
+      expect(r.items[0], String(bad)).toMatchObject({ qty: 1, qtyDefaulted: true });
+      expect(figures(r)).toEqual([true, 211, 64]);
+    }
+  });
+  it("the PRICER's typed value always wins over the model's count, and a cleared one still refuses", () => {
+    const typed = price10("Nos", { ...withCount({ family: "spigot", dia_mm: "150" }, 2), qtyPerRowUnit: "5" });
+    expect(figures(typed)).toEqual([true, 211 * 5, 64 * 5]);
+    expect(typed.items[0]).toMatchObject({ qty: 5, qtyDefaulted: false });
+    const cleared = price10("Nos", { ...withCount({ family: "spigot", dia_mm: "150" }, 2), qtyPerRowUnit: "" });
+    expect(cleared.reason).toBe("quantity per row unit is blank");
+  });
+  it("NEGATIVE: under v9 -- the same items, the same asset but no question asked -- every count is ignored and every quantity is 1", () => {
+    const r = priceItemList(spec9, items9, "Nos", [withCount({ family: "spigot", dia_mm: "150" }, 2)]);
+    expect(figures(r)).toEqual([true, 211, 64]);
+    expect(r.items[0]).toMatchObject({ qty: 1, qtyDefaulted: true });
+  });
+});
+
+describe("slice 6d / the check run's rows as FIXTURES -- the six invented reads and every corpus trap", () => {
+  // what the model actually answered in the slice-6c check run, per item, on the six INVENTED rows that state
+  // a count. The HOST item is "None" on every one of them: one diffuser, one damper, one valve per row unit.
+  const INVENTED: Array<{ text: string; items: Array<[string, number | "None"]> }> = [
+    { text: "Supply and installation of square diffuser 600 x 600 with 2 plenum boxes.",
+      items: [["square diffuser", "None"], ["mixing box / LP plenum", 2]] },
+    { text: "Supply, installation and testing of motorised fire damper complete with 4 nos actuators.",
+      items: [["fire damper", "None"]] },
+    { text: "SITC of linear slot diffuser 1200 mm long, 3 sets of collar dampers per diffuser.",
+      items: [["slot diffuser", "None"], ["collar damper", 3]] },
+    { text: "Supply of exhaust air valve with 2 no. spigots per outlet.",
+      items: [["disc valve", "None"], ["spigot", 2]] },
+    { text: "Supply and fixing of return air grille, each unit including 2 plenum boxes and 1 collar damper.",
+      items: [["grille, type not stated", "None"], ["mixing box / LP plenum", 2], ["collar damper", 1]] },
+    { text: "Supply of volume control damper assembly comprising 6 nos dampers.",
+      items: [["VCD", 6]] },
+  ];
+  it("each invented row's count lands on the RIGHT item and the host item keeps code's 1, marked", () => {
+    for (const row of INVENTED) {
+      const priced = price10("Nos", ...row.items.map(([family, count]) => withCount({ family }, count)));
+      expect(priced.items.map((i) => i.familyRaw), row.text).toEqual(row.items.map(([f]) => f));
+      priced.items.forEach((it, i) => {
+        const [, count] = row.items[i];
+        if (count === "None") expect(it, `${row.text} / ${row.items[i][0]}`).toMatchObject({ qty: 1, qtyDefaulted: true });
+        else expect(it, `${row.text} / ${row.items[i][0]}`).toMatchObject({ qty: count, qtyDefaulted: false });
+      });
+    }
+  });
+  // EVERY count-like row the live ADP corpus contains (3,519 rows searched; these 17 are all of them), with the
+  // number a careless read would take. In the check run the model answered "None" on every one. This pins what
+  // that answer MEANS downstream: code's 1, marked -- so a future prompt change that started reading capacities
+  // or slot counts as quantities could not slip past as "the number was there anyway".
+  const TRAPS: Array<[string, string, string]> = [
+    ["BOQ-26-00098|Lowside|88", "Master Controller up to 5 Nos of dampers", "5 -- a controller's CAPACITY"],
+    ["BOQ-26-00171|HVAC|69", "SITC of control panel for Fire Dampers with 240/24 transformer and distribution for 10 no damper actuators", "10 -- a panel's CAPACITY"],
+    ["BOQ-26-00164|BOQ|34", "Panel for Fire Dampers with Sub Db's and 240/24 Step Down transformer and distribution for various damper actuators", "8 -- a panel's CAPACITY"],
+    ["BOQ-26-00231|HVAC BOQ|226", "For 8 no. fire dampers", "8 -- a control panel VARIANT"],
+    ["BOQ-26-00231|HVAC BOQ|227", "For 6 no. fire dampers", "6 -- a control panel VARIANT"],
+    ["BOQ-26-00231|HVAC BOQ|228", "For 4 no. fire dampers", "4 -- a control panel VARIANT"],
+    ["BOQ-26-00231|HVAC BOQ|229", "For 2 no. fire dampers", "2 -- a control panel VARIANT"],
+    ["BOQ-26-00087|HVAC|67", "Plenum Box for 1 Slot Linear Diffuser -1000 mm Length", "1 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|68", "Plenum Box for 3 Slot Linear Diffuser - 1300 mm Length", "3 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|69", "Plenum Box for 3 Slot Linear Diffuser - 2600 mm Length", "3 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|70", "Plenum Box for 4 Slot Linear Diffuser - 2500 mm Length", "4 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|71", "Plenum Box for 4 Slot Linear Diffuser - 3000 mm Length", "4 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|72", "Plenum Box for 4 Slot Linear Diffuser -2200 mm Length", "4 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|73", "Plenum Box for 4 Slot Linear Diffuser -1600 mm Length", "4 -- a SLOT COUNT"],
+    ["BOQ-26-00087|HVAC|74", "Plenum Box for 4 Slot Linear Diffuser -6409 mm Length", "4 -- a SLOT COUNT"],
+    ["BOQ-26-00020|HVAC_-19TH FLOOR|371", "1.25m (L) X 150 (D)and 350mm (H) - For 3 slot diffuser", "3 -- a SLOT COUNT"],
+    ["BOQ-26-00185|HVAC|25", "The supply & installation of higher grade Slot Air Grill 100mm witdh with 2 air flow outlets", "2 -- a FEATURE"],
+  ];
+  it("every corpus trap: the model's 'None' means code's 1, MARKED -- the misreadable number never becomes a quantity", () => {
+    expect(TRAPS).toHaveLength(17);
+    for (const [row, , what] of TRAPS) {
+      const r = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }, "None"));
+      expect(r.items[0], `${row} (${what})`).toMatchObject({ qty: 1, qtyDefaulted: true });
+      expect(figures(r), row).toEqual([true, 211, 64]);
+    }
+    // and the number those rows carry, had it been read, would have moved the price -- which is why the pin matters
+    const misread = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }, 5));
+    expect(figures(misread)).toEqual([true, 211 * 5, 64 * 5]);
   });
 });

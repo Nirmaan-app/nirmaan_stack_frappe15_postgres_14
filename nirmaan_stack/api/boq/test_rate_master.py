@@ -10854,7 +10854,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v9.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v10.json"
 # SLICE 6 (owner S6 / S7 / S8 / T7, 2026-09-24): v8 = v7 + the config-level per-item default pipelines (the
 # eligibility switch), UL absent = not mentioned, the mixing box at any size, second_opinion OFF. The slice-5 class
 # loads v7 BY NAME below.
@@ -11236,10 +11236,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_to_v9_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v10_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 6b (owner V1-V5, inverting the slice-6 pin): the HVAC series now holds EXACTLY v1..v9
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v9.json")
+        # slice 6d (owner "yes ask the question", inverting the slice-6b pin): the series now holds EXACTLY v1..v10
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v10.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11248,15 +11248,19 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # committed form -- a superseded version is history, never edited; Electrical's latest file IS the
         # pinned current asset -- no slice created an Electrical file at any newer N
         self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
-                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json",
+                         # ALPHABETICAL, which is what os.listdir + sorted gives: v10 sorts between v1 and v2.
+                         # That is exactly why `latest_in` must resolve NUMERICALLY, pinned two lines below --
+                         # v10 is the first two-digit version in either series.
+                         ["rate_master_hvac_all_v1.json", CURRENT_HVAC_ASSET, "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
-                          CURRENT_HVAC_ASSET])
+                          "rate_master_hvac_all_v9.json"])
         import subprocess
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
                       "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
-                      "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json"):
+                      "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
+                      "rate_master_hvac_all_v9.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
@@ -11280,6 +11284,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertNotIn("v7", raw)
         self.assertNotIn("v8", raw)
         self.assertNotIn("v9", raw)
+        self.assertNotIn("v10", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
@@ -12498,7 +12503,8 @@ class TestHvacAdpPanelControlsSlice6b(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v8.json"), "r", encoding="utf-8") as fh:
             cls.v8 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # slice 6d: v9 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v10); the r-pins are v9 = v8 + panel_controls
+        with open(_asset_path("rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
             cls.v9 = json.load(fh)
 
     def _adp(self, asset=None):
@@ -12565,4 +12571,120 @@ class TestHvacAdpPanelControlsSlice6b(FrappeTestCase):
     def test_r05_the_asset_sweep_admits_v9(self):
         from nirmaan_stack.services.boq_rate_master import config_validation
         for c in self.v9["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6d (owner ruling "yes ask the question", 2026-09-24) -- HVAC v10: the model is asked, per item,
+# how many of it make ONE unit of the row. The question is the EXISTING optional `list_spec.qty_attribute_id`
+# plus one `number` / `allow_none` definition -- no new config key, no `extraction.py` change.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpCountQuestionSlice6d(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_s01  THE VALIDATOR: v10's ADP config passes both validators; `qty_attribute_id` names the new NUMBER
+                definition. NEGATIVE: naming a text / choice definition is refused, naming nothing is refused,
+                and v9 (which declares none) still validates -- the key is optional.
+      test_s02  v10 = v9 + the two additions and NOTHING else: items deep-equal; the six other configs
+                deep-equal; the ADP config equal once the new definition and `qty_attribute_id` are set aside;
+                the definition is appended LAST; it is NOT a SKU attribute and NOT a panel control; no version
+                token in the file.
+      test_s03  THE PROMPT ASSET carries the count bullet VERBATIM as the slice-6c check run sent it -- every
+                clause that produced 0 false counts in 42 chances, including the CAPACITY sentence.
+      test_s04  ELIGIBILITY unmoved between v9 and v10 for every HVAC config (asking a question is not an
+                eligibility fact).
+      test_s05  THE ASSET SWEEP admits v10 (every file on disk validates exactly as today).
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
+            cls.v9 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v10 = json.load(fh)
+
+    QTY = "qty_per_row_unit"
+
+    def _adp(self, asset=None):
+        asset = asset or self.v10
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def test_s01_the_validator_accepts_the_count_question_and_refuses_a_bad_reference(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        ls = base["list_spec"]
+        self.assertEqual(ls["qty_attribute_id"], self.QTY)
+        by_id = {d["id"]: d for d in ls["attribute_definitions"]}
+        self.assertEqual(by_id[self.QTY]["type"], "number")
+        self.assertIs(by_id[self.QTY]["allow_none"], True)
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad["list_spec"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda s: s.__setitem__("qty_attribute_id", "family"), "must name a number attribute")
+        refused(lambda s: s.__setitem__("qty_attribute_id", "dia_mm"), "must name a number attribute")
+        refused(lambda s: s.__setitem__("qty_attribute_id", "nope"), "must name one of the item attribute definitions")
+        # OPTIONAL: v9 declares none and still validates
+        v9adp = self._adp(self.v9)
+        self.assertNotIn("qty_attribute_id", v9adp["list_spec"])
+        config_validation._validate_config(v9adp)
+
+    def test_s02_v10_is_v9_plus_the_question_and_nothing_else(self):
+        self.assertEqual(self.v10["items"], self.v9["items"])
+        self.assertEqual(self.v10["category_configs"][1:], self.v9["category_configs"][1:])
+        a10, a9 = self._adp(self.v10), self._adp(self.v9)
+        ids10 = [d["id"] for d in a10["list_spec"]["attribute_definitions"]]
+        ids9 = [d["id"] for d in a9["list_spec"]["attribute_definitions"]]
+        self.assertEqual(ids10, ids9 + [self.QTY], "the new definition is APPENDED, so no existing one moves")
+        a10["list_spec"]["attribute_definitions"] = [d for d in a10["list_spec"]["attribute_definitions"] if d["id"] != self.QTY]
+        a10["list_spec"].pop("qty_attribute_id")
+        self.assertEqual(a10, a9)
+        # the count is not a SKU attribute and must never be a panel control
+        pr = self._adp()["list_spec"]["pricing"]
+        for key in ("numbers", "choice_attrs", "ladders", "match_attrs", "panel_controls"):
+            self.assertNotIn(self.QTY, pr[key], key)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"):
+            self.assertNotIn(f'"{tok}"', text)
+
+    def test_s03_the_prompt_asset_carries_the_checked_bullet_verbatim(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        prompt = extraction._read_item_list_prompt() if hasattr(extraction, "_read_item_list_prompt") else None
+        if prompt is None:
+            path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "prompts",
+                                "boq_rate_item_list_prompt.md")
+            with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+                prompt = fh.read()
+        # every clause the check run sent -- the wording that produced 0 false counts in 42 chances
+        for clause in [
+            "- qty_per_row_unit (how many of this item make ONE unit of the row):",
+            "answer a NUMBER only when the row's own text or its ancestors state",
+            'how many of this item one unit pays for ("with 2 plenum boxes" -> 2,',
+            'It is NOT the BoQ\'s',
+            "own quantity for the row (which you never see) and it is NOT a",
+            'measurement: never read a gauge ("18 G", "20 SWG"), a thickness or',
+            'size ("10mm thick", "600 x 600"), a slot count ("3 Slot"), a neck',
+            "size, a diameter, a torque or an area band as this count.",
+            "number saying how many items ONE PANEL or ONE CONTROLLER serves is",
+            "that product's capacity, not a count of items this row pays for.",
+            "When the text does not plainly say how many, answer \"None\".",
+        ]:
+            self.assertIn(clause, prompt, clause[:50])
+
+    def test_s04_eligibility_is_unmoved_between_v9_and_v10(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        def elig(asset):
+            cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in asset["category_configs"]}
+            return {cid: extraction.config_is_eligible(cfg, cfgs) for (_d, cid), cfg in cfgs.items()}
+        self.assertEqual(elig(self.v10), elig(self.v9))
+        self.assertEqual({k for k, v in elig(self.v10).items() if v}, {"hvac_adp"})
+
+    def test_s05_the_asset_sweep_admits_v10(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        for c in self.v10["category_configs"]:
             config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))

@@ -1721,8 +1721,9 @@ function itemBlockView(
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
     fields,
-    qty: edit.qty ?? "1",
-    qtyDefaulted: edit.qty === undefined,
+    // SLICE 6d: what the field shows -- the pricer's typed value, else the count the MODEL read, else code's 1
+    qty: edit.qty ?? String(res.qty),
+    qtyDefaulted: edit.qty === undefined && res.qtyDefaulted,
     state: res.state,
     ...(res.reason ? { reason: res.reason } : {}),
     ...(res.sku ? { skuLine: `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
@@ -1757,7 +1758,7 @@ function computeItemList(
   const blocks = edits.items.map((e, i) => {
     const res: ItemPriceResult = priced.items[i] ?? {
       index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
-      selection: {}, defaulted: [], ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, figures: {}, working: [], pipelineResults: [],
+      selection: {}, defaulted: [], ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
     };
     return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items);
   });

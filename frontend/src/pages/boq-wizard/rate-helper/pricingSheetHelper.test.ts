@@ -5041,6 +5041,7 @@ describe("SLICE 3 / alias_of: resolveAliasConfig is one hop; an aliased row pric
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
+import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
 import {
   applyItemEdit,
   assembleItems,
@@ -5492,5 +5493,74 @@ describe("SLICE 6c / the assumed quantity is marked as a default", () => {
     // defaulted tone are the strings slice 2c shipped
     expect(panel).toContain("{a.options ? (");
     expect(panel).toContain("Filled from a ruled default -- the row text gave no positive identification");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6d -- the VIEW under v10: a count the model read is shown as READ (no amber); "None" or absent keeps
+// the amber marking slice 6c ships; the pricer's typed value always wins; the row's own quantity never enters.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6d / a count the model read shows as READ; an assumed 1 stays marked", () => {
+  const V10 = HVAC_V10 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS = new Map<string, RateCategoryConfig>(V10.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS: RateMasterItem[] = V10.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const QTY = "qty_per_row_unit";
+  const li6d = (attrs: Record<string, string | number | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const ctx6d = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li6d>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+
+  it("a returned count is the quantity, shown as READ (no marking), and prices rate x count", () => {
+    const { r, v } = list(runWith([{ excel_row: 30, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 })] }]).compute(ctx6d(30, "Nos")));
+    expect(v.items[0]).toMatchObject({ qty: "2", qtyDefaulted: false });
+    expect(r.values).toEqual({ supply_rate: 422, install_rate: 128, combined_rate: 550 });
+  });
+  it("'None' and absent both show 1 with the marking; a host item beside a counted one keeps its 1", () => {
+    const none = list(runWith([{ excel_row: 31, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: "None" })] }]).compute(ctx6d(31, "Nos")));
+    expect(none.v.items[0]).toMatchObject({ qty: "1", qtyDefaulted: true });
+    const absent = list(runWith([{ excel_row: 32, items: [li6d({ family: "spigot", dia_mm: "150" })] }]).compute(ctx6d(32, "Nos")));
+    expect(absent.v.items[0]).toMatchObject({ qty: "1", qtyDefaulted: true });
+    expect(none.r.values).toEqual(absent.r.values);
+    // the check run's shape: a host item at "None" beside an accessory the row counts
+    const { r, v } = list(runWith([{ excel_row: 33, items: [
+      li6d({ family: "disc valve", dia_mm: "100", [QTY]: "None" }),
+      li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 }),
+    ] }]).compute(ctx6d(33, "Nos")));
+    expect(v.items.map((b) => [b.qty, b.qtyDefaulted])).toEqual([["1", true], ["2", false]]);
+    expect(r.values).toEqual({ supply_rate: 551 + 422, install_rate: 176 + 128, combined_rate: 727 + 550 });
+  });
+  it("the PRICER's typed value wins over a read count and is never marked; undoing it returns to the read count", () => {
+    const h = runWith([{ excel_row: 34, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 })] }]);
+    const c = ctx6d(34, "Nos");
+    const typed = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "5" });
+    const t = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(typed) }));
+    expect(t.v.items[0]).toMatchObject({ qty: "5", qtyDefaulted: false });
+    expect(t.r.values!.supply_rate).toBe(211 * 5);
+    // the edit state holds the typed value only; without it the model's count is what shows
+    expect(list(h.compute(c)).v.items[0]).toMatchObject({ qty: "2", qtyDefaulted: false });
+  });
+  it("NEGATIVE: the row's own quantity still never enters the rate, with or without a read count", () => {
+    const h = runWith([{ excel_row: 35, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 3 })] }]);
+    const base = h.compute(ctx6d(35, "Nos"));
+    const withQty = (q: number) => h.compute({ ...ctx6d(35, "Nos"), quantity: q } as unknown as RateHelperRowContext);
+    expect(withQty(7)).toEqual(base);
+    expect(withQty(700)).toEqual(base);
+    expect((base as ItemListSuggestion).values!.supply_rate).toBe(211 * 3);
+  });
+  it("NEGATIVE: an added block has no count to read, so it starts at 1 MARKED, exactly as before the question", () => {
+    const h = runWith([{ excel_row: 36, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 })] }]);
+    const c = ctx6d(36, "Nos");
+    const added = applyItemEdit(list(h.compute(c)).v.editState, { op: "add", family: "disc valve" });
+    const { v } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(added) }));
+    expect(v.items.map((b) => [b.source, b.qty, b.qtyDefaulted])).toEqual([["model", "2", false], ["user", "1", true]]);
   });
 });

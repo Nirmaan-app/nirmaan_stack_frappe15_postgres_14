@@ -113,6 +113,11 @@ export interface ItemListPricingSpec {
   choice_attrs: string[];
   reason_names?: Record<string, string>;
   families: Record<string, FamilySpec>;
+  /** SLICE 6d (owner ruling "yes ask the question"): the per-item attribute the MODEL answers with how many of
+   * this item make ONE unit of the row -- `list_spec.qty_attribute_id`, filled by `itemListPricingSpec` from the
+   * config (the pricing block never names it: a count is not a SKU attribute and must never be a dropdown).
+   * ABSENT => nothing is read and every item keeps code's 1, exactly as before this slice. */
+  qty_attribute_id?: string;
   /** SLICE 6 (T7): the config's OWN `pipelines` -- the shared per-item default every unit block without
    * pipelines of its own runs. Filled by `itemListPricingSpec` from the config; never stored in the block. */
   default_pipelines?: Record<string, Pipeline>;
@@ -134,7 +139,14 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
   // SLICE 6 (T7): the config's own pipelines ride along as the shared per-item default. A copy, so the
   // block object the config holds is never written into.
   const pipelines = (config as RateCategoryConfig).pipelines ?? {};
-  return { ...(spec as ItemListPricingSpec), default_pipelines: pipelines };
+  // SLICE 6d: the count's attribute id lives on `list_spec` beside the family's, NOT in the pricing block --
+  // carried in here so the module reads ONE object (the `default_pipelines` precedent).
+  const qtyAttr = (config as { list_spec?: { qty_attribute_id?: unknown } } | null | undefined)?.list_spec?.qty_attribute_id;
+  return {
+    ...(spec as ItemListPricingSpec),
+    default_pipelines: pipelines,
+    ...(typeof qtyAttr === "string" && qtyAttr ? { qty_attribute_id: qtyAttr } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -184,6 +196,9 @@ export interface ItemPriceResult {
   finals: Record<string, number>;
   /** SLICE 6 (T4): the quantity per row unit applied to `finals` to give `figures` (1 when absent). */
   qty: number;
+  /** SLICE 6d: the quantity is CODE's default of 1 -- the row states none (the model answered "None" or was
+   * never asked) and the pricer typed none. The panel marks such a field amber, like every other default. */
+  qtyDefaulted: boolean;
   /** SLICE 6 (T4): `finals` x `qty` -- what this item contributes to the row. */
   figures: Record<string, number>;
   working: string[];
@@ -370,9 +385,26 @@ function priceOneItem(
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, defaulted: [],
-    ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, figures: {}, working: [], pipelineResults: [],
+    ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [],
+    pipelineResults: [],
   };
   const blank = (reason: string): ItemPriceResult => ({ ...out, state: "blank", reason });
+
+  // SLICE 6d (owner ruling "yes ask the question"): the count the MODEL read from the row. It is RESOLVED here
+  // -- before anything can refuse -- so the figure and its marking are right even on an item that blanks for
+  // another reason; the REFUSAL of a blank or non-positive TYPED value stays exactly where slice 6 put it, so
+  // no blank reason changes order. "None" (the row says nothing), an unreadable answer and no answer at all all
+  // leave CODE's default of 1 standing, MARKED -- the model reads facts, code applies defaults. Measured before
+  // shipping: over 42 items of the live corpus, including every capacity, slot count and panel variant in it,
+  // the model answered "None" every time and invented no count.
+  const statedQty = spec.qty_attribute_id ? rawValue(item, spec.qty_attribute_id) : null;
+  if (statedQty !== null && statedQty !== "None") {
+    const n = typeof statedQty === "number" ? statedQty : Number(String(statedQty).trim());
+    if (Number.isFinite(n) && n > 0) {
+      out.qty = n;
+      out.qtyDefaulted = false;
+    }
+  }
 
   // (1) the family: absent = no ADP kind (R8); an alias prices as its target (R3); no SKU = blank (R18)
   const famRaw = rawValue(item, "family");
@@ -514,13 +546,15 @@ function priceOneItem(
   out.working.push(...notes);
   for (const d of out.defaulted) out.working.push(`${d.attr} not mentioned -> ${d.value} (${d.rule})`);
 
-  // SLICE 6 (T4): the quantity per row unit -- absent = 1; stated but unreadable / non-positive = blank
+  // SLICE 6 (T4): the quantity per row unit -- the PRICER's typed value, which always wins over the count the
+  // model read (SLICE 6d) and over code's default; stated but unreadable / non-positive = blank.
   const qtyRaw = item.qtyPerRowUnit;
-  let qty = 1;
+  let qty = out.qty;
   if (qtyRaw !== undefined && qtyRaw !== null && String(qtyRaw).trim() !== "") {
     const q = Number(String(qtyRaw).trim());
     if (!Number.isFinite(q) || q <= 0) return { ...blank(`quantity per row unit '${String(qtyRaw)}' is not a positive number`), selection: out.selection, defaulted: out.defaulted };
     qty = q;
+    out.qtyDefaulted = false;
   } else if (qtyRaw === "" || qtyRaw === null) {
     return { ...blank("quantity per row unit is blank"), selection: out.selection, defaulted: out.defaulted };
   }
