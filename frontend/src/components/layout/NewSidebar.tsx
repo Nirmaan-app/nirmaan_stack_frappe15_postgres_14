@@ -568,7 +568,12 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    // HR LEAD ADDED 2026-09-23 (owner). It was already a valid REVIEWER server-side
+    // (`api/expense_requests/access.PM_REQUEST_REVIEWERS`) but appeared in no sidebar gate
+    // anywhere, so the approve right it held was unreachable -- there was no door to the
+    // screen. It now gets the same three tabs as Admin / Accountant / HR Executive; the tab
+    // set itself is decided by `reviewsExpenseRequests` in constants/roles.ts.
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan HR Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
           // Renamed "Expense" -> "Expense Request" (owner, 17 Sep 2026): the module now shows
