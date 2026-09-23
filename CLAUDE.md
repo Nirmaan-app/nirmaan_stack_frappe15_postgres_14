@@ -802,14 +802,21 @@ assumed 1 therefore carries the amber fill and the same "default" tag every othe
 mechanism is the edit state, not config: an edit holds a `qty` ONLY when the pricer typed one (exactly as
 `attrs` does), so an absent quantity is the assumption and the module has always priced an absent quantity as
 1 -- **the marking changes no rate anywhere**. A typed 1 is the pricer's and is not marked.
-**The model is NOT asked for a count, and the corpus is why:** of 3,519 rows classified `hvac_adp` across the
-committed sheets, **0 state a per-item count**. Seventeen carry a count-like phrase and every one is something
-else -- a panel's CAPACITY ("up to 5 Nos of dampers", "distribution for 10 no damper actuators", four "For N
-no. fire dampers" variants of one control-panel row), a SLOT COUNT ("Plenum Box for 3 Slot Linear Diffuser") or
-a FEATURE ("with 2 air flow outlets") -- so asking would buy nothing and risk a false count on the ~2,000 rows
-carrying a misreadable number. **Before any future change here, re-measure rather than assume:** a count is
-never to be inferred from a gauge, a thickness, a size, a slot count, a neck, a torque, an area band or the
-row's own quantity.
+**The model IS asked for the count, and a returned number is READ -- but the default is what the corpus
+actually exercises.** The question is the EXISTING optional `list_spec.qty_attribute_id` plus one `number` /
+`allow_none` definition, so it needs no new config key and no `extraction.py` change; a positive number becomes
+the block's quantity and is shown unmarked, while "None", an unreadable answer and no answer at all all leave
+code's 1, marked. **The corpus states a per-item count on 0 of 3,519 rows classified `hvac_adp`:** seventeen
+carry a count-like phrase and every one is something else -- a panel's CAPACITY ("up to 5 Nos of dampers",
+"distribution for 10 no damper actuators", four "For N no. fire dampers" VARIANTS of one control-panel row), a
+SLOT COUNT ("Plenum Box for 3 Slot Linear Diffuser") or a FEATURE ("with 2 air flow outlets"). Asking was
+therefore measured before it shipped: over those rows the model answered "None" every time, inventing no count
+in 42 chances, and read all six counts on invented count-stating rows onto the right item. **So the question is
+INSURANCE for BoQ styles that state counts, not something today's corpus exercises** -- and every one of those
+seventeen rows is a test fixture, so a later prompt change cannot quietly start reading capacities or slot
+counts as quantities. **Re-measure rather than assume before changing any of it:** a count is never to be
+inferred from a gauge, a thickness, a size, a slot count, a neck, a torque, an area band, a product's capacity
+or the row's own quantity.
 
 ## BoQ Rate Suggestion (RM-3)
 

@@ -41227,3 +41227,83 @@ temporary spec -- the 17 count-like traps in full, ~15 decoys carrying gauges, t
 area bands, the remainder at random, plus 6 to 8 clearly labelled INVENTED rows that do state a count. It
 reports false counts, correct reads on the invented rows, misses and the cost, and recommends nothing: the
 owner decides whether the question is ever asked.
+
+## HVAC PRICING, SLICE 6d -- THE MODEL READS THE PER-ITEM COUNT; CODE DEFAULTS IT TO 1; HVAC v10 (2026-09-24) -- SHIPPED
+
+**Owner ruling: "yes ask the question"**, after the slice-6c check run. This ships exactly what that run used
+and nothing more.
+
+### WHAT THE CHECK RUN MEASURED (the evidence behind the ruling)
+46 rows, one stage, through the slice-4 pilot path, writing nothing; `claude-opus-4-8`, 3 calls, 27,659 input
++ 10,932 output tokens, 96.8 s, **about $1.23**.
+- **FALSE COUNTS: 0.** All 42 items across the 40 corpus rows answered "None" -- including every count-like
+  row the corpus contains: the capacities ("Master Controller **up to** 5 Nos of dampers"; a panel's
+  "distribution for 10 no damper actuators"), the four "For 8 / 6 / 4 / 2 no. fire dampers" VARIANTS of one
+  control-panel row, the nine slot-count rows ("Plenum Box for 3 Slot Linear Diffuser"), and the feature row
+  ("Slot Air Grill ... with 2 air flow outlets").
+- **CORRECT READS: 6 of 6** numbers on six clearly labelled INVENTED count-stating rows, each landing on the
+  RIGHT item, with all five host items correctly left at "None" (one diffuser, one damper, one valve per row
+  unit). Wrong numbers: 0.
+- **TWO PREMISE CORRECTIONS, owner-accepted:** `BOQ-26-00098 / Lowside / 88` ("5 Nos of dampers") is a
+  CAPACITY -- "Master Controller **up to** 5 Nos of dampers"; and slice 6b's X7 figure of "1 row of 199" was
+  that same row, so the corpus states a per-item count on **0 of 199** in that sample and **0 of 3,519**
+  overall.
+- **So this question is INSURANCE for BoQ styles that state counts, not something today's corpus exercises:**
+  every real row answers "None" and code's 1 stands, marked amber by slice 6c.
+
+### AS BUILT
+- **HVAC v10 = v9 + two additions on the ADP `list_spec`, nothing else:** one per-item definition
+  `qty_per_row_unit` (a NUMBER, `allow_none`), APPENDED LAST so no existing definition moves, and
+  `qty_attribute_id: "qty_per_row_unit"` -- **the EXISTING optional key**, validated since slice 4 (it must
+  name a `number` definition) and already projected into ITEMS_SPEC by `build_items_spec`. **No new config
+  key and no `extraction.py` change**: `_coerce_item_value` already accepts "None" on a `number` def with
+  `allow_none`. The count is NOT a SKU attribute and NOT a `panel_controls` entry -- it must never become a
+  dropdown.
+- **The prompt asset** gains the bullet VERBATIM as the check run sent it, including the CAPACITY sentence
+  ("a number saying how many items ONE PANEL or ONE CONTROLLER serves is that product's capacity").
+- **`itemListPricing.ts`:** `ItemListPricingSpec.qty_attribute_id` (filled by `itemListPricingSpec` from
+  `list_spec`, the `default_pipelines` precedent); `ItemPriceResult.qtyDefaulted`; `priceOneItem` resolves the
+  model's count EARLY -- before anything can refuse -- so the figure and its marking are right even on an item
+  that blanks for another reason, while the REFUSAL of a blank or non-positive TYPED value stays exactly where
+  slice 6 put it, so no blank reason changes order. A positive number is the quantity; "None", an unreadable
+  answer and no answer at all leave code's 1, MARKED.
+- **`pricingSheetHelper.ts`:** the block shows the pricer's typed value, else the count the model read, else 1;
+  the marking is `edit.qty === undefined && res.qtyDefaulted`.
+- **The panel is UNCHANGED** -- slice 6c already renders the marking, so a read count simply arrives unmarked.
+- **The pricer's typed value always wins**, and the row's own quantity still never enters the rate.
+
+### TESTS (positive AND negative)
+Frontend +17 across `itemListPricing.test.ts` and `pricingSheetHelper.test.ts`: v10 = v9 + the two additions
+and nothing else (the definition appended last, not a SKU attribute, not a panel control); a returned 2 prices
+rate x 2 and is READ; "None" and absent both leave 1 MARKED, and so do an unreadable, zero, negative or null
+answer; the typed value wins and a cleared one still refuses; NEGATIVE under v9 the same items price with every
+count ignored; **the six INVENTED rows become fixtures** -- each count lands on the right item and the host
+item keeps its marked 1; **every one of the 17 corpus TRAPS becomes a fixture** with the number a careless read
+would take, pinning that "None" means code's 1, marked -- a guard against a future prompt change quietly
+reading capacities or slot counts as counts; the view's READ / marked states, the host-beside-counted shape, an
+added block starting at a marked 1, and the row's own quantity still changing nothing.
+Backend +6: `TestHvacAdpCountQuestionSlice6d` s01..s05 (the validator accepts and refuses a bad reference, the
+key still optional; v10 = v9 + the question; the prompt bullet clause by clause; eligibility unmoved; the asset
+sweep) and `il_15` (the question reaches ITEMS_SPEC, the parse keeps its three states apart, and no Electrical
+config is in item_list mode so the question cannot appear in an Electrical call).
+INVERTED, never deleted: `CURRENT_HVAC_ASSET` v9 -> v10; h07 (the series is v1..v10, priors v1..v9, no "v10"
+token) -- **its expected listing is now ALPHABETICAL with v10 between v1 and v2, which is exactly why
+`latest_in` must resolve NUMERICALLY; v10 is the first two-digit version in either series and the resolver
+handles it**; the slice-6b class loads v9 BY NAME; slice 4's `il_02` pins (ADP asked for no quantity; the ONE
+number definition; the allow_none list) each inverted with the negative half kept on a config built without
+the key.
+
+### VACUITY
+Nine breaks, each ONE line, restored byte-identically, every named test red and green after: the module reads
+the count; the id reaches the spec; the resolution exists at all; a non-positive answer is not a count; the
+view shows the read count; the view's marking follows the module; the asset declares the question; the prompt's
+CAPACITY sentence; the definition's `allow_none`. Noted honestly: the `!== "None"` clause in the resolution is
+BELT-AND-BRACES -- `Number("None")` is NaN, so the numeric guard already rejects it -- and the load-bearing
+guard is the `Number.isFinite(n) && n > 0` test.
+
+### PARKED, NOT BUILT (owner)
+"Motorised fire damper complete with 4 nos actuators" returns ONE item under the composite ruling (*"a part
+built into a priced variant is NOT a separate item: a motorised damper is ONE item ... never a damper plus an
+actuator"*), so the stated 4 has nowhere to land: **a row pricing a motorised damper PLUS loose actuators
+cannot be expressed today.** The count question neither caused this nor can fix it. Revisit when a REAL row of
+that shape appears; it would mean reopening the composite ruling, not the count.
