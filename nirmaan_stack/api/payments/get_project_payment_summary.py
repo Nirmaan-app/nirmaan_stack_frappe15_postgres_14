@@ -56,7 +56,10 @@ def get_payment_dashboard_stats():
         'total_reconciliation_pending_amount': 0.0,
         # The part of those records bank lines ALREADY cover -- an expense several lines pay
         # stays Reconciliation Pending until they add up. Amount minus this = what is actually
-        # still waiting for the bank. Read inside the outflow `try` below; 0 if that fails.
+        # still waiting for the bank, and that difference is the only thing the card prints on
+        # the row: the covered part is confirmed cash out and is counted in the 30-day outflow
+        # by 2h2 instead. Both come off ONE read in 2h2, so what leaves this figure is exactly
+        # what lands over there. Read inside the outflow `try` below; 0 if that fails.
         'total_reconciliation_pending_reconciled_amount': 0.0,
 
         # Approved
@@ -88,12 +91,25 @@ def get_payment_dashboard_stats():
         # against any outflow.
         'total_non_project_inflow_30_days_count': 0,
         'total_non_project_inflow_30_days_amount': 0.0,
-        # Project outflow: PO + WO Paid payments + Project Expenses
+        # Project outflow: PO + WO Paid payments + Project Expenses, PLUS the bank-confirmed
+        # part of records still Reconciliation Pending (2h2 -- see there for why).
         'total_project_outflow_30_days_count': 0,
         'total_project_outflow_30_days_amount': 0.0,
-        # Non-project outflow: Non Project Expenses
+        # Non-project outflow: Non Project Expenses, on the same two terms.
         'total_non_project_expense_30_days_count': 0,
         'total_non_project_expense_30_days_amount': 0.0,
+
+        # How much of each figure above came from 2h2 rather than from a Paid record -- the
+        # card prints it as an "incl. ..." note under the row.
+        #
+        # ⚠️ A SUBSET OF THE FIGURE BESIDE IT, NEVER A THIRD BUCKET. It is already inside
+        # `total_project_outflow_30_days_amount` / `total_non_project_expense_30_days_amount`;
+        # adding it to either, or to the column total the card prints from those two, counts
+        # the same money twice. Its count is part of theirs on the same terms.
+        'total_project_outflow_30_days_part_reconciled_count': 0,
+        'total_project_outflow_30_days_part_reconciled_amount': 0.0,
+        'total_non_project_expense_30_days_part_reconciled_count': 0,
+        'total_non_project_expense_30_days_part_reconciled_amount': 0.0,
 
         # --- Total Unreconciled Outflow (#1286) ---
         # Bank money that has left the account and still owes somebody a decision in Bulk
@@ -133,7 +149,14 @@ def get_payment_dashboard_stats():
                        'ceo_approval_date', 'payment_date', 'auto_approved']
 
         all_payments = []
-        reconciliation_pending_names = {_ledger: set() for _ledger in LEDGERS}
+        # Reconciliation Pending records -> {name: payment_date}. The DATE is what 2h2 needs:
+        # a record in this state normally has NONE (`derive_expense_status` returns
+        # `payment_date=None` until the last bank line lands), and a record with no date is
+        # taken as inside the 30-day window.
+        reconciliation_pending = {_ledger: {} for _ledger in LEDGERS}
+        # (ledger, name) of every record the 30-day outflow has already taken at its FULL amount.
+        # 2h2 adds the part-reconciled ones and must not touch a record that is in here twice.
+        outflow_window_records = set()
         for _ledger in LEDGERS:
             for _row in frappe.get_all(_ledger, fields=_row_fields, limit_page_length=None):
                 _row['ledger'] = _ledger
@@ -164,7 +187,7 @@ def get_payment_dashboard_stats():
             if status == 'Reconciliation Pending':
                 stats['total_reconciliation_pending_count'] += 1
                 stats['total_reconciliation_pending_amount'] += amount
-                reconciliation_pending_names[doc.ledger].add(doc.name)
+                reconciliation_pending[doc.ledger][doc.name] = doc.payment_date
 
             # --- 2b & 2c. APPROVED Check (L1) ---
             # Exclude auto-approved payments — they skipped the L1 gate and are
@@ -232,6 +255,7 @@ def get_payment_dashboard_stats():
                 if is_payment and payment_date >= thirty_days_ago and payment_date <= today_date:
                     stats['total_project_outflow_30_days_count'] += 1
                     stats['total_project_outflow_30_days_amount'] += amount
+                    outflow_window_records.add((doc.ledger, doc.name))
 
         # --- 2e2. Project Expenses → also project outflow (last 30 days) ---
         # Folded into the same bucket as PO + WO payments so "Project Outflow"
@@ -304,14 +328,60 @@ def get_payment_dashboard_stats():
         # hiding money nothing else reports. The failure is LOGGED, never swallowed silently.
         try:
             not_matched = not_matched_totals()
+
+            # --- 2h2. The bank-confirmed part of a Reconciliation Pending record ----------
             # `load_linked_totals` is the live-slip aggregate the queue and the Bank lines card
             # read, grouped by record; only the Reconciliation Pending records' share is taken.
-            reconciled_in_pending = sum(
-                float(links.linked_total)
-                for ledger, names in reconciliation_pending_names.items()
-                for name, links in load_linked_totals(ledger).items()
-                if name in names
-            )
+            # That one figure is used TWICE, and reading it once is what keeps the two sides of
+            # the card tied to the penny:
+            #
+            #   * SUBTRACTED from the pending row, which prints what is ACTUALLY still waiting.
+            #   * ADDED to the 30-day outflow it belongs to, project or non-project by ledger.
+            #     Its status keeps it out of the two outflow queries above (they read Paid
+            #     records and stamped `payment_date`s), so without this the confirmed part is
+            #     reported NOWHERE -- gone from pending, not yet in outflow.
+            #
+            # ⚠️ NO DATE OF ITS OWN MEANS INSIDE THE WINDOW (owner, 2026-09-23). These records
+            # carry `payment_date = None` by design -- `derive_expense_status` withholds it until
+            # the lines cover the amount -- so there is no date to test and every one of them
+            # counts. A record that DOES carry a date is held to it like any other row here: in
+            # the window it counts, outside it does not. One rule, one field, the same
+            # `payment_date` the queries above use.
+            #
+            # ⚠️ NO DOUBLE COUNT. A record the window already took in FULL is skipped via
+            # `outflow_window_records` -- a Project Payment is counted on `payment_date` with no
+            # status filter, so one in Reconciliation Pending can be in both sets. The expense
+            # queries (2e2, 2g) filter `status = Paid`, which a Reconciliation Pending expense
+            # can never satisfy. And a record becomes Paid only once its lines cover it, at which
+            # point it leaves this set and its FULL amount is counted there instead.
+            reconciled_in_pending = 0.0
+            for _ledger, _pending in reconciliation_pending.items():
+                if not _pending:
+                    continue
+                for _name, _links in load_linked_totals(_ledger).items():
+                    if _name not in _pending:
+                        continue
+                    _confirmed = float(_links.linked_total)
+                    if not _confirmed:
+                        continue
+                    # The pending row's subtraction takes every one of them, counted or not.
+                    reconciled_in_pending += _confirmed
+
+                    if (_ledger, _name) in outflow_window_records:
+                        continue
+                    _paid_on = _pending[_name]
+                    if _paid_on and not (thirty_days_ago <= _paid_on <= today_date):
+                        continue
+                    if _ledger == 'Non Project Expenses':
+                        stats['total_non_project_expense_30_days_count'] += 1
+                        stats['total_non_project_expense_30_days_amount'] += _confirmed
+                        stats['total_non_project_expense_30_days_part_reconciled_count'] += 1
+                        stats['total_non_project_expense_30_days_part_reconciled_amount'] += _confirmed
+                    else:
+                        stats['total_project_outflow_30_days_count'] += 1
+                        stats['total_project_outflow_30_days_amount'] += _confirmed
+                        stats['total_project_outflow_30_days_part_reconciled_count'] += 1
+                        stats['total_project_outflow_30_days_part_reconciled_amount'] += _confirmed
             stats['total_unreconciled_outflow_amount'] = (
                 not_matched['outflow']['amount'] + not_matched['partly_outflow']['pending']
             )
@@ -321,11 +391,15 @@ def get_payment_dashboard_stats():
             stats['total_unreconciled_inflow_amount'] = not_matched['inflow']['amount']
             stats['total_unreconciled_inflow_count'] = not_matched['inflow']['rows']
             stats['total_reconciliation_pending_reconciled_amount'] = reconciled_in_pending
+
         except Exception as unmatched_error:
             frappe.log_error(
                 f"Total Unreconciled Outflow / Inflow unavailable: {unmatched_error}",
                 "Payment Stats API - unmatched outflow",
             )
+            # The 30-day outflow figures keep everything 2d-2g put in them; only 2h2's
+            # part-reconciled add-on is missing, which is the same understatement the card
+            # showed before it existed.
 
         # 3. Return the dictionary of statistics
         # --- DEBUGGING PRINT STATEMENT ---

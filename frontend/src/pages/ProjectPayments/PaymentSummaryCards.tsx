@@ -210,6 +210,7 @@ import { Info, Wallet, Clock, CheckCircle2, AlertCircle, CreditCard } from "luci
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 
+
 interface FrappeApiResponse<T> { message: T; }
 interface PaymentStats {
     total_pending_payment_count: number;
@@ -246,10 +247,29 @@ interface PaymentStats {
     // Never netted against outflow (ADR-0016 A-D4).
     total_non_project_inflow_30_days_count: number;
     total_non_project_inflow_30_days_amount: number;
+    /**
+     * Paid PO + WO payments and Paid Project Expenses dated in the window -- PLUS the part of
+     * every still-Reconciliation-Pending record that bank lines dated in the window already
+     * confirm. That confirmed part is cash the bank agrees has left, so it belongs here and is
+     * no longer counted in the Reconciliation Pending row above.
+     */
     total_project_outflow_30_days_count: number;
     total_project_outflow_30_days_amount: number;
+    /** Non Project Expenses, on the same two terms as the project figure above. */
     total_non_project_expense_30_days_count: number;
     total_non_project_expense_30_days_amount: number;
+    /**
+     * How much of each figure above came from a still-pending record rather than a Paid one.
+     *
+     * ⚠️ A SUBSET OF THE FIGURE IT QUALIFIES, NEVER A ROW OF ITS OWN. It is already inside
+     * the two amounts above, which is why the card prints it INLINE as "(incl. ...)" on the
+     * row's own line -- not as a third bullet beside them, which would sit next to two figures
+     * the column total DOES sum and be added to them sooner or later.
+     */
+    total_project_outflow_30_days_part_reconciled_count: number;
+    total_project_outflow_30_days_part_reconciled_amount: number;
+    total_non_project_expense_30_days_part_reconciled_count: number;
+    total_non_project_expense_30_days_part_reconciled_amount: number;
     /**
      * Total Unreconciled Outflow (#1286) — bank money that has left the account and still owes
      * somebody a decision in Bulk Import.
@@ -391,7 +411,13 @@ const BreakdownRow: React.FC<{
     amount: number;
     count: number;
     amountClassName?: string;
-}> = ({ tone, label, labelLong, amount, count, amountClassName = "text-slate-900 dark:text-slate-100" }) => {
+    /**
+     * A panel shown when the reader hovers the AMOUNT. Given, the figure gets a dotted underline
+     * so there is something to tell them it is worth hovering -- a hover with no affordance is a
+     * breakdown nobody finds.
+     */
+    amountHover?: React.ReactNode;
+}> = ({ tone, label, labelLong, amount, count, amountClassName = "text-slate-900 dark:text-slate-100", amountHover }) => {
     const c = TONE_CLASSES[tone];
     return (
         <div className="grid grid-cols-[auto,1fr,auto] gap-x-2 items-center text-[11px]">
@@ -411,9 +437,73 @@ const BreakdownRow: React.FC<{
                     ({count})
                 </span>
             </div>
-            <span className={`tabular-nums font-semibold whitespace-nowrap ${amountClassName}`}>
+            {amountHover ? (
+                <HoverCard openDelay={100}>
+                    <HoverCardTrigger asChild>
+                        <span className={`tabular-nums font-semibold whitespace-nowrap cursor-help underline decoration-dotted decoration-2 decoration-slate-400 dark:decoration-slate-400 underline-offset-4 ${amountClassName}`}>
+                            {formatToRoundedIndianRupee(amount)}
+                        </span>
+                    </HoverCardTrigger>
+                    <HoverCardContent align="end" className="w-auto p-2">{amountHover}</HoverCardContent>
+                </HoverCard>
+            ) : (
+                <span className={`tabular-nums font-semibold whitespace-nowrap ${amountClassName}`}>
+                    {formatToRoundedIndianRupee(amount)}
+                </span>
+            )}
+        </div>
+    );
+};
+
+/**
+ * What a composite outflow row is made of, shown when the reader hovers its amount.
+ *
+ * ⚠️ A HOVER PANEL, NOT TWO LINES UNDER THE ROW. Six figures have to be read -- a count and an
+ * amount for each part and for the whole -- and the row has space for three. Printing the other
+ * three under it cost the column two permanent lines; this keeps the row at one and still leaves
+ * nothing to infer, because the panel states the sum in full and labels both parts.
+ *
+ * ⚠️ TWO SHADES OF ONE COLOUR, NOT TWO COLOURS. Both parts are money the bank has confirmed
+ * left the account -- the only difference is whether the RECORD is finished with. Same hue says
+ * "same kind of money"; the lighter shade says "not closed yet".
+ *
+ * ⚠️ RENDERS NOTHING WHEN THERE IS NOTHING TO SPLIT, and the row then gets no hover and no
+ * dotted underline at all -- never an affordance that opens an empty panel.
+ */
+const SplitHoverContent: React.FC<{
+    totalCount: number;
+    totalAmount: number;
+    doneLabel: string;
+    partLabel: string;
+    partCount: number;
+    partAmount: number;
+}> = ({ totalCount, totalAmount, doneLabel, partLabel, partCount, partAmount }) => {
+    // ⚠️ COLOUR DOES ONE JOB HERE: the status dot. Labels and figures stay neutral so the
+    // amounts read as ONE money column -- colouring the numbers made the panel look like three
+    // unrelated readings rather than a sum. The two dots are the app's existing vocabulary, the
+    // same pair the Reconciliation Pending tab uses: EMERALD = the bank is done with it, AMBER =
+    // still waiting on the bank. Two shades of one colour said nothing a reader could name.
+    //
+    // ⚠️ FOUR LINES, NOTHING ELSE. A title, column headings, a sentence of explanation and a
+    // "View records" action were all tried and cut: the panel exists to answer one question --
+    // what is this figure made of -- and everything that is not a number in that sum makes it a
+    // dialog the reader has to scan instead of a breakdown they can read at a glance.
+    const row = (dot: string, label: string, count: number, amount: number, weight = "font-medium") => (
+        <>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+            <span className="whitespace-nowrap text-slate-600 dark:text-slate-300">{label}</span>
+            <span className="text-right tabular-nums text-slate-400 dark:text-slate-500">{count}</span>
+            <span className={`text-right tabular-nums ${weight} text-slate-900 dark:text-slate-100`}>
                 {formatToRoundedIndianRupee(amount)}
             </span>
+        </>
+    );
+    return (
+        <div className="grid grid-cols-[auto,1fr,auto,auto] gap-x-3 gap-y-1 items-center text-[11px] leading-tight">
+            {row("bg-emerald-500", doneLabel, totalCount - partCount, totalAmount - partAmount)}
+            {row("bg-amber-500", partLabel, partCount, partAmount)}
+            <div className="col-span-4 border-t border-slate-200 dark:border-slate-700" />
+            {row("bg-transparent", "Total", totalCount, totalAmount, "font-bold")}
         </div>
     );
 };
@@ -453,18 +543,13 @@ const PendingApprovalTile: React.FC<{
             </div>
             <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
                 <BreakdownRow tone="red" label="Approved – Not Paid" labelLong="Approved But not Paid" amount={totalDueAmount} count={totalDueCount} />
-                <BreakdownRow tone="violet" label="Reconciliation Pending" labelLong="Payment Done / Reconciliation Pending" amount={reconciliationAmount} count={reconciliationCount} />
-                {/* The row's figure is the records' full amounts (it equals the tab). When bank
-                    lines already cover part of them, say how much -- and what is ACTUALLY left. */}
-                {reconciliationReconciledAmount > 0 && (
-                    <div className="pl-3.5 text-right text-[10px] leading-tight tabular-nums">
-                        <span className="text-green-700">{formatToRoundedIndianRupee(reconciliationReconciledAmount)} reconciled</span>
-                        <span className="text-slate-400"> · </span>
-                        <span className="text-orange-600">
-                            {formatToRoundedIndianRupee(reconciliationAmount - reconciliationReconciledAmount)} actually pending
-                        </span>
-                    </div>
-                )}
+                {/* ⚠️ WHAT IS ACTUALLY PENDING -- NOT THE RECORDS' FULL AMOUNTS, so this row no
+                    longer equals the tab's total (owner, 2026-09-23). Bank lines already cover
+                    part of these records; that part is confirmed cash out and now shows up in
+                    Outflow (30 Days) instead, so leaving it here as well would have one card
+                    count the same money twice. The COUNT stays the record count -- all of them
+                    are still waiting on the bank for something. */}
+                <BreakdownRow tone="violet" label="Reconciliation Pending" labelLong="Payment Done / Reconciliation Pending" amount={reconciliationAmount - reconciliationReconciledAmount} count={reconciliationCount} />
             </div>
         </TileShell>
     );
@@ -496,6 +581,11 @@ const RecentActivityTile: React.FC<{
     projectOutflowCount: number;
     nonProjectOutflowAmount: number;
     nonProjectOutflowCount: number;
+    // The part-reconciled share of each figure above -- a subset, printed as an "incl." note.
+    projectOutflowPartReconciledAmount: number;
+    projectOutflowPartReconciledCount: number;
+    nonProjectOutflowPartReconciledAmount: number;
+    nonProjectOutflowPartReconciledCount: number;
     // Total Unreconciled Outflow (#1286) — ALL TIME, not 30 days. See `PaymentStats`.
     unreconciledOutflowAmount: number;
     unreconciledOutflowCount: number;
@@ -514,6 +604,8 @@ const RecentActivityTile: React.FC<{
     nonProjectInflowAmount, nonProjectInflowCount,
     projectOutflowAmount, projectOutflowCount,
     nonProjectOutflowAmount, nonProjectOutflowCount,
+    projectOutflowPartReconciledAmount, projectOutflowPartReconciledCount,
+    nonProjectOutflowPartReconciledAmount, nonProjectOutflowPartReconciledCount,
     unreconciledOutflowAmount, unreconciledOutflowCount,
     unreconciledInflowAmount, unreconciledInflowCount,
 }) => (
@@ -576,8 +668,29 @@ const RecentActivityTile: React.FC<{
                                     {formatToRoundedIndianRupee(projectOutflowAmount + nonProjectOutflowAmount)}
                                 </span>
                             </div>
-                            <BreakdownRow tone="red" label="Project" labelLong="Project (PO+WO + Exp)" amount={projectOutflowAmount} count={projectOutflowCount} amountClassName="text-primary" />
-                            <BreakdownRow tone="amber" label="Non-Project" labelLong="Non-Project Expense" amount={nonProjectOutflowAmount} count={nonProjectOutflowCount} amountClassName="text-primary" />
+                            {/* The row shows one figure; hovering it opens what that figure is made
+                                of -- Payment Done plus Partially Reconciled, adding up to the total
+                                printed here. A row with nothing part-reconciled gets no hover. */}
+                            <BreakdownRow tone="red" label="Project" labelLong="Project (PO+WO + Exp)" amount={projectOutflowAmount} count={projectOutflowCount} amountClassName="text-primary"
+                                amountHover={projectOutflowPartReconciledCount > 0 && (
+                                    <SplitHoverContent
+                                        totalCount={projectOutflowCount}
+                                        totalAmount={projectOutflowAmount}
+                                        doneLabel="Payment Done"
+                                        partLabel="Partially Reconciled"
+                                        partCount={projectOutflowPartReconciledCount}
+                                        partAmount={projectOutflowPartReconciledAmount} />
+                                )} />
+                            <BreakdownRow tone="amber" label="Non-Project" labelLong="Non-Project Expense" amount={nonProjectOutflowAmount} count={nonProjectOutflowCount} amountClassName="text-primary"
+                                amountHover={nonProjectOutflowPartReconciledCount > 0 && (
+                                    <SplitHoverContent
+                                        totalCount={nonProjectOutflowCount}
+                                        totalAmount={nonProjectOutflowAmount}
+                                        doneLabel="Payment Done"
+                                        partLabel="Partially Reconciled"
+                                        partCount={nonProjectOutflowPartReconciledCount}
+                                        partAmount={nonProjectOutflowPartReconciledAmount} />
+                                )} />
                             {/* ⚠️ ALL TIME, NOT 30 DAYS — it sits in this column because it is outflow,
                                 not because it shares the window. It is deliberately BELOW a rule, and
                                 is NOT part of the column's "Outflow (30 Days)" total above: adding it
@@ -846,6 +959,10 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 projectOutflowAmount={stats.total_project_outflow_30_days_amount}
                                 projectOutflowCount={stats.total_project_outflow_30_days_count}
                                 nonProjectOutflowAmount={stats.total_non_project_expense_30_days_amount}
+                                projectOutflowPartReconciledAmount={stats.total_project_outflow_30_days_part_reconciled_amount ?? 0}
+                                projectOutflowPartReconciledCount={stats.total_project_outflow_30_days_part_reconciled_count ?? 0}
+                                nonProjectOutflowPartReconciledAmount={stats.total_non_project_expense_30_days_part_reconciled_amount ?? 0}
+                                nonProjectOutflowPartReconciledCount={stats.total_non_project_expense_30_days_part_reconciled_count ?? 0}
                                 nonProjectOutflowCount={stats.total_non_project_expense_30_days_count}
                                 unreconciledOutflowAmount={stats.total_unreconciled_outflow_amount}
                                 unreconciledOutflowCount={stats.total_unreconciled_outflow_count}

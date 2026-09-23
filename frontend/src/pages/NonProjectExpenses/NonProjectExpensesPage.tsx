@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { useSharedReportDateRange } from "@/pages/reports/store/useReportDateStore";
+import { usePartiallyReconciled } from "@/pages/reports/hooks/usePartiallyReconciled";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import {
   AlertDialog,
@@ -196,6 +197,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   });
 
   const dateRange = DisableAction ? shared.dateRange : localDateRange;
+  // Money out the list cannot show: the confirmed part of records still Reconciliation Pending.
+  // SUMMARY ONLY, and only in report mode -- the rows stay Paid records either way.
+  const partiallyReconciled = usePartiallyReconciled("non_project", dateRange?.from, dateRange?.to);
   const onDateChange = DisableAction ? shared.onChange : (r?: DateRange) => setLocalDateRange(r);
   const onDateClear = DisableAction ? shared.onClear : () => setLocalDateRange(undefined);
 
@@ -511,6 +515,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         exportFileName={`Non_Project_Expenses_${urlContext}`}
         summaryCard={
           <NonProjectExpenseSummaryCard
+            /* Report mode only -- see the prop's own note. The standalone page's figure follows
+               the status tab, which this sum is not true of. */
+            partiallyReconciled={DisableAction ? partiallyReconciled : undefined}
             aggregates={aggregates}
             isAggregatesLoading={isAggregatesLoading}
             totalCount={totalCount}
