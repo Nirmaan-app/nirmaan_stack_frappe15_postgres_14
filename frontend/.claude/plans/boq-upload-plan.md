@@ -41057,3 +41057,108 @@ needs it" file; it did), `PricingCalculator.tsx` (+test), NEW `data/rate_master_
 rule). NOT touched: `rateHelperTypes.ts`, `rateSuggestionModel.ts`, `api/boq/rate_master.py`, the loader, the
 exporter, every Electrical asset, HVAC v1..v7, `components/ui/*`, every doctype JSON, `patches.txt`.
 The cert, the counts, the vacuity and the anomalies are in the slice report `2026-09-24_Slice6_Report.md`.
+
+## HVAC PRICING, SLICE 6b -- PANEL FIELDS: DROPDOWNS FROM THE SKUs; THE SAME FAMILY MORE THAN ONCE; PER-BLOCK QUANTITY MEANS "IN ONE UNIT OF THE ROW"; HVAC v9 (2026-09-24) -- SHIPPED
+
+Owner rulings applied as quoted: **V1** minimise free keying -- attribute fields are dropdowns from the SKU values, as
+Electrical does; **V2** SCREEN-ONLY -- a def's type is also what the model is told (the "80 x 50mm" -> 50 defect), so
+the model's instructions do not change at all; **V3** an off-ladder size shows THE LADDER RESULT with a note that it
+came up from the stated size; **V4** every attribute whose values come from the CATALOGUE is a dropdown built from
+the SKUs, a measurement the sheet does not stock stays free text; **V5** declared per attribute in CONFIG, never in
+code, so later categories inherit it; **V6** the same family may appear more than once on a row, each block with its
+own attributes, the row priced accordingly; **V7** per-block quantity = how many of that item make ONE UNIT of the
+row -- the row's own quantity plays no part; **V8** build it whether or not the model fills the counts; measure and
+report how often it did.
+
+### THE PER-ATTRIBUTE CONTROL LIST (X1) -- `list_spec.pricing.panel_controls` on the ADP config, HVAC v9
+Keyed by the SKU attribute the panel field feeds (a `numbers` key, a `choice_attrs` entry, the family attribute, or a
+`derive_when_none` source); the validator requires the map to be COMPLETE over exactly that namespace and closed to
+it, each value `dropdown` or `text`; ABSENT (v8 and every earlier asset) = today's controls.
+
+| attribute | control | why |
+|---|---|---|
+| family | dropdown | the config's family list (the Change item / Add item picker, slice 6) |
+| damper, insulated, ul, variant | dropdown | choice attributes matched against the SKUs; options are the family's stocked values ("None" kept when the def allows it) |
+| air | dropdown | a closed BoQ vocabulary the owner listed under dropdown; no SKU carries it, so its options come from the definition |
+| dia_mm, neck_mm, torque_nm, thickness_mm, panel_ratio | dropdown | the five LADDER attributes -- every stocked size |
+| slot_count | dropdown | a stocked count (2 / 3 slots) |
+| face_w_mm, face_h_mm, depth_mm | text | BoQ measurements: the W x H / depth conversion inputs (mixing box, cross-talk, every per-number conversion) |
+| area_sqm | text | the area band, a stated range |
+
+Stated, not guessed: two families (access door; cross-talk's per-number block) match W x H against stock EXACTLY. The
+owner's list keeps width / height as text, so those keep today's behaviour (an unstocked size refuses as before).
+
+### AS BUILT
+- **`itemListPricing.ts`:** `ItemListPricingSpec.panel_controls`; `ItemFieldDef.control` + `optionSource`;
+  `fieldOptionsFromSkus(spec, items, family, rowUnitClass, attr, answers)` -- the family's ACTIVE SKUs of the class the
+  row prices in (or every class a conversion reaches) that carry the attribute, NARROWED by the block's other answered
+  dropdown attributes those rows carry (the ladder's own rule from `priceOneItem` step 5, so a fire damper's torques
+  narrow under UL exactly as its price does); "None" / blank never narrow; a narrowing that leaves nothing falls back
+  to the family's full list (never an empty select). Numbers are formatted as the ladder formats them and sorted;
+  choices keep the definition's order. `itemFieldDefs(..., { items, answers })` reads the control from config: a
+  dropdown number lists the sheet's sizes, a dropdown choice the family's stocked values (else the definition's), a
+  text attribute has no options. Without the SKUs handed in, a dropdown size has no options (the caller passes the
+  catalogue; the page and the calculator both do).
+- **`pricingSheetHelper.ts`:** `itemBlockView` threads the SKUs and the block's answers AS THEY REACHED THE MATCHER
+  (`res.selection`: defaults applied, ladders fitted); a dropdown SIZE field shows the LADDER RESULT (V3) -- the fitted
+  size with the existing amber note naming the stated one; an exact fit shows the stocked spelling ("150MM DIA" ->
+  "150"); a size above the largest keeps the refusal, shows NO pick, and keeps the stated size on the note ("stated
+  160: diameter 160 is above the largest size on the sheet (150)"), red-bordered. The pricer's own pick from the
+  dropdown prices the pick.
+- **`RateHelperPanel.tsx`:** the quantity label reads **"How many in one {unit} of this row"** (U4; the owner's
+  wording). The control itself was already `f.options ? <select> : <Input>` since slice 6, so every dropdown renders
+  as a select with the always-selectable "— select —" placeholder (frontend/CLAUDE.md's controlled-select rule).
+- **`config_validation.py`:** `panel_controls` in `_PRICING_KEYS`; when present: an object, closed to the panel's
+  namespace, every value in {dropdown, text}, COMPLETE (a missing attribute is refused BY NAME -- a silent code
+  default would be V5 failing without a sound).
+- **V6 (X5) -- FOUND ALREADY TRUE:** the picker (`familyChoices`) never filtered a present family; blocks are keyed by
+  INDEX everywhere (`applyItemEdit`, `assembleItems`, `itemBlockView`, the panel's `key={i}`); nothing keys by family.
+  Pinned: two disc valves (100 + 150) price 727 + 829 and sum; a third added; an edit to block 2 leaves block 0 untouched.
+- **V7 (X6) -- FOUND ALREADY TRUE:** `priceItemList(spec, items, unit, extracted)` has no row-quantity input;
+  `figures = finals x qtyPerRowUnit` per block and the row is the sum; `RateHelperRowContext` carries no quantity
+  field. Pinned: 1 / 2 / 4 sums; a stray `quantity` of 5 or 500 on the context gives the identical result.
+- **X4 -- SCREEN-ONLY, PROVEN:** `build_items_spec` reads `attribute_definitions` / `family_attribute_id` /
+  `qty_attribute_id` / `second_opinion` and never `pricing`; `test_il_14` asserts the ITEMS_SPEC, the group context
+  and the assembled batch content for an ADP row are BYTE-IDENTICAL between v8 and v9, and that neither
+  "panel_controls" nor "dropdown" appears in what the model is sent (vacuity W13 makes the projection copy the key
+  and the test goes red).
+- **X7 -- MEASURED (no AI spend), slice 4's 199 stored stage-2 rows replayed:** rows whose OWN text states a per-item
+  count (a number + an ADP item noun, gauges / mm / degrees excluded): **1** (`BOQ-26-00098 / Lowside / 88`: "5 Nos
+  of dampers"); the model's answer carried a count on **0** (it is never asked for one -- T4); it returned two items
+  on **1** such row. Six further hits are SLOT counts ("3 Slot") -- an attribute, not a count -- and one is a flange
+  mention. A looser first pass (any number + noun) matched 25 and was discarded as counting gauges and thicknesses.
+  The quantity is the pricer's to fill (V8); the model fills it never.
+
+### TESTS (positive AND negative)
+- `itemListPricing.test.ts` +8: v9 = v8 + `panel_controls` and nothing else; the declared list IS the X1 list,
+  complete over the namespace, every ladder a dropdown, no text attribute a ladder; options from the SKUs (disc valve
+  100 / 150, round diffuser's damper + diameters, control panel ratios, plenum thicknesses, slot counts -- each equal
+  to the test's own reading of the asset); NARROWING (actuator torques under UL yes / no / None / blank / a value no
+  SKU carries -> the full list; the UL choice narrows by a picked torque); a NEW SKU appears with no code change and
+  prices; NEGATIVE: a VCD's width / height / area band are text, the air stream comes from the definition, the mixing
+  box's three dimensions are text, v8 keeps today's controls (+ the control key), no SKUs handed in = no options;
+  V3: pricing byte-identical between v8 and v9 for every stated size; V6 two disc valves sum; V7 1 / 2 / 4 sums, the
+  module has no row-quantity input (signature + source).
+- `pricingSheetHelper.test.ts` +6: U1 the disc valve's Diameter is a dropdown with the two sizes, the VCD's
+  measurements text; V3 / U2 120 shows 150 with the note, 150MM DIA shows 150, 160 keeps the refusal with no pick and
+  the stated size on the note, the pricer's pick prices; X2 through the view (an actuator's torques narrow by ITS UL,
+  another block never narrows the disc valve); V6 / U3 two blocks of one family sum, the picker still offers it, a
+  third added, an edit to one block leaves the other; V7 / U4 1 / 2 / 4 sums and a stray row quantity changes
+  nothing; the panel's label source pin (+ the old label gone).
+- `pricingCalculator.test.ts` +2: the calculator under v9 shows the same dropdown with the sheet's sizes and prices
+  the pick exactly as an in-run panel row; NEGATIVE: measurements text, the vendor categories still decline.
+- `test_rate_master.py` `TestHvacAdpPanelControlsSlice6b` r01..r05 (+5): the validator (closed, complete, the control
+  vocabulary, a non-object; ABSENT accepted); v9 = v8 + the block, no version token; the X1 list; eligibility unmoved;
+  the sweep admits v9. `test_extraction_coercion.py` +1: il_14 (X4).
+- INVERTED, never deleted (each failing SOLELY under V1-V8): `CURRENT_HVAC_ASSET` v8 -> v9; h07 (series v1..v9,
+  priors v1..v8, no "v9" token); the slice-6 class loads v8 BY NAME; the slice-6 `itemFieldDefs` literal now carries
+  `control` (+ `optionSource`); the slice-1 row-phrase pin admits the ONE owner-worded quantity label ("this row") and
+  pins it exactly once while every other phrase stays forbidden.
+
+### FILES
+`itemListPricing.ts` (+test), `pricingSheetHelper.ts` (+test), `RateHelperPanel.tsx`, `pricingCalculator.test.ts`
+(the calculator's own source needed nothing: the view is shared), NEW `data/rate_master_hvac_all_v9.json`,
+`config_validation.py`, `test_rate_master.py`, `test_extraction_coercion.py`. NOT touched: `PricingCalculator.tsx`,
+`extraction.py`, the prompt assets, the loader, the exporter, every Electrical asset, HVAC v1..v8, the grid,
+`components/ui/*`, every doctype JSON, `patches.txt`. The cert, the counts, the vacuity and the anomalies are in the
+slice report `2026-09-24_Slice6b_Report.md`.

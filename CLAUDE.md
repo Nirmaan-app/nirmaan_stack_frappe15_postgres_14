@@ -778,6 +778,22 @@ discipline's rate-master items (`RATE_MASTER_ITEM_DISCIPLINES` + the shared `Rat
 in `rateHelperPlumbing.tsx`), because a list-mode category prices from ITS discipline's SKUs -- with the default
 discipline's items alone every pick reports "no SKU".**
 
+**⚠️ AN ATTRIBUTE WHOSE VALUES COME FROM THE CATALOGUE IS A DROPDOWN BUILT FROM THE SKUs; THE CONTROL IS DECLARED IN
+CONFIG AND NEVER REACHES THE MODEL (owner rulings V1-V7 on ADP, owner-locked).** A list-mode category declares
+`list_spec.pricing.panel_controls` -- one entry per attribute the panel can show (every `numbers` key, every
+`choice_attrs` entry, the family attribute, each `derive_when_none` source), each `dropdown` or `text`; the validator
+refuses an incomplete or foreign map, and ABSENT is today's controls. A dropdown's options are derived at READ TIME
+from the ACTIVE SKUs of the block's family, narrowed by the block's other answered dropdown attributes exactly as the
+ladder narrows its rungs (`fieldOptionsFromSkus`), so a new SKU is a new option with no code change; an attribute no
+SKU carries takes the definition's vocabulary. A dropdown SIZE field shows THE LADDER RESULT with the note naming the
+stated size; above the largest it shows no pick and keeps the refusal. **The block sits inside `list_spec.pricing`,
+which `extraction.build_items_spec` never reads, so the model's instructions cannot change** -- the "80 x 50mm" -> 50
+defect is exactly what a def-level type change would reopen; `test_il_14` pins the assembled call byte-identical.
+The same family may appear as several blocks on one row (blocks are keyed by INDEX, never by family), and a block's
+quantity means HOW MANY OF THAT ITEM ARE IN ONE UNIT OF THE ROW -- the row's own quantity is not an input the module
+has. Measured on the stored stage-2 replies: the model states a per-item count almost never and is never asked for
+one; the quantity is the pricer's to fill.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
