@@ -582,6 +582,70 @@ export const excessDeliveredColumn: ColumnDef<POReportRowData> = {
   },
 };
 
+// --- Columns for Pending Invoices UNDER THE PENDING INVOICES UPLOAD TAB ---------
+//
+// ONLY that tab measures what has ARRIVED against what has been INVOICED. The Reports
+// page's own Pending Invoices report still measures what has been PAID and is left
+// byte-unchanged (owner ruling). These two replace `amountPaid` / `PendingInvoice` in
+// that one context, so the figures on screen are the ones the filter actually applied --
+// leaving "Amt Paid" beside a delivered-based row set would have the table disagreeing
+// with its own banner.
+// `basePOColumns` has its Date Created column COMMENTED OUT (the PM variant keeps a
+// live one). Rather than un-comment it -- which would change the Reports page's PO tab,
+// deliberately left alone -- this is spliced in only under Pending Invoices Upload,
+// matching the WO table, which has always shown it. `creation` is already in
+// PO_REPORTS_DATE_COLUMNS, so the header date-range filter lights up with the column.
+export const poCreationDateColumn: ColumnDef<POReportRowData> = {
+  accessorKey: "creation",
+  header: ({ column }) => (
+    <DataTableColumnHeader column={column} title="Date Created" />
+  ),
+  cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+  meta: {
+    exportValue: (row: POReportRowData) => formatDate(row.creation),
+    exportHeaderName: "Date Created",
+  },
+  filterFn: dateFilterFn,
+};
+
+export const amtDeliveredColumn: ColumnDef<POReportRowData> = {
+  accessorKey: "poAmountDelivered",
+  header: ({ column }) => (
+    <DataTableColumnHeader column={column} title="Amt Delivered" />
+  ),
+  cell: ({ row }) => (
+    <div className="tabular-nums">
+      {formatToRoundedIndianRupee(row.original.poAmountDelivered)}
+    </div>
+  ),
+  meta: {
+    exportValue: (row: POReportRowData) => formatForReport(row.poAmountDelivered),
+    exportHeaderName: "Amt Delivered",
+    isNumeric: true,
+  },
+};
+
+export const pendingInvoiceFromDeliveredColumn: ColumnDef<POReportRowData> = {
+  id: "PendingInvoice",
+  accessorFn: (row) => row.poAmountDelivered - row.invoiceAmount,
+  header: ({ column }) => (
+    <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+  ),
+  cell: ({ row }) => (
+    <div className="tabular-nums">
+      {formatToRoundedIndianRupee(
+        row.original.poAmountDelivered - row.original.invoiceAmount
+      )}
+    </div>
+  ),
+  meta: {
+    exportValue: (row: POReportRowData) =>
+      formatForReport(row.poAmountDelivered - row.invoiceAmount),
+    exportHeaderName: "Pending Invoice Amt",
+    isNumeric: true,
+  },
+};
+
 import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
 import { ProjectAssignee } from "@/hooks/useProjectAssignees";
 
@@ -589,7 +653,10 @@ import { ProjectAssignee } from "@/hooks/useProjectAssignees";
 export const getPOReportColumns = (
   reportType?: ReportType,
   role?: string,
-  assignmentsLookup: Record<string, ProjectAssignee[]> = {}
+  assignmentsLookup: Record<string, ProjectAssignee[]> = {},
+  /** True only under Invoice Reconciliation > Pending Invoices Upload. Absent (the
+   *  Reports page) leaves every column exactly as it was. */
+  pendingUploadMode = false
 ): ColumnDef<POReportRowData>[] => {
   let columnsToDisplay: ColumnDef<POReportRowData>[] =
     role === "Nirmaan Project Manager Profile"
@@ -605,6 +672,26 @@ export const getPOReportColumns = (
 
     // Insert the 'dispatchedDateColumn' at the second position (index 1)
     columnsToDisplay.splice(1, 0, dispatchedDateColumn);
+  }
+
+  if (pendingUploadMode && reportType === "Pending Invoices") {
+    // Second, right after #PO -- the position the WO table already uses.
+    if (!columnsToDisplay.some((col) => (col as any).accessorKey === "creation")) {
+      columnsToDisplay.splice(1, 0, poCreationDateColumn);
+    }
+
+    // Swap IN PLACE so the column order the report has always had is preserved.
+    const paidIndex = columnsToDisplay.findIndex(
+      (col) => (col as any).accessorKey === "amountPaid"
+    );
+    if (paidIndex !== -1) columnsToDisplay[paidIndex] = amtDeliveredColumn;
+
+    const pendingIndex = columnsToDisplay.findIndex(
+      (col) => (col as any).id === "PendingInvoice"
+    );
+    if (pendingIndex !== -1) {
+      columnsToDisplay[pendingIndex] = pendingInvoiceFromDeliveredColumn;
+    }
   }
 
   if (reportType === "Payable > PO Amount") {

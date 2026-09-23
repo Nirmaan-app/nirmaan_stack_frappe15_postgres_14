@@ -32,7 +32,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 // --- Config ---
 import { PO_INVOICE_SEARCHABLE_FIELDS, PO_INVOICE_DATE_COLUMNS, PO_INVOICE_RECONCILIATION_STATUS_OPTIONS } from '../config/poInvoicesTable.config';
-import { ReconciliationStatus } from '../constants';
+import { ReconciliationStatus, reconciliationStatusLabel } from '../constants';
 
 // --- Components ---
 import { ReconciliationDialog } from "./ReconciliationDialog";
@@ -267,6 +267,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                     return <div className="font-medium">{dateValue ? formatDate(dateValue) : '-'}</div>;
                 },
                 filterFn: dateFilterFn,
+                meta: {
+                    exportHeaderName: "Invoice Date",
+                    exportValue: (row: InvoiceItem) => row.date?.slice(0, 10) || "",
+                },
                 size: 120,
             },
             {
@@ -301,6 +305,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                         </div>
                     );
                 },
+                meta: {
+                    exportHeaderName: "Invoice No",
+                    exportValue: (row: InvoiceItem) => row.invoice_no || "",
+                },
                 size: 150,
             },
             {
@@ -327,6 +335,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                 accessorKey: "amount",
                 header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Amount</span>} />,
                 cell: ({ row }) => <InvoiceAmountCell item={row.original} />,
+                meta: {
+                    exportHeaderName: "Invoice Amount",
+                    exportValue: (row: InvoiceItem) => row.amount ?? 0,
+                },
                 size: 130,
             },
             {
@@ -356,6 +368,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                             {formatToRoundedIndianRupee(reconciledAmount)}
                         </div>
                     );
+                },
+                meta: {
+                    exportHeaderName: "Reconciled Amount",
+                    exportValue: (row: InvoiceItem) => row.reconciled_amount ?? 0,
                 },
                 size: 130,
             },
@@ -396,6 +412,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                             </HoverCard>
                         </div>
                     );
+                },
+                meta: {
+                    exportHeaderName: "PO ID",
+                    exportValue: (row: InvoiceItem) => row.procurement_order || "",
                 },
                 size: 180,
             },
@@ -476,6 +496,14 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                     );
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                // The cell resolves the vendor NAME, so the export has to resolve it too.
+                // Without this, `getCellValue` falls back to the raw accessor and ships the
+                // vendor ID (VEN-...) under a bare `vendor` header -- the id column headers
+                // are a JSX function, so they never reach the CSV either.
+                meta: {
+                    exportHeaderName: "Vendor Name",
+                    exportValue: (row: InvoiceItem) => getVendorName(row.vendor) || row.vendor || "",
+                },
                 size: 200,
             });
         }
@@ -543,6 +571,12 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                     const reconciliationStatus = row.original.reconciliation_status || "";
                     return value.includes(reconciliationStatus);
                 },
+                meta: {
+                    exportHeaderName: "Reconciled Status",
+                    // The badge is terse ("Full", "N/A"); the export takes the same wording
+                    // the facet filter offers, so a CSV and the filter agree.
+                    exportValue: (row: InvoiceItem) => reconciliationStatusLabel(row.reconciliation_status),
+                },
                 size: 120,
             },
             {
@@ -559,6 +593,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                     return <div className="font-medium">{fullName}</div>;
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                meta: {
+                    exportHeaderName: "Reconciled By",
+                    exportValue: (row: InvoiceItem) => (row.reconciled_by ? getUserFullName(row.reconciled_by) : ""),
+                },
                 size: 150,
             },
             {
@@ -579,6 +617,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                     );
                 },
                 filterFn: dateFilterFn,
+                meta: {
+                    exportHeaderName: "Reconciled Date",
+                    exportValue: (row: InvoiceItem) => row.reconciled_date || "",
+                },
                 size: 130,
             },
             {
@@ -608,6 +650,14 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                             View
                         </Button>
                     );
+                },
+                meta: {
+                    exportHeaderName: "Reconciliation Proof",
+                    exportValue: (row: InvoiceItem) => {
+                        const proofId = row.reconciliation_proof_attachment_id;
+                        const proofUrl = proofId ? getAttachmentUrl(proofId) : undefined;
+                        return proofUrl ? `${SITEURL}${proofUrl}` : "";
+                    },
                 },
                 size: 130,
             }

@@ -11,6 +11,7 @@ const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'
 const PendingTasksTable = React.lazy(() => import('./components/PendingTasksTable'));
 const AllPoInvocies=React.lazy(()=>import('./components/PoInvoices'))
 const AllSRInvocies=React.lazy(()=>import('./components/SrInvoices'))
+const PendingInvoiceUploads=React.lazy(()=>import('./components/PendingInvoiceUploads'))
 
 
 export default function InvoiceReconciliationContainer() {
@@ -54,7 +55,10 @@ export default function InvoiceReconciliationContainer() {
     const taskTabs = useMemo(() => {
         return canViewPending
             ? INVOICE_TASK_TAB_OPTIONS
-            : INVOICE_TASK_TAB_OPTIONS.filter(t => t.value !== INVOICE_TASK_TABS.PENDING);
+            : INVOICE_TASK_TAB_OPTIONS.filter(
+                t => t.value !== INVOICE_TASK_TABS.PENDING
+                    && t.value !== INVOICE_TASK_TABS.PENDING_UPLOAD
+            );
     }, [canViewPending]);
          
 
@@ -133,6 +137,14 @@ export default function InvoiceReconciliationContainer() {
                         canViewPending ? <PendingTasksTable />
                         : role === "Loading" ? <LoadingFallback />
                         : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve vendor invoices.</div>
+                    )}
+                    {/* Orders still owed an invoice -- the mirror of the tabs above, which
+                        all show invoices that HAVE arrived. Same approver set as Pending
+                        Invoice Approvals, since chasing a missing invoice is that job. */}
+                    {tab === INVOICE_TASK_TABS.PENDING_UPLOAD && (
+                        canViewPending ? <PendingInvoiceUploads />
+                        : role === "Loading" ? <LoadingFallback />
+                        : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to view pending invoice uploads.</div>
                     )}
                     {tab==="po_invoices" &&(
                        <AllPoInvocies />
