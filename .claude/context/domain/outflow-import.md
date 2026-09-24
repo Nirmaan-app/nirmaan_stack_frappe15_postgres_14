@@ -6159,3 +6159,40 @@ unreconcile deletes it again; a hand Link reverts to Reconciliation Pending like
 `UNRECONCILE_CASHBOOK_SENTENCE` are gone). `get_outflow_rows` now ships `suggested_expense_type`.
 Frontend sets mirrored + parity-pinned: `NEVER_MATCHED_SOURCES`, `SPENDER_NAMED_SOURCES`
 (`outflowUndoAccessParity.test.ts`).
+
+## 2026-09-24 — part-reconciled money is dated by its NEWEST bank line, all or nothing
+
+**Owner ruling, reversing the 2026-09-23 "no date of its own means inside the window".** A Reconciliation
+Pending record that bank lines part-cover carries no `payment_date` (`derive_expense_status` withholds it),
+so the Payments summary card counted its confirmed part in "Outflow (30 Days)" **however old its lines were**
+(measured: the July salary run `ahn0k1hrsc`, lines all dated 1 Aug, ₹32,35,376, was still "last 30 days" on
+24 Sep), while the Outflow Reports dated the same money line by line. Two rules, neither the Paid rule.
+
+- **ONE home: `services/outflow_import/expense_links.py`.** `load_part_reconciled(doctype)` = every
+  `Reconciliation Pending` record with a non-zero live-slip total (now carrying `latest_line_date`);
+  `latest_line_in_range(links, from, to)` = the date rule. The card (`get_payment_dashboard_stats` 2h2) and
+  the reports (`api/reports/partially_reconciled.py`) both read these; neither may date this money itself.
+- **The rule:** the whole confirmed part counts when the record's newest bank line (`Outflow Import Row.added_on`)
+  falls in the window/range, and not at all otherwise — the same date the record inherits as `payment_date`
+  when it goes Paid, so the figure never jumps at the flip. No range = all time (everything counts). With a
+  range, a record whose lines have no date (import rows deleted) is out. The card's pending row still nets off
+  the confirmed part ALL TIME.
+- **`load_linked_totals` lost its `from_date`/`to_date`** (the line-by-line window); its only windowed caller was
+  the report.
+- **Rejected: stamping `payment_date` on part-reconciled expenses.** Audited 2026-09-24: ~13 readers assume
+  "a date on an expense ⇒ Paid" (Paid Today / 7 days on the card count it at FULL amount with no status test,
+  the Bank lines card's "Paid on", the Reconciliation Pending tab's "Paid on" column + sort, the Non-Project
+  page's date filter) and 10 tests pin "pending ⇒ no date". `payment_date` keeps meaning "fully paid on".
+- **Bug fixed alongside:** the card's 30-day PO/WO payment outflow had no status filter, so a Reconciliation
+  Pending payment carrying a `payment_date` was counted in full as outflow AND on the pending row. It now
+  reads `status == 'Paid'` like the expense queries; the `outflow_window_records` skip it needed is gone.
+- **Report dialog:** clicking "+ Partially Reconciled (n)" (`PartiallyReconciledLines`) opens
+  `PartiallyReconciledDialog` — record, type/description, project, bill, bank-matched, still pending, newest
+  bank line, line count; the record id opens the shared `ExpenseBankLinesPopover`. The dialog's Bank-matched
+  total IS the headline addend (`items[].amount`). The Excl. GST tile passes `withDetails={false}` (its figure
+  is GST-stripped, so an incl.-GST list would not add up to it). Still summary-only: the tables stay Paid rows.
+- **Not a code defect, measured:** the `:8000` bundle (built 23 Sep 18:57) predates `82dc3e8eb`, so the reports
+  show no Partially Reconciled line there until `yarn build`. The Project report is honestly ₹0 today — a
+  payment part-match splits (slips sit on the Paid kept part), and no Project Expense is part-linked.
+- Tests: `test_payment_dashboard_stats.TestPartReconciledOutflow` (two 2026-09-23 pins INVERTED, bug-fix pins),
+  `test_partially_reconciled` (two INVERTED range pins + dialog fields), `test_expense_links.TestLatestLineInRange`.

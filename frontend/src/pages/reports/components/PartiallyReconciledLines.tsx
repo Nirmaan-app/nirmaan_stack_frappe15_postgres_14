@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { PartiallyReconciledFigure } from "../hooks/usePartiallyReconciled";
+import { PartiallyReconciledDialog } from "./PartiallyReconciledDialog";
 
 /**
  * What the headline figure above these lines is made of: the Paid rows in the table, plus the
@@ -17,6 +18,10 @@ import { PartiallyReconciledFigure } from "../hooks/usePartiallyReconciled";
  * ⚠️ THE `+` IS THE POINT, not decoration. It is what says the second line is added to the
  * first to reach the figure above, rather than being another total standing beside it.
  *
+ * ⚠️ "+ Partially Reconciled" OPENS THE RECORDS BEHIND IT (owner, 2026-09-24) -- unless the caller
+ * passes `withDetails={false}`. The Excl. GST tile does: its figure has GST taken out, so a list
+ * of incl.-GST amounts under it would not add up to the line the reader clicked.
+ *
  * Tones are passed in because the two reports' tiles are different colours (red / rose) and the
  * lines have to belong to the tile they sit in.
  */
@@ -27,7 +32,10 @@ export const PartiallyReconciledLines: React.FC<{
     /** Muted tone for the part lines; the tile's strong tone stays on the headline above. */
     mutedClassName: string;
     borderClassName: string;
-}> = ({ done, paidAmount, mutedClassName, borderClassName }) => {
+    /** Whether "+ Partially Reconciled" opens the list of records. Default true. */
+    withDetails?: boolean;
+}> = ({ done, paidAmount, mutedClassName, borderClassName, withDetails = true }) => {
+    const [open, setOpen] = useState(false);
     if (!done.amount) return null;
     const line = (label: string, amount: number, suffix?: string) => (
         <div className={`flex items-center justify-between gap-2 ${mutedClassName}`}>
@@ -46,7 +54,21 @@ export const PartiallyReconciledLines: React.FC<{
                 what the payments summary card calls this money. Both are borrowed on purpose: a
                 figure that appears on two screens under two names reads as two figures. */}
             {line("Amount Paid", paidAmount)}
-            {line("+ Partially Reconciled", done.amount, `(${done.count})`)}
+            {withDetails ? (
+                <button
+                    type="button"
+                    onClick={() => setOpen(true)}
+                    className="block w-full text-left underline decoration-dotted underline-offset-2 hover:opacity-80"
+                    title="Show the records"
+                >
+                    {line("+ Partially Reconciled", done.amount, `(${done.count})`)}
+                </button>
+            ) : (
+                line("+ Partially Reconciled", done.amount, `(${done.count})`)
+            )}
+            {withDetails && (
+                <PartiallyReconciledDialog open={open} onOpenChange={setOpen} done={done} />
+            )}
         </div>
     );
 };
