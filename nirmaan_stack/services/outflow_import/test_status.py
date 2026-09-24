@@ -2342,19 +2342,17 @@ class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
     def test_the_received_order_is_the_books_a_credit_can_reach(self):
         """A credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds`.
 
-        ⚠️ `Non Project Expenses` IS IN BOTH TUPLES ON PURPOSE, NOT BY COPY-PASTE. The removed B7
-        path stored a non-project receipt as a NEGATIVE `Non Project Expense`, and those rows may
-        still exist, so the ledger cannot tell you the direction -- which is exactly why the split
-        keys on the ROW's direction."""
+        ⚠️ `Non Project Expenses` IS NO LONGER A RECEIVED BOOK (owner ruling 2026-09-24): no receipt
+        reaches it since B7 was removed, so it was a permanent ₹0 line. It stays a PAID book."""
         self.assertEqual(
             RECEIVED_LEDGER_DOCTYPES,
             (
                 INFLOW_DOCTYPE,
                 NON_PROJECT_INFLOW_DOCTYPE,
                 VENDOR_REFUND_DOCTYPE,
-                NON_PROJECT_EXPENSE_DOCTYPE,
             ),
         )
+        self.assertNotIn(NON_PROJECT_EXPENSE_DOCTYPE, RECEIVED_LEDGER_DOCTYPES)
         self.assertIn(NON_PROJECT_EXPENSE_DOCTYPE, LEDGER_DOCTYPES)
 
     def test_the_inflow_ledger_is_never_settleable(self):
@@ -2493,9 +2491,11 @@ class TestSettledDirectionBlocks(unittest.TestCase):
         self.assertEqual(blocks[0]["rows"], 5)
         self.assertEqual(blocks[0]["value"], Decimal("500"))
 
-    def test_non_project_expenses_appears_in_BOTH_blocks_when_both_sides_use_it(self):
-        """⚠️ THE B7 TRAP, PINNED. A non-project RECEIPT is a NEGATIVE `Non Project Expense`, so the
-        target doctype genuinely cannot tell you the direction -- the ROW's does."""
+    def test_a_leftover_B7_receipt_lands_in_the_received_Other_slot_never_dropped(self):
+        """⚠️ THE B7 TRAP, PINNED. A leftover non-project RECEIPT is a NEGATIVE `Non Project
+        Expense`, so the target doctype cannot tell you the direction -- the ROW's does. Since
+        `Non Project Expenses` left the received list (2026-09-24) it shows under `Other`, and the
+        block total still includes it."""
         blocks = derive_settled_direction_blocks(
             [
                 SettledLedgerEntry("Non Project Expenses", 3, Decimal("300"), "Debit"),
@@ -2504,9 +2504,13 @@ class TestSettledDirectionBlocks(unittest.TestCase):
         )
         by = self._by_direction(blocks)
         paid_npe = [b for b in by[SETTLED_BLOCK_PAID]["ledgers"] if b["ledger"] == NON_PROJECT_EXPENSE_DOCTYPE]
-        recd_npe = [b for b in by[SETTLED_BLOCK_RECEIVED]["ledgers"] if b["ledger"] == NON_PROJECT_EXPENSE_DOCTYPE]
+        received = by[SETTLED_BLOCK_RECEIVED]
+        self.assertNotIn(NON_PROJECT_EXPENSE_DOCTYPE, [b["ledger"] for b in received["ledgers"]])
         self.assertEqual(paid_npe[0]["value"], Decimal("300"))
-        self.assertEqual(recd_npe[0]["value"], Decimal("-40"))
+        self.assertEqual(
+            received["ledgers"][-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 1, "value": Decimal("-40")}
+        )
+        self.assertEqual(received["value"], Decimal("-40"))
 
     def test_the_received_block_zero_fills_its_OWN_two_books(self):
         """Not the three settle ledgers -- a credit can never be a `Project Payment`, and two

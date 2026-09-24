@@ -298,6 +298,7 @@ def list_expense_lines(doctype: str, name: str) -> list[dict]:
                r.beneficiary_name  AS beneficiary_name,
                r.bank_reference_no AS bank_reference_no,
                r.transfer_id       AS transfer_id,
+               r.remarks           AS remarks,
                -- The bank line's OWN figures, so a card can say when the line is only part used
                -- (split across several records): its amount, status, and what its live slips
                -- -- to any record -- add up to, as magnitudes like `allocation.allocated_of`.

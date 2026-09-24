@@ -123,30 +123,28 @@ VENDOR_REFUND_DOCTYPE = "Vendor Refunds"
 # (#1268). The credit side of every duplicate check reads THIS, so an inflow book is one edit here
 # rather than one per guard -- `Vendor Refunds` joined exactly that way.
 #
-# ⚠️ NOT `RECEIVED_LEDGER_DOCTYPES`: that display order also holds `Non Project Expenses`, for the
-# removed B7 negative receipts, and a "received" test over it would call every Paid Non Project
-# Expense a receipt. Kept out of `LEDGER_DOCTYPES` / `SETTLEABLE_STATUSES` for the reason above.
+# Kept out of `LEDGER_DOCTYPES` / `SETTLEABLE_STATUSES` for the reason above.
 INFLOW_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, VENDOR_REFUND_DOCTYPE)
 
 # The DISPLAY ORDER of the RECEIVED half of the settled-money panel (slice B8b).
 #
 # ⚠️ A SECOND ORDER, NOT A WIDENING OF THE FIRST, BECAUSE THE TWO BLOCKS HOLD DIFFERENT BOOKS. A
-# credit becomes a `Project Inflow` (B6) or a `Non Project Inflow` (#1266). `Non Project Expenses`
-# is still here, and in `LEDGER_DOCTYPES` too, NOT as a copy-paste slip: the removed B7 path wrote a
-# credit as a NEGATIVE `Non Project Expense`, and rows it wrote may still exist (Amendment A-D2
-# keeps the read side). A credit can never become a `Project Payment` or a
-# `Project Expense`, so zero-filling the received block from `LEDGER_DOCTYPES` would put two
-# permanent zeroes on the panel asserting that receipts could have landed in books they cannot
-# reach -- the exact opposite of what the zero-fill is for ("nothing settled here, this time").
+# credit becomes a `Project Inflow` (B6), a `Non Project Inflow` (#1266) or a `Vendor Refund`. A
+# credit can never become a `Project Payment` or a `Project Expense`, so zero-filling the received
+# block from `LEDGER_DOCTYPES` would put permanent zeroes on the panel asserting that receipts could
+# have landed in books they cannot reach -- the exact opposite of what the zero-fill is for.
+#
+# ⚠️ `Non Project Expenses` WAS REMOVED FROM THIS LIST (owner ruling 2026-09-24). It was kept for the
+# removed B7 path, which wrote a credit as a NEGATIVE `Non Project Expense`; no receipt reaches that
+# book any more, so it was a permanent ₹0 line on every Received card. A leftover B7 row is NOT
+# lost: its ledger is now unrecognised here, so `derive_settled_ledger_split` folds it into the
+# `Other` slot, which renders only when non-zero and keeps the block's total exact.
 #
 # ⚠️ IT IS READ AS A DISPLAY ORDER, exactly as `LEDGER_DOCTYPES` is, and by the same function:
 # `status.derive_settled_ledger_split` takes the order as a PARAMETER so there is ONE
 # implementation of ordering, zero-filling and the `Other` slot, not two. Reordering this tuple
 # reorders the received block. It is NEVER sorted by value.
-RECEIVED_LEDGER_DOCTYPES = (
-    *INFLOW_DOCTYPES,
-    NON_PROJECT_EXPENSE_DOCTYPE,
-)
+RECEIVED_LEDGER_DOCTYPES = INFLOW_DOCTYPES
 
 # The singular and plural READER-FACING name of each ledger, for sentences a person reads (#1253).
 #

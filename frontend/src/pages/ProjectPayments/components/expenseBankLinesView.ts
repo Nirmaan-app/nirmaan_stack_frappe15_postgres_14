@@ -27,10 +27,12 @@ export interface ExpenseBankLine {
     match: string;
     /** The `Outflow Import Row` -- the bank line itself. */
     import_row: string;
-    /** The statement it arrived on, shown as the Import column. */
+    /** The statement it arrived on. No longer a column on the card (owner, 2026-09-24). */
     import_batch: string;
     added_on: string | null;
     beneficiary_name: string;
+    /** The bank line's own remarks, shown in brackets under the beneficiary. */
+    remarks?: string;
     reference: string;
     /**
      * ⚠️ THE SLIP'S `target_amount`, NOT THE BANK ROW'S. Under ADR-0027 that field means "the money
@@ -58,6 +60,19 @@ export interface ExpenseBankLines {
     remaining: number;
     payment_date: string | null;
     lines: ExpenseBankLine[];
+    /** The expense's own facts; `null` for a payment. Absent on an older server. */
+    details?: ExpenseDetails | null;
+}
+
+/** An expense's own facts, as `get_expense_bank_lines` returns them. Blank, never absent. */
+export interface ExpenseDetails {
+    type: string;
+    description: string;
+    comment: string;
+    project: string;
+    project_name: string;
+    vendor: string;
+    vendor_name: string;
 }
 
 export interface LinkedProgress {

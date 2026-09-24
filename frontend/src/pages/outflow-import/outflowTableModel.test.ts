@@ -116,6 +116,7 @@ import {
     REFERENCE_DISPLAY_MAX,
     referenceValue,
     rowSettlementLinks,
+    settledBankLineTargets,
     shortReference,
     seedDecisions,
     serverQuery,
@@ -4761,5 +4762,37 @@ describe("vendor refund allocations", () => {
         expect(
             refundAllocationProblem({ ...base, refundAgainst: ["Procurement Orders"], allocations: [] }, 1000.3)
         ).toContain("Tick");
+    });
+});
+
+describe("settledBankLineTargets — the Bank lines dialog on a Settled row", () => {
+    const matches = [
+        { target_doctype: "Project Payments", target_name: "PAY-1", order_name: "PO/1" },
+        { target_doctype: "Project Expenses", target_name: "PE-1" },
+        { target_doctype: "Non Project Expenses", target_name: "NPE-1" },
+        { target_doctype: "Project Inflows", target_name: "PAYIN-1" },
+    ] as OutflowImportRow["matches"];
+
+    it("a payment keeps its PO link; an expense gets the dialog only; an inflow gets nothing", () => {
+        const targets = settledBankLineTargets(row({ row_status: "Settled", matches }));
+        expect(targets.map((t) => [t.doctype, t.name])).toEqual([
+            ["Project Payments", "PAY-1"],
+            ["Project Expenses", "PE-1"],
+            ["Non Project Expenses", "NPE-1"],
+        ]);
+        expect(targets[0].link?.href).toBe("/project-payments/PO&=1");
+        expect(targets[1].link).toBeNull();
+        expect(targets[2].link).toBeNull();
+    });
+
+    it("is empty on any row that is not Settled (owner ruling: Settled only)", () => {
+        for (const status of ["Matched", "Partially Allocated", "Skipped", "Mismatched"]) {
+            expect(settledBankLineTargets(row({ row_status: status, matches }))).toEqual([]);
+        }
+    });
+
+    it("drops a match with a blank name", () => {
+        const blank = [{ target_doctype: "Project Expenses", target_name: " " }] as OutflowImportRow["matches"];
+        expect(settledBankLineTargets(row({ row_status: "Settled", matches: blank }))).toEqual([]);
     });
 });

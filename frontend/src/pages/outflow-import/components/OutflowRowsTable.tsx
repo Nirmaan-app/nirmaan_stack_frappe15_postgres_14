@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, List, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, Landmark, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
     outcomeNoteOf,
     referenceValue,
     rowSettlementLinks,
+    settledBankLineTargets,
     shortReference,
     skippedByHandLine,
     wrapRemarks,
@@ -34,9 +35,11 @@ import {
     type DecisionOrigin,
     type OutflowColumn,
     type RangeFilter,
+    type SettledBankLineTarget,
     type SettlementLink,
     type SortState,
 } from "../outflowTableModel";
+import { ExpenseBankLinesDialog } from "@/pages/ProjectPayments/components/ExpenseBankLinesPopover";
 import { skipSourceSummary } from "../skipSourceView";
 import { partlyAllocatedFigures } from "../allocationView";
 import {
@@ -741,6 +744,7 @@ const OutcomeButton = ({
     // The one reading of "which note does this line show" -- a hand skip shows its typed reason (#1273).
     const note = outcomeNoteOf(row);
     const links = rowSettlementLinks(row);
+    const bankLineTargets = settledBankLineTargets(row);
 
     if (terminal) {
         // #1273: a hand skip says who and when, under the reason they typed.
@@ -757,9 +761,14 @@ const OutcomeButton = ({
                         {byHand}
                     </span>
                 )}
-                {links.map((link) => (
-                    <RecordLink key={`${link.href}-${link.label}`} link={link} />
-                ))}
+                {/* A Settled line opens each record's Bank lines in a dialog (owner ruling
+                    2026-09-24); a payment keeps its PO / WO link beside it. Every other terminal
+                    line keeps the plain record links. */}
+                {bankLineTargets.length > 0
+                    ? bankLineTargets.map((target) => (
+                          <SettledRecordLine key={`${target.doctype}-${target.name}`} target={target} />
+                      ))
+                    : links.map((link) => <RecordLink key={`${link.href}-${link.label}`} link={link} />)}
                 {undo === "button" && onUnreconcile && (
                     <Button
                         type="button"
@@ -915,6 +924,44 @@ const SkipTypeCell = ({ row }: { row: OutflowImportRow }) => {
             {links.map((link) => (
                 <RecordLink key={`${link.href}-${link.label}`} link={link} />
             ))}
+        </div>
+    );
+};
+
+/**
+ * One record a Settled line wrote to: its name, the PO / WO link for a payment, and "Bank lines",
+ * which opens every bank line linked to that record in a dialog (owner ruling 2026-09-24).
+ *
+ * ⚠️ AN EXPENSE GETS NO NAVIGATION LINK, only the dialog -- neither expense list can land on a
+ * record (see `settlementLink`). The dialog is the reader's way to see the record.
+ */
+const SettledRecordLine = ({ target }: { target: SettledBankLineTarget }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="flex min-w-0 items-center gap-1">
+            {target.link ? (
+                <RecordLink link={target.link} />
+            ) : (
+                <span className="truncate px-1 py-0.5 font-mono text-[11px]" title={target.name}>
+                    {target.name}
+                </span>
+            )}
+            <button
+                type="button"
+                onClick={() => setOpen(true)}
+                title={`See every bank line linked to ${target.name}`}
+                className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] text-primary hover:underline"
+            >
+                <Landmark className="h-3 w-3 shrink-0" />
+                Bank lines
+            </button>
+            <ExpenseBankLinesDialog
+                open={open}
+                onOpenChange={setOpen}
+                doctype={target.doctype}
+                name={target.name}
+                subtitle={target.orderName || target.doctype}
+            />
         </div>
     );
 };

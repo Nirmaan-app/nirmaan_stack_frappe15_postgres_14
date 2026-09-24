@@ -3069,6 +3069,47 @@ export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
     return suggested ? [suggested] : [];
 };
 
+/** The three ledgers the Bank lines card can read — the server's `_BANK_LINE_DOCTYPES`. */
+export type BankLineDoctype = "Project Payments" | "Project Expenses" | "Non Project Expenses";
+const BANK_LINE_DOCTYPES: readonly BankLineDoctype[] = [
+    "Project Payments",
+    "Project Expenses",
+    "Non Project Expenses",
+];
+
+/** One record a Settled row wrote to, with what the Outcome cell offers for it. */
+export interface SettledBankLineTarget {
+    doctype: BankLineDoctype;
+    name: string;
+    /** The PO / WO link — a Project Payment only. `null` for an expense, which has no page. */
+    link: SettlementLink | null;
+    /** The PO / WO a payment is against — the dialog's subtitle. Absent for an expense. */
+    orderName?: string;
+}
+
+/**
+ * The records on a SETTLED row that get a "Bank lines" dialog (owner ruling 2026-09-24).
+ *
+ * ⚠️ SETTLED ONLY, and only from the row's `matches`. A Matched row has written nothing yet, and a
+ * Partially Allocated / Skipped row is not what was asked for. An inflow ledger is dropped: the
+ * card's server call reads the three paid ledgers only, and would throw on anything else.
+ *
+ * ⚠️ A PAYMENT KEEPS ITS PO / WO LINK BESIDE THE DIALOG; AN EXPENSE GETS THE DIALOG ONLY. The link
+ * comes from `settlementLink`, so the two can never disagree about where a payment points.
+ */
+export const settledBankLineTargets = (row: OutflowImportRow): SettledBankLineTarget[] => {
+    if (row.row_status !== ROW_SETTLED) return [];
+    return (row.matches ?? []).flatMap((m) => {
+        const doctype = BANK_LINE_DOCTYPES.find((d) => d === (m.target_doctype ?? "").trim());
+        const name = (m.target_name ?? "").trim();
+        if (!doctype || !name) return [];
+        const link =
+            doctype === "Project Payments" ? settlementLink(doctype, name, true, m.order_name) : null;
+        const orderName = (m.order_name ?? "").trim() || undefined;
+        return [{ doctype, name, link, orderName }];
+    });
+};
+
 // --- what the match run already picked -----------------------------------------------------------
 
 /** The three ledgers a stored suggestion may address. Anything else is not a target we can settle. */

@@ -105,6 +105,49 @@ class TestTheCardReadsTheRun(BankLinesFixture):
         self.assertEqual(dates, sorted(dates))
 
 
+class TestTheCardCarriesRemarksAndDetails(BankLinesFixture):
+    """Owner, 2026-09-24: each line shows its bank remarks, and the card shows the expense's own
+    details (type, project, vendor, description, comment)."""
+
+    def test_each_line_carries_its_bank_remarks(self):
+        lines, expense = self._run(2)
+        frappe.db.set_value(ROW_DOCTYPE, lines[0]["name"], "remarks", "  Salary Sept  ")
+
+        card = get_expense_bank_lines(doctype=NON_PROJECT_EXPENSE, name=expense)
+
+        by_row = {entry["import_row"]: entry for entry in card["lines"]}
+        self.assertEqual(by_row[lines[0]["name"]]["remarks"], "Salary Sept")
+        self.assertIn("remarks", by_row[lines[1]["name"]])
+
+    def test_an_expense_carries_its_details_in_one_shape(self):
+        lines, expense = self._run(1)
+        frappe.db.set_value(
+            NON_PROJECT_EXPENSE, expense, {"description": " Office rent ", "comment": "Sept"}
+        )
+
+        details = get_expense_bank_lines(doctype=NON_PROJECT_EXPENSE, name=expense)["details"]
+
+        self.assertEqual(details["description"], "Office rent")
+        self.assertEqual(details["comment"], "Sept")
+        # A Non Project Expense has no project or vendor: blank, never absent.
+        self.assertEqual(details["project"], "")
+        self.assertEqual(details["vendor_name"], "")
+        self.assertEqual(
+            set(details),
+            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name"},
+        )
+
+    def test_a_project_expense_carries_the_same_keys(self):
+        lines, expense = self._run(1, doctype=PROJECT_EXPENSE)
+
+        details = get_expense_bank_lines(doctype=PROJECT_EXPENSE, name=expense)["details"]
+
+        self.assertEqual(
+            set(details),
+            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name"},
+        )
+
+
 class TestAPartLinkedExpense(BankLinesFixture):
     def test_it_reads_reconciliation_pending_with_what_is_still_to_link(self):
         lines, expense = self._run(2, extra=21480)
