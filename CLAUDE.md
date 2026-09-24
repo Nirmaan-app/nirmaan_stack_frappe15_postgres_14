@@ -748,6 +748,23 @@ default fires -- declared in config (`defaults.ul.absent_as_none`), and the prom
 so the rule is not covering a prompt defect. Damper and insulation keep absent = blank; do not widen the key to them
 without a ruling.**
 
+**⚠️ AN ITEM OR AN ATTRIBUTE COMES FROM THE ROW, OR FROM A HEADING DESCRIBING THIS ROW'S ITEM -- NEVER FROM A
+HEADING THAT NAMES ANOTHER SECTION (owner A-3, 2026-09-25).** A BoQ's ancestor chain carries the row's own
+heading beside its NEIGHBOURS' headings, and the model cannot tell them apart unless it is told the test: does
+this ancestor describe the thing this row pays for, or does it head a different part of the bill? Only the first
+kind contributes. Measured: a `Collar Damper` section heading standing over rows that say *without VCD* made the
+model answer `damper: with` on five of them, and fifteen diffuser rows gained a plenum box that no text in the
+row or its own ancestors mentions. **The row's own text always wins over any heading.** ⚠️ **THE RULE MUST BE
+READ AFTER THE THREE-STATES RULE, NOT BEFORE IT, AND MUST SAY SO IN ITS OWN WORDS** -- placed above it, a
+restriction on WHERE a value may come from reads as licence to OMIT, and an omission means *could not tell* (the
+row refuses) where `"None"` means *not mentioned* (the ruled default fires and the row prices). The prompt
+therefore ends the rule with *finding no licence for a value is NOT "could not tell": if the attribute is marked
+allow_none, the answer is "None"*. ⚠️ **AND A RATE MEASURED ON ROWS SELECTED FOR FAILING THAT RATE IS NOT A
+RATE** -- this rule was nearly reverted over an 11-point "drift" in omissions that turned out to be the sample:
+on rows chosen because they had lost an answer the old prompt omitted on 6%, but on a seeded sample nobody
+selected it omits on 14.9% against the new prompt's 16.2%. Re-measure on an unbiased draw before attributing a
+regression to wording.
+
 **⚠️ A LIST-MODE ROW PRICES A LIST OF ITEMS; THE PANEL SHOWS ONE BLOCK PER ITEM; EDITS ARE SESSION-ONLY AND RECORDED
 AT USE (owner rulings S1-S9 on ADP, owner-locked).** The pricing-sheet helper's item-list path prices the model's
 items overlaid with the panel's session edits -- ONE override key (`__items__`, a JSON edit state; `__row_unit__`

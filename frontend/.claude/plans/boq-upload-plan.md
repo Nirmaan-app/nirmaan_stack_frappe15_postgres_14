@@ -41442,3 +41442,161 @@ Reported to the owner rather than extended. **Rulings taken for SLICE 9:**
 
 M-a is built in slice 9 AFTER the extraction fixes (the one-cell size, the neck-in-outer misread), so the whole
 outer-size question is built once against the real shape.
+
+
+---
+
+## HVAC PRICING, SLICE 9 -- ONE SIZE FIELD, STATED DIAMETERS, NO HEADING BLEED, OUTER-SIZE MATCHING; HVAC v12 (2026-09-25) -- SHIPPED
+
+Owner rulings A-1..A-7. Live as batch `rmbulk-44111e52fb29` (95 items, 7 configs; Electrical untouched at
+1,367 items / `rmbulk-b2147c6e15b1`).
+
+### AS BUILT
+
+**B1 -- ONE SIZE FIELD (A-1).** `face_w_mm` / `face_h_mm` / `depth_mm` leave `list_spec.attribute_definitions`;
+one text attribute `size_mm` replaces them and CODE splits the phrase. The three SKU attributes are UNCHANGED --
+only their `numbers` readers moved, each gaining a `component` (1 width, 2 height, 3 depth). That is what keeps
+every conversion, ladder, formula and refusal wording downstream byte-identical.
+
+Two splitter rules earned their place on real data, not on reasoning:
+
+* **Axis labels win, but ONLY when EVERY part carries one.** `1100(W) X 250(D) X 400(H)` is width 1100, height
+  400, depth 250 -- a positional split swaps the last two and prices plausibly wrong. But `600X1200x 400 mm High`
+  labels only its LAST part, where "High" means the third dimension and not "this is the height"; reading a lone
+  label there drops the 1200. Both forms are in the corpus (the second is 23 occurrences).
+* **A single dimension that NAMES its axis is that axis.** The owner's ruling ("a one-number size gives a width
+  and no height, and the row refuses") stands for a BARE number. `250 mm high` says which dimension it is; before
+  this rule the dry run moved SEVEN priced grille rows to blank.
+
+A form the splitter cannot read REFUSES BY NAME and never guesses: a slash list is still
+`several values stated for width ('900/1000')`, inches are still refused as inches, four parts is still
+`not a single number`.
+
+**B2 -- the stated diameter (A-2).** The prompt gains the rule; `dia_mm` and `neck_mm` gain def notes saying a
+ROUND item's neck IS its diameter and a square item's is not.
+
+**B3 -- no heading bleed (A-3).** Two new prompt rules plus worked guidance in the `family` / `damper` def notes.
+⚠️ The worked examples went into the DEF NOTES, not the prompt: the root `CLAUDE.md` cross-talk convention is that
+a rule STATES ITS TEST and does not quote corpus text, and a def note is projected per attribute so it reaches the
+model scoped to the question it belongs to. A negative test pins that neither prompt rule names a BoQ string.
+
+**B4 -- the outer size as a SECOND KEY (A-4).** New `list_spec.pricing.second_key`, families-scoped, declaring a
+`primary` (the neck) and a `key` pair (the outer), with an optional `alt_key` for the catalogue's alternative
+wording. All four owner cases plus the fallback. **The mechanism that keeps it generic: the stated pair is
+CANONICALISED onto the SKU's OWN stored values before `sel` is built**, so the ladder narrowing,
+`match_master_row` and the panel all work unchanged. No family name, no size and no catalogue wording appears in
+the module -- pinned by test.
+
+**B5 -- the catalogue wording (A-5).** The six 595x595 square diffusers carry `600X600` as an ALTERNATIVE NAME, in
+the HVAC data AND the owner's master workbook. `spec_reader._outer_alt` derives `face_alt_w_mm` /
+`face_alt_h_mm` from the bracketed pair. ⚠️ It is NEVER a tolerance: nothing says 600 is near enough to 595, and a
+stated `596x596` still falls back to the neck. `ADP_DERIVED_ATTRS` is deliberately NOT widened -- that tuple
+mirrors the config's `attribute_definitions`, and the alternative outer is not one (never a model question, never
+a panel field, never a CSV column).
+
+**B6 -- the UL display (A-6).** `override_when` gains an optional `display`; `ItemPriceResult.overrides` carries it
+structurally and `ItemFieldView.optionLabels` renders it. ⚠️ The field's VALUE stays `UL` -- a value its own options
+carry -- because a controlled select with no matching option silently falls back to another option
+(`frontend/CLAUDE.md`). Only the text changes, and the field stays editable.
+
+### THE PAID RE-READ AND WHAT IT SETTLED
+
+Three AI runs, `claude-opus-4-8`, **756,650 input / 93,626 output tokens over 113 calls**:
+
+| run | what it asked | in | out | calls |
+|---|---|---:|---:|---:|
+| 1 | the 149 fix-targeted rows + 20 controls | 275,601 | 40,088 | 39 |
+| 2 | the 79 rows that lost an answer, with a tie-back line | 158,312 | 22,583 | 23 |
+| 3 | a seeded, unbiased 140-row sample (120 random + the 20 controls) | 322,737 | 30,955 | 51 |
+
+**Run 1 raised an alarm that run 3 retired.** Over the 149 fix-targeted rows the model appeared to stop answering
+`"None"` on `allow_none` attributes (`insulated` moved `"None" -> left out` 61 times, `damper` 41), which matters
+because `"None"` means NOT MENTIONED (the ruled default fires, the row prices) while an omission means COULD NOT
+TELL (the row refuses). Two further measurements settled it:
+
+* A tie-back line was added and the 79 losing rows re-read: `"None"` came back on only **45%**, and the corpus
+  `priced -> blank` got WORSE (5 -> 14). By the owner's bar, that pointed AWAY from the wording.
+* **⚠️ THE ALARM WAS LARGELY A SELECTION ARTEFACT.** Those 79 rows were chosen BECAUSE they lost an answer, so
+  slice 7 looked artificially clean on them (6% omission). Measured on a seeded sample nobody selected, over the
+  SAME rows: slice 7 omits on **14.9%** of `allow_none` slots and the shipped prompt on **16.2%** -- **1.3
+  points** -- with near-symmetric churn (97 out, 81 back). **The lesson generalises: a rate measured on rows
+  selected for failing that rate is not a rate.**
+
+The B3 restriction now sits BELOW the three-states block, so the `"None"` rule is read first, and carries the
+owner's tie-back sentence.
+
+### THE FIGURES
+
+Full corpus (1,150 stored replies replayed through the new pricing code, no AI): **844 -> 885 priced**,
+**46 newly priced**, **5 priced -> blank** (all five the answer drift, none the code), 1 repriced
+(`BOQ-26-00160` r12 -- the model read "with collar damper" off the row's own text, which the old answer missed).
+The 46 break down as 35 A-1 one-phrase sizes, 5 A-4+A-5 (`600x600` -> the sheet's 595x595 -> largest neck),
+3 A-4 outer-only, 3 A-4 only-one-SKU.
+
+⚠️ **The corpus replay MIXES real and reconstructed answers**: the re-read rows carry real new answers, the rest
+carry their slice-7 answers mechanically rebuilt into the one-field shape. The 20 controls are what prove the
+reconstruction matches reality (16/20 byte-identical in run 1, 17/20 in run 3, and **the size read correctly on
+all 20 in both**). The whole-corpus figures are an ESTIMATE; only a full re-read settles them.
+
+### THE MASTER WORKBOOK
+
+`HVAC_BOQ_BCS PRICING_ Nitesh EditsV2.xlsx`, sheet ADP, column B: B30/B31/B32/B35/B36/B37 each gain ` (600X600)`.
+⚠️ **Written as ZIP SURGERY, and the first attempt is why.** An openpyxl round-trip rewrote SEVEN unrelated cells
+on the `VAV Box` sheet (`15950.000000000002` came back as `15950`) and dropped three package parts. The backup was
+restored and the edit redone by appending three shared strings and repointing six cells: **2 of 23 package parts
+changed**, every other part byte-identical.
+
+### TESTS (positive AND negative)
+
+41 new cases: 30 in `itemListPricing.test.ts`, 4 in `pricingSheetHelper.test.ts`, 7 in `test_rate_master.py`.
+23 corpus size spellings each pinned to the width/height/depth code reads; the unreadable forms each refused BY
+NAME; all four A-4 cases plus the no-match fallback; the reader reproducing all 95 items and every uid; the
+validator refusing every malformed shape including the falsy-dict trap; Electrical declaring neither key.
+Five `il_*` pins on the OLD three-field question were **INVERTED, not deleted**.
+
+Counts: vitest **3609 -> 3652 passed** (1 failure both sides, the known `writeOffControl` timeout);
+`test_rate_master` **446 OK**; `test_extraction_coercion` **178 OK**; `test_spec_reader` **33 OK**.
+
+### VACUITY
+
+All eight mechanisms broken one line at a time, red, restored, green: the axis read, the single labelled axis,
+the label ordering, the second key, the alternative-name match, the reader's bracket rule, the override display,
+the validator's axis check.
+
+⚠️ **A-6 FAILED ITS FIRST VACUITY, AND THAT IS WHY `pricingSheetHelper.test.ts` GAINED FOUR CASES.** Breaking the
+line that carries the display left every test green: the slice-9 block in `itemListPricing.test.ts` asserted what
+the pure module RETURNS and what the field's OPTIONS are -- the two sides of the seam, not the seam. Only a test
+that reads the field the PANEL renders can see the value arrive.
+
+### CERT (live, tab visible)
+
+Bundle marker on the served module: `splitSizePhrase`, `_AXIS_PATTERNS`, `second_key`, both outer-size notes,
+`out.overrides.push`, and `optionLabels` in the helper AND the panel. Two cert runs were needed because the
+panel renders the ACTIVE run and the stored runs still carried the OLD three-field answers.
+
+| step | where | result |
+|---|---|---|
+| D1 one-phrase size | `BOQ-26-00064 / HVAC` r121 item 2 | `Size (as written)` is ONE field holding `375x375x375`; the S7 box-surface formula runs on the split axes (1187.81 -> 1188 -> 1723) |
+| D3 outer size | `BOQ-26-00064 / HVAC` r123 | **1813 / 400**, SKU `NECK:450X450/OUTER: 595X595 (600X600)`, note *"matched on the outer size 595x595; largest neck size behind it is 450 (A-4)"*. **Slice 8 certed this same row as `Not priced -- no neck size stated`.** |
+| D4 UL override | `BOQ-26-00218 / HVAC-2F` r105 | Variant reads **`UL 555`**, note *"UL stated, so the UL 555 SKU is used (R-M-b)"* unchanged, **21750 / 1920 / 23670** -- identical to slice 8's T1 |
+| D5 control | `BOQ-26-00064 / HVAC` r121 | **3391 / 400** -- identical to slice 8, through an entirely different extraction shape |
+| B3 negative | `BOQ-26-00064 / HVAC` r121 / r122 | the GENUINE composite keeps BOTH items (diffuser + plenum) |
+| D6 Electrical | `BOQ-26-00224 / ELECTRICAL` | renders and prices normally (`Pricing sheet 26660 -- Rate master: DB and Switchgear`) |
+| D7 final | -- | HVAC 95 items / 7 configs; Electrical **1,367 / 12 unchanged**, batch `rmbulk-b2147c6e15b1`; **0 `BoQ Cell Pricing` rows written, 0 suggestion events** -- no rate typed, "Use this value" never pressed |
+
+⚠️ The HVAC items sha256 CHANGED BY DESIGN: `772b7454...a61f` (v11) -> `23a8e471...e13e5` (v12), six items, the
+A-5 wording. Algorithm: `sha256(json.dumps(asset["items"], sort_keys=True))`.
+
+### FINDINGS TO WATCH (owner: audit, not fix)
+
+* **`BOQ-26-00215` r34** -- the model added a SECOND item (a control panel) read from the parent, the opposite of
+  B3. The row is per Sq.m and a control panel has no per-sq.m SKU, so it refuses.
+* **`BOQ-26-00125` rows 164-168 carry the SAME TEXT as 155-159** (`... without VCD ...`) and the model answered
+  `damper: without` on the second five and `with` on the first five -- same prompt, same sheet, same batch. A
+  change on those rows is not by itself the fix working.
+* **`BOQ-26-00125 / Sheet1` has no completed suggestion run**, so the invented-plenum group could not be certified
+  in-product; a scoped run there is refused by design ("run the whole sheet once first").
+* **A scoped 3-row run on `BOQ-26-00140` recorded `scope_rows = []` and halted `partial` at 19 of 134 with
+  `reason=None`** -- pre-existing, unrelated to this slice, but it is why that sheet could not be certed.
+* **The residence check fails on f5 (119 vs 116) and f2 (232 vs 207) at HEAD ALREADY** -- slice 9's delta is
+  **+0 / +0**, measured by counting both metrics over git's own HEAD blobs.
