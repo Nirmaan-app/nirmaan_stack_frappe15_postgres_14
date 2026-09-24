@@ -390,3 +390,257 @@ class TestTotalUnreconciledOutflow(unittest.TestCase):
         self.assertAlmostEqual(in_amount2 - in_amount, 1111, places=2)
         self.assertEqual(out_count2 - out_count, 1)
         self.assertAlmostEqual(out_amount2 - out_amount, 2222, places=2)
+
+
+MATCH_DOCTYPE = "Outflow Row Match"
+PAYMENT_DOCTYPE = "Project Payments"
+PROJECT_EXPENSE = "Project Expenses"
+NON_PROJECT_EXPENSE = "Non Project Expenses"
+
+
+class TestPartReconciledOutflow(unittest.TestCase):
+    """The bank-confirmed part of a Reconciliation Pending record, inside the 30-day outflow.
+
+    A record in Reconciliation Pending is money already sent that the bank has only partly
+    confirmed. Its status keeps it out of both outflow queries (they read Paid records and
+    stamped `payment_date`s), and the card no longer counts the confirmed part as pending
+    either -- so unless it is added here, that money is reported nowhere. These tests pin
+    WHICH figure it lands in, WHICH window decides, and that nothing is counted twice.
+
+    ⚠️ RUNS AGAINST THE LIVE SITE DATABASE like the classes above, so every assertion is a
+    DELTA and every fixture is planted raw and purged in `tearDown`. The expense ledgers are
+    written with SQL on purpose: their `validate` is the bank-links controller, which would
+    re-derive the very status these tests need to hold still.
+    """
+
+    PREFIX = "TEST-PARTREC"
+
+    def setUp(self):
+        self.batches, self.rows, self.matches = [], [], []
+        self.planted = []  # (doctype, name)
+        self.non_project_type = frappe.db.get_value(
+            "Expense Type", {"non_project": 1, "project": 0}, "name"
+        )
+        self.project_type = frappe.db.get_value(
+            "Expense Type", {"project": 1}, "name"
+        )
+
+    def tearDown(self):
+        # Slips first: they are what points at a row, and at a record that is about to go.
+        for name in self.matches:
+            frappe.db.delete(MATCH_DOCTYPE, {"name": name})
+        for name in self.rows:
+            frappe.db.delete(ROW_DOCTYPE, {"name": name})
+        for name in self.batches:
+            frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        for doctype, name in self.planted:
+            frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
+            frappe.db.delete(doctype, {"name": name})
+        frappe.db.commit()
+
+    # --- arrange ---------------------------------------------------------------------------
+
+    def _line(self, amount, added_on):
+        """One successful debit line, already `Settled`, dated `added_on` -- its own batch."""
+        batch = frappe.get_doc({
+            "doctype": BATCH_DOCTYPE,
+            "source": "Cashfree",
+            "original_filename": f"{self.PREFIX}-{frappe.generate_hash(length=8)}.csv",
+        })
+        batch.insert(ignore_permissions=True)
+        self.batches.append(batch.name)
+
+        row = frappe.get_doc({
+            "doctype": ROW_DOCTYPE,
+            "import_batch": batch.name,
+            "transfer_id": f"{self.PREFIX}-{frappe.generate_hash(length=10)}",
+            "amount": amount,
+            "row_status": ROW_SETTLED,
+            "direction": DIRECTION_DEBIT,
+            "status_raw": BANK_SUCCESS_STATUS,
+            "added_on": added_on,
+        })
+        row.insert(ignore_permissions=True)
+        self.rows.append(row.name)
+        frappe.db.commit()
+        return row.name
+
+    def _record(self, doctype, *, amount, status, payment_date=None):
+        """A ledger row planted raw: no hooks, nothing else moves."""
+        name = f"{self.PREFIX}-{frappe.generate_hash(length=12)}"
+        columns = ["name", "creation", "modified", "modified_by", "owner", "docstatus", "idx",
+                   "amount", "status", "payment_date"]
+        values = [name, "Administrator", "Administrator", 0, 0, float(amount), status,
+                  payment_date]
+        if doctype != PAYMENT_DOCTYPE:
+            columns += ["description", "type"]
+            values += ["Part-reconciled outflow test",
+                       self.non_project_type if doctype == NON_PROJECT_EXPENSE else self.project_type]
+        placeholders = ", ".join(["%s", "NOW()", "NOW()"] + ["%s"] * (len(columns) - 3))
+        frappe.db.sql(
+            f'''INSERT INTO "tab{doctype}" ({", ".join(columns)}) VALUES ({placeholders})''',
+            tuple(values),
+        )
+        self.planted.append((doctype, name))
+        frappe.db.commit()
+        return name
+
+    def _slip(self, row, doctype, name, amount):
+        """One live `Settled` slip: the link an import wrote between the line and the record."""
+        staged = frappe.db.get_value(
+            ROW_DOCTYPE, row, ["import_batch", "transfer_id"], as_dict=True
+        )
+        match = frappe.get_doc({
+            "doctype": MATCH_DOCTYPE,
+            "import_row": row,
+            "import_batch": staged.import_batch,
+            "transfer_id": staged.transfer_id,
+            "target_doctype": doctype,
+            "target_name": name,
+            "target_amount": float(amount),
+            "match_kind": "Settled",
+            "match_basis": "Manual",
+        })
+        match.insert(ignore_permissions=True)
+        self.matches.append(match.name)
+        frappe.db.commit()
+        return match.name
+
+    @staticmethod
+    def _delta(before, after, key):
+        return after[key] - before[key]
+
+    # --- assert ----------------------------------------------------------------------------
+
+    def test_the_confirmed_part_of_a_pending_record_is_outflow(self):
+        before = get_payment_dashboard_stats()
+        expense = self._record(NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending")
+        self._slip(self._line(4000, add_days(today(), -3)), NON_PROJECT_EXPENSE, expense, 4000)
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 1)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_amount"), 4000
+        )
+        # The card's "incl. ..." note -- the same 4,000, reported as the SUBSET it is.
+        self.assertEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_count"), 1
+        )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_amount"),
+            4000,
+        )
+        self.assertEqual(
+            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_count"), 0
+        )
+        # And the pending side reports the SAME split, so the card's row -- amount minus
+        # reconciled -- shows the 6,000 that is genuinely still waiting on the bank.
+        self.assertEqual(self._delta(before, after, "total_reconciliation_pending_count"), 1)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_amount"), 10000
+        )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 4000
+        )
+
+    def test_the_bank_line_s_own_date_does_not_decide(self):
+        """The record's `payment_date` is the only date tested -- and it has none, so it counts.
+
+        The line here is dated 45 days back, outside the window by any reading of ITS date. The
+        record still counts, because a Reconciliation Pending record carries no `payment_date`
+        (`derive_expense_status` withholds it until the lines cover the amount) and no date means
+        inside the window (owner, 2026-09-23). Test the line's date instead and this feature
+        reports a different number from the row it sits under.
+        """
+        before = get_payment_dashboard_stats()
+        expense = self._record(NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending")
+        self._slip(self._line(4000, add_days(today(), -45)), NON_PROJECT_EXPENSE, expense, 4000)
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 1)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_amount"), 4000
+        )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_amount"),
+            4000,
+        )
+
+    def test_a_record_dated_outside_the_window_does_not_count(self):
+        """A `payment_date` it DOES carry is held to the window, like every other row here."""
+        before = get_payment_dashboard_stats()
+        expense = self._record(
+            NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending",
+            payment_date=add_days(today(), -45),
+        )
+        self._slip(self._line(4000, add_days(today(), -1)), NON_PROJECT_EXPENSE, expense, 4000)
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 0)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_amount"), 0
+        )
+        # It is still money owed to the bank's confirmation, so the pending row still nets it off.
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 4000
+        )
+
+    def test_what_leaves_the_pending_row_is_what_lands_in_outflow(self):
+        """The tie the single read exists for: pending loses exactly what outflow gains."""
+        before = get_payment_dashboard_stats()
+        expense = self._record(PROJECT_EXPENSE, amount=20000, status="Reconciliation Pending")
+        self._slip(self._line(7000, add_days(today(), -2)), PROJECT_EXPENSE, expense, 7000)
+        after = get_payment_dashboard_stats()
+
+        netted_off = self._delta(before, after, "total_reconciliation_pending_reconciled_amount")
+        landed = (
+            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_amount")
+            + self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_amount")
+        )
+        self.assertAlmostEqual(netted_off, 7000)
+        self.assertAlmostEqual(landed, netted_off)
+
+    def test_a_project_expense_lands_in_the_project_figure(self):
+        before = get_payment_dashboard_stats()
+        expense = self._record(PROJECT_EXPENSE, amount=8000, status="Reconciliation Pending")
+        self._slip(self._line(2500, add_days(today(), -1)), PROJECT_EXPENSE, expense, 2500)
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_project_outflow_30_days_count"), 1)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_project_outflow_30_days_amount"), 2500
+        )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_amount"), 2500
+        )
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 0)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_amount"), 0
+        )
+
+    def test_a_record_the_window_already_counted_in_full_is_not_counted_twice(self):
+        """The double-count this figure is one line away from.
+
+        A Project Payment enters the 30-day outflow on its `payment_date` with NO status filter,
+        so one still in Reconciliation Pending is already there at its FULL amount. Adding its
+        confirmed part on top would report the same 3,000 twice.
+        """
+        before = get_payment_dashboard_stats()
+        payment = self._record(
+            PAYMENT_DOCTYPE, amount=9000, status="Reconciliation Pending",
+            payment_date=add_days(today(), -2),
+        )
+        self._slip(self._line(3000, add_days(today(), -2)), PAYMENT_DOCTYPE, payment, 3000)
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_project_outflow_30_days_count"), 1)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_project_outflow_30_days_amount"), 9000
+        )
+        # Nothing was added on top, so there is no subset to note either.
+        self.assertEqual(
+            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_count"), 0
+        )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_amount"), 0
+        )

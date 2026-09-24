@@ -31,13 +31,27 @@ import { formatForReport } from "@/utils/FormatPrice";
 import SR2BReconcileReport from "./SR2BReconcileReport";
 import { Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PENDING_UPLOAD_CREATION_FROM } from "../constants";
+import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
 
 interface SelectOption {
   label: string;
   value: string;
 }
 
-export default function SRReports() {
+export interface SRReportsProps {
+  /**
+   * Rendered under Invoice Reconciliation > Pending Invoices Upload rather than on the
+   * Reports page. Narrows to WOs created on/after `PENDING_UPLOAD_CREATION_FROM`.
+   *
+   * The CONDITION is untouched on this side: a Work Order has no delivery, so Amount
+   * Paid is already the right trigger -- only the PO half changed basis.
+   * Absent (the Reports page) = today's behaviour, unchanged.
+   */
+  pendingUploadMode?: boolean;
+}
+
+export default function SRReports({ pendingUploadMode = false }: SRReportsProps = {}) {
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // 1. Fetch the superset of SR data.
@@ -69,13 +83,15 @@ export default function SRReports() {
   const reportConditionDescription = useMemo(() => {
     switch (selectedReportType) {
         case "Pending Invoices":
-            return `WOs with status "Approved" where Amount Paid − Invoice Amount > ₹${delta.toLocaleString("en-IN")}`;
+            return pendingUploadMode
+                ? `WOs with status "Approved" created on/after ${PENDING_UPLOAD_CREATION_FROM}, where Amount Paid − Invoice Amount > ₹${delta.toLocaleString("en-IN")}`
+                : `WOs with status "Approved" where Amount Paid − Invoice Amount > ₹${delta.toLocaleString("en-IN")}`;
         case "PO with Excess Payments":
             return `WOs with status "Approved" where Amount Paid > Total WO Amount + ₹${delta.toLocaleString("en-IN")}`;
         default:
             return null;
     }
-  }, [selectedReportType]);
+  }, [selectedReportType, pendingUploadMode]);
 
   const summaryCardNode = useMemo(() => {
     if (!reportConditionDescription) return undefined;
@@ -136,8 +152,8 @@ export default function SRReports() {
       default:
         filtered = [];
     }
-    return filtered;
-  }, [allSRsForReports, selectedReportType, delta]);
+    return applyPendingUploadCutoff(filtered, pendingUploadMode);
+  }, [allSRsForReports, selectedReportType, delta, pendingUploadMode]);
 
   // 3. Initialize useServerDataTable in clientData mode
   const {

@@ -1,6 +1,8 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { PartiallyReconciledLines } from "@/pages/reports/components/PartiallyReconciledLines";
+import { PartiallyReconciledFigure } from "@/pages/reports/hooks/usePartiallyReconciled";
 import { TailSpin } from "react-loader-spinner";
 import { ColumnFiltersState } from "@tanstack/react-table";
 import { Receipt, TrendingDown } from "lucide-react";
@@ -11,6 +13,15 @@ interface GroupByResultItem {
 }
 
 interface NonProjectExpenseSummaryCardProps {
+    /**
+     * Money out the list cannot show: the confirmed part of records still Reconciliation Pending.
+     *
+     * ⚠️ ONLY PASSED IN REPORT MODE, and that gate is load-bearing. This card also serves the
+     * standalone Non-Project Expenses page, whose figure follows the STATUS TAB -- beside a
+     * "Requested" total, "+ Partially Reconciled = Total" would be adding two unrelated things.
+     * The report forces `status = "Paid"`, which is the only total this sum is true of.
+     */
+    partiallyReconciled?: PartiallyReconciledFigure;
     aggregates: { sum_of_amount?: number } | null;
     isAggregatesLoading: boolean;
     totalCount: number;
@@ -51,6 +62,7 @@ const AppliedFiltersDisplay: React.FC<{
 };
 
 export const NonProjectExpenseSummaryCard: React.FC<NonProjectExpenseSummaryCardProps> = ({
+    partiallyReconciled,
     aggregates,
     isAggregatesLoading,
     totalCount,
@@ -158,8 +170,11 @@ export const NonProjectExpenseSummaryCard: React.FC<NonProjectExpenseSummaryCard
                                     <TrendingDown className="h-3 w-3" />
                                     Total Expense Amount
                                 </dt>
+                                {/* The TOTAL when report mode supplies a Partially Reconciled figure:
+                                    the Paid rows plus the confirmed part of records still
+                                    Reconciliation Pending. Elsewhere it is the plain list total. */}
                                 <dd className="text-2xl font-bold text-rose-700 dark:text-rose-400 tabular-nums">
-                                    {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                    {formatToRoundedIndianRupee((aggregates.sum_of_amount || 0) + (partiallyReconciled?.amount || 0))}
                                 </dd>
                                 <span className="text-[10px] text-rose-500/70 dark:text-rose-500/60 mt-1 block">
                                     {totalCount > 0
@@ -167,6 +182,13 @@ export const NonProjectExpenseSummaryCard: React.FC<NonProjectExpenseSummaryCard
                                         : 'No expenses'
                                     }
                                 </span>
+                                {partiallyReconciled && (
+                                    <PartiallyReconciledLines
+                                        done={partiallyReconciled}
+                                        paidAmount={aggregates.sum_of_amount || 0}
+                                        mutedClassName="text-rose-600/80 dark:text-rose-400/80"
+                                        borderClassName="border-rose-200/70 dark:border-rose-900/50" />
+                                )}
                             </div>
 
                             {/* Secondary - Top Expense Types */}

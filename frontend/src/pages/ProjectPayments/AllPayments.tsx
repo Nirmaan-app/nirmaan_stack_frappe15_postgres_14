@@ -147,9 +147,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
     const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
-    // The two identities the server's `is_nirmaan_admin` accepts. Drives "Payment By Me":
-    // an Admin sees every row there, so the "Raised by" column is added for them.
-    const isNirmaanAdmin = isAdmin || user_id === "Administrator";
+    // (`isNirmaanAdmin` -- `isAdmin || user_id === "Administrator"` -- was removed 2026-09-23
+    // with the "Payment By Me" Raised-by column, its only reader.)
     const { toast } = useToast();
 
     // --- "Payment By Me" delete (Rejected rows only; the column shows "--" otherwise) ---
@@ -373,12 +372,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         const visibleIds = hideActions
             ? ids.filter((id) => id !== "actions")
             : ids;
-        // "Payment By Me" lists EVERY row for an Admin (server-side, `CURRENT_USER_TOKEN`),
-        // so the rows are no longer all the viewer's own and "Raised by" earns its column.
-        // Same two identities as the server's `is_nirmaan_admin`.
-        const byMeShowsAll = tab === PP_TABS.PAYMENT_BY_ME && isNirmaanAdmin;
-        return buildApprovalColumns(byMeShowsAll ? [...visibleIds, "raised_by"] : visibleIds, columnCtx);
-    }, [tab, isAdmin, role, canWork, isNirmaanAdmin, columnCtx]);
+        // NO "Raised by" COLUMN ON "Payment By Me" (owner, 23 Sep 2026). It was added only
+        // because an Admin used to see every row there; the server now scopes that tab to
+        // the caller for everyone (`CURRENT_USER_TOKEN`), so every row is the viewer's own
+        // and a column repeating their name on each one says nothing.
+        return buildApprovalColumns(visibleIds, columnCtx);
+    }, [tab, isAdmin, role, canWork, columnCtx]);
 
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---

@@ -32,7 +32,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 // --- Config ---
 import { SR_INVOICE_SEARCHABLE_FIELDS, SR_INVOICE_DATE_COLUMNS, SR_INVOICE_RECONCILIATION_STATUS_OPTIONS } from '../config/srInvoicesTable.config';
-import { ReconciliationStatus } from '../constants';
+import { ReconciliationStatus, reconciliationStatusLabel } from '../constants';
 
 // --- Components ---
 import { ReconciliationDialog } from "./ReconciliationDialog";
@@ -233,6 +233,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                     return <div className="font-medium">{dateValue ? formatDate(dateValue) : '-'}</div>;
                 },
                 filterFn: dateFilterFn,
+                meta: {
+                    exportHeaderName: "Invoice Date",
+                    exportValue: (row: SrInvoiceItem) => row.date?.slice(0, 10) || "",
+                },
                 size: 120,
             },
             {
@@ -267,6 +271,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                         </div>
                     );
                 },
+                meta: {
+                    exportHeaderName: "Invoice No",
+                    exportValue: (row: SrInvoiceItem) => row.invoice_no || "",
+                },
                 size: 150,
             },
             {
@@ -295,6 +303,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                         {formatToRoundedIndianRupee(row.original.amount)}
                     </div>
                 ),
+                meta: {
+                    exportHeaderName: "Invoice Amount",
+                    exportValue: (row: SrInvoiceItem) => row.amount ?? 0,
+                },
                 size: 120,
             },
             {
@@ -324,6 +336,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                             {formatToRoundedIndianRupee(reconciledAmount)}
                         </div>
                     );
+                },
+                meta: {
+                    exportHeaderName: "Reconciled Amount",
+                    exportValue: (row: SrInvoiceItem) => row.reconciled_amount ?? 0,
                 },
                 size: 130,
             },
@@ -364,6 +380,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                             </HoverCard>
                         </div>
                     );
+                },
+                meta: {
+                    exportHeaderName: "SR ID",
+                    exportValue: (row: SrInvoiceItem) => row.service_request || "",
                 },
                 size: 180,
             },
@@ -444,6 +464,14 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                     );
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                // The cell resolves the vendor NAME, so the export has to resolve it too.
+                // Without this, `getCellValue` falls back to the raw accessor and ships the
+                // vendor ID (VEN-...) under a bare `vendor` header -- the id column headers
+                // are a JSX function, so they never reach the CSV either.
+                meta: {
+                    exportHeaderName: "Vendor Name",
+                    exportValue: (row: SrInvoiceItem) => getVendorName(row.vendor) || row.vendor || "",
+                },
                 size: 200,
             });
         }
@@ -511,6 +539,12 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                     const reconciliationStatus = row.original.reconciliation_status || "";
                     return value.includes(reconciliationStatus);
                 },
+                meta: {
+                    exportHeaderName: "Reconciled Status",
+                    // The badge is terse ("Full", "N/A"); the export takes the same wording
+                    // the facet filter offers, so a CSV and the filter agree.
+                    exportValue: (row: SrInvoiceItem) => reconciliationStatusLabel(row.reconciliation_status),
+                },
                 size: 120,
             },
             {
@@ -527,6 +561,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                     return <div className="font-medium">{fullName}</div>;
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                meta: {
+                    exportHeaderName: "Reconciled By",
+                    exportValue: (row: SrInvoiceItem) => (row.reconciled_by ? getUserFullName(row.reconciled_by) : ""),
+                },
                 size: 150,
             },
             {
@@ -547,6 +585,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                     );
                 },
                 filterFn: dateFilterFn,
+                meta: {
+                    exportHeaderName: "Reconciled Date",
+                    exportValue: (row: SrInvoiceItem) => row.reconciled_date || "",
+                },
                 size: 130,
             },
             {
@@ -576,6 +618,14 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                             View
                         </Button>
                     );
+                },
+                meta: {
+                    exportHeaderName: "Reconciliation Proof",
+                    exportValue: (row: SrInvoiceItem) => {
+                        const proofId = row.reconciliation_proof_attachment_id;
+                        const proofUrl = proofId ? getAttachmentUrl(proofId) : undefined;
+                        return proofUrl ? `${SITEURL}${proofUrl}` : "";
+                    },
                 },
                 size: 130,
             }

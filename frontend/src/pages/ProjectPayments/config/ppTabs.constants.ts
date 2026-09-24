@@ -44,8 +44,10 @@ export const PP_TABS = {
     /** Hidden from the tab strip 2026-09-15; still routed, same reason as PO_WISE. */
     ALL_PAYMENTS: 'All Payments',
     /** label: "Payment Raised By Me" (renamed from "Payment By Me", same day) — NEW 2026-09-17. Every row of all three ledgers the
-     *  logged-in user created, in every status; an ADMIN sees every row. Replaces the
-     *  planned "Rejected" tab. */
+     *  logged-in user created, in every status. Replaces the planned "Rejected" tab.
+     *  ⚠️ OWN ROWS FOR EVERY CALLER, ADMIN INCLUDED (owner, 2026-09-23) — reversing the
+     *  17 Sep "an ADMIN sees every row". Scoped SERVER-side in `get_approval_queue`; an
+     *  Admin still reaches the whole queue through every other tab. */
     PAYMENT_BY_ME: 'Payment By Me',
 } as const;
 
