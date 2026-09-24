@@ -8,9 +8,17 @@
 // on request (see `access.get_permission_query_conditions`), so every role holding the read
 // DocPerm sees every request.
 //
-// A Project Manager is narrowed to the requests THEY raised (owner, 17 Sep 2026) -- on THIS
-// page only, as a display filter: table, tab counts, facets and export all carry
-// `owner = <user>`. It is NOT access control; the API and Desk still return every request.
+// WHO SEES WHICH TAB (owner, 23 Sep 2026). A REVIEWER -- Admin / Accountant / Accountant Lead
+// / HR Executive / HR Lead, i.e. `reviewsExpenseRequests`, mirroring the server's
+// `access.ADMIN_PROFILE | PM_REQUEST_REVIEWERS` -- gets all three tabs. EVERYONE ELSE gets
+// "Expense Raised By Me" alone: PMO Executive, Project Manager and the four procurement
+// profiles, that being the rest of the `/expense` sidebar audience.
+//
+// The narrowing rides the TAB, not the page: "Raised By Me" carries `owner = <user>` into the
+// table, the tab count, the facets and the export, and a non-reviewer has no other tab to
+// stand on. That replaced a separate page-level `ownerFilter` for Project Managers -- two
+// mechanisms for one rule, which could disagree. It is a DISPLAY filter either way; the API
+// and Desk still return every request.
 //
 // `can_review` is SERVER-computed, fetched once per page via the scoped endpoint and keyed by
 // request name. Never re-derive who may approve.
@@ -26,6 +34,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { cn } from "@/lib/utils";
 
+import { reviewsExpenseRequests } from "@/constants/roles";
+
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import type {
@@ -36,27 +46,35 @@ import NewExpenseRequestDialog from "./components/NewExpenseRequestDialog";
 import ReviewActionDialog, { ReviewAction } from "./components/ReviewActionDialog";
 import { getExpenseRequestColumns } from "./config/expenseRequestsColumns";
 import {
-    DEFAULT_EXR_FIELDS_TO_FETCH, EXR_DATE_COLUMNS, EXR_SEARCHABLE_FIELDS, EXR_STATUS_TABS,
+    DEFAULT_EXR_FIELDS_TO_FETCH, EXR_DATE_COLUMNS, EXR_RAISED_BY_ME, EXR_SEARCHABLE_FIELDS,
+    getExrStatusTabs,
 } from "./config/expenseRequestsTable.config";
 
 const DOCTYPE = "Expense Request";
-
-// Roles that see only the requests they raised themselves.
-const OWN_REQUESTS_ONLY_ROLES = ["Nirmaan Project Manager Profile"];
 
 export const ExpenseRequestsPage: React.FC = () => {
     const { role, user_id } = useUserData();
 
     // `useUserData` returns "Loading" while the Nirmaan Users doc is in flight. Mounting the
-    // table then would fetch EVERY request before the owner filter exists, so hold.
+    // table then would fetch EVERY request before the role -- and so the tab set and its
+    // owner filter -- exists, so hold. A brief null beats one unscoped fetch.
     if (role === "Loading") return null;
 
-    const ownerFilter = OWN_REQUESTS_ONLY_ROLES.includes(role as string) ? user_id : null;
-    return <ExpenseRequestsList ownerFilter={ownerFilter} />;
+    return (
+        <ExpenseRequestsList
+            isReviewer={reviewsExpenseRequests(role, user_id)}
+            userId={user_id}
+        />
+    );
 };
 
-const ExpenseRequestsList: React.FC<{ ownerFilter: string | null }> = ({ ownerFilter }) => {
-    const [statusTab, setStatusTab] = useState<string>("Pending Approval");
+const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = ({
+    isReviewer, userId,
+}) => {
+    // Tabs are decided ONCE from the role; the initial tab is whichever comes first, so a
+    // non-reviewer opens on "Expense Raised By Me" rather than a tab they cannot see.
+    const tabDefs = useMemo(() => getExrStatusTabs(isReviewer), [isReviewer]);
+    const [statusTab, setStatusTab] = useState<string>(() => tabDefs[0].value);
     const [review, setReview] = useState<{ action: ReviewAction | null; request: ExpenseRequest | null }>(
         { action: null, request: null }
     );
@@ -80,23 +98,24 @@ const ExpenseRequestsList: React.FC<{ ownerFilter: string | null }> = ({ ownerFi
         [expenseTypes]
     );
 
-    // The owner narrowing, shared by the table, the tab counts, the facets and the export.
-    const scopeFilters = useMemo(
-        () => (ownerFilter ? [["owner", "=", ownerFilter]] : []),
-        [ownerFilter]
-    );
+    // The owner narrowing. It belongs to the "Raised By Me" TAB, not to the page -- see the
+    // header note. One definition, read by the table filters and by that tab's count.
+    const ownFilters = useMemo(() => [["owner", "=", userId]], [userId]);
 
-    // Tab badge counts, scoped like the table. The key carries the scope because SWR keys on
-    // it alone, not on the specs.
+    // Tab badge counts. `byMe` is its own spec rather than a slice of `byStatus`, because it
+    // is not a status -- it spans all of them. The SWR key carries the user: SWR keys on the
+    // key string alone, not on the specs, so two users would otherwise share one cache entry.
     const { data: countsData, mutate: mutateCounts } = useCounts(
         [
-            { key: "byStatus", doctype: DOCTYPE, group_field: "status", filters: scopeFilters },
-            { key: "all", doctype: DOCTYPE, filters: scopeFilters },
+            { key: "byStatus", doctype: DOCTYPE, group_field: "status" },
+            { key: "all", doctype: DOCTYPE },
+            { key: "byMe", doctype: DOCTYPE, filters: ownFilters },
         ],
-        `exr_status_counts:${ownerFilter ?? "all"}`
+        `exr_status_counts:${userId}`
     );
     const byStatus = (countsData?.message?.byStatus ?? {}) as Record<string, number>;
     const allCount = (countsData?.message?.all as number) ?? 0;
+    const byMeCount = (countsData?.message?.byMe as number) ?? 0;
 
     // The scoped endpoint is the ONLY source of `can_review`; the table reads the doctype
     // directly and cannot compute it.
@@ -141,20 +160,28 @@ const ExpenseRequestsList: React.FC<{ ownerFilter: string | null }> = ({ ownerFi
     );
 
     const statusTabs = useMemo(
-        () => EXR_STATUS_TABS.map((t) => ({
+        () => tabDefs.map((t) => ({
             label: t.label, value: t.value,
-            count: t.value === "All" ? allCount : byStatus[t.value] || 0,
+            count: t.value === EXR_RAISED_BY_ME ? byMeCount
+                : t.value === "All" ? allCount
+                : byStatus[t.value] || 0,
         })),
-        [byStatus, allCount]
+        [tabDefs, byStatus, allCount, byMeCount]
     );
 
+    // Three cases, spelled out rather than defaulted: "Raised By Me" filters on OWNER and
+    // spans every status, "All" filters on nothing, and a status tab filters on its status.
+    // Handing `EXR_RAISED_BY_ME` to a `status =` filter would return an empty table with no
+    // error -- which is why it is cased out here and not folded into the `!== "All"` test.
     const additionalFilters = useMemo(
-        () => [...scopeFilters, ...(statusTab !== "All" ? [["status", "=", statusTab]] : [])],
-        [scopeFilters, statusTab]
+        () => statusTab === EXR_RAISED_BY_ME ? ownFilters
+            : statusTab === "All" ? []
+            : [["status", "=", statusTab]],
+        [ownFilters, statusTab]
     );
 
-    // Facet option lists follow the same rows the table shows, so a PM's "Raised By" /
-    // "Project" filters never list other people's requests.
+    // Facet option lists follow the same rows the table shows, so on "Raised By Me" the
+    // "Raised By" / "Project" filters never list other people's requests.
     const facetOverrides = useMemo(() => {
         const scoped = { additionalFilters };
         return {

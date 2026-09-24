@@ -114,3 +114,59 @@ export const needsCEO = (
   amount: string | number | null | undefined,
   l2Above: number = TIER_L2_ABOVE
 ): boolean => requiredTier(amount, l2Above) === APPROVAL_TIERS.l1l2;
+
+// ── Who raised it (owner, 2026-09-21) — mirrors `initial_status_for_raiser` ─────────────────
+//
+//     raised by            15,000 - 50,000        above 50,000
+//     anyone else          Requested (-> L1)      Requested (-> L1 -> CEO)
+//     an L1 approver       Approved               CEO Pending   (L1 cleared)
+//     the CEO              Approved               Approved      (L1 and CEO cleared)
+//
+// L1 = the Admin profile (`Administrator` arrives here as it, via `useUserData`); the CEO is
+// `CEO_AUTHORIZED_USER`. THE SERVER DECIDES (`services/approval_raiser.py`); this only lets a
+// request dialog say where the record will land before it is created.
+
+export const RAISER_LEVELS = { l1: "l1", ceo: "ceo" } as const;
+export type RaiserLevel = (typeof RAISER_LEVELS)[keyof typeof RAISER_LEVELS];
+
+export const raiserLevelOf = (
+  role: string | null | undefined,
+  userId: string | null | undefined,
+  ceoUser: string
+): RaiserLevel | null => {
+  if (userId && userId === ceoUser) return RAISER_LEVELS.ceo;
+  if (userId === "Administrator" || role === "Nirmaan Admin Profile") return RAISER_LEVELS.l1;
+  return null;
+};
+
+/** The status a NEW record is created at, given who raises it. `null` level = `initialStatus`. */
+export const initialStatusForRaiser = (
+  amount: string | number | null | undefined,
+  l2Above: number = TIER_L2_ABOVE,
+  level: RaiserLevel | null = null
+): "Approved" | "CEO Pending" | "Requested" => {
+  const tier = requiredTier(amount, l2Above);
+  if (tier === APPROVAL_TIERS.auto) return "Approved";
+  if (level === RAISER_LEVELS.ceo) return "Approved";
+  if (level === RAISER_LEVELS.l1) return tier === APPROVAL_TIERS.l1l2 ? "CEO Pending" : "Approved";
+  return "Requested";
+};
+
+/**
+ * One line for a request dialog when the raiser's level changes where the record lands, else
+ * null (the ordinary path needs no explanation). Never shown in the auto band.
+ */
+export const raiserLandingNote = (
+  amount: string | number | null | undefined,
+  l2Above: number = TIER_L2_ABOVE,
+  level: RaiserLevel | null = null
+): string | null => {
+  if (!level || requiredTier(amount, l2Above) === APPROVAL_TIERS.auto) return null;
+  const status = initialStatusForRaiser(amount, l2Above, level);
+  if (status === "Approved") {
+    return level === RAISER_LEVELS.ceo
+      ? "You hold the CEO approval, so this is approved as soon as you request it."
+      : "You hold L1 approval, so this is approved as soon as you request it.";
+  }
+  return "You hold L1 approval, so this skips L1 and goes straight to the CEO.";
+};

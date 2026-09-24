@@ -89,7 +89,7 @@ export const srColumns: ColumnDef<SRReportRowData>[] = [
         id: "PendingInvoice",
         accessorFn: (row) => row.amountPaid - row.invoiceAmount,
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+            <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Pending Invoice<br />Amt</span>} />
         ),
         cell: ({ row }) => {
             const pendingAmt = row.original.amountPaid - row.original.invoiceAmount;

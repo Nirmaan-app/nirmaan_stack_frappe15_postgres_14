@@ -145,19 +145,23 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                                 # Use PostgreSQL jsonb operators
                                 # check if the JSON array contains ANY of the provided values
                                 
-                                # Use `?|` operator with a parameterized array which psycopg2 adapts from a list
+                                # `?|` needs a Postgres ARRAY, so spell it `array[%s, %s, ...]`. A bare `%s`
+                                # bound to a list does NOT work: Frappe's Postgres layer turns the list into a
+                                # tuple, which renders as `('a')` -> "malformed array literal", and the
+                                # swallowed error aborts the transaction so the list request fails.
                                 # Handles both top-level arrays and objects with a 'categories' key
+                                placeholders = ", ".join(["%s"] * len(json_values))
                                 js_sql = f"""
                                     SELECT name FROM "tab{original_filter_doctype}"
-                                    WHERE "{field}" IS NOT NULL 
+                                    WHERE "{field}" IS NOT NULL
                                     AND (
-                                        CASE 
+                                        CASE
                                             WHEN jsonb_typeof("{field}"::jsonb) = 'array' THEN "{field}"::jsonb
                                             ELSE COALESCE("{field}"::jsonb->'categories', '[]'::jsonb)
                                         END
-                                    ) ?| %s
+                                    ) ?| array[{placeholders}]
                                 """
-                                matching_names = frappe.db.sql(js_sql, (json_values,), pluck=True)
+                                matching_names = frappe.db.sql(js_sql, tuple(json_values), pluck=True)
                                 
                                 # Replace the filter with a name-in filter
                                 if matching_names:

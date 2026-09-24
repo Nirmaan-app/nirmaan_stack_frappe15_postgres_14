@@ -174,3 +174,50 @@ def is_auto_approved(amount) -> bool:
 def needs_ceo(amount, l2_above: float = TIER_L2_ABOVE) -> bool:
     """Whether L2 is required on top of L1."""
     return required_tier(amount, l2_above) == TIER_L1_L2
+
+
+# ── Who raised it (owner, 2026-09-21) ───────────────────────────────────────────────────
+# A step the RAISER already holds is not asked of them again:
+#
+#     raised by            15,000 - 50,000        above 50,000
+#     anyone else          Requested (-> L1)      Requested (-> L1 -> CEO)
+#     an L1 approver       Approved               CEO Pending   (L1 cleared)
+#     the CEO              Approved               Approved      (L1 and CEO cleared)
+#
+# The auto band is untouched (it needs no one), and so is a refund's banding by size.
+# L1 = the Admin profile (+ `Administrator`); the CEO = `CEO_AUTHORIZED_USER`, who is also an
+# Admin. Working out WHICH level a user holds needs the database, so it lives in
+# `services/approval_raiser.py`; this module only says what that level clears.
+#
+# ⚠️ CREATE-TIME ONLY. A record already waiting is never re-routed by who edits it later.
+RAISER_L1 = "l1"
+RAISER_CEO = "ceo"
+
+
+def initial_status_for_raiser(amount, l2_above: float = TIER_L2_ABOVE, raiser_level: str | None = None) -> str:
+    """The status a NEW record is created at, given the level of the person raising it.
+
+    With no level this IS `initial_status`, so every caller that passes none is unchanged.
+    """
+    tier = required_tier(amount, l2_above)
+    if tier == TIER_AUTO:
+        return STATUS_APPROVED
+    if raiser_level == RAISER_CEO:
+        return STATUS_APPROVED
+    if raiser_level == RAISER_L1:
+        return STATUS_CEO_PENDING if tier == TIER_L1_L2 else STATUS_APPROVED
+    return STATUS_REQUESTED
+
+
+def steps_cleared_by_raiser(amount, l2_above: float = TIER_L2_ABOVE, raiser_level: str | None = None) -> tuple[bool, bool]:
+    """`(l1_cleared, ceo_cleared)`: the approvals the raiser's own level stands in for.
+
+    Drives the `approval_date` / `ceo_approval_date` stamps, so a record that skipped a step is
+    dated like one a person approved -- and, unlike the auto band, is NOT `auto_approved`.
+    Both False in the auto band (no one approves it) and for a raiser with no level. The CEO
+    clears L2 only where L2 was needed: a 15,000-50,000 record never had a CEO step.
+    """
+    tier = required_tier(amount, l2_above)
+    if tier == TIER_AUTO or raiser_level not in (RAISER_L1, RAISER_CEO):
+        return (False, False)
+    return (True, raiser_level == RAISER_CEO and tier == TIER_L1_L2)

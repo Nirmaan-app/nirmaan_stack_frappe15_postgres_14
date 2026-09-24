@@ -102,17 +102,19 @@ export const isBillingProfile = (role?: string | null): boolean =>
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
 export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
 export const HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile";
+export const HR_LEAD_PROFILE = "Nirmaan HR Lead Profile";
 export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 
 /**
- * May delete a DC / MIR off a PO — admin, procurement (they file them) and
- * billing (they catch the bad ones). Mirrored server-side by
+ * May delete a DC / MIR (PO or ITM) — admin, PMO, procurement (they file them)
+ * and billing (they catch the bad ones). Mirrored server-side by
  * `role_profiles.PDD_DELETE_PROFILES`, which is the ENFORCEMENT boundary;
  * this constant only decides whether the trash icon renders.
  */
 export const PDD_DELETE_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
   ...BILLING_PROFILES,
 ];
@@ -183,6 +185,26 @@ export const canActionInvoiceApprovals = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
+
+/**
+ * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
+ * Wider than the approval set: the invoice approvers plus PMO and every procurement
+ * profile, who chase the missing invoices with vendors (owner ruling 2026-09-24).
+ * The tab is a read-only report, so no approve/reject control rides on it.
+ */
+const PENDING_INVOICE_UPLOAD_PROFILES: readonly string[] = [
+  ...INVOICE_APPROVAL_PROFILES,
+  PMO_EXECUTIVE_PROFILE,
+  ...PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may see the Pending Invoices Upload tab. */
+export const canViewPendingInvoiceUploads = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && PENDING_INVOICE_UPLOAD_PROFILES.includes(role));
 
 /**
  * May see the "Payment Summary" card atop the payments tables (Approve Payments,
@@ -371,3 +393,38 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
   ACCOUNTANT_LEAD_PROFILE,
 ];
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
+
+/**
+ * Who REVIEWS expense requests -- and therefore who sees the `Pending Approval` and
+ * `All` tabs on `/expense/requests`. Everyone else gets `Expense Raised By Me` alone
+ * (owner, 2026-09-23).
+ *
+ * ⚠️ MIRRORS THE SERVER SET, which is the real boundary:
+ * `api/expense_requests/access.ADMIN_PROFILE | PM_REQUEST_REVIEWERS`. `guard_reviewer`
+ * refuses an approve/reject from anybody outside it, so this constant only decides which
+ * TABS render -- it grants nothing. Change the two together.
+ *
+ * HR LEAD IS IN, and needed a sidebar entry to go with it (owner, 2026-09-23): it was
+ * already a valid reviewer server-side but had no nav item anywhere, so the right it held
+ * was unreachable. See the `/expense` gate in `NewSidebar.tsx`.
+ *
+ * NOT an access gate: `/expense` has no route guard, so any logged-in user who types the
+ * URL reaches the page. They land on `Expense Raised By Me`, which is the safe direction --
+ * hence the predicate asks "is this a reviewer", never "is this one of the narrowed roles".
+ * An unknown or new profile then defaults to its own rows.
+ */
+export const EXPENSE_REQUEST_REVIEW_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+  HR_EXECUTIVE_PROFILE,
+  HR_LEAD_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) reviews expense requests, so sees all three tabs. */
+export const reviewsExpenseRequests = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && EXPENSE_REQUEST_REVIEW_PROFILES.includes(role));

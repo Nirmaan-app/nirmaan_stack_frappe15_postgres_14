@@ -24,7 +24,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useUserData } from "@/hooks/useUserData";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -37,7 +36,6 @@ import {
     type TableActionColumn,
 } from "./OutflowRowsTable";
 import { useOutflowRows } from "../useOutflowRows";
-import { canUndoOutflow } from "../outflowImportStatus";
 import {
     unskipBlockReason,
     unskipNotice,
@@ -107,9 +105,9 @@ const NO_ORIGINS = new Map();
  * (`selectable = names.length > 0`).
  *
  * ⚠️ THE ONE ACTION IS UNSKIP, ONE LINE AT A TIME, FOR ADMIN AND ACCOUNTANT LEAD (#1274, ADR-0022). It
- * rides the table's `actionColumn`, live for every Skip Type except the four locked ones and never on a
- * Cashbook line (`unskipBlockReason`, ADR-0022 Amendment C); a locked line shows the button disabled
- * with its reason in words.
+ * rides the table's `actionColumn`, live for every Skip Type except the four locked ones, and on a
+ * Cashbook line only for a hand skip (`unskipBlockReason`, ADR-0022 Amendments C and D); a locked line
+ * shows the button disabled with its reason in words.
  *
  * ⚠️ SKIP TYPE REPLACES OUTCOME HERE, AND THE TABS ARE DIRECTION (owner, 2026-09-17). The Outcome cell
  * on a skipped line was a reason sentence cut off at 204px; the stored `skip_kind` is what a reader
@@ -178,31 +176,27 @@ export const SkippedRowsDialog = ({
     }, [callExport, table.exportQuery]);
 
     // --- Unskip (#1274, mockup scenes 5 and 6) -------------------------------------------------------
-    // ⚠️ THE COLUMN IS FOR THE UNDO ROLES ONLY. A plain Accountant sees the popup as before; hiding it is
-    // convenience, and `review.unskip_row` refuses them anyway.
-    const { role, user_id } = useUserData();
-    const canUnskip = canUndoOutflow(role, user_id);
+    // ⚠️ THE COLUMN IS FOR EVERY MODULE USER since ADR-0022 Amendment E (owner, 2026-09-24) -- it used to
+    // be Admin + Accountant Lead only. `review.unskip_row` checks the module gate; the kind rules
+    // (`skip_origin.unskip_refusal`) still decide which lines may come back.
     const [unskipping, setUnskipping] = useState<OutflowImportRow | null>(null);
     const [notice, setNotice] = useState<UnskipNotice | null>(null);
 
     // ⚠️ MEMOIZED: every memoized table row receives this object (see `TableActionColumn`).
-    const actionColumn = useMemo<TableActionColumn | undefined>(
-        () =>
-            canUnskip
-                ? {
-                      title: "Unskip",
-                      render: (row) => (
-                          <UnskipCell
-                              row={row}
-                              onUnskip={(target) => {
-                                  setNotice(null);
-                                  setUnskipping(target);
-                              }}
-                          />
-                      ),
-                  }
-                : undefined,
-        [canUnskip]
+    const actionColumn = useMemo<TableActionColumn>(
+        () => ({
+            title: "Unskip",
+            render: (row) => (
+                <UnskipCell
+                    row={row}
+                    onUnskip={(target) => {
+                        setNotice(null);
+                        setUnskipping(target);
+                    }}
+                />
+            ),
+        }),
+        []
     );
 
     const mutateRows = table.mutate;
@@ -269,14 +263,10 @@ export const SkippedRowsDialog = ({
                                 of every figure up there.
                             </>
                         )}
-                        {canUnskip && (
-                            <>
-                                {" "}
-                                Any transfer can be unskipped except one already imported, repeated in
-                                the same file, refused by the bank or with no amount, and any Cashbook
-                                line. An unskipped transfer is checked again straight away.
-                            </>
-                        )}
+                        {" "}
+                        Any transfer can be unskipped except one already imported, repeated in the
+                        same file, refused by the bank or with no amount, and a Cashbook line the
+                        import itself skipped. An unskipped transfer is checked again straight away.
                     </DialogDescription>
                 </DialogHeader>
 

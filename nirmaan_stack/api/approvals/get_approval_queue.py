@@ -28,8 +28,11 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-from nirmaan_stack.services.outflow_import.expense_links import linked_totals_join
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.outflow_import.expense_links import (
+    linked_totals_join,
+    remaining_balance,
+)
+from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
 
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
@@ -107,10 +110,11 @@ _OPERATORS = {
 # state stay the same for every user. The table, its facets and its CSV export all build
 # their WHERE through `_build_where`, so all three agree.
 #
-# ⚠️ AN ADMIN SEES EVERY ROW on that tab (owner, 17 Sep 2026): for an Admin the token
-# adds NO clause, and the badge counts the whole queue. `is_nirmaan_admin` covers the
-# Administrator user and the Nirmaan Admin Profile; the frontend's "Raised by" column
-# keys on the same two.
+# ⚠️ EVERY CALLER SEES ONLY THEIR OWN ROWS THERE, INCLUDING AN ADMIN (owner, 23 Sep 2026).
+# This REVERSES the 17 Sep rule, under which an Admin got no clause at all and the badge
+# counted the whole queue -- so the tab listed other people's rows and its "Raised by"
+# column earned its place. The tab now means what it says for everyone; an Admin still has
+# every other tab for the whole queue. `is_nirmaan_admin` is no longer consulted here.
 CURRENT_USER_TOKEN = "@me"
 
 
@@ -161,17 +165,33 @@ def _payments_select():
             COALESCE(p."document_type", '')::text AS document_type,
             NULL::date                      AS reconciled_on,
             COALESCE(p."auto_approved", 0)  AS auto_approved,
-            -- Expenses only (ADR-0027): a payment is settled by exactly one bank
-            -- line and has no Bank lines card, so this is honestly zero rather
-            -- than a count nothing on a payment row would ever render.
-            0                               AS bank_line_count,
+            -- How many live bank lines settle this payment -- it offers the same
+            -- Bank lines card an expense does. The same live-slip join as the
+            -- expense ledgers; a part-reconciled split family's members are given the
+            -- family's count after the fetch (see `get_approval_queue`).
+            COALESCE(l."line_count", 0)     AS bank_line_count,
+            -- How much of this payment bank lines already cover (the same live-slip
+            -- aggregate as an expense's). ⚠️ POSITIONAL: right after `bank_line_count`
+            -- in `_expense_select` too. A payment is never left part-covered itself -- a
+            -- part settle SPLITS it -- so this is 0 or the whole amount; a payment in a
+            -- part-reconciled split family is overwritten with the family's figures
+            -- after the fetch (see `get_approval_queue`).
+            COALESCE(l."linked_total", 0)::numeric AS linked_amount,
             -- Mode of Payment (2026-09-19). ⚠️ POSITIONAL, like every column here: the
             -- same three sit at the same place in `_expense_select`, blank there.
             COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
             COALESCE(p."cheque_no", '')::text AS cheque_no,
-            p."cheque_date"                 AS cheque_date
+            p."cheque_date"                 AS cheque_date,
+            -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
+            COALESCE(p."on_hold", 0)        AS on_hold
         FROM "tabProject Payments" p
-    """.format(src=SOURCE_VENDOR_PAYMENT, po=TYPE_PO_PAYMENT, sr=TYPE_SR_PAYMENT)
+        {linked_join}
+    """.format(
+        src=SOURCE_VENDOR_PAYMENT,
+        po=TYPE_PO_PAYMENT,
+        sr=TYPE_SR_PAYMENT,
+        linked_join=linked_totals_join("Project Payments", "p"),
+    )
 
 
 def _expense_select(table, source, project_col):
@@ -227,10 +247,15 @@ def _expense_select(table, source, project_col):
             -- second definition of "live slip" could offer a card on an expense
             -- whose links had all been reversed.
             COALESCE(l."line_count", 0)     AS bank_line_count,
+            -- The linked total those lines add up to -- the figure the Bank lines card
+            -- reads, from the same join. The Amount cell shows it with what is left.
+            COALESCE(l."linked_total", 0)::numeric AS linked_amount,
             -- A payment's Mode of Payment; an expense has none.
             ''::text                        AS mode_of_payment,
             ''::text                        AS cheque_no,
-            NULL::date                      AS cheque_date
+            NULL::date                      AS cheque_date,
+            -- Only a PO / WO payment can be held.
+            0                               AS on_hold
         FROM "{table}" e
         {linked_join}
     """
@@ -316,8 +341,9 @@ def _build_where(filters, search_term, search_fields):
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
         if field == "raised_by" and value == CURRENT_USER_TOKEN:
-            if is_nirmaan_admin(frappe.session.user):
-                continue
+            # Unconditional since 23 Sep 2026 -- no Admin bypass. This one substitution
+            # scopes the LIST, the FACETS and the CSV EXPORT together, because all three
+            # build their WHERE here.
             value = frappe.session.user
         if field in DATE_FIELDS and op in _DATE_OPERATORS:
             frag, vals = _date_clause(field, op, value)
@@ -425,6 +451,18 @@ def get_approval_queue(
         f"SELECT COALESCE(SUM(q.\"amount\"), 0) FROM ({union}) q {where}", tuple(params)
     )[0][0]
 
+    # A PO / SR payment is never left part-covered itself: a bank line that pays part of it SPLITS
+    # it into a Paid half and a Reconciliation Pending balance (`split_from`). So for a payment the
+    # "reconciled / pending" pair is its split FAMILY's -- read once per page, for this page's
+    # payments only (a page with none makes no query), keyed by member.
+    part_families = {
+        member: family
+        for family in load_part_reconciled_split_families(
+            [r["name"] for r in rows if r.get("doctype") == "Project Payments"]
+        )
+        for member in family["members"]
+    }
+
     for r in rows:
         # Derived SERVER-side, from the same cast amount the routing will use, so
         # the chip on screen and the gate that runs can never disagree.
@@ -439,6 +477,16 @@ def get_approval_queue(
         r["amount"] = flt(r.get("amount"))
         r["has_proof"] = bool(r.get("proof"))
         r["bank_line_count"] = cint(r.get("bank_line_count"))
+        family = part_families.get(r["name"]) if r.get("doctype") == "Project Payments" else None
+        if family:
+            r["bank_line_count"] = family["line_count"]
+            r["linked_amount"] = family["reconciled"]
+            r["remaining_amount"] = family["pending"]
+        else:
+            r["linked_amount"] = flt(r.get("linked_amount"))
+            # What no bank line has covered yet -- `remaining_balance`, the same subtraction the
+            # Bank lines card and the Paid / Reconciliation Pending decision read.
+            r["remaining_amount"] = flt(remaining_balance(r["amount"], r["linked_amount"]))
 
     return {
         "data": rows,
@@ -463,16 +511,13 @@ def get_approval_queue_counts():
     counts = {r["status"] or "": cint(r["cnt"]) for r in rows}
     amounts = {r["status"] or "": flt(r["amt"]) for r in rows}
     counts["All"] = sum(counts.values())
-    # "Payment By Me" badge: every status, rows the logged-in user created -- or the whole
-    # queue for an Admin, matching what that tab lists. Its own key, not inside `counts`,
-    # which is keyed by status.
-    if is_nirmaan_admin(frappe.session.user):
-        by_me = counts["All"]
-    else:
-        by_me = frappe.db.sql(
-            f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
-            (frappe.session.user,),
-        )[0][0]
+    # "Payment By Me" badge: every status, rows the logged-in user created -- for EVERY
+    # caller, Admin included, matching what that tab now lists. Its own key, not inside
+    # `counts`, which is keyed by status.
+    by_me = frappe.db.sql(
+        f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
+        (frappe.session.user,),
+    )[0][0]
     return {"counts": counts, "amounts": amounts, "by_me": cint(by_me)}
 
 

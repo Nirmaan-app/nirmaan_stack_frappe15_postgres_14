@@ -5,7 +5,9 @@
 
 What is pinned, all through the whitelisted `review.unskip_row`:
 
-  * refused for a plain Accountant, a System skip, a Cashbook line and a line that is not Skipped --
+  * allowed for a plain Accountant (ADR-0022 Amendment E, 2026-09-24), refused outside the module;
+  * refused for a locked kind, a Cashbook line not skipped by hand and a line that
+    is not Skipped --
     and nothing is written when it is;
   * a reason is required;
   * the re-check lands the line Not-Matched (no recorded money), Matched with the suggestion (one
@@ -36,7 +38,7 @@ from nirmaan_stack.api.outflow_import.test_review import (
     _random_reference,
     _stage_icici_statement,
 )
-from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, SkipFixture
+from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, OUTSIDER, SkipFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.skip_origin import (
     UNSKIP_REFUSED_CASHBOOK,
@@ -102,12 +104,24 @@ class TestUnskipRefusals(SkipFixture):
         self.assertIn(sentence, str(caught.exception))
         self.assertEqual(_stored(row), before)
 
-    def test_a_plain_accountant_is_refused_and_nothing_is_written(self):
+    def test_a_plain_accountant_may_unskip(self):
+        """INVERTED at ADR-0022 Amendment E (owner, 2026-09-24): a plain Accountant used to be refused."""
+        row = self._line(
+            status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind="Skipped by hand", amount=8231.77
+        )
+        frappe.set_user(self.users.make(ACCOUNTANT))
+        try:
+            unskip_row(row, REASON)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertNotEqual(_stored(row).row_status, ROW_SKIPPED)
+
+    def test_someone_outside_the_module_is_refused_and_nothing_is_written(self):
         row = self._line(
             status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind="Skipped by hand", amount=8231.77
         )
         before = _stored(row)
-        frappe.set_user(self.users.make(ACCOUNTANT))
+        frappe.set_user(self.users.make(OUTSIDER))
         with self.assertRaises(frappe.PermissionError):
             unskip_row(row, REASON)
         frappe.set_user("Administrator")
@@ -133,9 +147,10 @@ class TestUnskipRefusals(SkipFixture):
         row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_SYSTEM, skip_kind="")
         self._assert_refused(row, UNSKIP_REFUSED_NO_KIND)
 
-    def test_a_cashbook_line_is_refused(self):
-        """Owner decision B1: Cashbook stays locked whatever its kind."""
-        for kind in ("Skipped by hand", "Cashbook internal movement", "Outflow Already Recorded"):
+    def test_a_cashbook_line_not_skipped_by_hand_is_refused(self):
+        """#1314 (owner Q4) NARROWS decision B1: only a Cashbook HAND skip comes back; every system kind
+        stays locked. The hand-skip half is pinned in `test_cashbook_undo`."""
+        for kind in ("Cashbook internal movement", "Outflow Already Recorded", "No amount"):
             with self.subTest(kind=kind):
                 row = self._line(
                     status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind=kind, source="Cashbook"

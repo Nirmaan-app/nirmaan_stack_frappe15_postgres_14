@@ -16,8 +16,9 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { CircleCheck, CircleX, IndianRupee, Paperclip, Pencil, Trash2 } from "lucide-react";
+import { CircleCheck, CirclePause, CirclePlay, CircleX, IndianRupee, Paperclip, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import {
@@ -26,6 +27,7 @@ import {
   VendorDetailPopover,
 } from "../components/DetailPopovers";
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
+import { partReconciled } from "../components/expenseBankLinesView";
 
 import {
   APPROVAL_STATUS,
@@ -38,6 +40,7 @@ import {
   TYPE_LABEL,
 } from "./approvalsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
+import { isHeldQueueRow } from "./queueRowActions";
 
 export interface ApprovalColumnCtx {
   tab: ApprovalTab;
@@ -69,17 +72,25 @@ export interface ApprovalColumnCtx {
   onRecordPayment?: (row: ApprovalQueueRow) => void;
   onMarkReconciled?: (row: ApprovalQueueRow) => void;
   /**
-   * Admin edit on a settled payment (EditFulfilledPaymentDialog). The column
-   * matrix says the Paid tab carries no actions — but this one EXISTS on the live
-   * screen, so it is preserved rather than silently dropped. Absent => no column
-   * content, which is what the matrix describes.
+   * The expense Edit pencil (owner, 2026-09-21). It renders on a row only when `canEdit` says so
+   * — ONE rule for every tab, `queueRowActions.canEditQueueRow`. A PO / WO payment never gets it.
    */
   onEdit?: (row: ApprovalQueueRow) => void;
+  canEdit?: (row: ApprovalQueueRow) => boolean;
+  /** "Revert to Approved" on a Reconciliation Pending payment — `queueRowActions.canRevertQueueRow`. */
+  onRevert?: (row: ApprovalQueueRow) => void;
+  canRevert?: (row: ApprovalQueueRow) => boolean;
   /**
-   * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise) and opens
-   * a dialog: an expense is deleted from it; a PO / SR payment is not — the dialog links to its
-   * PO / SR page, whose payment table deletes it. On "Payment need to paid" it sits beside
-   * Mark as Paid on every row, and deletes any of the three ledgers in place.
+   * Hold / release a PO / WO payment on "Payment need to paid" (owner, 2026-09-22) —
+   * `queueRowActions.canHoldQueueRow`. A held row shows "On Hold" where Mark as Paid sits.
+   */
+  onToggleHold?: (row: ApprovalQueueRow) => void;
+  canHold?: (row: ApprovalQueueRow) => boolean;
+  /**
+   * The Trash icon. On "Payment By Me" it shows on REJECTED rows only ("--" otherwise); on
+   * "Payment need to paid" it sits beside Mark as Paid on every row. Both delete any of the three
+   * ledgers IN PLACE (owner, 2026-09-21 — "Payment By Me" used to send a PO / SR payment to its
+   * PO / SR page instead).
    */
   onDelete?: (row: ApprovalQueueRow) => void;
 }
@@ -167,24 +178,33 @@ const REGISTRY: Record<
     enableSorting: false,
     size:
       // 148: measured — the button itself is 136px and the cell needs 144. 180 with the
-      // trash icon beside it (removed 15 Sep, restored 18 Sep).
-      ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148)
-        : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? 160
+      // trash icon beside it (removed 15 Sep, restored 18 Sep). Each icon added on a row
+      // (the expense pencil, the payment revert) takes 32 more.
+      (ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148) + (ctx.onToggleHold ? 32 : 0)
+        : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? (ctx.onRevert ? 192 : 160)
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
         : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
-        : 72,
+        : 72) + (ctx.onEdit && ctx.tab !== PP_TABS.PAYMENTS_DONE ? 32 : 0),
     cell: ({ row }) => {
       const r = row.original;
+      // The expense pencil, on any tab, for exactly the rows `canEdit` admits.
+      const edit = ctx.onEdit && ctx.canEdit?.(r) ? (
+        <Button variant="ghost" size="icon" aria-label="Edit" title="Edit"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          onClick={() => ctx.onEdit?.(r)}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+      ) : null;
+      const none = <span className="text-muted-foreground">--</span>;
 
-      if (ctx.tab === PP_TABS.PAYMENTS_DONE) {
-        if (!ctx.onEdit) return null;
-        return (
-          <Button variant="ghost" size="icon" aria-label="Edit payment"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => ctx.onEdit?.(r)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-        );
+      // Settled and mixed-status tabs: nothing to approve or settle here, so the pencil is the
+      // whole cell. ⚠️ These MUST stay above the Approve / Reject fall-through below.
+      if (
+        ctx.tab === PP_TABS.PAYMENTS_DONE
+        || ctx.tab === PP_TABS.PAYMENTS_PENDING
+        || ctx.tab === PP_TABS.ALL_PAYMENTS
+      ) {
+        return edit ?? none;
       }
 
       if (ctx.tab === PP_TABS.NEW_PAYMENTS) {
@@ -192,13 +212,43 @@ const REGISTRY: Record<
         // ⚠️ THE LABEL IS NOT THE STATUS: it does NOT write `Paid`. It states that the
         // money went out, moving the row to Reconciliation Pending; the UTR / date /
         // proof are captured later on that tab, which is what actually settles it.
+        //
+        // A HELD payment shows "On Hold" in that slot instead: the server refuses to move it
+        // out of Approved, so a live button there would only ever fail.
+        const held = isHeldQueueRow(r);
         return (
           <div className="flex items-center gap-2">
-            <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
-              onClick={() => ctx.onRecordPayment?.(r)}>
-              <IndianRupee className="mr-1 h-3.5 w-3.5" />
-              Mark as Paid
-            </Button>
+            {held ? (
+              <span title="On hold. Release the hold to mark it as paid."
+                className="inline-flex h-7 w-[136px] items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-100 text-xs font-medium text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300">
+                <CirclePause className="h-3.5 w-3.5" />
+                On Hold
+              </span>
+            ) : (
+              <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
+                onClick={() => ctx.onRecordPayment?.(r)}>
+                <IndianRupee className="mr-1 h-3.5 w-3.5" />
+                Mark as Paid
+              </Button>
+            )}
+            {ctx.onToggleHold && ctx.canHold?.(r) && (
+              <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon"
+                      aria-label={held ? "Release hold" : "Hold payment"}
+                      className={held
+                        ? "h-7 w-7 text-green-700 hover:text-green-800"
+                        : "h-7 w-7 text-orange-600 hover:text-orange-700"}
+                      onClick={() => ctx.onToggleHold?.(r)}>
+                      {held ? <CirclePlay className="h-4 w-4" /> : <CirclePause className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{held ? "Release hold" : "Hold payment"}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {edit}
             {ctx.onDelete && (
               <Button variant="ghost" size="icon" aria-label="Delete"
                 className="h-7 w-7 text-destructive hover:text-destructive/80"
@@ -213,41 +263,63 @@ const REGISTRY: Record<
       // ⚠️ MUST stay above the Approve / Reject fall-through below, or this view-only tab
       // would render approval buttons on every row.
       if (ctx.tab === PP_TABS.PAYMENT_BY_ME) {
-        if (!ctx.onDelete || r.status !== APPROVAL_STATUS.REJECTED) {
-          return <span className="text-muted-foreground">--</span>;
-        }
+        const canDelete = !!ctx.onDelete && r.status === APPROVAL_STATUS.REJECTED;
+        if (!edit && !canDelete) return none;
         return (
-          <Button variant="ghost" size="icon" aria-label="Delete"
-            className="h-7 w-7 text-destructive hover:text-destructive/80"
-            onClick={() => ctx.onDelete?.(r)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {edit}
+            {canDelete && (
+              <Button variant="ghost" size="icon" aria-label="Delete"
+                className="h-7 w-7 text-destructive hover:text-destructive/80"
+                onClick={() => ctx.onDelete?.(r)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         );
       }
 
       if (ctx.tab === PP_TABS.RECONCILIATION_PENDING) {
         return (
-          <Button size="sm" variant="outline"
-            className="h-7 border-primary text-primary"
-            onClick={() => ctx.onMarkReconciled?.(r)}>
-            Mark Reconciled
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline"
+              className="h-7 border-primary text-primary"
+              onClick={() => ctx.onMarkReconciled?.(r)}>
+              Mark Reconciled
+            </Button>
+            {ctx.onRevert && ctx.canRevert?.(r) && (
+              <Button variant="ghost" size="icon" aria-label="Revert to Approved"
+                title="Revert to Approved"
+                className="h-7 w-7 text-amber-600 hover:text-amber-700"
+                onClick={() => ctx.onRevert?.(r)}>
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            )}
+            {edit}
+          </div>
         );
       }
 
-      // Approve / Reject — the circled icons the screen has always used.
+      // Approve / Reject — the circled icons the screen has always used. A read-only viewer
+      // (no `onApprove`) gets only the pencil, not two buttons that do nothing.
       return (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" aria-label="Approve"
-            className="h-7 w-7 text-green-600 hover:text-green-700"
-            onClick={() => ctx.onApprove?.(r)}>
-            <CircleCheck className="h-5 w-5" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Reject"
-            className="h-7 w-7 text-destructive hover:text-destructive/80"
-            onClick={() => ctx.onReject?.(r)}>
-            <CircleX className="h-5 w-5" />
-          </Button>
+          {ctx.onApprove && (
+            <Button variant="ghost" size="icon" aria-label="Approve"
+              className="h-7 w-7 text-green-600 hover:text-green-700"
+              onClick={() => ctx.onApprove?.(r)}>
+              <CircleCheck className="h-5 w-5" />
+            </Button>
+          )}
+          {ctx.onReject && (
+            <Button variant="ghost" size="icon" aria-label="Reject"
+              className="h-7 w-7 text-destructive hover:text-destructive/80"
+              onClick={() => ctx.onReject?.(r)}>
+              <CircleX className="h-5 w-5" />
+            </Button>
+          )}
+          {edit}
+          {!ctx.onApprove && !ctx.onReject && !edit && none}
         </div>
       );
     },
@@ -302,8 +374,7 @@ const REGISTRY: Record<
       // card. An expense row has no parent document — it keeps the hover that
       // shows the untrimmed description, which is the only "more" it has.
       if (isPayment) {
-        if (!r.document_name) return body;
-        return (
+        const documentCard = r.document_name ? (
           <DocumentDetailPopover
             docName={r.document_name}
             docType={r.document_type}
@@ -313,6 +384,26 @@ const REGISTRY: Record<
           >
             {body}
           </DocumentDetailPopover>
+        ) : body;
+        if (r.bank_line_count <= 0) return documentCard;
+        // A payment bank lines settle gets the same Bank lines card as an expense — on its OWN
+        // trigger line, because the PO / WO number already opens the document's card. For a
+        // payment a part payment split, the count and the card are the whole request's.
+        return (
+          <span className="block min-w-0">
+            {documentCard}
+            <ExpenseBankLinesPopover
+              doctype={r.doctype}
+              name={r.name}
+              subtitle={r.document_name || undefined}
+              status={r.status}
+              lineCount={r.bank_line_count}
+            >
+              <span className="text-[10px] text-muted-foreground">
+                {r.bank_line_count} bank {r.bank_line_count === 1 ? "line" : "lines"}
+              </span>
+            </ExpenseBankLinesPopover>
+          </span>
         );
       }
       // An expense several bank lines settled opens its Bank lines card instead (#1303,
@@ -330,7 +421,7 @@ const REGISTRY: Record<
           <ExpenseBankLinesPopover
             doctype={r.doctype}
             name={r.name}
-            expenseType={r.expense_type}
+            subtitle={r.expense_type}
             description={r.against_full || r.against_primary}
             comment={r.comment_text}
             status={r.status}
@@ -456,9 +547,23 @@ const REGISTRY: Record<
     size: 128,
     cell: ({ row }) => {
       const r = row.original;
+      // A row bank lines cover only part of says so right here, not only inside the Bank lines
+      // card — on any ledger. `null` (nothing linked, or fully covered) renders the plain figure.
+      const part = partReconciled({
+        amount: r.amount,
+        linked_total: r.linked_amount,
+        line_count: r.bank_line_count,
+        remaining: r.remaining_amount,
+      });
       const figure = (
-        <div className="pr-2 text-right font-medium tabular-nums">
-          {formatToRoundedIndianRupee(r.amount)}
+        <div className="pr-2 text-right tabular-nums">
+          <div className="font-medium">{formatToRoundedIndianRupee(r.amount)}</div>
+          {part && (
+            <div className="text-[10px] leading-tight">
+              <div className="text-green-700">{part.reconciled} reconciled</div>
+              <div className="text-orange-600">{part.pending} pending</div>
+            </div>
+          )}
         </div>
       );
       // WO/PO Value, Total Paid and Payable Against Delivery used to be three

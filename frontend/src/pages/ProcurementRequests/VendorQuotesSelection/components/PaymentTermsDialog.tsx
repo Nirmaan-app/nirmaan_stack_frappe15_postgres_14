@@ -122,8 +122,10 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
     () => roundToTwo(poAmount - totalAmount),
     [poAmount, totalAmount]
   );
+  // Rounding can leave the terms a little above or below the PO amount;
+  // a difference of up to ±₹1 is accepted.
   const isTotalAmountValid = useMemo(
-    () => pendingAmount < 1 && pendingAmount >= 0,
+    () => Math.abs(pendingAmount) <= 1,
     [pendingAmount]
   );
   const areCreditDatesValid = useMemo(() => {
@@ -387,7 +389,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
                   ? `Total cannot exceed 100%. Current: ${(
                       totalPercentage || 0
                     ).toFixed(2)}%`
-                  : "The total amount must exactly match the PO Amount to confirm."}
+                  : "The total amount must match the PO Amount (within ±₹1) to confirm."}
               </span>
             </div>
           )}

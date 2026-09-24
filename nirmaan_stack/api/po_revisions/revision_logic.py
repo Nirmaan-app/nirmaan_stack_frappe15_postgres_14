@@ -582,11 +582,27 @@ def _get_item_metadata(item_id):
     return category, package
 
 
+def _resolve_billing_status(item_id, category, is_custom_po):
+    """Billing status for a PO row whose item changed (New / Replace).
+
+    Same rule as a PR save (procurement_requests.validate): Additional Charges are
+    always Non-Billable; else the Items master's billing_category; an item not in the
+    master (a typed-in custom PO item) is Billable on a custom PO, else Non-Billable.
+    """
+    if category == "Additional Charges":
+        return "Non-Billable"
+    master_status = frappe.db.get_value("Items", item_id, "billing_category") if item_id else None
+    if master_status:
+        return master_status
+    return "Billable" if is_custom_po else "Non-Billable"
+
+
 def sync_original_po_items(revision_doc):
     """
     Mirrors item changes (Original, New, Revised, Replace, Deleted) back to the Original PO.
     """
     original_po = frappe.get_doc("Procurement Orders", revision_doc.revised_po)
+    is_custom_po = original_po.custom == "true"
 
     original_item_map = {row.name: row for row in original_po.get("items", [])}
 
@@ -610,9 +626,6 @@ def sync_original_po_items(revision_doc):
             new_row.tax_amount = (new_row.amount * new_row.tax) / 100
             new_row.total_amount = new_row.amount + new_row.tax_amount
             new_row.received_quantity = 0.0
-            # New item → source billing status from the Items master; Non-Billable if not found.
-            new_row.billing_status = frappe.db.get_value(
-                "Items", new_row.item_id, "billing_category") or "Non-Billable"
 
             if original_po.status in ("Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"):
                 new_row.is_dispatched = 1
@@ -630,6 +643,8 @@ def sync_original_po_items(revision_doc):
 
             new_row.category = cat
             new_row.procurement_package = pkg
+            # Set after the category is resolved, so the Additional Charges check sees it.
+            new_row.billing_status = _resolve_billing_status(new_row.item_id, new_row.category, is_custom_po)
 
             rev_item.item_status = "Approved"
 
@@ -666,9 +681,6 @@ def sync_original_po_items(revision_doc):
 
                 orig_row.item_id = rev_item.revision_item_id
                 orig_row.item_name = rev_item.revision_item_name
-                # Item changed → re-source billing status from the Items master; Non-Billable if not found.
-                orig_row.billing_status = frappe.db.get_value(
-                    "Items", orig_row.item_id, "billing_category") or "Non-Billable"
 
                 orig_row.quantity = flt(rev_item.revision_qty)
                 orig_row.unit = rev_item.revision_unit
@@ -689,6 +701,8 @@ def sync_original_po_items(revision_doc):
                     orig_row.category, orig_row.procurement_package = _get_item_metadata(orig_row.item_id)
                 if not orig_row.category:
                     frappe.throw(_("Category is required for Replaced Item '{0}'. Please recreate this revision.").format(orig_row.item_name))
+                # Item changed → re-resolve billing status (after the category is final).
+                orig_row.billing_status = _resolve_billing_status(orig_row.item_id, orig_row.category, is_custom_po)
 
                 if not getattr(orig_row, 'received_quantity', None):
                     orig_row.received_quantity = 0.0

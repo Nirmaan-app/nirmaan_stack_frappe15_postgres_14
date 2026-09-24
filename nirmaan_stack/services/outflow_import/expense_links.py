@@ -297,7 +297,17 @@ def list_expense_lines(doctype: str, name: str) -> list[dict]:
                r.added_on          AS added_on,
                r.beneficiary_name  AS beneficiary_name,
                r.bank_reference_no AS bank_reference_no,
-               r.transfer_id       AS transfer_id
+               r.transfer_id       AS transfer_id,
+               r.remarks           AS remarks,
+               -- The bank line's OWN figures, so a card can say when the line is only part used
+               -- (split across several records): its amount, status, and what its live slips
+               -- -- to any record -- add up to, as magnitudes like `allocation.allocated_of`.
+               r.amount            AS line_amount,
+               r.row_status        AS line_status,
+               (SELECT COALESCE(SUM(ABS(m2.target_amount)), 0)
+                FROM "tab{_MATCH_DOCTYPE}" m2
+                WHERE m2.import_row = m.import_row
+                  AND m2.match_kind = %(settled)s) AS line_reconciled
         FROM "tab{_MATCH_DOCTYPE}" m
         LEFT JOIN "tab{_ROW_DOCTYPE}" r ON r.name = m.import_row
         WHERE m.target_doctype = %(doctype)s
@@ -310,23 +320,45 @@ def list_expense_lines(doctype: str, name: str) -> list[dict]:
     )
 
 
-def load_linked_totals(doctype: str) -> dict[str, ExpenseLinks]:
+def load_linked_totals(
+    doctype: str, from_date=None, to_date=None
+) -> dict[str, ExpenseLinks]:
     """Every expense of one doctype that has live slips -> its linked total and line count, ONE query.
 
     ⚠️ THE SAME AGGREGATE AS `load_expense_links`, grouped by expense, for a list that needs it for
     many expenses at once (the link dialog's picker, #1298). Kept beside the one-expense read so the
     two cannot drift into counting a linked total differently. `latest_line_date` is not read here.
+
+    `from_date` / `to_date` narrow the slips to those whose BANK LINE falls in that window -- the
+    row's `added_on` date, the very field a settle writes as the expense's `payment_date`, so a
+    windowed total means the same thing here as a `payment_date` filter does on a Paid record.
+    Read by the Outflow Reports, whose "Reconciliation Done" figure has to answer to a date range
+    the user picked, on records that carry no `payment_date` of their own.
+
+    ⚠️ A SLIP WHOSE IMPORT ROW WAS DELETED HAS NO DATE, so it counts in the unwindowed total (the
+    LEFT JOIN keeps it, matching `load_expense_links`) and falls OUT of a windowed one: nothing can
+    honestly place it inside a period. Both readings are deliberate.
     """
+    conditions = ["m.target_doctype = %(doctype)s", "m.match_kind = %(settled)s"]
+    params = {"doctype": doctype, "settled": MATCH_SETTLED}
+    if from_date is not None:
+        conditions.append("CAST(r.added_on AS DATE) >= %(from_date)s")
+        params["from_date"] = from_date
+    if to_date is not None:
+        conditions.append("CAST(r.added_on AS DATE) <= %(to_date)s")
+        params["to_date"] = to_date
+
     rows = frappe.db.sql(
         f"""
         SELECT m.target_name,
                COALESCE(SUM(m.target_amount), 0) AS linked_total,
                COUNT(m.name) AS line_count
         FROM "tab{_MATCH_DOCTYPE}" m
-        WHERE m.target_doctype = %(doctype)s AND m.match_kind = %(settled)s
+        LEFT JOIN "tab{_ROW_DOCTYPE}" r ON r.name = m.import_row
+        WHERE {" AND ".join(conditions)}
         GROUP BY m.target_name
         """,
-        {"doctype": doctype, "settled": MATCH_SETTLED},
+        params,
         as_dict=True,
     )
     return {

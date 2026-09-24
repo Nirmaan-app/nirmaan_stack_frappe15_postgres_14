@@ -74,6 +74,27 @@ export function allocationBar(
     };
 }
 
+/** A part-used bank line's two figures: what is reconciled against records, and what is not yet. */
+export interface PartlyAllocatedFigures {
+    reconciled: number;
+    pending: number;
+}
+
+/**
+ * The Amount cell's "reconciled / pending" pair for a `Partially Allocated` line, or `null` for any
+ * other row. It is `allocationBar` over the row's own live legs with nothing ticked -- the SAME
+ * arithmetic the decision dialog's balance bar shows -- so the cell and the bar cannot disagree.
+ */
+export function partlyAllocatedFigures(row: {
+    row_status: string;
+    amount: number;
+    matches?: readonly AllocationLeg[];
+}): PartlyAllocatedFigures | null {
+    if (row.row_status !== ROW_PARTIALLY_ALLOCATED) return null;
+    const bar = allocationBar(row.amount, row.matches ?? [], []);
+    return { reconciled: bar.allocated, pending: bar.remaining };
+}
+
 /**
  * What the RECORD PICKER should measure every candidate against (issue #1243).
  *

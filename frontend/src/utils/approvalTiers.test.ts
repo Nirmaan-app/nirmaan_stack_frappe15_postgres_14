@@ -13,6 +13,10 @@ import {
   needsCEO,
   requiredTier,
   statusAfterL1,
+  RAISER_LEVELS,
+  initialStatusForRaiser,
+  raiserLevelOf,
+  raiserLandingNote,
 } from "./approvalTiers";
 
 // The Python module is the authority; this mirror exists only to describe the outcome to
@@ -193,5 +197,53 @@ describe("the CEO line is SHARED by all three ledgers", () => {
       expect(requiredTier(amount)).toBe(APPROVAL_TIERS.auto);
       expect(requiredTier(amount, TIER_L2_ABOVE_EXPENSES)).toBe(APPROVAL_TIERS.auto);
     }
+  });
+});
+
+describe("raiser level (owner, 2026-09-21)", () => {
+  const CEO = "nitesh@nirmaan.app";
+
+  it("the Python module carries the same rule", () => {
+    expect(PY_SOURCE).toContain("def initial_status_for_raiser");
+    expect(PY_SOURCE).toMatch(/if raiser_level == RAISER_CEO:\s*\n\s*return STATUS_APPROVED/);
+    expect(PY_SOURCE).toMatch(/return STATUS_CEO_PENDING if tier == TIER_L1_L2 else STATUS_APPROVED/);
+  });
+
+  it("who counts as which level", () => {
+    expect(raiserLevelOf("Nirmaan Admin Profile", CEO, CEO)).toBe(RAISER_LEVELS.ceo);
+    expect(raiserLevelOf("Nirmaan Admin Profile", "someone@nirmaan.app", CEO)).toBe(RAISER_LEVELS.l1);
+    expect(raiserLevelOf("Nirmaan Admin Profile", "Administrator", CEO)).toBe(RAISER_LEVELS.l1);
+    // Accountants are NOT L1 here, even though the bulk endpoint admits them.
+    expect(raiserLevelOf("Nirmaan Accountant Profile", "acc@nirmaan.app", CEO)).toBeNull();
+    expect(raiserLevelOf("Nirmaan Procurement Executive Profile", "p@nirmaan.app", CEO)).toBeNull();
+  });
+
+  it("the table: anyone else / L1 / CEO across the three bands", () => {
+    const L1 = RAISER_LEVELS.l1;
+    const C = RAISER_LEVELS.ceo;
+    // auto band: untouched by who raises it
+    for (const lvl of [null, L1, C]) expect(initialStatusForRaiser(5_000, TIER_L2_ABOVE, lvl)).toBe("Approved");
+    // 15k-50k
+    expect(initialStatusForRaiser(30_000, TIER_L2_ABOVE, null)).toBe("Requested");
+    expect(initialStatusForRaiser(30_000, TIER_L2_ABOVE, L1)).toBe("Approved");
+    expect(initialStatusForRaiser(30_000, TIER_L2_ABOVE, C)).toBe("Approved");
+    // above 50k
+    expect(initialStatusForRaiser(80_000, TIER_L2_ABOVE, null)).toBe("Requested");
+    expect(initialStatusForRaiser(80_000, TIER_L2_ABOVE, L1)).toBe("CEO Pending");
+    expect(initialStatusForRaiser(80_000, TIER_L2_ABOVE, C)).toBe("Approved");
+  });
+
+  it("no level is exactly initialStatus", () => {
+    for (const amount of [-60_000, -5, 0, 5_000, 15_000, 50_000, 50_001]) {
+      expect(initialStatusForRaiser(amount, TIER_L2_ABOVE, null)).toBe(initialStatus(amount));
+    }
+  });
+
+  it("the dialog note appears only when the raiser changes the landing", () => {
+    expect(raiserLandingNote(5_000, TIER_L2_ABOVE, RAISER_LEVELS.l1)).toBeNull();
+    expect(raiserLandingNote(30_000, TIER_L2_ABOVE, null)).toBeNull();
+    expect(raiserLandingNote(30_000, TIER_L2_ABOVE, RAISER_LEVELS.l1)).toMatch(/approved as soon as/);
+    expect(raiserLandingNote(80_000, TIER_L2_ABOVE, RAISER_LEVELS.l1)).toMatch(/straight to the CEO/);
+    expect(raiserLandingNote(80_000, TIER_L2_ABOVE, RAISER_LEVELS.ceo)).toMatch(/CEO approval/);
   });
 });

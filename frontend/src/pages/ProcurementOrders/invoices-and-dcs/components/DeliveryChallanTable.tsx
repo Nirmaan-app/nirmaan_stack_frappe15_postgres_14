@@ -40,6 +40,8 @@ interface DeliveryChallanTableProps {
   canDelete?: (doc: PODeliveryDocuments) => boolean;
   /** `name` of the row currently being deleted — disables just that row, not all. */
   deletingName?: string | null;
+  /** Resolves `owner` to a display name. The "Uploaded By" column renders only when passed. */
+  getUserName?: (userId: string | undefined) => string;
 }
 
 export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
@@ -48,8 +50,10 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
   onDelete,
   canDelete,
   deletingName,
+  getUserName,
 }) => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const columnCount = getUserName ? 7 : 6;
 
   return (
     <Table>
@@ -60,6 +64,9 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
           <TableHead className="text-black font-bold">Ref No.</TableHead>
           <TableHead className="w-[120px] text-black font-bold">Date</TableHead>
           <TableHead className="w-[100px] text-center text-black font-bold">Items</TableHead>
+          {getUserName && (
+            <TableHead className="w-[150px] text-black font-bold">Uploaded By</TableHead>
+          )}
           <TableHead className="w-[120px] text-center text-black font-bold">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -104,6 +111,9 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                     </Badge>
                   )}
                 </TableCell>
+                {getUserName && (
+                  <TableCell className="text-gray-600 text-sm">{getUserName(doc.owner)}</TableCell>
+                )}
                 <TableCell className="text-center">
                   <div className="flex gap-1 justify-center">
                     {doc.attachment_url && (
@@ -205,7 +215,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                 const allQtyZero = doc.items.every((item) => !item.quantity);
                 return (
                 <TableRow>
-                  <TableCell colSpan={6} className="p-0">
+                  <TableCell colSpan={columnCount} className="p-0">
                     <div className="bg-muted/30 p-3">
                       <table className="w-full text-xs">
                         <thead className="bg-muted/50">
@@ -244,7 +254,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
           ))
         ) : (
           <TableRow>
-            <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+            <TableCell colSpan={columnCount} className="text-center py-4 text-gray-500">
               No Delivery Challans or MIRs Found
             </TableCell>
           </TableRow>

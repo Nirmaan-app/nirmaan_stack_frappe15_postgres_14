@@ -189,9 +189,16 @@ export const queryKeys = {
 // --- Helper Functions for Report Options ---
 
 // PO Reports Tab Options
-export const getPOReportListOptions = (): POListParams => ({
+/**
+ * `excludeStatuses` given (Invoice Reconciliation > Pending Invoices Upload) swaps the
+ * status whitelist for a "not in" list. It is part of the params, so it gets its own
+ * SWR cache entry and the Reports page's fetch is untouched.
+ */
+export const getPOReportListOptions = (excludeStatuses?: readonly string[]): POListParams => ({
   fields: PO_REPORT_FIELDS,
-  filters: [["status", "in", ["Dispatched", "Partially Dispatched", "Partially Delivered", "Delivered"]]],
+  filters: excludeStatuses
+    ? [["status", "not in", [...excludeStatuses]]]
+    : [["status", "in", ["Dispatched", "Partially Dispatched", "Partially Delivered", "Delivered"]]],
   limit: 100000, // Consider pagination in future if needed
   orderBy: { field: 'creation', order: 'desc' },
 });

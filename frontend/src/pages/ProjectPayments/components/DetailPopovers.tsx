@@ -28,6 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { poLinkFor, routeName } from "./poRoute";
 
 /**
  * The one trigger style. Dotted underline = "there is more behind this", which is
@@ -88,9 +89,6 @@ const CardShell = ({
   </div>
 );
 
-/** Frappe document names carry slashes; the app's routes encode them as `&=`. */
-const routeName = (docName: string) => docName.replace(/\//g, "&=");
-
 /* ------------------------------------------------------------------ PO / WO */
 
 interface DocumentDetailPopoverProps {
@@ -125,14 +123,8 @@ export const DocumentDetailPopover: React.FC<DocumentDetailPopoverProps> = ({
   const total = Number(data?.total_amount ?? 0);
   const paid = Number(data?.amount_paid ?? 0);
 
-  // ⚠️ The PO opens under its PROJECT (`/projects/:projectId/po/:poId`), the summary
-  // view that renders for every status. NOT bare `/purchase-orders/:id`: with no
-  // `tab` that route falls back to "Approve PO", the PR vendor-quote approval
-  // screen, which 404s looking the PO id up as a Procurement Request.
-  const poProject = projectId || data?.project;
-  const poLink = poProject
-    ? `/projects/${poProject}/po/${routeName(docName)}`
-    : `/purchase-orders/${routeName(docName)}?tab=Dispatched+PO`;
+  // The PO opens on the list tab its status belongs to (owner, 2026-09-21); see `poLinkFor`.
+  const poLink = poLinkFor(docName, data?.status, projectId || data?.project);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { formatDate } from "@/utils/FormatDate";
 import SITEURL from "@/constants/siteURL";
 
@@ -24,6 +24,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Separator } from "@/components/ui/separator";
 
 import type { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 interface ViewAttachmentsDialogProps {
   open: boolean;
@@ -45,6 +46,18 @@ export const ViewAttachmentsDialog = ({
   onEdit,
 }: ViewAttachmentsDialogProps) => {
   void _poName; // kept for future use
+
+  // Same users list + fallback as the PO page's "Uploaded By" column.
+  const { data: usersList } = useUsersList();
+  const getUserName = useCallback(
+    (id: string | undefined): string => {
+      if (!id) return "--";
+      if (id === "Administrator") return "Administrator";
+      return usersList?.find((u) => u.name === id)?.full_name || id;
+    },
+    [usersList]
+  );
+
   const grouped = useMemo(() => {
     if (!documents) return { dc: [], mir: [] };
     const dc = documents.filter((d) => d.type === "Delivery Challan");
@@ -86,9 +99,6 @@ export const ViewAttachmentsDialog = ({
                   Associated DC: {doc.dc_reference}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">
-                Date: {doc.dc_date ? formatDate(doc.dc_date) : formatDate(doc.creation)}
-              </p>
               <div className="flex items-center gap-2 flex-wrap">
                 {doc.items && doc.items.length > 0 && (
                   <Badge variant="secondary" className="text-xs">
@@ -108,35 +118,47 @@ export const ViewAttachmentsDialog = ({
                 )}
               </div>
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              {doc.attachment_url && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.open(`${SITEURL}${doc.attachment_url}`, "_blank")}
-                  className="flex items-center gap-1"
-                  aria-label={`View ${doc.type} file`}
-                >
-                  <Eye className="h-4 w-4" aria-hidden="true" />
-                  View
-                </Button>
-              )}
-              {onEdit && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onEdit(doc)}
-                  className={`flex items-center gap-1 ${
-                    doc.is_stub === 1
-                      ? "text-amber-700 border-amber-300 hover:bg-amber-50"
-                      : "text-primary border-primary hover:bg-primary/5"
-                  }`}
-                  aria-label={`${doc.is_stub === 1 ? "Update" : "Edit"} ${doc.type}`}
-                >
-                  <Pencil className="h-4 w-4" aria-hidden="true" />
-                  {doc.is_stub === 1 ? "Update" : "Edit"}
-                </Button>
-              )}
+            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+              <div className="flex gap-2">
+                {doc.attachment_url && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(`${SITEURL}${doc.attachment_url}`, "_blank")}
+                    className="flex items-center gap-1"
+                    aria-label={`View ${doc.type} file`}
+                  >
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                    View
+                  </Button>
+                )}
+                {onEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onEdit(doc)}
+                    className={`flex items-center gap-1 ${
+                      doc.is_stub === 1
+                        ? "text-amber-700 border-amber-300 hover:bg-amber-50"
+                        : "text-primary border-primary hover:bg-primary/5"
+                    }`}
+                    aria-label={`${doc.is_stub === 1 ? "Update" : "Edit"} ${doc.type}`}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    {doc.is_stub === 1 ? "Update" : "Edit"}
+                  </Button>
+                )}
+              </div>
+              <div className="text-right space-y-0.5">
+                <p className="text-xs text-muted-foreground">
+                  Date: {doc.dc_date ? formatDate(doc.dc_date) : formatDate(doc.creation)}
+                </p>
+                {doc.owner && (
+                  <p className="text-xs text-muted-foreground">
+                    Uploaded by: {getUserName(doc.owner)}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 

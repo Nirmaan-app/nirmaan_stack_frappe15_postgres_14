@@ -55,6 +55,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import _StagedRow
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
     load_project_aliases,
@@ -66,7 +67,10 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     group_plan,
     plan_statement,
 )
-from nirmaan_stack.services.outflow_import.duplicates import index_prior_sightings
+from nirmaan_stack.services.outflow_import.duplicates import (
+    find_prior_sighting,
+    index_prior_sightings,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     EXPENSE_DOCTYPES,
     PROJECT_EXPENSE_DOCTYPE,
@@ -400,6 +404,9 @@ def _already_imported(parsed) -> dict:
 def _already_booked(parsed) -> dict:
     """Which of these transfers an EXPENSE already exists for, and which record that is.
 
+    Asked of a whole statement at preview/confirm; `booked_elsewhere` asks the SAME question of one
+    line (#1314) through the same `_booked_index`, so the two can never disagree.
+
     ⚠️ A DIFFERENT QUESTION FROM `_already_imported`, AND THE GAP BETWEEN THEM WAS THE HOLE. That
     one asks whether an earlier BATCH staged the transfer. This asks whether the money is already
     booked AT ALL -- which it can be without this import ever having seen it. Measured 2026-08-21:
@@ -434,7 +441,12 @@ def _already_booked(parsed) -> dict:
     one parametrised query would hide it. The `btrim(amount) <> ''` guard mirrors that function's;
     verified 2026-08-21 that no `Project Expenses.amount` would break the cast.
     """
-    ids = _statement_transfer_ids(parsed)
+    return _booked_index(_statement_transfer_ids(parsed))
+
+
+def _booked_index(ids) -> dict:
+    """The `index_prior_sightings` index of every expense whose `payment_ref` is one of `ids`. See
+    `_already_booked` for every rule the query follows."""
     if not ids:
         return {}
     placeholders = ", ".join(["%s"] * len(ids))
@@ -469,6 +481,42 @@ def _already_booked(parsed) -> dict:
             for row in rows
         )
     return index_prior_sightings(entries)
+
+
+def booked_elsewhere(row: str) -> str | None:
+    """Where this Cashbook line's money is already booked, as the label the skip sentence names -- or
+    `None`. The unskip re-check for a Cashbook line (#1314, owner Q5; trap 3).
+
+    ⚠️ NOT THE MATCHER. `review.match_line` refuses Cashbook by design (#1272) and must keep doing so,
+    so a Cashbook unskip asks the question the Cashbook import itself asks before it creates anything:
+
+      1. an expense carrying this wallet transaction id -- `_already_booked`'s identity, `payment_ref` +
+         amount + `payment_date`, through the one `_booked_index`;
+      2. a live (Settled) leg on ANOTHER import line for the same transaction id. It catches money that
+         was booked through this feature on a record whose reference was since changed by hand, which
+         (1) cannot see. This line's own legs are excluded -- it has none while Skipped, but the
+         exclusion keeps the answer honest if that ever changes.
+    """
+    line = frappe.db.get_value(
+        ROW_DOCTYPE, row, ["name", "transfer_id", "amount", "added_on"], as_dict=True
+    )
+    transfer_id = (line.transfer_id or "").strip()
+    if not transfer_id:
+        return None
+    staged = _StagedRow(line)
+    label = find_prior_sighting(
+        _booked_index([transfer_id]), transfer_id, staged.amount, staged.added_on_date
+    )
+    if label:
+        return label
+    leg = frappe.db.get_value(
+        MATCH_DOCTYPE,
+        {"transfer_id": transfer_id, "match_kind": MATCH_SETTLED, "import_row": ["!=", line.name]},
+        ["target_doctype", "target_name"],
+        as_dict=True,
+        order_by="matched_at asc",
+    )
+    return f"{leg.target_doctype} {leg.target_name}" if leg else None
 
 
 def _statement_transfer_ids(parsed) -> list[str]:

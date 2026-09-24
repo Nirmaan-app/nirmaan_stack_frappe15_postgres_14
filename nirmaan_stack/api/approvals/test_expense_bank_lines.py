@@ -105,6 +105,49 @@ class TestTheCardReadsTheRun(BankLinesFixture):
         self.assertEqual(dates, sorted(dates))
 
 
+class TestTheCardCarriesRemarksAndDetails(BankLinesFixture):
+    """Owner, 2026-09-24: each line shows its bank remarks, and the card shows the expense's own
+    details (type, project, vendor, description, comment)."""
+
+    def test_each_line_carries_its_bank_remarks(self):
+        lines, expense = self._run(2)
+        frappe.db.set_value(ROW_DOCTYPE, lines[0]["name"], "remarks", "  Salary Sept  ")
+
+        card = get_expense_bank_lines(doctype=NON_PROJECT_EXPENSE, name=expense)
+
+        by_row = {entry["import_row"]: entry for entry in card["lines"]}
+        self.assertEqual(by_row[lines[0]["name"]]["remarks"], "Salary Sept")
+        self.assertIn("remarks", by_row[lines[1]["name"]])
+
+    def test_an_expense_carries_its_details_in_one_shape(self):
+        lines, expense = self._run(1)
+        frappe.db.set_value(
+            NON_PROJECT_EXPENSE, expense, {"description": " Office rent ", "comment": "Sept"}
+        )
+
+        details = get_expense_bank_lines(doctype=NON_PROJECT_EXPENSE, name=expense)["details"]
+
+        self.assertEqual(details["description"], "Office rent")
+        self.assertEqual(details["comment"], "Sept")
+        # A Non Project Expense has no project or vendor: blank, never absent.
+        self.assertEqual(details["project"], "")
+        self.assertEqual(details["vendor_name"], "")
+        self.assertEqual(
+            set(details),
+            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name"},
+        )
+
+    def test_a_project_expense_carries_the_same_keys(self):
+        lines, expense = self._run(1, doctype=PROJECT_EXPENSE)
+
+        details = get_expense_bank_lines(doctype=PROJECT_EXPENSE, name=expense)["details"]
+
+        self.assertEqual(
+            set(details),
+            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name"},
+        )
+
+
 class TestAPartLinkedExpense(BankLinesFixture):
     def test_it_reads_reconciliation_pending_with_what_is_still_to_link(self):
         lines, expense = self._run(2, extra=21480)
@@ -150,10 +193,15 @@ class TestWhatTheCardDoesNotShow(BankLinesFixture):
         self.assertEqual(card["status"], RECONCILIATION_PENDING)
         self.assertAlmostEqual(card["remaining"], float(lines[0]["amount"]), places=2)
 
-    def test_a_payment_is_refused_by_name(self):
+    def test_a_doctype_no_bank_line_settles_is_refused_by_name(self):
         with self.assertRaises(frappe.ValidationError) as caught:
-            get_expense_bank_lines(doctype="Project Payments", name="whatever")
-        self.assertIn("Project Payments", str(caught.exception))
+            get_expense_bank_lines(doctype="Procurement Orders", name="whatever")
+        self.assertIn("Procurement Orders", str(caught.exception))
+
+    def test_a_payment_is_read_rather_than_refused(self):
+        """Payments carry the card too now: an unknown one is NOT FOUND, not "not an expense"."""
+        with self.assertRaises(frappe.DoesNotExistError):
+            get_expense_bank_lines(doctype="Project Payments", name="no-such-payment")
 
     def test_an_expense_that_does_not_exist_is_refused(self):
         with self.assertRaises(frappe.DoesNotExistError):

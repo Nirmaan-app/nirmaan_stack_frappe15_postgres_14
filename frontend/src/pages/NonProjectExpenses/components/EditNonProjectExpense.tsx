@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import { Checkbox } from "@/components/ui/checkbox";
+import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import { useToast } from "@/components/ui/use-toast";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -71,7 +72,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     });
     const [formErrors, setFormErrors] = useState<Partial<Record<keyof EditExpenseFormState, string>>>({});
 
-    // Section toggles - initialize based on whether data exists for these sections
+    // A Paid expense keeps its Amount, Payment Date and Payment Ref (owner, 2026-09-21): they are
+    // read-only here and never sent. This screen is the ONLY lock -- the server leaves Paid
+    // expenses editable so they can still be corrected in Desk.
+    const isPaid = isPaidExpense(expenseToEdit?.status);
+
+    // Section toggles. The payment section is Paid-only and cannot be switched off there: unticking
+    // it used to clear the payment fields while the expense stayed Paid.
     const [recordPaymentDetails, setRecordPaymentDetails] = useState(false);
     const [recordInvoiceDetails, setRecordInvoiceDetails] = useState(false);
 
@@ -107,11 +114,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                 invoice_ref: expenseToEdit.invoice_ref || "",
             });
             // Determine if sections should be initially open
-            const hasPayment = !!(expenseToEdit.payment_date || expenseToEdit.payment_ref || expenseToEdit.payment_attachment);
+            // Keyed on the STATUS: a Reconciliation Pending expense can already carry a payment ref
+            // the bank import wrote, and that must neither open this section nor be cleared by it.
+            const paid = isPaidExpense(expenseToEdit.status);
             const hasInvoice = !!(expenseToEdit.invoice_date || expenseToEdit.invoice_ref || expenseToEdit.invoice_attachment);
-            setRecordPaymentDetails(hasPayment);
-            // A Paid expense (has payment) also requires its invoice, so keep both open.
-            setRecordInvoiceDetails(hasInvoice || hasPayment);
+            setRecordPaymentDetails(paid);
+            // A Paid expense also requires its invoice, so keep both open.
+            setRecordInvoiceDetails(hasInvoice || paid);
 
             setExistingPaymentAttachmentUrl(expenseToEdit.payment_attachment);
             setExistingInvoiceAttachmentUrl(expenseToEdit.invoice_attachment);
@@ -161,7 +170,6 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         if (!formState.description.trim()) errors.description = "Description is required.";
         if (!formState.amount || parseNumber(formState.amount) === 0) errors.amount = "Amount cannot be zero. Use negative for refunds.";
         // Marking Paid (Record Payment Details) makes BOTH dates mandatory.
-        if (recordPaymentDetails && !formState.payment_date) errors.payment_date = "Payment date is required.";
         if ((recordPaymentDetails || recordInvoiceDetails) && !formState.invoice_date) errors.invoice_date = "Invoice date is required.";
         // An invoice attachment (kept existing or newly staged) requires an Invoice Ref.
         const hasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
@@ -198,25 +206,19 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             type: formState.type,
             description: formState.description.trim(),
             comment: formState.comment.trim() || undefined, // Send null to clear if empty
-            amount: parseNumber(formState.amount),
         };
+        if (!isPaid) dataToUpdate.amount = parseNumber(formState.amount);
 
-        // Handle Payment Details
-        if (recordPaymentDetails) {
-            dataToUpdate.payment_date = formState.payment_date;
-            dataToUpdate.payment_ref = formState.payment_ref.trim() || null; // Send null to clear
+        // Payment proof only (Paid rows). The payment date / ref are never written from here, and a
+        // row that is not Paid has its payment fields left exactly as they are.
+        if (isPaid) {
             if (paymentAttachmentAction === "replace" && newPaymentAttachmentFile) {
                 const uploaded = await upload(newPaymentAttachmentFile, { doctype: "Non Project Expenses", docname: expenseToEdit.name, fieldname: "payment_attachment", isPrivate: true });
                 dataToUpdate.payment_attachment = uploaded.file_url;
             } else if (paymentAttachmentAction === "remove") {
                 dataToUpdate.payment_attachment = null;
             }
-            // If "keep", don't add payment_attachment to dataToUpdate unless it changed from undefined to null explicitly.
-            // If it was undefined and stays undefined, it's fine. If it was a URL and now action is "remove", it's set to null.
-        } else { // If section is unchecked, clear related fields
-            dataToUpdate.payment_date = null;
-            dataToUpdate.payment_ref = null;
-            dataToUpdate.payment_attachment = null;
+            // "keep" sends nothing, so the stored proof stays.
         }
 
         // Handle Invoice Details
@@ -244,7 +246,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             toast({ title: "Failed!", description: error.message || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
@@ -267,7 +269,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
     const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading;
     const editHasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
-    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
+    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
 
@@ -370,7 +372,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     </div>
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="amount_edit_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>
-                        <Input id="amount_edit_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
+                        <Input id="amount_edit_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall || isPaid} />
+                        {isPaid && <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">Paid — the amount can no longer be changed.</p>}
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
                             Use negative amount for refunds.
@@ -383,19 +386,18 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     <>
                     <Separator className="my-4" />
                     <div className="flex items-center space-x-2">
-                        <Checkbox id="recordPaymentDetails_edit_npe" checked={recordPaymentDetails} onCheckedChange={(checked) => { setRecordPaymentDetails(Boolean(checked)); if (checked) setRecordInvoiceDetails(true); }} disabled={isLoadingOverall} />
+                        <Checkbox id="recordPaymentDetails_edit_npe" checked={recordPaymentDetails} disabled />
                         <Label htmlFor="recordPaymentDetails_edit_npe" className="font-medium">Payment Details (Paid)</Label>
                     </div>
                     {recordPaymentDetails && (
                         <div className="pl-6 space-y-3 border-l-2 ml-2 mt-2 border-dashed">
                             <div className="grid grid-cols-4 items-center gap-3"> {/* Date */}
-                                <Label htmlFor="payment_date_edit_npe" className="text-right col-span-1">Payment Date <sup className="text-destructive">*</sup></Label>
-                                <Input id="payment_date_edit_npe" name="payment_date" type="date" value={formState.payment_date} onChange={handleInputChange} max={formatDateFns(new Date(), "yyyy-MM-dd")} className="col-span-3" disabled={isLoadingOverall} />
-                                {formErrors.payment_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
+                                <Label htmlFor="payment_date_edit_npe" className="text-right col-span-1">Payment Date</Label>
+                                <Input id="payment_date_edit_npe" name="payment_date" type="date" value={formState.payment_date} className="col-span-3" disabled readOnly />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-3"> {/* Ref */}
                                 <Label htmlFor="payment_ref_edit_npe" className="text-right col-span-1">Payment Ref</Label>
-                                <Input id="payment_ref_edit_npe" name="payment_ref" value={formState.payment_ref} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
+                                <Input id="payment_ref_edit_npe" name="payment_ref" value={formState.payment_ref} className="col-span-3" disabled readOnly />
                             </div>
                             {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment")}
                         </div>

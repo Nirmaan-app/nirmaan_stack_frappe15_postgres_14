@@ -36,6 +36,11 @@ import PO2BReconcileReport from "./PO2BReconcileReport";
 import POAttachmentReconcileReport from "./POAttachmentReconcileReport";
 import DNDCQuantityReport from "./DNDCQuantityReport";
 import { Info } from "lucide-react";
+import {
+  PENDING_UPLOAD_CREATION_FROM,
+  PENDING_UPLOAD_EXCLUDED_PO_STATUSES,
+} from "../constants";
+import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface SelectOption {
@@ -43,7 +48,20 @@ interface SelectOption {
   value: string;
 }
 
-export default function POReports() {
+export interface POReportsProps {
+  /**
+   * Rendered under Invoice Reconciliation > Pending Invoices Upload rather than on the
+   * Reports page. Changes, ALL scoped to that tab by owner ruling:
+   *   - Pending Invoices measures Amount DELIVERED, not Amount Paid.
+   *   - only POs created on/after `PENDING_UPLOAD_CREATION_FROM` are listed.
+   *   - every status except `PENDING_UPLOAD_EXCLUDED_PO_STATUSES` is in scope (the
+   *     Reports page keeps Partially Delivered / Delivered), with a Status filter.
+   * Absent (the Reports page) = today's behaviour, unchanged.
+   */
+  pendingUploadMode?: boolean;
+}
+
+export default function POReports({ pendingUploadMode = false }: POReportsProps = {}) {
   const { role } = useUserData();
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
@@ -54,7 +72,9 @@ export default function POReports() {
     isLoading: isLoadingInitialData,
     error: initialDataError,
     assignmentsLookup,
-  } = usePOReportsData();
+  } = usePOReportsData(
+    pendingUploadMode ? PENDING_UPLOAD_EXCLUDED_PO_STATUSES : undefined
+  );
 
   // CEO Hold row highlighting
   const getRowClassName = useCallback(
@@ -74,8 +94,8 @@ export default function POReports() {
 
   // 2. Dynamically determine columns based on selectedReportType
   const tableColumnsToDisplay = useMemo(
-    () => getPOReportColumns(selectedReportType, role, assignmentsLookup),
-    [selectedReportType, role, assignmentsLookup]
+    () => getPOReportColumns(selectedReportType, role, assignmentsLookup, pendingUploadMode),
+    [selectedReportType, role, assignmentsLookup, pendingUploadMode]
   );
   const payment_delta = 100;
   const invoice_delta = 100;
@@ -83,7 +103,9 @@ export default function POReports() {
   const reportConditionDescription = useMemo(() => {
     switch (selectedReportType) {
       case "Pending Invoices":
-        return `POs with status "Partially Delivered" or "Delivered" where Amount Paid − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`;
+        return pendingUploadMode
+          ? `POs with any status except ${PENDING_UPLOAD_EXCLUDED_PO_STATUSES.map((st) => `"${st}"`).join(", ")}, created on/after ${PENDING_UPLOAD_CREATION_FROM}, where Amount Delivered − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`
+          : `POs with status "Partially Delivered" or "Delivered" where Amount Paid − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`;
       case "PO with Excess Payments":
         return `POs with status "Partially Delivered" or "Delivered" where Amount Paid > Total PO Amount + ₹${payment_delta.toLocaleString("en-IN")}`;
       case "Payable > PO Amount":
@@ -93,7 +115,7 @@ export default function POReports() {
       default:
         return null;
     }
-  }, [selectedReportType, invoice_delta, payment_delta]);
+  }, [selectedReportType, invoice_delta, payment_delta, pendingUploadMode]);
 
   const summaryCardNode = useMemo(() => {
     if (!reportConditionDescription) return undefined;
@@ -139,14 +161,23 @@ export default function POReports() {
         filtered = allPOsForReports.filter((row) => {
           const poDoc = row.originalDoc;
 
-          if (
-            poDoc.status === "Partially Delivered" ||
-            poDoc.status === "Delivered"
-          ) {
-            return (
-              parseNumber(row.amountPaid) - parseNumber(row.invoiceAmount) >
-              invoice_delta
-            );
+          // The tab widens the status set (everything but Merged / Cancelled /
+          // Inactive); the Reports page keeps Partially Delivered / Delivered.
+          const inScope = pendingUploadMode
+            ? !PENDING_UPLOAD_EXCLUDED_PO_STATUSES.includes(poDoc.status)
+            : poDoc.status === "Partially Delivered" ||
+              poDoc.status === "Delivered";
+          if (inScope) {
+            // Under the Pending Invoices Upload tab: DELIVERED, not paid. What is owed
+            // an invoice is what ARRIVED -- a PO paid in advance but undelivered owes
+            // nothing, a delivered but unpaid one does. The WO side is deliberately
+            // different (a Work Order has no delivery, so money leaving is the trigger).
+            // `getPOReportColumns` swaps Amt Paid for Amt Delivered in the same mode, so
+            // the table shows the figure the filter used. The Reports page keeps paid.
+            const basis = pendingUploadMode
+              ? row.poAmountDelivered
+              : row.amountPaid;
+            return parseNumber(basis) - parseNumber(row.invoiceAmount) > invoice_delta;
           }
           return false;
         });
@@ -210,8 +241,8 @@ export default function POReports() {
       default:
         filtered = []; // Should not reach here due to initial check
     }
-    return filtered;
-  }, [allPOsForReports, selectedReportType, payment_delta, invoice_delta]);
+    return applyPendingUploadCutoff(filtered, pendingUploadMode);
+  }, [allPOsForReports, selectedReportType, payment_delta, invoice_delta, pendingUploadMode]);
 
   // 4. Initialize useServerDataTable in clientData mode
 
@@ -285,12 +316,27 @@ export default function POReports() {
       .sort((a, b) => a.value.localeCompare(b.value));
   }, [currentDisplayData]);
 
+  // Only the Pending Invoices Upload tab renders a Status column (see getPOReportColumns).
+  const statusFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = row.originalDoc?.status;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
+
   const facetOptionsConfig = useMemo(
     () => ({
       project_name: { title: "Project", options: projectFacetOptions },
       vendor_name: { title: "Vendor", options: vendorFacetOptions },
+      ...(pendingUploadMode
+        ? { po_status: { title: "Status", options: statusFacetOptions } }
+        : {}),
     }),
-    [projectFacetOptions, vendorFacetOptions]
+    [projectFacetOptions, vendorFacetOptions, statusFacetOptions, pendingUploadMode]
   );
 
   const exportFileName = useMemo(() => {
@@ -338,7 +384,12 @@ export default function POReports() {
         .join("\n"); // Excel supports newlines in cells
 
       // Pending Invoice Amt Logic
-      const pendingInvoiceAmt = parseNumber(row.amountPaid) - parseNumber(row.invoiceAmount);
+      // Same basis the table used, so the CSV can never disagree with the screen it
+      // was exported from (delivered under Pending Invoices Upload, paid on Reports).
+      const pendingBasis = pendingUploadMode && selectedReportType === "Pending Invoices"
+        ? row.poAmountDelivered
+        : row.amountPaid;
+      const pendingInvoiceAmt = parseNumber(pendingBasis) - parseNumber(row.invoiceAmount);
 
       return {
         po_id: row.name,
@@ -350,7 +401,7 @@ export default function POReports() {
         po_amt_delivered: formatForReport(row.poAmountDelivered),
         excess_delivered: formatForReport(row.poAmountDelivered - parseNumber((row as any).totalAmount)),
         total_invoice_amt: formatForReport(row.invoiceAmount),
-        amt_paid: formatForReport(row.amountPaid),
+        amt_paid: formatForReport(pendingBasis),
         pending_invoice_amt: formatForReport(pendingInvoiceAmt),
         remarks: (row.originalDoc as any).notes || "-",
         dispatch_date: row.originalDoc.dispatch_date
@@ -380,7 +431,12 @@ export default function POReports() {
       { header: "Vendor", accessorKey: "vendor_name" },
       { header: "Total PO Amt", accessorKey: "total_po_amt" },
       { header: "Total Invoice Amt", accessorKey: "total_invoice_amt" },
-      { header: "Amt Paid", accessorKey: "amt_paid" },
+      {
+        header: pendingUploadMode && selectedReportType === "Pending Invoices"
+          ? "Amt Delivered"
+          : "Amt Paid",
+        accessorKey: "amt_paid",
+      },
       { header: "Pending Invoice Amt", accessorKey: "pending_invoice_amt" }, // Added
       { header: "Remarks", accessorKey: "remarks" }, // Added
       { header: "PO Status", accessorKey: "status" },
@@ -420,7 +476,7 @@ export default function POReports() {
         variant: "destructive",
       });
     }
-  }, [exportAllRows, exportFileName, selectedReportType, assignmentsLookup]);
+  }, [exportAllRows, exportFileName, selectedReportType, assignmentsLookup, pendingUploadMode]);
 
   const isLoadingOverall =
     isLoadingInitialData ||

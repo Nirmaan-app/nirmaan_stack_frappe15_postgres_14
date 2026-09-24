@@ -10,6 +10,12 @@ invoice was filed. The most common blocker in the queue by far is
 Nothing re-opens the question when the DN lands, so the invoice sits behind a
 reason that stopped being true.
 
+TWO RUNNERS, ONE CODE PATH. The daily job (`tasks/invoice_recheck.py`, 05:00)
+sweeps the queue with no preview; the Re-check button does the same sweep (or a
+single row) mid-day, preview first. Both go through `_run`, so they share the
+candidate list and the per-invoice row lock below — whichever reaches an
+invoice first acts on it, and the other skips it.
+
 SCOPE — DELIBERATELY THE TWO CEILING GATES, NOTHING ELSE (owner ruling).
 Only the four `CEILING_GATE_TOKENS` are re-evaluated and rewritten:
 
@@ -117,9 +123,22 @@ def _outcome(doc, before, after, outcome, figures=None):
     }
 
 
-def _recheck_one(invoice_id, dry_run):
-    """Re-evaluate one candidate's ceilings. Writes (and commits) unless dry_run."""
-    doc = frappe.get_doc("Vendor Invoices", invoice_id)
+def _recheck_one(invoice_id, dry_run, scheduled=False):
+    """Re-evaluate one candidate's ceilings. Writes (and commits) unless dry_run.
+
+    Returns None when the invoice stopped being a candidate after the list was
+    read — approved, rejected or re-checked by someone else in the meantime.
+    """
+    # The candidate list is read before the loop, so re-test the row here, under
+    # a lock when writing. Without it the loop acts on whatever it loads: a
+    # manual approve / reject keeps the old reason tokens, so an invoice rejected
+    # mid-sweep would come out Approved, and one approved by hand would have its
+    # approver overwritten with "System".
+    doc = frappe.get_doc("Vendor Invoices", invoice_id, for_update=not dry_run)
+    if not is_candidate(doc):
+        _release_lock(dry_run)
+        return None
+
     before = _parse_tokens(doc.auto_approve_skip_reasons)
 
     # Everything the re-check does not own, kept exactly as recorded.
@@ -135,12 +154,13 @@ def _recheck_one(invoice_id, dry_run):
             # `_item_billing_sync` counts a PO fully billed only when every
             # counted invoice is Approved, so the status change matters there.
             recompute_po_invoice_qty(doc.document_name)
-            _log_approval(doc, before)
+            _log_approval(doc, before, scheduled)
             frappe.db.commit()
         return _outcome(doc, before, [], "approved", figures)
 
     if set(after) == set(before):
         # Nothing changed — nothing to write.
+        _release_lock(dry_run)
         return _outcome(doc, before, after, "blocked", figures)
 
     if not dry_run:
@@ -152,21 +172,33 @@ def _recheck_one(invoice_id, dry_run):
     )
 
 
-def _log_approval(doc, before):
-    """Timeline note naming who ran the re-check and what cleared.
+def _release_lock(dry_run):
+    """End the transaction holding the row lock on a path that writes nothing.
 
-    Auto-approval at creation and auto-approval on re-check both land as
-    `auto_approved = 1, approved_by = "System"` — correct either way, the system
-    approved it — but that leaves nothing saying a person pressed a button to
-    make it happen. The comment carries it, with no schema change.
+    Otherwise the lock rides along until the next invoice commits, blocking a
+    reviewer's approve on that row for the rest of the sweep. A dry run takes no
+    lock and must not commit.
+    """
+    if not dry_run:
+        frappe.db.commit()
+
+
+def _log_approval(doc, before, scheduled=False):
+    """Timeline note naming what ran the re-check and what cleared.
+
+    Auto-approval at creation, on the daily job and on the button all land as
+    `auto_approved = 1, approved_by = "System"` — correct each time, the system
+    approved it — but that leaves nothing saying which run did it, or that a
+    person pressed a button. The comment carries it, with no schema change.
     """
     cleared = ", ".join(sorted(before)) or "no recorded reason"
-    doc.add_comment(
-        "Info",
-        _("Auto-approved on re-check by {0}. Cleared: {1}.").format(
+    if scheduled:
+        message = _("Auto-approved on the daily re-check. Cleared: {0}.").format(cleared)
+    else:
+        message = _("Auto-approved on re-check by {0}. Cleared: {1}.").format(
             frappe.session.user, cleared
-        ),
-    )
+        )
+    doc.add_comment("Info", message)
 
 
 def _summarise(results, dry_run, truncated=0):
@@ -198,12 +230,14 @@ def _require_access():
         )
 
 
-def _run(invoice_ids, dry_run, truncated=0):
+def _run(invoice_ids, dry_run, truncated=0, scheduled=False):
     """Shared driver. Each invoice is isolated — one failure cannot abort a run."""
     results = []
     for invoice_id in invoice_ids:
         try:
-            results.append(_recheck_one(invoice_id, dry_run))
+            row = _recheck_one(invoice_id, dry_run, scheduled)
+            if row is not None:
+                results.append(row)
         except Exception as exc:
             frappe.db.rollback()
             frappe.log_error(
@@ -256,7 +290,11 @@ def recheck_pending_queue(dry_run=False):
     _require_access()
 
     dry_run = frappe.parse_json(dry_run) if isinstance(dry_run, str) else bool(dry_run)
+    return run_pending_queue(dry_run)
 
+
+def pending_queue_candidates():
+    """Every Pending invoice a re-check could change, oldest first."""
     rows = frappe.get_all(
         "Vendor Invoices",
         filters={"status": "Pending"},
@@ -264,6 +302,12 @@ def recheck_pending_queue(dry_run=False):
         order_by="creation asc",
         limit_page_length=0,
     )
-    candidates = [r.name for r in rows if is_candidate(r)]
+    return [r.name for r in rows if is_candidate(r)]
+
+
+def run_pending_queue(dry_run, scheduled=False):
+    """The queue sweep behind both the button and the daily job. No access check —
+    the whitelisted caller does its own, and the scheduler is not a user."""
+    candidates = pending_queue_candidates()
     truncated = max(0, len(candidates) - MAX_SWEEP_INVOICES)
-    return _run(candidates[:MAX_SWEEP_INVOICES], dry_run, truncated)
+    return _run(candidates[:MAX_SWEEP_INVOICES], dry_run, truncated, scheduled)

@@ -22,6 +22,8 @@ export type PDDParentDoctype = "Procurement Orders" | "Internal Transfer Memo";
 export interface PODeliveryDocuments {
   name: string;
   creation: string;
+  /** The user who uploaded it. */
+  owner?: string;
   modified?: string;
   modified_by?: string;
   parent_doctype?: PDDParentDoctype;

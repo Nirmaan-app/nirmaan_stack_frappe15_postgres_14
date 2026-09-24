@@ -812,10 +812,10 @@ class TestTheSharedHelpers(unittest.TestCase):
 
     def test_a_non_project_inflow_is_a_received_ledger_with_a_display_noun(self):
         """#1266: the received block of the settled panel and every duplicate note name it. The old
-        `Non Project Expenses` stays in the received list -- rows the removed receipt path wrote may
-        still exist (Amendment A-D2)."""
+        `Non Project Expenses` is NOT in the received list (owner ruling 2026-09-24) -- a leftover B7
+        receipt falls into the block's `Other` slot instead."""
         self.assertIn(NON_PROJECT_INFLOW, RECEIVED_LEDGER_DOCTYPES)
-        self.assertIn(NON_PROJECT_EXPENSE, RECEIVED_LEDGER_DOCTYPES)
+        self.assertNotIn(NON_PROJECT_EXPENSE, RECEIVED_LEDGER_DOCTYPES)
         self.assertEqual(
             LEDGER_NOUNS[NON_PROJECT_INFLOW], ("Non Project Inflow", "Non Project Inflows")
         )

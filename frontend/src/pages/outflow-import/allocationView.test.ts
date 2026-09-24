@@ -10,6 +10,7 @@ import {
     pickerComparisonAmount,
     settleModeLocked,
     settlePickerFor,
+    partlyAllocatedFigures,
 } from "./allocationView";
 
 const leg = (amount: number) => ({ target_amount: amount, match_kind: "Settled" });
@@ -603,5 +604,36 @@ describe("matcherMarksVisible", () => {
         for (const status of ["Partially Allocated", "Matched", "Mismatched", ""]) {
             expect(matcherMarksVisible(status)).toBe(!settleModeLocked(status));
         }
+    });
+});
+
+describe("partlyAllocatedFigures", () => {
+    const leg = (target_amount: number, match_kind = "Settled") => ({ target_amount, match_kind });
+
+    // The measured line: XINERGY INNOVATION, 1,47,913, two payments of 1,07,380 + 26,460.
+    it("names what is reconciled and what is still pending on a part-used line", () => {
+        expect(
+            partlyAllocatedFigures({
+                row_status: "Partially Allocated",
+                amount: 147913,
+                matches: [leg(107380), leg(26460)],
+            }),
+        ).toEqual({ reconciled: 133840, pending: 14073 });
+    });
+
+    it("says nothing about a row that is not part-used", () => {
+        for (const row_status of ["Settled", "Matched", "Mismatched", "Pending match run", "Skipped"]) {
+            expect(partlyAllocatedFigures({ row_status, amount: 1000, matches: [leg(1000)] })).toBeNull();
+        }
+    });
+
+    it("counts only live legs, the rule the balance bar reads", () => {
+        expect(
+            partlyAllocatedFigures({
+                row_status: "Partially Allocated",
+                amount: 1000,
+                matches: [leg(400), leg(300, "Reversed")],
+            }),
+        ).toEqual({ reconciled: 400, pending: 600 });
     });
 });

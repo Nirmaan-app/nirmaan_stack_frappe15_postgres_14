@@ -15,6 +15,10 @@ import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { PaymentModeFields } from "../components/PaymentModeFields";
+import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
+import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
+import { useUserData } from "@/hooks/useUserData";
 import { useVendorTdsRates } from "../hooks/useVendorTdsRates";
 import {
   EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
@@ -36,6 +40,10 @@ interface Props {
 export default function RequestPaymentDialog(p:Props){
   const { requestPaymentDialog:open, toggleRequestPaymentDialog:toggle } = useDialogStore();
 
+  /* Where the payment will land when the raiser already holds an approval (owner, 2026-09-21).
+     The server decides; this only says so before the request is made. */
+  const { role, user_id } = useUserData();
+
   /* CEO Hold guard */
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
 
@@ -52,7 +60,21 @@ export default function RequestPaymentDialog(p:Props){
   const payable  = baseOnly ? p.totalExGST : p.totalIncGST;
 
   const requested = p.paid + p.pending;
-  const max = useMemo(()=> payable - p.paid - p.pending, [payable,p]);
+
+  /* Where this WO's money already stands (owner, 2026-09-21). WO only: the PO page requests
+     through its payment terms, and this dialog's PO path has no live trigger. */
+  const isWO = p.docType === "Service Requests";
+  const { summary, isLoading: summaryLoading } = usePaymentSummary(
+    open && isWO ? p.docType : null,
+    open && isWO ? p.docName : null
+  );
+  // ⚠️ ONE BALANCE: once the summary has loaded, "Due", the cap warning and the block's
+  // "Left after this payment" all read the SAME figure. It counts payments gross of TDS as this
+  // dialog always has, and also counts a Rejected payment not yet deleted -- which the server's
+  // cap already counts, so a request the server would refuse is now refused here first. Until
+  // it loads (or if it fails) the local figure stands, exactly as before.
+  const localMax = payable - p.paid - p.pending;
+  const max = useMemo(()=> (isWO && summary ? summary.left : localMax), [isWO, summary, localMax]);
   const amount = useMemo(()=>{
     switch(mode){
       case "full"   : return payable;
@@ -110,12 +132,15 @@ export default function RequestPaymentDialog(p:Props){
   /* ---------- UI ---------- */
   return (
   <AlertDialog open={open} onOpenChange={toggle}>
-    <AlertDialogContent className="max-w-md">
+    <AlertDialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
       <AlertDialogHeader><AlertDialogTitle className="text-center">
          Request Payment
       </AlertDialogTitle></AlertDialogHeader>
 
-      {baseOnly &&
+      {isWO && (summary || summaryLoading) &&
+        <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={amount} />}
+
+      {baseOnly && !summary && !summaryLoading &&
         <p className="text-xs text-muted-foreground text-center -mt-2">
           {requested > 0
             ? <>GST Work Order — base amount (ex-GST) {formatToIndianRupee(p.totalExGST)}, already requested {formatToIndianRupee(requested)}, balance {formatToIndianRupee(Math.max(max, 0))}</>
@@ -167,6 +192,10 @@ export default function RequestPaymentDialog(p:Props){
       <p className="mt-2 text-center font-semibold">
         Requesting: <span className="text-primary">{formatToIndianRupee(amount)}</span>
       </p>
+      {(() => {
+        const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));
+        return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
+      })()}
 
       {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
       <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}

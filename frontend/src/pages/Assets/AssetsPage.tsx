@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useUserData } from '@/hooks/useUserData';
+import { urlStateManager } from '@/utils/urlStateManager';
 import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List } from 'lucide-react';
 
 import { AssetsSummaryCards } from './components/AssetsSummaryCard';
@@ -19,6 +20,30 @@ import { AssetCategoryType } from './assets.constants';
 type AssetTopTab = 'project' | 'it' | 'categories';
 type AssetSubTab = 'all' | 'assigned' | 'unassigned' | 'pending';
 
+const TOP_TABS: readonly AssetTopTab[] = ['project', 'it', 'categories'];
+const SUB_TABS: readonly AssetSubTab[] = ['all', 'assigned', 'unassigned', 'pending'];
+
+// Keeps a tab in the URL (?tab= / ?view=) so Back from an asset's page lands on the
+// same tab instead of the default. replaceState via urlStateManager, like the tables'
+// own params, so switching tabs adds no history entries. The default is left out of the URL.
+function useUrlTab<T extends string>(key: string, values: readonly T[], fallback: T) {
+    const parse = (raw: string | null): T => (values.includes(raw as T) ? (raw as T) : fallback);
+    const [value, setValue] = useState<T>(() => parse(urlStateManager.getParam(key)));
+
+    React.useEffect(
+        () => urlStateManager.subscribe(key, (_, raw) => setValue(parse(raw))),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [key]
+    );
+
+    const update = (next: T) => {
+        setValue(next);
+        urlStateManager.updateParam(key, next === fallback ? null : next);
+    };
+
+    return [value, update] as const;
+}
+
 const assetSubTabs: { id: AssetSubTab; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'all', label: 'All', shortLabel: 'All', icon: List },
     { id: 'assigned', label: 'Assigned', shortLabel: 'Asgn', icon: Users },
@@ -33,7 +58,7 @@ interface AssetSubTabsViewProps {
 }
 
 const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshKey, onAssetChange }) => {
-    const [subTab, setSubTab] = useState<AssetSubTab>('all');
+    const [subTab, setSubTab] = useUrlTab<AssetSubTab>('view', SUB_TABS, 'all');
 
     return (
         <>
@@ -90,7 +115,7 @@ const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshK
 
 const AssetsPage: React.FC = () => {
     const userData = useUserData();
-    const [activeTab, setActiveTab] = useState<AssetTopTab>('project');
+    const [activeTab, setActiveTab] = useUrlTab<AssetTopTab>('tab', TOP_TABS, 'project');
     const [addCategoryDialogOpen, setAddCategoryDialogOpen] = useState(false);
     const [addAssetDialogOpen, setAddAssetDialogOpen] = useState(false);
     const [categoryRefreshKey, setCategoryRefreshKey] = useState(0);
@@ -148,7 +173,11 @@ const AssetsPage: React.FC = () => {
 
             <Tabs
                 value={activeTab}
-                onValueChange={(v) => setActiveTab(v as AssetTopTab)}
+                onValueChange={(v) => {
+                    // A new top tab starts on "All", as before the tabs lived in the URL.
+                    urlStateManager.updateParam('view', null);
+                    setActiveTab(v as AssetTopTab);
+                }}
                 className="flex flex-col"
             >
                 <div className="flex items-center justify-between gap-4">

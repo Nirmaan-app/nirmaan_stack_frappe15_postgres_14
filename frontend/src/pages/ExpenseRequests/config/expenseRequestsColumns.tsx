@@ -4,15 +4,22 @@
 // tabs of /expense read as one module.
 //
 // Tab-driven visibility:
-//   Status                   -> only on "All" (the others are single-status by definition)
+//   Status                   -> on "All" and on "Raised By Me". Every OTHER tab is a single
+//                               status by definition, so the column would repeat its own
+//                               name on every row; "Raised By Me" is not -- it spans every
+//                               status, so without this its rows carry no status at all.
 //   Reviewed By              -> hidden on "Pending Approval" (nothing to show yet)
-//   Actions                  -> only on "Pending Approval", and only for a reviewer
+//   Actions                  -> only on "Pending Approval", and only for a reviewer. It
+//                               stays off "Raised By Me" -- those are the viewer's OWN
+//                               requests, and `access.guard_reviewer` refuses self-review.
 //   Description              -> hidden on "Pending Approval". A type WITH a format hides the
 //                               description field entirely (its fields are the description),
 //                               so the column read "--" on every such row -- a column of
 //                               dashes costs width and tells the reviewer nothing.
 
 import { ColumnDef } from "@tanstack/react-table";
+
+import { EXR_RAISED_BY_ME } from "./expenseRequestsTable.config";
 import { Check, Pencil, X } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -52,7 +59,7 @@ interface Args {
 export const getExpenseRequestColumns = ({
     statusTab, getUserName, getCategory, canReview, canEdit, onApprove, onReject, onEdit,
 }: Args): ColumnDef<ExpenseRequest>[] => {
-    const showStatus = statusTab === "All";
+    const showStatus = statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
     const showReview = statusTab !== "Pending Approval";
     const showActions = statusTab === "Pending Approval";
     const showComment = statusTab !== "Pending Approval";

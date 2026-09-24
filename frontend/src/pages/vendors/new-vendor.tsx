@@ -10,17 +10,15 @@ import { useToast } from "@/components/ui/use-toast"
 import { ACCOUNT_NUMBER_REGEX, IFSC_REGEX, NAME_REGEX } from "@/constants/vendorFormRegex"
 import { accountNumberDuplicateMessage, findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates"
 import { vendorTaxIdSchemas } from "./utils/vendorTaxIds"
-import { SERVICECATEGORIES } from "@/lib/ServiceCategories"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useSWRConfig } from "frappe-react-sdk"
-import { usePincodeData, useExistingVendors, useBankDetails, useCategoryList } from './data/useVendorQueries'
+import { usePincodeData, useExistingVendors, useBankDetails } from './data/useVendorQueries'
 import { useCreateVendorAndAddress } from './data/useVendorMutations'
 import { ListChecks, ListRestart } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
-import ReactSelect from 'react-select'
 import * as z from "zod"
 
 
@@ -178,19 +176,12 @@ const getVendorFormSchema = (service: boolean, accountNumber: string | undefined
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
 
-interface SelectOption {
-    label: string;
-    value: string;
-}
-
 interface NewVendorProps {
-  dynamicCategories?: {category_name : string, work_package : string}[];
   navigation?: boolean;
-  renderCategorySelection?: boolean;
   service?: boolean;
 }
 
-export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, service = false }) => {
+export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, service = false }) => {
 
     const navigate = useNavigate()
     const [vendorType, setVendorType] = useState<string | null>(null)
@@ -223,8 +214,6 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
         reValidateMode: 'onChange',
     })
 
-    const { data: category_list } = useCategoryList({ field: 'work_package', order: 'asc' });
-
     useEffect(() => {
         if (service) {
             setVendorType("Service")
@@ -236,18 +225,6 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
     const { mutate } = useSWRConfig()
     const { toast } = useToast()
     const { call: createVendorAndAddress, loading: createVendorAndAddressLoading } = useCreateVendorAndAddress()
-
-    const [categories, setCategories] = useState<SelectOption[]>([])
-
-    const category_options: SelectOption[] = useMemo(() => (dynamicCategories.length ? dynamicCategories : category_list)
-        ?.map(item => ({
-            label: `${!dynamicCategories.length ? `${item.category_name}-(${item.work_package})` : item.category_name}`,
-            value: item.category_name
-        })) || [], [dynamicCategories, category_list]);
-
-    const handleChange = useCallback((selectedOptions: SelectOption[]) => {
-        setCategories(selectedOptions)
-    }, [setCategories])
 
     const closewindow = useCallback(() => {
         const button = document.getElementById('sheetClose');
@@ -279,7 +256,6 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             bank_branch: undefined,
             ifsc: undefined,
         });
-        setCategories([]);
         form.clearErrors();
         document.getElementById("vendorShopName")?.focus()
     }
@@ -335,17 +311,11 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                 return
             }
 
-            let category_json = categories.map((cat) => cat["value"]);
-
-            const formattedDynamicCategories = dynamicCategories?.map((item) => item?.category_name);
-
+            // No categories: a new vendor starts empty and the daily job
+            // (tasks/vendor_category_sync.py) fills them in from its POs and Work Orders.
             const response = await createVendorAndAddress({
                 values: { ...values },
                 vendorType: vendorType,
-                category_json: category_json,
-                service_categories: SERVICECATEGORIES,
-                dynamicCategories: formattedDynamicCategories,
-                renderCategorySelection: renderCategorySelection,
                 service: service,
               });
 
@@ -505,7 +475,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
 
             console.error("Submit Error", error);
         }
-    }, [createVendorAndAddress, navigation, mutate, vendorType, categories, dynamicCategories,renderCategorySelection, service ]);
+    }, [createVendorAndAddress, navigation, mutate, vendorType, service ]);
 
     // A PAN another vendor already holds is allowed — warn, never block.
     const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
@@ -665,15 +635,6 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                         </FormItem>
                                     )}
                                 />
-                                {(renderCategorySelection && vendorType !== "Service") && (
-                                    <>
-                                        <div>
-                                            <label className="flex items-center">Add Category<sup className="text-sm text-red-600">*</sup></label>
-                                            <ReactSelect options={category_options} onChange={handleChange} isMulti />
-                                        </div>
-                                        <Separator className="my-3" />
-                                    </>
-                                )}
                                 <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
                                 <FormField
                                     control={form.control}

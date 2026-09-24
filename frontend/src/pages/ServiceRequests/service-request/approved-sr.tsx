@@ -803,8 +803,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
-                                                        Deleting the payment also deletes its Payment TDS Deduction (server on_trash). */}
-                                                    {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !summaryPage &&
+                                                        Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
+                                                        A REJECTED payment: Admin also gets the trash in the summary view, which is how
+                                                        every WO opens (owner, 2026-09-21). */}
+                                                    {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") &&
+                                                        (!summaryPage || (payment?.status === "Rejected" && role === "Nirmaan Admin Profile")) &&
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"

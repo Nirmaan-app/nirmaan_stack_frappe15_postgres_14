@@ -134,6 +134,12 @@ export interface OutflowImportRow {
      */
     suggested_doctype?: string;
     suggested_name?: string;
+    /**
+     * The Cashbook PLAN's expense type (#1314), written by the Cashbook import beside
+     * `suggested_doctype` (the planned ledger) and `resolved_project`. Blank on every other source. A
+     * reopened Cashbook line's Create form pre-fills from these three (`newExpenseSeed`).
+     */
+    suggested_expense_type?: string;
     row_status: string;
     skip_reason?: string;
     /**

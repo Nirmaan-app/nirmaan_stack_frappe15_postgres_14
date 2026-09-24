@@ -396,7 +396,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   }, [mutatePDD, mutateAttachments, docMutate]);
 
   // --- PDD Delete ---
-  // Admin + procurement + billing only. Deliberately NOT keyed off
+  // Admin + PMO + procurement + billing only. Deliberately NOT keyed off
   // `isEstimatesExecutive`: that prop is true for BOTH Estimates Executive and
   // Billing Executive (see PurchaseOrder.tsx `estimatesViewing`), and billing
   // must be able to delete a wrong DC/MIR even though it cannot upload one.
@@ -787,6 +787,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                   onDelete={handlePDDDelete}
                   canDelete={() => canDeletePDD}
                   deletingName={deletingPddName}
+                  getUserName={getUserName}
                 />
               </div>
             </CardContent>

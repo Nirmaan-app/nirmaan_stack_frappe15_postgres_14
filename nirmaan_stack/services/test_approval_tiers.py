@@ -189,3 +189,43 @@ class TestSharedCeoLine(unittest.TestCase):
         for amount in (0.01, 1, 14_999, 14_999.99):
             self.assertEqual(required_tier(amount), TIER_AUTO)
             self.assertEqual(required_tier(amount, TIER_L2_ABOVE_EXPENSES), TIER_AUTO)
+
+
+class TestRaiserLevel(unittest.TestCase):
+    """A step the raiser already holds is not asked again (owner, 2026-09-21)."""
+
+    def test_the_owners_table(self):
+        from nirmaan_stack.services.approval_tiers import RAISER_CEO, RAISER_L1, initial_status_for_raiser
+
+        cases = [
+            # amount, level,      expected
+            (5_000, None, "Approved"), (5_000, RAISER_L1, "Approved"), (5_000, RAISER_CEO, "Approved"),
+            (30_000, None, "Requested"), (30_000, RAISER_L1, "Approved"), (30_000, RAISER_CEO, "Approved"),
+            (80_000, None, "Requested"), (80_000, RAISER_L1, "CEO Pending"), (80_000, RAISER_CEO, "Approved"),
+        ]
+        for amount, level, expected in cases:
+            with self.subTest(amount=amount, level=level):
+                self.assertEqual(initial_status_for_raiser(amount, 50000.0, level), expected)
+
+    def test_no_level_is_exactly_initial_status(self):
+        from nirmaan_stack.services.approval_tiers import initial_status, initial_status_for_raiser
+
+        for amount in (-60_000, -5, 0, 5_000, 15_000, 50_000, 50_001, "9000", None):
+            with self.subTest(amount=amount):
+                self.assertEqual(initial_status_for_raiser(amount, 50000.0, None), initial_status(amount, 50000.0))
+
+    def test_which_steps_the_raiser_stands_in_for(self):
+        from nirmaan_stack.services.approval_tiers import RAISER_CEO, RAISER_L1, steps_cleared_by_raiser
+
+        self.assertEqual(steps_cleared_by_raiser(5_000, 50000.0, RAISER_CEO), (False, False))  # auto: no one
+        self.assertEqual(steps_cleared_by_raiser(30_000, 50000.0, None), (False, False))
+        self.assertEqual(steps_cleared_by_raiser(30_000, 50000.0, RAISER_L1), (True, False))
+        self.assertEqual(steps_cleared_by_raiser(30_000, 50000.0, RAISER_CEO), (True, False))  # no CEO step existed
+        self.assertEqual(steps_cleared_by_raiser(80_000, 50000.0, RAISER_L1), (True, False))
+        self.assertEqual(steps_cleared_by_raiser(80_000, 50000.0, RAISER_CEO), (True, True))
+
+    def test_an_unknown_level_changes_nothing(self):
+        from nirmaan_stack.services.approval_tiers import initial_status_for_raiser, steps_cleared_by_raiser
+
+        self.assertEqual(initial_status_for_raiser(80_000, 50000.0, "accountant"), "Requested")
+        self.assertEqual(steps_cleared_by_raiser(80_000, 50000.0, "accountant"), (False, False))

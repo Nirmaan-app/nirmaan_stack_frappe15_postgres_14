@@ -22,7 +22,10 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { formatISO, startOfDay, endOfDay } from 'date-fns';
 import { useSharedReportDateRange, useReportDateStore } from "../store/useReportDateStore";
+import { usePartiallyReconciled } from "../hooks/usePartiallyReconciled";
+import { PartiallyReconciledLines } from "./PartiallyReconciledLines";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Supporting Data Types & Config ---
@@ -73,6 +76,11 @@ export function OutflowReportTable() {
     // 1. Shared date range across all report types (Cash Sheet / Inflow / Outflow).
     //    Relative presets recompute from today on every load — never freezes.
     const { dateRange, onChange: onDateChange, onClear: onDateClear } = useSharedReportDateRange();
+    // Money out that the table's `status = "Paid"` filter cannot see: the confirmed part of
+    // records still Reconciliation Pending. SUMMARY ONLY -- the rows stay Paid records.
+    const partiallyReconciled = usePartiallyReconciled("project", dateRange?.from, dateRange?.to);
+    // The PO/WO effective rate, the same reader `useOutflowReportData` uses for the table's rows.
+    const { getEffectiveGST } = useOrderTotals();
     const setCustomDateRange = useReportDateStore((s) => s.setCustomRange);
 
     // Seed once from a cross-report deep-link (e.g. project Cash Sheet → Outflow
@@ -235,6 +243,18 @@ export function OutflowReportTable() {
         const rowsToSum = table.getFilteredRowModel().rows;
         return rowsToSum.reduce((sum, row) => sum + row.original.amount, 0);
     }, [table.getFilteredRowModel().rows]); // Dependency is the array of filtered rows
+
+    // The same Partially Reconciled money with GST taken out, record by record, by the SAME rule
+    // the table applies to its own rows: an order's effective rate for a payment, nothing for an
+    // expense (`useOutflowReportData` gives every expense row `effective_gst: 0`).
+    const partiallyReconciledExclGST = useMemo(() => {
+        return partiallyReconciled.items.reduce((sum, item) => {
+            const rate = item.document_name && item.document_type
+                ? getEffectiveGST(item.document_name, item.document_type) || 0
+                : 0;
+            return sum + (rate > 0 ? item.amount / (1 + rate / 100) : item.amount);
+        }, 0);
+    }, [partiallyReconciled.items, getEffectiveGST]);
 
     // Calculate total amount excluding GST
     // Formula: base_amount = amount / (1 + effective_gst / 100)
@@ -413,21 +433,39 @@ export function OutflowReportTable() {
                                             <TrendingDown className="h-3 w-3" />
                                             Total Paid (Incl. GST)
                                         </dt>
+                                        {/* The TOTAL: the Paid rows below plus the confirmed part of
+                                            records still Reconciliation Pending. The lines under it
+                                            are what it is made of. */}
                                         <dd className="text-2xl font-bold text-red-700 dark:text-red-400 tabular-nums">
-                                            {formatToRoundedIndianRupee(totalOutflowAmount || 0)}
+                                            {formatToRoundedIndianRupee((totalOutflowAmount || 0) + partiallyReconciled.amount)}
                                         </dd>
+                                        <PartiallyReconciledLines
+                                            done={partiallyReconciled}
+                                            paidAmount={totalOutflowAmount || 0}
+                                            mutedClassName="text-red-600/80 dark:text-red-400/80"
+                                            borderClassName="border-red-200/70 dark:border-red-900/50" />
                                     </div>
                                     {/* Secondary Metric - Estimated Excl GST */}
                                     <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
                                         <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
                                             Estimated (Excl. GST)
                                         </dt>
+                                        {/* Same shape as the tile beside it: the headline is the
+                                            total, the lines under it are its two parts -- here with
+                                            GST taken out of each. */}
                                         <dd className="text-2xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
-                                            {formatToRoundedIndianRupee(totalAmountExclGST || 0)}
+                                            {formatToRoundedIndianRupee((totalAmountExclGST || 0) + partiallyReconciledExclGST)}
                                         </dd>
                                         <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
-                                            Approx. GST: {formatToRoundedIndianRupee((totalOutflowAmount - totalAmountExclGST) || 0)}
+                                            Approx. GST: {formatToRoundedIndianRupee(
+                                                ((totalOutflowAmount + partiallyReconciled.amount) - ((totalAmountExclGST || 0) + partiallyReconciledExclGST)) || 0
+                                            )}
                                         </span>
+                                        <PartiallyReconciledLines
+                                            done={{ ...partiallyReconciled, amount: partiallyReconciledExclGST }}
+                                            paidAmount={totalAmountExclGST || 0}
+                                            mutedClassName="text-slate-500 dark:text-slate-400"
+                                            borderClassName="border-slate-200 dark:border-slate-700" />
                                     </div>
                                 </div>
                             </CardContent>

@@ -36,3 +36,25 @@ export const PMO_PROJECT_REPORTS: readonly string[] = [
   'Inventory Report',
   'Monthly WIP',
 ];
+
+/**
+ * The Pending Invoices Upload tab (Invoice Reconciliation) only looks at the current
+ * financial year; the Reports page deliberately still shows every year.
+ *
+ * ONE definition, read by both report bodies, so the PO and WO halves of that tab can
+ * never disagree about where the year starts. Compared against Frappe's `creation`
+ * string ("YYYY-MM-DD HH:MM:SS"), which sorts correctly against this prefix.
+ */
+export const PENDING_UPLOAD_CREATION_FROM = "2026-04-01";
+
+/**
+ * The Pending Invoices Upload tab lists a PO in ANY status except these (owner ruling).
+ * The Reports page's Pending Invoices report keeps its Partially Delivered / Delivered
+ * rule and is unaffected. Read by the tab's fetch AND its row filter, so the two cannot
+ * disagree about which statuses are in scope.
+ */
+export const PENDING_UPLOAD_EXCLUDED_PO_STATUSES: readonly string[] = [
+  "Merged",
+  "Cancelled",
+  "Inactive",
+];

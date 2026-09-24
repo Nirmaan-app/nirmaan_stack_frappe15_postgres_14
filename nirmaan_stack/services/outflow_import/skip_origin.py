@@ -38,6 +38,7 @@ prints what it classified so production can be checked.
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
+    SKIP_KIND_BY_HAND,
     SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_REPEATED_IN_FILE,
@@ -47,6 +48,7 @@ from nirmaan_stack.services.outflow_import.sources import source_runs_the_matche
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
     ROW_PARTIALLY_ALLOCATED,
+    ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
     SKIP_ORIGIN_MANUAL,
@@ -69,8 +71,8 @@ SKIP_REFUSED_PARTIALLY_ALLOCATED = (
 )
 SKIP_REFUSED_ALREADY_SKIPPED = "This transfer is already skipped."
 SKIP_REFUSED_NOT_OPEN = "This transfer is {status}, so it cannot be skipped."
-SKIP_REFUSED_CASHBOOK = (
-    "Cashbook lines can't be skipped here. The Cashbook import decides which of its lines to skip."
+SKIP_REFUSED_CASHBOOK_PENDING = (
+    "The Cashbook import is still creating this line's expense, so it can't be skipped yet."
 )
 
 
@@ -81,8 +83,11 @@ def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | 
     line, which let a system skip -- a duplicate, a refused transfer -- be relabelled a hand skip and
     so become unskippable. A Settled or Partially Allocated line has money written against it.
 
-    ⚠️ CASHBOOK IS REFUSED BY SOURCE, whatever its status (parent #1270 Q16): its lines carry the plan
-    its own job writes from, and the matcher never runs over them.
+    ⚠️ AN OPEN CASHBOOK LINE MAY BE SKIPPED (#1314, owner Q3 -- REVERSES parent #1270 Q16), bar ONE
+    status: `Pending match run`. For Cashbook that status means "the Cashbook job has not written this
+    line yet", and its worker reads the line list once and writes each line without looking again -- a
+    skip taken now would be overwritten by the expense the job then creates. A reopened Cashbook line is
+    `Mismatched` (unreconcile, unskip), never Pending, so this refuses only the job's work in progress.
     """
     status = (row_status or "").strip()
     if status not in OPEN_ROW_STATUSES:
@@ -93,13 +98,13 @@ def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | 
         if status == ROW_SKIPPED:
             return SKIP_REFUSED_ALREADY_SKIPPED
         return SKIP_REFUSED_NOT_OPEN.format(status=status or "in no known state")
-    if not source_runs_the_matcher(source or ""):
-        return SKIP_REFUSED_CASHBOOK
+    if not source_runs_the_matcher(source or "") and status == ROW_PENDING_MATCH:
+        return SKIP_REFUSED_CASHBOOK_PENDING
     return None
 
 
 UNSKIP_REFUSED_NOT_SKIPPED = "This transfer is not skipped, so there is nothing to unskip."
-UNSKIP_REFUSED_CASHBOOK = "Cashbook rows can't be unskipped."
+UNSKIP_REFUSED_CASHBOOK = "Only a Cashbook line skipped by hand can be unskipped."
 UNSKIP_REFUSED_NO_KIND = "This transfer has no skip type, so it can't be unskipped."
 
 # The four kinds that stay skipped, each with the sentence the disabled button shows (owner, 2026-09-17,
@@ -131,14 +136,17 @@ def unskip_refusal(
     ⚠️ A BLANK OR UNKNOWN KIND IS REFUSED. Every Skipped line was back-filled with a kind, so a blank
     one is a line nobody can vouch for.
 
-    ⚠️ CASHBOOK IS REFUSED WHATEVER ITS KIND (parent #1270 Q16, owner decision B1). Its lines carry the
-    plan its own job writes from, and the re-check an unskip runs never reaches them.
+    ⚠️ A CASHBOOK LINE COMES BACK ONLY WHEN A PERSON SKIPPED IT (#1314, owner Q4 -- narrows owner
+    decision B1's "Cashbook never"). Every system kind the Cashbook import writes (internal movement, no
+    amount, already booked ...) stays locked under ONE sentence, asked before the kind table: the unskip
+    re-check for Cashbook is the wallet duplicate check (`review.unskip_row`), not the matcher, and it
+    was never asked to judge a line the import itself set aside.
     """
     if (row_status or "").strip() != ROW_SKIPPED:
         return UNSKIP_REFUSED_NOT_SKIPPED
-    if not source_runs_the_matcher(source or ""):
-        return UNSKIP_REFUSED_CASHBOOK
     kind = (skip_kind or "").strip()
+    if not source_runs_the_matcher(source or "") and kind != SKIP_KIND_BY_HAND:
+        return UNSKIP_REFUSED_CASHBOOK
     if kind in UNSKIP_LOCKED_KINDS:
         return UNSKIP_LOCKED_KINDS[kind]
     if kind not in SKIP_KINDS:
@@ -164,7 +172,13 @@ def classify_skip_origin(
     source: str | None,
     status_raw: str | None,
 ) -> str:
-    """`Manual` only when every rule in the module docstring holds; `System` otherwise."""
+    """`Manual` only when every rule in the module docstring holds; `System` otherwise.
+
+    ⚠️ BACK-FILL ONLY (`patches/v3_0/backfill_outflow_skip_origin.py`), AND ITS CASHBOOK RULE IS HISTORY.
+    Before #1314 no Cashbook line could be skipped by hand, so rule 4 was true of every existing row. A
+    Cashbook hand skip made since is written `Manual` by `review.skip_row` directly and never passes
+    through here -- do not re-run this over current rows, or it would relabel those System and lock them.
+    """
     manual = (
         bool((decided_by or "").strip())
         and not is_system_skip_sentence(outcome_note)

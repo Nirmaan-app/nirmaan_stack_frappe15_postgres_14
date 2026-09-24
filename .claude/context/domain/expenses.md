@@ -179,6 +179,36 @@ documented Payment By as Paid-only while the code had drifted.
 
 ## What was IMPROVED / CHANGED
 
+### Payments queue: expense pencil, raiser skip, approve-dialog details (2026-09-21)
+
+Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms in `CONTEXT.md`
+(*Raiser's own step*, *Editing a record by status*).
+
+- **A second edit surface, with its own gating.** The unified Payments queue (every tab, plus the
+  project / customer Financials tables, which reuse `AllPayments`) carries an expense **Edit pencil**
+  for **Admin, Accountant and Accountant Lead**, in every status except *Rejected*. One rule:
+  `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` (mirrors
+  `services/role_profiles.PAYMENT_SETTLE_PROFILES`). `QueueRowEditDialog` opens the existing
+  `EditProjectExpenseDialog` / `EditNonProjectExpense`. ⚠️ This is WIDER than the Expense module's own
+  per-tab tables below (where Paid-edit is Admin-only). The two surfaces are gated independently.
+- **Paid = UI lock only.** On a *Paid* expense the dialogs render Amount, Payment Date and Payment Ref
+  read-only (`isPaidExpense`) and never send them. The server enforces nothing (see *Deliberate design
+  decisions*).
+- **Raiser skip.** Both doctypes' `validate` routes a new row with
+  `initial_status_for_raiser(amount, TIER_L2_ABOVE_EXPENSES, raiser_level(expense_raiser(self)))`.
+  `expense_raiser` = the **Expense Request's owner** when `request_id` is set: the ledger row is inserted
+  by the reviewer, so its own `owner` names the wrong person. Steps the raiser clears are stamped
+  (`approval_date` / `ceo_approval_date`) and are NOT `auto_approved`. `convert.target_status` makes the
+  same call, so the review dialog's "lands at" matches.
+- **The queue's Approve / Reject dialog now shows the expense.** `api/approvals/expense_detail.
+  get_expense_approval_detail` (read-only, `has_permission` read on the row) feeds
+  `ExpenseApprovalDetails`. It shows: type, amount, project, vendor, raiser + date, description (hidden
+  when the request's labelled answers already say it), comment, invoice ref / date / file, the Expense
+  Request's answers + reviewer + extra attachments, same-type-and-amount expenses in the last 60 days
+  (`similar._scan_ledgers`, the row itself excluded), and whether this click finishes the approval or
+  forwards it to the CEO. The CEO's partial-amount box is suppressed on expenses: the CEO expense
+  approve is a plain status write and always approved the full amount.
+
 ### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
 Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
 `hooks.py` on `validate` + `on_trash`. The refusals themselves are pure functions in
@@ -334,6 +364,10 @@ Actions column visibility: same rule as Non-Project.
   `pages/NonProjectExpenses/*` (list pages, `config/*Columns.tsx`, dialogs). Project
   dialogs: `NewProjectExpenseDialog.tsx` (invoice autofill), `EditProjectExpenseDialog.tsx`,
   `UpdatePaymentDetailsDialog.tsx` (Mark-as-Paid, payment autofill).
+- Queue surface (2026-09-21): `pages/ProjectPayments/config/queueRowActions.ts`,
+  `components/QueueRowEditDialog.tsx`, `approve-payments/components/ExpenseApprovalDetails.tsx`
+  (+ pure `expenseApprovalDetail.ts`); backend `api/approvals/expense_detail.py`,
+  `services/approval_raiser.py`, `services/approval_tiers.py` (`initial_status_for_raiser`).
 - Reports/aggregation: `pages/reports/hooks/useOutflowReportData.ts`,
   `useProjectReportCalculations.ts`, `pages/projects/data/root/useProjectRootApi.ts`,
   `pages/ProjectPayments/PaymentSummaryCards.tsx`.
@@ -644,6 +678,13 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
 ## Deliberate design decisions (do NOT "fix")
+
+- **No server-side lock on a Paid record, expense or payment** (owner, 2026-09-21). The owner
+  corrects Paid records by hand in Desk, so the only Paid locks are the app's dialogs
+  (`queueRowActions`). A `services/paid_record_lock.py` shipped for Project Payments in `0fc6cd146`
+  and was deleted the same day ("I already block in frontend"). Do not re-add one without a new
+  ruling. Known cost on the payment side: a Desk amount edit on a Paid payment does not recompute
+  the PO / SR `amount_paid` (`test_document_amount_fields`, expected failure).
 
 - **Approved-but-unpaid expenses do NOT pressure the CEO-Hold cashflow gap** — only `Paid`
   expenses count as settled spend (confirmed, Option A). This is an **intentional asymmetry

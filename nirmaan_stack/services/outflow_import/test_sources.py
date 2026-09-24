@@ -13,6 +13,7 @@ import unittest
 from nirmaan_stack.services.outflow_import.duplicates import WIDE_IDENTITY_SOURCES
 from nirmaan_stack.services.outflow_import.parser import SUPPORTED_SOURCES
 from nirmaan_stack.services.outflow_import.sources import (
+    source_names_its_spender,
     BANK_STATEMENT_SOURCES,
     source_has_preamble,
     source_has_settlement_path,
@@ -147,3 +148,15 @@ class TestTheMatchSurfaceQuestion(unittest.TestCase):
         thought about would be a value no guard of that source has been taught to read."""
         for source in ("", "   ", None, "Some Future Gateway"):
             self.assertFalse(source_writes_its_match_surface(source), repr(source))
+
+
+class TestTheSpenderQuestion(unittest.TestCase):
+    """#1314 trap 4: whose name a Create writes into Paid by."""
+
+    def test_the_wallet_names_its_spender(self):
+        self.assertTrue(source_names_its_spender("Cashbook"))
+        self.assertTrue(source_names_its_spender(" Cashbook "))
+
+    def test_every_other_source_keeps_the_actor(self):
+        for source in ("Cashfree", "ICICI Bank Statement", "", None, "Some Future Gateway"):
+            self.assertFalse(source_names_its_spender(source), repr(source))

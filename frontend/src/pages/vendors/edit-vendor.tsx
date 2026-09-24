@@ -15,16 +15,14 @@ import { useToast } from "@/components/ui/use-toast";
 import { ACCOUNT_NUMBER_REGEX, IFSC_REGEX, NAME_REGEX } from "@/constants/vendorFormRegex";
 import { accountNumberDuplicateMessage, findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates";
 import { vendorTaxIdSchemas } from "./utils/vendorTaxIds";
-import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEditVendorData, usePincodeData, useBankDetails, useExistingVendors, useCategoryList } from './data/useVendorQueries';
+import { useEditVendorData, usePincodeData, useBankDetails, useExistingVendors } from './data/useVendorQueries';
 import { useUpdateVendorDoc } from './data/useVendorMutations';
 import { ListChecks, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
-import ReactSelect from "react-select";
 import * as z from "zod";
 
 const getVendorFormSchema = (service: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any, originalAccountNumber?: string | number | null) => {
@@ -189,11 +187,6 @@ const getVendorFormSchema = (service: boolean, accountNumber: string | undefined
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
 
-interface SelectOption {
-  label: string;
-  value: string;
-}
-
 export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEditSheet }) => {
 
   const { vendorId: id } = useParams<{ vendorId: string }>();
@@ -280,28 +273,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
     }
   }, [data, vendorAddress]);
 
-  const { data: category_list } = useCategoryList();
-
-  const category_options: SelectOption[] = useMemo(
-    () => category_list?.map((item) => ({
-      label: `${item.category_name}-(${item.work_package})`,
-      value: item.category_name,
-    })) || [], [category_list]);
-
-  const default_options: SelectOption[] = useMemo(
-    () => (data &&
-      JSON.parse(data?.vendor_category)?.categories?.filter(i => !SERVICECATEGORIES.includes(i))?.map((item) => ({
-        label: item,
-        value: item,
-      }))) ||
-    [], [data, SERVICECATEGORIES]);
-
-  const [categories, setCategories] = useState(default_options || []);
-
-  const handleChange = useCallback((selectedOptions: SelectOption[]) => {
-    setCategories(selectedOptions);
-  }, [setCategories]);
-
   const debouncedFetch = useCallback((value: string) => {
     if (value.length >= 6) {
       setPincode(value);
@@ -340,15 +311,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
   }, [bank_details, IFSC]) 
 
   const onSubmit = async (values: VendorFormValues) => {
-
-    const categoriesSelected = categories.map((c) => c.value) || [];
-
-    let category_json = categoriesSelected
-
-    if(vendorChange || data?.vendor_type === "Service" || data?.vendor_type === "Material & Service") {
-      category_json = [...categoriesSelected, ...SERVICECATEGORIES]
-    }
-
     try {
       await updateDoc("Address", `${data?.vendor_address}`, {
         email_id: values.vendor_email,
@@ -361,8 +323,9 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         pincode: values.pin,
       });
 
+      // No `vendor_category` here: the daily job (tasks/vendor_category_sync.py) owns a vendor's
+      // categories, derived from its POs and Work Orders.
       await updateDoc("Vendors", id, {
-        vendor_category: { categories: category_json },
         vendor_type: vendorChange ? "Material & Service" : data?.vendor_type,
         vendor_city: city,
         vendor_contact_person_name: values.vendor_contact_person_name,
@@ -778,27 +741,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
-          {data?.vendor_type !== "Service" && (
-            <>
-            <Separator className="my-3" />
-          <p className="text-sky-600 font-semibold pb-2">
-            Change Vendor Category
-          </p>
-          <div>
-            <label>
-              Add Category<sup className="text-sm text-red-600">*</sup>
-            </label>
-            {category_options.length > 0 && (
-              <ReactSelect
-                options={category_options}
-                defaultValue={default_options}
-                onChange={handleChange}
-                isMulti
-              />
-            )}
-          </div>
-          </>
-          )}
           <div className="flex justify-end space-x-2">
             <Button
               type="button"

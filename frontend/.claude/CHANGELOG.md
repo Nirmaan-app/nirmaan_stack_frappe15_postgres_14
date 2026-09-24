@@ -4,6 +4,38 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-09-21 — Payments queue: edit & revert, payment summary, raiser note, in-place delete, expense approval details
+
+Backend, rules, commits and verification: `../../.claude/CHANGELOG.md` (same date); terms in root `CONTEXT.md`.
+
+### What changed
+
+- **Queue row actions:** one pure rule, `ProjectPayments/config/queueRowActions.ts` (+ test). An expense
+  pencil shows on every tab for Admin / Accountant / Accountant Lead, and a PO / WO payment never gets one.
+  Reconciliation Pending payments get a "Revert to Approved" icon (`RotateCcw`, confirm dialog in
+  `AllPayments`). `approvalColumns` renders Approve / Reject only when the handlers exist, so a read-only
+  viewer sees just the pencil. `actions` was added to the Payment Done, Payments Pending and All Payments
+  tabs; the screen drops the column for roles that cannot edit.
+- **Edit dialogs:** `QueueRowEditDialog` fetches the full expense and opens `EditProjectExpenseDialog` /
+  `EditNonProjectExpense`. On a Paid expense, Amount / Payment Date / Payment Ref are read-only
+  (`isPaidExpense`). This is the ONLY Paid lock: there is none on the server (owner, 2026-09-21).
+- **Payment summary:** `components/PaymentSummaryBlock` + pure `paymentSummaryView.ts` (+ test) in
+  `PaymentActionDialog` (payment rows), the WO `RequestPaymentDialog` (caps the amount at "Left after") and
+  the PO terms `POPaymentTermsCard` request dialog (new `poName` prop).
+- **Raiser note:** `utils/approvalTiers.ts` gains `raiserLevelOf`, `initialStatusForRaiser` and
+  `raiserLandingNote` (parity-tested against Python). Both request dialogs say where the payment will land.
+- **Payment Raised By Me:** deletes a Rejected PO / WO payment in place (`useUpdatePaymentRequest`), like
+  "Payment need to paid". `TransactionDetailsCard` / `approved-sr` show Admin the trash icon on Rejected
+  payments in summary views too.
+- **Expense approve dialog:** `approve-payments/components/ExpenseApprovalDetails` + pure
+  `expenseApprovalDetail.ts` (+ test). The title reads "Approve this expense of ₹X?", there is no
+  partial-amount box on an expense, and a `stage` prop (`lead` / `ceo`) drives the "finishes / forwards to
+  the CEO" line.
+- **Payment Done table:** "Reconciled on" is removed from the table (it stays in the CSV export).
+- **Open PO:** `components/poRoute.ts` (+ test). `DetailPopovers` opens the PO on its status tab.
+
+---
+
 ## 2026-09-19 — Mode of Payment (Online / Cheque) on Project Payment requests and approvals
 
 Backend, rules and verification: `../../.claude/CHANGELOG.md` (same date); terms in root `CONTEXT.md`.

@@ -404,6 +404,9 @@ class TestRefusals(SettlementFixture):
         self.assertIn("does not reopen it", message)
         self.assertNotIn("Desk", message)
         self.assertIn("unskip it from the Skipped list", message)
+        # ⚠️ ADR-0022 Amendment E (owner, 2026-09-24): every module user may unskip, so the sentence must
+        # not send a plain Accountant to someone else.
+        self.assertNotIn("Accountant Lead", message)
 
     def test_a_failed_settlement_leaves_nothing_behind(self):
         # Savepoint isolation: the refusal must not leave a match record claiming a settlement

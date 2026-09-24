@@ -297,7 +297,7 @@ export const AutoApproveReasonKey: React.FC<AutoApproveReasonKeyProps> = ({
                         variant="outline"
                         onClick={onRecheck}
                         disabled={isRechecking}
-                        title="Re-run the checks against current PO data. Nothing is approved until you confirm."
+                        title="Re-run the PO-value checks against current PO data now (they also run every morning at 5 AM). Nothing is approved until you confirm."
                         className="h-7 shrink-0 gap-1.5 border-red-300 px-2 text-[11px] text-red-600 hover:border-red-400 hover:bg-red-50 hover:text-red-700"
                     >
                         <RefreshCw
@@ -359,9 +359,10 @@ export const AutoApproveReasonKey: React.FC<AutoApproveReasonKeyProps> = ({
                         <span>
                             Hover a reason for what was checked, why it blocks and what to do —
                             click to keep it open. Reasons are recorded when the invoice is
-                            created and do not re-run on their own, so a reason can be stale once
-                            the PO has been delivered or the invoice corrected. Re-check re-runs
-                            every gate against current data and approves whatever now passes.
+                            created. The PO-value ones (nothing delivered yet, invoiced past
+                            delivered, invoiced past the PO value) are re-checked against the PO
+                            every morning at 5 AM, and whatever now passes is approved; Re-check
+                            runs the same check now. Every other reason stays as recorded.
                         </span>
                     </p>
                 </div>

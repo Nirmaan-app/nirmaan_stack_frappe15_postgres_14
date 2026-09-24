@@ -32,7 +32,8 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	render_description_template,
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
-from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status
+from nirmaan_stack.services.approval_raiser import raiser_level
+from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status_for_raiser
 
 
 def target_doctype(req) -> str:
@@ -118,8 +119,8 @@ def target_status(req) -> str:
 	The reviewer is told the outcome before they commit to it, and since 2026-08-20 that
 	outcome depends on the amount -- so the dialog can no longer say "Approved" and be right.
 
-	⚠️ IT MAKES THE LEDGER'S OWN CALL, byte for byte: `initial_status(amount,
-	TIER_L2_ABOVE_EXPENSES)` is exactly the line `ProjectExpenses.validate` and
+	⚠️ IT MAKES THE LEDGER'S OWN CALL, byte for byte: `initial_status_for_raiser(amount,
+	TIER_L2_ABOVE_EXPENSES, level)` is exactly the line `ProjectExpenses.validate` and
 	`NonProjectExpenses.validate` run on the row this request becomes. Restating the
 	comparison here -- or hardcoding a number in this module, or worse in TypeScript -- is how
 	the screen would come to promise one thing while `validate` did another.
@@ -130,8 +131,12 @@ def target_status(req) -> str:
 	inside `get_my_expense_requests`, which is the ONLY source of `can_review`, so the whole
 	scoped read 500'd and every row's Approve/Reject collapsed to "--" for everyone, Admin
 	included. Keep this pointed at the shared module.
+
+	⚠️ AND IT FOLLOWS THE REQUEST'S RAISER (owner, 2026-09-21), exactly as `validate` does via
+	`approval_raiser.expense_raiser`: an L1 approver's request is born past L1, the CEO's past
+	both. The raiser is the REQUEST's owner -- never the reviewer calling this.
 	"""
-	return initial_status(flt(req.amount), TIER_L2_ABOVE_EXPENSES)
+	return initial_status_for_raiser(flt(req.amount), TIER_L2_ABOVE_EXPENSES, raiser_level(req.get("owner")))
 
 
 def create_ledger_row(req):

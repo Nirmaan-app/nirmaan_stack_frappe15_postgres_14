@@ -1,14 +1,21 @@
 export const INVOICE_TASK_TABS = {
   PENDING: 'pending',
   HISTORY: 'history',
+  PENDING_UPLOAD: 'pending_upload',
   PO_INVOICES: 'po_invoices',
   SR_INVOICES: 'sr_invoices',
 } as const;
 
-/** Tab options for task-related tabs (role-based visibility) */
+/**
+ * Tab options for task-related tabs (role-based visibility).
+ *
+ * HISTORY keeps its `history` value under the "All Invoices" label -- the label is what
+ * was renamed, so existing `?tab=history` links and bookmarks still land here.
+ */
 export const INVOICE_TASK_TAB_OPTIONS = [
   { label: "Pending Invoice Approvals", value: INVOICE_TASK_TABS.PENDING },
-  { label: "Invoice Action History", value: INVOICE_TASK_TABS.HISTORY },
+  { label: "All Invoices", value: INVOICE_TASK_TABS.HISTORY },
+  { label: "Pending Invoices Upload", value: INVOICE_TASK_TABS.PENDING_UPLOAD },
 ] as const;
 
 /**
@@ -76,3 +83,16 @@ export const RECONCILIATION_STATUS_OPTIONS = [
  * "na" = Not Applicable (for invoices that don't require 2B reconciliation)
  */
 export type ReconciliationStatus = "" | "partial" | "full" | "na";
+
+/**
+ * The reconciliation status as a person reads it.
+ *
+ * The 2B recon tables render a terse badge ("Full", "N/A", "None"); the facet
+ * filter beside them offers the fuller wording above. Exports take the FACET
+ * wording, so a CSV column and the filter that produced it say the same thing.
+ * Unknown values pass through unchanged rather than becoming blank.
+ */
+export const reconciliationStatusLabel = (status?: string | null): string => {
+  const value = status || "";
+  return RECONCILIATION_STATUS_OPTIONS.find((o) => o.value === value)?.label ?? value;
+};

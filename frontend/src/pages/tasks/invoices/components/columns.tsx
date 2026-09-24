@@ -389,16 +389,16 @@ const AutoApproveReasonCell: React.FC<{
                         )}
                     </div>
                 )}
-                {/* The gates do not re-run on their own, so this footer used to
-                    end the story with "not re-checked after edits". It is now the
-                    place to do something about it — but only when a re-check
+                {/* Only the PO-value gates re-run (daily at 05:00, or on Re-check),
+                    so this footer used to end the story with "not re-checked after
+                    edits". It is now the place to do something about it — but only when a re-check
                     could actually change this row's answer. Offering the button
                     on an invoice whose every flag is un-re-checkable (hand-typed,
                     or a Work Order) would teach a reviewer that it does nothing. */}
                 <div className="flex items-center justify-between gap-2 border-t bg-gray-50 px-3 py-1.5">
                     <span className="text-[10px] text-gray-500">
                         {canRecheck
-                            ? "Recorded at creation. Re-check re-runs the PO-value check."
+                            ? "Recorded at creation. PO-value check re-runs daily at 5 AM, or press Re-check."
                             : "Recorded at creation; Re-check does not cover this."}
                     </span>
                     {onRecheck && canRecheck && (

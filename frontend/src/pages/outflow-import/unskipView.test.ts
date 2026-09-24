@@ -3,7 +3,7 @@
 //
 // ⚠️ INVERTED, NOT DELETED. The column used to allow hand skips only and to tell system skips apart by
 // the words of their sentence; those pins now assert the new truth -- every kind but the four locked
-// ones comes back, and never a Cashbook line.
+// ones comes back, and a Cashbook line only when it was skipped by hand (#1314 -- it used to be never).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -55,10 +55,15 @@ describe("unskipBlockReason -- keyed on Skip Type", () => {
         }
     });
 
-    it("★ a Cashbook row is refused whatever its kind", () => {
-        for (const skip_kind of ["Skipped by hand", "Cashbook internal movement", "Outflow Already Recorded"]) {
+    it("★ a Cashbook hand skip may be unskipped (#1314)", () => {
+        expect(unskipBlockReason(skipped({ source: " Cashbook ", skip_kind: "Skipped by hand" }))).toBeNull();
+    });
+
+    it("★ every other Cashbook kind stays locked, under one sentence", () => {
+        for (const skip_kind of ["Cashbook internal movement", "Outflow Already Recorded", "No amount", "", null]) {
             expect(unskipBlockReason(skipped({ source: " Cashbook ", skip_kind }))).toBe(UNSKIP_BLOCK_CASHBOOK);
         }
+        expect(UNSKIP_BLOCK_CASHBOOK).toBe("Only a Cashbook line skipped by hand can be unskipped.");
     });
 
     it("a line with no kind is refused", () => {
@@ -76,6 +81,7 @@ describe("unskipBlockReason -- keyed on Skip Type", () => {
         const rule = skipOriginSource.slice(from, skipOriginSource.indexOf("\ndef ", from + 1));
         expect(rule).toContain("!= ROW_SKIPPED");
         expect(rule).toContain("source_runs_the_matcher(");
+        expect(rule).toContain("kind != SKIP_KIND_BY_HAND");
         expect(rule).toContain("UNSKIP_LOCKED_KINDS");
         expect(rule).not.toContain("SKIP_ORIGIN_MANUAL");
         expect(skipOriginSource).toContain(`UNSKIP_REFUSED_CASHBOOK = "${UNSKIP_BLOCK_CASHBOOK}"`);

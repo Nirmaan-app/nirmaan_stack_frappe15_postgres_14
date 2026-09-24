@@ -3,7 +3,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
-import { canActionInvoiceApprovals } from '@/constants/roles';
+import { canActionInvoiceApprovals, canViewPendingInvoiceUploads } from '@/constants/roles';
 import { urlStateManager } from '@/utils/urlStateManager';
 
 const InvoiceSummaryCards = React.lazy(() => import('./components/InvoiceSummaryCards'));
@@ -11,6 +11,7 @@ const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'
 const PendingTasksTable = React.lazy(() => import('./components/PendingTasksTable'));
 const AllPoInvocies=React.lazy(()=>import('./components/PoInvoices'))
 const AllSRInvocies=React.lazy(()=>import('./components/SrInvoices'))
+const PendingInvoiceUploads=React.lazy(()=>import('./components/PendingInvoiceUploads'))
 
 
 export default function InvoiceReconciliationContainer() {
@@ -19,6 +20,8 @@ export default function InvoiceReconciliationContainer() {
     // Who may see (and act on) Pending Invoice Approvals -- the one shared predicate, so the
     // tab, its default and the row controls cannot drift apart. PMO removed 2026-09-17.
     const canViewPending = canActionInvoiceApprovals(role, user_id);
+    // Pending Invoices Upload is wider: approvers + PMO + procurement (2026-09-24).
+    const canViewPendingUpload = canViewPendingInvoiceUploads(role, user_id);
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -50,12 +53,14 @@ export default function InvoiceReconciliationContainer() {
     }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
-    // Filter task tabs based on role (only Admin/Accountant/Accountant Lead can see pending approvals)
+    // Filter task tabs based on role: approvals = Admin/Accountant/Accountant Lead;
+    // uploads = those plus PMO + procurement.
     const taskTabs = useMemo(() => {
-        return canViewPending
-            ? INVOICE_TASK_TAB_OPTIONS
-            : INVOICE_TASK_TAB_OPTIONS.filter(t => t.value !== INVOICE_TASK_TABS.PENDING);
-    }, [canViewPending]);
+        return INVOICE_TASK_TAB_OPTIONS.filter(t =>
+            (t.value !== INVOICE_TASK_TABS.PENDING || canViewPending)
+            && (t.value !== INVOICE_TASK_TABS.PENDING_UPLOAD || canViewPendingUpload)
+        );
+    }, [canViewPending, canViewPendingUpload]);
          
 
     const onClick = useCallback(
@@ -133,6 +138,14 @@ export default function InvoiceReconciliationContainer() {
                         canViewPending ? <PendingTasksTable />
                         : role === "Loading" ? <LoadingFallback />
                         : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve vendor invoices.</div>
+                    )}
+                    {/* Orders still owed an invoice -- the mirror of the tabs above, which
+                        all show invoices that HAVE arrived. Visible to the approvers of Pending
+                        Invoice Approvals plus PMO + procurement, who chase vendors for it. */}
+                    {tab === INVOICE_TASK_TABS.PENDING_UPLOAD && (
+                        canViewPendingUpload ? <PendingInvoiceUploads />
+                        : role === "Loading" ? <LoadingFallback />
+                        : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to view pending invoice uploads.</div>
                     )}
                     {tab==="po_invoices" &&(
                        <AllPoInvocies />
