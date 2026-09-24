@@ -11,8 +11,9 @@ TWO WHITELISTED ENDPOINTS SINCE #1275, both behind the narrower Admin + Accounta
 
   * `get_unreconcile_plan(row)` -- READ ONLY. The bank-line facts and every Settled leg with its
     verdict, its "what happens" sentence and any refusal. What the Unreconcile dialog renders.
-  * `unreconcile_row(row, legs | "all", reason)` -- the write. `expenses.reverse_allocation` is a
-    wrapper over it with one leg, so there is still exactly one write path for a reversal.
+  * `unreconcile_row(row, legs | "all", reason)` -- the write: the access check, then
+    `unreconcile_line`. `expenses.reverse_allocation` calls `unreconcile_line` with one leg, and a
+    loop may call it once per line (#1318), so there is still exactly one write path for a reversal.
 
 ⚠️ THE PLAN IS NEVER TRUSTED BY THE WRITE. Both read the same facts through `_read_facts` and ask the
 same `leg_verdict`, but the write reads them again UNDER ITS LOCKS; a plan shown a minute ago may be
@@ -214,6 +215,27 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
     reason is also stamped on every reversed leg, and each save leaves a Version row.
     """
     actor = require_outflow_undo_access()
+    return unreconcile_line(row=row, legs=legs, reason=reason, actor=actor)
+
+
+def unreconcile_line(row: str, legs, reason: str, actor: str) -> dict:
+    """The one-line undo itself, callable from a loop (#1318): everything `unreconcile_row` does bar the
+    access check, and the same response. The one write path for a reversal -- `unreconcile_row` and
+    `expenses.reverse_allocation` both end here.
+
+    ⚠️ THE CALLER HAS ALREADY CHECKED UNDO ACCESS and passes the `actor` that check returned. This is
+    not whitelisted; a caller that skips `require_outflow_undo_access` has no gate at all.
+
+    ⚠️ ONE LINE, ONE TRANSACTION. On success it takes this line's locks, writes, and COMMITS before it
+    returns, so the row -> legs -> targets lock order holds per line. A concurrent writer's refusal has
+    already rolled back to its sentence; nothing of an earlier line is reachable by that, because every
+    earlier line has committed.
+
+    ⚠️ ANY OTHER REFUSAL THROWS WITH THIS LINE'S LOCKS STILL HELD -- the row and leg locks are taken
+    before the whole-line-only and verdict refusals, and nothing rolls them back here. A loop that
+    catches a refusal and moves on must `frappe.db.rollback()` first, or it carries this line's locks
+    into the next one.
+    """
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")

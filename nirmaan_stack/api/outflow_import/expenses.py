@@ -523,7 +523,7 @@ def reverse_allocation(match: str, reason: str):
 
     ⚠️ A WRAPPER SINCE #1271. The decision ("can this leg be undone?") lives in the pure
     `services/outflow_import/unreconcile.py`, and the write in `api/outflow_import/unreconcile.py`'s
-    `unreconcile_row`, called here with ONE leg -- so there is one write path for a reversal. This
+    `unreconcile_line`, called here with ONE leg -- so there is one write path for a reversal. This
     keeps the endpoint's arguments, response and every refusal sentence exactly as they were; what
     changed underneath is that the verdict is now read under a row lock as well as the payment
     lock, and a concurrent writer's refusal arrives as `CONCURRENT_ALLOCATION_MESSAGE` instead of
@@ -544,11 +544,11 @@ def reverse_allocation(match: str, reason: str):
     """
     # ⚠️ A FUNCTION-LOCAL IMPORT, BECAUSE `api/outflow_import/unreconcile.py` IMPORTS THIS MODULE
     # (the shared row-allocation and concurrency helpers live here). Moving it to the top is a cycle.
-    from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, unreconcile_row
+    from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, unreconcile_line
 
     # ⚠️ ADMIN + ACCOUNTANT LEAD SINCE #1273 (parent #1270 Q1). A plain Accountant matches and
-    # confirms; undoing money is not theirs. `unreconcile_row` checks the same gate again.
-    require_outflow_undo_access()
+    # confirms; undoing money is not theirs. `unreconcile_line` trusts this check -- it is not a gate.
+    actor = require_outflow_undo_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")
@@ -557,7 +557,7 @@ def reverse_allocation(match: str, reason: str):
     if not row:
         frappe.throw(f"Match record '{match}' not found.", title="Not found")
 
-    done = unreconcile_row(row=row, legs=[match], reason=reason)
+    done = unreconcile_line(row=row, legs=[match], reason=reason, actor=actor)
     leg = done["reversed"][0]
     return {
         "match": leg["match"],
