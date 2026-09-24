@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
     NEVER_MATCHED_SOURCES,
     OUTFLOW_UNDO_PROFILES,
+    SPENDER_NAMED_SOURCES,
     ROW_MATCHED,
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
@@ -54,10 +55,23 @@ describe("undo access parity -- the screen hides exactly what the server refuses
         expect(python).toEqual(new Set(OUTFLOW_UNDO_PROFILES));
     });
 
-    it("★ NEVER_MATCHED_SOURCES (no Skip on these) is the same set on both sides", () => {
+    it("★ NEVER_MATCHED_SOURCES (Cashbook: its own Skip rule) is the same set on both sides", () => {
         const python = frozensetStrings(sourcesSource, "NEVER_MATCHED_SOURCES");
         expect(python).not.toBeNull();
         expect(python).toEqual(new Set(NEVER_MATCHED_SOURCES));
+    });
+
+    it("★ SPENDER_NAMED_SOURCES (Paid by comes from the statement) is the same set on both sides", () => {
+        const python = frozensetStrings(sourcesSource, "SPENDER_NAMED_SOURCES");
+        expect(python).not.toBeNull();
+        expect(python).toEqual(new Set(SPENDER_NAMED_SOURCES));
+    });
+
+    it("★ the Skip rule refuses a Cashbook line only while its job has not written it", () => {
+        const skipOrigin = pyFile("services/outflow_import/skip_origin.py");
+        const from = skipOrigin.indexOf("def manual_skip_refusal");
+        const rule = skipOrigin.slice(from, skipOrigin.indexOf("\ndef ", from + 1));
+        expect(rule).toContain("not source_runs_the_matcher(source or \"\") and status == ROW_PENDING_MATCH");
     });
 
     it("the undo set is inside the module set -- a plain Accountant is in one and not the other", () => {
@@ -83,7 +97,7 @@ describe("canUndoOutflow", () => {
     });
 });
 
-describe("canSkipByHand -- the Skip box shows for undo roles on open, non-Cashbook lines", () => {
+describe("canSkipByHand -- the Skip box shows for undo roles on open lines", () => {
     const lead = "Nirmaan Accountant Lead Profile";
 
     it("shows on every open status", () => {
@@ -98,7 +112,13 @@ describe("canSkipByHand -- the Skip box shows for undo roles on open, non-Cashbo
         }
     });
 
-    it("hides on Cashbook, even while open", () => {
+    it("★ shows on an open Cashbook line (#1314 -- INVERTS \"hides on Cashbook, even while open\")", () => {
+        for (const row_status of [ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR]) {
+            expect(canSkipByHand({ row_status, source: " Cashbook " }, lead, "a@x.com")).toBe(true);
+        }
+    });
+
+    it("hides on a Cashbook line its own job has not written yet", () => {
         expect(
             canSkipByHand({ row_status: ROW_PENDING_MATCH, source: " Cashbook " }, lead, "a@x.com"),
         ).toBe(false);

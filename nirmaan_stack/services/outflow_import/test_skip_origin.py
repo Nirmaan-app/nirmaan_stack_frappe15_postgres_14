@@ -26,7 +26,7 @@ from nirmaan_stack.services.outflow_import.matcher import (
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
-    SKIP_REFUSED_CASHBOOK,
+    SKIP_REFUSED_CASHBOOK_PENDING,
     SKIP_REFUSED_PARTIALLY_ALLOCATED,
     SKIP_REFUSED_SETTLED,
     UNSKIP_REFUSED_CASHBOOK,
@@ -238,7 +238,7 @@ class TestBackfillClassifier(unittest.TestCase):
 
 
 class TestManualSkipRefusal(unittest.TestCase):
-    """Who may be skipped by hand: open, non-Cashbook lines, and nothing else."""
+    """Who may be skipped by hand: open lines, and nothing else. Since #1314 that includes Cashbook."""
 
     def test_every_open_status_may_be_skipped(self):
         for status in (ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, "Error"):
@@ -263,10 +263,19 @@ class TestManualSkipRefusal(unittest.TestCase):
             SKIP_REFUSED_ALREADY_SKIPPED,
         )
 
-    def test_a_cashbook_line_is_refused_even_while_open(self):
+    def test_an_open_cashbook_line_may_be_skipped(self):
+        """#1314 (INVERTS #1273's "Cashbook is refused whatever its status", owner Q3)."""
+        for status in (ROW_MATCHED, ROW_MISMATCHED, "Error"):
+            with self.subTest(status=status):
+                self.assertIsNone(manual_skip_refusal(row_status=status, source=" Cashbook "))
+
+    def test_a_cashbook_line_the_job_has_not_reached_yet_is_refused(self):
+        """A Cashbook line still `Pending match run` is the Cashbook job's work in progress: its worker
+        reads the line list once and writes each one without looking again, so a skip now would be
+        overwritten by the expense it creates."""
         self.assertEqual(
             manual_skip_refusal(row_status=ROW_PENDING_MATCH, source="Cashbook"),
-            SKIP_REFUSED_CASHBOOK,
+            SKIP_REFUSED_CASHBOOK_PENDING,
         )
 
     def test_an_unknown_status_is_refused_and_named(self):
@@ -277,8 +286,8 @@ class TestManualSkipRefusal(unittest.TestCase):
 class TestUnskipRefusal(unittest.TestCase):
     """Which skipped lines come back is decided by SKIP KIND (owner, 2026-09-17, ADR-0022 Amendment C).
 
-    INVERTED from #1274's "only a hand skip": every kind comes back except the four locked ones, and a
-    Cashbook line never does.
+    INVERTED from #1274's "only a hand skip": every kind comes back except the four locked ones. A
+    Cashbook line comes back only when a person skipped it (#1314, owner Q4) -- it never did before.
     """
 
     def test_every_unlocked_kind_may_be_unskipped(self):
@@ -318,13 +327,31 @@ class TestUnskipRefusal(unittest.TestCase):
                     UNSKIP_REFUSED_NOT_SKIPPED,
                 )
 
-    def test_a_cashbook_line_is_refused_whatever_its_kind(self):
-        for kind in ("Skipped by hand", "Cashbook internal movement", "Outflow Already Recorded"):
+    def test_a_cashbook_hand_skip_may_be_unskipped(self):
+        self.assertIsNone(
+            unskip_refusal(row_status=ROW_SKIPPED, skip_kind="Skipped by hand", source=" Cashbook ")
+        )
+
+    def test_every_other_cashbook_kind_stays_locked(self):
+        for kind in SKIP_KINDS:
+            if kind == "Skipped by hand":
+                continue
             with self.subTest(kind=kind):
                 self.assertEqual(
-                    unskip_refusal(row_status=ROW_SKIPPED, skip_kind=kind, source=" Cashbook "),
+                    unskip_refusal(row_status=ROW_SKIPPED, skip_kind=kind, source="Cashbook"),
                     UNSKIP_REFUSED_CASHBOOK,
                 )
+        for kind in ("", None, "Not a kind"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    unskip_refusal(row_status=ROW_SKIPPED, skip_kind=kind, source="Cashbook"),
+                    UNSKIP_REFUSED_CASHBOOK,
+                )
+
+    def test_the_cashbook_sentence_says_what_may_come_back(self):
+        self.assertEqual(
+            UNSKIP_REFUSED_CASHBOOK, "Only a Cashbook line skipped by hand can be unskipped."
+        )
 
     def test_the_status_is_judged_before_the_source(self):
         self.assertEqual(

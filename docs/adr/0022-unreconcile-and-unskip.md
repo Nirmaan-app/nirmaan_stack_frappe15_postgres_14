@@ -344,6 +344,48 @@ legacy figure on a leftover now uses a deduction row instead. The retirement its
   open work. The Unskip dialog warns that the line was read as money moving between our own accounts.
 - `skip_origin` still records who skipped; it no longer decides anything about Unskip.
 
+## Amendment D — Cashbook lines join Unreconcile, Skip and Unskip (2026-09-24, #1314, owner)
+
+**Reverses** Q13 ("Cashbook rows can't be unreconciled yet") and Q16 (no Skip on Cashbook), and
+**narrows** Amendment C's "any Cashbook line" Unskip refusal. Admin + Accountant Lead only, as before
+(`permissions.require_outflow_undo_access`). One line at a time — there is no whole-import undo (Q11).
+
+- **Unreconcile.** The pure decision no longer asks the source at all: `CASHBOOK_REFUSAL` is deleted,
+  and a Cashbook leg is judged like any other. In practice its expense was created by the import, so it
+  gets the `delete_created` verdict (#1278) and its refusals ("Edited since", not found, amount /
+  status / reference changed → fix on the Expenses screen). The line lands **Not Matched**
+  (`Mismatched`) with `confirm_by_hand` set.
+  - ⚠️ **Trap: the stale pick.** The Cashbook job stores the created expense as the line's pick
+    (`suggested_name`), and `_refresh_row_allocation` falls back to `Matched` whenever a pick survives.
+    `unreconcile._drop_a_pick_that_was_deleted` clears a pick that names a record the unreconcile just
+    deleted — keyed on the deletion, not on the source.
+  - ⚠️ **Trap: the Cashbook job.** `_cashbook_worker` creates an expense for every
+    `Pending match run` line that still carries a plan. The plan fields are KEPT (the Create form
+    pre-fills from them), so a reopened line must never be `Pending match run` — the status is the
+    only fence. Unreconcile lands `Mismatched`; Unskip below has its own landing.
+- **Skip by hand** is allowed on an open Cashbook line, bar one status: **`Pending match run`**, which on
+  Cashbook means "the Cashbook job has not written this line yet" (`SKIP_REFUSED_CASHBOOK_PENDING`) —
+  its worker reads the line list once and would overwrite the skip with the expense it creates.
+- **Unskip** a Cashbook line only when its kind is **Skipped by hand**. Every system kind the Cashbook
+  import writes stays locked under one sentence, "Only a Cashbook line skipped by hand can be
+  unskipped." (`UNSKIP_REFUSED_CASHBOOK`).
+  - **The re-check is not the matcher** — `review.match_line` still refuses Cashbook (#1272), and its
+    fence stays. `review.unskip_row` branches on `source_runs_the_matcher`; a Cashbook line goes to
+    `_unskip_cashbook_line`, which asks `cashbook.booked_elsewhere` in the same transaction: an expense
+    already carrying the wallet transaction id (the `_already_booked` identity — `payment_ref` + amount +
+    `payment_date`, through the one `_booked_index`), or a live leg on another import line for the same
+    transaction id. Booked → **Skipped / System / Outflow Already Recorded**, "Already booked as …" (and
+    locked again). Not booked → open as **Not Matched**. Never `Pending match run`.
+- **A reopened Cashbook line is settled like any other line** (see ADR-0015 Amendment A): Create, Link,
+  a Project Payment, Split / Part payment. The matcher stays OFF (`NEVER_MATCHED_SOURCES` unchanged,
+  Q9). A hand Create writes `created_by_import = 1` (so a second unreconcile deletes it again) and the
+  settle's own `settlement_origin`, never the worker's `Suggestion accepted`.
+- **Paid by.** A Create from a Cashbook line writes the statement's `From` (`added_by_raw`) as the
+  expense's Paid by, as the Cashbook job does (`sources.source_names_its_spender`,
+  `expenses._statement_spender`). The form shows it read-only.
+- **Reference (Q10).** Every settle writes the wallet transaction id — the row's `settlement_reference`
+  (ADR-0020 B9) — including into `Project Payments.utr`. No change was needed.
+
 ## Consequences
 
 - A hand skip is reversible from the screen, and so is its reversal auditable (Version row, comment).

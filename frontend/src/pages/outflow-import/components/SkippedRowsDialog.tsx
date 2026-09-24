@@ -107,9 +107,9 @@ const NO_ORIGINS = new Map();
  * (`selectable = names.length > 0`).
  *
  * ⚠️ THE ONE ACTION IS UNSKIP, ONE LINE AT A TIME, FOR ADMIN AND ACCOUNTANT LEAD (#1274, ADR-0022). It
- * rides the table's `actionColumn`, live for every Skip Type except the four locked ones and never on a
- * Cashbook line (`unskipBlockReason`, ADR-0022 Amendment C); a locked line shows the button disabled
- * with its reason in words.
+ * rides the table's `actionColumn`, live for every Skip Type except the four locked ones, and on a
+ * Cashbook line only for a hand skip (`unskipBlockReason`, ADR-0022 Amendments C and D); a locked line
+ * shows the button disabled with its reason in words.
  *
  * ⚠️ SKIP TYPE REPLACES OUTCOME HERE, AND THE TABS ARE DIRECTION (owner, 2026-09-17). The Outcome cell
  * on a skipped line was a reason sentence cut off at 204px; the stored `skip_kind` is what a reader
@@ -273,8 +273,9 @@ export const SkippedRowsDialog = ({
                             <>
                                 {" "}
                                 Any transfer can be unskipped except one already imported, repeated in
-                                the same file, refused by the bank or with no amount, and any Cashbook
-                                line. An unskipped transfer is checked again straight away.
+                                the same file, refused by the bank or with no amount, and a Cashbook
+                                line the import itself skipped. An unskipped transfer is checked again
+                                straight away.
                             </>
                         )}
                     </DialogDescription>

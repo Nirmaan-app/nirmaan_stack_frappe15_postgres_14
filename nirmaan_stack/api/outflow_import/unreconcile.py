@@ -79,7 +79,6 @@ from nirmaan_stack.services.outflow_import.settle import (
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_references_of_row,
 )
-from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
 from nirmaan_stack.services.outflow_import.status import derive_batch_status
 from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_DELETE_CREATED,
@@ -252,6 +251,7 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
             # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
             restore_derived_state(carried, statement)
+            _drop_a_pick_that_was_deleted(line.name, carried)
             # #1280: the line keeps its old pick, so it is marked Confirm by hand and a bulk confirm
             # refuses it until a person settles it.
             new_status = _refresh_row_allocation(line.name, actor, confirm_by_hand=True)
@@ -350,6 +350,28 @@ def _carry_out(
     raise NotImplementedError(f"No write for verdict '{kind}' on match record '{leg.name}'.")
 
 
+def _drop_a_pick_that_was_deleted(row: str, carried) -> None:
+    """Clear the line's pick when it names a record this unreconcile just DELETED (#1314, trap 1).
+
+    ⚠️ THE CASHBOOK JOB STORES ITS OWN CREATED EXPENSE AS THE PICK (`cashbook._write_one` writes
+    `suggested_name = <created expense>`), and `_refresh_row_allocation` falls back to `Matched`
+    whenever a pick survives. Left alone, an unreconciled Cashbook line would read Matched -- to a
+    record that no longer exists -- and a Confirm would settle it against nothing.
+
+    Keyed on the DELETION, never on the source: a pick that still exists keeps its #1280 meaning
+    ("the line keeps its old pick"), whatever import it came from. `suggested_doctype` is left as it
+    is -- on a Cashbook line it is the PLAN's ledger, which the Create form pre-fills from.
+    """
+    deleted = {(c.doctype, c.name) for c in carried if c.deleted}
+    if not deleted:
+        return
+    pick = frappe.db.get_value(ROW_DOCTYPE, row, ["suggested_doctype", "suggested_name"], as_dict=True)
+    if ((pick.suggested_doctype or "").strip(), (pick.suggested_name or "").strip()) in deleted:
+        # ⚠️ `set_value`, no hooks: the row carries no `doc_events`; the refresh right after re-derives
+        # its status from what is left.
+        frappe.db.set_value(ROW_DOCTYPE, row, "suggested_name", None, update_modified=False)
+
+
 def _lock_row(row: str):
     """The import line, under `FOR UPDATE`. The first lock taken; see the module docstring."""
     line = frappe.db.get_value(ROW_DOCTYPE, row, _ROW_FIELDS, as_dict=True, for_update=True)
@@ -410,7 +432,8 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
     the same facts with no lock, so the two can only disagree when something changed in between -- and
     then the write, reading under its locks, is the one that is right.
 
-    ⚠️ ONLY A SETTLED PAYMENTS, EXPENSES OR INFLOWS LEG ON A MATCHABLE SOURCE IS READ. Anything else is
+    ⚠️ ONLY A SETTLED PAYMENTS, EXPENSES OR INFLOWS LEG IS READ -- ON ANY SOURCE SINCE #1314, which
+    let Cashbook in. Anything else is
     refused by the decision on facts the leg and the line already carry, and locking a record that
     will not be written would only widen the lock.
     """
@@ -432,7 +455,7 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
             or is_expense_doctype(leg.target_doctype)
             or leg.target_doctype in INFLOW_DOCTYPES
         )
-        if leg.match_kind != MATCH_SETTLED or not readable or not source_runs_the_matcher(source):
+        if leg.match_kind != MATCH_SETTLED or not readable:
             facts[leg.name] = LegFacts(**base)
             continue
         if is_expense_doctype(leg.target_doctype):

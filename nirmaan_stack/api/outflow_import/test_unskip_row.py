@@ -5,7 +5,8 @@
 
 What is pinned, all through the whitelisted `review.unskip_row`:
 
-  * refused for a plain Accountant, a System skip, a Cashbook line and a line that is not Skipped --
+  * refused for a plain Accountant, a locked kind, a Cashbook line not skipped by hand and a line that
+    is not Skipped --
     and nothing is written when it is;
   * a reason is required;
   * the re-check lands the line Not-Matched (no recorded money), Matched with the suggestion (one
@@ -133,9 +134,10 @@ class TestUnskipRefusals(SkipFixture):
         row = self._line(status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_SYSTEM, skip_kind="")
         self._assert_refused(row, UNSKIP_REFUSED_NO_KIND)
 
-    def test_a_cashbook_line_is_refused(self):
-        """Owner decision B1: Cashbook stays locked whatever its kind."""
-        for kind in ("Skipped by hand", "Cashbook internal movement", "Outflow Already Recorded"):
+    def test_a_cashbook_line_not_skipped_by_hand_is_refused(self):
+        """#1314 (owner Q4) NARROWS decision B1: only a Cashbook HAND skip comes back; every system kind
+        stays locked. The hand-skip half is pinned in `test_cashbook_undo`."""
+        for kind in ("Cashbook internal movement", "Outflow Already Recorded", "No amount"):
             with self.subTest(kind=kind):
                 row = self._line(
                     status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind=kind, source="Cashbook"

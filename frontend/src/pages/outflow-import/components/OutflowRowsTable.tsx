@@ -44,7 +44,6 @@ import { skipSourceSummary } from "../skipSourceView";
 import { partlyAllocatedFigures } from "../allocationView";
 import {
     CONFIRM_BY_HAND_CHIP,
-    UNRECONCILE_CASHBOOK_SENTENCE,
     confirmByHandNote,
     unreconcileAffordance,
 } from "../unreconcileView";
@@ -105,7 +104,7 @@ interface Props {
     columns?: readonly OutflowColumn[];
     /**
      * Open the Unreconcile dialog for a Settled line (#1275). PRESENCE IS THE GATE: the page passes it
-     * only for the undo roles, so a plain Accountant sees neither the button nor the Cashbook sentence.
+     * only for the undo roles, so a plain Accountant sees no button.
      *
      * ⚠️ PASS A STABLE CALLBACK (`useCallback`). Every memoized row receives it.
      */
@@ -749,7 +748,7 @@ const OutcomeButton = ({
     if (terminal) {
         // #1273: a hand skip says who and when, under the reason they typed.
         const byHand = skippedByHandLine(row);
-        // #1275: a Settled line gets Unreconcile below its record links; a Cashbook one says why not.
+        // #1275: a Settled line gets Unreconcile below its record links -- any source since #1314.
         const undo = unreconcileAffordance(row, Boolean(onUnreconcile));
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
@@ -780,11 +779,6 @@ const OutcomeButton = ({
                         <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
                         Unreconcile
                     </Button>
-                )}
-                {undo === "cashbook" && (
-                    <span className="block text-[11px] text-muted-foreground">
-                        {UNRECONCILE_CASHBOOK_SENTENCE}
-                    </span>
                 )}
             </div>
         );

@@ -26,7 +26,6 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SETTLED,
 )
 from nirmaan_stack.services.outflow_import.unreconcile import (
-    CASHBOOK_REFUSAL,
     VERDICT_REFUSED,
     VERDICT_REVERT_PAYMENT,
     WHAT_HAPPENS_REVERT_PAYMENT,
@@ -266,21 +265,21 @@ class TestAccess(PaymentUnreconcileFixture):
 
 
 class TestCashbook(PaymentUnreconcileFixture):
-    def test_a_cashbook_settled_line_is_refused_and_nothing_is_written(self):
+    def test_a_cashbook_settled_line_is_judged_like_any_other(self):
+        """#1314 INVERTS "a Cashbook settled line is refused": a reopened Cashbook line may settle
+        payments by hand (owner Q2), so undoing those legs reverts them exactly as for any source."""
         row, pays = self._allocated()
         batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
         frappe.db.set_value(BATCH_DOCTYPE, batch, "source", "Cashbook", update_modified=False)
         frappe.db.commit()
 
         plan = get_unreconcile_plan(row=row)
-        self.assertEqual(plan["refused_count"], 3)
-        self.assertTrue(all(leg["reason"] == CASHBOOK_REFUSAL for leg in plan["legs"]))
+        self.assertEqual(plan["refused_count"], 0)
+        self.assertTrue(all(leg["reason"] is None for leg in plan["legs"]))
 
-        with self.assertRaises(frappe.ValidationError) as caught:
-            unreconcile_row(row=row, legs="all", reason="wrong")
-        self.assertIn(CASHBOOK_REFUSAL, str(caught.exception))
+        unreconcile_row(row=row, legs="all", reason="wrong")
         for pay in pays:
-            self.assertEqual(self._payment(pay).status, "Paid")
+            self._assert_free(pay)
 
 
 class TestUnreconcileNeverWithholdsTds(PaymentUnreconcileFixture):

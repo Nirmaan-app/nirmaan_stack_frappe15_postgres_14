@@ -14,7 +14,6 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import import unreconcile
 from nirmaan_stack.services.outflow_import.unreconcile import (
-    CASHBOOK_REFUSAL,
     CREATED_WINDOW_SECONDS,
     FIX_ON_EXPENSES_SCREEN,
     FIX_ON_PAYMENTS_SCREEN,
@@ -245,24 +244,39 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
 
 
 class TestCashbook(unittest.TestCase):
-    """#1275, parent #1270 Q13: a Cashbook line cannot be unreconciled yet, whatever its legs."""
+    """#1314, INVERTING #1275's "a Cashbook line cannot be unreconciled yet" (ADR-0022 Amendment D).
 
-    def test_a_cashbook_leg_is_refused_with_the_screen_sentence(self):
-        verdict = leg_verdict(facts(source="Cashbook"))
-        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
-        self.assertEqual(verdict.title, "Cashbook line")
-        self.assertEqual(verdict.reason, CASHBOOK_REFUSAL)
-        self.assertEqual(CASHBOOK_REFUSAL, "Cashbook rows can't be unreconciled yet.")
-        self.assertIsNone(verdict.what_happens)
+    A Cashbook leg is judged exactly like any other source's: the source is no longer a question the
+    decision asks at all.
+    """
 
-    def test_cashbook_is_named_before_every_other_refusal(self):
+    def test_the_cashbook_refusal_is_gone(self):
+        self.assertFalse(hasattr(unreconcile, "CASHBOOK_REFUSAL"))
+
+    def test_a_cashbook_created_expense_is_deleted(self):
+        verdict = leg_verdict(expense(source="Cashbook", created_by_import=True, versions=()))
+        self.assertEqual(verdict.verdict, VERDICT_DELETE_CREATED)
+        self.assertEqual(verdict.what_happens, WHAT_HAPPENS_DELETE)
+        self.assertIsNone(verdict.reason)
+
+    def test_a_cashbook_created_expense_edited_since_is_refused_as_any_other(self):
         verdict = leg_verdict(
-            facts(source=" Cashbook ", match_kind="Reversed", target_doctype="Project Inflows")
+            expense(
+                source="Cashbook",
+                created_by_import=True,
+                matched_at=MATCHED_AT,
+                versions=((AFTER, ("description",)),),
+            )
         )
-        self.assertEqual(verdict.reason, CASHBOOK_REFUSAL)
+        self.assertEqual(verdict.title, "Edited since")
 
-    def test_every_other_source_is_judged_as_before(self):
-        for source in ("Cashfree", "ICICI", "", None):
+    def test_a_cashbook_expense_changed_elsewhere_is_refused_as_any_other(self):
+        verdict = leg_verdict(expense(source="Cashbook", created_by_import=True, target_status="Approved"))
+        self.assertEqual(verdict.title, "Changed elsewhere")
+        self.assertEqual(verdict.fix_at, FIX_ON_EXPENSES_SCREEN)
+
+    def test_every_source_is_judged_the_same(self):
+        for source in ("Cashbook", " Cashbook ", "Cashfree", "ICICI", "", None):
             with self.subTest(source=source):
                 self.assertEqual(leg_verdict(facts(source=source)).verdict, VERDICT_REVERT_PAYMENT)
 
@@ -392,8 +406,9 @@ class TestAnExistingExpense(unittest.TestCase):
         self.assertEqual(verdict.verdict, VERDICT_REVERT_EXPENSE)
         self.assertIsNone(verdict.reason)
 
-    def test_cashbook_and_already_reversed_still_come_first(self):
-        self.assertEqual(leg_verdict(expense(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+    def test_cashbook_is_judged_and_already_reversed_still_comes_first(self):
+        # #1314: Cashbook is no longer refused -- it is judged like every other source.
+        self.assertEqual(leg_verdict(expense(source="Cashbook")).verdict, VERDICT_REVERT_EXPENSE)
         self.assertEqual(
             leg_verdict(expense(match_kind="Reversed", target_exists=False)).title,
             "Already reversed",
@@ -486,8 +501,10 @@ class TestOneLineOfAManyLineExpense(unittest.TestCase):
         verdict = leg_verdict(line_of_a_run(created_by_import=True))
         self.assertEqual(verdict.verdict, VERDICT_UNLINK_EXPENSE_LINE)
 
-    def test_cashbook_already_reversed_and_not_found_still_come_first(self):
-        self.assertEqual(leg_verdict(line_of_a_run(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+    def test_cashbook_is_judged_and_already_reversed_and_not_found_still_come_first(self):
+        self.assertEqual(
+            leg_verdict(line_of_a_run(source="Cashbook")).verdict, VERDICT_UNLINK_EXPENSE_LINE
+        )
         self.assertEqual(leg_verdict(line_of_a_run(match_kind="Reversed")).title, "Already reversed")
         self.assertEqual(leg_verdict(line_of_a_run(target_exists=False)).title, "Not found")
 
@@ -630,8 +647,8 @@ class TestACreatedRecord(unittest.TestCase):
         verdict = leg_verdict(created(target_exists=False))
         self.assertEqual((verdict.title, verdict.reason), ("Not found", "Project Inflows 'PI-1' not found."))
 
-    def test_cashbook_and_already_reversed_still_come_first(self):
-        self.assertEqual(leg_verdict(created(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+    def test_cashbook_is_judged_and_already_reversed_still_comes_first(self):
+        self.assertEqual(leg_verdict(created(source="Cashbook")).verdict, VERDICT_DELETE_CREATED)
         self.assertEqual(
             leg_verdict(created(match_kind="Reversed", target_exists=False)).title, "Already reversed"
         )

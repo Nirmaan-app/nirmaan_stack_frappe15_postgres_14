@@ -131,3 +131,20 @@ are created `Paid` with no approval anywhere. The `Version` log is the only reco
 
 The owner should revisit **R3** if Project Managers report unopenable attachments, and **R1** if the
 monthly correction load in Expenses turns out higher than the ~1–2% measured here.
+
+## Amendment A — a reopened Cashbook line may settle an existing record, by hand only (2026-09-24, #1314, owner)
+
+**Narrows** the Decision's "A **Cashbook** import creates what a wallet already spent; it never settles
+an existing record."
+
+The **import** still only creates: the Cashbook job never calls `match_batch`, and the matcher never
+runs over a Cashbook line (`sources.NEVER_MATCHED_SOURCES`, unchanged — no suggestion is ever made).
+But once a person **unreconciles** a Cashbook line (its created expense is deleted) or **unskips** a
+hand-skipped one (ADR-0022 Amendment D), that line is ordinary open work, and a person may do anything
+a Cashfree line allows: Create an expense, Link to an existing expense, settle a Project Payment,
+Split / Part payment. Every one of those is a person's pick, made in the decision dialog.
+
+- The Create form opens pre-filled from the line's stored plan (`suggested_doctype`,
+  `suggested_expense_type`, `resolved_project`), and the expense's Paid by is the statement's `From`,
+  as the job writes it.
+- The settle reference is the wallet transaction id everywhere, as before (ADR-0020 B9).

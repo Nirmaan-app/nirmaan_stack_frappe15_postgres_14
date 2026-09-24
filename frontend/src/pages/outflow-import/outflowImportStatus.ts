@@ -216,15 +216,25 @@ export const canUndoOutflow = (role: string | null | undefined, userId: string |
     userId === "Administrator" || OUTFLOW_UNDO_PROFILES.has(role ?? "");
 
 /**
- * The sources the matcher never runs over, which also get no Skip (#1270 Q16). Mirrors
- * `sources.NEVER_MATCHED_SOURCES`; the parity test pins it.
+ * The sources the matcher never runs over (Cashbook). Mirrors `sources.NEVER_MATCHED_SOURCES`; the
+ * parity test pins it. Since #1314 they are skipped, unskipped and unreconciled like any other source,
+ * with two Cashbook rules of their own: no Skip while the Cashbook job has not written the line
+ * (`Pending match run`), and Unskip only for a hand skip.
  */
 export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
 
 /**
+ * The sources whose statement names who spent the money (#1314): a Create from their line writes
+ * Paid by from the statement's `From`, server-side. Mirrors `sources.SPENDER_NAMED_SOURCES`; the parity
+ * test pins it. The Create form shows it, read-only.
+ */
+export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
+
+/**
  * May this person see the "Nothing to link?" Skip box on this line? Mirrors the server's
- * `skip_origin.manual_skip_refusal` plus the access check: an undo role, an OPEN line, not Cashbook.
- * The server re-checks all three.
+ * `skip_origin.manual_skip_refusal` plus the access check: an undo role and an OPEN line -- bar a
+ * Cashbook line still `Pending match run`, which its own job is about to write (#1314). The server
+ * re-checks all of it.
  */
 export const canSkipByHand = (
     row: { row_status: string; source?: string | null } | null | undefined,
@@ -234,7 +244,7 @@ export const canSkipByHand = (
     Boolean(row) &&
     canUndoOutflow(role, userId) &&
     isOpen(row!.row_status) &&
-    !NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim());
+    !(NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim()) && row!.row_status === ROW_PENDING_MATCH);
 
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the

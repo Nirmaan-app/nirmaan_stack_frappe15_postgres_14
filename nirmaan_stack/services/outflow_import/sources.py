@@ -34,6 +34,7 @@ __all__ = [
     "source_has_settlement_path",
     "source_runs_the_matcher",
     "source_has_preamble",
+    "source_names_its_spender",
     "source_transfer_id_is_its_reference",
     "source_writes_its_match_surface",
 ]
@@ -136,6 +137,27 @@ def source_runs_the_matcher(source: str) -> bool:
     `source_has_settlement_path` takes, so every existing import stays on the path it is on.
     """
     return (source or "").strip() not in NEVER_MATCHED_SOURCES
+
+
+#: Sources whose statement NAMES WHO SPENT the money, in its own `From` column (`added_by_raw`).
+#:
+#: ⚠️ A THIRD SET HOLDING "Cashbook", AND NOT TO BE MERGED WITH THE OTHER TWO. This one answers "who
+#: goes in an expense's Paid by?"; a Cashfree export's `Added By` names the accountant who queued the
+#: transfer, never a spender, so it keeps the actor.
+SPENDER_NAMED_SOURCES = frozenset({"Cashbook"})
+
+
+def source_names_its_spender(source: str) -> bool:
+    """Does a Create from this source's line take Paid by from the statement? (#1314, trap 4)
+
+    `True` for the petty-cash wallet: each line was spent by the person in its `From` column, and the
+    Cashbook job has always written that (`cashbook._write_one`). A reopened Cashbook line created by
+    hand must write the same, or a hand-created wallet expense claims the accountant made the purchase.
+
+    ⚠️ AN UNKNOWN OR BLANK SOURCE ANSWERS `False`: the Paid by stays the person recording it, as it
+    always has.
+    """
+    return (source or "").strip() in SPENDER_NAMED_SOURCES
 
 
 def source_transfer_id_is_its_reference(source: str) -> bool:

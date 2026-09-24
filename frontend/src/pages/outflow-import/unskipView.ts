@@ -4,10 +4,10 @@
 // Pure: no React, no fetch. `SkippedRowsDialog` renders these; `unskipView.test.ts` pins them.
 
 import { NEVER_MATCHED_SOURCES, ROW_MATCHED, ROW_SKIPPED } from "./outflowImportStatus";
-import { BANK_RULE_SKIP_KINDS, UNSKIP_LOCKED_KINDS } from "./skipKinds";
+import { BANK_RULE_SKIP_KINDS, SKIP_KIND_BY_HAND, UNSKIP_LOCKED_KINDS } from "./skipKinds";
 
 export const UNSKIP_BLOCK_NOT_SKIPPED = "This transfer is not skipped.";
-export const UNSKIP_BLOCK_CASHBOOK = "Cashbook rows can't be unskipped.";
+export const UNSKIP_BLOCK_CASHBOOK = "Only a Cashbook line skipped by hand can be unskipped.";
 export const UNSKIP_BLOCK_NO_KIND = "This transfer has no skip type, so it can't be unskipped.";
 
 /**
@@ -16,7 +16,8 @@ export const UNSKIP_BLOCK_NO_KIND = "This transfer has no skip type, so it can't
  *
  * ⚠️ KEYED ON SKIP KIND (owner, 2026-09-17, ADR-0022 Amendment C). It used to allow hand skips only and
  * tell system skips apart by the WORDS of their sentence. Now: every kind comes back except the four in
- * `UNSKIP_LOCKED_KINDS`, and never a Cashbook line (decision B1).
+ * `UNSKIP_LOCKED_KINDS`. A Cashbook line comes back only when a person skipped it (#1314, narrowing
+ * decision B1's "never"); its system kinds stay locked under one sentence.
  *
  * ⚠️ CONVENIENCE ONLY. `skip_origin.unskip_refusal` is the boundary and re-checks all of it; the
  * sentences are the server's, pinned by `skipKinds.test.ts`.
@@ -27,8 +28,10 @@ export const unskipBlockReason = (row: {
     source?: string | null;
 }): string | null => {
     if (row.row_status !== ROW_SKIPPED) return UNSKIP_BLOCK_NOT_SKIPPED;
-    if (NEVER_MATCHED_SOURCES.has((row.source ?? "").trim())) return UNSKIP_BLOCK_CASHBOOK;
     const kind = (row.skip_kind ?? "").trim();
+    if (NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) && kind !== SKIP_KIND_BY_HAND) {
+        return UNSKIP_BLOCK_CASHBOOK;
+    }
     if (!kind) return UNSKIP_BLOCK_NO_KIND;
     return UNSKIP_LOCKED_KINDS[kind] ?? null;
 };

@@ -1347,7 +1347,8 @@ def skip_row(row: str, reason: str):
 
       * ADMIN + ACCOUNTANT LEAD ONLY (`require_outflow_undo_access`). A plain Accountant matches and
         confirms.
-      * OPEN LINES ONLY, NEVER CASHBOOK (`skip_origin.manual_skip_refusal`). The old endpoint accepted
+      * OPEN LINES ONLY (`skip_origin.manual_skip_refusal`) -- Cashbook too since #1314, bar a line its
+        own job has not written yet. The old endpoint accepted
         an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
         as a hand skip; now only a Manual skip can be unskipped, so that relabelling would open a
         duplicate hole.
@@ -1441,6 +1442,14 @@ def unskip_row(row: str, reason: str):
 
     ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `_refresh_batch_rollup`, so a
     Completed import with this line back open reopens without a second refresh here.
+
+    ⚠️ A CASHBOOK LINE TAKES ITS OWN PATH, AND NEVER THROUGH `Pending match run` (#1314, owner Q4/Q5).
+    Only a Cashbook HAND skip reaches here (`unskip_refusal`). `match_line` refuses Cashbook by design
+    and keeps doing so, so the re-check is the Cashbook import's own duplicate question
+    (`cashbook.booked_elsewhere`), answered in the same transaction: booked -> Skipped again as System /
+    Outflow Already Recorded; not booked -> open as Mismatched. `Pending match run` is never written,
+    because the Cashbook job creates an expense for every Pending line that still carries a plan --
+    and the plan is kept, since the Create form pre-fills from it.
     """
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
     from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
@@ -1467,6 +1476,9 @@ def unskip_row(row: str, reason: str):
         )
         if refusal:
             frappe.throw(refusal, title="Cannot unskip this transfer")
+
+        if not source_runs_the_matcher(_batch_source(current.import_batch)):
+            return _unskip_cashbook_line(row, current.import_batch, actor, reason)
 
         doc = frappe.get_doc(ROW_DOCTYPE, row)
         doc.update(
@@ -1495,6 +1507,62 @@ def unskip_row(row: str, reason: str):
         "suggested_doctype": line["suggested_doctype"] or "",
         "suggested_name": line["suggested_name"] or "",
         "batch_status": line["run"]["status"],
+    }
+
+
+#: The note an unskipped Cashbook line opens with when its money is booked nowhere (#1314).
+CASHBOOK_UNSKIPPED_OPEN_NOTE = "Not booked anywhere yet. Record it, or link it to an existing record."
+
+
+def _unskip_cashbook_line(row: str, batch: str, actor: str, reason: str) -> dict:
+    """The Cashbook half of `unskip_row` (#1314): re-open, re-checked by the wallet duplicate check.
+
+    Runs under `unskip_row`'s row lock and concurrent-writer wrapper, and commits for it. ONE save, so
+    ONE Version row records both the unskip and where the re-check put the line.
+    """
+    # A FUNCTION-LOCAL IMPORT: `cashbook.py` imports this module, so a top-level import is a cycle.
+    from nirmaan_stack.api.outflow_import.cashbook import booked_elsewhere
+    from nirmaan_stack.services.outflow_import.cashbook import SKIP_ALREADY_BOOKED
+    from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_OUTFLOW_RECORDED
+
+    booked = booked_elsewhere(row)
+    cleared = {
+        "skip_reason": None,
+        "decided_at": None,
+        "decided_by": None,
+        "settlement_origin": None,
+        "duplicate_basis": None,
+    }
+    if booked:
+        outcome = {
+            "row_status": ROW_SKIPPED,
+            "skip_origin": SKIP_ORIGIN_SYSTEM,
+            "skip_kind": SKIP_KIND_OUTFLOW_RECORDED,
+            "outcome_note": SKIP_ALREADY_BOOKED.format(record=booked),
+        }
+    else:
+        outcome = {
+            "row_status": ROW_MISMATCHED,
+            "skip_origin": None,
+            "skip_kind": None,
+            "outcome_note": CASHBOOK_UNSKIPPED_OPEN_NOTE,
+        }
+    doc = frappe.get_doc(ROW_DOCTYPE, row)
+    doc.update({**cleared, **outcome})
+    # ⚠️ `ignore_version=False` IS EXPLICIT, for the reason `skip_row` gives.
+    doc.save(ignore_permissions=True, ignore_version=False)
+    doc.add_comment("Comment", text=f"Unskipped by {actor}: {reason}")
+
+    statuses = _refresh_batch_rollup(batch)
+    frappe.db.commit()
+    return {
+        "row": row,
+        "status": doc.row_status,
+        "outcome_note": doc.outcome_note or "",
+        # The plan's ledger is not a suggestion: a Cashbook line is never offered a pick (Q9).
+        "suggested_doctype": "",
+        "suggested_name": doc.suggested_name or "",
+        "batch_status": derive_batch_status(statuses),
     }
 
 
@@ -2753,6 +2821,9 @@ def get_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               -- The Cashbook plan's expense type (#1314): a reopened Cashbook line's Create form
+               -- pre-fills from it, beside `suggested_doctype` and `resolved_project`.
+               r.suggested_expense_type,
                -- Who skipped it, and when (#1273): the Skipped popup's "Skipped by hand" line.
                r.skip_origin, r.skip_kind, r.decided_by, r.decided_at,
                -- The Outcome cell's "Confirm by hand" chip (#1280); the date beside it is read below.

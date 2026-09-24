@@ -69,6 +69,7 @@ import {
     INFLOW_TYPES,
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { ROW_PARTIALLY_ALLOCATED, canSkipByHand, canUndoOutflow } from "../outflowImportStatus";
+import { newExpenseSeed, statementSpender } from "../newExpenseSeed";
 import { useUserData } from "@/hooks/useUserData";
 import type { UnreconcileResult } from "../unreconcileView";
 import { UnreconcilePanel } from "./UnreconcileDialog";
@@ -195,7 +196,8 @@ const SHOW_CREATE_NEW_EXPENSE = true;
 // ⚠️ `SHOW_SKIP_ROW` IS GONE (#1273, ADR-0022), reversing the 2026-08-10 ruling that hid manual skip
 // and ADR-0016 R6. Skip is back as the "Nothing to link?" box at the BOTTOM of the body, under a
 // divider -- below every link and create option, so linking stays the obvious first choice -- and only
-// for Admin / Accountant Lead on an open, non-Cashbook line (`canSkipByHand`). The server re-checks
+// for Admin / Accountant Lead on an open line (`canSkipByHand`; Cashbook too since #1314, bar a line
+// its own job has not written yet). The server re-checks
 // all of it in `review.skip_row`.
 
 /**
@@ -866,10 +868,8 @@ export const DecisionDialog = ({
                             onChange={onChange}
                             seed={() => ({
                                 target: "new",
-                                newExpense: decision?.newExpense ?? {
-                                    doctype: PROJECT_EXPENSE,
-                                    description: row.remarks || "",
-                                },
+                                // #1314: a reopened Cashbook line opens on its stored plan.
+                                newExpense: decision?.newExpense ?? newExpenseSeed(row),
                             })}
                         >
                             <NewExpenseForm row={row} decision={decision!} onChange={onChange} />
@@ -2199,8 +2199,10 @@ const NewExpenseForm = ({
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
 }) => {
-    const form = decision.newExpense ?? { doctype: PROJECT_EXPENSE };
+    const form = decision.newExpense ?? newExpenseSeed(row);
     const isProject = form.doctype === PROJECT_EXPENSE;
+    // Only a project expense has a Paid by, and the server writes the statement's spender into it.
+    const spender = isProject ? statementSpender(row) : null;
 
     const { data: projects } = useFrappeGetDocList<{
         name: string;
@@ -2326,6 +2328,7 @@ const NewExpenseForm = ({
                 value={row.bank_reference_no || "—"}
                 className="sm:col-span-2"
             />
+            {spender && <ReadOnlyField label="Paid by" value={spender} className="sm:col-span-2" />}
         </div>
     );
 };

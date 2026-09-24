@@ -11,7 +11,6 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
-    NEVER_MATCHED_SOURCES,
     OPEN_ROW_STATUSES,
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
@@ -37,9 +36,6 @@ export const LEFTOVER_PAID_TITLE = "Leftover paid";
 
 /** The verdicts that put a record back to the settleable status (blue in the dialog). */
 const BACK_TO_APPROVED = new Set([VERDICT_REVERT_PAYMENT, VERDICT_REVERT_EXPENSE]);
-
-/** Mirrors `unreconcile.CASHBOOK_REFUSAL`, shown in the table instead of a button (story 27). */
-export const UNRECONCILE_CASHBOOK_SENTENCE = "Cashbook rows can't be unreconciled yet.";
 
 /** The ticket's footer sentence for one refused record. */
 export const REVERSE_ALL_BLOCKED_ONE =
@@ -301,22 +297,20 @@ export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice 
 };
 
 /**
- * What a line's Outcome cell offers for an undo: the Unreconcile button, the Cashbook sentence, or
- * nothing.
+ * What a line's Outcome cell offers for an undo: the Unreconcile button, or nothing.
  *
  * ⚠️ ONLY A SETTLED LINE. A Partially Allocated line keeps its Outcome button and undoes inside the
  * decision dialog's "Already allocated" section, which reuses the same record list.
  *
- * ⚠️ `canUndo` IS `outflowImportStatus.canUndoOutflow` -- a plain Accountant sees neither the button
- * nor the Cashbook sentence, which would otherwise describe a control they never have.
+ * ⚠️ ANY SOURCE (#1314). A Cashbook line used to get a "can't be unreconciled yet" sentence here
+ * instead; it now unreconciles like every other line.
+ *
+ * ⚠️ `canUndo` IS `outflowImportStatus.canUndoOutflow` -- a plain Accountant sees no button.
  */
 export const unreconcileAffordance = (
     row: { row_status: string; source?: string | null },
     canUndo: boolean,
-): "button" | "cashbook" | null => {
-    if (!canUndo || row.row_status !== ROW_SETTLED) return null;
-    return NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) ? "cashbook" : "button";
-};
+): "button" | null => (canUndo && row.row_status === ROW_SETTLED ? "button" : null);
 
 // --- Confirm by hand (#1280) ----------------------------------------------------------------------
 

@@ -15,10 +15,15 @@ site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile
 ⚠️ EVERY PAYMENT REFUSAL SENTENCE IS THE ONE `expenses.reverse_allocation` PRINTED BEFORE THIS MODULE
 EXISTED, BYTE FOR BYTE, AND IN THE SAME ORDER. A leg can be wrong in several ways at once and the
 sentence names only the first, so reordering the checks changes what a reviewer is told. Both are
-pinned by `test_unreconcile.py`. The refusals added since: CASHBOOK (#1275), asked FIRST because it is
-a fact about the whole line, so every leg of a Cashbook line reads the same sentence; and, at #1277,
-the old "Only a Project Payments allocation can be reversed here" became "can't be unreconciled here
-yet" for the ledgers still to come (inflows), because expenses now revert.
+pinned by `test_unreconcile.py`. At #1277 the old "Only a Project Payments allocation can be reversed
+here" became "can't be unreconciled here yet" for the ledgers still to come (inflows), because
+expenses now revert.
+
+⚠️ THE SOURCE IS NOT A QUESTION HERE ANY MORE (#1314, ADR-0022 Amendment D). #1275 refused every
+Cashbook leg first, with a "not yet" sentence; a Cashbook expense is now judged exactly
+like any other -- in practice a created expense, so `delete_created` or one of its refusals. What
+makes a reopened Cashbook line safe is the api layer clearing its stale pick and never handing it back
+to the Cashbook job, not anything this module can see.
 
 AN EXPENSE (#1277, ADR-0022 reverses ADR-0020 B2 "reverse is payments only") is judged on the same
 three "changed elsewhere" facts as a payment -- amount, status, reference -- with its own sentences
@@ -84,7 +89,6 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     is_expense_doctype,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
 from nirmaan_stack.services.outflow_import.unsplit import (
     CREATED_WINDOW_SECONDS,
     LEFTOVER_PAID_TITLE,
@@ -105,10 +109,6 @@ VERDICT_REFUSED = "refused"
 # Where a refused leg is repaired. `None` on a refusal means there is nothing to repair.
 FIX_ON_PAYMENTS_SCREEN = "the Payments screen"
 FIX_ON_EXPENSES_SCREEN = "the Expenses screen"
-
-# ⚠️ THE SCREEN SHOWS THIS SENTENCE VERBATIM in the table's Outcome cell (`unreconcileView.ts`,
-# parent #1270 story 27), so the server's refusal and the table can never say two different things.
-CASHBOOK_REFUSAL = "Cashbook rows can't be unreconciled yet."
 
 # What each verdict does to its target, as the dialog says it. ⚠️ `_revert_payment` in the api layer
 # clears exactly these fields; change one and change the other.
@@ -151,7 +151,6 @@ IMPORT_WRITTEN_FIELDS = frozenset({"payment_attachment", "inflow_attachment", "r
 _PAID = "Paid"
 
 __all__ = [
-    "CASHBOOK_REFUSAL",
     "CREATED_WINDOW_SECONDS",
     "FIX_ON_EXPENSES_SCREEN",
     "FIX_ON_PAYMENTS_SCREEN",
@@ -274,10 +273,6 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
     """The one verdict for one leg. See the module docstring for why each refusal exists."""
     name = facts.target_name
 
-    # Cashbook is the one source the matcher never runs over, and the one Unreconcile does not reach
-    # yet (#1270 Q13). The same predicate Skip and Unskip refuse it with.
-    if not source_runs_the_matcher((facts.source or "").strip()):
-        return _refused(facts, "Cashbook line", CASHBOOK_REFUSAL)
     if facts.match_kind != MATCH_SETTLED:
         return _refused(
             facts,

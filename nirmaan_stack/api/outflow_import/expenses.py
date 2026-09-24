@@ -68,6 +68,7 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
     _StagedRow,
+    _batch_source,
     _recorded_money_group,
     _refresh_batch_rollup,
     derive_batch_status,
@@ -81,6 +82,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
@@ -1015,6 +1017,10 @@ def create_expense(
             # link, but nobody opening an expense form sees that -- this line is what tells them.
             comment=comment or f"Imported from {doc['import_batch']}",
             statement_file_url=statement_file_url,
+            # ⚠️ WHO SPENT IT, on a source whose statement says so (#1314, trap 4): the Cashbook job
+            # writes the `From` column, and a reopened Cashbook line created here must match it.
+            # Everywhere else `None`, and `create_expense_from_row` keeps the actor.
+            payment_by=_statement_spender(doc),
         )
         _record_settlement(staged, doc, result, actor)
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
@@ -1029,6 +1035,13 @@ def create_expense(
     frappe.db.commit()
     _link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
+
+
+def _statement_spender(doc) -> str | None:
+    """The statement's own spender for this line, when its source names one; else `None`."""
+    if not source_names_its_spender(_batch_source(doc["import_batch"])):
+        return None
+    return (doc.get("added_by_raw") or "").strip() or None
 
 
 @frappe.whitelist()

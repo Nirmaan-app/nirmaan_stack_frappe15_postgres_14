@@ -6118,3 +6118,43 @@ reconcile pre-fills it) or the clearing line's UTR. Before this, the second such
   another payment holding the reference still blocks a cheque; online keeps the strict rule);
   `services/outflow_import/test_reference_guard.py` unchanged and green.
 
+
+## #1314 (2026-09-24) — Unreconcile, Skip and Unskip for Cashbook lines
+
+Owner rulings Q1–Q12 (grilling 2026-09-24). ADR-0022 **Amendment D** + ADR-0015 **Amendment A**.
+Admin + Accountant Lead only; one line at a time. No schema change, no migrate.
+
+**What a Cashbook line can do now.**
+
+| Action | Rule | Where |
+|---|---|---|
+| Unreconcile a Settled line | the created expense is DELETED (`delete_created`, #1278, same refusals); the line lands **Not Matched** (`Mismatched`), `confirm_by_hand` set, no pick | `services/.../unreconcile.leg_verdict` (source no longer asked); `api/.../unreconcile._drop_a_pick_that_was_deleted` |
+| Settle a reopened line | Create / Link / Project Payment / Split, like Cashfree — by hand only; the matcher stays off | no source check on any settle endpoint |
+| Create | pre-filled from the plan (`newExpenseSeed.ts`); Paid by = statement `From` (`expenses._statement_spender`, shown read-only) | `create_expense`, `DecisionDialog` |
+| Skip by hand | any OPEN line except `Pending match run` (the job has not written it yet → `SKIP_REFUSED_CASHBOOK_PENDING`) | `skip_origin.manual_skip_refusal`, `canSkipByHand` |
+| Unskip | only kind **Skipped by hand**; every system kind stays locked (`UNSKIP_REFUSED_CASHBOOK`) | `skip_origin.unskip_refusal`, `unskipBlockReason` |
+
+**The four traps (each has a test that goes red without its fix — `api/outflow_import/test_cashbook_undo.py`).**
+
+1. **Stale pick.** `cashbook._write_one` stores `suggested_name = <created expense>`; after the delete the
+   line would read Matched to a record that is gone. The unreconcile clears a pick that names a record it
+   just deleted (keyed on the deletion, so a surviving pick on any source keeps its #1280 meaning).
+2. **The Cashbook job.** `_cashbook_worker` picks up every `Pending match run` line with a plan, and the
+   plan is kept for the pre-fill. So a reopened or unskipped Cashbook line is NEVER `Pending match run`.
+3. **The unskip re-check.** `match_line` refuses Cashbook (and keeps doing so). `review.unskip_row`
+   branches: Cashbook → `_unskip_cashbook_line` → `cashbook.booked_elsewhere(row)`: an expense with this
+   wallet id (`_booked_index`, the same query `_already_booked` runs for a whole statement), or a live leg
+   on another line with this transfer id. Booked → Skipped / System / **Outflow Already Recorded**,
+   "Already booked as <ledger> <name>"; else **Mismatched** with `CASHBOOK_UNSKIPPED_OPEN_NOTE`. One save,
+   one Version row.
+4. **Paid by.** `create_expense` passes `payment_by=_statement_spender(doc)`: the `From` column on a
+   source in `sources.SPENDER_NAMED_SOURCES` (Cashbook), `None` elsewhere (the actor, as before).
+
+**Kept.** `NEVER_MATCHED_SOURCES` and the `match_line` / `_match_rows` fences; `settlement_origin` is the
+settle's own (never `Suggestion accepted`); a hand Create writes `created_by_import = 1` so a second
+unreconcile deletes it again; a hand Link reverts to Reconciliation Pending like any source.
+
+**Screen.** `unreconcileAffordance` returns `"button" | null` (the Cashbook sentence and
+`UNRECONCILE_CASHBOOK_SENTENCE` are gone). `get_outflow_rows` now ships `suggested_expense_type`.
+Frontend sets mirrored + parity-pinned: `NEVER_MATCHED_SOURCES`, `SPENDER_NAMED_SOURCES`
+(`outflowUndoAccessParity.test.ts`).

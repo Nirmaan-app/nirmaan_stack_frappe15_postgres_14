@@ -1,8 +1,8 @@
 // The Unreconcile dialog's sentences, its Reverse all footer, the notice after an undo, and what the
 // table's Outcome cell offers on a Settled line (#1275, parent #1270, ADR-0022).
 //
-// ⚠️ THE CASHBOOK SENTENCE AND THE VERDICT NAMES ARE READ AGAINST THE REAL PYTHON. The table shows the
-// sentence the server refuses with; a rewording on one side would otherwise go unnoticed.
+// ⚠️ THE VERDICT NAMES ARE READ AGAINST THE REAL PYTHON; a rewording on one side would otherwise go
+// unnoticed. (The Cashbook sentence was too, until #1314 let Cashbook lines be unreconciled.)
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,6 @@ import {
     CONFIRM_BY_HAND_CHIP,
     CONFIRM_BY_HAND_REFUSAL,
     REVERSE_ALL_BLOCKED_ONE,
-    UNRECONCILE_CASHBOOK_SENTENCE,
     VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
@@ -92,9 +91,10 @@ const plan = (legs: UnreconcilePlanLeg[]): UnreconcilePlan => ({
 });
 
 describe("parity with the Python decision module", () => {
-    it("shows the exact sentence the server refuses a Cashbook line with", () => {
-        expect(decisionSource).toContain(`CASHBOOK_REFUSAL = "${UNRECONCILE_CASHBOOK_SENTENCE}"`);
-        expect(UNRECONCILE_CASHBOOK_SENTENCE).toBe("Cashbook rows can't be unreconciled yet.");
+    it("★ neither side refuses a Cashbook line any more (#1314 -- INVERTS the shared sentence pin)", async () => {
+        expect(decisionSource).not.toContain("CASHBOOK_REFUSAL");
+        expect(decisionSource).not.toContain("Cashbook rows can't be unreconciled");
+        expect("UNRECONCILE_CASHBOOK_SENTENCE" in (await import("./unreconcileView"))).toBe(false);
     });
 
     it("names the verdicts the way the server does", () => {
@@ -497,8 +497,8 @@ describe("unreconcileAffordance -- what a Settled line's Outcome cell offers", (
         expect(unreconcileAffordance(row("Settled"), true)).toBe("button");
     });
 
-    it("a Cashbook Settled line gets the sentence instead of a missing button", () => {
-        expect(unreconcileAffordance(row("Settled", "Cashbook"), true)).toBe("cashbook");
+    it("★ a Cashbook Settled line gets the button too (#1314 -- it used to get a refusal sentence)", () => {
+        expect(unreconcileAffordance(row("Settled", "Cashbook"), true)).toBe("button");
     });
 
     it("a plain Accountant sees neither", () => {
