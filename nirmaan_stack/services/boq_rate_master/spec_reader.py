@@ -69,6 +69,10 @@ ADP_DERIVED_ATTRS = (
     "family", "damper", "insulated", "neck_mm", "face_w_mm", "face_h_mm", "depth_mm", "dia_mm",
     "slot_count", "torque_nm", "ul", "panel_ratio", "thickness_mm", "variant",
 )
+# SLICE 9 (owner A-5): the ALTERNATIVE OUTER (`face_alt_w_mm` / `face_alt_h_mm`) is read from the detail
+# like every other derived attribute, but it is deliberately NOT in the tuple above -- that tuple mirrors the
+# config's `attribute_definitions`, and this pair is NOT a definition: it is never a model question, never a
+# panel field and never a CSV column. It is a CATALOGUE fact the pricer's second-key match reads.
 
 
 class SpecNotUnderstood(Exception):
@@ -95,6 +99,14 @@ def _neck(d):
 
 def _outer(d):
     m = re.search(r"OUTER:\s*(\d+)X(\d+)", d, re.I)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def _outer_alt(d):
+    """SLICE 9 (owner A-5): the ALTERNATIVE outer written in brackets after the real one --
+    "OUTER: 595X595 (600X600)". Absent brackets => None, so every pre-slice-9 detail reads exactly
+    as it did."""
+    m = re.search(r"OUTER:\s*\d+\s*X\s*\d+\s*\(\s*(\d+)\s*X\s*(\d+)\s*\)", d, re.I)
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
@@ -217,6 +229,9 @@ def read_adp_spec(item_name, item_detail, unit=None):
             a["neck_mm"] = float(n[0])
         if o:
             a["face_w_mm"], a["face_h_mm"] = float(o[0]), float(o[1])
+            alt = _outer_alt(det)                                          # SLICE 9 (A-5): the alternative name
+            if alt:
+                a["face_alt_w_mm"], a["face_alt_h_mm"] = float(alt[0]), float(alt[1])
         if not n and not o:
             w = _wxh(det)
             if w:

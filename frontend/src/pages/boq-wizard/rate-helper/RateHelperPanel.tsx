@@ -1133,7 +1133,10 @@ function ItemListBlocks({
                     >
                       <option value="">&mdash; select &mdash;</option>
                       {f.options.map((o) => (
-                        <option key={o} value={o}>{o}</option>
+                        // SLICE 9 (A-6): the VALUE is what prices; the TEXT may be the catalogue's own word
+                        // for it. Keeping the value real is what stops a controlled select falling back to
+                        // another option (frontend/CLAUDE.md) and keeps the field editable.
+                        <option key={o} value={o}>{f.optionLabels?.[o] ?? o}</option>
                       ))}
                     </select>
                   ) : (

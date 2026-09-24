@@ -27,6 +27,7 @@ import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
 import HVAC_V11 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v11.json";
+import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
 import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
@@ -1190,5 +1191,287 @@ describe("slice 8 / M-c -- a flexible duct is sold per piece of a 2.5 m standard
     const r = price11("Nos", ext({ family: "flexible duct", insulated: "with", dia_mm: "900 mm" }));
     expect(r.priced).toBe(false);
     expect(r.reason).toBe("diameter 900 is above the largest size on the sheet (350)");
+  });
+});
+
+// ==========================================================================================================
+// SLICE 9 (2026-09-25, owner rulings A-1 .. A-6) -- ONE SIZE FIELD, THE STATED DIAMETER, NO HEADING BLEED,
+// AND THE OUTER SIZE AS A SECOND KEY.
+//
+// A BoQ writes a size as one phrase. Asking for width, height and depth as three separate answers made the
+// model copy the whole phrase into one of them, and code then refused it as "not a single number" -- 60 rows
+// of the live corpus. The model is now asked ONCE, for the size as written, and CODE splits it.
+// ==========================================================================================================
+const asset12 = HVAC_V12 as unknown as Asset;
+const items12: RateMasterItem[] = asset12.items.map((i) => ({ ...i, discipline: "HVAC" }));
+const adp12 = asset12.category_configs.find((c) => c.category_id === "hvac_adp")!;
+const spec12 = itemListPricingSpec(adp12)!;
+const price12 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec12, items12, unit, its);
+/** The three axes as the config reads them, so a spelling is checked exactly where pricing reads it. */
+const axes = (text: string | null) => ({
+  w: readNumber(text, spec12.numbers.face_w_mm),
+  h: readNumber(text, spec12.numbers.face_h_mm),
+  d: readNumber(text, spec12.numbers.depth_mm),
+});
+const val = (r: ReturnType<typeof readNumber>) => (r && "value" in r ? r.value : null);
+
+describe("slice 9 / v12 = v11 + the declared edits, and NOTHING else", () => {
+  it("the ADP config differs ONLY by the one size field, the four def notes and the second key; every OTHER config and every other item is byte-identical", () => {
+    expect(asset12.category_configs.slice(1)).toEqual(asset11.category_configs.slice(1));
+    // the six catalogue cells are the ONLY items that moved (A-5), and their uids did NOT
+    const changed = asset12.items.filter((it, i) => JSON.stringify(it) !== JSON.stringify(asset11.items[i]));
+    expect(changed.length).toBe(6);
+    expect(changed.map((i) => i.item_uid).sort()).toEqual(asset11.items.filter(
+      (i) => String((i.attributes as Record<string, unknown>).item_detail ?? "").includes("OUTER: 595X595"),
+    ).map((i) => i.item_uid).sort());
+    // NEGATIVE: v11 carries none of the new keys, so the strip below removes something real
+    expect(spec11.second_key).toBeUndefined();
+    expect(spec11.numbers.face_w_mm.component).toBeUndefined();
+    expect(spec11.override_when![0].display).toBeUndefined();
+    expect(spec12.override_when![0].display).toBe("UL 555");
+    expect(spec12.second_key).toEqual([{
+      families: ["square diffuser"], primary: "neck_mm", key: ["face_w_mm", "face_h_mm"],
+      alt_key: ["face_alt_w_mm", "face_alt_h_mm"], name: "outer size", primary_pick: "largest",
+    }]);
+    for (const [id, comp] of [["face_w_mm", 1], ["face_h_mm", 2], ["depth_mm", 3]] as const) {
+      expect(spec12.numbers[id].from).toEqual(["size_mm"]);
+      expect(spec12.numbers[id].component).toBe(comp);
+    }
+  });
+
+  it("the model is asked for ONE size, not three; and the panel shows it ONCE", () => {
+    const ids = listSpecDefs(adp12).map((d) => d.id);
+    expect(ids).toContain("size_mm");
+    for (const gone of ["face_w_mm", "face_h_mm", "depth_mm"]) expect(ids).not.toContain(gone);
+    // the mixing box needs all three axes; the panel must still offer exactly ONE box for them
+    const fields = itemFieldDefs(spec12, listSpecDefs(adp12), "mixing box / LP plenum", "count");
+    const sizeFields = fields.filter((f) => f.id === "size_mm");
+    expect(sizeFields.length).toBe(1);
+    expect(sizeFields[0].label).toBe("Size (as written)");
+    // NEGATIVE, on v11: the same family offered THREE boxes
+    expect(itemFieldDefs(spec11, listSpecDefs(adp11), "mixing box / LP plenum", "count")
+      .filter((f) => ["face_w_mm", "face_h_mm", "depth_mm"].includes(f.id)).length).toBe(3);
+  });
+
+  it("no new literal reaches the code: no family name, no size, no catalogue wording", () => {
+    const code = readFileSync(join(__dirname, "itemListPricing.ts"), "utf-8")
+      .split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+    for (const forbidden of ["595", "600", "1200", "square diffuser", "outer size", "neck", "size_mm", "hvac"]) {
+      expect(code, forbidden).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("slice 9 / A-1 -- every size spelling the live capture contains, and what code makes of it", () => {
+  // Each row is a spelling the model actually produced on the 1,150-row corpus (or, for the labelled forms,
+  // the phrase the rows those answers came from are written in), with the width / height / depth code reads.
+  const TABLE: Array<[string, number | null, number | null, number | null]> = [
+    // ---- plain x-joined pairs and triples: the common case, ordered as written -------------------------
+    ["600x600", 600, 600, null],
+    ["600 x 600 MM", 600, 600, null],
+    ["596 x 596 mm", 596, 596, null],
+    ["1200 mm X 250 mm", 1200, 250, null],
+    ["1200x300", 1200, 300, null],
+    ["525 x 525 x 450 mm", 525, 525, 450],
+    ["595mmx595mmx450mm", 595, 595, 450],
+    ["375x375x375", 375, 375, 375],
+    ["450x 450 x 400 mm", 450, 450, 400],
+    ["600 x 150 x 450 mm", 600, 150, 450],
+    ["(275x275x350)mm", 275, 275, 350],
+    ["600X1200x 400 mm High", 600, 1200, 400],   // ONE part labelled -> ordered as written, not by the label
+    ["375x 375 x 400 mm High", 375, 375, 400],
+    // ---- every part labelled: the LABELS order it, which is the only way these read correctly ----------
+    ["1100(W) X 250(D) X 400(H)", 1100, 400, 250],
+    ["200mm (W) x 200mm(H) x 1500mm(L)", 200, 200, 1500],
+    ["250mm Wide X 250mm Height X 1500mm Length", 250, 250, 1500],
+    // ---- one dimension only ---------------------------------------------------------------------------
+    ["600", 600, null, null],                    // owner ruling: a bare number is the width; height refuses
+    ["300 mm", 300, null, null],
+    ["250 mm high", null, 250, null],            // it NAMES its axis, so it is a height and NOT a width
+    ["150mm HEIGHT", null, 150, null],
+    ["125mm deep", null, null, 125],
+    // ---- units the reader already scaled, unchanged by the split --------------------------------------
+    ["1.2 m x 0.6 m", 1200, 600, null],
+  ];
+  for (const [text, w, h, d] of TABLE) {
+    it(`reads ${JSON.stringify(text)} as width ${w}, height ${h}, depth ${d}`, () => {
+      const a = axes(text);
+      expect(val(a.w), "width").toBe(w);
+      expect(val(a.h), "height").toBe(h);
+      expect(val(a.d), "depth").toBe(d);
+    });
+  }
+
+  it("NEGATIVE: a form code cannot read REFUSES by name and never guesses a number", () => {
+    // a list of sizes is several values, not a size -- the refusal names the quantity and quotes the text
+    for (const text of ["100/150", "900/1000", "350/400 mm", "100, 150, 200 mm", "100/150/200/250 mm/600mmx600mm"]) {
+      const got = axes(text).w;
+      expect(got, text).not.toBeNull();
+      expect(got && "blank" in got, text).toBe(true);
+      expect((got as { blank: string }).blank, text).toContain("several values stated for width");
+      expect((got as { blank: string }).blank, text).toContain(text);
+    }
+    // inches are refused by name, exactly as before this slice
+    const inch = axes('6"').w as { blank: string };
+    expect(inch.blank).toContain("width stated in inches");
+    // FOUR or more parts is not a size this splitter reads: the whole text falls to the ordinary reader,
+    // which refuses it -- it never silently takes the first three
+    const four = axes("100 x 200 x 300 x 400").w as { blank: string };
+    expect("blank" in four).toBe(true);
+    expect(four.blank).toContain("not a single number");
+    // labels that are not a permutation of the phrase's own slots are ambiguous, so not a phrase
+    const odd = axes("1000(W) x 200(L)").w as { blank: string };
+    expect("blank" in odd).toBe(true);
+    expect(odd.blank).toContain("not a single number");
+  });
+
+  it("the rules downstream of the split are untouched: the box surface, the W x H conversion, the per-metre grille height, and a cross-talk SKU", () => {
+    // every figure here is the figure the SAME row carried before this slice (the live replay's baseline)
+    // a mixing box: per-sq.m cost x 2(WH + HD + WD) + 150, from a THREE-part phrase in one field
+    const box = price12("Nos", ext({ family: "mixing box / LP plenum", insulated: "with", size_mm: "600 x 600 x 350" }));
+    expect(box.priced).toBe(true);
+    // a VCD per number: per-sq.m rate x W x H (R11)
+    const vcd = price12("Nos", ext({ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }));
+    expect([vcd.priced, vcd.supply, vcd.install]).toEqual([true, 1292, 317]);
+    // a per-metre grille: per-sq.m rate x HEIGHT in metres (R4) -- the height reached it from one field
+    const grille = price12("RM", ext({ family: "linear grille", damper: "without", size_mm: "250 mm high" }));
+    expect([grille.priced, grille.supply, grille.install]).toEqual([true, 1208, 220]);
+    // a cross-talk silencer matches its stocked W x H pair
+    const xt = price12("Nos", ext({ family: "cross-talk", size_mm: "200 x 200" }));
+    expect([xt.priced, xt.supply, xt.install]).toEqual([true, 557, 192]);
+    // and the axis-labelled plenum that reads correctly ONLY because the labels order it
+    const lab = price12("Nos", ext({ family: "mixing box / LP plenum", insulated: "with", size_mm: "1100(W) X 250(D) X 400(H)" }));
+    expect([lab.priced, lab.supply, lab.install]).toEqual([true, 3125, 0]);
+  });
+
+  it("NEGATIVE: a family that needs a depth still refuses when the phrase gives only two axes", () => {
+    // the phrase states width and height and says NOTHING about a depth, so the third axis is NOT STATED and
+    // the per-number conversion refuses in its own words -- byte-identical to the refusal a blank depth field
+    // produced before this slice
+    const r = price12("Nos", ext({ family: "mixing box / LP plenum", insulated: "with", size_mm: "600 x 600" }));
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("per-number row: no width and height and depth stated to convert the per-sq.m rate");
+    const was = priceItemList(spec11, items11, "Nos", [ext({ family: "mixing box / LP plenum", insulated: "with", face_w_mm: "600", face_h_mm: "600" })]);
+    expect(was.reason).toBe(r.reason);
+  });
+});
+
+describe("slice 9 / A-4 -- the OUTER size is a SECOND key, never a replacement", () => {
+  const SQ = { family: "square diffuser", damper: "without" };
+
+  it("case 1: neck stated, outer not -- byte-identical to before the slice", () => {
+    const now = price12("Nos", ext({ ...SQ, neck_mm: "375 x 375" }));
+    const was = priceItemList(spec11, items11, "Nos", [ext({ ...SQ, neck_mm: "375 x 375" })]);
+    expect([now.priced, now.supply, now.install]).toEqual([was.priced, was.supply, was.install]);
+    expect(skuOf(now)).toBe("Diffuser Without Al Collar Damper / NECK:375X375/OUTER: 595X595 (600X600)");
+    // NEGATIVE: no second-key note anywhere -- nothing resolved, so nothing is claimed
+    expect(working(now).join(" ")).not.toContain("outer size");
+  });
+
+  it("case 2: BOTH stated -- the outer narrows, the neck ladders inside it", () => {
+    const r = price12("Nos", ext({ ...SQ, neck_mm: "225 x 225", size_mm: "600 x 600" }));
+    expect(r.priced).toBe(true);
+    // the stated 225 is not a stocked rung: next size up is 300, inside the 595x595 outer
+    expect(skuOf(r)).toBe("Diffuser Without Al Collar Damper / NECK:300X300/OUTER: 595X595 (600X600)");
+    expect(working(r).join(" | ")).toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
+  });
+
+  it("case 3a: outer stated, neck not, SEVERAL SKUs behind it -- the largest neck, named", () => {
+    const r = price12("Nos", ext({ ...SQ, size_mm: "600 x 600" }));
+    expect([r.priced, r.supply, r.install]).toEqual([true, 1813, 400]);
+    expect(skuOf(r)).toBe("Diffuser Without Al Collar Damper / NECK:450X450/OUTER: 595X595 (600X600)");
+    expect(working(r).join(" | ")).toContain("matched on the outer size 595x595; largest neck size behind it is 450 (A-4)");
+    // NEGATIVE, on v11: the same answer refused, which is the defect A-4 answers
+    const was = priceItemList(spec11, items11, "Nos", [ext({ ...SQ, face_w_mm: "600", face_h_mm: "600" })]);
+    expect(was.priced).toBe(false);
+    expect(was.reason).toContain("no neck size stated");
+  });
+
+  it("case 3b: outer stated, neck not, ONLY ONE SKU behind it -- that SKU is adopted as it stands, its own damper named", () => {
+    // the 1200x300 diffuser is the sheet's only one at that outer, and it is a WITH-damper row. The owner's
+    // ruling is to use it; the working says where the damper came from, so a pricer is never surprised by it.
+    const r = price12("Nos", ext({ family: "square diffuser", size_mm: "1200x300" }));
+    expect([r.priced, r.supply, r.install]).toEqual([true, 2755, 576]);
+    expect(skuOf(r)).toBe("Diffuser With Al Collar Damper / 1200MM X300MM");
+    const w = working(r).join(" | ");
+    expect(w).toContain("only one SKU carries the outer size 1200x300 -- used it");
+    expect(w).toContain("taken from that SKU");
+    // and the neck, which that SKU does not carry, stopped being a requirement rather than refusing the row
+    expect(r.items[0].selection.neck_mm).toBeUndefined();
+  });
+
+  it("case 4: NEITHER stated -- refuses for the neck, exactly as before", () => {
+    const r = price12("Nos", ext({ ...SQ }));
+    expect(r.priced).toBe(false);
+    expect(r.reason).toContain("no neck size stated");
+    expect(working(r).join(" ")).not.toContain("outer size");
+  });
+
+  it("the no-match fallback: a stated outer the catalogue does not stock is SET ASIDE, the neck prices the row, and the panel says so", () => {
+    const r = price12("Nos", ext({ ...SQ, neck_mm: "300 x 300", size_mm: "450 x 450" }));
+    expect([r.priced, r.supply, r.install]).toEqual([true, 1532, 400]);
+    expect(skuOf(r)).toBe("Diffuser Without Al Collar Damper / NECK:300X300/OUTER: 595X595 (600X600)");
+    expect(working(r).join(" | ")).toContain("the outer size 450x450 did not match the catalogue -- matched on the neck size instead (A-4)");
+    // NEGATIVE: with no neck to fall back to there is nothing to price, and the row refuses as it always did
+    const bare = price12("Nos", ext({ ...SQ, size_mm: "450 x 450" }));
+    expect(bare.priced).toBe(false);
+    expect(bare.reason).toContain("no neck size stated");
+  });
+
+  it("NEGATIVE: the second key reaches ONLY the families the config names it for", () => {
+    // cross-talk keys on its face size directly and declares no second key: a size that matches no SKU
+    // must still refuse, not silently fall back to something else
+    const r = price12("Nos", ext({ family: "cross-talk", size_mm: "123 x 456" }));
+    expect(r.priced).toBe(false);
+    expect(working(r).join(" ")).not.toContain("did not match the catalogue");
+  });
+});
+
+describe("slice 9 / A-5 -- the alternative name is CATALOGUE WORDING, not a tolerance", () => {
+  it("the six 595x595 SKUs carry 600X600 in their own text, and the reader derived it", () => {
+    const alts = items12.filter((i) => (i.attributes as Record<string, unknown>).face_alt_w_mm !== undefined);
+    expect(alts.length).toBe(6);
+    for (const it of alts) {
+      const a = it.attributes as Record<string, unknown>;
+      expect(String(a.item_detail)).toContain("(600X600)");
+      expect([a.face_w_mm, a.face_h_mm]).toEqual([595, 595]);
+      expect([a.face_alt_w_mm, a.face_alt_h_mm]).toEqual([600, 600]);
+    }
+  });
+
+  it("NEGATIVE: nothing treats 600 as near enough to 595 -- a size the catalogue does not name does not match", () => {
+    // 596x596 appears in the corpus and is NOT an alternative name on any SKU: it falls back to the neck
+    const r = price12("Nos", ext({ family: "square diffuser", damper: "without", neck_mm: "375 x 375", size_mm: "596 x 596" }));
+    expect(working(r).join(" | ")).toContain("the outer size 596x596 did not match the catalogue");
+    // and with no neck it cannot price at all -- there is no rounding anywhere
+    const bare = price12("Nos", ext({ family: "square diffuser", damper: "without", size_mm: "596 x 596" }));
+    expect(bare.priced).toBe(false);
+  });
+});
+
+describe("slice 9 / A-6 -- an overridden field shows the catalogue's own word, and stays editable", () => {
+  it("the Variant field reads 'UL 555' on an overridden row, with the rule beneath, and the VALUE stays a real option", () => {
+    const r = price12("Sq.m", ext({ family: "fire damper", ul: "yes", variant: "motorised" }));
+    expect([r.priced, r.supply, r.install]).toEqual([true, 21750, 1920]);
+    expect(r.items[0].overrides).toEqual([
+      { attr: "variant", value: "UL", display: "UL 555", rule: "UL stated, so the UL 555 SKU is used (R-M-b)" },
+    ]);
+    // the note is UNCHANGED from slice 8 -- the display is an addition, not a replacement
+    expect(working(r)).toContain("UL stated, so the UL 555 SKU is used (R-M-b)");
+    // and the value the panel selects is a value the field's own options carry, so the control cannot fall
+    // back to another option (the controlled-select trap, frontend/CLAUDE.md)
+    const fields = itemFieldDefs(spec12, listSpecDefs(adp12), "fire damper", "area", { items: items12 });
+    const variant = fields.find((f) => f.skuAttr === "variant")!;
+    expect(variant.options).toContain("UL");
+    expect(variant.options).not.toContain("UL 555");
+  });
+
+  it("NEGATIVE: a row whose variant the override did NOT decide records no override at all", () => {
+    const r = price12("Sq.m", ext({ family: "fire damper", ul: "no", variant: "motorised" }));
+    expect(r.items[0].overrides).toEqual([]);
+    // and a row ALREADY on the overridden value is byte-identical: the rule fires only when it CHANGES something
+    const already = price12("Sq.m", ext({ family: "fire damper", ul: "yes", variant: "UL" }));
+    expect(already.items[0].overrides).toEqual([]);
+    expect([already.priced, already.supply, already.install]).toEqual([true, 21750, 1920]);
   });
 });

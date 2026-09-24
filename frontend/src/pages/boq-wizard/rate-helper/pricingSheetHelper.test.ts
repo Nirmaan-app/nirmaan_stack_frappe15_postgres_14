@@ -5042,6 +5042,7 @@ describe("SLICE 3 / alias_of: resolveAliasConfig is one hop; an aliased row pric
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
+import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
 import {
   applyItemEdit,
   assembleItems,
@@ -5562,5 +5563,76 @@ describe("SLICE 6d / a count the model read shows as READ; an assumed 1 stays ma
     const added = applyItemEdit(list(h.compute(c)).v.editState, { op: "add", family: "disc valve" });
     const { v } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(added) }));
     expect(v.items.map((b) => [b.source, b.qty, b.qtyDefaulted])).toEqual([["model", "2", false], ["user", "1", true]]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 9 (2026-09-25, owner A-1 / A-4 / A-6) -- the item-list view under v12: ONE size box, the outer-size
+// notes, and the catalogue's own word on a field an override decided.
+//
+// These read the field the PANEL renders, not the pure module's return. The A-6 vacuity proved why: breaking
+// the line that carries the display left every test in itemListPricing.test.ts green, because those assert
+// the two SIDES of the seam (what the module returned, what the options are) and nothing asserted the value
+// ARRIVES on the field.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size notes, the overridden word", () => {
+  const V12 = HVAC_V12 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS12 = new Map<string, RateCategoryConfig>(V12.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS12: RateMasterItem[] = V12.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const adpCtx = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS12, items: ITEMS12, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const field = (v: ItemListView, i: number, id: string) => v.items[i].fields.find((f) => f.id === id)!;
+
+  it("A-6: the Variant field READS 'UL 555' on an overridden row, keeps a real value under it, and shows the rule", () => {
+    const { v } = list(runWith([{ excel_row: 40, items: [li({ family: "fire damper", ul: "yes", variant: "motorised" })] }]).compute(adpCtx(40, "Sq.m")));
+    const variant = field(v, 0, "variant");
+    // what a pricer READS -- the catalogue's own word for the SKU this row now prices as
+    expect(variant.optionLabels?.[variant.value]).toBe("UL 555");
+    // ... under a value the field's own options carry, so the control cannot fall back to another option
+    expect(variant.value).toBe("UL");
+    expect(variant.options).toContain("UL");
+    expect(variant.options).not.toContain("UL 555");
+    expect(variant.note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    expect(v.items[0].figures).toMatchObject({ supply_rate: 21750, install_rate: 1920 });
+  });
+
+  it("NEGATIVE (A-6): a row the override did not decide carries NO relabelling -- the field reads its own value", () => {
+    const { v } = list(runWith([{ excel_row: 41, items: [li({ family: "fire damper", ul: "no", variant: "motorised" })] }]).compute(adpCtx(41, "Sq.m")));
+    const variant = field(v, 0, "variant");
+    expect(variant.value).toBe("motorised");
+    expect(variant.optionLabels).toBeUndefined();
+    expect(variant.note).toBeUndefined();
+  });
+
+  it("A-1: a size written as ONE phrase reaches the panel as ONE box, and the row prices from it", () => {
+    const { v, r } = list(runWith([{ excel_row: 42, items: [li({ family: "mixing box / LP plenum", insulated: "with", size_mm: "600 x 600 x 350" })] }]).compute(adpCtx(42, "Nos")));
+    const ids = v.items[0].fields.map((f) => f.id);
+    expect(ids.filter((i) => i === "size_mm")).toEqual(["size_mm"]);
+    for (const gone of ["face_w_mm", "face_h_mm", "depth_mm"]) expect(ids).not.toContain(gone);
+    expect(field(v, 0, "size_mm")).toMatchObject({ label: "Size (as written)", value: "600 x 600 x 350", control: "text", blank: false });
+    expect(v.rowPriced).toBe(true);
+    expect(r.values.supply_rate).toBeGreaterThan(0);
+  });
+
+  it("A-4: the outer-size notes are on the panel -- the alternative name, the largest neck behind it, and the set-aside", () => {
+    const { v } = list(runWith([{ excel_row: 43, items: [li({ family: "square diffuser", damper: "without", size_mm: "600 x 600" })] }]).compute(adpCtx(43, "Nos")));
+    expect(v.items[0].working.join(" | ")).toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
+    expect(v.items[0].working.join(" | ")).toContain("largest neck size behind it is 450 (A-4)");
+    expect(v.items[0].figures).toMatchObject({ supply_rate: 1813, install_rate: 400 });
+    // a stated outer the catalogue does not stock is SET ASIDE and the neck prices the row, visibly
+    const { v: v2 } = list(runWith([{ excel_row: 44, items: [li({ family: "square diffuser", damper: "without", neck_mm: "300 x 300", size_mm: "450 x 450" })] }]).compute(adpCtx(44, "Nos")));
+    expect(v2.items[0].working.join(" | ")).toContain("the outer size 450x450 did not match the catalogue");
+    expect(v2.rowPriced).toBe(true);
   });
 });

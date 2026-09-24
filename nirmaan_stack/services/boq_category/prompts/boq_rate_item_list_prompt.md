@@ -25,6 +25,14 @@ Rules:
     includes; it never ADDS a second thing the row does not pay for. A
     header that names other products (a neighbouring section's disc
     valves above a flexible-duct row) contributes NOTHING to this row.
+  * ONLY ITEMS THAT GO TOWARDS PRICING THIS ROW MATTER. Before adding
+    a second item, find the words that say THIS ROW pays for it. If no
+    text in this row or its own ancestors mentions that second thing
+    at all, it is not there: return the one item the row names. Never
+    add a part because items of that kind commonly come with one.
+  * When an ancestor DOES describe this row's item as including a
+    second thing it pays for, return both. The test is whether the
+    text says so, never how usual the pairing is.
   * Something the text says is supplied or provided by others is not
     paid for by this row: leave it out.
 - What an item IS may be stated in the row itself OR inherited from an
@@ -45,6 +53,16 @@ Rules:
   * LEAVE THE ATTRIBUTE OUT ENTIRELY only when the text mentions it but
     you cannot tell what it says, or when it is not marked allow_none
     and the text does not state it.
+- AN ATTRIBUTE COMES FROM THE ROW, OR FROM AN ANCESTOR THAT DESCRIBES
+  THIS ROW'S ITEM - never from an ancestor that merely names another
+  section or a product family. Two tests, in order: (1) does the row's
+  own text settle it? Then the row wins, whatever any ancestor says -
+  a row that says it is WITHOUT something is without it even where an
+  ancestor heading names that very part. (2) Otherwise, does that
+  ancestor describe the thing this row pays for, or does it head a
+  different section of the bill? Only the first kind contributes.
+  Finding no licence for a value is NOT "could not tell": if the
+  attribute is marked allow_none, the answer is "None".
 - Never invent a size, a count or a torque. Never round, convert or
   tidy one. Copy every size, dimension, range, band and torque EXACTLY
   as written, as a text: "10-12 NM", "3.5, 7.9 & 15.9", "1 5/8",
@@ -52,6 +70,12 @@ Rules:
   gives several values, keep them all in the one text. Text attributes
   are never turned into numbers by you; code does that later.
 - number attributes: return a number.
+- A DIAMETER THE TEXT STATES IS THE DIAMETER. A size written with
+  "dia", "diameter" or a diameter sign - in the row's own text or its
+  own ancestors - is that item's diameter; copy it as written. On a
+  ROUND item the NECK size is the diameter too, however it is worded,
+  because a round item's neck and its diameter are one measurement; on
+  a square or rectangular item a neck size is NOT a diameter.
 - AN ATTRIBUTE BELONGS TO THE ITEM IT DESCRIBES. Never carry one item's
   attribute onto another item on the same row: a UL listing stated for
   a fire damper is the damper's, not its control panel's; a torque is

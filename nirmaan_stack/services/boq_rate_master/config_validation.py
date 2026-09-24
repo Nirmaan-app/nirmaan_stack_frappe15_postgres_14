@@ -242,12 +242,18 @@ def _validate_list_spec(cfg):
 # `_KNOWN_DEF_KEYS` precedent).
 _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "family_alias", "no_sku_families", "defaults",
                  "derive_when_none", "override_when", "numbers", "ladders", "match_attrs", "choice_attrs",
-                 "reason_names", "families", "panel_controls"}
+                 "reason_names", "families", "panel_controls", "second_key"}
 # SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
 # definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
 # which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
 _PANEL_CONTROLS = {"dropdown", "text"}
-_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range"}
+# SLICE 9 (owner A-1): `component` -- this SKU attribute is ONE AXIS (1 width, 2 height, 3 depth) of a size the
+# row writes as a SINGLE phrase, which CODE splits. ABSENT => the reader is byte-identical to before.
+_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range", "component"}
+# SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
+# beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
+_PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
+_PRICING_PRIMARY_PICKS = {"largest"}
 _PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
 _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
@@ -259,7 +265,10 @@ _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
 # five keys as `derive_when_none` on purpose; what differs is when it fires (that one fills a "None", this one
 # REPLACES a stated value), so the shape check is deliberately shared and the SEMANTIC difference lives in the
 # frontend module. Its `attr` need NOT be allow_none -- an override does not depend on the row saying nothing.
-_PRICING_OVERRIDE_KEYS = {"attr", "families", "when", "then", "rule"}
+# SLICE 9 (owner A-6): `display` -- OPTIONAL, what the PANEL shows for the overridden field (the catalogue's
+# own word for the thing the row now prices as). It never reaches the model and never reaches the matcher.
+_PRICING_OVERRIDE_KEYS = {"attr", "families", "when", "then", "rule", "display"}
+_PRICING_OVERRIDE_REQUIRED = {"attr", "families", "when", "then", "rule"}
 # the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
 _PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
 
@@ -318,6 +327,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_below must be a finite number.")
         if "range" in rd and rd["range"] != "max":
             _vthrow(f"list_spec.pricing.numbers['{nid}'].range must be 'max'.")
+        # SLICE 9 (A-1): an axis index, 1..3. A `component` on a reader whose `from` names several attributes is
+        # refused: the phrase must come from ONE field, or which field an axis came from would be ambiguous.
+        if "component" in rd:
+            if rd["component"] not in (1, 2, 3) or isinstance(rd["component"], bool):
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].component must be 1, 2 or 3 (width, height, depth).")
+            if len(frm) != 1:
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].component needs exactly one `from` attribute.")
     choice_attrs = pr.get("choice_attrs")
     if not isinstance(choice_attrs, list) or not all(isinstance(c, str) and by_id.get(c, {}).get("type") == "choice" for c in choice_attrs):
         _vthrow("list_spec.pricing.choice_attrs must list choice item attribute definitions.")
@@ -474,8 +490,10 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     ovr = pr.get("override_when") or []
     for i, r in enumerate(ovr):
         rloc = f"list_spec.pricing.override_when[{i}]"
-        if not isinstance(r, dict) or set(r) != _PRICING_OVERRIDE_KEYS:
+        if not isinstance(r, dict) or set(r) - _PRICING_OVERRIDE_KEYS or _PRICING_OVERRIDE_REQUIRED - set(r):
             _vthrow(f"{rloc} must carry attr / families / when / then / rule.")
+        if "display" in r and (not isinstance(r["display"], str) or not r["display"].strip()):
+            _vthrow(f"{rloc}.display must be a non-empty string.")
         if r["attr"] not in choice_attrs:
             _vthrow(f"{rloc}.attr must be a choice attribute.")
         if r["then"] not in by_id[r["attr"]]["values"]:
@@ -489,6 +507,35 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"{rloc}: an override cannot be conditioned on the attribute it sets.")
         if not isinstance(r["rule"], str) or not r["rule"]:
             _vthrow(f"{rloc}.rule must be a non-empty string.")
+    # SLICE 9 (owner A-4): the SECOND KEYS. `primary` and every `key` entry are SKU attributes of this category,
+    # so a typo cannot ship a rule that reads an attribute nothing carries. `alt_key` is deliberately NOT checked
+    # against that namespace: it names attributes the CATALOGUE carries (the spec reader's alternative wording),
+    # which no config declares -- it is checked for shape and for not colliding with the key itself.
+    # Presence before the `or []` idiom, for the reason recorded above `override_when`.
+    if "second_key" in pr and not isinstance(pr["second_key"], list):
+        _vthrow("list_spec.pricing.second_key must be a list.")
+    for i, r in enumerate(pr.get("second_key") or []):
+        rloc = f"list_spec.pricing.second_key[{i}]"
+        if not isinstance(r, dict) or set(r) - _PRICING_SECOND_KEY_KEYS or {"families", "primary", "key", "name", "primary_pick"} - set(r):
+            _vthrow(f"{rloc} must carry families / primary / key / name / primary_pick (alt_key optional).")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        if r["primary"] not in sku_attrs:
+            _vthrow(f"{rloc}.primary must be a SKU attribute.")
+        if not isinstance(r["key"], list) or not r["key"] or not all(isinstance(k, str) and k in sku_attrs for k in r["key"]):
+            _vthrow(f"{rloc}.key must be a non-empty list of SKU attributes.")
+        if r["primary"] in r["key"]:
+            _vthrow(f"{rloc}.key cannot contain the primary key.")
+        if "alt_key" in r:
+            ak = r["alt_key"]
+            if not isinstance(ak, list) or len(ak) != len(r["key"]) or not all(isinstance(k, str) and k.strip() for k in ak):
+                _vthrow(f"{rloc}.alt_key must list one catalogue attribute per key entry.")
+            if set(ak) & set(r["key"]):
+                _vthrow(f"{rloc}.alt_key cannot name a key attribute.")
+        if not isinstance(r["name"], str) or not r["name"]:
+            _vthrow(f"{rloc}.name must be a non-empty string.")
+        if r["primary_pick"] not in _PRICING_PRIMARY_PICKS:
+            _vthrow(f"{rloc}.primary_pick must be one of {sorted(_PRICING_PRIMARY_PICKS)}.")
 
 
 def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):

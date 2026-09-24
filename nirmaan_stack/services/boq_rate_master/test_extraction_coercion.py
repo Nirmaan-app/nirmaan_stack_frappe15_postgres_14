@@ -2194,8 +2194,30 @@ class TestItemListSlice4(FrappeTestCase):
                        "a catalogue fact about how", "TWO of a choice's allowed values", "LEAVE THE\n  ATTRIBUTE OUT",
                        # owner rulings 3c / 3d on stage 2
                        "AN ATTRIBUTE BELONGS TO THE ITEM IT DESCRIBES", "Never carry one item's\n  attribute onto another item",
-                       "answer it ONLY when the row\n  or its ancestors state it"):
+                       "answer it ONLY when the row\n  or its ancestors state it",
+                       # SLICE 9 (owner A-2 / A-3): a stated diameter is the diameter, including a round
+                       # item's neck; and an attribute or a second item comes from the row or from an
+                       # ancestor DESCRIBING this row's item -- never from one that heads another section.
+                       "A DIAMETER THE TEXT STATES IS THE DIAMETER",
+                       "On a\n  ROUND item the NECK size is the diameter too",
+                       "AN ATTRIBUTE COMES FROM THE ROW, OR FROM AN ANCESTOR THAT DESCRIBES",
+                       "never from an ancestor that merely names another\n  section or a product family",
+                       "does the row's\n  own text settle it? Then the row wins",
+                       # SLICE 9, after the re-read (owner ruling): the new rule is a restriction on WHERE a
+                       # value may come from, and on a live re-read the model read it as licence to OMIT --
+                       # "None" answers fell 64% -> 56% of allow_none slots. This sentence ties it back to the
+                       # rule above it, so "no licence" can never be read as "could not tell".
+                       'Finding no licence for a value is NOT "could not tell": if the',
+                       "attribute is marked allow_none, the answer is \"None\".",
+                       "ONLY ITEMS THAT GO TOWARDS PRICING THIS ROW MATTER",
+                       "Never\n    add a part because items of that kind commonly come with one",
+                       "The test is whether the\n    text says so, never how usual the pairing is"):
             self.assertIn(needle, new_text, needle)
+        # NEGATIVE (the cross-talk convention, root CLAUDE.md): a rule STATES ITS TEST; it does not quote
+        # corpus text. A phrase lifted from the corpus is visible to every OTHER question the payload asks
+        # and has twice flipped an unrelated verdict, so the two slice-9 rules name no BoQ string.
+        for quoted in ("Collar Damper", "without VCD", "600x600", "BOQ-26-"):
+            self.assertNotIn(quoted, new_text, quoted)
         # CHECK 2: the fifth asset, read by its own reader (never by select_prompt_text)
         with open(os.path.join(extraction._PROMPT_DIR, "boq_rate_item_list_review_prompt.md"), "r", encoding="utf-8") as fh:
             review = fh.read()
@@ -2238,8 +2260,13 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertNotIn("qty_attribute_id", extraction.build_items_spec(no_qty))
         by_id = {d["id"]: d for d in spec["attribute_definitions"]}
         text_defs = sorted(i for i, d in by_id.items() if d["type"] == "text")
-        self.assertEqual(text_defs, ["area_band", "depth_mm", "dia_mm", "face_h_mm", "face_w_mm", "insulation_thickness_mm", "neck_mm",
-                                     "panel_ratio", "slot_count", "thickness_mm", "torque"])
+        # SLICE 9 INVERSION (owner A-1, superseding slice 4's three-field question): a BoQ writes a size as
+        # ONE phrase, so the model is asked for it ONCE and code splits it into width / height / depth. The
+        # negative half is kept below: the three old ids are GONE from what the model is asked.
+        self.assertEqual(text_defs, ["area_band", "dia_mm", "insulation_thickness_mm", "neck_mm",
+                                     "panel_ratio", "size_mm", "slot_count", "thickness_mm", "torque"])
+        for gone in ("face_w_mm", "face_h_mm", "depth_mm"):
+            self.assertNotIn(gone, by_id, gone)
         # slice 6d INVERSION: the ONE number definition is the count the model is now asked for, and it is
         # allow_none so "None" can mean "the row says nothing" -- every other definition is unmoved.
         self.assertEqual([i for i, d in by_id.items() if d["type"] == "number"], ["qty_per_row_unit"])
@@ -2324,7 +2351,7 @@ class TestItemListSlice4(FrappeTestCase):
         reply = [
             {"id": 3, "items": [
                 {"attributes": {"family": {"value": "square diffuser", "confidence": 0.9}, "damper": {"value": "None", "confidence": 0.8},
-                                "face_w_mm": {"value": "600", "confidence": 0.9}, "face_h_mm": {"value": "600", "confidence": 0.9},
+                                "size_mm": {"value": "600 x 600", "confidence": 0.9},
                                 "variant": {"value": "motorised", "confidence": 0.9}}},          # a family with NO variant list
                 {"attributes": {"family": {"value": "double-skin plenum", "confidence": 0.7}, "thickness_mm": {"value": None, "confidence": 0.1},
                                 "variant": {"value": "None", "confidence": 0.6}}},
@@ -2360,7 +2387,9 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertEqual(a0["family"]["value"], "square diffuser")           # stated
         self.assertEqual(a0["damper"]["value"], "None")                      # not mentioned (allow_none)
         self.assertIsNone(a0["insulated"]["value"])                          # left out -> could not tell
-        self.assertEqual(a0["face_w_mm"]["value"], "600")                    # text, as stated
+        self.assertEqual(a0["size_mm"]["value"], "600 x 600")                # text, as stated (SLICE 9: ONE field)
+        for gone in ("face_w_mm", "face_h_mm", "depth_mm"):
+            self.assertNotIn(gone, a0, gone)                                 # NEGATIVE: never asked, never stored
         self.assertIsNone(a0["variant"]["value"])                            # a square diffuser has no variant list: the pick is dropped
         self.assertNotIn("qty_per_unit", a0)                                 # ruling D: never asked, never stored
         a1 = items[1]["attributes"]
@@ -2404,7 +2433,7 @@ class TestItemListSlice4(FrappeTestCase):
     def test_il_06_sizes_and_torques_are_stored_as_stated_never_as_numbers(self):
         spec = extraction.build_items_spec(self.adp)
         by_id = {d["id"]: d for d in spec["attribute_definitions"]}
-        for aid, raw in (("torque", "10-12 NM"), ("torque", "3.5, 7.9 & 15.9"), ("dia_mm", "1 5/8"), ("neck_mm", "40-45mm"), ("face_w_mm", "600 x 600")):
+        for aid, raw in (("torque", "10-12 NM"), ("torque", "3.5, 7.9 & 15.9"), ("dia_mm", "1 5/8"), ("neck_mm", "40-45mm"), ("size_mm", "600 x 600")):
             value, reason = extraction._coerce_item_value(by_id[aid], raw)
             self.assertEqual(value, raw, aid)
             self.assertIsInstance(value, str)
@@ -2456,17 +2485,17 @@ class TestItemListSlice4(FrappeTestCase):
         reply = [
             {"id": 21, "items": [{"attributes": {"family": {"value": "grille, type not stated", "confidence": 0.7},
                                                  "damper": {"value": "with", "confidence": 0.8},
-                                                 "face_w_mm": {"value": "750 x 150 mm", "confidence": 0.8}}}]},
+                                                 "size_mm": {"value": "750 x 150 mm", "confidence": 0.8}}}]},
             # the LEAK: #16's size and family copied onto the 250 mm round diffuser row
             {"id": 22, "items": [{"attributes": {"family": {"value": "grille, type not stated", "confidence": 0.6},
                                                  "damper": {"value": "None", "confidence": 0.5},
                                                  "dia_mm": {"value": "250 mm", "confidence": 0.9},
-                                                 "face_w_mm": {"value": "750 x 150 mm", "confidence": 0.7},
+                                                 "size_mm": {"value": "750 x 150 mm", "confidence": 0.7},
                                                  "torque": {"value": "20 Nm", "confidence": 0.7}}}]},
             # a legitimate ANCESTOR value
             {"id": 23, "items": [{"attributes": {"family": {"value": "square diffuser", "confidence": 0.9},
                                                  "neck_mm": {"value": "150 x 150 mm", "confidence": 0.9},
-                                                 "face_w_mm": {"value": "600 X 600 MM", "confidence": 0.7}}}]},
+                                                 "size_mm": {"value": "600 X 600 MM", "confidence": 0.7}}}]},
         ]
         records, restore = self._collect_captures()
         try:
@@ -2476,29 +2505,29 @@ class TestItemListSlice4(FrappeTestCase):
         K = extraction.ITEMS_KEY
         # POSITIVE: the row's own strings are kept (case / whitespace insensitive substring)
         a21 = out[21][K][0]["attributes"]; a22 = out[22][K][0]["attributes"]; a23 = out[23][K][0]["attributes"]
-        self.assertEqual(a21["face_w_mm"]["value"], "750 x 150 mm")
+        self.assertEqual(a21["size_mm"]["value"], "750 x 150 mm")
         self.assertEqual(a22["dia_mm"]["value"], "250 mm")
         self.assertEqual(a23["neck_mm"]["value"], "150 x 150 mm")
-        self.assertEqual(a23["face_w_mm"]["value"], "600 X 600 MM")          # from the ANCESTOR -> kept
+        self.assertEqual(a23["size_mm"]["value"], "600 X 600 MM")            # from the ANCESTOR -> kept
         self.assertEqual(out[21][F], []); self.assertEqual(out[23][F], [])
         # NEGATIVE: the strings not in the row's text are FLAGGED and recorded -- and KEPT (owner ruling 2: never a drop)
-        self.assertEqual(a22["face_w_mm"]["value"], "750 x 150 mm"); self.assertEqual(a22["torque"]["value"], "20 Nm")
+        self.assertEqual(a22["size_mm"]["value"], "750 x 150 mm"); self.assertEqual(a22["torque"]["value"], "20 Nm")
         self.assertEqual(a22["family"]["value"], "grille, type not stated")   # a choice is not the text check's business
         self.assertEqual(a22["damper"]["value"], "None")
         flags = [f for f in out[22][F] if f["check"] == "text"]
         self.assertEqual([(f["attr"], f["reason"], f["raw"]) for f in flags],
-                         [("face_w_mm", extraction.COERCE_NOT_IN_ROW_TEXT, "750 x 150 mm"), ("torque", extraction.COERCE_NOT_IN_ROW_TEXT, "20 Nm")])
+                         [("size_mm", extraction.COERCE_NOT_IN_ROW_TEXT, "750 x 150 mm"), ("torque", extraction.COERCE_NOT_IN_ROW_TEXT, "20 Nm")])
         batch = [r for r in records if r.get("kind") == "batch" or "drops" in r][-1]
-        self.assertEqual(batch["drops"]["items_not_in_row_text"], {"22": [{"item": 0, "attr": "face_w_mm", "raw": "750 x 150 mm"},
+        self.assertEqual(batch["drops"]["items_not_in_row_text"], {"22": [{"item": 0, "attr": "size_mm", "raw": "750 x 150 mm"},
                                                                           {"item": 0, "attr": "torque", "raw": "20 Nm"}]})
         # the unit itself, on a payload item: value in row text / in an ancestor / nowhere
         spec = ctx["items_spec"]; drops = {"items_not_in_row_text": {}}
         p = extraction._ai_item(rows[2])
-        items = [{"attributes": {"neck_mm": {"value": "150x150 mm", "confidence": 1}, "face_w_mm": {"value": "600 x 600", "confidence": 1},
+        items = [{"attributes": {"neck_mm": {"value": "150x150 mm", "confidence": 1}, "size_mm": {"value": "600 x 600", "confidence": 1},
                                  "dia_mm": {"value": "300 mm", "confidence": 1}, "damper": {"value": "with", "confidence": 1}}}]
         fl = extraction.apply_row_text_check(items, p, spec, drops, 23)
         self.assertEqual(items[0]["attributes"]["neck_mm"]["value"], "150x150 mm")   # "150x150" is NOT a substring of "150 x 150": flagged, KEPT
-        self.assertEqual(items[0]["attributes"]["face_w_mm"]["value"], "600 x 600")
+        self.assertEqual(items[0]["attributes"]["size_mm"]["value"], "600 x 600")
         self.assertEqual(items[0]["attributes"]["dia_mm"]["value"], "300 mm")        # flagged, KEPT
         self.assertEqual(items[0]["attributes"]["damper"]["value"], "with")
         self.assertEqual([f["attr"] for f in fl], ["neck_mm", "dia_mm"])
@@ -2519,7 +2548,7 @@ class TestItemListSlice4(FrappeTestCase):
                 self._row_with(33, "VCD 750X450", ["VOLUME CONTROL DAMPER"])]
         batch_reply = json.dumps([
             {"id": 31, "items": [{"attributes": {"family": {"value": "square diffuser", "confidence": 0.9}, "damper": {"value": "None", "confidence": 0.6},
-                                                 "face_w_mm": {"value": "600 x 600", "confidence": 0.9}}},
+                                                 "size_mm": {"value": "600 x 600", "confidence": 0.9}}},
                                  {"attributes": {"family": {"value": "mixing box / LP plenum", "confidence": 0.7}}}]},
             {"id": 32, "items": [{"attributes": {"family": {"value": "actuator", "confidence": 0.9}, "torque": {"value": "8 Nm", "confidence": 0.9}}}]},
             {"id": 33, "items": [{"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "None", "confidence": 0.5}}}]},
@@ -2606,8 +2635,12 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertIn(json.dumps(fam_note, ensure_ascii=False)[1:-1][:40], content)
         self.assertNotIn("1:N", json.dumps(payload, ensure_ascii=False))                  # ... and the row payload is untouched
         self.assertNotIn("no SKU", json.dumps(payload, ensure_ascii=False))
-        # NEGATIVE: a def without a note projects no note key
-        self.assertNotIn("note", by_id["neck_mm"])
+        # SLICE 9 (owner A-2): the neck now CARRIES a note -- a round item's neck is its diameter, which is a
+        # catalogue fact about how to read the field, so it is projected like every other note.
+        self.assertIn("round item", by_id["neck_mm"]["note"])
+        self.assertIn("ROUND item the neck size IS the diameter", by_id["dia_mm"]["note"])
+        # NEGATIVE, kept: a def without a note still projects no note key
+        self.assertNotIn("note", by_id["slot_count"])
 
     # -- il_08 ----------------------------------------------------------------------------------------
     def test_il_08_adp_is_eligible_since_v8_with_its_list_shape(self):

@@ -1608,6 +1608,10 @@ export interface ItemFieldView extends ItemFieldDef {
   note?: string;
   /** A genuinely missing input the row needs (red border). */
   blank: boolean;
+  /** SLICE 9 (owner A-6): what to DISPLAY for an option, where the catalogue's own word differs from the
+   * value the pricing uses. The select keeps the real value (so it still matches an option and stays
+   * editable -- see the controlled-select trap in frontend/CLAUDE.md); only the text changes. */
+  optionLabels?: Record<string, string>;
 }
 
 /** One item block, as the panel renders it. */
@@ -1670,6 +1674,10 @@ function itemBlockView(
   const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
   const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
   const hopBy = new Map(res.ladderHops.map((h) => [h.attr, h]));
+  // SLICE 9 (owner A-6): a field a config override DECIDED shows the value that priced, under the
+  // catalogue's own word for it, with the rule beneath -- a pricer must never read the variant the row
+  // happened to name beside a figure that came from a different SKU.
+  const overrideBy = new Map((res.overrides ?? []).map((o) => [o.attr, o]));
   const fields: ItemFieldView[] = fieldDefs.map((f) => {
     const raw = assembled.attributes[f.id]?.value;
     const stated = raw === null || raw === undefined ? "" : String(raw);
@@ -1694,6 +1702,13 @@ function itemBlockView(
         value = "";
       }
     }
+    const ov = overrideBy.get(f.skuAttr);
+    let optionLabels: Record<string, string> | undefined;
+    if (ov && !userEdited) {
+      value = ov.value;
+      note = ov.rule;
+      if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
+    }
     const name = spec.numbers[f.skuAttr]?.name ?? "\u0000";
     const needed = res.state === "blank" && !!res.reason && (
       res.reason.includes(name) ||
@@ -1706,6 +1721,7 @@ function itemBlockView(
       ...(defaulted ? { rule: d!.rule } : {}),
       userEdited,
       ...(note ? { note } : {}),
+      ...(optionLabels ? { optionLabels } : {}),
       blank: value === "" && needed,
     };
   });
@@ -1758,7 +1774,7 @@ function computeItemList(
   const blocks = edits.items.map((e, i) => {
     const res: ItemPriceResult = priced.items[i] ?? {
       index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
-      selection: {}, defaulted: [], ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
+      selection: {}, defaulted: [], ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
     };
     return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items);
   });

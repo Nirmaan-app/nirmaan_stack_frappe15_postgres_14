@@ -10854,7 +10854,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v11.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v12.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -10870,15 +10870,27 @@ CURRENT_HVAC_ASSET = "rate_master_hvac_all_v11.json"
 # strip, so each still asserts exactly its own delta and nothing else.
 _SINGLE_SKIN_ANCHOR = "Low Pressure Plenum / Mixing Box"
 _SINGLE_SKIN_INSERT = " / Single Skin Plenum"
+# SLICE 9 (owner A-5): the six 595x595 square diffusers gained the alternative name a BoQ writing "600x600"
+# is asking for, and with it the two derived keys the reader takes from that wording. Set aside here for the
+# same reason as the 3a insert: each class must still assert exactly its OWN delta.
+_ALT_OUTER_SUFFIX = " (600X600)"
+_ALT_OUTER_KEYS = ("face_alt_w_mm", "face_alt_h_mm")
 def _items_without_3a_wording(items):
-    out, stripped = [], 0
+    out, stripped, alt = [], 0, 0
     for it in items:
         a = dict(it.get("attributes") or {})
         n = a.get("item_name")
         if isinstance(n, str) and n.startswith(_SINGLE_SKIN_ANCHOR + _SINGLE_SKIN_INSERT):
             a["item_name"] = _SINGLE_SKIN_ANCHOR + n[len(_SINGLE_SKIN_ANCHOR + _SINGLE_SKIN_INSERT):]; stripped += 1
+        d = a.get("item_detail")
+        if isinstance(d, str) and d.endswith(_ALT_OUTER_SUFFIX):
+            a["item_detail"] = d[: -len(_ALT_OUTER_SUFFIX)]
+            for k in _ALT_OUTER_KEYS:
+                a.pop(k, None)
+            alt += 1
         out.append(dict(it, attributes=a))
     assert stripped in (0, 4), stripped
+    assert alt in (0, 6), alt
     return out
 
 
@@ -11240,10 +11252,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_to_v11_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v12_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 8 (owner M-b / M-c, inverting the slice-6d pin): the series now holds EXACTLY v1..v11
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v11.json")
+        # slice 9 (owner A-1..A-5, inverting the slice-8 pin): the series now holds EXACTLY v1..v12
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v12.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11255,7 +11267,8 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                          # ALPHABETICAL, which is what os.listdir + sorted gives: v10 sorts between v1 and v2.
                          # That is exactly why `latest_in` must resolve NUMERICALLY, pinned two lines below --
                          # v10 is the first two-digit version in either series.
-                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json", CURRENT_HVAC_ASSET,
+                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json",
+                          "rate_master_hvac_all_v11.json", CURRENT_HVAC_ASSET,
                           "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
@@ -11265,13 +11278,17 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
                       "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
                       "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
-                      "rate_master_hvac_all_v9.json", "rate_master_hvac_all_v10.json"):
+                      "rate_master_hvac_all_v9.json", "rate_master_hvac_all_v10.json",
+                      "rate_master_hvac_all_v11.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
                 capture_output=True, check=True).stdout
             with open(_asset_path(prior), "rb") as fh:
-                self.assertEqual(fh.read(), committed, prior + " must stay byte-identical to its committed form")
+                # line endings normalised on BOTH sides: the working copy of a Windows-minted asset is CRLF
+                # while git stores it LF (core.autocrlf), and that difference is not an edit
+                self.assertEqual(fh.read().replace(b"\r\n", b"\n"), committed.replace(b"\r\n", b"\n"),
+                                 prior + " must stay identical to its committed form")
         self.assertEqual(gate.latest_in("HVAC", names), CURRENT_HVAC_ASSET)
         self.assertEqual(gate.latest_in("Electrical", names), CURRENT_EALL_ASSET)
         self.assertEqual(gate.latest_asset("HVAC"), CURRENT_HVAC_ASSET)
@@ -12046,7 +12063,8 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         # slice 8 (owner M-b, INVERTING the slice-6b literal): the validator now also knows `override_when`, which v7's
         # block predates as well -- v7's keys are exactly the known keys MINUS those two (`panel_controls` is present
         # from v9 on, `override_when` from v11 on)
-        self.assertEqual(set(pr), config_validation._PRICING_KEYS - {"panel_controls", "override_when"})
+        # slice 9: `second_key` joins the keys declared AFTER v7, so v7's block is the full set minus them
+        self.assertEqual(set(pr), config_validation._PRICING_KEYS - {"panel_controls", "override_when", "second_key"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         def refused(mutate, needle):
@@ -12658,7 +12676,7 @@ class TestHvacAdpCountQuestionSlice6d(FrappeTestCase):
             self.assertNotIn(self.QTY, pr[key], key)
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
             text = fh.read()
-        for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"):
+        for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11"):
             self.assertNotIn(f'"{tok}"', text)
 
     def test_s03_the_prompt_asset_carries_the_checked_bullet_verbatim(self):
@@ -12726,7 +12744,8 @@ class TestHvacAdpOverrideAndStandardLengthSlice8(FrappeTestCase):
         # slice 8: v10 is the predecessor, loaded BY NAME; v11 is the current asset
         with open(_asset_path("rate_master_hvac_all_v10.json"), "r", encoding="utf-8") as fh:
             cls.v10 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # slice 9: v11 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v12)
+        with open(_asset_path("rate_master_hvac_all_v11.json"), "r", encoding="utf-8") as fh:
             cls.v11 = json.load(fh)
 
     def _adp(self, asset=None):
@@ -12835,3 +12854,230 @@ class TestHvacAdpOverrideAndStandardLengthSlice8(FrappeTestCase):
 
         for c in self.v11["category_configs"]:
             config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 9 (owner A-1 .. A-5, 2026-09-25) -- HVAC v12. One size field, the second key, the wording.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpOneSizeFieldAndSecondKeySlice9(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_u01  THE VALIDATOR knows the axis key: v12's ADP config passes both validators, and every
+                malformed shape is refused BY NAME -- an axis outside 1..3, a boolean, and an axis on a
+                reader that reads from more than one attribute (which axis came from where would be
+                unanswerable). NEGATIVE: the key is OPTIONAL -- v11, which declares none, validates.
+      test_u02  THE VALIDATOR knows the second key, and checks every name in the namespace it reads
+                from: the primary and each key entry must be SKU attributes, the families priceable,
+                the pick closed to the ruled vocabulary, and the alternative key one entry per key
+                entry. NEGATIVE: v11 declares none and validates; an empty LIST is a real declaration
+                and is accepted, an empty DICT is refused (the falsy-dict trap the override key
+                recorded).
+      test_u03  v12 = v11 + the declared edits and NOTHING else: the six other configs deep-equal; only
+                SIX items moved and every item_uid is unchanged; the ADP config equal once the one size
+                field, the four def notes and the second key are set aside.
+      test_u04  THE MODEL IS ASKED FOR ONE SIZE: the size attribute is in ITEMS_SPEC and the three axis
+                fields are not; the pricing block still keys on all three SKU attributes. NEGATIVE: the
+                second-key block is NOT projected to the model (it lives in the pricing block, which the
+                projection never reads), so the catalogue's alternative wording can never reach it.
+      test_u05  THE SPEC READER still reproduces all 95 items and every uid; the six 595x595 diffusers
+                carry the alternative outer, and every other item derives exactly what it did on v11.
+                NEGATIVE: a detail with no bracketed pair produces no alternative key at all, and the
+                alternative never overwrites the real outer.
+      test_u06  ELIGIBILITY unmoved between v11 and v12, and the asset sweep admits v12.
+      test_u07  ELECTRICAL IS UNTOUCHED: its current asset declares neither key and still validates.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # slice 9: v11 is the predecessor, loaded BY NAME; v12 is the current asset
+        with open(_asset_path("rate_master_hvac_all_v11.json"), "r", encoding="utf-8") as fh:
+            cls.v11 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v12 = json.load(fh)
+
+    SIZE = "size_mm"
+    AXES = ("face_w_mm", "face_h_mm", "depth_mm")
+
+    def _adp(self, asset=None):
+        asset = asset if asset is not None else self.v12
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def _refused(self, mutate, needle, base=None):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        bad = copy.deepcopy(base or self._adp())
+        mutate(bad["list_spec"]["pricing"])
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            config_validation._validate_config(bad)
+        self.assertIn(needle, str(ctx.exception), needle)
+
+    def test_u01_the_validator_knows_the_axis_key_and_refuses_a_bad_axis(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        for axis, attr in ((1, "face_w_mm"), (2, "face_h_mm"), (3, "depth_mm")):
+            rd = base["list_spec"]["pricing"]["numbers"][attr]
+            self.assertEqual(rd["from"], [self.SIZE])
+            self.assertEqual(rd["component"], axis)
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("component", 0), "must be 1, 2 or 3")
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("component", 4), "must be 1, 2 or 3")
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("component", True), "must be 1, 2 or 3")
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("from", [self.SIZE, "neck_mm"]),
+                      "needs exactly one")
+        # NEGATIVE: OPTIONAL -- v11 declares no axis anywhere and still validates
+        v11adp = self._adp(self.v11)
+        for attr in self.AXES:
+            self.assertNotIn("component", v11adp["list_spec"]["pricing"]["numbers"][attr])
+        config_validation._validate_config(v11adp)
+
+    def test_u02_the_validator_knows_the_second_key_and_checks_every_name_in_its_own_namespace(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        sk = base["list_spec"]["pricing"]["second_key"]
+        self.assertEqual(len(sk), 1)
+        self.assertEqual(sk[0]["primary"], "neck_mm")
+        self.assertEqual(sk[0]["key"], ["face_w_mm", "face_h_mm"])
+        self.assertEqual(sk[0]["alt_key"], ["face_alt_w_mm", "face_alt_h_mm"])
+        self.assertEqual(sk[0]["primary_pick"], "largest")
+        self._refused(lambda p: p["second_key"][0].__setitem__("primary", "nope"),
+                      "primary must be a SKU attribute")
+        self._refused(lambda p: p["second_key"][0].__setitem__("key", ["nope"]),
+                      "key must be a non-empty list of SKU attributes")
+        self._refused(lambda p: p["second_key"][0].__setitem__("key", ["neck_mm", "face_h_mm"]),
+                      "cannot contain the primary key")
+        self._refused(lambda p: p["second_key"][0].__setitem__("families", ["not a family"]),
+                      "families must list priceable families")
+        self._refused(lambda p: p["second_key"][0].__setitem__("primary_pick", "smallest"),
+                      "primary_pick must be one of")
+        self._refused(lambda p: p["second_key"][0].__setitem__("alt_key", ["only_one"]),
+                      "one catalogue attribute per key entry")
+        self._refused(lambda p: p["second_key"][0].__setitem__("alt_key", ["face_w_mm", "face_h_mm"]),
+                      "cannot name a key attribute")
+        self._refused(lambda p: p["second_key"][0].__setitem__("surprise", 1),
+                      "must carry families / primary / key")
+        self._refused(lambda p: p["second_key"][0].pop("name"), "must carry families / primary / key")
+        # THE FALSY-DICT TRAP (recorded on the override key): an empty dict would be swallowed by the
+        # or-empty-list idiom and ship a silently inert block, so presence is tested first
+        self._refused(lambda p: p.__setitem__("second_key", {}), "second_key must be a list")
+        # an empty LIST is a real, meaningful declaration and is accepted
+        ok = self._adp()
+        ok["list_spec"]["pricing"]["second_key"] = []
+        config_validation._validate_config(ok)
+        # B6 (owner A-6): the override carries the word the PANEL shows. It is OPTIONAL and must be a real
+        # string; it never reaches the model or the matcher (u04 pins that the projection carries no such key).
+        self._refused(lambda p: p["override_when"][0].__setitem__("display", ""), "display must be a non-empty string")
+        self._refused(lambda p: p["override_when"][0].__setitem__("display", 555), "display must be a non-empty string")
+        self._refused(lambda p: p["override_when"][0].__setitem__("surprise", 1),
+                      "must carry attr / families / when / then / rule")
+        self.assertEqual(base["list_spec"]["pricing"]["override_when"][0]["display"], "UL 555")
+        # NEGATIVE: OPTIONAL -- v11 declares none and validates
+        v11adp = self._adp(self.v11)
+        self.assertNotIn("second_key", v11adp["list_spec"]["pricing"])
+        self.assertNotIn("display", v11adp["list_spec"]["pricing"]["override_when"][0])
+        config_validation._validate_config(v11adp)
+
+    def test_u03_v12_is_v11_plus_the_declared_edits_and_nothing_else(self):
+        self.assertEqual(self.v12["category_configs"][1:], self.v11["category_configs"][1:])
+        # only the SIX 595x595 diffusers moved, and no uid did
+        self.assertEqual([i["item_uid"] for i in self.v12["items"]], [i["item_uid"] for i in self.v11["items"]])
+        moved = [(a, b) for a, b in zip(self.v12["items"], self.v11["items"]) if a != b]
+        self.assertEqual(len(moved), 6)
+        for a, b in moved:
+            self.assertEqual(b["attributes"]["item_detail"] + " (600X600)", a["attributes"]["item_detail"])
+            self.assertEqual((a["attributes"]["face_alt_w_mm"], a["attributes"]["face_alt_h_mm"]), (600.0, 600.0))
+            self.assertNotIn("face_alt_w_mm", b["attributes"])
+            self.assertEqual({k: v for k, v in a["attributes"].items()
+                              if k not in ("item_detail", "face_alt_w_mm", "face_alt_h_mm")},
+                             {k: v for k, v in b["attributes"].items() if k != "item_detail"})
+        # the ADP config is equal once the declared edits are set aside
+        a12, a11 = self._adp(), self._adp(self.v11)
+        pr12 = a12["list_spec"]["pricing"]
+        del pr12["second_key"]
+        del pr12["override_when"][0]["display"]   # B6 (A-6): panel wording only, added this slice
+        for attr in self.AXES:
+            pr12["numbers"][attr]["from"] = [attr]
+            del pr12["numbers"][attr]["component"]
+        d12 = a12["list_spec"]["attribute_definitions"]
+        i = [d["id"] for d in d12].index(self.SIZE)
+        d12[i:i + 1] = [d for d in a11["list_spec"]["attribute_definitions"] if d["id"] in self.AXES]
+        by12 = {d["id"]: d for d in d12}
+        by11 = {d["id"]: d for d in a11["list_spec"]["attribute_definitions"]}
+        for k in ("family", "damper"):
+            self.assertTrue(by12[k]["note"].startswith(by11[k]["note"]), k)
+            by12[k]["note"] = by11[k]["note"]
+        for k in ("dia_mm", "neck_mm"):
+            self.assertNotIn("note", by11[k])
+            del by12[k]["note"]
+        self.assertEqual(a12, a11)
+
+    def test_u04_the_model_is_asked_for_one_size_and_never_sees_the_second_key(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        spec = extraction.build_items_spec(self._adp())
+        ids = [d["id"] for d in spec["attribute_definitions"]]
+        self.assertIn(self.SIZE, ids)
+        for gone in self.AXES:
+            self.assertNotIn(gone, ids)
+        # the note is projected (it is a catalogue fact about how to READ the field)
+        note = next(d for d in spec["attribute_definitions"] if d["id"] == self.SIZE)["note"]
+        self.assertIn("in ONE field", note)
+        self.assertIn("250 mm high", note)
+        # NEGATIVE: the pricing block never reaches the model, so neither does the catalogue's
+        # alternative wording -- the whole projection carries no such string
+        blob = json.dumps(spec)
+        for leaked in ("second_key", "face_alt_w_mm", "600X600", "595"):
+            self.assertNotIn(leaked, blob, leaked)
+        # and the SKU side still keys on all three axes: only the QUESTION changed
+        pr = self._adp()["list_spec"]["pricing"]
+        for attr in self.AXES:
+            self.assertIn(attr, pr["match_attrs"])
+            self.assertIn(attr, pr["panel_controls"])
+
+    def test_u05_the_spec_reader_reproduces_all_95_items_and_the_alternative_is_wording_only(self):
+        from nirmaan_stack.services.boq_rate_master import spec_reader
+        alt = 0
+        for it in self.v12["items"]:
+            a = it["attributes"]
+            derived, reason = spec_reader.read_spec("hvac_adp", a["item_name"], a["item_detail"])
+            self.assertIsNone(reason, it["item_uid"])
+            self.assertEqual(derived, {k: v for k, v in a.items() if k not in ("item_name", "item_detail")},
+                             it["item_uid"])
+            if "face_alt_w_mm" in derived:
+                alt += 1
+        self.assertEqual(len(self.v12["items"]), 95)
+        self.assertEqual(alt, 6)
+        # NEGATIVE: no bracketed pair, no alternative key -- every pre-slice-9 detail reads as it did
+        plain, _ = spec_reader.read_spec("hvac_adp", "Diffuser With Al Collar Damper",
+                                         "NECK:300X300/OUTER: 595X595")
+        self.assertNotIn("face_alt_w_mm", plain)
+        self.assertEqual((plain["face_w_mm"], plain["face_h_mm"]), (595.0, 595.0))
+        # and the alternative NEVER overwrites the real outer: 595 is still what the SKU is
+        with_alt, _ = spec_reader.read_spec("hvac_adp", "Diffuser With Al Collar Damper",
+                                            "NECK:300X300/OUTER: 595X595 (600X600)")
+        self.assertEqual((with_alt["face_w_mm"], with_alt["face_h_mm"]), (595.0, 595.0))
+        self.assertEqual((with_alt["face_alt_w_mm"], with_alt["face_alt_h_mm"]), (600.0, 600.0))
+
+    def test_u06_eligibility_is_unmoved_and_the_asset_sweep_admits_v12(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+
+        def elig(asset):
+            cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in asset["category_configs"]}
+            return {cid: extraction.config_is_eligible(cfg, cfgs) for (_d, cid), cfg in cfgs.items()}
+        self.assertEqual(elig(self.v12), elig(self.v11))
+        self.assertEqual({k for k, v in elig(self.v12).items() if v}, {"hvac_adp"})
+        for c in self.v12["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    def test_u07_electrical_declares_neither_key_and_is_untouched(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        blob = json.dumps(eall)
+        self.assertNotIn("second_key", blob)
+        # NOTE: a bare "component" search would hit the interpreter's own `component_ref` steps, which are a
+        # different thing. The axis key lives on a `numbers` reader, so that is where it is checked.
+        for c in eall["category_configs"]:
+            for rd in ((c.get("list_spec") or {}).get("pricing") or {}).get("numbers", {}).values():
+                self.assertNotIn("component", rd, c["category_id"])
+        for c in eall["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "Electrical", {}))

@@ -59,6 +59,12 @@ export interface NumberReader {
   reject_below?: number;
   /** "max": a range takes its top value (R6 / R16) -- the default for every reader. */
   range?: "max";
+  /** SLICE 9 (owner A-1): this SKU attribute is ONE AXIS of a size the row writes as a single phrase --
+   * 1 = width, 2 = height, 3 = depth. The model copies "525 x 525 x 450 mm" into one text attribute and
+   * CODE splits it (`splitSizePhrase`); an axis the phrase does not state reads as NOT STATED, and a form
+   * the splitter cannot read falls through to the ordinary reader, which refuses it BY NAME. ABSENT =>
+   * the reader behaves exactly as it did before this slice. */
+  component?: number;
 }
 
 export interface ConversionOption {
@@ -108,6 +114,30 @@ export interface OverrideWhen {
   when: { attr: string; equals: string };
   then: string;
   rule: string;
+  /** SLICE 9 (owner A-6): what the PANEL shows for the overridden field -- the catalogue's own word for the
+   * thing the row now prices as. Declared in CONFIG; absent => the field shows the value itself, as before. */
+  display?: string;
+}
+
+/** SLICE 9 (owner A-4): a SECOND match key beside a family's primary one -- a diffuser's OUTER size beside
+ * its neck. It is a key, NEVER a replacement: the primary alone behaves exactly as before, the two together
+ * narrow, the second alone stands in for the primary, and a second key matching no SKU is SET ASIDE with a
+ * visible note rather than refusing the row. Declared per family in config; a discipline that declares none
+ * is byte-identical. */
+export interface SecondKey {
+  families: string[];
+  /** The family's own key (`neck_mm`) -- what the ladder runs on when it is stated. */
+  primary: string;
+  /** The second key's SKU attributes, in order ("face_w_mm", "face_h_mm"). */
+  key: string[];
+  /** OPTIONAL catalogue attributes holding the ALTERNATIVE wording of the same size (A-5). Same length and
+   * order as `key`. The catalogue carries them; the model never sees them. */
+  alt_key?: string[];
+  /** The owner-language name of the second key ("outer size"). */
+  name: string;
+  /** How the primary is chosen when only the second key is stated and several SKUs carry it. "largest" is
+   * the owner's ruling; the key is closed so a typo cannot ship a silent default. */
+  primary_pick: "largest";
 }
 
 export interface ItemListPricingSpec {
@@ -122,6 +152,8 @@ export interface ItemListPricingSpec {
   /** SLICE 8 (owner M-b): the overrides, applied AFTER the defaults and `derive_when_none` so they win over
    * both. ABSENT => nothing overrides and every row is byte-identical to before this slice. */
   override_when?: OverrideWhen[];
+  /** SLICE 9 (owner A-4): the second-key rules. ABSENT => nothing resolves and every row is unchanged. */
+  second_key?: SecondKey[];
   numbers: Record<string, NumberReader>;
   ladders: string[];
   match_attrs: string[];
@@ -204,6 +236,8 @@ export interface ItemPriceResult {
   selection: Record<string, string | number>;
   defaulted: DefaultedAttr[];
   ladderHops: LadderHop[];
+  /** SLICE 9 (owner A-6): the overrides that FIRED on this item, with the word the panel shows for each. */
+  overrides: Array<{ attr: string; value: string; display: string; rule: string }>;
   /** The conversion the row's unit needed (R4 / R11 / R16), or null. */
   conversion: { rule: string; to: string } | null;
   sku: { item_uid?: string; item_name?: string; item_detail?: string; unit?: string } | null;
@@ -268,12 +302,88 @@ function numbersIn(s: string): Found[] {
   return out;
 }
 
+// SLICE 9 (owner A-1) -- ONE SIZE FIELD. A BoQ writes a size as a single phrase ("525 x 525 x 450 mm",
+// "600X600", "1100(W) X 250(D) X 400(H)"), so the model is asked for it ONCE, as written, and CODE splits it
+// into width / height / depth. The splitter is deliberately narrow: it recognises an x-joined phrase of two or
+// three parts, each holding exactly one number, and NOTHING else. Anything it does not recognise is handed
+// back to the ordinary reader, which refuses it BY NAME -- it never guesses, and it never invents an axis the
+// phrase does not state.
+//
+// AXIS LABELS ARE LOAD-BEARING, and only when EVERY part carries one. Measured on rows that priced correctly
+// before this slice: "1100(W) X 250(D) X 400(H)" is width 1100, height 400, depth 250 -- a positional split
+// swaps the last two and prices plausibly WRONG. But "600X1200x 400 mm High" labels only its LAST part, where
+// "High" means the third dimension and not "this is the height"; reading a lone label there would drop the
+// 1200. So: all parts labelled and the labels a permutation of the axes -> order by label; otherwise -> order
+// as written.
+const _AXIS_PATTERNS: Array<{ re: RegExp; axis: number }> = [
+  { re: /(^|[^a-z])(?:w|wide|width)([^a-z]|$)/i, axis: 0 },
+  { re: /(^|[^a-z])(?:h|ht|hgt|high|height)([^a-z]|$)/i, axis: 1 },
+  { re: /(^|[^a-z])(?:d|deep|depth|l|long|length)([^a-z]|$)/i, axis: 2 },
+];
+
+/** The axis a size part names, or null when it names none. A part is stripped of its number and unit first,
+ * so "450 mm" names nothing while "400 mm High" names the depth slot and "250(D)" names it too. PURE. */
+function axisOf(part: string): number | null {
+  const tail = part.replace(/[\d.]+/g, " ").replace(/(?:mm|cm|m|mtr|mtrs|metre|meter|nos?|no)/gi, " ");
+  const hit = _AXIS_PATTERNS.filter((a) => a.re.test(tail));
+  return hit.length === 1 ? hit[0].axis : null;
+}
+
+/**
+ * Split a size written as ONE phrase into its parts, ordered width, height, depth. PURE.
+ * Returns null when the text is not a clean x-joined phrase of two or three single-number parts -- a list
+ * ("100/150/200 mm"), a range, a bare number, or a labelled set that is not a permutation of the axes.
+ */
+export function splitSizePhrase(text: string | number | null | undefined): string[] | null {
+  if (text === null || text === undefined) return null;
+  const raw = String(text).trim();
+  if (raw === "" || raw === "None") return null;
+  const parts = raw.split(/\s*[x×*]\s*/i).map((p) => p.trim()).filter((p) => p !== "");
+  // ONE part that NAMES ITS AXIS is not a width: a per-metre grille row saying only "250 mm high" states a
+  // HEIGHT and nothing else, and reading it as a width both loses the height and invents a width. The earlier
+  // slots come back EMPTY, which the reader reads as NOT STATED. A one-part size with NO label keeps the
+  // owner's ruling: it is the width, and a family that also needs a height refuses.
+  if (parts.length === 1) {
+    if ((parts[0].match(/\d+(?:\.\d+)?/g) ?? []).length !== 1) return null;
+    const axis = axisOf(parts[0]);
+    if (axis === null || axis === 0) return null;
+    const out = new Array(axis + 1).fill("");
+    out[axis] = parts[0];
+    return out;
+  }
+  if (parts.length < 2 || parts.length > 3) return null;
+  // every part must hold EXACTLY one number: "100/150/200 mm/600mm x 600mm" is a list, not a size
+  for (const p of parts) if ((p.match(/\d+(?:\.\d+)?/g) ?? []).length !== 1) return null;
+  const axes = parts.map(axisOf);
+  if (axes.every((a) => a !== null)) {
+    const want = parts.map((_, i) => i);
+    const got = [...(axes as number[])].sort((a, b) => a - b);
+    if (got.length === want.length && got.every((a, i) => a === want[i])) {
+      const out: string[] = new Array(parts.length);
+      parts.forEach((p, i) => { out[axes[i] as number] = p; });
+      return out;
+    }
+    return null;   // labelled, but not the axes this phrase has slots for -- ambiguous, so not a phrase
+  }
+  return parts;
+}
+
 /** Read one number from as-written text under a reader's rules. PURE.
  *   null              -> not stated (blank / null / the "None" sentinel)
  *   { value, note? }  -> the number, with a note when a range was resolved to its top or a unit was scaled
  *   { blank: reason } -> stated but unusable, with the owner-language reason (never a guess) */
 export function readNumber(text: string | number | null | undefined, reader: NumberReader): NumberRead {
   if (text === null || text === undefined) return null;
+  // SLICE 9 (A-1): this reader is ONE AXIS of a one-phrase size. Split, then read that axis with the very
+  // same rules as any other number, so ranges, units, rejections and their wordings are all unchanged.
+  if (typeof reader.component === "number") {
+    const { component, ...plain } = reader;
+    const parts = splitSizePhrase(text);
+    if (parts) return component - 1 < parts.length ? readNumber(parts[component - 1], plain) : null;
+    // not a phrase this splitter reads: the FIRST axis is whatever the ordinary reader makes of the whole
+    // text (a bare "600" is a width, "100/150" is its named refusal); the later axes are simply NOT STATED.
+    return component === 1 ? readNumber(text, plain) : null;
+  }
   if (typeof text === "number") return Number.isFinite(text) ? { value: text } : { blank: `${reader.name} is not a number` };
   const raw = String(text).trim();
   if (raw === "" || raw === "None") return null;
@@ -400,8 +510,8 @@ function priceOneItem(
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, defaulted: [],
-    ladderHops: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [],
-    pipelineResults: [],
+    ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {},
+    working: [], pipelineResults: [],
   };
   const blank = (reason: string): ItemPriceResult => ({ ...out, state: "blank", reason });
 
@@ -497,6 +607,9 @@ function priceOneItem(
     const i = readDefaulted.findIndex((d) => d.attr === rule.attr);
     if (i >= 0) readDefaulted.splice(i, 1);
     overridden.push(rule.rule);
+    // SLICE 9 (A-6): recorded STRUCTURALLY as well as in the working, so the panel can show the catalogue's
+    // own word for what the row now prices as instead of the variant the row happened to name.
+    out.overrides.push({ attr: rule.attr, value: rule.then, display: rule.display ?? rule.then, rule: rule.rule });
   }
   const sel: Record<string, string | number> = { family };
 
@@ -529,6 +642,87 @@ function priceOneItem(
   sel[spec.unit_class_attr] = target;
   out.skuUnitClass = target;
   needs = [...new Set(needs)];
+
+  // (3b) SLICE 9 (owner A-4) -- THE SECOND KEY. A diffuser's OUTER size sits beside its neck: a key, never a
+  //      replacement. The four cases are the owner's, in order:
+  //        neck stated, outer not  -> nothing happens here; the ladder runs exactly as before;
+  //        BOTH stated             -> the outer NARROWS the SKUs the neck then ladders over;
+  //        outer stated, neck not  -> the outer stands in: the only SKU behind it is ADOPTED AS IT STANDS
+  //                                   (its own damper included, named in the working), else the LARGEST neck;
+  //        neither                 -> nothing happens; the row refuses for the neck, exactly as before.
+  //      A stated pair matching NO SKU is SET ASIDE with a visible note and the neck prices the row -- a
+  //      catalogue that does not stock an outer must never stop a row whose neck it does stock.
+  //      The resolution CANONICALISES the stated pair onto the SKU's OWN stored values, which is what keeps
+  //      every mechanism below it -- the ladder narrowing, `match_master_row`, the panel -- byte-unchanged.
+  const skRule = (spec.second_key ?? []).find((r) => r.families.includes(family));
+  if (skRule && skRule.key.every((k) => k in read)) {
+    const famRows = projected.filter(
+      (it) => it.kind === spec.kind && it.attributes.family === family && it.attributes[spec.unit_class_attr] === target,
+    );
+    const stated = skRule.key.map((k) => Number(read[k]));
+    const statedText = stated.map(fmt).join("x");
+    const on = (it: RateMasterItem, attrs: string[]) =>
+      attrs.length === stated.length && attrs.every((a, i) => typeof it.attributes[a] === "number" && Number(it.attributes[a]) === stated[i]);
+    const direct = famRows.filter((it) => on(it, skRule.key));
+    // A-5: the catalogue's ALTERNATIVE wording of the same size. It is the SHEET that says the two names are
+    // one product; nothing here says one number is near enough to another.
+    const viaAlt = direct.length ? [] : famRows.filter((it) => skRule.alt_key !== undefined && on(it, skRule.alt_key));
+    let matches = direct.length ? direct : viaAlt;
+    if (!matches.length) {
+      for (const k of skRule.key) delete read[k];
+      out.working.push(`the ${skRule.name} ${statedText} did not match the catalogue -- matched on the ${reasonName(spec, skRule.primary)} instead (A-4)`);
+    } else {
+      const canon = skRule.key.map((k) => Number(matches[0].attributes[k]));
+      matches = matches.filter((it) => skRule.key.every((k, i) => Number(it.attributes[k]) === canon[i]));
+      skRule.key.forEach((k, i) => { read[k] = canon[i]; });
+      needs.push(...skRule.key);
+      const canonText = canon.map(fmt).join("x");
+      if (!direct.length) out.working.push(`the ${skRule.name} ${statedText} is the sheet's ${canonText} (A-5)`);
+      if (!(skRule.primary in read)) {
+        // narrow by the other facts the row DID state, so a damper or a variant still counts
+        let pool = matches;
+        for (const n of needs) {
+          if (n === skRule.primary || skRule.key.includes(n) || !(n in read)) continue;
+          const narrowed = pool.filter((it) => !(n in it.attributes) || sameValue(it.attributes[n], read[n]));
+          if (narrowed.length) pool = narrowed;
+        }
+        if (pool.length === 1) {
+          // "use it since it is only one" (owner A-4, confirmed): ADOPT that SKU as it stands. A need the SKU
+          // does not carry is dropped (the 1200x300 diffuser has no neck); a need it carries is taken FROM it,
+          // and any value that changes is NAMED, so a pricer can see the fact came from the SKU and not the row.
+          const sku = pool[0];
+          const kept: string[] = [];
+          const fromSku: string[] = [];
+          for (const n of needs) {
+            const v = sku.attributes[n];
+            if (v === undefined || v === null) continue;
+            if (!(n in read) || !sameValue(v, read[n])) {
+              fromSku.push(`${reasonName(spec, n)} ${String(v)}`);
+              const di = readDefaulted.findIndex((d) => d.attr === n);
+              if (di >= 0) readDefaulted.splice(di, 1);
+            }
+            read[n] = v as string | number;
+            kept.push(n);
+          }
+          needs = kept;
+          out.working.push(
+            `only one SKU carries the ${skRule.name} ${canonText} -- used it` +
+            (fromSku.length ? ` (${fromSku.join(", ")} taken from that SKU)` : "") + " (A-4)",
+          );
+        } else {
+          const withPrimary = pool.filter((it) => typeof it.attributes[skRule.primary] === "number");
+          if (withPrimary.length) {
+            const best = Math.max(...withPrimary.map((it) => Number(it.attributes[skRule.primary])));
+            read[skRule.primary] = best;
+            out.working.push(
+              `matched on the ${skRule.name} ${canonText}; largest ${reasonName(spec, skRule.primary)} behind it is ${fmt(best)} (A-4)`,
+            );
+          }
+        }
+      }
+    }
+    needs = [...new Set(needs)];
+  }
 
   // (4) the needs (R7-R10, R2): the first missing one names the blank; only the needed facts reach the matcher
   for (const n of needs) {
@@ -797,6 +991,10 @@ export function itemFieldDefs(
     if (rule.families.includes(family) && ids.includes(rule.attr)) ids.push(rule.when.attr);
   }
   const seen = new Set<string>();
+  // SLICE 9 (A-1): several SKU attributes may read from ONE model attribute (width, height and depth are
+  // three axes of one size phrase). The panel shows that field ONCE -- a second box writing the same id would
+  // overwrite the first.
+  const seenIds = new Set<string>();
   const out: ItemFieldDef[] = [];
   const defById = new Map(defs.map((d) => [d.id, d]));
   for (const attr of ids) {
@@ -805,6 +1003,8 @@ export function itemFieldDefs(
     const reader = spec.numbers[attr];
     if (reader) {
       const modelId = reader.from[0];
+      if (seenIds.has(modelId)) continue;
+      seenIds.add(modelId);
       const d = defById.get(modelId);
       const control = controlOf(attr, "text");
       if (control === "dropdown" && skus) {
@@ -818,6 +1018,8 @@ export function itemFieldDefs(
     }
     const d = defById.get(attr);
     if (!d) continue;
+    if (seenIds.has(attr)) continue;
+    seenIds.add(attr);
     let values = d.values ?? [];
     if (d.values_by_family && d.values_by_family[family]) values = d.values_by_family[family];
     const control = controlOf(attr, d.type === "choice" ? "dropdown" : "text");
