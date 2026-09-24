@@ -241,8 +241,8 @@ def _validate_list_spec(cfg):
 # executes; a misspelled key here would ship a silently inert rule, so the allowlists are closed (the
 # `_KNOWN_DEF_KEYS` precedent).
 _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "family_alias", "no_sku_families", "defaults",
-                 "derive_when_none", "numbers", "ladders", "match_attrs", "choice_attrs", "reason_names", "families",
-                 "panel_controls"}
+                 "derive_when_none", "override_when", "numbers", "ladders", "match_attrs", "choice_attrs",
+                 "reason_names", "families", "panel_controls"}
 # SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
 # definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
 # which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
@@ -255,6 +255,11 @@ _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
 # (declared per attribute; the owner ruled it for UL ONLY, and the config is where that stays).
 _PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none"}
 _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
+# SLICE 8 (owner M-b): `override_when` -- a stated fact that DECIDES the pick whatever else the row said. Same
+# five keys as `derive_when_none` on purpose; what differs is when it fires (that one fills a "None", this one
+# REPLACES a stated value), so the shape check is deliberately shared and the SEMANTIC difference lives in the
+# frontend module. Its `attr` need NOT be allow_none -- an override does not depend on the row saying nothing.
+_PRICING_OVERRIDE_KEYS = {"attr", "families", "when", "then", "rule"}
 # the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
 _PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
 
@@ -454,6 +459,34 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         w = r["when"]
         if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in by_id or by_id[w["attr"]].get("type") != "choice" or w["equals"] not in by_id[w["attr"]]["values"]:
             _vthrow(f"{rloc}.when must be {{attr: a choice attribute, equals: one of its values}}.")
+        if not isinstance(r["rule"], str) or not r["rule"]:
+            _vthrow(f"{rloc}.rule must be a non-empty string.")
+    # SLICE 8 (owner M-b): the overrides. Every name is checked in the namespace it reads from, exactly as
+    # `derive_when_none` is: the target and the condition are both CHOICE attributes of this category, the
+    # values are from their own vocabularies, and the families are priceable ones. The one deliberate
+    # difference from `derive_when_none` is that the TARGET need not be allow_none -- an override replaces a
+    # value the row DID state, so "the row may leave it unsaid" is not a precondition of it.
+    # the presence test comes BEFORE the `or []` idiom on purpose: an EMPTY dict is falsy, so `or []` would
+    # swallow `"override_when": {}` and ship a silently inert key -- the exact failure the closed allowlists exist
+    # to prevent. Absent is still absent, and still fine.
+    if "override_when" in pr and not isinstance(pr["override_when"], list):
+        _vthrow("list_spec.pricing.override_when must be a list.")
+    ovr = pr.get("override_when") or []
+    for i, r in enumerate(ovr):
+        rloc = f"list_spec.pricing.override_when[{i}]"
+        if not isinstance(r, dict) or set(r) != _PRICING_OVERRIDE_KEYS:
+            _vthrow(f"{rloc} must carry attr / families / when / then / rule.")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute.")
+        if r["then"] not in by_id[r["attr"]]["values"]:
+            _vthrow(f"{rloc}.then must be one of the attribute's values.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        w = r["when"]
+        if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in choice_attrs or w["equals"] not in by_id[w["attr"]]["values"]:
+            _vthrow(f"{rloc}.when must be {{attr: a choice attribute, equals: one of its values}}.")
+        if w["attr"] == r["attr"]:
+            _vthrow(f"{rloc}: an override cannot be conditioned on the attribute it sets.")
         if not isinstance(r["rule"], str) or not r["rule"]:
             _vthrow(f"{rloc}.rule must be a non-empty string.")
 

@@ -10854,7 +10854,11 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v10.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v11.json"
+# SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
+# (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
+# conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
+# v10 BY NAME below.
 # SLICE 6 (owner S6 / S7 / S8 / T7, 2026-09-24): v8 = v7 + the config-level per-item default pipelines (the
 # eligibility switch), UL absent = not mentioned, the mixing box at any size, second_opinion OFF. The slice-5 class
 # loads v7 BY NAME below.
@@ -11236,10 +11240,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_to_v10_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v11_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 6d (owner "yes ask the question", inverting the slice-6b pin): the series now holds EXACTLY v1..v10
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v10.json")
+        # slice 8 (owner M-b / M-c, inverting the slice-6d pin): the series now holds EXACTLY v1..v11
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v11.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11251,7 +11255,8 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                          # ALPHABETICAL, which is what os.listdir + sorted gives: v10 sorts between v1 and v2.
                          # That is exactly why `latest_in` must resolve NUMERICALLY, pinned two lines below --
                          # v10 is the first two-digit version in either series.
-                         ["rate_master_hvac_all_v1.json", CURRENT_HVAC_ASSET, "rate_master_hvac_all_v2.json",
+                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json", CURRENT_HVAC_ASSET,
+                          "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
                           "rate_master_hvac_all_v9.json"])
@@ -11260,7 +11265,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
                       "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
                       "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
-                      "rate_master_hvac_all_v9.json"):
+                      "rate_master_hvac_all_v9.json", "rate_master_hvac_all_v10.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
@@ -11285,6 +11290,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertNotIn("v8", raw)
         self.assertNotIn("v9", raw)
         self.assertNotIn("v10", raw)
+        self.assertNotIn("v11", raw)
         self.assertEqual(self.hvac["discipline"], "HVAC")
         attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
         rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
@@ -12037,10 +12043,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         config_validation._validate_config(base)
         loader._validate_one_config(self.v7["category_configs"][0], "x")
         pr = base["list_spec"]["pricing"]
-        # slice 6b (owner V5, INVERTING the slice-5 literal): the validator now also knows `panel_controls`, which v7's
-        # block predates -- v7's keys are exactly the known keys MINUS that one (it is present from v9 on)
-        self.assertEqual(set(pr), config_validation._PRICING_KEYS - {"panel_controls"})
+        # slice 8 (owner M-b, INVERTING the slice-6b literal): the validator now also knows `override_when`, which v7's
+        # block predates as well -- v7's keys are exactly the known keys MINUS those two (`panel_controls` is present
+        # from v9 on, `override_when` from v11 on)
+        self.assertEqual(set(pr), config_validation._PRICING_KEYS - {"panel_controls", "override_when"})
         self.assertNotIn("panel_controls", pr)
+        self.assertNotIn("override_when", pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -12600,7 +12608,8 @@ class TestHvacAdpCountQuestionSlice6d(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
             cls.v9 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # slice 8: v10 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v11); the s-pins are v10 = v9 + the count
+        with open(_asset_path("rate_master_hvac_all_v10.json"), "r", encoding="utf-8") as fh:
             cls.v10 = json.load(fh)
 
     QTY = "qty_per_row_unit"
@@ -12687,4 +12696,142 @@ class TestHvacAdpCountQuestionSlice6d(FrappeTestCase):
     def test_s05_the_asset_sweep_admits_v10(self):
         from nirmaan_stack.services.boq_rate_master import config_validation
         for c in self.v10["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 8 (owner M-b / M-c, 2026-09-24) -- HVAC v11. Two declarations, both in config.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpOverrideAndStandardLengthSlice8(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_t01  THE VALIDATOR knows `override_when`: v11's ADP config passes both validators, and every
+                malformed shape is refused BY NAME -- an unknown key, a target that is not a choice
+                attribute, a `then` outside the attribute's vocabulary, a family that is not priceable,
+                a malformed `when`, a condition on the attribute the rule sets, and a blank rule.
+                NEGATIVE: the key is OPTIONAL -- v10, which declares none, still validates.
+      test_t02  v11 = v10 + the two declarations and NOTHING else: items deep-equal; the six other
+                configs deep-equal; the ADP config equal once `override_when` and the flexible duct's
+                `convert` are set aside. NEGATIVE: v10 carries neither, so the stripping is not vacuous.
+      test_t03  THE STANDARD LENGTH IS CONFIG, NOT CODE: the conversion declares it as a named numeric
+                pipeline param, the markup and the ROUNDUP come after it, and the frontend module's own
+                source carries no such number. NEGATIVE: a conversion whose `to` names a class the family
+                does not price is refused, as it always was.
+      test_t04  THE ASSET SWEEP admits v11 (every file on disk validates exactly as today).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # slice 8: v10 is the predecessor, loaded BY NAME; v11 is the current asset
+        with open(_asset_path("rate_master_hvac_all_v10.json"), "r", encoding="utf-8") as fh:
+            cls.v10 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v11 = json.load(fh)
+
+    def _adp(self, asset=None):
+        asset = asset or self.v11
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def test_t01_the_validator_knows_override_when_and_refuses_every_malformed_shape_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        ovr = base["list_spec"]["pricing"]["override_when"]
+        self.assertEqual(ovr, [{
+            "attr": "variant",
+            "families": ["fire damper"],
+            "when": {"attr": "ul", "equals": "yes"},
+            "then": "UL",
+            "rule": "UL stated, so the UL 555 SKU is used (R-M-b)",
+        }])
+
+        def refused(mutate, needle):
+            bad = self._adp()
+            mutate(bad["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+
+        refused(lambda p: p["override_when"][0].__setitem__("extra", 1),
+                "override_when[0] must carry attr / families / when / then / rule")
+        refused(lambda p: p["override_when"][0].pop("rule"),
+                "override_when[0] must carry attr / families / when / then / rule")
+        # a TARGET that is not a choice attribute of this category (a number reader is not one)
+        refused(lambda p: p["override_when"][0].__setitem__("attr", "dia_mm"),
+                "override_when[0].attr must be a choice attribute")
+        refused(lambda p: p["override_when"][0].__setitem__("attr", "no_such_attr"),
+                "override_when[0].attr must be a choice attribute")
+        # a value outside the attribute's own vocabulary -- the typo that would silently match no SKU
+        refused(lambda p: p["override_when"][0].__setitem__("then", "UL555"),
+                "override_when[0].then must be one of the attribute's values")
+        refused(lambda p: p["override_when"][0].__setitem__("families", ["no such family"]),
+                "override_when[0].families must list priceable families")
+        refused(lambda p: p["override_when"][0].__setitem__("families", []),
+                "override_when[0].families must list priceable families")
+        for bad_when in ({"attr": "ul"}, {"attr": "dia_mm", "equals": "yes"}, {"attr": "ul", "equals": "maybe"}):
+            refused(lambda p, w=bad_when: p["override_when"][0].__setitem__("when", w),
+                    "override_when[0].when must be")
+        # a rule conditioned on the attribute it sets could never be read as anything but a loop
+        refused(lambda p: p["override_when"][0].update({"when": {"attr": "variant", "equals": "UL"}}),
+                "an override cannot be conditioned on the attribute it sets")
+        refused(lambda p: p["override_when"][0].__setitem__("rule", ""),
+                "override_when[0].rule must be a non-empty string")
+        refused(lambda p: p.__setitem__("override_when", {}),
+                "override_when must be a list")
+        # NEGATIVE: the key is OPTIONAL -- the predecessor declares none and still validates on both validators
+        v10_adp = self._adp(self.v10)
+        self.assertNotIn("override_when", v10_adp["list_spec"]["pricing"])
+        config_validation._validate_config(v10_adp)
+        loader._validate_one_config(v10_adp, "x")
+
+    def test_t02_v11_is_v10_plus_exactly_the_two_declarations(self):
+        self.assertEqual(self.v11["items"], self.v10["items"])
+        self.assertEqual(self.v11["category_configs"][1:], self.v10["category_configs"][1:])
+        a11, a10 = self._adp(), self._adp(self.v10)
+        # NEGATIVE first: the predecessor carries NEITHER, so setting them aside below is not vacuous
+        self.assertNotIn("override_when", a10["list_spec"]["pricing"])
+        self.assertNotIn("convert", a10["list_spec"]["pricing"]["families"]["flexible duct"])
+        a11["list_spec"]["pricing"].pop("override_when")
+        a11["list_spec"]["pricing"]["families"]["flexible duct"].pop("convert")
+        self.assertEqual(a11, a10)
+
+    def test_t03_the_standard_length_is_a_named_config_param_and_the_rounding_comes_after_it(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+
+        fd = self._adp()["list_spec"]["pricing"]["families"]["flexible duct"]
+        # the family prices per METRE; the conversion is what a per-NUMBER row reaches
+        self.assertEqual(sorted(fd["units"]), ["length"])
+        opt = fd["convert"]["count"][0]
+        self.assertEqual(opt["to"], "length")
+        self.assertEqual(opt["rule"], "per piece: per-metre rate x 2.5 m standard length (R-M-c)")
+        for pid in ("item_supply", "item_install"):
+            steps = opt["pipelines"][pid]["steps"]
+            lengths = [s.get("params", {}).get("standard_length_m") for s in steps]
+            self.assertEqual([v for v in lengths if v is not None], [2.5], pid)
+            # ORDER IS THE RULE: match, then the standard length, then the markup, then ONE roundup LAST
+            self.assertEqual([s["step"] for s in steps],
+                             ["match_master_row", "scale", "scale", "roundup"], pid)
+            self.assertEqual(steps[1]["formula"], "base*standard_length_m", pid)
+            self.assertEqual(steps[2]["formula"], "base*(1+m)", pid)
+        # and the number lives ONLY in config -- the frontend module that executes it carries no such constant
+        src_path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..",
+                                "frontend", "src", "pages", "boq-wizard", "rate-helper", "itemListPricing.ts")
+        with open(os.path.abspath(src_path), "r", encoding="utf-8") as fh:
+            code = "\n".join(l for l in fh.read().split("\n") if not l.lstrip().startswith(("//", "*", "/*")))
+        self.assertNotIn("2.5", code)
+        self.assertNotIn("standard_length_m", code)
+        # NEGATIVE: a `to` the family does not price is still refused, exactly as before this slice
+        bad = self._adp()
+        bad["list_spec"]["pricing"]["families"]["flexible duct"]["convert"]["count"][0]["to"] = "area"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            config_validation._validate_config(bad)
+        self.assertIn("to must name a unit class the family prices", str(ctx.exception))
+
+    def test_t04_the_asset_sweep_admits_v11(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+
+        for c in self.v11["category_configs"]:
             config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))

@@ -26,6 +26,7 @@ import {
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
+import HVAC_V11 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v11.json";
 import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
@@ -1031,5 +1032,163 @@ describe("slice 6d / the check run's rows as FIXTURES -- the six invented reads 
     // and the number those rows carry, had it been read, would have moved the price -- which is why the pin matters
     const misread = price10("Nos", withCount({ family: "spigot", dia_mm: "150" }, 5));
     expect(figures(misread)).toEqual([true, 211 * 5, 64 * 5]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 8 (owner M-b / M-c, 2026-09-24) -- HVAC v11: TWO declarations, both in config, neither naming a family
+// or a SKU in code.
+//   M-b  `override_when`  -- a STATED fact decides the pick whatever else the row said. A row mentioning UL
+//        takes the UL 555 SKU whether it also says motorised, with sleeve or without.
+//   M-c  flexible duct `convert.count` -- a duct is sold PER PIECE of a 2.5 m standard length, so a per-number
+//        row prices from the per-metre SKU at that length, supply AND install, rounding LAST.
+// Proved on the 1,150 stored replies of the slice-7 capture: 44 rows blank -> priced (29 M-b, 15 M-c), ZERO
+// rows repriced while priced, ZERO rows priced -> blank.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+const asset11 = HVAC_V11 as unknown as Asset;
+const items11: RateMasterItem[] = asset11.items.map((i) => ({ ...i, discipline: "HVAC" }));
+const adp11 = asset11.category_configs.find((c) => c.category_id === "hvac_adp")!;
+const spec11 = itemListPricingSpec(adp11)!;
+const price11 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec11, items11, unit, its);
+const working = (r: ReturnType<typeof price11>, i = 0) => r.items[i].working;
+
+describe("slice 8 / v11 = v10 + the two declarations, and NOTHING else", () => {
+  it("items and the six other configs byte-identical; the ADP config differs ONLY by override_when and the flexible duct conversion", () => {
+    expect(asset11.items).toEqual(asset10.items);
+    expect(asset11.category_configs.slice(1)).toEqual(asset10.category_configs.slice(1));
+    const strip = (c: RateCategoryConfig) => {
+      const x = JSON.parse(JSON.stringify(c)) as {
+        list_spec: { pricing: { override_when?: unknown; families: Record<string, { convert?: unknown }> } };
+      };
+      delete x.list_spec.pricing.override_when;
+      delete x.list_spec.pricing.families["flexible duct"].convert;
+      return x;
+    };
+    expect(strip(adp11)).toEqual(strip(adp10));
+    // NEGATIVE: v10 carries neither, so the stripping above is not vacuously removing nothing
+    expect(spec10.override_when).toBeUndefined();
+    expect(spec10.families["flexible duct"].convert).toBeUndefined();
+    expect(spec11.override_when).toEqual([
+      { attr: "variant", families: ["fire damper"], when: { attr: "ul", equals: "yes" }, then: "UL",
+        rule: "UL stated, so the UL 555 SKU is used (R-M-b)" },
+    ]);
+    // the standard length is DECLARED, in metres, in the config -- the module holds no such number
+    const opt = spec11.families["flexible duct"].convert!.count[0];
+    expect(opt.to).toBe("length");
+    expect(opt.rule).toBe("per piece: per-metre rate x 2.5 m standard length (R-M-c)");
+    const lenParams = opt.pipelines.item_supply.steps
+      .map((s) => (s as { params?: Record<string, unknown> }).params?.standard_length_m)
+      .filter((v) => v !== undefined);
+    expect(lenParams).toEqual([2.5]);
+    // M-d: no family name and no standard length in CODE. The guard strips COMMENT lines first -- prose that
+    // explains which ruling a branch serves is the house style and is not what the rule forbids; what it forbids
+    // is a branch that can only fire for one named family, or an arithmetic constant the config should own.
+    const code = readFileSync(join(__dirname, "itemListPricing.ts"), "utf-8")
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+    for (const forbidden of ["2.5", "fire damper", "flexible duct", "UL 555", "hvac"]) {
+      expect(code, forbidden).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("slice 8 / M-b -- a stated UL decides the fire damper, whatever the variant says", () => {
+  // the sheet's UL 555 row: cost 15000 / 1200, markups 0.45 / 0.60 -> ROUNDUP(21750) / ROUNDUP(1920)
+  const UL = [true, 21750, 1920] as const;
+  const NOTE = "UL stated, so the UL 555 SKU is used (R-M-b)";
+
+  it("ul yes beats EVERY variant the sheet stocks -- motorised, with sleeve, without sleeve", () => {
+    for (const variant of ["motorised", "with sleeve", "without sleeve"]) {
+      const r = price11("Sq.m", ext({ family: "fire damper", ul: "yes", variant }));
+      expect(figures(r), variant).toEqual(UL);
+      expect(skuOf(r), variant).toBe("Fire damper / UL 555 Rated");
+      expect(working(r), variant).toContain(NOTE);
+      // NEGATIVE, the same row on v10: refused, which is the defect M-b answers
+      const was = priceItemList(spec10, items10, "Sq.m", [ext({ family: "fire damper", ul: "yes", variant })]);
+      expect(was.priced, variant).toBe(false);
+      expect(was.reason, variant).toContain("no SKU for this combination");
+    }
+  });
+
+  it("NEGATIVE: ul not mentioned, or never answered, keeps the non-UL default and the variant's own SKU", () => {
+    // "None" = the row says nothing about UL (S6's absent_as_none makes an ABSENT answer read the same way)
+    for (const ul of ["None", null]) {
+      const r = price11("Sq.m", ext({ family: "fire damper", ul, variant: "motorised" }));
+      expect(figures(r), String(ul)).toEqual([true, 12470, 1920]);
+      expect(skuOf(r), String(ul)).toBe("FIRE DAMPER / Motorised fire damper");
+      expect(working(r), String(ul)).not.toContain(NOTE);
+      // and it is byte-identical to v10 -- figures AND every working line
+      const was = priceItemList(spec10, items10, "Sq.m", [ext({ family: "fire damper", ul, variant: "motorised" })]);
+      expect(figures(was), String(ul)).toEqual(figures(r));
+      expect(was.items[0].working, String(ul)).toEqual(working(r));
+    }
+  });
+
+  it("NEGATIVE: a row ALREADY on the UL SKU is untouched -- no second note, the same trace as v10", () => {
+    const r = price11("Sq.m", ext({ family: "fire damper", ul: "yes", variant: "UL" }));
+    const was = priceItemList(spec10, items10, "Sq.m", [ext({ family: "fire damper", ul: "yes", variant: "UL" })]);
+    expect(figures(r)).toEqual(UL);
+    expect(figures(was)).toEqual(UL);
+    // the override fires only when it CHANGES something, so these rows keep their trace exactly
+    expect(working(r)).not.toContain(NOTE);
+    expect(working(r)).toEqual(was.items[0].working);
+  });
+
+  it("NEGATIVE: a family the override does not name is unaffected, even with UL stated", () => {
+    // the VCD family stocks no UL row at all; `ul` is not one of its needs, so nothing about it may move
+    const r = price11("Sq.m", ext({ family: "VCD", ul: "yes", variant: "GI rectangular" }));
+    const was = priceItemList(spec10, items10, "Sq.m", [ext({ family: "VCD", ul: "yes", variant: "GI rectangular" })]);
+    expect(r.priced).toBe(true);
+    expect(figures(r)).toEqual(figures(was));
+    expect(working(r)).toEqual(was.items[0].working);
+    expect(working(r)).not.toContain(NOTE);
+  });
+});
+
+describe("slice 8 / M-c -- a flexible duct is sold per piece of a 2.5 m standard length", () => {
+  const RULE = "per piece: per-metre rate x 2.5 m standard length (R-M-c)";
+
+  it("a per-NUMBER row prices from the per-metre SKU at the standard length, supply AND install, rounding last", () => {
+    // Insulated 250 MM DIA: 510/m -> 510 x 2.5 = 1275, x 1.45 = 1848.75, ROUNDUP -> 1849. install 0 stays 0.
+    const r = price11("Nos", ext({ family: "flexible duct", insulated: "with", dia_mm: "250 mm" }));
+    expect(figures(r)).toEqual([true, 1849, 0]);
+    expect(skuOf(r)).toBe("Insulated Flexible Duct / 250 MM DIA");
+    expect(r.items[0].conversion).toEqual({ rule: RULE, to: "length" });
+    expect(working(r)).toContain(RULE);
+    // the ROUNDING IS LAST -- one roundup at the end, not a rounded per-metre rate multiplied afterwards
+    expect(working(r)).toContain("item_supply: per piece: per-metre supply cost x 2.5 m standard length (R-M-c) = 1275");
+    expect(working(r)).toContain("item_supply: ROUNDUP(supply, 0) (R15) = 1849");
+    expect(1849).not.toBe(Math.ceil(510 * 1.45) * 2.5);
+    // NEGATIVE, the same row on v10: refused -- the defect M-c answers
+    const was = priceItemList(spec10, items10, "Nos", [ext({ family: "flexible duct", insulated: "with", dia_mm: "250 mm" })]);
+    expect(was.priced).toBe(false);
+    expect(was.reason).toBe("no SKU per number for flexible duct");
+  });
+
+  it("NEGATIVE: a per-METRE row prices per metre exactly as before -- the conversion is unreachable from it", () => {
+    const r = price11("RMT", ext({ family: "flexible duct", insulated: "with", dia_mm: "250 mm" }));
+    const was = priceItemList(spec10, items10, "RMT", [ext({ family: "flexible duct", insulated: "with", dia_mm: "250 mm" })]);
+    expect(figures(r)).toEqual([true, 740, 0]);
+    expect(figures(was)).toEqual(figures(r));
+    expect(r.items[0].conversion).toBeNull();
+    expect(working(r)).not.toContain(RULE);
+    expect(working(r)).toEqual(was.items[0].working);
+  });
+
+  it("NEGATIVE: a family with no declared standard length still refuses with today's reason", () => {
+    // the spigot stocks per-number rows only; nothing declares a length for it, so a per-metre row still refuses
+    const r = price11("RMT", ext({ family: "spigot", dia_mm: "150" }));
+    const was = priceItemList(spec10, items10, "RMT", [ext({ family: "spigot", dia_mm: "150" })]);
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("no SKU per metre for spigot");
+    expect(r.reason).toBe(was.reason);
+  });
+
+  it("NEGATIVE: the ladder still governs -- a diameter above the largest refuses rather than pricing per piece", () => {
+    const r = price11("Nos", ext({ family: "flexible duct", insulated: "with", dia_mm: "900 mm" }));
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("diameter 900 is above the largest size on the sheet (350)");
   });
 });

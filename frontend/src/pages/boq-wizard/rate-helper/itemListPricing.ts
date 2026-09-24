@@ -98,6 +98,18 @@ export interface DeriveWhenNone {
   rule: string;
 }
 
+/** SLICE 8 (owner M-b): a stated fact that DECIDES the pick, whatever else the row said. Same shape as
+ * `derive_when_none` and deliberately so -- the difference is WHEN it fires: that one only fills a value the
+ * row left unsaid ("None"), this one REPLACES a value the row DID state. UL is the ruled case: a row that
+ * mentions UL takes the UL SKU whether it also says motorised, with sleeve or without. */
+export interface OverrideWhen {
+  attr: string;
+  families: string[];
+  when: { attr: string; equals: string };
+  then: string;
+  rule: string;
+}
+
 export interface ItemListPricingSpec {
   kind: string;
   unit_class_attr: string;
@@ -107,6 +119,9 @@ export interface ItemListPricingSpec {
   no_sku_families?: string[];
   defaults?: Record<string, DefaultSpec>;
   derive_when_none?: DeriveWhenNone[];
+  /** SLICE 8 (owner M-b): the overrides, applied AFTER the defaults and `derive_when_none` so they win over
+   * both. ABSENT => nothing overrides and every row is byte-identical to before this slice. */
+  override_when?: OverrideWhen[];
   numbers: Record<string, NumberReader>;
   ladders: string[];
   match_attrs: string[];
@@ -465,6 +480,24 @@ function priceOneItem(
     if (i >= 0) readDefaulted.splice(i, 1);
     readDefaulted.push({ attr: rule.attr, value: rule.then, rule: rule.rule });
   }
+  // SLICE 8 (owner M-b): the OVERRIDES -- a stated fact that decides the pick whatever else the row said.
+  // It runs LAST over the reads, so it wins over both a stated value and a ruled default (a fire damper row
+  // that mentions UL takes the UL SKU even when it also says motorised / with sleeve / without sleeve).
+  // It fires ONLY when it CHANGES something, so a row already on that value keeps its trace byte-identical;
+  // and the DEFAULT record it supersedes is dropped, because the value is no longer the default's.
+  const overridden: string[] = [];
+  for (const rule of spec.override_when ?? []) {
+    if (!rule.families.includes(family)) continue;
+    // the CONDITION reads `read`, not the raw answer: what the pricing believes after the defaults is what
+    // must decide, so a ruled default can never be overridden by a fact nobody stated (an absent UL reads as
+    // the non-UL default under S6, and therefore does not fire).
+    if (String(read[rule.when.attr] ?? "") !== rule.when.equals) continue;
+    if (String(read[rule.attr] ?? "") === rule.then) continue;
+    read[rule.attr] = rule.then;
+    const i = readDefaulted.findIndex((d) => d.attr === rule.attr);
+    if (i >= 0) readDefaulted.splice(i, 1);
+    overridden.push(rule.rule);
+  }
   const sel: Record<string, string | number> = { family };
 
   // (3) the SKU unit class: the family's own rows for the row's unit, else a declared conversion (R4 / R11 / R16),
@@ -544,6 +577,9 @@ function priceOneItem(
   }
   out.selection = { ...sel };
   out.working.push(...notes);
+  // SLICE 8 (M-b): the override is shown as its own working line, in the config's words, so a pricer can see
+  // that the variant the row stated was set aside and why.
+  out.working.push(...overridden);
   for (const d of out.defaulted) out.working.push(`${d.attr} not mentioned -> ${d.value} (${d.rule})`);
 
   // SLICE 6 (T4): the quantity per row unit -- the PRICER's typed value, which always wins over the count the
