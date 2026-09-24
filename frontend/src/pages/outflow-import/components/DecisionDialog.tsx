@@ -2323,9 +2323,11 @@ const NewExpenseForm = ({
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
+            {/* `referenceValue`, not `bank_reference_no`: a Cashbook line has no bank reference, and
+                its wallet id is what the server writes (#1314 browser walk -- it read "—"). */}
             <ReadOnlyField
                 label="Payment reference"
-                value={row.bank_reference_no || "—"}
+                value={referenceValue(row) || "—"}
                 className="sm:col-span-2"
             />
             {spender && <ReadOnlyField label="Paid by" value={spender} className="sm:col-span-2" />}
