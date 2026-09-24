@@ -187,6 +187,26 @@ export const canActionInvoiceApprovals = (
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
 
 /**
+ * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
+ * Wider than the approval set: the invoice approvers plus PMO and every procurement
+ * profile, who chase the missing invoices with vendors (owner ruling 2026-09-24).
+ * The tab is a read-only report, so no approve/reject control rides on it.
+ */
+const PENDING_INVOICE_UPLOAD_PROFILES: readonly string[] = [
+  ...INVOICE_APPROVAL_PROFILES,
+  PMO_EXECUTIVE_PROFILE,
+  ...PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may see the Pending Invoices Upload tab. */
+export const canViewPendingInvoiceUploads = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && PENDING_INVOICE_UPLOAD_PROFILES.includes(role));
+
+/**
  * May see the "Payment Summary" card atop the payments tables (Approve Payments,
  * Accountant tabs, All Payments) — Admin + Accountant + Accountant Lead (owner
  * ruling). UI-only: `get_payment_dashboard_stats` has no role check, so this
