@@ -237,7 +237,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     id: "PendingInvoice",
     accessorFn: (row) => row.amountPaid - row.invoiceAmount,
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+      <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Pending Invoice<br />Amt</span>} />
     ),
     cell: ({ row }) => (
       <div className="tabular-nums">
@@ -415,7 +415,7 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
     id: "PendingInvoice",
     accessorFn: (row) => row.amountPaid - row.invoiceAmount,
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+      <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Pending Invoice<br />Amt</span>} />
     ),
     cell: ({ row }) => (
       <div className="tabular-nums">
@@ -629,7 +629,7 @@ export const pendingInvoiceFromDeliveredColumn: ColumnDef<POReportRowData> = {
   id: "PendingInvoice",
   accessorFn: (row) => row.poAmountDelivered - row.invoiceAmount,
   header: ({ column }) => (
-    <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+    <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Pending Invoice<br />Amt</span>} />
   ),
   cell: ({ row }) => (
     <div className="tabular-nums">
@@ -644,6 +644,23 @@ export const pendingInvoiceFromDeliveredColumn: ColumnDef<POReportRowData> = {
     exportHeaderName: "Pending Invoice Amt",
     isNumeric: true,
   },
+};
+
+// Status, with a faceted filter -- Pending Invoices Upload only, because that tab lists
+// every status except Merged / Cancelled / Inactive (the Reports page lists two).
+// Facet key `po_status` is fed by POReports' `facetOptionsConfig`.
+export const poStatusColumn: ColumnDef<POReportRowData> = {
+  id: "po_status",
+  accessorFn: (row) => row.originalDoc?.status,
+  header: ({ column }) => (
+    <DataTableColumnHeader column={column} title="Status" />
+  ),
+  cell: ({ row }) => <div>{row.original.originalDoc?.status || "--"}</div>,
+  meta: {
+    exportHeaderName: "PO Status",
+    exportValue: (row: POReportRowData) => row.originalDoc?.status || "",
+  },
+  filterFn: facetedFilterFn,
 };
 
 import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
@@ -679,6 +696,16 @@ export const getPOReportColumns = (
     if (!columnsToDisplay.some((col) => (col as any).accessorKey === "creation")) {
       columnsToDisplay.splice(1, 0, poCreationDateColumn);
     }
+
+    // After Vendor, before the amounts.
+    const vendorIndex = columnsToDisplay.findIndex(
+      (col) => (col as any).id === "vendor_name"
+    );
+    columnsToDisplay.splice(
+      vendorIndex !== -1 ? vendorIndex + 1 : columnsToDisplay.length,
+      0,
+      poStatusColumn
+    );
 
     // Swap IN PLACE so the column order the report has always had is preserved.
     const paidIndex = columnsToDisplay.findIndex(

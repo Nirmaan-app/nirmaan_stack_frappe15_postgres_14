@@ -42,9 +42,12 @@ const getAllVendorsMinimalOptions = (): GetDocListArgs<FrappeDoc<Vendors>> => ({
     limit: 0,
 });
 
-export const usePOReportsData = (): UsePOReportsDataResult => {
+export const usePOReportsData = (
+    /** Pending Invoices Upload tab: fetch every PO whose status is NOT in this list. */
+    excludeStatuses?: readonly string[]
+): UsePOReportsDataResult => {
     // --- Get Options ---
-    const poOptions = getPOReportListOptions();
+    const poOptions = getPOReportListOptions(excludeStatuses);
     // --- Generate Query Keys ---
     const poQueryKey = queryKeys.procurementOrders.list(poOptions);
 

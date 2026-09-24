@@ -36,7 +36,10 @@ import PO2BReconcileReport from "./PO2BReconcileReport";
 import POAttachmentReconcileReport from "./POAttachmentReconcileReport";
 import DNDCQuantityReport from "./DNDCQuantityReport";
 import { Info } from "lucide-react";
-import { PENDING_UPLOAD_CREATION_FROM } from "../constants";
+import {
+  PENDING_UPLOAD_CREATION_FROM,
+  PENDING_UPLOAD_EXCLUDED_PO_STATUSES,
+} from "../constants";
 import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -48,9 +51,11 @@ interface SelectOption {
 export interface POReportsProps {
   /**
    * Rendered under Invoice Reconciliation > Pending Invoices Upload rather than on the
-   * Reports page. Two narrowings, BOTH scoped to that tab by owner ruling:
+   * Reports page. Changes, ALL scoped to that tab by owner ruling:
    *   - Pending Invoices measures Amount DELIVERED, not Amount Paid.
    *   - only POs created on/after `PENDING_UPLOAD_CREATION_FROM` are listed.
+   *   - every status except `PENDING_UPLOAD_EXCLUDED_PO_STATUSES` is in scope (the
+   *     Reports page keeps Partially Delivered / Delivered), with a Status filter.
    * Absent (the Reports page) = today's behaviour, unchanged.
    */
   pendingUploadMode?: boolean;
@@ -67,7 +72,9 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
     isLoading: isLoadingInitialData,
     error: initialDataError,
     assignmentsLookup,
-  } = usePOReportsData();
+  } = usePOReportsData(
+    pendingUploadMode ? PENDING_UPLOAD_EXCLUDED_PO_STATUSES : undefined
+  );
 
   // CEO Hold row highlighting
   const getRowClassName = useCallback(
@@ -97,7 +104,7 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
     switch (selectedReportType) {
       case "Pending Invoices":
         return pendingUploadMode
-          ? `POs with status "Partially Delivered" or "Delivered" created on/after ${PENDING_UPLOAD_CREATION_FROM}, where Amount Delivered − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`
+          ? `POs with any status except ${PENDING_UPLOAD_EXCLUDED_PO_STATUSES.map((st) => `"${st}"`).join(", ")}, created on/after ${PENDING_UPLOAD_CREATION_FROM}, where Amount Delivered − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`
           : `POs with status "Partially Delivered" or "Delivered" where Amount Paid − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`;
       case "PO with Excess Payments":
         return `POs with status "Partially Delivered" or "Delivered" where Amount Paid > Total PO Amount + ₹${payment_delta.toLocaleString("en-IN")}`;
@@ -154,10 +161,13 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
         filtered = allPOsForReports.filter((row) => {
           const poDoc = row.originalDoc;
 
-          if (
-            poDoc.status === "Partially Delivered" ||
-            poDoc.status === "Delivered"
-          ) {
+          // The tab widens the status set (everything but Merged / Cancelled /
+          // Inactive); the Reports page keeps Partially Delivered / Delivered.
+          const inScope = pendingUploadMode
+            ? !PENDING_UPLOAD_EXCLUDED_PO_STATUSES.includes(poDoc.status)
+            : poDoc.status === "Partially Delivered" ||
+              poDoc.status === "Delivered";
+          if (inScope) {
             // Under the Pending Invoices Upload tab: DELIVERED, not paid. What is owed
             // an invoice is what ARRIVED -- a PO paid in advance but undelivered owes
             // nothing, a delivered but unpaid one does. The WO side is deliberately
@@ -306,12 +316,27 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
       .sort((a, b) => a.value.localeCompare(b.value));
   }, [currentDisplayData]);
 
+  // Only the Pending Invoices Upload tab renders a Status column (see getPOReportColumns).
+  const statusFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = row.originalDoc?.status;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
+
   const facetOptionsConfig = useMemo(
     () => ({
       project_name: { title: "Project", options: projectFacetOptions },
       vendor_name: { title: "Vendor", options: vendorFacetOptions },
+      ...(pendingUploadMode
+        ? { po_status: { title: "Status", options: statusFacetOptions } }
+        : {}),
     }),
-    [projectFacetOptions, vendorFacetOptions]
+    [projectFacetOptions, vendorFacetOptions, statusFacetOptions, pendingUploadMode]
   );
 
   const exportFileName = useMemo(() => {

@@ -46,3 +46,15 @@ export const PMO_PROJECT_REPORTS: readonly string[] = [
  * string ("YYYY-MM-DD HH:MM:SS"), which sorts correctly against this prefix.
  */
 export const PENDING_UPLOAD_CREATION_FROM = "2026-04-01";
+
+/**
+ * The Pending Invoices Upload tab lists a PO in ANY status except these (owner ruling).
+ * The Reports page's Pending Invoices report keeps its Partially Delivered / Delivered
+ * rule and is unaffected. Read by the tab's fetch AND its row filter, so the two cannot
+ * disagree about which statuses are in scope.
+ */
+export const PENDING_UPLOAD_EXCLUDED_PO_STATUSES: readonly string[] = [
+  "Merged",
+  "Cancelled",
+  "Inactive",
+];
