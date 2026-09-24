@@ -87,7 +87,7 @@ export const useFromAppSources = (
 };
 
 export type HodRowPatch = Partial<
-  Pick<HodRow, "remarks" | "form_data"> & { disabled: boolean }
+  Pick<HodRow, "status" | "remarks" | "form_data"> & { disabled: boolean }
 >;
 
 /** Every HOD write. Each returns the server's answer; the caller refreshes the project payload. */

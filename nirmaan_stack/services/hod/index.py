@@ -12,7 +12,8 @@ keys, in this order -- pinned by test). `no` is the S.No printed on the checklis
 switched-off rows are removed and the rest renumbered.
 
 `fill` marks a document that gives users something to fill in (a form, the maintenance results, remarks on the
-tools, certificate dates); only those pass through "Form Filled" (see `checklist.derive_status`).
+tools, certificate dates); `fill` is what the screen leads with "Fill Form" for, and saving one is
+what lets its row be answered YES (see `checklist.is_saved`).
 
 Kinds:
   form      -- the project types everything (stored in `form_data`)

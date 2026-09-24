@@ -31,7 +31,7 @@ const row = (document: string, disabled: 0 | 1 = 0): HodRow => ({
   name: `r-${document}`,
   hod_system: "Electrical",
   document,
-  status: "Pending" as const,
+  status: "NO" as const,
   disabled,
   remarks: null,
   form_data: {},

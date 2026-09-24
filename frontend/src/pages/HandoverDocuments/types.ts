@@ -3,7 +3,9 @@
 
 export type HodDocumentKind = "form" | "template" | "app";
 /** Derived by the server from what was done on the row (never picked by hand). */
-export type HodStatus = "Pending" | "Form Filled" | "Completed";
+/** The handover checklist answer, picked by hand (owner 2026-09-24). YES also decides what the binder
+ *  carries; it is refused until the document has been saved. */
+export type HodStatus = "YES" | "NO" | "NA";
 
 export interface HodDocumentMeta {
   key: string;
@@ -11,7 +13,7 @@ export interface HodDocumentMeta {
   title: string;
   kind: HodDocumentKind;
   landscape: boolean;
-  /** The document gives users something to fill in (so it passes through "Form Filled"). */
+  /** The document gives users something to fill in (so its row leads with "Fill Form"). */
   fill: boolean;
   library: string | null;
   source: "commission" | "tds" | "snag" | "design" | null;

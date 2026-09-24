@@ -3,7 +3,7 @@
 
 """Handover PDFs built on the `long` queue: the whole BINDER of a system, or the CONTENT of one document.
 
-    binder  = cover + checklist ("HOD Checklist"), then for every switched-on document in checklist order:
+    binder  = cover + checklist ("HOD Checklist"), then for every document answered YES, in checklist order:
               a divider page (S.No + title) followed by that document's content
     content = one document's content alone (the row's download button for the six from-app documents)
 
@@ -207,10 +207,17 @@ def build_plan(project: str, hod_system: str, document: str | None = None) -> tu
 		fields=["name", "document", "status", "disabled", "remarks", "form_data"],
 	)
 	parts = checklist.binder_parts(rows)
+	# The binder carries what was actually handed over: YES rows only (owner 2026-09-24). NO and NA
+	# stay on the printed checklist with their answer, but no pages follow them.
+	parts = [p for p in parts if (p[1].status or "").strip().upper() == checklist.STATUS_YES]
 	if document:
 		parts = [p for p in parts if p[1].document == document]
 		if not parts:
-			frappe.throw(_("That document is switched off for {0}.").format(hod_system))
+			frappe.throw(
+				_("{0} is not marked YES for {1}, so there is nothing to hand over for it.").format(
+					index.get(document)["title"] if index.get(document) else document, hod_system
+				)
+			)
 	sections, empty = [], []
 	for sno, row, _part in parts:
 		title = index.get(row.document)["title"]

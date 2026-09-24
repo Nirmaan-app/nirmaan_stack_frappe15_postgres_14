@@ -43,6 +43,42 @@ export function printedNumbers(
 }
 
 /** Can this row's status / remarks / upload / record be changed right now? */
+/** Keys `form_data` carries for the screen's own bookkeeping, not as something a user entered.
+ *  Mirrors `services/hod/checklist._META_KEYS`. */
+const META_KEYS = new Set(["completed"]);
+
+function hasUserInput(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasUserInput);
+  if (value && typeof value === "object")
+    return Object.values(value as Record<string, unknown>).some(hasUserInput);
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "boolean") return value;
+  return value !== null && value !== undefined;
+}
+
+/** Has someone actually done this document? The ONE test behind the YES gate, and the same rule for
+ *  all three kinds: a form keeps its entries, a library text its included parts, a From Nirmaan
+ *  document the records ticked for the handover — so "saved" is just `form_data` holding something a
+ *  person put there. Mirrors `services/hod/checklist.is_saved` (ADR-0010 F1). */
+export function isSaved(row: Pick<HodRow, "form_data">): boolean {
+  const data = row.form_data || {};
+  return hasUserInput(
+    Object.fromEntries(
+      Object.entries(data).filter(([k]) => !META_KEYS.has(k)),
+    ),
+  );
+}
+
+/** Does this document have anything to save before it can be answered YES? A FORM has its entries and
+ *  a FROM NIRMAAN document has its ticked records; a LIBRARY text (O&M Manual, Do's & Don'ts) holds the
+ *  library's own content, edited centrally in Packages Settings, so a project adds nothing to it — it
+ *  carries no Edit button and is answerable as it stands. Mirrors `checklist.needs_saving`. */
+export function needsSaving(
+  meta: Pick<HodDocumentMeta, "kind" | "fill">,
+): boolean {
+  return Boolean(meta.fill) || meta.kind === "app";
+}
+
 export function rowEditable(row: HodRow, canEdit: boolean): boolean {
   return canEdit && !row.disabled;
 }

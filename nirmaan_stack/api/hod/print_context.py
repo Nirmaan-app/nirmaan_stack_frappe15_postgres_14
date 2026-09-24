@@ -275,7 +275,10 @@ def hod_checklist_context(project=None, hod_system=None) -> dict:
 			{
 				"sno": sno,
 				"title": index.get(r.document)["title"],
-				"status": "YES" if checklist.derive_status(r.document, r.form_data) == checklist.STATUS_COMPLETED else "",
+				# The handover answer as it was picked: YES / NO / NA (owner 2026-09-24).
+				"status": checklist.normalise_status(r.status),
+				# Remarks left the SCREEN, not the paper: the column prints so it can be written on by
+				# hand at the handover (owner 2026-09-24). Nothing on the tab fills it any more.
 				"remarks": r.remarks or "",
 			}
 		)

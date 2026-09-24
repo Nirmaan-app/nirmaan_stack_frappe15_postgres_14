@@ -18,7 +18,7 @@ _DOCTYPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stac
 
 
 def _row(key, **kw):
-	base = {"document": key, "status": "Pending", "disabled": 0, "remarks": "", "form_data": {}}
+	base = {"document": key, "status": "NO", "disabled": 0, "remarks": "", "form_data": {}}
 	base.update(kw)
 	return base
 
@@ -73,70 +73,87 @@ class TestChecklist(unittest.TestCase):
 		# an empty shell is not an entry
 		self.assertTrue(checklist.is_untouched(_row("escalation_chart", form_data={"levels": [{}, {}, {}]}), False))
 
-	def test_counts_by_derived_status(self):
+	def test_counts_read_the_picked_status(self):
 		rows = [_row(k) for k in index.KEYS]
-		rows[0]["form_data"] = {"levels": [{"name": "Ravi"}]}  # escalation: Form Filled
-		rows[1]["form_data"] = {"selected": ["X"], "completed": True}  # demo training: Completed
+		rows[1]["status"] = "YES"
+		rows[2]["status"] = "NA"
 		rows[14]["disabled"] = 1
-		rows[14]["form_data"] = {"completed": True}  # a switched-off row counts as off, whatever it holds
+		rows[14]["status"] = "YES"  # switched off counts as off, whatever it answers
 		self.assertEqual(
-			checklist.counts(rows), {"completed": 1, "filled": 1, "pending": 13, "off": 1, "needed": 15}
+			checklist.counts(rows),
+			{"completed": 1, "no": 13, "na": 1, "off": 1, "needed": 15},
 		)
 
-	def test_status_is_derived_from_actions(self):
-		d = checklist.derive_status
-		self.assertEqual(d("escalation_chart", {}), checklist.STATUS_PENDING)
-		self.assertEqual(d("escalation_chart", {"levels": [{}, {}]}), checklist.STATUS_PENDING)
-		self.assertEqual(d("escalation_chart", '{"levels": [{"name": "Ravi"}]}'), checklist.STATUS_FILLED)
-		# A filled form STAYS Form Filled: since 2026-09-24 nothing but the mark can complete it (there
-		# used to be a signed upload, and `derive_status` no longer takes one).
-		self.assertEqual(d("escalation_chart", {"levels": [{"name": "Ravi"}]}), checklist.STATUS_FILLED)
-		# the maintenance results are a form too
+	def test_status_is_the_hand_picked_handover_answer(self):
+		"""Owner 2026-09-24: `status` REPLACED the derived Pending / Form Filled / Completed with the
+		checklist answer the user picks. `derive_status` is gone -- nothing computes it any more."""
+		self.assertFalse(hasattr(checklist, "derive_status"))
+		self.assertEqual(checklist.STATUSES, ("YES", "NO", "NA"))
+		# the options themselves are pinned by test_doctype_status_options_match; these two are not
+		path = os.path.join(_DOCTYPE_DIR, "project_hod_document", "project_hod_document.json")
+		fields = {f["fieldname"]: f for f in json.load(open(path))["fields"]}
+		self.assertEqual(fields["status"]["default"], checklist.STATUS_NO)
+		self.assertFalse(fields["status"].get("read_only"))
+
+	def test_a_library_text_needs_no_saving_before_yes(self):
+		"""O&M Manual and Do's & Don'ts hold the LIBRARY's content, edited centrally in Packages
+		Settings -- a project adds nothing, so they carry no Edit and must be answerable as they
+		stand (owner 2026-09-24). A form and a From Nirmaan document still have to be saved."""
+		self.assertFalse(checklist.needs_saving("om_manual"))
+		self.assertFalse(checklist.needs_saving("dos_donts"))
+		self.assertTrue(checklist.can_be_yes("om_manual", {}))
+		self.assertTrue(checklist.can_be_yes("dos_donts", None))
+		# everything else is unchanged
+		for key in ("escalation_chart", "maintenance_checklist", "recommended_tools"):
+			self.assertTrue(checklist.needs_saving(key))
+			self.assertFalse(checklist.can_be_yes(key, {}))
+		for key in ("demo_training", "material_tds", "snag_list"):
+			self.assertTrue(checklist.needs_saving(key))
+			self.assertFalse(checklist.can_be_yes(key, {}))
+
+	def test_a_retired_status_heals_to_no(self):
+		"""No backfill script (owner 2026-09-24): rows still carrying Pending / Form Filled / Completed
+		read as NO at once, and are written back as NO the next time they are saved."""
+		n = checklist.normalise_status
+		self.assertEqual(n("Pending"), checklist.STATUS_NO)
+		self.assertEqual(n("Form Filled"), checklist.STATUS_NO)
+		self.assertEqual(n("Completed"), checklist.STATUS_NO)
+		self.assertEqual(n(""), checklist.STATUS_NO)
+		self.assertEqual(n(None), checklist.STATUS_NO)
+		self.assertEqual(n("whatever"), checklist.STATUS_NO)
+		# the three answers survive, however they were typed
+		self.assertEqual(n("YES"), checklist.STATUS_YES)
+		self.assertEqual(n(" yes "), checklist.STATUS_YES)
+		self.assertEqual(n("na"), checklist.STATUS_NA)
+
+	def test_is_saved_is_one_rule_for_all_three_kinds(self):
+		saved = checklist.is_saved
+		# a form keeps its entries, a library text its parts, a From Nirmaan document its ticked records
+		self.assertTrue(saved({"levels": [{"name": "Ravi"}]}))
+		self.assertTrue(saved({"included": ["DX"]}))
+		self.assertTrue(saved({"selected": ["REPORT-1"]}))
+		self.assertTrue(saved('{"levels": [{"name": "Ravi"}]}'))
+		# an empty shell is not saved
+		self.assertFalse(saved({}))
+		self.assertFalse(saved(None))
+		self.assertFalse(saved({"levels": [{}, {}]}))
+		self.assertFalse(saved({"tool_remarks": {"Multimeter": "  "}}))
+
+	def test_the_yes_gate_ignores_the_screens_own_bookkeeping(self):
+		"""`completed` is left over from the retired hand mark: it must NOT make a row look saved, or
+		an untouched document could be answered YES."""
+		self.assertFalse(checklist.can_be_yes("demo_training", {"completed": True}))
+		self.assertFalse(checklist.is_saved({"completed": True}))
+		self.assertTrue(checklist.can_be_yes("demo_training", {"completed": True, "selected": ["X"]}))
+
+	def test_no_and_na_are_never_gated(self):
+		"""Only YES is guarded -- a document nobody will ever fill must still be answerable NA."""
+		self.assertTrue(checklist.STATUS_NO in checklist.STATUSES)
+		self.assertTrue(checklist.STATUS_NA in checklist.STATUSES)
+		# `can_be_yes` is asked ONLY for YES; on a document that needs saving it reads `is_saved`.
 		self.assertEqual(
-			d("maintenance_checklist", {"checks": {"b1": {"list_1": {"results": {"Clean filters": {"result": "OK"}}}}}}),
-			checklist.STATUS_FILLED,
+			checklist.can_be_yes("escalation_chart", {"x": 1}), checklist.is_saved({"x": 1})
 		)
-		self.assertEqual(d("maintenance_checklist", {"checks": {"b1": {"list_1": {"comments": " "}}}}), checklist.STATUS_PENDING)
-		self.assertEqual(d("recommended_tools", {"tool_remarks": {"Multimeter": "2 nos handed over"}}), checklist.STATUS_FILLED)
-		self.assertEqual(d("recommended_tools", {"tool_remarks": {"Multimeter": ""}}), checklist.STATUS_PENDING)
-		# nothing to fill on these: they move only when someone marks them completed -- a stray key in
-		# form_data is not the mark.
-		self.assertEqual(d("dos_donts", {"included": ["DX"]}), checklist.STATUS_PENDING)
-		self.assertEqual(d("demo_training", {"x": 1}), checklist.STATUS_PENDING)
-		self.assertEqual(d("demo_training", None), checklist.STATUS_PENDING)
-
-	def test_a_from_nirmaan_document_completes_when_it_is_marked(self):
-		"""Owner 2026-09-24: nothing is uploaded anywhere, so the hand mark is the only thing that
-		completes them -- the records themselves are previewed and downloaded from Nirmaan."""
-		d = checklist.derive_status
-		self.assertEqual(d("commissioning_report", {"completed": True}), checklist.STATUS_COMPLETED)
-		self.assertEqual(d("snag_list", {"completed": True}), checklist.STATUS_COMPLETED)
-		# a stored JSON string reads the same
-		self.assertEqual(d("as_built_drawings", '{"completed": true}'), checklist.STATUS_COMPLETED)
-		# ticking reports for download is NOT completing the document
-		self.assertEqual(d("material_tds", {"selected": ["X"]}), checklist.STATUS_PENDING)
-		self.assertEqual(d("snag_list", {"completed": False}), checklist.STATUS_PENDING)
-		# an empty row is Pending -- `derive_status` has no attachment argument to complete it with
-		self.assertEqual(d("commissioning_report", {}), checklist.STATUS_PENDING)
-
-	def test_the_status_rule_no_longer_takes_an_attachment(self):
-		"""Owner 2026-09-24: `Project HOD Document.attachment` is retired, so the rule reads the row's
-		form data alone. The old 3-argument call must fail loudly rather than silently ignore a file."""
-		with self.assertRaises(TypeError):
-			checklist.derive_status("demo_training", "/files/signed.pdf", {})
-
-	def test_the_mark_completes_a_form_and_a_library_document_too(self):
-		"""Owner 2026-09-24, WIDENING the From Nirmaan rule of the same day: no document carries an
-		upload any more, so the mark completes every kind -- form, library text and From Nirmaan."""
-		d = checklist.derive_status
-		self.assertEqual(d("escalation_chart", {"completed": True}), checklist.STATUS_COMPLETED)
-		self.assertEqual(d("recommended_tools", {"completed": True}), checklist.STATUS_COMPLETED)
-		self.assertEqual(d("dos_donts", {"completed": True}), checklist.STATUS_COMPLETED)
-		self.assertEqual(d("maintenance_checklist", {"completed": True}), checklist.STATUS_COMPLETED)
-		# The mark wins over a saved form; taking it off gives the form back.
-		filled = {"levels": [{"name": "Ravi"}]}
-		self.assertEqual(d("escalation_chart", {**filled, "completed": True}), checklist.STATUS_COMPLETED)
-		self.assertEqual(d("escalation_chart", filled), checklist.STATUS_FILLED)
 
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):
 		self.assertEqual(

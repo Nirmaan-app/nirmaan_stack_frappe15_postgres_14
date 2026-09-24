@@ -8,9 +8,10 @@ Handover Documents screen:
 2. a new row needs an ACTIVE HOD System;
 3. a switched-off row (`disabled`) cannot be worked on: its remarks and form data stay as they were
    until it is switched back on. Switching it on or off is always allowed;
-4. `status` is DERIVED on every save (`services/hod/checklist.derive_status`, owner 2026-09-22): Completed
-   when the document is marked completed by hand, Form Filled when a fillable document's form is saved,
-   else Pending. Whatever a caller sends for it is overwritten.
+4. `status` is the handover checklist answer, YES / NO / NA, set BY HAND (owner 2026-09-24, replacing the
+   derived Pending / Form Filled / Completed). The controller no longer computes it -- it GUARDS it:
+   **YES is refused on a document that has not been saved** (`checklist.can_be_yes`), so a Desk edit and
+   the Handover Documents screen are held to the same rule. NO and NA are always allowed.
 """
 
 import json
@@ -37,7 +38,15 @@ def _normalised(fieldname, value):
 def validate(doc, method=None):
 	if not index.is_valid(doc.document):
 		frappe.throw(_("Unknown handover document: {0}").format(doc.document))
-	doc.status = checklist.derive_status(doc.document, doc.form_data)
+	# Anything that is not one of the three answers -- a blank, or a row still carrying the retired
+	# Pending / Form Filled / Completed -- is healed to NO here, before Frappe's own Select check runs.
+	status = checklist.normalise_status(doc.status)
+	doc.status = status
+	if status == checklist.STATUS_YES and not checklist.can_be_yes(doc.document, doc.form_data):
+		frappe.throw(
+			_("{0} has not been saved yet, so it cannot be marked YES. Open it, fill or tick what it "
+			  "hands over, and save -- then set it to YES.").format(index.get(doc.document)["title"])
+		)
 
 	if doc.is_new():
 		if not frappe.db.get_value("HOD System", doc.hod_system, "is_active"):

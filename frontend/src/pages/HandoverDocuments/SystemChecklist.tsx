@@ -7,6 +7,7 @@ import {
   BookOpenText,
   FileText,
   Loader2,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import * as React from "react";
@@ -22,9 +23,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -42,6 +48,8 @@ import {
   documentChip,
   orderRows,
   printedNumbers,
+  isSaved,
+  needsSaving,
   rowEditable,
 } from "./hodRules";
 import type {
@@ -55,33 +63,77 @@ import type {
 import type { BinderProgress, HodJob } from "./useHodBinder";
 
 const STATUS_STYLE: Record<HodStatus, string> = {
-  Pending: "bg-gray-100 text-gray-600",
-  "Form Filled": "bg-blue-50 text-blue-700",
-  Completed: "bg-green-50 text-green-700",
+  YES: "bg-green-600 text-white border-green-600",
+  NO: "bg-gray-100 text-gray-600 border-gray-300",
+  NA: "bg-amber-50 text-amber-700 border-amber-300",
+};
+const STATUSES: HodStatus[] = ["YES", "NO", "NA"];
+
+/** What "save it first" means for each kind of document -- the same three cases `checklist.is_saved`
+ *  covers on the server. */
+const YES_HINT: Record<string, string> = {
+  form: "Fill the form and save it, then set it to YES.",
+  template:
+    "Open it, choose what it includes and save, then set it to YES.",
+  app: "Open the records, tick what goes into the handover and save, then set it to YES.",
 };
 
-const RemarksCell: React.FC<{
+/** The handover answer for one document: the current value with an edit icon, changed from a small
+ *  dropdown. YES is the one that costs something -- it puts the document in the binder -- so it is
+ *  refused until the document has been saved, and the refusal says what to do. */
+const StatusCell: React.FC<{
   row: HodRow;
+  meta: HodDocumentMeta;
   disabled: boolean;
-  onSave: (v: string) => Promise<void>;
-}> = ({ row, disabled, onSave }) => {
-  const [value, setValue] = React.useState(row.remarks || "");
-  React.useEffect(() => setValue(row.remarks || ""), [row.remarks]);
+  onPick: (status: HodStatus) => void;
+}> = ({ row, meta, disabled, onPick }) => {
+  const current = row.status || "NO";
   return (
-    <Input
-      className="h-8 text-sm"
-      placeholder={disabled ? "" : "Remarks"}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        if (value !== (row.remarks || ""))
-          onSave(value).catch(() => setValue(row.remarks || ""));
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-      }}
-    />
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <button
+          type="button"
+          disabled={disabled}
+          title={disabled ? undefined : "Change the checklist status"}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition",
+            STATUS_STYLE[current],
+            !disabled && "hover:opacity-90",
+            disabled && "cursor-not-allowed opacity-60",
+          )}
+        >
+          {current}
+          {!disabled && <Pencil className="h-3 w-3 opacity-70" />}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="min-w-[10rem]">
+        {STATUSES.map((s) => (
+          <DropdownMenuItem
+            key={s}
+            onClick={() => onPick(s)}
+            className="gap-2 text-xs"
+          >
+            <span
+              className={cn(
+                "inline-block w-9 rounded-full border px-1 text-center text-[10px] font-semibold",
+                STATUS_STYLE[s],
+              )}
+            >
+              {s}
+            </span>
+            <span className="text-gray-600">
+              {s === "YES"
+                ? !needsSaving(meta) || isSaved(row)
+                  ? "Handed over"
+                  : `Save ${meta.title} first`
+                : s === "NO"
+                  ? "Not handed over"
+                  : "Not applicable"}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
 
@@ -129,6 +181,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   );
   const [savingRow, setSavingRow] = React.useState<string | null>(null);
   const [openRow, setOpenRow] = React.useState<string | null>(null);
+  // The document someone tried to mark YES before saving it.
+  const [yesBlocked, setYesBlocked] = React.useState<{
+    row: HodRow;
+    meta: HodDocumentMeta;
+  } | null>(null);
+  // ... and the row whose YES is still owed: they went on to open it, so the moment that save lands
+  // the answer they asked for is applied with it, in the SAME write (owner 2026-09-24).
+  const [pendingYes, setPendingYes] = React.useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
   const { busyKey, download } = usePdfDownload();
@@ -162,19 +222,19 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     [updateRow],
   );
 
-  /** A From Nirmaan document ticked off by hand (owner 2026-09-24). The flag lives in `form_data`, so
-   *  the status stays derived -- nothing on this screen writes `status`. */
-  const setCompleted = async (row: HodRow, completed: boolean) => {
-    const form_data = { ...(row.form_data || {}) };
-    if (completed) form_data.completed = true;
-    else delete form_data.completed;
-    await patch(row, { form_data });
-    if (completed)
-      toast({
-        title: "Completed",
-        description: "It is ticked on the checklist and goes into the binder.",
-        variant: "success",
-      });
+  const saveSelected = async (row: HodRow, selected: string[]) => {
+    const form_data = { ...(row.form_data || {}), selected };
+    const patchBody = withPendingYes(row, form_data);
+    await patch(row, patchBody);
+    setOpenRow(null); // the review is done -- close it, like Download selected does
+    toast({
+      title: patchBody.status === "YES" ? "Saved and marked YES" : "Selection saved",
+      description:
+        patchBody.status === "YES"
+          ? `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover binder.`
+          : `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover. You can answer YES now.`,
+      variant: "success",
+    });
   };
 
   const downloadRow = (row: HodRow, meta: HodDocumentMeta) => {
@@ -200,18 +260,33 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     );
   };
 
-  /** Keep the ticked records on the row without downloading anything. Saving is the REVIEW a From
-   *  Nirmaan document is marked completed on (owner 2026-09-24), so it must not cost a PDF. */
-  const saveSelected = async (row: HodRow, selected: string[]) => {
-    await patch(row, {
-      form_data: { ...(row.form_data || {}), selected },
-    });
-    setOpenRow(null); // the review is done -- close it, like Download selected does
-    toast({
-      title: "Selection saved",
-      description: `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover. You can mark the document completed now.`,
-      variant: "success",
-    });
+  /** The patch a save should carry: the form data, plus the YES that was waiting on it. The status
+   *  rides the SAME write, so the server guard judges YES against the form data being saved -- never
+   *  against what was on the row a moment ago. */
+  const withPendingYes = (
+    row: HodRow,
+    form_data: Record<string, unknown>,
+  ): HodRowPatch => {
+    const owed = pendingYes === row.name;
+    if (owed) setPendingYes(null);
+    return owed && isSaved({ form_data })
+      ? { form_data, status: "YES" }
+      : { form_data };
+  };
+
+  /** The handover answer. NO and NA go straight through; YES is refused until the document has been
+   *  saved -- the server refuses it too (`checklist.can_be_yes`), this is the message that explains it. */
+  const pickStatus = async (
+    row: HodRow,
+    meta: HodDocumentMeta,
+    status: HodStatus,
+  ) => {
+    if (row.status === status) return;
+    if (status === "YES" && needsSaving(meta) && !isSaved(row)) {
+      setYesBlocked({ row, meta });
+      return;
+    }
+    await patch(row, { status }).catch(() => undefined);
   };
 
   /** Keep the ticked reports on the row (so the binder takes the same ones), then build the download. */
@@ -330,9 +405,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-600">
               <th className="w-14 px-2 py-2 text-center">S.No</th>
               <th className="px-2 py-2">Document</th>
-              <th className="w-16 px-2 py-2 text-center">Use</th>
-              <th className="w-28 px-2 py-2 text-center">Status</th>
-              <th className="w-60 px-2 py-2">Remarks</th>
+              <th className="w-24 px-2 py-2 text-center">Enable / Disable</th>
+              <th className="w-40 px-2 py-2 text-center">Checklist Status</th>
               <th className="w-64 px-2 py-2 text-center">Actions</th>
             </tr>
           </thead>
@@ -398,22 +472,13 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                     {off ? (
                       <span className="text-[11px] text-gray-400">—</span>
                     ) : (
-                      <span
-                        className={cn(
-                          "inline-block rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          STATUS_STYLE[row.status],
-                        )}
-                      >
-                        {row.status}
-                      </span>
+                      <StatusCell
+                        row={row}
+                        meta={meta}
+                        disabled={!editable || savingRow === row.name}
+                        onPick={(status) => pickStatus(row, meta, status)}
+                      />
                     )}
-                  </td>
-                  <td className="px-2 py-2">
-                    <RemarksCell
-                      row={row}
-                      disabled={!editable || savingRow === row.name}
-                      onSave={(v) => patch(row, { remarks: v })}
-                    />
                   </td>
                   <td className="px-2 py-2">
                     <HodActionCell
@@ -426,9 +491,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                       }
                       onOpen={() => setOpenRow(row.name)}
                       onDownload={() => downloadRow(row, meta)}
-                      onSetCompleted={(completed) =>
-                        setCompleted(row, completed).catch(() => undefined)
-                      }
                     />
                   </td>
                 </tr>
@@ -441,7 +503,12 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
       {openRowData && openMeta && openMeta.key === "material_tds" && (
         <MaterialTdsDialog
           open={!!openRow}
-          onOpenChange={(o) => !o && setOpenRow(null)}
+          onOpenChange={(o) => {
+            if (!o) {
+              setOpenRow(null);
+              setPendingYes(null);
+            }
+          }}
           projectId={project.name}
           projectName={project.project_name}
           hodSystem={system.name}
@@ -459,7 +526,12 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
       {openRowData && openMeta && openMeta.key !== "material_tds" && (
         <DocumentDialog
           open={!!openRow}
-          onOpenChange={(o) => !o && setOpenRow(null)}
+          onOpenChange={(o) => {
+            if (!o) {
+              setOpenRow(null);
+              setPendingYes(null);
+            }
+          }}
           projectId={project.name}
           customerName={project.customer_name}
           hodSystem={system.name}
@@ -470,7 +542,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           // Marking a document completed is a tick, not a signature: the form stays editable.
           readOnly={!rowEditable(openRowData, canEdit)}
           onSave={async (formData) => {
-            await updateRow(openRowData.name, { form_data: formData });
+            const patchBody = withPendingYes(openRowData, formData);
+            await updateRow(openRowData.name, patchBody);
+            if (patchBody.status === "YES")
+              toast({
+                title: "Saved and marked YES",
+                description: `${openMeta.title} goes into the handover binder.`,
+                variant: "success",
+              });
           }}
           onDownloadSelected={(selected) =>
             downloadSelected(openRowData, openMeta, selected)
@@ -479,6 +558,42 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
         />
       )}
 
+
+      <AlertDialog
+        open={!!yesBlocked}
+        onOpenChange={(o) => !o && setYesBlocked(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Save it first
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>
+                  <b>{yesBlocked?.meta.title}</b> has not been saved yet, so it
+                  cannot be marked YES.
+                </p>
+                <p>{yesBlocked ? YES_HINT[yesBlocked.meta.kind] : ""}</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const name = yesBlocked?.row.name ?? null;
+                setYesBlocked(null);
+                setPendingYes(name); // applied the moment that save lands
+                setOpenRow(name);
+              }}
+            >
+              Open it now
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={confirmRemove}

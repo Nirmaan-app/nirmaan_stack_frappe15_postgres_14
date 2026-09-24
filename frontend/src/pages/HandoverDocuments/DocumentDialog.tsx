@@ -37,6 +37,7 @@ import { useSystemLibrary } from "./hodApi";
 import {
   asObjectList,
   asString,
+  asStringList,
   compactMaintenanceChecks,
   compactRows,
   compactTextMap,
@@ -60,9 +61,15 @@ const LIST_LABELS: Record<string, [string, string]> = {
 function finalize(
   key: string,
   draft: Record<string, unknown>,
-  ctx: { warrantyDate: string },
+  ctx: { warrantyDate: string; included?: string[] },
 ): Record<string, unknown> {
   const out = { ...draft };
+  // A library document shows its parts already ticked, from the library's own default -- so someone who
+  // agrees with it changes NOTHING and the draft never gains an `included` key. Saving then stored an
+  // empty form, which reads as "not saved" and blocks the YES answer; on a single-block manual there are
+  // no ticks at all, so it could never be saved. Writing the EFFECTIVE list records the decision that
+  // was on screen. The binder is unaffected -- `included_library` already falls back to the same default.
+  if (ctx.included && !Array.isArray(out.included)) out.included = ctx.included;
   if (key === "attic_stock_list" || key === "key_list")
     out.rows = compactRows(asObjectList(out.rows));
   if (key === "inventory_list") {
@@ -151,13 +158,24 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
       ?.commissioning_date,
   );
 
+  // What the library screen is SHOWING as included: the row's own picks, else the library's default,
+  // else the single block this document has. Undefined for anything that is not a library document.
+  const libraryKey = meta.library ?? "";
+  const libraryBlocks = library?.contents[libraryKey] ?? [];
+  const effectiveIncluded = needsLibrary && libraryBlocks.length
+    ? (asStringList(draft.included) ??
+      (libraryBlocks.length > 1
+        ? (library?.default_included[libraryKey] ?? [])
+        : [libraryBlocks[0].sub_system || "all"]))
+    : undefined;
+
   const isFromApp = meta.kind === "app";
   const editable = !readOnly && !isFromApp;
 
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(finalize(meta.key, draft, { warrantyDate }));
+      await onSave(finalize(meta.key, draft, { warrantyDate, included: effectiveIncluded }));
       onOpenChange(false);
     } catch (error: any) {
       toast({

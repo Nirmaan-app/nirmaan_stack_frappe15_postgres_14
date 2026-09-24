@@ -144,25 +144,28 @@ export const HodGuideDialog: React.FC<{
           </div>
         </Section>
 
-        <Section icon={CheckCircle2} title="3. The status follows what you did">
-          <p>Nobody picks it by hand:</p>
+        <Section icon={CheckCircle2} title="3. You answer each document">
+          <p>The Checklist Status column is the handover answer:</p>
           <ul className="ml-4 list-disc space-y-1">
             <li>
-              <Pill className="bg-gray-100 text-gray-600">Pending</Pill> nothing
-              done yet
+              <Pill className="bg-green-600 text-white">YES</Pill> handed over
+              — it prints YES on the checklist and the document goes into the
+              binder
             </li>
             <li>
-              <Pill className="bg-blue-50 text-blue-700">Form Filled</Pill> a
-              form was filled and saved
+              <Pill className="bg-gray-100 text-gray-600">NO</Pill> not handed
+              over (where every document starts)
             </li>
             <li>
-              <Pill className="bg-green-50 text-green-700">Completed</Pill> the
-              signed copy is uploaded
+              <Pill className="bg-amber-50 text-amber-700">NA</Pill> not
+              applicable to this project
             </li>
           </ul>
           <p>
-            Only <i>Completed</i> prints YES on the checklist. Documents with
-            nothing to fill go straight from Pending to Completed.
+            <b>YES waits until the document is saved</b> — fill the form, or
+            tick and save the records it hands over. NO and NA can be set at any
+            time. A switched-off document is not on the checklist at all, which
+            is different from NA.
           </p>
         </Section>
 

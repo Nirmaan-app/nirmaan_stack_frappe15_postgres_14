@@ -23,8 +23,9 @@ from nirmaan_stack.services.hod import blanks, checklist, index, sources
 
 DOCTYPE = "Project HOD Document"
 ROW_FIELDS = ["name", "hod_system", "document", "status", "disabled", "remarks", "form_data", "modified", "creation"]
-# `status` is not editable: it is derived from the hand mark / the saved form (checklist.derive_status).
-EDITABLE_FIELDS = ("disabled", "remarks", "form_data")
+# `status` IS editable since 2026-09-24 -- it is the handover answer (YES / NO / NA) the user picks.
+# The controller guards it: YES is refused on a document that has not been saved.
+EDITABLE_FIELDS = ("status", "disabled", "remarks", "form_data")
 EV_CHANGED = "hod:rows_changed"
 
 
@@ -63,8 +64,7 @@ def _rows(project: str) -> list:
 	for r in rows:
 		r.form_data = as_dict(r.form_data)
 		r.disabled = int(r.disabled or 0)
-		# Derived on read as well, so rows saved before the rule existed show the right status too.
-		r.status = checklist.derive_status(r.document, r.form_data)
+		r.status = checklist.normalise_status(r.status)
 	return rows
 
 
