@@ -41600,3 +41600,179 @@ A-5 wording. Algorithm: `sha256(json.dumps(asset["items"], sort_keys=True))`.
   `reason=None`** -- pre-existing, unrelated to this slice, but it is why that sheet could not be certed.
 * **The residence check fails on f5 (119 vs 116) and f2 (232 vs 207) at HEAD ALREADY** -- slice 9's delta is
   **+0 / +0**, measured by counting both metrics over git's own HEAD blobs.
+
+---
+
+## HVAC PRICING, SLICE 10 -- THE ADP EXTRACTION AUDIT, ALL 1,151 ROWS (2026-09-25) -- EVIDENCE ONLY
+
+**No repo code, config, asset or prompt changed. Nothing written to any sheet, run record, category row or
+pricing cell.** Every gap is a FINDING for the owner. Full report, every row and every payload:
+
+* `2026-09-25_ADP_Audit.md` -- A-G with counts, the ranked gap list, the method and its limits, the cost
+* `2026-09-25_ADP_Audit_Rows.xlsx` -- 1,151 rows, 10 sheets, filterable by classification / cause / family / BoQ
+* `2026-09-25_ADP_Audit_Payloads.jsonl` -- 1,153 lines: the spec header, then every row's payload as sent
+  (own text + its note block + every ancestor tier with its labelled notes), the RAW REPLY, the parsed items
+  and this row's slice of the parse's `drops` map
+
+### THE RUN
+
+`claude-opus-4-8`, `prompt_sha` **`3d7066bde10d096c`** and `items_spec` `sha256` **`c83f06667165...`** -- both
+**byte-identical to slice 9's run 3** (checked, not assumed). One sheet at a time, `_BATCH` 20, 98 batches.
+**1,151 of 1,151 rows returned; 0 transient errors, 0 retries, 0 rows with no result.** Second opinion OFF, 0
+review calls. **918,070 input / 221,637 output tokens, 98 calls, 1,987 s, $10.13** -- the free `count_tokens`
+forecast was 918,070 input, exact to the token.
+
+**THE SET (1,157 -> 1,151).** Slice 7's capture holds **1,150** distinct addresses; **1,152** ADP rows carry a
+hand-typed rate today (61 BoQs / 70 sheets); the union is **1,157**, of which **6** are absent from the
+population a real run assembles (the six `BOQ-26-00156 / LOWSIDE OFFICE WORKS` rows the review pack's §10 names).
+The wider ADP-classified population is **3,642** addresses and is deliberately out of scope.
+
+### ⚠️ THE HEADLINE -- THE SHIPPED PROMPT OMITS TWICE AS OFTEN AT PRODUCTION BATCH SIZES
+
+| the same 1,150 rows | items | slots | VALUE | `"None"` | left out | **left out %** |
+|---|---:|---:|---:|---:|---:|---:|
+| slice 7 -- the old prompt | 1,208 | 7,248 | 941 | 5,131 | 1,176 | **16.23%** |
+| **slice 10 -- the shipped prompt** | 1,228 | 7,368 | 951 | 4,209 | **2,208** | **29.97%** |
+
+`"None"` means NOT MENTIONED (the ruled default fires, the row prices); a left-out slot means COULD NOT TELL
+(the row refuses). **The extraction is not reading less -- `VALUE` answers are unchanged (941 -> 951) -- it is
+answering the WRONG ONE of the two silent states.** Per attribute: damper 22.4% -> **41.7%**, insulated
+33.9% -> **61.0%**, variant 35.1% -> **59.2%**, air 0.2% -> 4.8%, qty 5.8% -> 13.1%, **`ul` 0.0% -> 0.0%**.
+Churn is 4.7 : 1 against (1,308 slots lost, 276 gained; 608 rows lost an answer, 182 gained one).
+
+**⚠️ SLICE 9's "1.3 POINTS" WAS MEASURED IN THE ONE BATCH REGIME WHERE THE GAP VANISHES.** Its run 3 used 140
+rows in batches averaging **2.7 rows per call**; production uses up to **20**. Re-reading slice 9's OWN 140 rows
+inside a production-shaped run gives **29.5%** where run 3 gave 16.23%. Slice 7 and slice 10 used near-identical
+batch shapes, and bucketing by batch size shows slice 10 at roughly twice slice 7 in EVERY bucket (3-5 rows:
+13.2% -> 26.2%; 11-15: 12.2% -> 28.9%; 16-20: 19.2% -> **33.3%**) -- **so batch size is not the explanation, and
+the 1-2 row bucket, where the two are equal at 15.3%, is where slice 9 measured.** What it looks like is a
+**per-reply habit**: position inside a reply matters only mildly (quintile 1->5: 25.3% -> 32.8%), but of 86
+batches with >=24 slots **13 omitted nothing at all and 9 omitted more than half** (median 31.1%, range
+0-66.7%); five BoQs sit at 0% and five between 56% and 61%.
+
+⚠️ **NOT SETTLED BY THIS EVIDENCE: wording vs occasion.** There has never been a production-shaped read of the
+shipped prompt before this one, so the wording and this single occasion cannot be separated. A second read
+(~$10) would settle it. **The remedy below does not depend on the answer.**
+
+### ⚠️ THE FIX IS A CONFIG KEY THAT ALREADY EXISTS AND IS ALREADY IN USE -- AND IT NEEDS AN OWNER RULING
+
+`ul` is the ONLY `allow_none` attribute at **0% omission on both reads**, because
+`list_spec.pricing.defaults.ul.absent_as_none: true` (owner ruling S6) makes code read an absent answer as
+`"None"`. Replaying this run with the same flag on `damper` / `insulated` / `variant` takes the corpus
+**824 -> 904 priced, 0 rows lost** -- the exact 80 rows, with the supply and install they would price at, are in
+the workbook's `Counterfactual_absent_as_None` sheet. Root `CLAUDE.md` records that *"damper and insulation keep
+absent = blank; do not widen the key to them without a ruling"* -- **this is that ruling request, with the number
+attached.** No AI change, no prompt change, no re-read.
+
+### §A -- DID IT CAPTURE WHAT THE ROW SAYS?
+
+| | mechanical | **after the hand read (236 distinct rows, 20.5%)** |
+|---|---:|---:|
+| CORRECT | 996 | **1,088** |
+| MISSED | 34 | **14** |
+| INVENTED | 61 | **0** |
+| WRONG READING | 13 | **2** |
+| AMBIGUOUS -- a relevant fact sits only in a heading | 27 | **27** |
+| AMBIGUOUS -- nothing priceable on the row | 20 | **17** |
+| not ADP at all (a classification problem) | -- | **3** |
+| NO RESULT | 0 | **0** |
+
+⚠️ **SLICE 9's "15 INVENTED PLENUM BOXES" ARE NOT INVENTED -- A PREMISE CORRECTION.** Its 15 and its 12 both
+reproduce exactly, and the split turns out to be WHERE IN THE PARENT THE TEXT SITS: on the 12 the spec sentence
+is the ancestor's `description`; on the 15 the identical sentence arrives as an **`attached` note on the same
+immediate parent**, whose description is only the short heading (*"Supply Air Diffusers for Modular / Gypsum"*).
+**All 27 are legitimate composites** -- the parent explicitly says the diffuser comes *"& insulated plenum box"* /
+*"along with G.I Plenum (24G)"* / *"shall be provided with 24G GI sheet pre-fabricated plenum box"* -- and all 27
+still return both items. **There is no invented-box class on this corpus, and slice 9's uncertified D2 step would
+have shown no change because there was nothing wrong with those rows.**
+
+My own detectors were the noisy part and the report says so: 61 invention candidates and 13 wrong-reading
+candidates, **none** of which survived the hand read (the family-vocabulary detector missed `Spicot Damper`,
+`VCDs`, `exhaust air valves`, `Z / L section`; the wrong-reading regex broke on the corpus's label-AFTER-number
+form, `"300x300 (Neck size) overall size 596x596"`). Reported as detector precision, not prevalence.
+
+⚠️ **SLICE 6d's "0 FALSE COUNTS IN 42 CHANCES" DOES NOT HOLD ON A FRESH READ.** `BOQ-26-00231 / HVAC BOQ` r227
+and r228 (*"For 6 no. fire dampers"*, *"For 4 no. fire dampers"*) came back with `qty_per_row_unit` = **6** and
+**4** -- a control panel's CAPACITY read as a per-item count, on two of the exact trap rows `CLAUDE.md` names.
+**2 of the 51 capacity-phrase rows.** Both refuse for another reason, so no wrong price resulted; the mechanism
+is live.
+
+**The 70-slot seeded hand sample (seed 20260925): 70 of 70 are rows that genuinely do not state the attribute**,
+so the correct answer was `"None"`. Zero cases where the row states the fact and the model failed to answer.
+Corpus-wide the same: of 2,208 omitted slots only **12** sit on a row whose own text states the fact.
+
+### §D -- THE SLICE 8/9 FIXES, EACH MEASURED ON THE FULL SET
+
+| fix | measured | verdict |
+|---|---|---|
+| A-1 one size field | 317 rows state a size; **296 (93.4%)** returned one; **85 distinct spelling shapes** carried | **worked** -- the 21 candidates reduce to **3** real; the rest are frame sections (`100 x 40 x 1.55 mm`), grille core patterns (`16x16`) and lengths that are not face sizes |
+| A-2 stated diameters | 318 rows state one; **306 (96.2%)** returned; **0** round-item necks left in `neck_mm` | **worked** -- 1 real miss (`BOQ-26-00134` r47, *"Dia 600 x 600 mm Outer Size"*) |
+| A-3 no heading bleed | the 15: **all still return a box** (correctly); the 12: **all keep both items** | **partly** -- the negative half holds and neighbouring headings ARE ignored (`BOQ-26-00215` r103 took the row over a *"Non-return dampers"* heading); the positive half had no true target |
+| A-4 outer size as a 2nd key | **72** rows matched on the outer size | **worked** |
+| A-5 the `600x600` wording | **83** items priced on a `(600X600)` SKU, across all six diffuser SKUs | **worked** |
+| M-b UL wins | 57 rows state UL; the override fired on **33** | **worked** |
+| M-c flexible-duct length | **15** rows used a standard-length conversion | **worked** |
+| S per-item count | **2** items carried a count, and both are a capacity | **did not work as intended** |
+
+### §E -- THE RANKED GAP LIST (what the owner rules on)
+
+| # | cause | rows | what it takes |
+|---|---|---:|---|
+| 1 | a silent attribute comes back LEFT OUT instead of `"None"` | **80 priced** (0 lost) | **config only** -- `absent_as_none` on damper / insulated / variant; **needs an owner ruling** |
+| 2 | the row states a size as an ALTERNATIVE (`375x 375 x 350/400 mm High`, `10/12 Module`) | **30** | a ruling on which of a slash pair to take + a splitter rule; **the extraction is already right** |
+| 3 | a per-number / per-metre row with no W x H to convert | **59** (22 in the row's own text, 37 nowhere) | 22 are an extraction item; the 37 need a ruling on a slot diffuser's plenum area |
+| 4 | unit strings the config does not know: `Mtrs` 8, `SMT` 6, `Sq. Mtr` 2, `Sqft` 2, `Rmts` 1 | **19** | **one line of config each** in `unit_classes`; `Lot` / `R/O` / `Cum` should keep refusing |
+| 5 | no torque stated on an actuator row -- **0 of 28 state one in the row OR any ancestor** | 28 | a ruling (torque from the damper area, or leave it) -- **not an extraction gap** |
+| 6 | no panel ratio stated -- 2 of 30 DO state it and were read as a count instead | 30 (2 now) | teach the ratio reader the `For N no. dampers` form; a ruling for the other 28 |
+| 7 | a relevant fact sits only in a heading | 27 | a ruling on how far A-3 reaches |
+| 8 | a diameter above the largest stocked rung | 11 | catalogue |
+| 9 | rows that are not ADP (`BOQ-26-00210` r73-75, bare sizes under a *"Return Air Duct"* heading) | 3 | a **classification** fix |
+| 10 | the `600x600 size diffusers` rows -- the size the A-4 fix was built for was never extracted | 4 | a prompt / def-note item |
+
+**Items 1, 2 and 4 are 129 rows and need NO AI re-read at all.**
+
+### §F -- CATALOGUE GAPS
+
+`none of these` **23** (bird screens, cowl pieces, MS wire mesh, Z-type baffles); a diameter above the largest
+rung **11**; mixing box per METRE **6**; control panel per SQ.M **4**; slot diffuser `damper: without` **3+1**;
+cross-talk at a stated W x H **3**; access door per SQ.M **2**; plenum thickness above the top rung **2**; spigot
+per metre, actuator per sq.m, panel ratio above the top rung **1** each. **Nine of the eleven lines are a UNIT
+MISMATCH, not a missing product** -- the sheet stocks the item in one unit class and the BoQ bills it in another.
+
+### §G -- BY-PRODUCT ONLY (no verdict on price agreement)
+
+**824 priced (71.6%) / 327 refused**, replayed through the real pure `itemListPricing.priceItemList` (esbuild +
+node, in-container, no AI call, no DB write). With §E item 1: **904 / 249, 0 lost**. For context only: slice 9's
+estimate was 885, from a replay that mixed real and reconstructed answers and said so; the v11 baseline was 844.
+Top refusals: *could not tell whether it is with or without a damper* 49 (47 cleared by item 1), unit not a
+count/area/length 25, `none of these` 23, per-number no W x H 23, several values stated for width 22, item 2
+plenum no W/H/D 21, could not tell whether insulated 19 (all 19 cleared), no items read 17.
+
+### NOTHING CHANGED -- THE PROOF
+
+Full before/after snapshot, byte-identical: HVAC **95** items / **7** configs, batch `rmbulk-44111e52fb29`, DB
+items hash `f9989f8693ec0b29...`; Electrical **1,367 / 12**, batch `rmbulk-b2147c6e15b1`, hash
+`6b01bdd9c73a485e...`; `BoQ Rate Suggestion Run` **93 -> 93**; Event **1,533 -> 1,533**; `BoQ Cell Pricing`
+**37,702 -> 37,702** with rate hash `2ca7e372a36a873f...` unchanged; `BoQ Row Category` **68,786 -> 68,786**. The
+HVAC v12 asset's own items hash is `23a8e471...e13e5`, matching slice 9. **Algorithms:** asset =
+`sha256(json.dumps(asset["items"], sort_keys=True))`; DB items = `sha256` over the list ordered by
+`(item_uid, name)` of `{item_uid, kind, brand, unit, attributes, rates}` for active rows; cell pricing =
+`sha256` over `[[name, str(rate)] ...]` ordered by `name`. Each orders by a TOTAL key.
+`git status --porcelain` is character-identical before and after -- every script lived in the session scratchpad
+and in `/tmp/s10`, and the already-untracked `_slice8_replay.ts` was reused unmodified rather than adding a file.
+
+⚠️ **THE HISTORICAL ELECTRICAL CHECKSUM `77a70755...f0db` IS NOT REPRODUCIBLE AND ITS ALGORITHM IS RECORDED
+NOWHERE** -- not in the repo, not in this plan doc. Eight plausible variants were tried (active-only and
+all-rows, six field sets, ordered by `name` and by `item_uid`, `sort_keys` on and off, attributes parsed and
+raw); none matches. The plan doc associates it with **15,040** Electrical rows and the table now holds **15,043**
+(the doc itself notes "15,040 + 3 synthetic retained inactive"), so it may not be reproducible from today's data
+at all. A future slice that needs an Electrical invariant should use the stated algorithm above, or record the
+one that produced `77a70755`.
+
+### DISCLOSED
+
+`unit` / `qty` were filled POST-HOC from the committed `BOQ Nodes` tier because `build_sheet_context` -- the row
+feed the extraction runs on -- does not carry them; **the model never sees either field**, so the read is
+unaffected, but the pricing replay needs the unit. (`BOQ Nodes.sheet` is a LINK to the `BoQ Sheet` document, not
+the sheet label; the first join attempt filled 0 of 369 rows.) No browser cert and no test suite were run: no
+code changed, and the canonical block forbids a suite while the run is writing.
