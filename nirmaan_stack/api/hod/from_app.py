@@ -10,7 +10,9 @@
   16 As Built                                          -> Design Tracker tasks in the Handover phase
 
 A system reads the Commission tasks of its Work Package (Commission Report Category carries `work_package`),
-narrowed by `HOD System.source_keywords` where one package holds several systems. Design Tracker categories
+narrowed by `HOD System.source_keywords` where one package holds several systems. TDS items are narrowed by
+those keywords ONLY on such a shared package (`sources.tds_belongs`): a TDS category names the part, not the
+system, so "IP Cameras" would fail CCTV's own keyword. Design Tracker categories
 carry no Work Package on this site, so a category belongs to the system NAMED in it ("Electrical", "Fire
 Sprinkler" -> Sprinkler); the categories no system claims (ELV, BMS, Overall Project) are searched by keywords.
 The matching rules themselves live in `services/hod/sources.py`.
@@ -126,15 +128,26 @@ def commission_categories(project: str) -> list:
 	]
 
 
+def package_is_shared(work_package) -> bool:
+	"""Do several ACTIVE systems hand over the same Work Package? (Critical Room ELV = GSS, VESDA,
+	WLD & RRS -- the only one today.) A package with one system needs no narrowing at all."""
+	if not work_package:
+		return False
+	return frappe.db.count("HOD System", {"work_package": work_package, "is_active": 1}) > 1
+
+
 def tds_items(project: str, system) -> list:
-	"""The project's TDS items for the system's package (not narrowed by keywords: TDS items are filed by
-	package only)."""
-	return frappe.get_all(
+	"""The project's TDS items for the system's package, narrowed by keywords only where the package is
+	SHARED (see `sources.tds_belongs`): GSS, VESDA and WLD & RRS all sit in Critical Room ELV and would
+	otherwise each show the other two's data sheets."""
+	items = frappe.get_all(
 		"Project TDS Item List",
 		filters={"tdsi_project_id": project, "tds_work_package": system.work_package},
 		fields=["name", "tds_item_name", "tds_make", "tds_category", "tds_status", "tds_attachment"],
 		order_by="tds_category asc, tds_item_name asc",
 	)
+	shared = package_is_shared(system.work_package)
+	return [i for i in items if sources.tds_belongs(i.tds_category, i.tds_item_name, system.keywords, shared)]
 
 
 def snag_batches(project: str) -> list:

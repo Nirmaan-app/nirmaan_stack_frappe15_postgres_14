@@ -2,7 +2,6 @@
 // done), remarks, and the Commission-style Actions cell. Switched-off rows are greyed, blocked, and left out of
 // the printed checklist and the binder (S.No closes up).
 
-import { useFrappeFileUpload } from "frappe-react-sdk";
 import {
   AlertTriangle,
   BookOpenText,
@@ -30,8 +29,9 @@ import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { DocumentDialog } from "./DocumentDialog";
+import { MaterialTdsDialog } from "./MaterialTdsDialog";
 import { HodActionCell } from "./HodActionCell";
-import { HOD_DOCTYPE, SHOW_BINDER_BUTTON, type HodRowPatch } from "./hodApi";
+import { SHOW_BINDER_BUTTON, type HodRowPatch } from "./hodApi";
 import {
   hodChecklistPdfUrl,
   hodDocumentPdfUrl,
@@ -132,13 +132,12 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   const [confirmRemove, setConfirmRemove] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
   const { busyKey, download } = usePdfDownload();
-  const { upload } = useFrappeFileUpload();
 
   const building = job !== null;
   const buildingBinderHere = job?.hodSystem === system.name && !job.document;
   const binderTitle = `${system.display_name} — ${project.project_name}`;
   // Owner 2026-09-23: the binder is the client's finished set, so it downloads only once every
-  // switched-on document is Completed (its signed copy uploaded). Until then the button says how many
+  // switched-on document is Completed. Until then the button says how many
   // are left. A document the project does not need is switched off and stops counting.
   const remaining = counts ? counts.needed - counts.completed : 0;
   const binderReady = !!counts && counts.needed > 0 && remaining === 0;
@@ -163,30 +162,19 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     [updateRow],
   );
 
-  const uploadSigned = async (row: HodRow, file: File) => {
-    setSavingRow(row.name);
-    try {
-      const uploaded = await upload(file, {
-        doctype: HOD_DOCTYPE,
-        docname: row.name,
-        fieldname: "attachment",
-        isPrivate: true,
-      });
-      await updateRow(row.name, { attachment: uploaded.file_url });
+  /** A From Nirmaan document ticked off by hand (owner 2026-09-24). The flag lives in `form_data`, so
+   *  the status stays derived -- nothing on this screen writes `status`. */
+  const setCompleted = async (row: HodRow, completed: boolean) => {
+    const form_data = { ...(row.form_data || {}) };
+    if (completed) form_data.completed = true;
+    else delete form_data.completed;
+    await patch(row, { form_data });
+    if (completed)
       toast({
         title: "Completed",
-        description: "Signed copy uploaded — it goes into the binder.",
+        description: "It is ticked on the checklist and goes into the binder.",
         variant: "success",
       });
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: getFrappeError(error),
-        variant: "destructive",
-      });
-    } finally {
-      setSavingRow(null);
-    }
   };
 
   const downloadRow = (row: HodRow, meta: HodDocumentMeta) => {
@@ -194,7 +182,10 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
       const mine =
         job?.hodSystem === system.name && job.document === row.document;
       if (mine) return; // already being prepared for this row; the button shows it
-      // Pick which reports / sheets / snag batches / drawings first (owner 2026-09-22), in the records window.
+      // A saved selection IS the answer to "which records?" (owner 2026-09-24), so the download starts
+      // straight away and the picker is not asked again. Without one, pick first (owner 2026-09-22).
+      if (Array.isArray(row.form_data?.selected))
+        return onBuild(row.document, meta.title);
       return setOpenRow(row.name);
     }
     download(
@@ -207,6 +198,20 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
         meta.title,
       ),
     );
+  };
+
+  /** Keep the ticked records on the row without downloading anything. Saving is the REVIEW a From
+   *  Nirmaan document is marked completed on (owner 2026-09-24), so it must not cost a PDF. */
+  const saveSelected = async (row: HodRow, selected: string[]) => {
+    await patch(row, {
+      form_data: { ...(row.form_data || {}), selected },
+    });
+    setOpenRow(null); // the review is done -- close it, like Download selected does
+    toast({
+      title: "Selection saved",
+      description: `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover. You can mark the document completed now.`,
+      variant: "success",
+    });
   };
 
   /** Keep the ticked reports on the row (so the binder takes the same ones), then build the download. */
@@ -421,9 +426,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                       }
                       onOpen={() => setOpenRow(row.name)}
                       onDownload={() => downloadRow(row, meta)}
-                      onUpload={(file) => uploadSigned(row, file)}
-                      onRemoveUpload={() =>
-                        patch(row, { attachment: "" }).catch(() => undefined)
+                      onSetCompleted={(completed) =>
+                        setCompleted(row, completed).catch(() => undefined)
                       }
                     />
                   </td>
@@ -434,7 +438,25 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
         </table>
       </div>
 
-      {openRowData && openMeta && (
+      {openRowData && openMeta && openMeta.key === "material_tds" && (
+        <MaterialTdsDialog
+          open={!!openRow}
+          onOpenChange={(o) => !o && setOpenRow(null)}
+          projectId={project.name}
+          projectName={project.project_name}
+          hodSystem={system.name}
+          displayName={system.display_name}
+          row={openRowData}
+          canEdit={rowEditable(openRowData, canEdit)}
+          onSaveSelected={async (selected) => {
+            await updateRow(openRowData.name, {
+              form_data: { ...(openRowData.form_data || {}), selected },
+            });
+          }}
+        />
+      )}
+
+      {openRowData && openMeta && openMeta.key !== "material_tds" && (
         <DocumentDialog
           open={!!openRow}
           onOpenChange={(o) => !o && setOpenRow(null)}
@@ -445,16 +467,15 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           row={openRowData}
           meta={openMeta}
           siblings={ordered}
-          readOnly={
-            !rowEditable(openRowData, canEdit) ||
-            (openMeta.kind !== "app" && openRowData.status === "Completed")
-          }
+          // Marking a document completed is a tick, not a signature: the form stays editable.
+          readOnly={!rowEditable(openRowData, canEdit)}
           onSave={async (formData) => {
             await updateRow(openRowData.name, { form_data: formData });
           }}
           onDownloadSelected={(selected) =>
             downloadSelected(openRowData, openMeta, selected)
           }
+          onSaveSelected={(selected) => saveSelected(openRowData, selected)}
         />
       )}
 
@@ -479,7 +500,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                       {touched} document{touched !== 1 ? "s" : ""} already{" "}
                       {touched !== 1 ? "have" : "has"} entries
                     </span>{" "}
-                    — filled forms, remarks, uploaded signed copies or switched
+                    — filled forms, remarks or switched
                     documents. Removing the system deletes all of it, and it
                     cannot be undone.
                   </p>

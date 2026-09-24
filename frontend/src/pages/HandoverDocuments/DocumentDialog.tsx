@@ -111,6 +111,7 @@ export interface DocumentDialogProps {
   onSave: (formData: Record<string, unknown>) => Promise<void>;
   /** From Nirmaan documents: keep the ticked reports and download them. */
   onDownloadSelected: (selected: string[]) => Promise<void>;
+  onSaveSelected: (selected: string[]) => Promise<void>;
 }
 
 export const DocumentDialog: React.FC<DocumentDialogProps> = ({
@@ -126,6 +127,7 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
   readOnly,
   onSave,
   onDownloadSelected,
+  onSaveSelected,
 }) => {
   const [draft, setDraft] = React.useState<Record<string, unknown>>(
     row.form_data || {},
@@ -180,6 +182,7 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
         row={row}
         canEdit={!readOnly}
         onDownloadSelected={onDownloadSelected}
+        onSaveSelected={onSaveSelected}
       />
     );
   } else if (needsLibrary && (libraryLoading || !library)) {

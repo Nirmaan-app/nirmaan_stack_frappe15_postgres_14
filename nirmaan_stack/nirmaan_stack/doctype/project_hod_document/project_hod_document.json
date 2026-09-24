@@ -13,7 +13,6 @@
   "disabled",
   "section_details",
   "remarks",
-  "attachment",
   "form_data"
  ],
  "fields": [
@@ -79,12 +78,6 @@
    "label": "Remarks"
   },
   {
-   "description": "An uploaded file, e.g. the signed copy. In the binder it replaces the generated page.",
-   "fieldname": "attachment",
-   "fieldtype": "Attach",
-   "label": "Attachment"
-  },
-  {
    "description": "What this document's form collects (contacts, rows, picks, blank values).",
    "fieldname": "form_data",
    "fieldtype": "JSON",
@@ -93,7 +86,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-22 18:00:00.000000",
+ "modified": "2026-09-24 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project HOD Document",

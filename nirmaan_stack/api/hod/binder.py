@@ -7,12 +7,14 @@
               a divider page (S.No + title) followed by that document's content
     content = one document's content alone (the row's download button for the six from-app documents)
 
-A document's CONTENT (`_content_steps`), owner rulings 2026-09-22:
-    an uploaded signed copy                      -> that file, and nothing else
+A document's CONTENT (`_content_steps`), owner rulings 2026-09-22 (the signed-upload case was retired
+with the upload itself, 2026-09-24):
     a form / template                            -> its "HOD Document" print
     Demo & Training / Commissioning / Factory    -> each Commission task's signed copy, else its filled report
                                                     (Commission print format), else its uploaded file
-    Material TDS                                 -> each attached data sheet
+    Material TDS                                 -> the project's OWN TDS report over the ticked items
+                                                    (`api/hod/tds_pack.py` -> `build_tds_report_pdf`),
+                                                    the same document the export dialog downloads
     Snag List                                    -> the Snag List print of each ticked snag batch
     As Built                                     -> each ticked drawing, downloaded from its Google Drive link
                                                     (or its stored file)
@@ -73,7 +75,7 @@ PREFETCH_WORKERS = 6
 # Why a switched-on document has nothing to put in a PDF (shown to the user).
 EMPTY_REASON = {
 	index.SRC_COMMISSION: "no completed report in the Commission Report yet",
-	index.SRC_TDS: "no data sheet attached in the TDS list yet",
+	index.SRC_TDS: "no TDS item for this system in the project's TDS list yet",
 	"none_selected": "no report ticked for download",
 	index.SRC_SNAG: "no completed snag on this project yet",
 	index.SRC_DESIGN: "no issued As Built drawing with a downloadable file in the Design Tracker yet",
@@ -122,13 +124,16 @@ def _file_step(label, url):
 	return {"label": label, "kind": "file", "args": (url,)}
 
 
+def _tds_step(label, project, hod_system, form_data):
+	"""4 Material Data Sheet: the project's OWN TDS report (cover + table + the data sheets merged in),
+	built by the same renderer the export dialog uses -- see `api/hod/tds_pack.py`."""
+	return {"label": label, "kind": "tds", "args": (project, hod_system, form_data)}
+
+
 def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, str | None]:
 	"""The steps that make one switched-on document's content, and why it is empty when there are none."""
 	entry = index.get(row.document)
 	title = entry["title"]
-	if row.attachment:
-		return [_file_step(f"{title} (signed copy)", row.attachment)], None
-
 	if entry["kind"] != index.FROM_APP:
 		key = entry["key"]
 		if entry.get("library"):
@@ -158,9 +163,10 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 			elif pick == sources.COMMISSION_FILE:
 				steps.append(_file_step(label, t.file_link))
 	elif src_kind == index.SRC_TDS:
-		for t in src.get("items") or []:
-			if t.tds_attachment and chosen(t.name):
-				steps.append(_file_step(f"{title}: {t.tds_item_name}", t.tds_attachment))
+		# ONE step, not one per sheet: the TDS report is a document in its own right and carries its own
+		# cover and table, so it also skips the HOD "(list)" page below.
+		if any(chosen(t.name) for t in src.get("items") or []):
+			steps.append(_tds_step(title, project, hod_system, row.form_data))
 	elif src_kind == index.SRC_SNAG:
 		if frappe.db.exists("Print Format", PF_SNAG):
 			for b in src.get("items") or []:
@@ -181,10 +187,10 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 				steps.append(_file_step(f"{title}: {t.task_name}", t.download_url))
 	if not steps and isinstance(selected, list) and src.get("items"):
 		return steps, EMPTY_REASON["none_selected"]
-	if steps:
+	if steps and src_kind != index.SRC_TDS:
 		# The document's own page first: it says WHICH records follow (item, make, category, report name),
 		# then the records themselves. Without it the binder is a stack of data sheets with nothing naming
-		# what each one is for (owner 2026-09-23).
+		# what each one is for (owner 2026-09-23). The TDS report brings its own, so it is left out there.
 		steps.insert(0, _print_step(f"{title} (list)", DOCTYPE, row.name, PF_DOCUMENT))
 	return steps, (None if steps else EMPTY_REASON[src_kind])
 
@@ -198,7 +204,7 @@ def build_plan(project: str, hod_system: str, document: str | None = None) -> tu
 	rows = frappe.get_all(
 		DOCTYPE,
 		filters={"project": project, "hod_system": hod_system},
-		fields=["name", "document", "status", "disabled", "remarks", "attachment", "form_data"],
+		fields=["name", "document", "status", "disabled", "remarks", "form_data"],
 	)
 	parts = checklist.binder_parts(rows)
 	if document:
@@ -399,6 +405,10 @@ class _Job:
 def _render(step: dict, futures: dict) -> bytes:
 	if step["kind"] == "print":
 		return _print(*step["args"])
+	if step["kind"] == "tds":
+		from nirmaan_stack.api.hod.tds_pack import build_pack
+
+		return build_pack(*step["args"])
 	url = step["args"][0]
 	return _file_pdf(url, futures.get(url))
 

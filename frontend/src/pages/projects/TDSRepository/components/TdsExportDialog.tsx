@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX, Search, X } from 'lucide-react';
+import { Ban, Check, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX, Search, X } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,13 @@ interface TdsExportDialogProps {
     settings: TDSRepositoryData;
     historyData: TdsExportItem[];
     isExporting: boolean;
+    /** When given, a third footer button saves the ticks WITHOUT exporting. The Handover Documents tab
+     *  passes it because its ticks decide what the handover binder carries, so they must be settable
+     *  without downloading a PDF. Absent (the TDS Repository tab) = the two-button footer, unchanged. */
+    onSaveSelection?: (selectedItems: TdsExportItem[]) => Promise<void> | void;
+    /** Tick these item names on open instead of every Approved one. Anything no longer in the list is
+     *  ignored. Absent (the TDS Repository tab) = the default, every Approved item ticked. */
+    initialSelectedIds?: string[];
 }
 
 // Mini stakeholder card for the dialog
@@ -76,7 +83,9 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     onExport,
     settings,
     historyData,
-    isExporting
+    isExporting,
+    onSaveSelection,
+    initialSelectedIds
 }) => {
     const statusOptions = useMemo(() => ["Approved", "Pending"], []);
 
@@ -186,13 +195,16 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     React.useEffect(() => {
         if (isOpen) {
             const defaultItems = sortedItems.filter(item => item.tds_status === "Approved");
-            setSelectedIds(new Set(defaultItems.map(item => item.name)));
+            const seeded = initialSelectedIds?.length
+                ? defaultItems.filter(item => initialSelectedIds.includes(item.name))
+                : defaultItems;
+            setSelectedIds(new Set(seeded.map(item => item.name)));
             setSelectedPackages([]);
             setSelectedStatus("Approved");
             setCollapsedPackages(new Set());
             setItemSearch("");
         }
-    }, [isOpen, sortedItems]);
+    }, [isOpen, sortedItems, initialSelectedIds]);
 
     const handleSelectStatus = (status: string) => {
         setSelectedStatus(status);
@@ -256,11 +268,26 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
         });
     };
 
+    // One reading of the ticks, shared by Export and Save selection, so the two can never disagree
+    // about what is ticked (the export scope is search-blind -- see `filteredItems` above).
+    const selectedItems = () => groupedItems.flatMap(group =>
+        group.items.filter(item => selectedIds.has(item.name))
+    );
+
     const handleExport = () => {
-        const selectedItems = groupedItems.flatMap(group =>
-            group.items.filter(item => selectedIds.has(item.name))
-        );
-        onExport(selectedItems, selectedStatus);
+        onExport(selectedItems(), selectedStatus);
+    };
+
+    const [isSaving, setIsSaving] = useState(false);
+
+    const handleSaveSelection = async () => {
+        if (!onSaveSelection) return;
+        setIsSaving(true);
+        try {
+            await onSaveSelection(selectedItems());
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     // Labels the Select/De-Select All button, so it tracks the visible set it acts on.
@@ -529,11 +556,26 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                     <Button 
                         variant="outline" 
                         onClick={onClose}
-                        disabled={isExporting}
+                        disabled={isExporting || isSaving}
                     >
                         <Ban className="w-4 h-4 mr-2" />
                         Cancel
                     </Button>
+                    {onSaveSelection && (
+                        <Button
+                            variant="outline"
+                            onClick={handleSaveSelection}
+                            disabled={isExporting || isSaving}
+                            title="Keep these ticks without downloading anything"
+                        >
+                            {isSaving ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Check className="w-4 h-4 mr-2" />
+                            )}
+                            Save selection
+                        </Button>
+                    )}
                     <Button
                         onClick={handleExport}
                         disabled={visibleSelectedCount === 0 || isExporting}

@@ -45,6 +45,22 @@ def matches_keywords(name, keywords) -> bool:
 	return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(k) + r"(?![A-Za-z0-9])", text, re.IGNORECASE) for k in kws)
 
 
+def tds_belongs(category, item_name, keywords, package_shared: bool) -> bool:
+	"""Does a TDS item belong to this system?
+
+	TDS items are filed by Work Package only, and a TDS category is named after the PART ("IP Cameras",
+	"Lock & Accessories", "Addressable Detectors"), not after the system -- so the system's keywords can
+	only be asked where they have something to separate: a package SHARED by several HOD Systems
+	(Critical Room ELV = GSS, VESDA, WLD & RRS, whose categories really are "RR", "WLD", "Vesda").
+
+	On a package with one system every item is already that system's, and matching would throw most of
+	them away ("IP Cameras" holds no "CCTV"), so the package filter stands alone.
+	"""
+	if not package_shared:
+		return True
+	return matches_keywords(category, keywords) or matches_keywords(item_name, keywords)
+
+
 def default_included(sub_systems, categories) -> list:
 	"""Which library parts a project starts with ticked, from its Commission Report categories.
 

@@ -3,6 +3,7 @@ import { NoTDSRepositoryView } from './NoTDSRepositoryView';
 import { TDSRepositoryView } from './TDSRepositoryView';
 import { TDSRepositoryData } from './components';
 import { useTdsSettings } from '../data/tds/useTdsQueries';
+import { toTdsRepositoryData } from '../data/tds/tdsSettings';
 import { useCreateTdsSetting, useUpdateTdsSetting, useUploadTdsFile } from '../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
@@ -132,15 +133,9 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
         return <NoTDSRepositoryView onConfirm={handleConfirmSetup} isLoading={isSubmitting} />;
     }
 
-    // Convert backend data to frontend format for the View/Edit
-    const repositoryData: TDSRepositoryData = {
-        client: { name: activeSetting.client_name, logo: activeSetting.client_logo as any, enabled: activeSetting.enable_client },
-        projectManager: { name: activeSetting.manager_name, logo: activeSetting.mananger_logo as any, enabled: activeSetting.enable_manager },
-        architect: { name: activeSetting.architect_name, logo: activeSetting.architect_logo as any, enabled: activeSetting.enable_architect },
-        consultant: { name: activeSetting.data_tjxu, logo: activeSetting.consultant_logo as any, enabled: activeSetting.enable_consultant },
-        gcContractor: { name: activeSetting.gc_contractor_name, logo: activeSetting.gc_contractor_logo as any, enabled: activeSetting.enable_gc_contractor },
-        mepContractor: { name: activeSetting.mep_contractor_name, logo: activeSetting.mep_contractorlogo as any, enabled: activeSetting.enable_mep_contractor }
-    };
+    // Convert backend data to frontend format for the View/Edit (the same mapping the Handover
+    // Documents tab uses to open the export dialog -- kept in one place, `data/tds/tdsSettings`).
+    const repositoryData: TDSRepositoryData = toTdsRepositoryData(activeSetting);
 
     return (
         <TDSRepositoryView 

@@ -25,7 +25,6 @@ export interface HodRow {
   status: HodStatus;
   disabled: 0 | 1;
   remarks: string | null;
-  attachment: string | null;
   form_data: Record<string, unknown>;
   modified: string;
   creation: string;

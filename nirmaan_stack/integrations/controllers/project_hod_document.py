@@ -6,11 +6,11 @@ Handover Documents screen:
 1. one row per project x system x document (a friendly message; the unique index added by the doctype's
    `on_doctype_update` is what stops a race);
 2. a new row needs an ACTIVE HOD System;
-3. a switched-off row (`disabled`) cannot be worked on: its remarks, attachment and form data stay as
-   they were until it is switched back on. Switching it on or off is always allowed;
+3. a switched-off row (`disabled`) cannot be worked on: its remarks and form data stay as they were
+   until it is switched back on. Switching it on or off is always allowed;
 4. `status` is DERIVED on every save (`services/hod/checklist.derive_status`, owner 2026-09-22): Completed
-   when the signed copy is uploaded, Form Filled when a fillable document's form is saved, else Pending.
-   Whatever a caller sends for it is overwritten.
+   when the document is marked completed by hand, Form Filled when a fillable document's form is saved,
+   else Pending. Whatever a caller sends for it is overwritten.
 """
 
 import json
@@ -20,7 +20,7 @@ from frappe import _
 
 from nirmaan_stack.services.hod import checklist, index
 
-_LOCKED_WHEN_OFF = ("remarks", "attachment", "form_data")
+_LOCKED_WHEN_OFF = ("remarks", "form_data")
 
 
 def _normalised(fieldname, value):
@@ -37,7 +37,7 @@ def _normalised(fieldname, value):
 def validate(doc, method=None):
 	if not index.is_valid(doc.document):
 		frappe.throw(_("Unknown handover document: {0}").format(doc.document))
-	doc.status = checklist.derive_status(doc.document, doc.attachment, doc.form_data)
+	doc.status = checklist.derive_status(doc.document, doc.form_data)
 
 	if doc.is_new():
 		if not frappe.db.get_value("HOD System", doc.hod_system, "is_active"):

@@ -120,33 +120,44 @@ def _enrich_derived_cells(items):
             it["tds_member_names"] = ""
 
 
+def build_tds_report_pdf(settings, items, progress_event: str = None) -> tuple:
+    """THE TDS report: the "Project TDS Report" print format over `settings` + `items`, with each
+    item's attached data sheet merged in after its row. Returns (pdf_bytes, failed_items).
+
+    Split out of `run_tds_export_job` so the Handover Documents binder can put the SAME document in
+    (`api/hod/tds_pack.py`) instead of stapling the loose data sheets together -- one renderer, so the
+    two can never drift. `progress_event` is the export screen's; the binder passes none.
+    """
+    settings = json.loads(settings) if isinstance(settings, str) else settings
+    items = json.loads(items) if isinstance(items, str) else items
+
+    # Phase 2: a project row = (TDS Item group, Make); the "Model No." cell
+    # is the group's distinct member categories, comma-joined (derived live).
+    _enrich_derived_cells(items)
+
+    combined_data = json.dumps({"settings": settings, "history": items})
+
+    print_format = frappe.get_doc("Print Format", "Project TDS Report")
+    if not print_format:
+        frappe.throw("Print Format 'Project TDS Report' not found")
+
+    # Same context plumbing as the old synchronous endpoint so the existing
+    # Jinja template keeps working unchanged.
+    frappe.form_dict.data = combined_data
+    template = frappe.render_template(print_format.html, {"frappe": frappe, "json": json})
+    base_pdf = get_pdf(template)
+
+    return merge_pdfs_interleaved(base_pdf, items, progress_event=progress_event)
+
+
 def run_tds_export_job(user, settings_json, items_json, project_name):
     """Background worker: renders the TDS Print Format, merges attachments,
     writes the merged PDF to a temp file, emits `tds_export_ready` with a token."""
     try:
         frappe.set_user(user)
 
-        settings = json.loads(settings_json) if isinstance(settings_json, str) else settings_json
-        items = json.loads(items_json) if isinstance(items_json, str) else items_json
-
-        # Phase 2: a project row = (TDS Item group, Make); the "Model No." cell
-        # is the group's distinct member categories, comma-joined (derived live).
-        _enrich_derived_cells(items)
-
-        combined_data = json.dumps({"settings": settings, "history": items})
-
-        print_format = frappe.get_doc("Print Format", "Project TDS Report")
-        if not print_format:
-            frappe.throw("Print Format 'Project TDS Report' not found")
-
-        # Same context plumbing as the old synchronous endpoint so the existing
-        # Jinja template keeps working unchanged.
-        frappe.form_dict.data = combined_data
-        template = frappe.render_template(print_format.html, {"frappe": frappe, "json": json})
-        base_pdf = get_pdf(template)
-
-        merged_pdf, failed_items = merge_pdfs_interleaved(
-            base_pdf, items, progress_event="tds_export_progress"
+        merged_pdf, failed_items = build_tds_report_pdf(
+            settings_json, items_json, progress_event="tds_export_progress"
         )
 
         ensure_temp_dir()

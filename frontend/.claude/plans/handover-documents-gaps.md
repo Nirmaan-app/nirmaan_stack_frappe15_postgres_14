@@ -53,7 +53,7 @@ done by eye (no OCR on this machine), so spot-check against the workbook. Two ty
 
 ## 3. Known gaps (behaviour today)
 
-**Users will notice first:** G1 (repeated Commission reports), G4 (private Drive links), G5 (ELV TDS not narrowed).
+**Users will notice first:** G1 (repeated Commission reports), G4 (private Drive links).
 **Owner decisions:** G10, G11. The rest are limits to know about, not bugs.
 
 ### 3a. Where the data comes from
@@ -64,7 +64,7 @@ done by eye (no OCR on this machine), so spot-check against the workbook. Two ty
 | G2 | **Hand-added snags** (no batch) cannot be ticked or printed | None exist today; a project with only hand-added snags would show Snag List as empty | Print format support for "no batch", or a whole-project option |
 | G3 | **Snag List is project-wide**, not per system | Every system's binder carries the same ticked batches (snag categories are free text) | Map snag categories/areas to systems |
 | G4 | **As Built Drive links must be shared "anyone with the link"** | A private Drive file fails; the binder names it in "could not include" | Detect + warn in the picker, or store drawings as Nirmaan files |
-| G5 | **TDS items are filtered by package only** | GSS, VESDA, WLD & RRS (all "Critical Room ELV") each see all ELV TDS items | Apply `source_keywords` to TDS items too |
+| G5 | ~~TDS items are filtered by package only~~ **Fixed 2026-09-24** | `tds_items` now narrows by `source_keywords` (category OR item name) where the package is SHARED -- `sources.tds_belongs` + `from_app.package_is_shared`. Only Critical Room ELV qualifies; a one-system package keeps every item, because a TDS category names the PART ("IP Cameras" holds no "CCTV"). Live check: 872 -> 838 items over 21 projects x 11 systems, all 34 removals on GSS/VESDA/WLD & RRS, nothing orphaned. | 4 unit tests |
 | G6 | **Design Tracker categories have no Work Package** on this site | As Built is matched by category NAME ("Electrical", "Fire Sprinkler" → Sprinkler, "Data Networking" → Networking); ELV/BMS/Overall Project by keywords. Renaming a category breaks the match | Fill `Design Tracker Category.work_package` (the rule prefers it automatically) |
 
 ### 3b. Downloads
@@ -89,8 +89,64 @@ done by eye (no OCR on this machine), so spot-check against the workbook. Two ty
 |---|---|---|---|
 | G13 | **The library is loaded by hand, not by migrate** | It is exported to `fixtures/hod_system.json` + `hod_library_content.json`, but NOT listed in the hooks `fixtures` (owner 2026-09-23), so a migrate neither imports nor overwrites it | Load it deliberately: `bench --site <site> import-doc …/hod_system.json` then `…/hod_library_content.json`; re-export after on-screen edits |
 
-Intentional (not gaps): the **Download binder button is hidden** (`SHOW_BINDER_BUTTON` in `hodApi.ts`,
-owner 2026-09-23) — the binder itself works, and the flag brings the button back; anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
+**4 Material Data Sheet opens the TDS tab's own "Confirm TDS Export" dialog (2026-09-24, owner).** HOD
+builds no TDS picker any more: `MaterialTdsDialog` hands the shared `TdsExportDialog` the items the server
+approved for the system (`get_from_app_sources`, i.e. package + keywords) out of the TDS tab's own list, and
+the export runs the real `export_tds_report` job -- so a handover data-sheet pack is the same document, with
+the same stakeholder cover, as one exported from the TDS tab. The ticks are saved to `form_data.selected` on
+export and seed the dialog next time (new optional `initialSelectedIds`; absent = the TDS tab's unchanged
+"every Approved item" default). The settings mapping moved to the shared `data/tds/tdsSettings`. LEFT OVER:
+`forms/SourcesView.tsx`'s `meta.source === "tds"` branch is now unreachable -- delete it with R3.
+
+**The binder's Material Data Sheet IS the project's TDS report (2026-09-24, owner).** `api/hod/tds_pack.py`
+applies the screen's filters server-side -- package + `source_keywords` (`from_app.tds_items`) then the ticks
+(`form_data.selected`) -- and hands them to the TDS tab's OWN renderer, `tds_report.build_tds_report_pdf`
+(split out of `run_tds_export_job`, one renderer for both callers). So section 4 of a binder is the same
+document the dialog downloads: stakeholder cover, its own table, the data sheets merged in. It is ONE binder
+step (`kind: "tds"`) and it SKIPS the HOD "(list)" page every other From Nirmaan document gets, because the
+report brings its own. Measured on KOLKATA-PROJ-00102: Electrical 141 pages, WLD & RRS 15, CCTV 15; ticking
+2 of WLD's 5 gives 8 pages. Two traps: the server-side stakeholder mapping in `tds_pack._ROLES` must stay in
+step with the frontend's `tdsSettings.ts` (three field names are misspelled in the doctype), and `fields=["*"]`
+returns `datetime`s that the report's `json.dumps` refuses -- `report_items` round-trips through
+`frappe.as_json`. A project with no TDS Repository set up cannot build the pack, and the binder names it.
+The dialog also has **Save selection** beside Export PDF (`onSaveSelection`, HOD only), so the binder's
+contents can be set without downloading anything.
+
+**NO handover document carries a signed upload any more (2026-09-24, owner — From Nirmaan first, then
+widened to the library texts and the forms).** Every document is either read live from Nirmaan or
+generated by it, so it is previewed and downloaded from this screen and then ticked off: the Actions cell
+is "Download" / "Select & Download" + **"Mark as Completed"**, and the ⋮ menu offers "Mark as pending" to
+undo it. A blank fillable document still leads with "Fill Form". The mark is stored as
+`form_data.completed` and read by `checklist.derive_status`, so status stays DERIVED — nothing writes
+`status` by hand. Ticking reports for download (`form_data.selected`) is NOT completing the document.
+**A marked document stays EDITABLE** (a tick is not a signature); only an older row's uploaded copy
+freezes the form behind it.
+**A From Nirmaan document is marked off only AFTER its records were reviewed (owner 2026-09-24):**
+"Mark as Completed" is DISABLED on those six until a selection has been saved on the row
+(`Array.isArray(form_data.selected)`), and the button says what to do first. Saving IS the review, so
+every From Nirmaan picker now has a **Save selection** button that costs no PDF -- `SourcesView` for the
+five record documents, the export dialog's own for Material Data Sheet. A document Nirmaan GENERATES
+(form / library text) has nothing to review -- the person is looking at the finished thing -- so it can
+be marked straight away. ⚠️ This gate is FRONTEND-ONLY: `derive_status` completes on the mark alone, so a
+Desk edit or a direct `update_row` can still mark an unreviewed From Nirmaan document.
+**The whole signed-copy path is DELETED, code-side (owner 2026-09-24, in two steps: first the picker,
+then the field).** Gone: the hidden `<input type=file>`, `onUpload` / `uploadSigned` / `useFrappeFileUpload`,
+"Upload Signed", "Replace signed copy", "Remove signed copy", "View Signed", `HodRow.attachment`, the
+`attachment` entry in `ROW_FIELDS` / `EDITABLE_FIELDS`, the binder's signed-copy branch and
+`checklist.PART_UPLOAD`. **`derive_status` now takes TWO arguments** (`document, form_data`) — the old
+3-argument call raises `TypeError`, pinned by test, so no caller can pass a file and have it silently
+ignored.
+⚠️ **PHASE 1 ONLY — the doctype still has the field.** `Project HOD Document.attachment` (Attach) is in
+`project_hod_document.json` and in `field_order`, and on localhost ONE of 176 rows still holds a value
+(3 `File` rows attached). Nothing reads it any more. The owner finishes it the way `Project Payments.tds`
+was finished: remove the field in Desk → `bench migrate` → check Desk reports / list views → `trim-tables`
+for the orphan column. HOD has not gone live, so no real signed copy exists to lose.
+⚠️ A document can be marked completed while having NO content to include; the binder then refuses to
+start and names it (switch it off instead). The mark is a human statement, not a content check.
+
+Intentional (not gaps): the **Download binder button is VISIBLE** again (`SHOW_BINDER_BUTTON = true` in
+`hodApi.ts`, owner 2026-09-24; hidden 2026-09-23 while the binder was unproven) — it stays DISABLED until
+every switched-on document is Completed; anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
 blank to fill by hand; Inventory prints 8 blank rows when empty (fits one landscape page); a tool with no remark prints an empty
 Remarks cell; Do's & Don'ts goes Pending → Completed with no "Form Filled"; status is never set by hand.
 
@@ -129,3 +185,22 @@ print tests need their own cleanup.
 | R11 | **Print formats drift** | The pasted DB copy and the repo file can differ silently (it happened today); add a check or ship them as fixtures |
 | R12 | **Pre-existing residence failures** | F5 117/115 and F2 211/207 are older than HOD (HOD adds none); not part of this refactor |
 | R13 | **Stale comment on `checklist.PART_SOURCES`** | Says "the HOD Document list page, then the records it lists"; the binder now includes only the records (`binder._content_steps`) |
+
+---
+
+## 6. Unused after the 2026-09-24 changes — to review separately
+
+Nothing here is broken. Each one is something the code no longer uses, kept so the owner can retire it
+deliberately in one pass (the `Project Payments.tds` pattern: detach the code first, drop the schema after).
+
+| # | What | State | To finish it |
+|---|---|---|---|
+| U1 | **`Project HOD Document.attachment`** (Attach) | **Code AND doctype JSON done 2026-09-24** (owner asked for the JSON too). Deleted: the picker, `onUpload`, `uploadSigned`, `useFrappeFileUpload`, "Upload Signed" / "Replace signed copy" / "Remove signed copy" / "View Signed", `HodRow.attachment`, the `ROW_FIELDS` / `EDITABLE_FIELDS` entries, the binder's signed-copy branch, and the field + its `field_order` line in `project_hod_document.json`. `derive_status` takes TWO arguments now (a 3-argument call raises `TypeError`, pinned by test). **`modified` was bumped in the JSON on purpose — Frappe's doctype sync SKIPS a file whose timestamp has not moved, so the edit would otherwise be silently ignored by `bench migrate`.** | **Owner still owes the runtime side:** `bench --site <site> migrate` → check Desk list views / reports for a reference to the dropped column — the column and its data SURVIVE a migrate, so on localhost **1 of 176 rows** keeps its value and **3 `File` rows** stay attached → `bench --site <site> trim-tables` to drop the orphan column, and decide what happens to those `File` rows. HOD has not gone live, so no real signed copy exists to lose. |
+| U2 | **`checklist.binder_parts`'s third element** (`PART_PAGE` / `PART_SOURCES`) | Computed on every binder build and **thrown away** — its one caller does `for sno, row, _part in parts`. `_content_steps` decides everything now. | Either consume it or reduce `binder_parts` to `(sno, row)` and delete both constants. Touches R13 (its stale comment). |
+| U3 | **`forms/SourcesView.tsx`'s `meta.source === "tds"` branch** | Unreachable since Material Data Sheet moved to the shared "Confirm TDS Export" dialog — `SystemChecklist` routes `material_tds` to `MaterialTdsDialog`, so this table never renders. ~9 lines reference `tds` (the column block, the `has-a-sheet` filter, the `HodTdsItem` import, the NOUNS / WHERE entries). | Delete with **R3** (the `SourcesView` split), not on its own — the file is 545 lines and is being split anyway. |
+| U4 | ~~`checklist.PART_UPLOAD`~~ | **Deleted 2026-09-24** with the upload itself; a test now asserts the constant is gone. | — |
+
+**Checked and NOT unused** (so nobody re-reports them): `components/hod-library.tsx` (Packages Settings
+lazy-loads it), `HOD_DOCTYPE` / `HOD_PRINT_DOCUMENT` / `HOD_PRINT_CHECKLIST` (read by `hodDownloads.ts`),
+`EMPTY_REASON[SRC_TDS]` (still reached when a system has no TDS item), `checklist.is_untouched`
+(`project_hod` counts and the remove-system guard).

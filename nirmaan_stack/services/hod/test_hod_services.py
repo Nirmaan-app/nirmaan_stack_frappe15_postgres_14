@@ -18,7 +18,7 @@ _DOCTYPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stac
 
 
 def _row(key, **kw):
-	base = {"document": key, "status": "Pending", "disabled": 0, "remarks": "", "attachment": None, "form_data": {}}
+	base = {"document": key, "status": "Pending", "disabled": 0, "remarks": "", "form_data": {}}
 	base.update(kw)
 	return base
 
@@ -66,7 +66,7 @@ class TestChecklist(unittest.TestCase):
 
 	def test_untouched_is_false_once_anything_is_filled(self):
 		self.assertFalse(checklist.is_untouched(_row("om_manual", remarks="x"), False))
-		self.assertFalse(checklist.is_untouched(_row("om_manual", attachment="/files/a.pdf"), False))
+		self.assertFalse(checklist.is_untouched(_row("om_manual", form_data={"completed": True}), False))
 		self.assertFalse(checklist.is_untouched(_row("om_manual", form_data={"included": ["DX"]}), False))
 		self.assertFalse(checklist.is_untouched(_row("om_manual", form_data='{"a": 1}'), False))
 		self.assertTrue(checklist.is_untouched(_row("om_manual", form_data="{}"), False))
@@ -76,31 +76,67 @@ class TestChecklist(unittest.TestCase):
 	def test_counts_by_derived_status(self):
 		rows = [_row(k) for k in index.KEYS]
 		rows[0]["form_data"] = {"levels": [{"name": "Ravi"}]}  # escalation: Form Filled
-		rows[1]["attachment"] = "/files/signed.pdf"  # demo training: Completed
+		rows[1]["form_data"] = {"selected": ["X"], "completed": True}  # demo training: Completed
 		rows[14]["disabled"] = 1
-		rows[14]["attachment"] = "/files/x.pdf"  # a switched-off row counts as off, whatever it holds
+		rows[14]["form_data"] = {"completed": True}  # a switched-off row counts as off, whatever it holds
 		self.assertEqual(
 			checklist.counts(rows), {"completed": 1, "filled": 1, "pending": 13, "off": 1, "needed": 15}
 		)
 
 	def test_status_is_derived_from_actions(self):
 		d = checklist.derive_status
-		self.assertEqual(d("escalation_chart", None, {}), checklist.STATUS_PENDING)
-		self.assertEqual(d("escalation_chart", None, {"levels": [{}, {}]}), checklist.STATUS_PENDING)
-		self.assertEqual(d("escalation_chart", None, '{"levels": [{"name": "Ravi"}]}'), checklist.STATUS_FILLED)
-		self.assertEqual(d("escalation_chart", "/files/s.pdf", {"levels": [{"name": "Ravi"}]}), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("escalation_chart", {}), checklist.STATUS_PENDING)
+		self.assertEqual(d("escalation_chart", {"levels": [{}, {}]}), checklist.STATUS_PENDING)
+		self.assertEqual(d("escalation_chart", '{"levels": [{"name": "Ravi"}]}'), checklist.STATUS_FILLED)
+		# A filled form STAYS Form Filled: since 2026-09-24 nothing but the mark can complete it (there
+		# used to be a signed upload, and `derive_status` no longer takes one).
+		self.assertEqual(d("escalation_chart", {"levels": [{"name": "Ravi"}]}), checklist.STATUS_FILLED)
 		# the maintenance results are a form too
 		self.assertEqual(
-			d("maintenance_checklist", None, {"checks": {"b1": {"list_1": {"results": {"Clean filters": {"result": "OK"}}}}}}),
+			d("maintenance_checklist", {"checks": {"b1": {"list_1": {"results": {"Clean filters": {"result": "OK"}}}}}}),
 			checklist.STATUS_FILLED,
 		)
-		self.assertEqual(d("maintenance_checklist", None, {"checks": {"b1": {"list_1": {"comments": " "}}}}), checklist.STATUS_PENDING)
-		self.assertEqual(d("recommended_tools", None, {"tool_remarks": {"Multimeter": "2 nos handed over"}}), checklist.STATUS_FILLED)
-		self.assertEqual(d("recommended_tools", None, {"tool_remarks": {"Multimeter": ""}}), checklist.STATUS_PENDING)
-		# nothing to fill on these: only the upload moves them
-		self.assertEqual(d("dos_donts", None, {"included": ["DX"]}), checklist.STATUS_PENDING)
-		self.assertEqual(d("demo_training", None, {"x": 1}), checklist.STATUS_PENDING)
-		self.assertEqual(d("demo_training", "/files/s.pdf", None), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("maintenance_checklist", {"checks": {"b1": {"list_1": {"comments": " "}}}}), checklist.STATUS_PENDING)
+		self.assertEqual(d("recommended_tools", {"tool_remarks": {"Multimeter": "2 nos handed over"}}), checklist.STATUS_FILLED)
+		self.assertEqual(d("recommended_tools", {"tool_remarks": {"Multimeter": ""}}), checklist.STATUS_PENDING)
+		# nothing to fill on these: they move only when someone marks them completed -- a stray key in
+		# form_data is not the mark.
+		self.assertEqual(d("dos_donts", {"included": ["DX"]}), checklist.STATUS_PENDING)
+		self.assertEqual(d("demo_training", {"x": 1}), checklist.STATUS_PENDING)
+		self.assertEqual(d("demo_training", None), checklist.STATUS_PENDING)
+
+	def test_a_from_nirmaan_document_completes_when_it_is_marked(self):
+		"""Owner 2026-09-24: nothing is uploaded anywhere, so the hand mark is the only thing that
+		completes them -- the records themselves are previewed and downloaded from Nirmaan."""
+		d = checklist.derive_status
+		self.assertEqual(d("commissioning_report", {"completed": True}), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("snag_list", {"completed": True}), checklist.STATUS_COMPLETED)
+		# a stored JSON string reads the same
+		self.assertEqual(d("as_built_drawings", '{"completed": true}'), checklist.STATUS_COMPLETED)
+		# ticking reports for download is NOT completing the document
+		self.assertEqual(d("material_tds", {"selected": ["X"]}), checklist.STATUS_PENDING)
+		self.assertEqual(d("snag_list", {"completed": False}), checklist.STATUS_PENDING)
+		# an empty row is Pending -- `derive_status` has no attachment argument to complete it with
+		self.assertEqual(d("commissioning_report", {}), checklist.STATUS_PENDING)
+
+	def test_the_status_rule_no_longer_takes_an_attachment(self):
+		"""Owner 2026-09-24: `Project HOD Document.attachment` is retired, so the rule reads the row's
+		form data alone. The old 3-argument call must fail loudly rather than silently ignore a file."""
+		with self.assertRaises(TypeError):
+			checklist.derive_status("demo_training", "/files/signed.pdf", {})
+
+	def test_the_mark_completes_a_form_and_a_library_document_too(self):
+		"""Owner 2026-09-24, WIDENING the From Nirmaan rule of the same day: no document carries an
+		upload any more, so the mark completes every kind -- form, library text and From Nirmaan."""
+		d = checklist.derive_status
+		self.assertEqual(d("escalation_chart", {"completed": True}), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("recommended_tools", {"completed": True}), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("dos_donts", {"completed": True}), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("maintenance_checklist", {"completed": True}), checklist.STATUS_COMPLETED)
+		# The mark wins over a saved form; taking it off gives the form back.
+		filled = {"levels": [{"name": "Ravi"}]}
+		self.assertEqual(d("escalation_chart", {**filled, "completed": True}), checklist.STATUS_COMPLETED)
+		self.assertEqual(d("escalation_chart", filled), checklist.STATUS_FILLED)
 
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):
 		self.assertEqual(
@@ -174,6 +210,33 @@ class TestSources(unittest.TestCase):
 		self.assertTrue(sources.matches_keywords("Critical Room ELV System Training Report", ["Critical Room ELV"]))
 		self.assertTrue(sources.matches_keywords("Vesda Layout", ["VESDA"]))
 
+	def test_tds_belongs_only_narrows_a_shared_package(self):
+		# Critical Room ELV: three systems, categories named after the system.
+		gss = ["GSS", "Gas Supression", "Gas Suppression", "Critical Room ELV"]
+		wld = ["WLD", "RR", "RRS", "Water Leak", "Rodent", "Critical Room ELV"]
+		self.assertFalse(sources.tds_belongs("WLD", "WLD Hooter Cum Strobe", gss, True))
+		self.assertFalse(sources.tds_belongs("RR", "Ultrasonic RR Transducer", gss, True))
+		self.assertTrue(sources.tds_belongs("WLD", "WLD Hooter Cum Strobe", wld, True))
+		self.assertTrue(sources.tds_belongs("RR", "Ultrasonic RR Transducer", wld, True))
+		self.assertTrue(sources.tds_belongs("Vesda", "VESDA Detector", ["VESDA"], True))
+
+	def test_tds_belongs_keeps_everything_on_a_one_system_package(self):
+		# A TDS category names the PART, not the system: narrowing here would empty the list.
+		self.assertTrue(sources.tds_belongs("IP Cameras", "Dome Camera", ["CCTV"], False))
+		self.assertTrue(sources.tds_belongs("Lock & Accessories", "EM Lock", ["Access Control", "ACS"], False))
+		self.assertTrue(sources.tds_belongs("Addressable Detectors", "Smoke Detector", ["FA", "Fire Alarm"], False))
+		self.assertTrue(sources.tds_belongs("Speaker", "Ceiling Speaker", ["PA"], False))
+		# ... and the same rows WOULD be lost if the package were treated as shared.
+		self.assertFalse(sources.tds_belongs("IP Cameras", "Dome Camera", ["CCTV"], True))
+
+	def test_tds_belongs_matches_the_item_name_too(self):
+		# A category that says nothing, an item name that does.
+		self.assertTrue(sources.tds_belongs("Panel", "4 Zone WLD Panel", ["WLD"], True))
+		self.assertFalse(sources.tds_belongs("Panel", "4 Zone WLD Panel", ["VESDA"], True))
+
+	def test_tds_belongs_without_keywords_keeps_everything(self):
+		self.assertTrue(sources.tds_belongs("Wires & Cables", "2.5 sqmm", [], True))
+
 	def test_default_included_from_categories(self):
 		subs = ["DX", "Duct", "Chilled Water", "AHU", "Air Washer", "VRF"]
 		self.assertEqual(sources.default_included(subs, ["HVAC Ducting", "HVAC VRF/DX"]), ["DX", "Duct", "VRF"])
@@ -202,14 +265,14 @@ class TestBinder(unittest.TestCase):
 		self.assertEqual(kinds["commissioning_report"], checklist.PART_SOURCES)
 		self.assertEqual(kinds["snag_list"], checklist.PART_SOURCES)
 
-	def test_an_upload_replaces_generated_content_even_for_from_app(self):
+	def test_there_is_no_uploaded_part_any_more(self):
+		"""Owner 2026-09-24: nothing can be uploaded, so a row's part is decided by its KIND alone --
+		the old "an upload replaces the generated content" case cannot arise."""
+		self.assertFalse(hasattr(checklist, "PART_UPLOAD"))
 		rows = [_row(k) for k in index.KEYS]
-		for r in rows:
-			if r["document"] in ("key_list", "demo_training"):
-				r["attachment"] = "/private/files/signed.pdf"
 		kinds = {r["document"]: part for _, r, part in checklist.binder_parts(rows)}
-		self.assertEqual(kinds["key_list"], checklist.PART_UPLOAD)
-		self.assertEqual(kinds["demo_training"], checklist.PART_UPLOAD)
+		self.assertEqual(kinds["key_list"], checklist.PART_PAGE)
+		self.assertEqual(kinds["demo_training"], checklist.PART_SOURCES)
 
 	def test_commission_task_pick_order(self):
 		pick = sources.commission_binder_source

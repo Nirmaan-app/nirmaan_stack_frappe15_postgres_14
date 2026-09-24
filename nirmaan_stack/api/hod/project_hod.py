@@ -22,9 +22,9 @@ from nirmaan_stack.api.hod.project_info import as_dict, project_info
 from nirmaan_stack.services.hod import blanks, checklist, index, sources
 
 DOCTYPE = "Project HOD Document"
-ROW_FIELDS = ["name", "hod_system", "document", "status", "disabled", "remarks", "attachment", "form_data", "modified", "creation"]
-# `status` is not editable: it is derived from the upload / the saved form (checklist.derive_status).
-EDITABLE_FIELDS = ("disabled", "remarks", "attachment", "form_data")
+ROW_FIELDS = ["name", "hod_system", "document", "status", "disabled", "remarks", "form_data", "modified", "creation"]
+# `status` is not editable: it is derived from the hand mark / the saved form (checklist.derive_status).
+EDITABLE_FIELDS = ("disabled", "remarks", "form_data")
 EV_CHANGED = "hod:rows_changed"
 
 
@@ -64,7 +64,7 @@ def _rows(project: str) -> list:
 		r.form_data = as_dict(r.form_data)
 		r.disabled = int(r.disabled or 0)
 		# Derived on read as well, so rows saved before the rule existed show the right status too.
-		r.status = checklist.derive_status(r.document, r.attachment, r.form_data)
+		r.status = checklist.derive_status(r.document, r.form_data)
 	return rows
 
 
@@ -199,7 +199,7 @@ def remove_system(project: str, hod_system: str, force=False) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def update_row(name: str, patch) -> dict:
-	"""Change one row: status, the on/off switch, remarks, attachment or its form data."""
+	"""Change one row: the on/off switch, remarks or its form data (status is derived, never sent)."""
 	if isinstance(patch, str):
 		patch = json.loads(patch or "{}")
 	doc = frappe.get_doc(DOCTYPE, name)

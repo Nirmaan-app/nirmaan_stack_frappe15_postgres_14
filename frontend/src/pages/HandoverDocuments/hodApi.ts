@@ -21,9 +21,10 @@ export const HOD_METHODS = {
 } as const;
 
 /** Realtime event the server publishes after any row change on a project. */
-/** Owner 2026-09-23: the binder works, but it is hidden on the screen for now. Set it back to true to
- *  bring back the "Download binder" button and its part of the Details guide; nothing else changes. */
-export const SHOW_BINDER_BUTTON = false;
+/** The "Download binder" button and its part of the Details guide. Hidden on 2026-09-23 while the
+ *  binder was unproven; switched back ON 2026-09-24 (owner). Set it to false to hide it again --
+ *  nothing else changes, the binder itself works either way. */
+export const SHOW_BINDER_BUTTON = true;
 
 export const HOD_ROWS_CHANGED_EVENT = "hod:rows_changed";
 
@@ -86,7 +87,7 @@ export const useFromAppSources = (
 };
 
 export type HodRowPatch = Partial<
-  Pick<HodRow, "remarks" | "attachment" | "form_data"> & { disabled: boolean }
+  Pick<HodRow, "remarks" | "form_data"> & { disabled: boolean }
 >;
 
 /** Every HOD write. Each returns the server's answer; the caller refreshes the project payload. */

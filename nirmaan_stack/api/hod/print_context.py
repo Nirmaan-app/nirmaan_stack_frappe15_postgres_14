@@ -265,7 +265,7 @@ def hod_checklist_context(project=None, hod_system=None) -> dict:
 	rows = frappe.get_all(
 		DOCTYPE,
 		filters={"project": project, "hod_system": hod_system},
-		fields=["document", "status", "disabled", "remarks", "attachment", "form_data"],
+		fields=["document", "status", "disabled", "remarks", "form_data"],
 	)
 	if not rows:
 		frappe.throw(f"{hod_system} is not added to project {project}.")
@@ -275,7 +275,7 @@ def hod_checklist_context(project=None, hod_system=None) -> dict:
 			{
 				"sno": sno,
 				"title": index.get(r.document)["title"],
-				"status": "YES" if checklist.derive_status(r.document, r.attachment, r.form_data) == checklist.STATUS_COMPLETED else "",
+				"status": "YES" if checklist.derive_status(r.document, r.form_data) == checklist.STATUS_COMPLETED else "",
 				"remarks": r.remarks or "",
 			}
 		)

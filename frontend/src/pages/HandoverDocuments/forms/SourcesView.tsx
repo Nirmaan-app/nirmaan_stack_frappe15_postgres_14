@@ -6,7 +6,7 @@
 // (downloaded from their Google Drive links). The ticks are saved on the row (`form_data.selected`) so the
 // binder takes the same ones; with nothing saved, every available record is ticked.
 
-import { Download, ExternalLink, Eye, Loader2 } from "lucide-react";
+import { Check, Download, ExternalLink, Eye, Loader2 } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,9 @@ export interface SourcesViewProps {
   canEdit: boolean;
   /** Save the ticked records on the row and download them as one PDF. */
   onDownloadSelected: (selected: string[]) => Promise<void>;
+  /** Save the ticks WITHOUT downloading. Saving is the review the document is marked completed on
+   *  (owner 2026-09-24), so it must not cost a PDF. */
+  onSaveSelected: (selected: string[]) => Promise<void>;
 }
 
 export const SourcesView: React.FC<SourcesViewProps> = ({
@@ -101,6 +104,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
   row,
   canEdit,
   onDownloadSelected,
+  onSaveSelected,
 }) => {
   const { sources, isLoading, error } = useFromAppSources(
     projectId,
@@ -116,6 +120,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
   } | null>(null);
   const [ticked, setTicked] = React.useState<Set<string> | null>(null);
   const [starting, setStarting] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
 
   const items = sources?.items ?? [];
   // Every From Nirmaan document is picked record by record (owner 2026-09-22).
@@ -471,28 +476,56 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
             {available.length !== 1 ? "s" : ""} ticked — the ticked ones go into
             the download and the binder.
           </span>
-          <Button
-            size="sm"
-            className="h-8"
-            disabled={!current.size || starting}
-            onClick={async () => {
-              setStarting(true);
-              try {
-                await onDownloadSelected(
-                  available.filter((n) => current.has(n)),
-                );
-              } finally {
-                setStarting(false);
-              }
-            }}
-          >
-            {starting ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Download className="mr-1 h-3.5 w-3.5" />
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={!current.size || starting || saving}
+                title="Keep these ticks without downloading anything"
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await onSaveSelected(
+                      available.filter((n) => current.has(n)),
+                    );
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              >
+                {saving ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Check className="mr-1 h-3.5 w-3.5" />
+                )}
+                Save selection
+              </Button>
             )}
-            Download selected ({current.size})
-          </Button>
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={!current.size || starting || saving}
+              onClick={async () => {
+                setStarting(true);
+                try {
+                  await onDownloadSelected(
+                    available.filter((n) => current.has(n)),
+                  );
+                } finally {
+                  setStarting(false);
+                }
+              }}
+            >
+              {starting ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="mr-1 h-3.5 w-3.5" />
+              )}
+              Download selected ({current.size})
+            </Button>
+          </div>
         </div>
       )}
       {note}

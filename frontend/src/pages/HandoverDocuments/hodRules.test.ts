@@ -34,7 +34,6 @@ const row = (document: string, disabled: 0 | 1 = 0): HodRow => ({
   status: "Pending" as const,
   disabled,
   remarks: null,
-  attachment: null,
   form_data: {},
   modified: "",
   creation: "",
