@@ -41360,3 +41360,85 @@ superseded, no pricing cell touched). Two rows were then read on screen and both
 rupee, ladder note and all. The other eight are blocked on driving a virtualised grid from automation — a
 limit of the harness, not the product. **Anomaly to look at:** `BOQ-26-00093 | 4. HVAC - Option 1 (Terrace)`
 renders only Excel rows 20–43 although the committed sheet holds 142 nodes spanning rows 20–214.
+
+---
+
+# HVAC PRICING, SLICE 8 — UL WINS + THE FLEXIBLE DUCT STANDARD LENGTH (2026-09-24)
+
+Two of the owner's three M-rulings, built. **M-a (outer-size matching) was NOT built** — see the stop below.
+No extraction change, no prompt change, no panel-control change, **no AI call**. HVAC asset **v10 → v11**;
+items byte-identical (`items sha 772b7454…a61f` on both).
+
+## What shipped
+
+**M-b — UL WINS.** A new `list_spec.pricing.override_when` block: a STATED fact that decides the pick whatever
+else the row said. Shaped exactly like the existing `derive_when_none` (`attr` / `families` / `when` / `then` /
+`rule`) and deliberately so — what differs is WHEN it fires: `derive_when_none` only fills a value the row left
+unsaid (`"None"`), an override REPLACES a value the row DID state. One declaration ships: on `fire damper`,
+`ul = yes` forces `variant = UL`, so a row mentioning UL takes the UL 555 SKU whether it also says motorised,
+with sleeve or without. It fires **only when it changes something**, and it drops any `defaulted` record it
+supersedes — which is what keeps the 7 rows already on the UL SKU byte-identical, working lines included.
+Panel note: *"UL stated, so the UL 555 SKU is used (R-M-b)"*.
+
+**M-c — THE FLEXIBLE DUCT STANDARD LENGTH. Pure config: ZERO code, ZERO validator change.** A duct is sold per
+piece of a 2.5 m standard length, so `flexible duct` gains a `convert.count` option to `length` whose pipelines
+insert ONE step before the markup — `params: {"standard_length_m": 2.5}`, `formula: "base*standard_length_m"`.
+The interpreter has always bound a plain numeric param into a `scale` formula's env, and `_validate_params` has
+always allowed one, so nothing in the engine moved. **The ROUNDING STAYS LAST** (match → ×2.5 → markup →
+ROUNDUP), which is why `250 MM DIA` gives 1,849 and not `ROUNDUP(510 × 1.45) × 2.5`. Working line comes free
+from the option's own `rule`.
+
+## The proof — all 1,150 stored replies replayed, no AI call
+
+The slice-7 capture (`2026-09-24_ADP_Extraction_Payloads.jsonl`) was replayed through the PURE pricing module
+BEFORE and AFTER, bundled with esbuild and run on node **inside the container** (the host `node_modules`
+esbuild binary is linux-arm64).
+
+**The harness was proved first:** the BEFORE replay reproduces the captured run **1,150 / 1,150 identical** —
+every refusal string and every figure — so no AFTER number rests on an unvalidated instrument.
+
+| | rows |
+|---|---:|
+| **newly priced (blank → priced)** | **44** — M-b **29**, M-c **15** |
+| **price changed while priced** | **0** |
+| **priced → blank** | **0** |
+| still refused, different refusal WORDING (no price either side) | 4 |
+| unchanged | 1,102 |
+
+The 4 re-worded rows are `BOQ-26-00104 r92 / r93`, `BOQ-26-00137 r106`, `BOQ-26-00156 r107`: M-b unblocked
+their fire-damper item, so under R21 (all-or-nothing, the first blank names the row) the refusal moved to their
+SECOND item, a control panel with no per-sq.m SKU. Refused before, refused after, no price either side.
+
+**M-b reach checks out both ways:** 33 rows carried a `fire damper … ul yes` refusal; all 33 now match the UL
+SKU (7 → 40 rows on that SKU), and 29 of them price — the other 4 are the control-panel rows above.
+**M-c is 15 of 15.** The 7 rows already on the UL SKU are **byte-identical, figures AND every working line**
+(all at supply 21,750).
+
+## ⚠️ M-a was NOT built — the ruling as worded reaches 1 row, not 14
+
+Premise check against the capture: 23 rows refuse with `no neck size stated`. Under M-a's literal words (outer
+EQUALS a stocked outer, both dimensions readable as separate numbers) exactly **one** prices —
+`BOQ-26-00064 r123`. The rest:
+
+| what the row states | rows | why the literal rule misses it |
+|---|---:|---|
+| `595` + `595` in the two fields | 1 | ✅ prices (neck 450) |
+| `595x595` / `595 x 595 mm` in ONE field | 2 | the reader refuses a dimension pair as "not a single number" |
+| `600x600` / `600 mm` + `600 mm` | 12 | 600 ≠ the stocked 595 — "equals" fails |
+| `1200x300` | 3 | that SKU exists but carries NO neck, so "largest neck" is undefined |
+| `375` / `450` / `300` square | 5 | the model put the NECK in the outer field (an extraction misread) |
+
+Reported to the owner rather than extended. **Rulings taken for SLICE 9:**
+1. **"600x600" means the 595x595 diffuser, and the fix is an ITEM WORDING change in the catalogue** — the SKU
+   carries `600x600` as an alternative name. *"make the change in the KSU catalog"*. **NOT a tolerance in
+   code.** The same edit goes into the HVAC data AND the owner's master sheet, surgically, cells reported
+   before and after. Covers the 12.
+2. **An outer with exactly ONE SKU behind it uses that SKU, no neck needed** — *"use it since is is only one"*.
+   Covers the three 1200×300 rows.
+3. **The outer size is a SECOND KEY, never a replacement:** neck only → match on the neck as today; BOTH →
+   match the pair; outer only → largest neck behind it, or the only SKU; neither → refuse; **a stated pair
+   matching NO SKU → fall back to the NECK and price, with a visible panel note that the outer was set
+   aside** (*"the neck is what the sheet prices on; the outer is usually a ceiling detail"*).
+
+M-a is built in slice 9 AFTER the extraction fixes (the one-cell size, the neck-in-outer misread), so the whole
+outer-size question is built once against the real shape.

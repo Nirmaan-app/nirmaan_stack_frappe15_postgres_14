@@ -818,6 +818,27 @@ counts as quantities. **Re-measure rather than assume before changing any of it:
 inferred from a gauge, a thickness, a size, a slot count, a neck, a torque, an area band, a product's capacity
 or the row's own quantity.
 
+**⚠️ A CATEGORY MAY DECLARE AN OVERRIDE ATTRIBUTE AND A SOLD-PER-PIECE STANDARD LENGTH — BOTH IN CONFIG,
+NEVER IN CODE (owner M-b / M-c, 2026-09-24).** `list_spec.pricing.override_when` carries the SAME five keys as
+`derive_when_none` (`attr` / `families` / `when` / `then` / `rule`) deliberately; what differs is WHEN it fires
+— `derive_when_none` only fills a value the row left unsaid (`"None"`), an **override REPLACES a value the row
+DID state** (HVAC: `ul = yes` forces the fire damper's `variant` to `UL`, so a row mentioning UL takes the UL
+555 SKU whatever variant it also names). Three properties are load-bearing. **(1) It fires ONLY when it
+CHANGES something** — that is what keeps a row already on that value byte-identical, trace included, and it
+drops any `defaulted` record it supersedes so the panel never claims a default that no longer applies.
+**(2) The CONDITION reads the POST-DEFAULT value, not the raw answer**, so a ruled default can never be
+overridden by a fact nobody stated (an absent UL reads as the non-UL default under S6 and does not fire).
+**(3) A sold-per-piece length is a CONVERSION, not a new key**: the family declares `convert.<row unit>` to the
+unit its SKUs are sold in, and the length rides as a NAMED numeric `scale` param (`standard_length_m`) in that
+option's pipelines — the interpreter has always bound a plain numeric param into a `scale` formula's env, so
+this needed no engine change at all. ⚠️ **THE ROUNDING MUST STAY LAST** (match → × the length → markup →
+ROUNDUP): rounding the per-metre rate first and multiplying afterwards yields a different, entirely plausible
+number that no test on either side of the seam would question.
+⚠️ **AND THE `or []` IDIOM SWALLOWS AN EMPTY DICT.** `pr.get(key) or []` reads `"override_when": {}` as absent
+and ships a silently inert rule — the exact failure the closed allowlists exist to prevent. A new list-valued
+config key must test PRESENCE before the idiom (`if key in pr and not isinstance(pr[key], list)`), which is
+what `override_when` does; the older sibling keys still carry the gap.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
