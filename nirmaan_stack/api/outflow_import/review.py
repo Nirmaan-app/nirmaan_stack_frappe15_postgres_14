@@ -41,7 +41,6 @@ import frappe
 from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
-    require_outflow_undo_access,
 )
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
@@ -248,7 +247,7 @@ def match_batch(batch: str):
 def match_line(row: str) -> dict:
     """Run the matcher over ONE open import line and persist its outcome (#1272, for Unskip).
 
-    Not whitelisted: the unskip endpoint is its caller and owns the narrower access check, the write
+    Not whitelisted: the unskip endpoint is its caller and owns the access check, the write
     that re-opens the line, and the COMMIT. This function checks only the module gate and commits
     nothing, so the re-open and the re-check land together or not at all.
 
@@ -1345,8 +1344,9 @@ def skip_row(row: str, reason: str):
     ⚠️ REWRITTEN AT #1273 (parent #1270, ADR-0022), which reversed the 2026-08-10 ruling that hid the
     button. What changed, and why each matters:
 
-      * ADMIN + ACCOUNTANT LEAD ONLY (`require_outflow_undo_access`). A plain Accountant matches and
-        confirms.
+      * EVERYONE IN THE MODULE (`require_outflow_access`) -- Accountant, Accountant Lead, Admin. It was
+        Admin + Accountant Lead only until owner ruling 2026-09-24 (ADR-0022 Amendment E) opened Skip and
+        Unskip to a plain Accountant; Unreconcile and Reverse stay on `require_outflow_undo_access`.
       * OPEN LINES ONLY (`skip_origin.manual_skip_refusal`) -- Cashbook too since #1314, bar a line its
         own job has not written yet. The old endpoint accepted
         an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
@@ -1362,7 +1362,7 @@ def skip_row(row: str, reason: str):
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
     from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
 
-    actor = require_outflow_undo_access()
+    actor = require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(SKIP_REASON_REQUIRED, title="Missing reason")
@@ -1454,7 +1454,7 @@ def unskip_row(row: str, reason: str):
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
     from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
 
-    actor = require_outflow_undo_access()
+    actor = require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(UNSKIP_REASON_REQUIRED, title="Missing reason")

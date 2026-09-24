@@ -195,9 +195,9 @@ const SHOW_CREATE_NEW_EXPENSE = true;
 
 // ⚠️ `SHOW_SKIP_ROW` IS GONE (#1273, ADR-0022), reversing the 2026-08-10 ruling that hid manual skip
 // and ADR-0016 R6. Skip is back as the "Nothing to link?" box at the BOTTOM of the body, under a
-// divider -- below every link and create option, so linking stays the obvious first choice -- and only
-// for Admin / Accountant Lead on an open line (`canSkipByHand`; Cashbook too since #1314, bar a line
-// its own job has not written yet). The server re-checks
+// divider -- below every link and create option, so linking stays the obvious first choice -- on any
+// open line, for every module user since ADR-0022 Amendment E (`canSkipByHand`; Cashbook too since
+// #1314, bar a line its own job has not written yet). The server re-checks
 // all of it in `review.skip_row`.
 
 /**
@@ -941,7 +941,7 @@ export const DecisionDialog = ({
 
                     {/* ⚠️ LAST IN THE BODY, UNDER A DIVIDER (#1273). Keyed on the line so a half-typed
                         reason never carries over to the next transfer opened. */}
-                    {canSkipByHand(row, role, user_id) && (
+                    {canSkipByHand(row) && (
                         <SkipTransferBox key={row.name} busy={busy} onSkip={onSkip} />
                     )}
                 </div>

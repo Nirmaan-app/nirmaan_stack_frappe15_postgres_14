@@ -200,7 +200,8 @@ export const SKIP_ORIGIN_SYSTEM = "System";
 export const SKIP_ORIGIN_MANUAL = "Manual";
 
 /**
- * The profiles that may Skip, Unskip, Unreconcile and Reverse (#1270 Q1) -- Admin and Accountant Lead.
+ * The profiles that may Unreconcile and Reverse (#1270 Q1) -- Admin and Accountant Lead. Skip and Unskip
+ * left this list at ADR-0022 Amendment E (owner, 2026-09-24): every module user may do them.
  *
  * ⚠️ CONVENIENCE ONLY. `permissions.require_outflow_undo_access` is the boundary; this hides buttons a
  * plain Accountant would only be refused by. `outflowUndoAccessParity.test.ts` reads `permissions.py`
@@ -231,18 +232,17 @@ export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
 export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
 
 /**
- * May this person see the "Nothing to link?" Skip box on this line? Mirrors the server's
- * `skip_origin.manual_skip_refusal` plus the access check: an undo role and an OPEN line -- bar a
- * Cashbook line still `Pending match run`, which its own job is about to write (#1314). The server
- * re-checks all of it.
+ * May the "Nothing to link?" Skip box show on this line? Mirrors the server's
+ * `skip_origin.manual_skip_refusal`: an OPEN line -- bar a Cashbook line still `Pending match run`,
+ * which its own job is about to write (#1314). The server re-checks all of it.
+ *
+ * ⚠️ NO ROLE CHECK (ADR-0022 Amendment E, owner 2026-09-24): Skip is open to everyone in the module,
+ * Accountant included, so the module route is the only gate. It used to require `canUndoOutflow`.
  */
 export const canSkipByHand = (
     row: { row_status: string; source?: string | null } | null | undefined,
-    role: string | null | undefined,
-    userId: string | null | undefined,
 ): boolean =>
     Boolean(row) &&
-    canUndoOutflow(role, userId) &&
     isOpen(row!.row_status) &&
     !(NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim()) && row!.row_status === ROW_PENDING_MATCH);
 

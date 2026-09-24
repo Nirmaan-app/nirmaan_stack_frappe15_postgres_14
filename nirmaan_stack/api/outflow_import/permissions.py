@@ -69,9 +69,10 @@ def require_outflow_access(user: str | None = None) -> str:
     return user
 
 
-# Owner ruling (#1270 Q1): the actions that set work aside or undo it -- Skip, Unskip, Unreconcile and
-# the single-leg Reverse -- belong to Admin and Accountant Lead. A plain Accountant keeps matching and
-# confirming. The frontend mirrors this set in `outflowImportStatus.OUTFLOW_UNDO_PROFILES`, and
+# Owner ruling (#1270 Q1, narrowed 2026-09-24 by ADR-0022 Amendment E): the actions that UNDO settled
+# work -- Unreconcile and the single-leg Reverse -- belong to Admin and Accountant Lead. Skip and Unskip
+# are NOT on this list any more: they touch no recorded money, so every module user may do them
+# (`require_outflow_access`). A plain Accountant matches, confirms, skips and unskips. The frontend mirrors this set in `outflowImportStatus.OUTFLOW_UNDO_PROFILES`, and
 # `outflowUndoAccessParity.test.ts` reads this file to keep the two in step.
 OUTFLOW_UNDO_PROFILES = frozenset(
     {
@@ -82,7 +83,7 @@ OUTFLOW_UNDO_PROFILES = frozenset(
 
 
 def has_outflow_undo_access(user: str | None = None) -> bool:
-    """Whether this user may skip, unskip or undo work in this module. No side effects.
+    """Whether this user may unreconcile or reverse work in this module. No side effects.
 
     ⚠️ LAYERED ON `has_outflow_access`, NEVER A SECOND STANDALONE LIST. Every undo profile must also
     pass the module gate, so a profile dropped from `OUTFLOW_IMPORT_PROFILES` loses both at once --
@@ -99,7 +100,7 @@ def has_outflow_undo_access(user: str | None = None) -> bool:
 
 
 def require_outflow_undo_access(user: str | None = None) -> str:
-    """Gate Skip, Unskip, Unreconcile and Reverse. Returns the session user, or raises PermissionError.
+    """Gate Unreconcile and Reverse. Returns the session user, or raises PermissionError.
 
     The module gate runs first, so someone outside the module reads the module's sentence, and only
     an Accountant inside it reads this narrower one.
@@ -109,7 +110,7 @@ def require_outflow_undo_access(user: str | None = None) -> str:
     require_outflow_access(user)
     if not has_outflow_undo_access(user):
         frappe.throw(
-            "Only an Admin or an Accountant Lead can skip, unskip or undo a transfer.",
+            "Only an Admin or an Accountant Lead can unreconcile or reverse a transfer.",
             frappe.PermissionError,
             title="Not permitted",
         )

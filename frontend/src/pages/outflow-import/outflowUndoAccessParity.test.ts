@@ -1,4 +1,5 @@
-// Who may Skip / Unskip / Unreconcile / Reverse (#1273, parent #1270 Q1) -- spelled in two languages.
+// Who may Unreconcile / Reverse (#1273, parent #1270 Q1) -- spelled in two languages. Skip and Unskip
+// left the undo set at ADR-0022 Amendment E (owner, 2026-09-24): every module user may do them.
 //
 // `permissions.OUTFLOW_UNDO_PROFILES` is the boundary; `outflowImportStatus.OUTFLOW_UNDO_PROFILES` only
 // hides buttons. Neither side can import the other, so this reads the Python files as text (the
@@ -97,44 +98,35 @@ describe("canUndoOutflow", () => {
     });
 });
 
-describe("canSkipByHand -- the Skip box shows for undo roles on open lines", () => {
-    const lead = "Nirmaan Accountant Lead Profile";
-
+describe("canSkipByHand -- the Skip box shows on open lines, for every module user", () => {
     it("shows on every open status", () => {
         for (const row_status of [ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR]) {
-            expect(canSkipByHand({ row_status, source: "Cashfree" }, lead, "a@x.com")).toBe(true);
+            expect(canSkipByHand({ row_status, source: "Cashfree" })).toBe(true);
         }
     });
 
     it("hides on a line with money written, or already skipped", () => {
         for (const row_status of [ROW_SETTLED, ROW_PARTIALLY_ALLOCATED, ROW_SKIPPED]) {
-            expect(canSkipByHand({ row_status, source: "Cashfree" }, lead, "a@x.com")).toBe(false);
+            expect(canSkipByHand({ row_status, source: "Cashfree" })).toBe(false);
         }
     });
 
     it("★ shows on an open Cashbook line (#1314 -- INVERTS \"hides on Cashbook, even while open\")", () => {
         for (const row_status of [ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR]) {
-            expect(canSkipByHand({ row_status, source: " Cashbook " }, lead, "a@x.com")).toBe(true);
+            expect(canSkipByHand({ row_status, source: " Cashbook " })).toBe(true);
         }
     });
 
     it("hides on a Cashbook line its own job has not written yet", () => {
-        expect(
-            canSkipByHand({ row_status: ROW_PENDING_MATCH, source: " Cashbook " }, lead, "a@x.com"),
-        ).toBe(false);
+        expect(canSkipByHand({ row_status: ROW_PENDING_MATCH, source: " Cashbook " })).toBe(false);
     });
 
-    it("hides from a plain Accountant", () => {
-        expect(
-            canSkipByHand(
-                { row_status: ROW_MISMATCHED, source: "Cashfree" },
-                "Nirmaan Accountant Profile",
-                "a@x.com",
-            ),
-        ).toBe(false);
+    it("★ takes no role -- a plain Accountant may skip (ADR-0022 Amendment E, INVERTS \"hides from a plain Accountant\")", () => {
+        // The role arguments are gone, so a role can never hide the box again by accident.
+        expect(canSkipByHand.length).toBe(1);
     });
 
     it("hides with no line", () => {
-        expect(canSkipByHand(null, lead, "a@x.com")).toBe(false);
+        expect(canSkipByHand(null)).toBe(false);
     });
 });

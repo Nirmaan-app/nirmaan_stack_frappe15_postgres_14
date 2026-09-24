@@ -53,6 +53,9 @@ Unskip, Unreconcile and the existing single-leg Reverse. A plain Accountant keep
 confirming. The frontend mirrors the set (`outflowImportStatus.OUTFLOW_UNDO_PROFILES`) for convenience
 only, pinned by `outflowUndoAccessParity.test.ts`.
 
+> **Narrowed by Amendment E (2026-09-24):** Skip and Unskip left this check. It now guards Unreconcile
+> and Reverse only.
+
 ### Skip by hand, and who skipped (Q7, Q8, Q16, Q17) — built at #1273
 
 - `Outflow Import Row.skip_origin` — blank / **System** / **Manual**. **Only a Manual skip may ever be
@@ -385,6 +388,28 @@ legacy figure on a leftover now uses a deduction row instead. The retirement its
   `expenses._statement_spender`). The form shows it read-only.
 - **Reference (Q10).** Every settle writes the wallet transaction id — the row's `settlement_reference`
   (ADR-0020 B9) — including into `Project Payments.utr`. No change was needed.
+
+## Amendment E — a plain Accountant may Skip and Unskip (2026-09-24, owner)
+
+**Narrows** Q1. `review.skip_row` and `review.unskip_row` now take the **module** check
+(`permissions.require_outflow_access`: Accountant, Accountant Lead, Admin, plus `Administrator`)
+instead of `require_outflow_undo_access`. **Unreconcile and the single-leg Reverse are unchanged** —
+still Admin + Accountant Lead only (`unreconcile.get_unreconcile_plan`, `unreconcile.unreconcile_row`,
+`expenses.reverse_allocation`).
+
+- **Why the line falls here.** Skip and Unskip move no recorded money: a skip sets a line aside, and an
+  unskip re-opens it and re-runs the same duplicate check the import runs. Unreconcile and Reverse take
+  apart a settlement that already wrote to a payment or an expense.
+- **Nothing else moves.** Which lines may be skipped (`skip_origin.manual_skip_refusal`) and which may
+  come back (`skip_origin.unskip_refusal`, Amendment C, and the Cashbook rules of Amendment D) are
+  unchanged. So are the required reason, the Version row and the comment — who skipped is still on
+  record.
+- **Frontend.** `outflowImportStatus.canSkipByHand(row)` no longer takes a role (so a role can never
+  hide the Skip box again by accident); the Skipped popup always shows its Unskip column. The
+  `OUTFLOW_UNDO_PROFILES` parity pin stays, now covering Unreconcile and Reverse only.
+- **Tests inverted, not deleted.** `test_skip_row` / `test_unskip_row` now assert a plain Accountant is
+  ALLOWED and someone outside the module is refused; the Reverse and Unreconcile refusals for a plain
+  Accountant are untouched.
 
 ## Consequences
 

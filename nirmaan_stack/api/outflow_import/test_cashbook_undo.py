@@ -17,7 +17,7 @@ What is pinned, on a real Cashbook import (the committed `cashbook_sample.csv`, 
   * an open Cashbook line can be skipped by hand; one the job has not reached yet cannot;
   * a hand skip comes back NOT MATCHED, or SKIPPED again as System / Outflow Already Recorded when the
     wallet transaction is already booked (trap 3); a System Cashbook skip stays locked;
-  * a plain Accountant is refused all three.
+  * a plain Accountant is refused Unreconcile, but may Skip and Unskip (ADR-0022 Amendment E).
 
 ⚠️ THIS SUITE CREATES REAL EXPENSES on the live site, like `test_cashbook_import`, and tears down every
 one of them.
@@ -316,15 +316,16 @@ class TestSkipAndUnskip(CashbookUndoCase):
         self.assertIn(UNSKIP_REFUSED_CASHBOOK, str(caught.exception))
         self.assertEqual(self._stored(row).skip_origin, SKIP_ORIGIN_SYSTEM)
 
-    def test_a_plain_accountant_can_neither_skip_nor_unskip(self):
+    def test_a_plain_accountant_may_skip_and_unskip(self):
+        """INVERTED at ADR-0022 Amendment E (owner, 2026-09-24): a plain Accountant used to be refused."""
         row, _ = self._reopen()
         frappe.set_user(self.users.make(ACCOUNTANT))
-        with self.assertRaises(frappe.PermissionError):
+        try:
             skip_row(row, "not ours")
-        frappe.set_user("Administrator")
-        skip_row(row, "not ours")
-        frappe.set_user(self.users.make(ACCOUNTANT))
-        with self.assertRaises(frappe.PermissionError):
+            frappe.set_user("Administrator")
+            self.assertEqual(self._stored(row).row_status, ROW_SKIPPED)
+            frappe.set_user(self.users.make(ACCOUNTANT))
             unskip_row(row, "back")
-        frappe.set_user("Administrator")
-        self.assertEqual(self._stored(row).row_status, ROW_SKIPPED)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertNotEqual(self._stored(row).row_status, ROW_SKIPPED)

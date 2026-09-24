@@ -609,7 +609,7 @@ def _parse_targets(targets) -> list:
 # has no way back, by design.
 SKIPPED_ROW_REFUSAL = (
     "This row was skipped, and re-running the match does not reopen it. "
-    "If it was skipped by hand, an Admin or Accountant Lead can unskip it from the Skipped list."
+    "If it was skipped by hand, you can unskip it from the Skipped list."
 )
 
 

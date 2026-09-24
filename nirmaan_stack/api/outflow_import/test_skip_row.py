@@ -5,8 +5,10 @@
 
 What is pinned, all through the whitelisted endpoints:
 
-  * a plain Accountant is refused by `skip_row` and `reverse_allocation`; Admin, Accountant Lead and
-    the Administrator user are allowed;
+  * `skip_row` is open to the whole module -- Accountant included since ADR-0022 Amendment E
+    (2026-09-24) -- and refused outside it;
+  * a plain Accountant is refused by `reverse_allocation`; Admin, Accountant Lead and the
+    Administrator user are allowed;
   * `skip_row` refuses Settled, Partially Allocated, already Skipped lines and a Cashbook line its own
     job has not written yet (#1314 opened every other open Cashbook line), and writes
     nothing when it does;
@@ -54,6 +56,7 @@ from nirmaan_stack.services.outflow_import.status import (
 ACCOUNTANT = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD = "Nirmaan Accountant Lead Profile"
 ADMIN = "Nirmaan Admin Profile"
+OUTSIDER = "Nirmaan Project Manager Profile"
 
 
 class _Users:
@@ -166,16 +169,22 @@ class TestTheUndoAccessCheck(SkipFixture):
         self.assertFalse(has_outflow_undo_access("Guest"))
         self.assertFalse(has_outflow_undo_access(""))
 
-    def test_a_plain_accountant_is_refused_skip_and_nothing_is_written(self):
+    def test_someone_outside_the_module_is_refused_skip_and_nothing_is_written(self):
         row = self._line()
-        frappe.set_user(self.users.make(ACCOUNTANT))
+        frappe.set_user(self.users.make(OUTSIDER))
         with self.assertRaises(frappe.PermissionError):
             skip_row(row, "not ours")
         frappe.set_user("Administrator")
         self.assertEqual(self._stored(row).row_status, ROW_MISMATCHED)
 
-    def test_admin_accountant_lead_and_administrator_may_skip(self):
-        for who in (self.users.make(ADMIN), self.users.make(ACCOUNTANT_LEAD), "Administrator"):
+    def test_every_module_user_may_skip(self):
+        """INVERTED at ADR-0022 Amendment E (owner, 2026-09-24): a plain Accountant used to be refused."""
+        for who in (
+            self.users.make(ACCOUNTANT),
+            self.users.make(ADMIN),
+            self.users.make(ACCOUNTANT_LEAD),
+            "Administrator",
+        ):
             with self.subTest(who=who):
                 row = self._line()
                 frappe.set_user(who)
