@@ -663,7 +663,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                         setIsPrintDialogOpen(true);
                       }}
                     >
-                      View / Download Tax Invoice
+                      Generate Tax Invoice
                     </Button>
                   )}
 
