@@ -41307,3 +41307,56 @@ built into a priced variant is NOT a separate item: a motorised damper is ONE it
 actuator"*), so the stated 4 has nowhere to land: **a row pricing a motorised damper PLUS loose actuators
 cannot be expressed today.** The count question neither caused this nor can fix it. Revisit when a REAL row of
 that shape appears; it would mean reopening the composite ruling, not the count.
+
+---
+
+# HVAC PRICING, SLICE 7 — THE ADP REVIEW PACK (evidence only, 2026-09-24)
+
+**No repo code, config, asset or prompt changed; no pricing cell, rate or sheet field written.** Tip stayed
+`727ca7f1`. The owner's green-light material for ADP, re-centred mid-slice on the owner's direction: audit the
+EXTRACTION and the DISPLAY first, compare on the **supply rate ONLY** (install has been modified since these
+BoQs were priced), and carry every row's extraction PAYLOAD through.
+
+**Deliverables (OneDrive Desktop):** `2026-09-24_ADP_Review_Pack.md` · `2026-09-24_ADP_Review_Rows.xlsx`
+(1,156 rows, filterable by band / family / reason / `probable_extraction_miss`) ·
+`2026-09-24_ADP_Extraction_Payloads.jsonl` (1,150 rows: payload sent, model reply, parse drops, panel fields,
+matched SKU, pricer's figure).
+
+**The set.** 1,151 distinct hand-priced ADP rows across 61 BoQs / 70 sheets — the corpus survey's own method
+(current, filled, non-zero `BoQ Cell Pricing` cell with no `BoQ Rate Suggestion Event` at that column).
+⚠️ The survey's headline **1,211 is a RECORD count** over 3,640 `BoQ Row Category` rows; the same method today
+gives 1,235 records / **1,151 addresses**. 1,150 of 1,156 addresses are in the population a real run assembles.
+
+**The read.** `extraction.run_extraction(boq, sheet, client, only_rows=…)` — the real entry point, ONE SHEET at
+a time (no `excel_row` collision), batch size 20, single-category batches; ten payloads proved byte-identical
+against slice 4's pilot path before any spend. 98 batches, every sheet `rows_in == rows_out`. **$10.17** on
+`claude-opus-4-8` against a free `count_tokens` forecast of ≈$11. Halted once mid-way when the AI account ran
+out of credit (48 of 70 sheets), reported, then resumed with no re-spend on what was done.
+
+**Payload capture: 100%.** The product's own `extraction._capture_write` capture log carried the full prompt,
+the raw reply, the per-row `payload_items` and the parse `drops` for all 1,150 rows, including every row read
+before the halt — nothing had to be re-extracted.
+
+**Extraction audit.** 1,121 of 1,145 rows returned at least one item (24 returned none, nearly all labour /
+removal lines with nothing to price); 80 composite; 1,203 items. **52 refusals (15% of 349) look like
+extraction misses** — the payload plainly states the fact the refusal says is missing; the worst are `width
+stated as a size` 26/27 (a composite `375x375x375` token written into a single-number field) and `no width and
+height` 15/43, `no diameter stated` 5/11. A further **14 are correct by a ruling** (an outer size stated, no
+neck — R6/R8) and are counted apart. The text check raised nothing; parse drops were 24 empty-item rows and 4
+coercion failures.
+
+**Display audit.** 1,582 fields came from the model, 209 from a ruled default, 283 blank. **783 of 783 priced,
+unconverted items re-derive exactly** from the stored catalogue (`ROUNDUP(cost_supply × (1 + supply_markup), 0)`
+computed outside the pricing module) — the panel shows no figure its own catalogue does not support. 61 ladder
+hops, 72 conversions, 58 family aliases (all `grille, type not stated → linear grille`).
+
+**Supply against the pricer (762 rows with a typed supply).** EXACT **149**, within 2% **160**, within 10%
+**101**, over 10% **117**, contradicts-a-ruling **20**, refused **215**. That is **309 of 762 (41%) within 2%**,
+or **56% of the rows the helper actually priced**. 383 rows typed a combined rate only and are excluded.
+
+**K9 (the live panel) — 2 of 10.** On the owner's ruling the K2 read was persisted as ten `BoQ Rate Suggestion
+Run` documents (`BRSR-26-01307`…`01316`, runs 81→91, active 43→53, `carried = 0` on all ten, nothing
+superseded, no pricing cell touched). Two rows were then read on screen and both match the harness to the
+rupee, ladder note and all. The other eight are blocked on driving a virtualised grid from automation — a
+limit of the harness, not the product. **Anomaly to look at:** `BOQ-26-00093 | 4. HVAC - Option 1 (Terrace)`
+renders only Excel rows 20–43 although the committed sheet holds 142 nodes spanning rows 20–214.
