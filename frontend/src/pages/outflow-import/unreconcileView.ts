@@ -71,7 +71,10 @@ export interface UnreconcilePlanLeg {
 
 export interface UnreconcilePlan {
     row: string;
-    row_status: string;
+    /** `null` only on a bulk plan's `not_found` line. */
+    row_status: string | null;
+    /** Bulk plan only (#1319): the line no longer exists. */
+    not_found?: boolean;
     amount: number;
     beneficiary_name?: string | null;
     reference?: string | null;

@@ -149,6 +149,16 @@ def get_unreconcile_plan(row: str) -> dict:
     Accountant is offered none (#1270 Q1).
     """
     require_outflow_undo_access()
+    return plan_of_line(row)
+
+
+def plan_of_line(row: str) -> dict:
+    """`get_unreconcile_plan` bar the access check -- the ONE plan, so the bulk check step
+    (`bulk_unreconcile.get_bulk_unreconcile_plan`, #1319) can never describe a line differently from
+    the one-line dialog. Reads only; takes no lock.
+
+    ⚠️ THE CALLER HAS ALREADY CHECKED UNDO ACCESS. This is not whitelisted.
+    """
     line = frappe.db.get_value(ROW_DOCTYPE, row, _ROW_FIELDS, as_dict=True)
     if not line:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
