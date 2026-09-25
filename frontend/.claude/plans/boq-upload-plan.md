@@ -41776,3 +41776,202 @@ feed the extraction runs on -- does not carry them; **the model never sees eithe
 unaffected, but the pricing replay needs the unit. (`BOQ Nodes.sheet` is a LINK to the `BoQ Sheet` document, not
 the sheet label; the first join attempt filled 0 of 369 rows.) No browser cert and no test suite were run: no
 code changed, and the canonical block forbids a suite while the run is writing.
+
+---
+
+## HVAC PRICING, SLICE 11 -- ABSENT MEANS NOT MENTIONED; UNIT SYNONYMS; THE SQUARE FOOT; SLASH PAIRS TAKE THE HIGHER; A NAMED DAMPER IS NOT A SEPARATE ITEM; HVAC v13 (2026-09-25) -- SHIPPED
+
+Owner rulings F-1..F-4, plus two the owner added mid-slice: BUILD the square-foot conversion (reversing the
+hold agreed an hour earlier), and SHOW THE UNIT every figure is a rate in. Live as batch
+`rmbulk-3c375e759bb0` (95 items, 7 configs; **the items sha256 is UNCHANGED -- no catalogue cell moved this
+slice**). Electrical untouched at 1,367 / 12 / `rmbulk-b2147c6e15b1`.
+
+### AS BUILT
+
+**F-1 -- ABSENT MEANS NOT MENTIONED, widened. CONFIG ONLY.** `defaults.damper` / `.insulated` / `.variant` gain
+`absent_as_none: true`, the key `ul` has carried since S6. The read site
+(`if (v === null && spec.defaults?.[attr]?.absent_as_none === true) v = "None";`) was already generic, so not one
+line of pricing code changed. ⚠️ The ruled VALUES are untouched, which is why no already-priced figure could move.
+⚠️ `variant`'s default is `by_family` and covers only VCD and fire damper, so the widening reaches those two
+families and is inert elsewhere -- narrower than it sounds. ⚠️ `derive_when_none` (R13) fires over a `"None"`, and
+an absent answer now IS one, so a supply-air linear grille with no damper stated reaches "with damper" through R13
+rather than the R1 default. **This SUPERSEDES root CLAUDE.md's "damper and insulation keep absent = blank".**
+
+**F-2 -- four TRUE synonyms.** `unit_classes.length += "mtrs", "rmts"`; `.area += "smt", "sq. mtr"`. `normUnit`
+(trim, lower, ONE trailing dot dropped, whitespace collapsed) makes each entry cover its case and trailing-dot
+variants, so `Mtrs` / `Mtrs.` / `MTRS` are one entry. Lot, R/O and Cum are not units of measure and keep refusing
+in today's words.
+
+**F-2b -- THE SQUARE FOOT IS A DIFFERENT UNIT OF THE AREA CLASS.** New generic
+`list_spec.pricing.unit_factors: {<spelling>: {class, factor, word}}`; ABSENT is byte-identical to before.
+`unitClassOf` resolves a factor spelling to its class (so it matches that class's SKUs); `unitFactorOf` returns
+the conversion, and **returns null for any spelling `unit_classes` already holds** -- a unit is declared in ONE
+place. The conversion runs in `priceOneItem` AFTER the pipeline and before the quantity, so a family `convert`
+option (R4 / R11 / R16) composes under it: `finals[k] = Math.ceil(finals[k] * factor)`, i.e. **the class's rate x
+the factor, then today's ROUNDUP -- the RATE converts, never the BoQ's quantity.**
+⚠️ **SPELLINGS ARE SURVEYED, NOT GUESSED.** The live committed tier holds NINE sq.ft forms -- `Sqft` 15, `Sq ft` 5,
+`Sqft.` 4, `Sq.ft` 3, `SQFT` 3, `SFT` 2, `Sq.Ft.` 2, `Sft` 1, `sqft` 1 (36 rows) -- which normalise to FOUR keys:
+`sqft`, `sq ft`, `sq.ft`, `sft`. Those four are declared and no others.
+⚠️ **PRECISION, stated:** 1 sq.ft is exactly 0.09290304 sq.m; the declared factor is the owner's **0.0929**, used
+in the config, in the arithmetic AND in the note. It is 0.0033% below exact, and a test asserts that over EVERY
+rate this catalogue holds the two round to the same rupee -- declaring, computing and SHOWING one number is worth
+more than that difference, and one config edit raises it.
+⚠️ **THE VALIDATOR REFUSES A `factor` OF 1 BY NAME** ("that is a synonym -- declare it in unit_classes instead")
+and refuses a spelling already in `unit_classes`, using the CLIENT's normalisation duplicated across the language
+boundary. Without those two the same unit could be declared twice and the reader would silently pick one.
+⚠️ **WHY THIS IS NOT A SYNONYM, recorded because the wrong build survives review:** the catalogue quotes only
+NOS / RMT / SQM. Put `sqft` in `unit_classes` and a per-sq.ft row matches the per-SQM SKU and takes its rate
+UNSCALED -- **10.76x too high, silently**. `BOQ-26-00210` r83/r84 would have shown 7,830 per sq.ft instead of 728.
+
+**F-3 -- A SLASH PAIR TAKES THE HIGHER.** `isAltPair` (a BARE slash, optionally carrying the unit) plus a branch
+in `readNumber` beside the existing range branch, and `partIsReadable` relaxing `splitSizePhrase`'s "exactly one
+number per part" to "one number, or a pair". The note names the value taken.
+⚠️ **THE GAP MUST CARRY NO SIGN:** `25 +/- 2 mm` is a TOLERANCE, not a choice, and would otherwise resolve to 25 --
+right by accident, wrong by reasoning. Three values (`6/8 / 10 Port`) and a comma list (`3.5, 7.9 & 15.9 Nm`) are
+not pairs and keep refusing BY NAME. ⚠️ **It lives in the one number reader, so it reaches a size axis, a ratio, a
+diameter and a torque alike** -- the owner's own examples spanned a size AND a panel ratio, so the ruling is about
+a VALUE, not about a size. That is deliberate and is what makes `10/12 Module` work.
+
+**F-4 -- A NAMED DAMPER IS NOT A SEPARATE ITEM.** One instruction in `boq_rate_item_list_prompt.md`, placed
+immediately after R19 (a part built into a priced variant is not separate), of which it is the one-level-down
+application. Worked shapes went into the `family` and `damper` DEF NOTES, not the shared rule -- the root
+CLAUDE.md cross-talk convention, and the slice-9 B3 precedent. ⚠️ **The other half is load-bearing and pinned
+negatively: a row that buys the damper ITSELF still returns a damper item.**
+
+**THE UNIT LABEL (owner addition).** `FiguresRow` gains an OPTIONAL `unit`; the two ITEM-LIST call sites pass
+`view.unit` and **the non-item-list site passes none**. ⚠️ That opt-in IS the Electrical guarantee: `FiguresRow` is
+the ONE renderer of the three figures and `renderSection` (what Electrical shows) mounts it too, so a unit baked
+into the component would change Electrical's panel. The label is the row's own unit text, never a class name, and
+it rides IN ADDITION to the conversion working.
+
+### H1 -- THE REPLAY (no AI): all 1,151 stored audit replies through v13 + this slice's code
+
+| | rows |
+|---|---:|
+| priced, slice-10 baseline (v12 + the code at 712c1367) | 824 |
+| **priced, v13 + slice 11** | **943** |
+| **newly priced** | **119** |
+| **priced -> blank** | **0** |
+| **already-priced figures that moved** | **0** |
+
+| rule | rows | forecast |
+|---|---:|---|
+| F-1 absent means not mentioned | **80** | ~80 ✓ |
+| F-3 a slash pair takes the higher | **20** | ~30 -- see below |
+| F-2 a unit synonym | **17** | 17 ✓ (the ruling's own figure) |
+| F-2b the square-foot conversion | **2** | 2 ✓ |
+
+⚠️ **F-3 RESOLVED 27 PHRASES BUT PRICED 20 ROWS, AND THE GAP IS HONEST.** Three `150/200mm dia` rows now read 200
+and refuse for a CATALOGUE reason instead (`diameter 200 is above the largest size on the sheet (150)`) -- the rule
+fired and revealed a stock gap. Four `300/400 High` rows read the height and still lack a width, which their text
+genuinely does not give. The three phrases that are NOT pairs still refuse by name, as ruled.
+⚠️ **The square-foot figures are the owner's stated test, exactly:** `BOQ-26-00210` r83 and r84 price **728 supply
+/ 179 install per sq.ft** (7,830 x 0.0929 = 727.4 -> 728; 1,920 x 0.0929 = 178.4 -> 179), with the working line
+`per sq.ft: sq.m rate x 0.0929`.
+
+### H2 -- THE PAID RE-READ for F-4, at production batch size
+
+**The set:** the three rows named in the ruling, plus every row in the 1,151-row corpus whose reply carries BOTH a
+grille/diffuser item AND a standalone damper item (the search found **exactly those three** and no others), plus
+**30 control rows** (a row buying dampers alone, priced today). To read at PRODUCTION batch size rather than the
+scattered small batches that misled slice 9, the five sheets holding them were read WHOLE: **153 rows, 10 batches,
+sizes up to 20**. `prompt_sha` `56181778ffddccdb`; every row returned; 0 errors, 0 retries.
+
+| the three rows | before | after |
+|---|---|---|
+| `BOQ-26-00160 / HVAC` r12 | linear grille + collar damper, host damper `None` -- **priced 10,049 by accident** | **ONE item**, damper `with`, **9,628** |
+| `BOQ-26-00215 / LOW SIDE WORKS ` r69 | curved grille + collar damper -- refused | **ONE item**, damper `with`, **1,208** |
+| `BOQ-26-00216 / 1. MECHANICAL` r46 | square diffuser + collar damper + mixing box -- refused | **the standalone damper is gone**, damper `with`; still refuses for the mixing box's missing W/H/D, an unrelated reason |
+
+**Host + damper pairs across the read set: 3 -> 0. Controls: 30 of 30 still return a damper item as their own
+item; 0 changed; 0 figures moved.**
+
+**Omission rate on these 153 rows: 32.30% (the audit read) -> 29.77% (this slice).** The F-4 wording did not make
+the silent-state problem worse.
+
+⚠️ **FOUR ROWS IN THE READ SET WENT PRICED -> BLANK, AND NONE IS CAUSED BY THIS SLICE'S MECHANISMS** -- each is the
+model answering differently on a fresh read (`BOQ-26-00149` r277 added an access door; r298 did not read the panel
+ratio; r327 returned `450x450mm . Depth of trap door 100mm`, which is not an x-joined phrase; `BOQ-26-00216` r48
+lost the box's W/H/D). The same variance runs the other way: **32 rows on that set are newly priced, 101 -> 129.**
+This is the run-to-run variance slice 10 measured, not a regression.
+
+### COST
+
+| run | input | output | calls | time | cost |
+|---|---:|---:|---:|---:|---:|
+| H1 replay | 0 | 0 | 0 | -- | **$0** (no AI) |
+| H2 the F-4 re-read | 117,901 | 29,928 | 10 | 269 s | **$1.34** |
+
+At $5 / $25 per 1M. The free `count_tokens` forecast was 117,901 input -- **exact to the token**, as in slice 10.
+
+### TESTS (positive AND negative), measured in-session
+
+| suite | before | after |
+|---|---:|---:|
+| vitest | 3,652 passed / 1 failed | **3,691 passed / 1 failed** |
+| `test_rate_master` | 446 OK | **453 OK** |
+| `test_extraction_coercion` | 178 OK | **181 OK** |
+
+The single vitest failure is the known pre-existing `writeOffControl` timeout, on BOTH sides. No second failure.
+
+New: `itemListPricing.test.ts` gains the v13-diff proof, F-1 (a left-out damper / insulated / variant takes the
+ruled default MARKED as one; a stated value still wins; `"None"` and absent now reach the same figure, which IS
+the point; a config without the key still refuses; `ul` unchanged), F-2 (every corpus spelling resolves; Lot /
+R/O / Cum refuse; all four were unknown on v12), F-2b (all nine sq.ft spellings; the owner's 728 / 179 with the
+working line; a true synonym carries no factor and does not move; an undeclared unit refuses; v12 had none; a
+`unit_classes` spelling always wins), F-3 (a 13-row table of the real corpus phrases with the width/height/depth
+code reads, the note, a ratio and a diameter, and the four negatives). `RateHelperPanel.test.ts` gains four SOURCE
+pins (no DOM environment here, by design): the optional prop, both item-list mounts passing `view.unit`, and **the
+negative that exactly one of the three mounts passes none**. `test_rate_master.py` gains `test_w01..w07`;
+`test_extraction_coercion.py` gains `test_il_16..il_18`.
+
+**FOUR PRE-EXISTING PINS WERE INVERTED, negative halves kept, each with its before line in the diff:** `9/10 NM`
+and `10/12 Module` were pinned as refusals and now price (the comma lists and a four-value ratio keep the
+negative); `readNumber("350/400")` was pinned blank and now reads 400; and three of the five "forms code cannot
+read" in the slice-9 A-1 table are pairs and now read their higher value (the two genuine LISTS stay). Two
+mechanical bumps followed the new asset: `h07`'s series list is now v1..v13 and slice 9's class loads v12 BY NAME
+(it was CURRENT_HVAC_ASSET until v13), and slice 5's `p01` excludes `unit_factors`, a key v7 does not carry.
+
+### VACUITY -- 11 mechanisms, each broken one line at a time, RED, restored, GREEN
+
+The read site; the declaration on `damper`; the synonym `mtrs`; the rate conversion; the class resolution; the
+alternative-pair branch; the splitter's per-part allowance; the panel unit label; the prompt instruction; the
+`family` def note; the validator's `unit_factors` gate. Every break was restored from the bytes read before it,
+and the tree afterwards is identical to the tree before.
+
+### CERT (live, :8080, vite restarted by PID with `node_modules/.vite` wiped)
+
+**Bundle markers on the SERVED modules:** `itemListPricing.ts` carries `unitFactorOf`, `isAltPair`,
+`partIsReadable`, `unit_factors`, `states two values`; `RateHelperPanel.tsx` carries `unit` on `FiguresRow`,
+`"per ", label`, and -- the load-bearing one -- **the non-item-list mount served as `{ figures: g.figures }` with
+NO unit**, beside the two item-list mounts served with `unit: view.unit`.
+
+| step | where | result |
+|---|---|---|
+| **J1** F-1 in the panel | `BOQ-26-00064 / HVAC` r124 | ✅ **priced 4829**; the Damper field carries the **`default`** badge and the rule `R1 / slice 11 damper not mentioned (or not answered) = without`; working reads `damper not mentioned -> without`. It refused before this slice. |
+| **the unit label** | same row | ✅ per item **`Supply 4829 per Sqm · Install 880 per Sqm · Combined 5709 per Sqm`**; row total **`Row total per 1 Sqm`** with the same three labels |
+| **the unit label, CONVERTED** | `BOQ-26-00064 / HVAC` r121 item 2 | ✅ a per-SQM SKU priced per Nos through the S7 box-surface conversion: the conversion working is shown AND the figures read **`per Nos`** -- in addition, not instead |
+| **J5** a control that priced before | `BOQ-26-00064 / HVAC` r121 | ✅ **3391**, identical to slice 9's D5 |
+| **J6** Electrical | `BOQ-26-00224 / ELECTRICAL` | ✅ **354 rows**; row 216 hash **`b8db3d87`** identical to slices 5 and 9 (djb2 over the row's cell texts joined by `\|`); the helper renders `Rate master: Switches and Sockets @ Switch = 10A 1 WAY SWITCH ... Back box = No` -> **260**, verbatim as recorded; **zero unit labels anywhere in the Electrical panel** |
+| **J7** final DB | -- | ✅ HVAC **95 / 7**, batch `rmbulk-3c375e759bb0`, **DB items sha `f9989f8693ec0b29...` UNCHANGED**; Electrical **1,367 / 12**, batch and sha unchanged; **`BoQ Rate Suggestion Run` 93 -> 93 and Event 1,533 -> 1,533** (H2 ran through the harness, which writes nothing -- no in-product run was made); **`BoQ Cell Pricing` 37,702 rows, rate sha `2ca7e372a36a873f...` unchanged** -- no rate typed |
+
+⚠️ **FOUR CERT STEPS ARE BLOCKED, ALL BY ONE CAUSE, AND BLOCKED IS NOT FINISHED.** The panel renders the ACTIVE
+STORED RUN, and only two sheets in the database hold a run in the CURRENT extraction shape (`BOQ-26-00064 / HVAC`,
+and `BOQ-26-00140 / HVAC Lowside Works ` which is the slice-9 partial that halted at 19 rows). Every other stored
+run predates the one-field size and carries answers v13 cannot read -- `BOQ-26-00117 / HVAC BOQ ` r97 renders
+"Complete the missing attributes to price" for exactly that reason, which is the same trap slice 9 recorded and
+spent two cert runs on. So: **J2** (a `Mtrs` / `SMT` row) -- no current-shape run carries such a unit; **J3** (a
+slash-pair row) -- the only one is `BOQ-26-00140` r67, which the partial run never reached; **J4** (the named
+damper) -- needs H2's answers stored as a run, and H2 deliberately writes nothing; **the sq.ft row** -- no
+current-shape run on `BOQ-26-00210`. Each needs one fresh in-product suggest run (~$0.05 each), which is more AI
+calls than H2's scoped set and therefore a stated stopping condition. All four are certified by H1 / H2 evidence
+through the real code paths; none is certified ON SCREEN.
+
+### FINDINGS
+
+* **`BOQ-26-00140 / HVAC Lowside Works ` still holds the partial run that halted at 19 of 134 rows** -- carried
+  forward from slice 9, where it was already recorded as pre-existing. It is now also the reason J3 could not be
+  certified.
+* **Three `150/200mm dia` rows moved from an extraction refusal to a CATALOGUE refusal** (`diameter 200 is above
+  the largest size on the sheet (150)`). F-3 working as ruled, revealing a stock gap; it belongs with the other
+  catalogue gaps parked for review.

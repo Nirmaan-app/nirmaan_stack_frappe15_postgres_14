@@ -745,8 +745,46 @@ base per-sq.m row LIVE through `component_ref`, so a CSV edit flows through. ⚠
 `ul` as ABSENT on most actuator rows that say nothing about UL, where the prompt asked for "None". OWNER RULING S6
 (ADP live) REVERSED the earlier stance FOR UL ONLY: an absent UL answer is read as NOT MENTIONED and the non-UL
 default fires -- declared in config (`defaults.ul.absent_as_none`), and the prompt asset was fixed in the same change
-so the rule is not covering a prompt defect. Damper and insulation keep absent = blank; do not widen the key to them
-without a ruling.**
+so the rule is not covering a prompt defect. ⚠️ **THE "damper and insulation keep absent = blank" HALF OF S6 IS
+SUPERSEDED BY OWNER RULING F-1: `absent_as_none` now sits on `damper`, `insulated` AND `variant` beside `ul`, and
+on nothing else.** The owner asked for exactly the widening the old line forbade, on measured evidence, so do not
+"restore" it. WHAT MADE IT SAFE, and what any further widening must reproduce: a hand read of a seeded sample of
+omitted slots found every one of them on a row that genuinely does not state the fact; `VALUE` answers were
+unchanged across the corpus, so the model is not reading LESS, it is answering the WRONG ONE of the two silent
+states; and `ul`, the one attribute already carrying the key, sat at zero omission while the three did not. **A
+widening to any FURTHER attribute still needs its own ruling and its own measurement** -- the evidence, and the
+replay that priced the recovered rows without losing any, are in the plan doc.**
+
+**⚠️ A UNIT MAY BELONG TO A CLASS AND STILL BE A DIFFERENT UNIT OF IT -- AND THE TWO ARE DECLARED IN DIFFERENT
+PLACES (owner-locked).** A `list_spec.pricing.unit_classes` spelling is a SYNONYM: the same unit written
+differently, nothing scaled. A square foot is not that -- it is an area the catalogue does not quote in, so it is
+declared in `unit_factors` as `{class, factor, word}` and **the factor converts the RATE, never the BoQ's
+quantity**, before today's ROUNDUP. ⚠️ **Putting such a unit in `unit_classes` instead is the failure that
+survives review**: the row matches the class's SKUs and takes their rate unscaled, so the figure is wrong by the
+conversion and nothing on screen says so. The validator therefore refuses a `factor` of 1 by name (that is a
+synonym, and it belongs in `unit_classes`) and refuses a spelling that already appears in `unit_classes`, so a
+unit is declared in ONE place only; `unitClassOf` resolves a factor spelling to its class and `unitFactorOf`
+returns null for any spelling a class already holds. ABSENT `unit_factors` is byte-identical to before it existed.
+
+**⚠️ A VALUE WRITTEN AS AN ALTERNATIVE TAKES THE HIGHER; A LIST AND A TOLERANCE ARE NOT ALTERNATIVES
+(owner-locked).** Exactly TWO numbers joined by a BARE slash are a pair, and the higher is taken with a note
+naming it. The gap must carry no sign, because `25 +/- 2 mm` is a TOLERANCE, not a choice; three values and a
+comma list are not pairs either, and all three keep refusing by name. The rule lives in the one number reader, so
+it reaches a size axis, a ratio, a diameter and a torque alike -- the owner's own examples spanned a size and a
+panel ratio, so it is a rule about a VALUE, not about a size.
+
+**⚠️ A DAMPER NAMED AS PART OF A GRILLE OR DIFFUSER IS THAT ITEM'S DAMPER, NEVER A SECOND ITEM (owner-locked,
+R19 applied one level down).** A row buying the damper ITSELF still returns a damper item -- that half is the
+negative pin, and losing it would suppress every row that genuinely buys dampers alone. The instruction sits in
+the item-list prompt beside R19; the worked shapes sit in the `family` and `damper` DEF NOTES, never in the shared
+rule (the cross-talk convention: a shared rule states its test and quotes no corpus text).
+
+**⚠️ THE RATE-HELPER PANEL SHOWS THE UNIT A FIGURE IS A RATE IN, AND THE LABEL IS OPT-IN PER CALL SITE
+(owner-locked).** `FiguresRow` is THE ONE renderer of the three figures and the NON-item-list surface mounts it
+too -- which is what Electrical renders. The unit is therefore a prop the two ITEM-LIST call sites pass and the
+third does not; **making it a property of the component would change Electrical's panel**, so it must stay opt-in.
+The label is the ROW's own unit as the BoQ writes it, never a class name, and it rides IN ADDITION to the
+conversion working, never instead of it.
 
 **⚠️ AN ITEM OR AN ATTRIBUTE COMES FROM THE ROW, OR FROM A HEADING DESCRIBING THIS ROW'S ITEM -- NEVER FROM A
 HEADING THAT NAMES ANOTHER SECTION (owner A-3, 2026-09-25).** A BoQ's ancestor chain carries the row's own
