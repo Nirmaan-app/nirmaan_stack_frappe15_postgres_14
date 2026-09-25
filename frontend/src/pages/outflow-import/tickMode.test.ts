@@ -8,7 +8,7 @@ import {
     ROW_SETTLED,
     ROW_SKIPPED,
 } from "./outflowImportStatus";
-import { LOCKED_OPEN_TITLE, LOCKED_SETTLED_TITLE, lockedTitle, SETTLED_MODE_NOTE, SELECT_SETTLED_HINT, selectionMode, tickKindOf, tickRules } from "./tickMode";
+import { LOCKED_OPEN_TITLE, LOCKED_SETTLED_TITLE, lockedTitle, SETTLED_MODE_NOTE, SELECT_SETTLED_HINT, selectionMode, tickKindOf, tickRules, type TickKind } from "./tickMode";
 
 const rows = [
     { name: "open1", row_status: ROW_MATCHED },
@@ -62,12 +62,12 @@ describe("tickRules", () => {
         expect(r.note).toBeNull();
     });
 
-    it("open mode: only open lines; Settled lines are locked", () => {
+    it("open mode: only open lines; Settled lines are locked; no hint, since a greyed box cannot be ticked", () => {
         const r = rules({ mode: "open" });
         expect([...r.tickable]).toEqual(OPEN);
         expect(r.selectAll).toEqual(OPEN);
         expect([...r.locked]).toEqual(SETTLED);
-        expect(r.selectAllHint).toBe(SELECT_SETTLED_HINT);
+        expect(r.selectAllHint).toBeNull();
         expect(r.note).toBeNull();
     });
 
@@ -102,9 +102,46 @@ describe("tickRules", () => {
         for (const tab of ["all", "notMatchedOutflow", "partlyAllocatedOutflow", "notMatchedInflow"] as const) {
             const r = rules({ tab });
             expect([...r.tickable]).toEqual(OPEN);
+            expect(r.selectAll).toEqual(OPEN);
             expect(r.locked.size).toBe(0);
             expect(r.selectAllHint).toBeNull();
         }
+    });
+
+    it("plain Accountant: select-all ticks the open lines in every mode, exactly as before #1319 (#1321)", () => {
+        for (const tab of ["all", "matchedOutflow", "settledInflow", "notMatchedOutflow"] as const) {
+            for (const mode of ["none", "open"] as const) {
+                const r = rules({ canUndo: false, tab, mode });
+                expect(r.selectAll).toEqual(OPEN);
+                expect(r.selectAllHint).toBeNull();
+                expect(r.note).toBeNull();
+            }
+        }
+    });
+
+    it("select-all follows the ticks: none -> open, a Settled tick -> Settled, cleared -> open again (#1321)", () => {
+        for (const tab of ["matchedOutflow", "settledInflow"] as const) {
+            const kinds = new Map<string, TickKind>();
+            const modeOf = (ticked: string[]) => selectionMode(new Set(ticked), kinds);
+            expect(rules({ tab, mode: modeOf([]) }).selectAll).toEqual(OPEN);
+            kinds.set("settled1", "settled");
+            expect(rules({ tab, mode: modeOf(["settled1"]) }).selectAll).toEqual(SETTLED);
+            expect(rules({ tab, mode: modeOf([]) }).selectAll).toEqual(OPEN);
+            kinds.set("open2", "open");
+            expect(rules({ tab, mode: modeOf(["open2"]) }).selectAll).toEqual(OPEN);
+        }
+    });
+
+    it("select-all in settled mode ticks the Settled lines in page order, skipping interleaved open ones (#1321)", () => {
+        const page = [
+            { name: "s1", row_status: ROW_SETTLED },
+            { name: "o1", row_status: ROW_MATCHED },
+            { name: "s2", row_status: ROW_SETTLED },
+            { name: "o2", row_status: ROW_PENDING_MATCH },
+            { name: "s3", row_status: ROW_SETTLED },
+        ];
+        const r = tickRules({ rows: page, mode: "settled", tab: "matchedOutflow", canUndo: true });
+        expect(r.selectAll).toEqual(["s1", "s2", "s3"]);
     });
 
     it("no hint when the page holds no Settled line to select", () => {

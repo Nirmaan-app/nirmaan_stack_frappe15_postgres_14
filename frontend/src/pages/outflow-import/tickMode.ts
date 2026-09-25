@@ -89,7 +89,7 @@ export interface TickRules {
  *
  * - nothing ticked: open lines, plus Settled lines for the undo roles on the two Matched/Settled tabs.
  *   The top box ticks the open lines, as it did before #1319 (story 10).
- * - open mode: only open lines; Settled lines are greyed.
+ * - open mode: only open lines; Settled lines are greyed, and the top box carries no hint.
  * - settled mode: only Settled lines; open lines are greyed, and the top box ticks the Settled lines.
  *
  * ⚠️ `canUndo` IS `outflowImportStatus.canUndoOutflow`. Convenience only: the plan and write endpoints
@@ -126,7 +126,9 @@ export const tickRules = ({
         };
     }
     if (mode === "open") {
-        return { tickable: new Set(open), locked: new Set(settled), selectAll: open, selectAllHint: hint, note: null };
+        // ⚠️ NO HINT HERE (#1321): the Settled boxes are greyed, so "tick one Settled line first" is a
+        // step the user cannot take until they clear their ticks.
+        return { tickable: new Set(open), locked: new Set(settled), selectAll: open, selectAllHint: null, note: null };
     }
     return {
         tickable: new Set([...open, ...settled]),

@@ -6275,3 +6275,21 @@ the same day — the ADR also has two sections headed "Amendment C", renumbering
   refetched. Cashfree `OFI-26-00130`: 2 lines → result box "2 transfers unreconciled", both Matched + Confirm by
   hand. The spinner showed Close disabled and no X.
 
+
+## #1321 (2026-09-25) — Bulk unreconcile 3: select-all follows the tick mode
+
+- The behaviour itself shipped with #1319 (`tickMode.tickRules.selectAll` / `selectAllHint`); this slice pins it
+  and fixes one hint. Nothing ticked → the top box ticks the open lines (unchanged for a plain Accountant); one
+  Settled line ticked → it ticks every Settled line on the page; open lines ticked → open lines, as before.
+- ⚠️ **The hint is now withheld in OPEN mode.** With open lines ticked every Settled box is greyed, so "tick one
+  Settled line first" was a step the user could not take. It shows only with nothing ticked, only for the undo
+  roles, only on *Matched / Settled – Outflow* and *Settled – Inflow*, and only when the page holds a Settled line.
+- Tests: `tickMode.test.ts` — plain Accountant select-all in every mode/tab, the none → Settled → none walk,
+  page order in Settled mode, `selectAll` under the tab gate.
+- **Live walk (2026-09-25, local, Administrator, Matched / Settled – Outflow, 2 open + 48 Settled):** empty →
+  select all ticked the 2 open lines (Settled greyed); one Settled ticked → select all ticked all 48 ("Unreconcile
+  48"); cleared → select all ticked the 2 open lines again. Hint present on the two tabs, absent on *All* and
+  *Not Matched – Outflow*, absent once an open line is ticked.
+- **Plain-Accountant walk (same day, `Nirmaan Accountant Profile`):** Matched / Settled – Outflow — Settled lines
+  have NO box, select all ticks the 2 open lines and unticks them, no hint. Not Matched – Outflow — select all ticks
+  all 36, no hint. Settled – Inflow — no checkbox column at all (nothing tickable), as before #1319.
