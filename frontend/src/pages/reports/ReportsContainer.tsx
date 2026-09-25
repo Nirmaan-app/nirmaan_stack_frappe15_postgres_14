@@ -162,6 +162,9 @@ export default function ReportsContainer() {
         const validReportType = currentReportOptions.find(opt => opt.value === value)?.value as ReportType;
         if (validReportType && validReportType !== selectedReportType) {
             // When user selects a report, update the URL. State changes will follow.
+            // updateParam is a no-op (no notify) when the URL already holds this value, so the
+            // store is set directly too -- otherwise re-picking the URL's report did nothing.
+            setSelectedReportType(validReportType);
             urlStateManager.updateParam("report", validReportType);
             urlStateManager.updateParam("inflow_report_table_filters", null); // Clear filters when changing report
             urlStateManager.updateParam("outflow_report_table_filters", null);
@@ -203,13 +206,22 @@ export default function ReportsContainer() {
 
     // If the current activeTab is not in the list of available tabs for the role,
     // reset activeTab to the first available tab (or a sensible default).
+    //
+    // ⚠️ Waits for the role. While it is "Loading" `tabs` is EMPTY, and clearing activeTab
+    // then (a) ping-pongs with the URL-sync effect, which keeps restoring the URL tab, and
+    // (b) leaves activeTab '' when the role lands, so this reset jumped to tabs[0] (Projects)
+    // and the report-validation effect below replaced the URL's report with Projects' default,
+    // then the real tab's default. A reload of ?tab=sr&report=<anything> opened Pending Invoices.
+    // The URL's tab is preferred over tabs[0] for the same reason.
     useEffect(() => {
+        if (role === "Loading") return;
         if (tabs.length > 0 && !tabs.find(t => t.value === activeTab)) {
-            setActiveTab(tabs[0].value);
+            const urlTab = urlStateManager.getParam("tab");
+            setActiveTab(urlTab && tabs.some(t => t.value === urlTab) ? urlTab : tabs[0].value);
         } else if (tabs.length === 0 && activeTab !== '') { // No tabs available, clear activeTab
             setActiveTab(''); // Or a placeholder value like 'no_access'
         }
-    }, [tabs, activeTab]);
+    }, [tabs, activeTab, role]);
 
 
 
@@ -274,6 +286,9 @@ export default function ReportsContainer() {
 
     // Effect to auto-select/validate report type when options change
     useEffect(() => {
+        // Options are [] until the role lands; validating against that would discard the
+        // URL's report (see the tab-reset effect above).
+        if (role === "Loading") return;
         // console.log("Current Report Options changed:", currentReportOptions);
         // console.log("Current Selected Report Type:", selectedReportType);
         if (currentReportOptions.length === 1) {
