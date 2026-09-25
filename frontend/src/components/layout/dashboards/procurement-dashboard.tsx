@@ -8,8 +8,10 @@ import {
   SkipForward,
   XCircle,
   ListChecks,
-  PlayCircle,
-  CheckCircle2,
+  // PlayCircle / CheckCircle2: the icons of the two hidden Work Orders cards below.
+  // Commented out only because `noUnusedLocals` is on -- restore them with the cards.
+  // PlayCircle,
+  // CheckCircle2,
   FileCheck,
   Truck,
   PackageCheck,
@@ -121,26 +123,43 @@ const PROCUREMENT_SECTIONS: DashboardSection[] = [
         id: "all-wos",
         title: "All WOs",
         description: "Total work orders",
-        linkTo: "/service-requests-list",
+        // The NEW tabbed WO module, "All WO" tab (SR_TABS.ALL). It used to point at
+        // `/service-requests-list`, the retired list -- which also handed the top-bar
+        // "Add New WO" button the OLD `:project/new-sr` wizard instead of NewWODialog.
+        linkTo: "/service-requests?tab=all-sr",
         Icon: ListChecks,
         countKey: "sr.all",
       },
-      {
-        id: "in-progress-wo",
-        title: "In Progress WO",
-        description: "Awaiting vendor",
-        linkTo: "/service-requests?tab=choose-vendor",
-        Icon: PlayCircle,
-        countKey: "sr.pending",
-      },
-      {
-        id: "approved-wo",
-        title: "Approved WO",
-        description: "Ready for execution",
-        linkTo: "/service-requests?tab=approved-sr",
-        Icon: CheckCircle2,
-        countKey: "sr.approved",
-      },
+      // ── "In Progress WO" / "Approved WO" HIDDEN (owner, 25 Sep 2026) ──────────
+      //
+      // HIDDEN, NOT DELETED -- the house rule for a dashboard card, exactly like the
+      // hidden tabs in ExpenseLayout and the payments tab strip. "All WOs" above lands
+      // on the tabbed WO module, where both of these are a tab away: `?tab=choose-vendor`
+      // is "Pending WO" and `?tab=approved-sr` is the "Approved WO" sub-tab of All WO
+      // (see ServiceRequestsTabs). Two cards that duplicated one click.
+      //
+      // ⚠️ Their ROUTES are untouched, so the Estimates / Billing dashboards' own
+      // "Approved WO" cards and any bookmark on those query strings keep working.
+      // Restoring either card = uncommenting its block AND its icon import at the top.
+      // The `sr.pending` / `sr.approved` counts need nothing: they come from the shared
+      // `useDocCountStore`, which is populated whether or not a card reads them.
+      //
+      // {
+      //   id: "in-progress-wo",
+      //   title: "In Progress WO",
+      //   description: "Awaiting vendor",
+      //   linkTo: "/service-requests?tab=choose-vendor",
+      //   Icon: PlayCircle,
+      //   countKey: "sr.pending",
+      // },
+      // {
+      //   id: "approved-wo",
+      //   title: "Approved WO",
+      //   description: "Ready for execution",
+      //   linkTo: "/service-requests?tab=approved-sr",
+      //   Icon: CheckCircle2,
+      //   countKey: "sr.approved",
+      // },
     ],
   },
   {

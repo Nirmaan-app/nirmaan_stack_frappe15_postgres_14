@@ -114,16 +114,6 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New WO</span>
       </Button>
     );
-  } else if (locationPath === "/service-requests-list" && selectedProject && role !== "Nirmaan Project Manager Profile" && role !== "Nirmaan Estimates Executive Profile" && role !== "Nirmaan Billing Executive Profile") {
-    return (
-      <Button
-        className="sm:mr-4 mr-2"
-        onClick={() => navigate(`/service-requests-list/${selectedProject}/new-sr`)}
-      >
-        <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New WO</span>
-      </Button>
-    );
   } else if (locationPath === "/products" && role === "Nirmaan Admin Profile") {
     return (
       <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
