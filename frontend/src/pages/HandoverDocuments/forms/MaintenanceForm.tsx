@@ -1,6 +1,7 @@
 // Maintenance Checklist (#7): the library's six-monthly and yearly check items for the ticked parts, with
-// this project's Result + Remarks per item and Comments per sheet, plus the date of the check. Stored in
-// `form_data` (`included`, `date`, `checks`); the PDF prints one sheet per part and period, as in the
+// this project's Result + Remarks per item and Comments per sheet, plus ONE DATE PER PERIOD -- the two
+// checks are separate visits, so each sheet prints the date of its own (owner 2026-09-25). Stored in
+// `form_data` (`included`, `dates`, `checks`); the PDF prints one sheet per part and period, as in the
 // workbook, and anything left empty prints blank for writing by hand (services/hod/maintenance.py).
 
 import * as React from "react";
@@ -14,7 +15,9 @@ import {
   asStringList,
   MAINTENANCE_PERIODS,
   MAINTENANCE_RESULTS,
+  maintenanceDate,
   maintenanceSheet,
+  withMaintenanceDate,
   withMaintenanceResult,
   withMaintenanceSheet,
 } from "../hodRules";
@@ -41,6 +44,10 @@ export const MaintenanceForm: React.FC<
       ...p,
     })),
   );
+  // Only ask for the dates of the periods this system actually prints.
+  const periods = MAINTENANCE_PERIODS.filter((p) =>
+    picked.some((b) => b[p.list].length),
+  );
 
   return (
     <div className="space-y-4">
@@ -54,19 +61,30 @@ export const MaintenanceForm: React.FC<
         />
       )}
 
-      <div className="max-w-xs space-y-1">
-        <Label className="text-xs text-gray-600">Date of the check</Label>
-        <Input
-          type="date"
-          className="h-9"
-          value={asString(value.date)}
-          disabled={readOnly}
-          onChange={(e) => onChange({ ...value, date: e.target.value })}
-        />
-        <p className="text-[11px] text-gray-500">
-          Left empty, the DATE on the sheets stays blank to write by hand.
-        </p>
-      </div>
+      {periods.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex flex-wrap gap-4">
+            {periods.map((p) => (
+              <div key={p.list} className="w-56 space-y-1">
+                <Label className="text-xs text-gray-600">{p.label}</Label>
+                <Input
+                  type="date"
+                  className="h-9"
+                  value={maintenanceDate(value, p.list)}
+                  disabled={readOnly}
+                  onChange={(e) =>
+                    onChange(withMaintenanceDate(value, p.list, e.target.value))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-500">
+            The two checks are separate visits, so each sheet prints its own date.
+            Left empty, the DATE on that sheet stays blank to write by hand.
+          </p>
+        </div>
+      )}
 
       {sheets.map(({ block, list, label }) => {
         const sheet = maintenanceSheet(value, block.name, list);

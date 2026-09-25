@@ -151,23 +151,24 @@ def tds_items(project: str, system) -> list:
 
 
 def snag_batches(project: str) -> list:
-	"""The project's snag batches with their COMPLETED snags, newest first.
+	"""The project's snag batches with ALL their snags, newest first.
 
-	Only completed snags go into a handover (owner 2026-09-23), so `count` counts those and a batch with
-	none is not offered at all. The printed list is filtered the same way (`binder._content_steps` sends
-	`statuses=["Completed"]` to the Snag List format), so what prints is what the count promises."""
+	The WHOLE list is handed over, whatever each snag's status (owner 2026-09-25, replacing the
+	completed-only rule of 2026-09-23): the open items are the point of giving the client a snag list.
+	So `count` counts every snag in the batch, and the printed list is unfiltered too
+	(`binder._content_steps` sends no `statuses` to the Snag List format) -- what prints is what the
+	count promises. Only a batch holding no snags at all is left out, having nothing to print.
+	"""
 	rows = frappe.db.sql(
 		"""
-		select b.name, b.batch_name, b.uploaded_on,
-		       count(s.name) filter (where s.status = %(done)s) as done,
-		       count(s.name) as total
+		select b.name, b.batch_name, b.uploaded_on, count(s.name) as total
 		from "tabProject Snag Batch" b
 		left join "tabProject Snag" s on s.batch = b.name
 		where b.project = %(project)s
 		group by b.name, b.batch_name, b.uploaded_on
 		order by b.uploaded_on desc, b.name desc
 		""",
-		{"project": project, "done": sources.SNAG_DONE},
+		{"project": project},
 		as_dict=True,
 	)
 	return [
@@ -175,13 +176,10 @@ def snag_batches(project: str) -> list:
 			name=r.name,
 			batch_name=r.batch_name or r.name,
 			uploaded_on=r.uploaded_on,
-			count=r.done,
-			by_status={sources.SNAG_DONE: r.done},
-			# what the batch holds in all, so the screen can say "12 of 124 completed"
-			total=r.total,
+			count=r.total,
 		)
 		for r in rows
-		if r.done
+		if r.total
 	]
 
 

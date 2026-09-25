@@ -41,6 +41,11 @@ interface TdsExportDialogProps {
     /** Tick these item names on open instead of every Approved one. Anything no longer in the list is
      *  ignored. Absent (the TDS Repository tab) = the default, every Approved item ticked. */
     initialSelectedIds?: string[];
+    /** Open with NOTHING ticked when `initialSelectedIds` is empty or absent, instead of every Approved
+     *  item. The Handover Documents tab passes it (owner 2026-09-25): its ticks decide what a Preview,
+     *  Download or binder build MERGES, so pre-ticking the whole list pulled every data sheet to look at
+     *  one. The TDS Repository tab does not pass it and is unchanged. */
+    startEmpty?: boolean;
 }
 
 // Mini stakeholder card for the dialog
@@ -85,7 +90,8 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     historyData,
     isExporting,
     onSaveSelection,
-    initialSelectedIds
+    initialSelectedIds,
+    startEmpty = false
 }) => {
     const statusOptions = useMemo(() => ["Approved", "Pending"], []);
 
@@ -197,14 +203,14 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
             const defaultItems = sortedItems.filter(item => item.tds_status === "Approved");
             const seeded = initialSelectedIds?.length
                 ? defaultItems.filter(item => initialSelectedIds.includes(item.name))
-                : defaultItems;
+                : startEmpty ? [] : defaultItems;
             setSelectedIds(new Set(seeded.map(item => item.name)));
             setSelectedPackages([]);
             setSelectedStatus("Approved");
             setCollapsedPackages(new Set());
             setItemSearch("");
         }
-    }, [isOpen, sortedItems, initialSelectedIds]);
+    }, [isOpen, sortedItems, initialSelectedIds, startEmpty]);
 
     const handleSelectStatus = (status: string) => {
         setSelectedStatus(status);

@@ -463,6 +463,27 @@ class TestMaintenance(unittest.TestCase):
 			rows = maintenance.sheets([self.BLOCK], fd)[0]["rows"]
 			self.assertEqual({r["result"] for r in rows}, {""})
 
+	def test_each_period_carries_its_own_date(self):
+		fd = {"dates": {"list_1": "2026-03-14", "list_2": "2026-09-14"}}
+		self.assertEqual([(s["period"], s["date"]) for s in maintenance.sheets([self.BLOCK], fd)],
+						 [("Six Months Report", "2026-03-14"), ("Yearly Report", "2026-09-14")])
+
+	def test_a_period_left_empty_prints_blank(self):
+		fd = {"dates": {"list_1": " 2026-03-14 ", "list_2": ""}}
+		self.assertEqual([s["date"] for s in maintenance.sheets([self.BLOCK], fd)], ["2026-03-14", ""])
+
+	def test_the_single_pre_split_date_is_the_fallback_for_both(self):
+		# a row saved before the two dates keeps printing the one it had, on both sheets
+		self.assertEqual([s["date"] for s in maintenance.sheets([self.BLOCK], {"date": "2026-01-09"})],
+						 ["2026-01-09", "2026-01-09"])
+		# ... and a period that HAS its own date does not fall back to it
+		fd = {"date": "2026-01-09", "dates": {"list_2": "2026-09-14"}}
+		self.assertEqual([s["date"] for s in maintenance.sheets([self.BLOCK], fd)], ["2026-01-09", "2026-09-14"])
+
+	def test_period_date_reads_bad_shapes_as_blank(self):
+		for fd in (None, "x", {"dates": "x"}, {"dates": []}, {"dates": {"list_1": None}}):
+			self.assertEqual(maintenance.period_date(fd, "list_1"), "")
+
 
 class TestEscalation(unittest.TestCase):
 	def test_label_is_the_position(self):
@@ -492,7 +513,9 @@ class TestEscalation(unittest.TestCase):
 		self.assertTrue(all(not_done(x) for x in ("Pending", "Pending Approval", "Not Applicable", "", None)))
 		self.assertTrue(all(sources.design_is_done(x) for x in ("Submitted", "Approved")))
 		self.assertTrue(not any(sources.design_is_done(x) for x in ("Pending", "WIP", "Not Applicable", None)))
-		self.assertEqual(sources.SNAG_DONE, "Completed")
+		# ... but the SNAG LIST is handed over in full, open items included (owner 2026-09-25), so no
+		# snag status filter exists to import.
+		self.assertFalse(hasattr(sources, "SNAG_DONE"))
 
 	def test_selected_items_follows_the_ticks(self):
 		items = [{"name": "a"}, {"name": "b"}, {"name": "c"}]

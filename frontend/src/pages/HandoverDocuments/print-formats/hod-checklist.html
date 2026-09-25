@@ -42,33 +42,74 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    a -1px top margin so their 1px borders overlap into a single outer edge. wkhtmltopdf renders nested
    bordered tables unpredictably, which is why this is a stack rather than a table inside a table. */
 .hc-doc-title, .print-format .hc-doc-title {
-    text-align: center; font-weight: 700; font-size: 12px; background: #FBE4D5 !important;
+    text-align: center; font-weight: 700; font-size: 15px; background: #FBE4D5 !important;
 }
 .hc-pkg td, .print-format .hc-pkg td { background: #FBE4D5 !important; font-weight: 700; }
-.hc-spacer td, .print-format .hc-spacer td { height: 14px; border-left: 0 !important; border-right: 0 !important; }
+/* The gap under PACKAGE is an empty BORDERED row on the original sheet -- the box runs unbroken from
+   the title down to the signatures, so the side rules carry straight through it. */
+.hc-spacer td, .print-format .hc-spacer td { height: 14px; }
 .hc-strong, .print-format .hc-strong { font-weight: 700; }
 /* Blank areas the handover is signed and stamped in, filled by hand on the printed sheet. */
-.hc-comments td, .print-format .hc-comments td { height: 70px; }
-/* ONE band for the seal and the names: the names sit at the FOOT of the blank the seal goes in, with no
-   rule above them and none between them -- three labels in open space, not a table of three cells. */
-.hc-seal td, .print-format .hc-seal td { height: 120px; vertical-align: bottom !important; padding-bottom: 10px !important; }
+/* THREE classes on the alignment, deliberately: `.print-format .hc-table td` below carries three too
+   and sets `vertical-align: middle`, so a two-class override loses to it on source order however it is
+   written -- the label then floats in the middle of the blank instead of sitting in its top-left
+   corner. Same trap as the Maintenance sheet's table sizing. */
+.hc-comments td, .print-format .hc-comments td { height: 62px; }
+.hc-table .hc-comments td, .print-format .hc-table .hc-comments td { vertical-align: top !important; }
+/* A heading INSIDE a cell, over its own blank -- the Maintenance sheet's `.hd-cell-head`. */
+.hc-cell-head, .print-format .hc-cell-head { display: block; margin-bottom: 5px; }
+/* THE SHEET FILLS THE PAGE (owner 2026-09-25). The original is an EXCEL sheet, sized to the page:
+   whatever is left after the rows is absorbed by the seal band, so the block always ends near the
+   bottom margin and the three signatures always sit at the foot -- whether the system has 12
+   documents or 16. Plain flow does the opposite: it sizes to its content and stops early, which is
+   what left a short box with white space under it.
+   The sheet is therefore a FIXED-HEIGHT box: the tables run down it in normal flow, and the seal band
+   is pinned to its bottom. Do NOT reach for a two-row wrapper table with a "fill" row -- wkhtmltopdf
+   breaks the page between those two rows unconditionally, with 45mm still free below, and the band
+   lands on a page of its own. Measured: any wrapper height, and even `height: auto`, does it.
+   297mm - 20mm top - 14mm bottom = 263mm printable; 258mm leaves headroom, because a block whose
+   height exactly equals the printable area spills a blank page out of wkhtmltopdf. */
+.hc-sheet { position: relative; height: 258mm; page-break-inside: avoid; }
+/* The two side rules of the box, drawn for its FULL height. The tables only reach as far as their own
+   rows, so without this the box would have open sides across the blank above the signatures. They sit
+   exactly where the tables' own outer borders sit (both on the sheet's edges), so nothing doubles. */
+.hc-rails { position: absolute; top: 0; bottom: 0; left: 0; right: 0; border-left: 1px solid #000; border-right: 1px solid #000; }
+/* ONE band for the seal and the names, pinned to the foot of the sheet: the names sit under the blank
+   the seal goes in, with no rule above them and none between them -- three labels in open space, not
+   a table of three cells. It closes the box with the bottom rule. */
+.hc-foot { position: absolute; left: 0; right: 0; bottom: 0; border-bottom: 1px solid #000; padding-bottom: 10px; }
+/* The company seal, bottom-left of the band and above the names -- where it sits on the original.
+   `/assets/.../frontend/nirmaan-seal-sign.png` is a `public/` file, copied verbatim by Vite, so unlike
+   the bundled logo its url carries NO build hash and cannot 404 after a rebuild. It is the same file
+   the Commission Report prints; note that format makes it OPT-IN, since a seal is a signature. */
+/* The seal is sized so the WHOLE band still clears the Comments box on the fullest sheet there is --
+   all 16 documents AND a location that wraps to two lines, which leaves only ~36mm under the box.
+   Grow it and the seal prints through that rule. */
+.hc-seal-mark { text-align: left; padding-left: 66px; margin-bottom: 10px; }
+.hc-seal-mark img { height: 88px; }
 .hc-signnames { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .hc-signnames td, .print-format .hc-signnames td {
-    border: 0 !important; text-align: center; font-weight: 700; padding: 2px !important; font-size: 10.5px;
+    border: 0 !important; text-align: center; font-weight: 700; padding: 2px !important; font-size: 12px;
 }
 .hc-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: -1px 0 0 0; }
 /* Frappe's print page forces `.print-format td { padding: 6px !important }`, which pushed the checklist to
    two pages: the doubled selectors below out-rank it in both render paths. */
 .hc-table td, .hc-table th, .print-format .hc-table td, .print-format .hc-table th {
-    border: 1px solid #000; padding: 3px 6px !important; vertical-align: middle !important;
-    font-size: 10.5px; line-height: 1.3; word-wrap: break-word; color: #000;
+    border: 1px solid #000; padding: 5px 6px !important; vertical-align: middle !important;
+    font-size: 13px; line-height: 1.3; word-wrap: break-word; color: #000;
 }
 /* No fill on the column header: the ONLY filled rows are the title and PACKAGE, which is what marks
    them as "which handover is this" rather than evidence (owner's layout). */
 .hc-table th, .print-format .hc-table th { font-weight: 700; text-align: center; }
-/* The VENDOR / PROJECT / ... block: roomier rows than the checklist rows (owner's layout). */
-.hc-table.hc-head td, .print-format .hc-table.hc-head td { padding: 7px 10px !important; }
-.hc-head td.hc-hl { width: 130px; font-weight: 700; }
+/* The CONSULTANT / PROJECT / LOCATION / DATE / PACKAGE block, at the size the Maintenance sheet's
+   head block uses (owner 2026-09-25) -- the two sit next to each other in the binder and were reading
+   at different sizes. The fills on the title and PACKAGE rows are untouched. */
+.hc-table.hc-head td, .print-format .hc-table.hc-head td { padding: 7px 10px !important; font-size: 10.5px; }
+/* The label column is set by the <colgroup> on the head table, NOT here: `table-layout: fixed`
+   takes its widths from the FIRST ROW, and that row is the single `colspan=2` title cell -- which
+   made the browser split the table 50/50 and left the labels sitting in a column half the sheet
+   wide. A <colgroup> is read before any row, so it is the only thing that can state it here. */
+.hc-head td.hc-hl { font-weight: 700; }
 .hc-c { text-align: center; }
 .hc-gap { height: 10px; }
 .hc-note { font-size: 10.5px; margin: 8px 0 !important; }
@@ -79,7 +120,6 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     border: 1px solid #000; text-align: center; padding: 5px !important; font-size: 11px; font-weight: 700; color: #000;
 }
 .hc-sigs .hc-sig-box td, .print-format .hc-sigs .hc-sig-box td { border: 1px solid #000; height: 60px; padding: 0 !important; }
-.hc-sheet { page-break-inside: avoid; }
 </style>
 
 {#- The STRATOS letterhead (wkhtmltopdf's repeating page header / footer) prints ONLY on the two
@@ -146,8 +186,16 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 {%- set signers = (ctx.top.logos if ctx.top and ctx.top.logos else []) -%}
 
 <div class="hc-sheet">
+{#- The outer table is the PAGE, not a layout wrapper: it is what makes the sheet end on the bottom
+    margin instead of wherever its rows happen to stop. Row 1 holds everything down to the Comments
+    box; row 2 is the fill, and the seal band inside it takes whatever height is left. -#}
+{#- The two side rules of the box; see `.hc-rails`. -#}
+<div class="hc-rails"></div>
 
 <table class="hc-table hc-head">
+    {#- The ONLY place the label column can be stated -- see the `.hc-head td.hc-hl` note. 17% matches
+        the original sheet; without it the `colspan=2` title row splits the table in half. -#}
+    <colgroup><col style="width: 17%;"><col></colgroup>
     <tr><td class="hc-doc-title" colspan="2">TECHNICAL HANDING OVER DOCUMENTATION</td></tr>
     <tr><td class="hc-hl">CONSULTANT</td><td>{{ v(h.vendor) }}</td></tr>
     <tr><td class="hc-hl">PROJECT</td><td>{{ v(h.project) }}</td></tr>
@@ -158,7 +206,9 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 </table>
 
 <table class="hc-table">
-    <tr><th style="width: 9%;">S.No</th><th>DESCRIPTION</th><th style="width: 14%;">Status</th><th style="width: 24%;">Remarks</th></tr>
+    {#- 17% is the SAME width the head table's label column takes, so the rule under "CONSULTANT"
+        and the rule under "S.No" are one continuous line down the sheet (the original's layout). -#}
+    <tr><th style="width: 17%;">S.No</th><th>DESCRIPTION</th><th style="width: 16%;">Status</th><th style="width: 17%;">Remarks</th></tr>
     {% for r in ctx.rows %}
     <tr>
         <td class="hc-c">{{ r.sno }}</td>
@@ -171,17 +221,24 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 <table class="hc-table">
     <tr><td class="hc-strong" colspan="3">The above list was handed over by Nirmaan and taken over by the respective client.</td></tr>
-    <tr><td class="hc-strong" colspan="3">Comments :</td></tr>
-    <tr class="hc-comments"><td colspan="3"></td></tr>
-    {#- The tall blank the company seal goes in, with the parties named along its foot. -#}
-    <tr class="hc-seal"><td colspan="3">
-        <table class="hc-signnames"><tr>
-        {%- if signers -%}
-        {%- for s in signers -%}<td>{{ v(s.name|upper) }}</td>{%- endfor -%}
-        {%- else -%}
-        <td>NIRMAAN</td><td>{{ v(ctx.consultant_label) }}</td><td>CLIENT</td>
-        {%- endif -%}
-        </tr></table>
-    </td></tr>
+    {#- Label and blank in ONE cell (owner 2026-09-25), matching the Maintenance Checklist: not a
+        label row over a separate empty row. -#}
+    <tr class="hc-comments"><td colspan="3"><span class="hc-strong hc-cell-head">Comments :</span></td></tr>
 </table>
+
+{#- The tall blank the company seal goes in, with the parties named along its foot, pinned to the
+    bottom of the sheet: the page's slack falls between the Comments box and this band, so the
+    signatures sit at the foot whether the system has 12 documents or 16. -#}
+<div class="hc-foot">
+    <div class="hc-seal-mark">
+        <img src="{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}" alt="">
+    </div>
+    <table class="hc-signnames"><tr>
+    {%- if signers -%}
+    {%- for s in signers -%}<td>{{ v(s.name|upper) }}</td>{%- endfor -%}
+    {%- else -%}
+    <td>NIRMAAN</td><td>{{ v(ctx.consultant_label) }}</td><td>CLIENT</td>
+    {%- endif -%}
+    </tr></table>
+</div>
 </div>

@@ -9,8 +9,11 @@ import {
   levelLabel,
   inventoryTotals,
   printedNumbers,
+  maintenanceDate,
   maintenanceSheet,
+  visibleRows,
   rowEditable,
+  withMaintenanceDate,
   withMaintenanceResult,
   withMaintenanceSheet,
 } from "./hodRules";
@@ -99,6 +102,21 @@ describe("maintenance checks (mirrors services/hod/maintenance)", () => {
     expect(maintenanceSheet(v, "b1", "list_2").comments).toBe("Next visit in March");
     expect(maintenanceSheet(v, "b9", "list_1")).toEqual({});
   });
+  it("each period keeps its own date, and the pre-split one is the fallback", () => {
+    // a row saved before the split shows its single date on BOTH periods
+    const old = { date: "2026-01-09" };
+    expect(maintenanceDate(old, "list_1")).toBe("2026-01-09");
+    expect(maintenanceDate(old, "list_2")).toBe("2026-01-09");
+
+    // the first edit freezes BOTH, so dropping `date` on save cannot lose the untouched one
+    const v = withMaintenanceDate(old, "list_1", "2026-03-14");
+    expect(v.dates).toEqual({ list_1: "2026-03-14", list_2: "2026-01-09" });
+    expect(maintenanceDate(v, "list_1")).toBe("2026-03-14");
+
+    // an explicitly cleared period reads blank once `date` is gone
+    const cleared = withMaintenanceDate({ dates: { list_1: "2026-03-14" } }, "list_1", "");
+    expect(maintenanceDate(cleared, "list_1")).toBe("");
+  });
   it("compacting drops empty items, sheets and blocks", () => {
     expect(
       compactMaintenanceChecks({
@@ -110,6 +128,21 @@ describe("maintenance checks (mirrors services/hod/maintenance)", () => {
         b3: "junk",
       }),
     ).toEqual({ b1: { list_1: { results: { B: { result: "Not OK", remarks: "" } }, comments: "" } } });
+  });
+});
+
+describe("visibleRows (the grid forms' blank starter block)", () => {
+  it("pads only when NOTHING is stored, so a delete can actually take", () => {
+    // nothing stored yet -> a blank starter block to type into
+    expect(visibleRows([], 5, false)).toHaveLength(5);
+    // anything stored -> exactly that, even below minRows. Topping it back up to minRows is what made
+    // the per-row delete button dead: the row went and the pad put an empty one straight back.
+    expect(visibleRows([{ a: "1" }, {}], 5, false)).toEqual([{ a: "1" }, {}]);
+    expect(visibleRows([{}], 5, false)).toEqual([{}]);
+    // deleting the last row leaves the starter block, never a stuck empty grid
+    expect(visibleRows([], 5, false)).toHaveLength(5);
+    // read-only never invents rows
+    expect(visibleRows([], 5, true)).toEqual([]);
   });
 });
 

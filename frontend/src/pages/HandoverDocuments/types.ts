@@ -13,7 +13,8 @@ export interface HodDocumentMeta {
   title: string;
   kind: HodDocumentKind;
   landscape: boolean;
-  /** The document gives users something to fill in (so its row leads with "Fill Form"). */
+  /** The document gives users something to fill in (so its row gets the Edit button, and YES is refused
+   *  until it has been saved). */
   fill: boolean;
   library: string | null;
   source: "commission" | "tds" | "snag" | "design" | null;
@@ -42,11 +43,17 @@ export interface HodSystemOption {
   added: boolean;
 }
 
+/** Progress over one system's switched-on rows, from `services/hod/checklist.counts`. The three answers
+ *  plus the rows that are switched off; `completed` is the YES count, kept under its old name. The
+ *  derived Pending / Form Filled / Completed are gone (owner 2026-09-24), and so are the `filled` and
+ *  `pending` counts that went with them — the server stopped sending them. */
 export interface HodCounts {
+  /** Answered YES. */
   completed: number;
-  filled: number;
-  pending: number;
+  no: number;
+  na: number;
   off: number;
+  /** Switched-on rows: what YES is counted against. */
   needed: number;
   /** Rows holding entries (removing the system deletes them). */
   touched: number;
@@ -135,15 +142,13 @@ export interface HodDesignTask {
   download_url: string | null;
 }
 
-/** One uploaded snag list of the project (a Project Snag Batch). Only COMPLETED snags are handed over,
- *  so `count` counts those and `total` is what the list holds in all. */
+/** One uploaded snag list of the project (a Project Snag Batch). The WHOLE list is handed over
+ *  (owner 2026-09-25), so `count` is every snag in the batch, open ones included. */
 export interface HodSnagBatch {
   name: string;
   batch_name: string;
   uploaded_on: string | null;
   count: number;
-  total: number;
-  by_status: Record<string, number>;
 }
 
 export interface HodSources {

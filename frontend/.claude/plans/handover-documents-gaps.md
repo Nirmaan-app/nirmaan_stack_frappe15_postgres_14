@@ -13,10 +13,11 @@ Legend: **Owner** = who has to act (Team = site/owner team, Dev = code change).
 |---|---|---|---|
 | P1 | ~~Paste both print formats again~~ **Done** | Team | Pasted 2026-09-22 15:00; the saved "HOD Document" and "HOD Checklist" match the repo files exactly. |
 | P2 | ~~Paste the O&M table pictures~~ **Done differently 2026-09-23** | Dev | The 18 pictures were extracted from the workbooks and **transcribed into real HTML tables** in the library (17 tables, 0 images left), so they are editable on screen and print as text. Nothing has to be pasted on live — the tables travel as library content. |
-| P3 | **Browser walk-through** of the tab | Dev + Team | Never seen in a browser: Actions cell + ⋮ menu, Fill Form dialogs, Select & Download pickers (all 6 From Nirmaan), progress window + polling, remove-system warning, Details guide, O&M pictures upload. Needs a test login. |
+| P3 | **Browser walk-through** of the tab | Dev + Team | Never seen in a browser: the Actions cell's three buttons, Fill Form dialogs, Select & Download pickers (all 6 From Nirmaan), progress window + polling, remove-system warning, Details guide, O&M pictures upload. Needs a test login. |
+| P7 | ~~**Delete the list branch of `hod-document.html`**~~ **Not dead after all** | — | The binder stopped putting the list page in front of the records (2026-09-25), but Preview still shows it, so the branch stays. |
 | P4 | ~~Full binder from the button~~ **Fixed + verified 2026-09-23** | Dev | It never finished on screen: `job_id` is a parameter of `frappe.enqueue` ITSELF, so the job's own id never reached `_run_binder_job` — every event and the cached status were written for job `None` while the screen polled its own id. The id now travels as `hod_job_id`. Verified through `enqueue_binder` + the 2-second poll: 73 steps, 168 pages, ready with its token. Clicking it in a browser is still unseen (P3). |
 | P5 | ~~Commit~~ **Done** | Team | Committed 2026-09-22 on `hod/feature` in four commits (backend, tab, docs, print-format fixture); not pushed. |
-| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; status options Pending/Form Filled/Completed); the two print formats arrive with the `Print Format` fixture; load the library with `bench --site <site> import-doc` (systems first, then content) or enter it under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
+| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; `Project HOD Document.status` ships as `YES\nNO\nNA`, default NO — the derived Pending/Form Filled/Completed were retired 2026-09-24 and no row on live carries them); the two print formats arrive with the `Print Format` fixture; load the library with `bench --site <site> import-doc` (systems first, then content) or enter it under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
 
 ---
 
@@ -86,7 +87,7 @@ done by eye (no OCR on this machine), so spot-check against the workbook. Two ty
 | # | Gap | Effect | Possible fix |
 |---|---|---|---|
 | G9 | **Removing a system deletes its rows and uploaded files** | Irreversible (the screen warns and needs "Remove anyway") | Soft delete / archive |
-| G10 | **Checklist PDF prints YES only for Completed** | Form Filled prints blank | Owner decision |
+| G10 | ~~**Checklist PDF prints YES only for Completed**~~ **Gone 2026-09-24** | The derived statuses were replaced by the hand-picked YES / NO / NA, so the sheet prints the answer someone gave it. Nothing to decide | — |
 | G11 | **Warranty and Completion keep separate commissioning dates** | Completion borrows the warranty's date only when its own is empty at save | One shared date on the system |
 
 ### 3d. Going live
@@ -121,9 +122,66 @@ contents can be set without downloading anything.
 **The binder carries NO index page in front of a From Nirmaan document's records (owner 2026-09-25,
 REVERSING the 2026-09-23 ruling that added one).** The divider page already carries the S.No and the
 document title, so a second page listing what follows repeated it. `_content_steps` no longer inserts
-`"<title> (list)"`. The "HOD Document" print of such a row STILL renders that list -- it is what Preview
-and the row's own Download show -- the binder just does not put it in front of the records. Measured on
+`"<title> (list)"`. The "HOD Document" print of such a row still RENDERS that list, but nothing shows it
+any more in the BINDER; Preview still shows it, which is the only place it is seen. Measured on
 KOLKATA-PROJ-00102 / Electrical: 16 sections, 24 steps, 0 index pages.
+
+**Preview shows the LIST page, and a From Nirmaan document's real records come only from Download
+(built and REVERTED 2026-09-25).** Preview was briefly routed through the same server build as Download
+(`enqueue_binder` with `document`, a `mode` on `useHodBinder`, the PDF handed to `ReportPreviewDialog`
+instead of saved). It does not work, for a reason that is structural rather than a bug:
+
+**`build_plan` refuses a document that is not answered YES** -- the binder carries what was handed over
+(owner 2026-09-24) -- and Preview is exactly what someone looks at BEFORE answering. So every unanswered
+row threw *"X is not marked YES for Y, so there is nothing to hand over for it."*, which is every row a
+person would want to preview. Making it work would mean loosening the YES gate on the build endpoint, or
+giving single documents their own endpoint that ignores it; neither was asked for.
+
+A second thing showed up while it was in: making Preview spin exposed that **every From Nirmaan row's
+button spun while a build ran on ONE of them**. That was older than the change -- `busy` both disabled and
+spun -- and it is FIXED and kept: `HodActionCell` now takes `busy` (disable: any build blocks every app
+row, the server takes one at a time) and `working` (spin: this row's own work only).
+
+So the row's own list page is still what "HOD Document" prints for a From Nirmaan row and what Preview
+shows. To read one actual report, open the document and use **View** beside that record.
+
+**A From Nirmaan picker opens with NOTHING ticked (owner 2026-09-25, replacing "all ticked at first").**
+The ticks are what a Preview, a Download or the binder MERGES, so arriving with every record ticked meant
+opening Commissioning Report and pressing Preview pulled all 40-odd reports to look at one. The person now
+picks what they want instead of un-picking what they do not; the header checkbox still selects them all in
+one click, and both footer buttons stay disabled while nothing is ticked.
+
+`SourcesView` seeds `current` from the row's saved `selected`, else an empty set. Material Data Sheet goes
+through the TDS tab's SHARED `TdsExportDialog`, so it could not simply be changed there -- the TDS
+Repository tab must keep ticking every Approved item. It takes a new opt-in `startEmpty` prop that only HOD
+passes. The server rule is untouched: `sources.selected_items` still reads an ABSENT `selected` as "all of
+them", which now only reaches a row nobody has opened -- the screen sends the picker first, so a row that
+was saved carries a real list, empty included.
+
+**The SNAG LIST is handed over in full, open snags included (owner 2026-09-25, REPLACING the
+completed-only rule of 2026-09-23).** The open items are the point of giving a client a snag list, so no
+status filter is applied anywhere on the snag path: `SNAG_DONE` is gone from `services/hod/sources`, and
+neither `from_app.snag_batches` (the picker's count), `hodDownloads.snagBatchPdfUrl` (the batch's own
+View / Download) nor `binder._content_steps` sends a `statuses` param. The Snag List format defaults to all
+four statuses when the param is absent, so dropping it really does mean everything. Only a batch holding no
+snags at all is left out, having nothing to print.
+
+Measured on localhost: the same 4 batches are offered before and after (each already had at least one
+completed snag), but the snags they carry go 195 -> 884 -- SNAG LIST_08.09.2026 was handing over 70 of 552
+and Food Box MEP Snags list 1 of 124. The rule is lifted for SNAGS ONLY: Commission still needs Submitted /
+Client Accepted and As Built still Submitted / Approved.
+
+**The binder's DIVIDER pages printed bare, while the cover and every document were headed
+(found and fixed 2026-09-25).** `_dividers` builds its own HTML and hands it to `get_pdf`, which picks
+`#header-html` out of it exactly as it does for a Print Format -- and it did: the header reached
+wkhtmltopdf with all four `<img>` tags. The strip was rendered and then pushed off the page.
+
+`prepare_header_footer` wraps the header page in a `.print-format` div AND gives it the SAME `<style>` as
+the body. So `.print-format {{ margin-top: 20mm }}` -- written to be read back as wkhtmltopdf's PAGE
+margin -- also applied as CSS INSIDE a header band that is itself only 20mm tall, and the logos fell
+outside it. Both print formats already carry the one-line cancel for this (`div.print-format { margin: 0
+auto !important; }`; a `div.*` selector is not read back as a page option). `_dividers` had copied the
+margin rule without it. Fixed by adding the same line.
 
 **The logo strip is a REPEATING PAGE HEADER, not body content (owner 2026-09-25).** It first shipped in
 the body, which prints ONCE at the top of the flow -- a 5-page O&M manual had logos on page 1 and five
@@ -155,9 +213,10 @@ is `read_only: 0` with options `YES\nNO\nNA` and default **NO** (no blank option
 "not answered" IS NO). The controller stopped computing it and now GUARDS it: **YES is refused on a
 document that has not been saved** (`checklist.can_be_yes` → `is_saved`), so a Desk edit obeys the same
 rule as the screen; NO and NA are never gated. **The binder carries YES rows only**; NO and NA stay on the
-printed checklist with their answer and no pages follow them. "Form Filled" survives as the derived
-boolean `is_saved` — one rule for all three kinds (a form's entries, a library text's included parts, a
-From Nirmaan document's ticked records), mirrored in the frontend as `hodRules.isSaved` (ADR-0010 F1).
+printed checklist with their answer and no pages follow them. What the old "Form Filled" used to detect
+is now just the boolean `is_saved` behind the YES gate — never a status, never shown — one rule for all
+three kinds (a form's entries, a library text's included parts, a From Nirmaan document's ticked
+records), mirrored in the frontend as `hodRules.isSaved` (ADR-0010 F1).
 On screen it is a PILL with an edit icon opening a small dropdown; the YES entry reads "Save <document>
 first" when the row is not saved, and picking it anyway opens a refusal dialog with an "Open it now"
 button. The **Remarks column left the SCREEN but stays on the PAPER** (owner): nothing on the tab fills
@@ -177,21 +236,21 @@ had already changed). The file's `modified` was bumped, so the sync will pick it
 
 **NO handover document carries a signed upload any more (2026-09-24, owner — From Nirmaan first, then
 widened to the library texts and the forms).** Every document is either read live from Nirmaan or
-generated by it, so it is previewed and downloaded from this screen and then ticked off: the Actions cell
-is "Download" / "Select & Download" + **"Mark as Completed"**, and the ⋮ menu offers "Mark as pending" to
-undo it. A blank fillable document still leads with "Fill Form". The mark is stored as
-`form_data.completed` and read by `checklist.derive_status`, so status stays DERIVED — nothing writes
-`status` by hand. Ticking reports for download (`form_data.selected`) is NOT completing the document.
-**A marked document stays EDITABLE** (a tick is not a signature); only an older row's uploaded copy
-freezes the form behind it.
-**A From Nirmaan document is marked off only AFTER its records were reviewed (owner 2026-09-24):**
-"Mark as Completed" is DISABLED on those six until a selection has been saved on the row
-(`Array.isArray(form_data.selected)`), and the button says what to do first. Saving IS the review, so
-every From Nirmaan picker now has a **Save selection** button that costs no PDF -- `SourcesView` for the
-five record documents, the export dialog's own for Material Data Sheet. A document Nirmaan GENERATES
-(form / library text) has nothing to review -- the person is looking at the finished thing -- so it can
-be marked straight away. ⚠️ This gate is FRONTEND-ONLY: `derive_status` completes on the mark alone, so a
-Desk edit or a direct `update_row` can still mark an unreviewed From Nirmaan document.
+generated by it, so it is previewed and downloaded from this screen and then ticked off. As first built
+that tick was a **"Mark as Completed"** button storing `form_data.completed`, which `derive_status` read —
+status was still DERIVED. **Both are gone**: LATER THE SAME DAY `status` became the hand-picked
+YES / NO / NA (see the entry above), and the mark's only trace is `form_data.completed` living on as a
+META key that `is_saved` must ignore, or ticking a box would make an empty form look filled.
+Ticking reports for download (`form_data.selected`) does NOT answer the document.
+**An answered document stays EDITABLE** — YES is a statement, not a signature.
+**A From Nirmaan document is answered YES only AFTER its records were reviewed (owner 2026-09-24):**
+YES is refused on those six until a selection has been saved on the row, and the refusal says what to do
+first. Saving IS the review, so every From Nirmaan picker has a **Save selection** button that costs no
+PDF -- `SourcesView` for the five record documents, the export dialog's own for Material Data Sheet. A
+LIBRARY text has nothing to review (its content is the library's, and the project adds nothing), so it is
+answerable as it stands; a FORM must have its entries saved like any other. Unlike the frontend-only gate
+this started as, the rule is now enforced on the SERVER too -- `checklist.can_be_yes`, called from the
+controller -- so a Desk edit or a direct `update_row` cannot answer YES on an unsaved document either.
 **The whole signed-copy path is DELETED, code-side (owner 2026-09-24, in two steps: first the picker,
 then the field).** Gone: the hidden `<input type=file>`, `onUpload` / `uploadSigned` / `useFrappeFileUpload`,
 "Upload Signed", "Replace signed copy", "Remove signed copy", "View Signed", `HodRow.attachment`, the
@@ -209,9 +268,10 @@ start and names it (switch it off instead). The mark is a human statement, not a
 
 Intentional (not gaps): the **Download binder button is VISIBLE** again (`SHOW_BINDER_BUTTON = true` in
 `hodApi.ts`, owner 2026-09-24; hidden 2026-09-23 while the binder was unproven) — it stays DISABLED until
-every switched-on document is Completed; anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
+every switched-on document is answered **YES**; anything left empty on the Maintenance Checklist (Result, Remarks, Comments, DATE) prints
 blank to fill by hand; Inventory prints 8 blank rows when empty (fits one landscape page); a tool with no remark prints an empty
-Remarks cell; Do's & Don'ts goes Pending → Completed with no "Form Filled"; status is never set by hand.
+Remarks cell; a library text (O&M Manual, Do's & Don'ts) can be answered YES as it stands, having nothing for
+the project to fill.
 
 ---
 

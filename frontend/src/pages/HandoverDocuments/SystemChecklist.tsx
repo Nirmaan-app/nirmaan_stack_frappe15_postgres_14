@@ -197,7 +197,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   const buildingBinderHere = job?.hodSystem === system.name && !job.document;
   const binderTitle = `${system.display_name} — ${project.project_name}`;
   // Owner 2026-09-23: the binder is the client's finished set, so it downloads only once every
-  // switched-on document is Completed. Until then the button says how many
+  // switched-on document is answered YES. Until then the button says how many
   // are left. A document the project does not need is switched off and stops counting.
   const remaining = counts ? counts.needed - counts.completed : 0;
   const binderReady = !!counts && counts.needed > 0 && remaining === 0;
@@ -329,8 +329,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             {system.display_name}
           </p>
           <p className="text-xs text-gray-500">
-            {counts ? `${counts.completed} of ${counts.needed} completed` : ""}
-            {counts?.filled ? ` · ${counts.filled} form filled` : ""}
+            {counts ? `${counts.completed} of ${counts.needed} answered YES` : ""}
+            {counts?.na ? ` · ${counts.na} NA` : ""}
             {counts?.off ? ` · ${counts.off} switched off` : ""} · Work package:{" "}
             {system.work_package}
           </p>
@@ -368,7 +368,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               title={
                 binderReady
                   ? "Cover, checklist and every document in one PDF"
-                  : `The binder is ready once every document is Completed — ${remaining} to go`
+                  : `The binder is ready once every document is answered YES — ${remaining} to go`
               }
               onClick={() => onBuild(null, binderTitle)}
             >
@@ -485,10 +485,13 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                       row={row}
                       meta={meta}
                       canEdit={editable}
+                      // Disabled while any build runs (the server takes one at a time) but only THIS
+                      // row's own work spins its button.
                       busy={
                         rowBusy ||
                         (meta.kind === "app" && building && !contentBusy)
                       }
+                      working={rowBusy}
                       onOpen={() => setOpenRow(row.name)}
                       onDownload={() => downloadRow(row, meta)}
                     />
@@ -539,7 +542,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           row={openRowData}
           meta={openMeta}
           siblings={ordered}
-          // Marking a document completed is a tick, not a signature: the form stays editable.
+          // Answering YES is a statement, not a signature: the form stays editable.
           readOnly={!rowEditable(openRowData, canEdit)}
           onSave={async (formData) => {
             const patchBody = withPendingYes(openRowData, formData);

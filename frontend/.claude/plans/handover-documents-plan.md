@@ -81,9 +81,15 @@ Commission tasks that are neither training nor factory test (Earthing Test, LT C
 pressure tests, Fluke/continuity tests, …) are listed under **3. Commissioning Report** (decision 9, as built).
 
 **Owner 2026-09-23: only FINISHED records are offered.** A Commission task counts when it is Submitted or
-Client Accepted, an As Built drawing when it is Submitted or Approved, and a snag when it is Completed — the
-snag list prints with the same filter, so what is ticked is what prints. Unfinished records are not listed at
-all (site-wide today: 46 of 894 commission tasks, 268 of 722 handover drawings, 194 of 884 snags qualify).
+Client Accepted, and an As Built drawing when it is Submitted or Approved. Unfinished records are not listed
+at all (site-wide today: 46 of 894 commission tasks, 268 of 722 handover drawings qualify).
+
+**Owner 2026-09-25: the SNAG LIST is the exception — it is handed over in full.** A snag list carries every
+snag of the batch, whatever its status, because the OPEN items are exactly what the client is being handed;
+holding one back would make the document a lie. So no status filter is applied anywhere on the snag path —
+not in the picker's count, not in the batch's own print, not in the binder — and only a batch holding no snags
+at all is left out, having nothing to print. This replaces the completed-only rule of 2026-09-23 (which had
+offered 195 of the site's 884 snags; one batch was handing over 1 snag out of 124).
 
 ### Template coverage
 
@@ -191,10 +197,10 @@ varies:
 2. **Company settings** (admin, once): legal name, addresses, CIN, logo, authorized signature. **As built:** kept
    in the print formats (as the Commission Report does), not as a record.
 3. **Project HOD** (per project × system): commissioning date, "handed over to", which sub-systems apply (HVAC:
-   VRF + Duct only), per-document on/off switch + remarks + signed upload, the filled forms (escalation,
+   VRF + Duct only), per-document on/off switch + remarks (the signed upload was dropped), the filled forms (escalation,
    inventory, attic, key list, warranty equipment edits, O&M blanks + pictures) and the ticked From-app records.
-   **As built:** all of it lives on the 16 `Project HOD Document` rows; status is derived (Pending / Form Filled /
-   Completed), never typed.
+   **As built:** all of it lives on the 16 `Project HOD Document` rows; status is the handover answer
+   **YES / NO / NA**, picked by hand (owner 2026-09-24), and the signed upload is gone.
 4. **Output**: one merged PDF binder per system in the workbook's order — cover → checklist → divider + content
    for each applicable document, with the From-app PDFs placed behind their dividers.
 
@@ -251,23 +257,24 @@ its systems (e.g. only Electrical), so auto-tabs per package would be wasted tab
   form input.
 - Confirmed and built: switching off fully replaces NA.
 
-## Owner ruling 2026-09-22: status is DERIVED from the actions; Commission-style Actions cell
+## Owner ruling 2026-09-24: status IS the handover answer — YES / NO / NA, picked by hand
 
-Nobody picks a status. `services/hod/checklist.derive_status` decides it on every save (controller) and read (API):
+**There is no Pending / Form Filled / Completed.** Those three were the 2026-09-22 design, derived by
+`checklist.derive_status` from what had been done; that function is deleted and the doctype field is a
+writable Select `YES\nNO\nNA` with default **NO**. The retired values survive in the code only as something
+to HEAL from: `normalise_status` reads any unrecognised value as NO and the next save writes NO back, which
+is why no backfill script was needed.
 
-| Status | When |
-|---|---|
-| **Pending** | nothing done yet |
-| **Form Filled** | the document has something to fill (Escalation, Maintenance, Inventory, Recommended Tools, Attic, Key List, Warranty, Completion) and its saved form holds real input |
-| **Completed** | the signed copy is uploaded |
+| Answer | Means | Gate |
+|---|---|---|
+| **YES** | handed over — the document goes in the binder | refused until the document has been SAVED, where it has anything to save: a form its entries, a From Nirmaan document its ticked records. A library text (O&M Manual, Do's & Don'ts) carries the library's own content, so it is answerable as it stands (`can_be_yes`) |
+| **NO** | not handed over | the default a row is created with, so "not answered" reads as NO. No blank option |
+| **NA** | not applicable to this project | always allowed — a document nobody will fill must still be markable |
 
-Do's & Don'ts and the From-app documents go Pending → Completed: there is nothing for the user to fill. The
-Maintenance Checklist (Result / Remarks / Comments) and the Recommended Tools List (Remarks per tool) are forms
-since 2026-09-22, see the index. The Actions cell follows the Commission Report: one primary action picked by the
-status (Pending → Fill Form, or Download / Select & Download + Upload Signed; Form Filled → Download + Upload
-Signed; Completed → View Signed) and a ⋮ menu for the rest. The printed checklist says **YES only for Completed**
-(gaps G10 asks the owner whether Form Filled should print too). A **Details** button beside Edit library opens a
-guide to the whole flow.
+The answer is its own column on the checklist, changed from a small dropdown; the Actions cell is three
+buttons (Edit / Preview / Download) and nothing else. The printed checklist prints the answer as it stands.
+A switched-off row is a different thing: it leaves the printed checklist entirely and the S.No closes up,
+while an NA row stays on the sheet. A **Details** button beside Edit library opens a guide to the whole flow.
 
 ## Downloads = Frappe Print Formats; binder = everything + uploads (owner, 2026-09-21)
 
@@ -410,9 +417,9 @@ values that are still needed went:
    (`make_attachments_public` 0 — public GCS uploads never work on this site); pictures are embedded at print.
 3. **`Project HOD Document`** — standalone, one per project × system × document; all 16 created by "+ Add system"
    (unique triple: controller message + a unique index). `project` (Link Projects) · `hod_system` (Link HOD
-   System) · `document` (Select — the 16 index keys) · `status` (Select, READ-ONLY: Pending / Form Filled /
-   Completed, derived on every save) · `disabled` (Check — the switch) · `remarks` (Small Text) · `attachment`
-   (Attach — the signed copy) · `form_data` (JSON — the document's own values: escalation levels, inventory
+   System) · `document` (Select — the 16 index keys) · `status` (Select `YES\nNO\nNA`, default NO, writable —
+   the handover answer, picked by hand) · `disabled` (Check — the switch) · `remarks` (Small Text) · ~~`attachment`
+   (Attach — the signed copy)~~ retired 2026-09-24 · `form_data` (JSON — the document's own values: escalation levels, inventory
    matrix, attic rows, key list + receiver, warranty equipment + commissioning date, completion commissioning
    date + handed-over-to, O&M included parts + blank values, maintenance included parts + results + comments, the
    From-app records ticked for download, each form's date). Write: System Manager, PMO Executive, Project Lead,
@@ -465,8 +472,9 @@ Remaining work (browser walk-through, go-live) is tracked in `handover-documents
 ## Decisions (all settled)
 
 1. Doctypes — approved: the three in Schema v2 (not the v1 `Project Handover Document`).
-2. Status values — **derived: Pending / Form Filled / Completed** (owner 2026-09-22), not picked by hand. (The
-   earlier proposals — Pending / Received / Submitted / Not Applicable, then Pending / Yes — were dropped.)
+2. Status values — **YES / NO / NA, picked by hand** (owner 2026-09-24). It replaced the derived
+   Pending / Form Filled / Completed of 2026-09-22, which had itself replaced the earlier proposals
+   (Pending / Received / Submitted / Not Applicable, then Pending / Yes).
 3. Who can edit — System Manager, PMO Executive, Project Lead, Project Manager (doctype permissions); everyone
    else view-only.
 4. ~~Kinds marked `?`~~ — settled by the owner's notes 2026-09-21.
@@ -482,8 +490,8 @@ Remaining work (browser walk-through, go-live) is tracked in `handover-documents
     Drive link fails and is named in the binder's "could not include" (gaps G4).
 12. Doc 7 name — "Maintenance Checklist".
 
-Still for the owner (gaps §3c): G10 — should Form Filled print YES on the checklist; G11 — one shared
-commissioning date per system.
+Still for the owner (gaps §3c): G11 — one shared commissioning date per system. (G10 — "should Form Filled
+print YES" — died with the derived statuses on 2026-09-24: the answer is now typed in by hand.)
 
 ---
 

@@ -17,7 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 const WHAT_YOU_CAN_DO = [
   "Add the systems this project hands over (Electrical, HVAC, …)",
   "Track the 16 handover documents of each system",
-  "Fill the escalation chart, lists and certificates; upload signed copies and O&M pictures",
+  "Fill the escalation chart, lists and certificates; add the O&M pictures",
   "Download each document, the checklist or the whole binder as PDF",
 ];
 

@@ -116,6 +116,22 @@ export function asStringList(value: unknown): string[] | null {
 }
 
 /** Drop rows the user left completely empty, so a half-filled grid saves only what was typed. */
+/** The rows a grid form SHOWS: the stored ones, or a blank starter block when nothing is stored yet.
+ *
+ *  The padding is deliberately keyed on "nothing stored", NOT on "fewer than minRows". Topping a short
+ *  list back up to minRows on every render makes the per-row delete button DEAD -- the row goes and the
+ *  pad puts an empty one straight back, so the count never drops below minRows and the user sees
+ *  nothing happen. It also breaks the rule that what the dialog shows is what prints.
+ *  Mirrors `BLANK_ROWS` in `api/hod/print_context.py`: the two are the same number on purpose. */
+export function visibleRows<T extends object>(
+  rows: T[],
+  minRows: number,
+  readOnly: boolean,
+): T[] {
+  if (rows.length > 0 || readOnly) return rows;
+  return Array.from({ length: minRows }, () => ({}) as T);
+}
+
 export function compactRows<T extends object>(rows: T[]): T[] {
   return rows.filter((r) =>
     Object.values(r).some((v) => asString(v).trim() !== ""),
@@ -230,6 +246,36 @@ export function withMaintenanceResult(
   return withMaintenanceSheet(value, block, list, {
     results: { ...results, [item]: { ...asRecord(results[item]), ...patch } },
   });
+}
+
+/** The date of ONE period's check. The six-monthly and the yearly checks are separate VISITS, so each
+ *  carries its own date (mirrors `services/hod/maintenance.period_date`). The single pre-split `date` is
+ *  the fallback, so a row saved before the two dates still shows the one it had. */
+export function maintenanceDate(
+  value: Record<string, unknown>,
+  list: MaintenanceList,
+): string {
+  return asString(asRecord(value.dates)[list]).trim() || asString(value.date).trim();
+}
+
+/** A copy of the form value with one period's date set.
+ *
+ *  BOTH periods are written on the first edit: the other one keeps the date it was already SHOWING — the
+ *  legacy single `date` on a row saved before the split — so dropping that key on save cannot lose it. */
+export function withMaintenanceDate(
+  value: Record<string, unknown>,
+  list: MaintenanceList,
+  date: string,
+): Record<string, unknown> {
+  const other = MAINTENANCE_PERIODS.find((p) => p.list !== list)!.list;
+  return {
+    ...value,
+    dates: {
+      ...asRecord(value.dates),
+      [other]: maintenanceDate(value, other),
+      [list]: date,
+    },
+  };
 }
 
 /** Before saving: drop items with neither a result nor remarks, then sheets and blocks left empty. */

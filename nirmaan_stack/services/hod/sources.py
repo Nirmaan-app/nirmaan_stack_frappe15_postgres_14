@@ -74,11 +74,14 @@ def default_included(sub_systems, categories) -> list:
 	return ticked or subs
 
 
-# Only FINISHED records belong in a handover pack (owner 2026-09-23): an unfinished report, drawing or
-# snag is still being worked on, so it is not offered for download and not counted as missing content.
+# Only FINISHED reports and drawings belong in a handover pack (owner 2026-09-23): an unfinished one is
+# still being worked on, so it is not offered for download and not counted as missing content.
+#
+# The SNAG LIST is the exception (owner 2026-09-25): a handover snag list carries the WHOLE list -- what
+# is done and what is still open -- because the open items are exactly what the client is being handed.
+# So no status filter is applied anywhere on the snag path.
 COMMISSION_DONE = ("Submitted", "Client Accepted")  # approved report, and the client-signed one
 DESIGN_DONE = ("Submitted", "Approved")  # the drawing has been issued
-SNAG_DONE = "Completed"  # Project Snag.status: Not Applicable / Pending / WIP / Completed
 
 
 def commission_is_done(status) -> bool:

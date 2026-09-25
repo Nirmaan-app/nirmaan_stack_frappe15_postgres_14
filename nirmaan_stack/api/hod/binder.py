@@ -15,7 +15,8 @@ with the upload itself, 2026-09-24):
     Material TDS                                 -> the project's OWN TDS report over the ticked items
                                                     (`api/hod/tds_pack.py` -> `build_tds_report_pdf`),
                                                     the same document the export dialog downloads
-    Snag List                                    -> the Snag List print of each ticked snag batch
+    Snag List                                    -> the Snag List print of each ticked snag batch, in full
+                                                    (every snag, whatever its status)
     As Built                                     -> each ticked drawing, downloaded from its Google Drive link
                                                     (or its stored file)
 A document with NO content blocks the binder: `check_binder` names them and the screen offers to switch
@@ -78,7 +79,7 @@ EMPTY_REASON = {
 	index.SRC_COMMISSION: "no completed report in the Commission Report yet",
 	index.SRC_TDS: "no TDS item for this system in the project's TDS list yet",
 	"none_selected": "no report ticked for download",
-	index.SRC_SNAG: "no completed snag on this project yet",
+	index.SRC_SNAG: "no snag on this project yet",
 	index.SRC_DESIGN: "no issued As Built drawing with a downloadable file in the Design Tracker yet",
 	index.LIB_OM: "no O&M manual part or picture selected",
 	index.LIB_DOS: "no Do's & Don'ts text in the library",
@@ -178,8 +179,9 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 							"Projects",
 							project,
 							PF_SNAG,
-							# Completed snags only, exactly what the screen offered (owner 2026-09-23).
-							{"batches": json.dumps([b.name]), "statuses": json.dumps([sources.SNAG_DONE])},
+							# The WHOLE list, open items included (owner 2026-09-25) -- no `statuses`,
+							# exactly what the screen offered.
+							{"batches": json.dumps([b.name])},
 						)
 					)
 	elif src_kind == index.SRC_DESIGN:
@@ -245,9 +247,9 @@ def _require(project: str, hod_system: str):
 def check_binder(project: str, hod_system: str) -> dict:
 	"""Which switched-on documents have nothing to include, and how many steps a build takes.
 
-	The screen no longer pre-checks (owner 2026-09-23: the binder button waits until every document is
-	Completed, and a Completed document always has its uploaded copy to put in). `enqueue_binder` still
-	refuses an empty document on its own; this stays as the read that says WHICH one and why."""
+	The screen no longer pre-checks (owner 2026-09-23: the binder button waits until every switched-on
+	document is answered YES). `enqueue_binder` still refuses an empty document on its own; this stays as
+	the read that says WHICH one and why."""
 	_require(project, hod_system)
 	sections, empty = build_plan(project, hod_system)
 	return {"empty": empty, "steps": 2 + sum(len(s["steps"]) for s in sections)}
@@ -335,6 +337,12 @@ def _dividers(sections: list, display_name: str, project_name: str, project: str
 	/* The same 20mm top margin and 14mm strip band as both print formats, so the logos land in the same
 	   place on a divider as on the page behind it. */
 	.print-format {{ margin-top: 20mm; margin-bottom: 15mm; }}
+	/* The rule above is meant ONLY as wkhtmltopdf's page margins. But `prepare_header_footer` wraps the
+	   header page in a `.print-format` div AND gives it this same <style>, so without this cancel the
+	   20mm top margin applied INSIDE a 20mm header band and pushed the logo strip clean off it -- which
+	   is why dividers printed bare while the cover and every document were headed. Both print formats
+	   carry the identical line; a `div.*` selector is not read back as a page option. */
+	div.print-format {{ margin: 0 auto !important; }}
 	body {{ font-family: Helvetica, Arial, sans-serif; text-align: center; }}
 	.dv {{ page-break-after: always; }}
 	.dv:last-child {{ page-break-after: auto; }}

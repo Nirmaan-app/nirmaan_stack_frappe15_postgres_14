@@ -91,9 +91,9 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
 
   const { exportTds, isExporting } = useHodTdsExport(projectId, projectName);
 
-  // What was ticked last time. Nothing saved = every available data sheet, as everywhere in HOD.
+  // What was ticked last time. Nothing saved = nothing ticked (`startEmpty` below), as everywhere in HOD
+  // since 2026-09-25.
   const seeded = React.useMemo(
-    // `null` = never ticked, which is the same thing the prop's absence means: take them all.
     () => asStringList(row.form_data?.selected) ?? undefined,
     [row.form_data],
   );
@@ -115,7 +115,7 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
         onOpenChange(false);
         toast({
           title: "Selection saved",
-          description: `${selectedItems.length} data sheet${selectedItems.length === 1 ? "" : "s"} go into the handover binder. You can mark the document completed now.`,
+          description: `${selectedItems.length} data sheet${selectedItems.length === 1 ? "" : "s"} go into the handover binder. You can answer YES now.`,
           variant: "success",
         });
       }
@@ -174,6 +174,8 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
         canEdit ? (items) => saveSelection(items, true).then(() => undefined) : undefined
       }
       initialSelectedIds={seeded}
+      // Nothing ticked until someone ticks it — the ticks are what a build merges (owner 2026-09-25).
+      startEmpty
     />
   );
 };

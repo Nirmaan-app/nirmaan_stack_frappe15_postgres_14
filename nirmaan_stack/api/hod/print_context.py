@@ -39,8 +39,16 @@ from nirmaan_stack.services.hod import (
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
 
-# Blank rows printed when nothing is entered -- sized so the sheet + header block + signatures fit one page.
-BLANK_ROWS = {"attic_stock_list": 14, "key_list": 8, "inventory_list": 8}
+# Blank rows printed when nothing is entered at all. For the Attic Stock List this is the SAME number
+# the dialog starts with (`RowsTable minRows`, via `hodRules.visibleRows`) -- the sheet prints exactly
+# the rows the dialog showed, so a document nobody opened must not print a different count either.
+BLANK_ROWS = {"attic_stock_list": 5, "key_list": 8, "inventory_list": 8}
+
+# The Inventory List FOLLOWS ITS DATA (owner 2026-09-25): a project with four materials prints four
+# columns. These are only what an EMPTY sheet falls back to, so there is something to write on -- they
+# are not a minimum, and entered data is never padded up to them. The print format is sized to carry
+# 12+ columns when a project actually has them.
+BLANK_INVENTORY_COLUMNS = 6
 
 
 def _fmt(value) -> str:
@@ -101,7 +109,11 @@ def _row_form(project: str, hod_system: str, key: str) -> dict:
 
 
 def _inventory(form_data: dict) -> dict:
-	materials = [str(m or "") for m in (form_data.get("materials") or [])] or ["Material", "Material", "Material"]
+	materials = [str(m or "") for m in (form_data.get("materials") or [])]
+	# Blank headers, not the old "Material" repeated three times -- a blank header is a column to write
+	# one in, whereas a repeated word reads as real data (and got saved into projects as exactly that).
+	if not materials:
+		materials = [""] * BLANK_INVENTORY_COLUMNS
 	locations = [l for l in (form_data.get("locations") or []) if isinstance(l, dict)]
 	filled = bool(locations)
 	if not filled:
@@ -265,8 +277,11 @@ def hod_print_context(doc) -> dict:
 	elif key == "maintenance_checklist":
 		ctx["library"] = _library(doc.project, doc, index.LIB_MAINT, fill=False)
 		ctx["sheets"] = maintenance.sheets(ctx["library"], fd)
-		# The date of the check when the team entered one; otherwise blank, written by hand on the visit.
-		ctx["header"]["date"] = _fmt(fd.get("date"))
+		# The six-monthly and the yearly checks are separate VISITS, so each sheet prints its own date
+		# (owner 2026-09-25) -- `maintenance.sheets` picked it, this formats it. Blank when the team
+		# entered none, to be written by hand on the visit.
+		for sheet in ctx["sheets"]:
+			sheet["date"] = _fmt(sheet["date"])
 	elif key == "recommended_tools":
 		ctx["tools"] = checklist.parse_lines(system.tools)
 		# Remarks per tool (`form_data.tool_remarks`, keyed by the tool's text so an edited library line never

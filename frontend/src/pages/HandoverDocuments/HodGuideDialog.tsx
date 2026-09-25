@@ -171,13 +171,15 @@ export const HodGuideDialog: React.FC<{
 
         <Section icon={MousePointerClick} title="4. The Actions column">
           <p>
-            The button on the right is the next step for that row — Fill Form,
-            Download, Select &amp; Download, Upload Signed or View Signed.
+            Three buttons. <b>Edit</b> opens the document — the form, or the
+            records a From Nirmaan document reads. <b>Preview</b> shows it on
+            screen. <b>Download</b> saves it.
           </p>
           <p>
-            The <b>⋮</b> menu has the rest: view or edit the form, see the
-            records a From Nirmaan document reads, preview the PDF, download it
-            again, and replace or remove the signed copy.
+            For a From Nirmaan document, <b>Preview</b> shows the page listing
+            the records it hands over; the records themselves are built on the
+            server, so <b>Download</b> is how you see them. Open the document
+            and use <b>View</b> beside a record to read just that one.
           </p>
         </Section>
 
@@ -191,11 +193,14 @@ export const HodGuideDialog: React.FC<{
           <p>
             <b>Select &amp; Download</b> lists what is <b>finished</b> for this
             system — commissioning reports that are Submitted or Client
-            Accepted, As Built drawings that are Submitted or Approved, and the
-            Completed snags of each list. Work still in progress is not listed,
-            and the snag list prints with the same filter. <b>View</b> any of
-            it, tick what belongs in the handover (all ticked at first) and{" "}
-            <b>Download selected</b> — the same ticks are used in the binder.
+            Accepted, and As Built drawings that are Submitted or Approved. Work
+            still in progress is not listed. A <b>snag list is the exception</b>
+            : it is handed over in full, open snags included, because those are
+            what the client still has to see. <b>View</b> any of it, tick what
+            belongs in the handover — <b>nothing is ticked to start with</b>, so
+            you pick the records you want rather than un-picking the ones you do
+            not — then <b>Save selection</b>, or <b>Download selected</b>. The
+            same ticks are what Preview, Download and the binder build.
           </p>
         </Section>
 
@@ -222,7 +227,7 @@ export const HodGuideDialog: React.FC<{
             <b>Download binder</b> — one PDF with the cover, the checklist, and
             every switched-on document behind a divider page. It is the
             client&apos;s finished set, so it unlocks only once{" "}
-            <b>every document is Completed</b>; until then the button says how
+            <b>every document is answered YES</b>; until then the button says how
             many are still to go. Switch off what this project does not need
             and those stop counting. The button itself counts the steps while
             it builds, and the PDF downloads by itself — about a minute for a

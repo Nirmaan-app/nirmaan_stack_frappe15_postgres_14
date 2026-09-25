@@ -46,9 +46,9 @@ export const commissionReportPdfUrl = (
     letterhead: "No Letterhead",
   })}`;
 
-/** One snag batch printed with the Snag List's own format (it reads `batches` off the print link). */
-/** One snag list as the handover prints it: the batch's COMPLETED snags only, the same filter the
- *  binder sends (owner 2026-09-23), so the preview and the binder show the same list. */
+/** One snag batch printed with the Snag List's own format (it reads `batches` off the print link).
+ *  The WHOLE list, open snags included (owner 2026-09-25) — no `statuses`, which is what the binder
+ *  sends too, so the preview and the binder show the same list. */
 export const snagBatchPdfUrl = (projectId: string, batch: string): string =>
   `${DOWNLOAD_PDF_ENDPOINT}?${new URLSearchParams({
     doctype: "Projects",
@@ -56,7 +56,6 @@ export const snagBatchPdfUrl = (projectId: string, batch: string): string =>
     format: "Project Snag",
     no_letterhead: "1",
     batches: JSON.stringify([batch]),
-    statuses: JSON.stringify(["Completed"]),
   })}`;
 
 export const hodPdfFilename = (...parts: string[]): string =>

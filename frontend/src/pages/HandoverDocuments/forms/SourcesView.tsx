@@ -1,6 +1,9 @@
 // The six handover documents that already live elsewhere in Nirmaan, shown READ-ONLY: HOD never
 // writes to the Commission Report, TDS, Snag List or Design Tracker. Records are fixed there.
 //
+// NOTHING arrives ticked (owner 2026-09-25): the ticks are what a Preview / Download / binder build
+// merges, so the person picks the records they want rather than un-picking the ones they do not.
+//
 // The user TICKS which records go into the download (owner 2026-09-22: "sometimes they don't need all five"):
 // Commission reports, TDS data sheets, snag batches (each prints as its own snag list) and As Built drawings
 // (downloaded from their Google Drive links). The ticks are saved on the row (`form_data.selected`) so the
@@ -92,7 +95,7 @@ export interface SourcesViewProps {
   canEdit: boolean;
   /** Save the ticked records on the row and download them as one PDF. */
   onDownloadSelected: (selected: string[]) => Promise<void>;
-  /** Save the ticks WITHOUT downloading. Saving is the review the document is marked completed on
+  /** Save the ticks WITHOUT downloading. Saving is the review the document is answered YES on
    *  (owner 2026-09-24), so it must not cost a PDF. */
   onSaveSelected: (selected: string[]) => Promise<void>;
 }
@@ -132,7 +135,8 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
     design: "drawing",
   };
   const noun = NOUNS[meta.source ?? ""] ?? "record";
-  // Only records that have something to download can be ticked.
+  // Only records that have something to download can be ticked. For a snag batch that means any snag
+  // at all: the WHOLE list is handed over, open items included (owner 2026-09-25).
   const available = React.useMemo(
     () =>
       items
@@ -149,9 +153,12 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
     [sources, meta.source],
   );
   const saved = asStringList(row.form_data?.selected);
+  // NOTHING is ticked until someone ticks it (owner 2026-09-25, replacing "all ticked at first"). The
+  // ticks decide what a build merges, and pre-ticking every record meant opening a document and pressing
+  // Preview or Download pulled the WHOLE list -- 40-odd commission reports to look at one. The header
+  // checkbox is still there for anyone who does want them all.
   const current =
-    ticked ??
-    new Set(saved ? saved.filter((n) => available.includes(n)) : available);
+    ticked ?? new Set(saved ? saved.filter((n) => available.includes(n)) : []);
   const toggle = (name: string, on: boolean) => {
     const next = new Set(current);
     if (on) next.add(name);
@@ -331,7 +338,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
                   <th className={`${th} w-10`}>#</th>
                   <th className={th}>Snag list</th>
                   <th className={th}>Uploaded</th>
-                  <th className={th}>Completed snags</th>
+                  <th className={th}>Snags</th>
                   <th className={th}>Open</th>
                 </tr>
               </thead>
@@ -348,15 +355,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
                       <td className={td}>
                         {b.uploaded_on ? formatDate(b.uploaded_on) : "—"}
                       </td>
-                      <td className={td}>
-                        {b.count}
-                        {b.total > b.count && (
-                          <span className="text-xs text-gray-500">
-                            {" "}
-                            of {b.total}
-                          </span>
-                        )}
-                      </td>
+                      <td className={td}>{b.count}</td>
                       <td className={td}>
                         <div className="flex items-center gap-1">
                           <Button
@@ -473,8 +472,10 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-gray-50 px-3 py-2">
           <span className="text-xs text-gray-600">
             {current.size} of {available.length} {noun}
-            {available.length !== 1 ? "s" : ""} ticked — the ticked ones go into
-            the download and the binder.
+            {available.length !== 1 ? "s" : ""} ticked —{" "}
+            {current.size
+              ? "the ticked ones go into the download and the binder."
+              : "tick what belongs in the handover."}
           </span>
           <div className="flex items-center gap-2">
             {canEdit && (

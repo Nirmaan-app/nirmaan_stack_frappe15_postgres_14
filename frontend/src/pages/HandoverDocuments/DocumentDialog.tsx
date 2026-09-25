@@ -70,8 +70,11 @@ function finalize(
   // no ticks at all, so it could never be saved. Writing the EFFECTIVE list records the decision that
   // was on screen. The binder is unaffected -- `included_library` already falls back to the same default.
   if (ctx.included && !Array.isArray(out.included)) out.included = ctx.included;
-  if (key === "attic_stock_list" || key === "key_list")
-    out.rows = compactRows(asObjectList(out.rows));
+  // The Attic Stock List is NOT compacted (owner 2026-09-25): its printed sheet must carry exactly the
+  // rows the dialog showed, blanks included, because the blanks are what people write in by hand.
+  // Dropping them here made the sheet print only the filled rows.
+  if (key === "key_list") out.rows = compactRows(asObjectList(out.rows));
+  if (key === "attic_stock_list") out.rows = asObjectList(out.rows);
   if (key === "inventory_list") {
     out.locations = asObjectList<{ name?: string; qty?: unknown[] }>(
       out.locations,
@@ -90,8 +93,16 @@ function finalize(
   if (key === "recommended_tools" && out.tool_remarks !== undefined) {
     out.tool_remarks = compactTextMap(out.tool_remarks);
   }
-  if (key === "maintenance_checklist" && out.checks !== undefined) {
-    out.checks = compactMaintenanceChecks(out.checks);
+  if (key === "maintenance_checklist") {
+    if (out.checks !== undefined) out.checks = compactMaintenanceChecks(out.checks);
+    if (out.dates !== undefined) {
+      const dates = compactTextMap(out.dates);
+      // The two per-period dates SUPERSEDE the single date this document used before the split, so the
+      // old key goes -- otherwise it would keep coming back as the fallback for a date just cleared.
+      delete out.date;
+      if (Object.keys(dates).length) out.dates = dates;
+      else delete out.dates;
+    }
   }
   if (
     key === "completion_certificate" &&

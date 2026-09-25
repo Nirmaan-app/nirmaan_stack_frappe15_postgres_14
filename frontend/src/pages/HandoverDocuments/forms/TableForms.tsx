@@ -16,6 +16,7 @@ import {
   DEFAULT_ESCALATION_LEVELS,
   inventoryTotals,
   levelLabel,
+  visibleRows,
 } from "../hodRules";
 import type {
   AtticRow,
@@ -156,13 +157,7 @@ function RowsTable<T extends object>({
   readOnly: boolean;
   minRows?: number;
 }) {
-  const shown =
-    rows.length >= minRows || readOnly
-      ? rows
-      : [
-          ...rows,
-          ...Array.from({ length: minRows - rows.length }, () => ({}) as T),
-        ];
+  const shown = visibleRows(rows, minRows, readOnly);
   const set = (i: number, field: keyof T, v: string) => {
     const next = shown.map((r) => ({ ...r }));
     (next[i] as Record<string, unknown>)[field as string] = v;

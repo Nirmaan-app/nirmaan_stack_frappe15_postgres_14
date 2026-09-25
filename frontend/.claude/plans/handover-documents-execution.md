@@ -53,7 +53,8 @@ Owner rulings made during the build (2026-09-22), all built:
 - The binder does not start while a switched-on document has nothing in it: it lists them and offers to switch
   them off. It shows progress.
 - Removing a system that has entries warns and asks for confirmation instead of refusing.
-- Status is derived from actions: Pending / Form Filled / Completed. The Actions cell follows the Commission Report.
+- Status is the handover checklist ANSWER, picked by hand: **YES / NO / NA** (owner 2026-09-24, replacing the
+  derived Pending / Form Filled / Completed). The Actions cell is three buttons.
 - A "Details" guide sits beside Edit library.
 - All six From Nirmaan documents get "Select & Download".
 - A document the project FILLS is labelled "Form" wherever its text comes from (`hodRules.documentChip`, used
@@ -64,8 +65,10 @@ Owner rulings made during the build (2026-09-22), all built:
   the button). Its button is then HIDDEN for now: one flag, `SHOW_BINDER_BUTTON` in `hodApi.ts`, hides the
   button and its part of the Details guide; the endpoint and the job are untouched (owner 2026-09-23).
 - Only finished records are offered for handover (owner 2026-09-23): Commission tasks Submitted / Client
-  Accepted, As Built drawings Submitted / Approved, snags Completed — the rule lives in `services/hod/sources`
-  (`commission_is_done`, `design_is_done`, `SNAG_DONE`).
+  Accepted, As Built drawings Submitted / Approved — the rule lives in `services/hod/sources`
+  (`commission_is_done`, `design_is_done`). The **snag list is the exception** (owner 2026-09-25): it goes
+  over in full, open snags included, so no snag status filter exists at all — `SNAG_DONE` was removed and
+  neither `snag_batches`, `snagBatchPdfUrl` nor the binder sends a `statuses` param.
 - The Escalation Chart takes as many levels as a project adds ("Add level"), labelled by position; the
   Equipment Warranty prints the same list (owner 2026-09-23).
 - The Maintenance Checklist is filled on screen (owner 2026-09-22): Result + Remarks per check, Comments per sheet, date of the check.
@@ -80,7 +83,7 @@ Owner rulings made during the build (2026-09-22), all built:
 |---|---|
 | `HOD System` (library, name = `system_name`) | `system_name`, `display_name` ("ELECTRICAL SYSTEM", printed as PACKAGE), `work_package` (Link Work Packages), `is_active`, `warranty_equipment`, `tools`, `default_disabled_documents` (document keys, one per line), `source_keywords` (one per line) |
 | `HOD Library Content` (library) | `hod_system`, `document` (O&M Manual / Do's & Don'ts / Maintenance Checklist), `sub_system` (blank = always included), `display_order`, `title`, `content` (Text Editor, may hold `[Blank]` placeholders and pictures), `list_1` / `list_2` (Do's / Don'ts, half-yearly / yearly items). `make_attachments_public` = 0 |
-| `Project HOD Document` (one per project × system × document) | `project`, `hod_system`, `document` (the 16 keys), `status` (read-only: Pending / Form Filled / Completed), `disabled`, `remarks`, `attachment` (the signed copy), `form_data` (JSON) |
+| `Project HOD Document` (one per project × system × document) | `project`, `hod_system`, `document` (the 16 keys), `status` (Select `YES\nNO\nNA`, default **NO**, writable), `disabled`, `remarks`, `form_data` (JSON). The `attachment` field for a signed copy was retired with the upload itself (2026-09-24) |
 
 There is no parent record. A project's system tabs are simply the systems that have rows.
 
@@ -102,17 +105,25 @@ What each document keeps in `form_data`:
 
 ### The status rule
 
-`services/hod/checklist.derive_status` is the only place status is decided. The controller runs it on every save,
-and the API runs it again on read.
+`status` IS the handover checklist answer, and a person picks it (owner 2026-09-24). Nothing derives it:
+`derive_status` is deleted, and there is no Pending / Form Filled / Completed any more.
 
-- **Completed**: a signed copy is uploaded (`attachment`).
-- **Form Filled**: the document has something to fill (`fill` in the index: Escalation, Maintenance, Inventory,
-  Recommended Tools, Attic, Key List, Warranty, Completion) and its saved `form_data` holds real input.
-- **Pending**: anything else. The O&M Manual, Do's & Don'ts and the From Nirmaan documents go straight from
-  Pending to Completed (owner 2026-09-23: the O&M Manual is a library document; its blanks and part ticks are
-  still edited from the row's ⋮ menu).
+- **YES** — handed over. It is the one answer that costs something, so it is GUARDED: a document with
+  anything to save must have been saved first (`checklist.can_be_yes` → `needs_saving` + `is_saved`).
+  A form has its entries and a From Nirmaan document its ticked records, so both must be saved; a library
+  text (O&M Manual, Do's & Don'ts) holds the library's own content, which a project adds nothing to, so it
+  is answerable as it stands.
+- **NO** — not handed over. The **default** a row is created with, so "not answered" reads as NO and there
+  is no blank option.
+- **NA** — not applicable to this project.
 
-Nobody picks a status by hand. `update_row` does not accept one.
+`update_row` accepts a status and the controller guards it; the screen refuses YES the same way and says
+what to save. Anything unrecognised — a blank, or a row still carrying a RETIRED
+Pending / Form Filled / Completed — reads as NO through `normalise_status` and is written back as NO on
+its next save, which is why no backfill script was needed.
+
+A switched-off row is a separate thing from NA: it leaves the printed checklist entirely and the S.No
+closes up, while NA stays on the sheet with its answer.
 
 ### Backend
 
@@ -162,16 +173,20 @@ Nobody picks a status by hand. `update_row` does not accept one.
   - the **Use** switch, S.No (closed up), the status badge, remarks and the Actions cell;
   - header buttons **Checklist PDF**, **Download binder** and **Remove system**. Remove warns when `touched` > 0,
     then sends `force`.
-- `HodActionCell`: the Commission-style Actions cell. Each status has one primary action plus a ⋮ menu:
+- `HodActionCell`: three buttons and nothing else (owner 2026-09-24 — the status menu moved to its own
+  column and the signed upload was retired):
 
-  | Status | Primary action |
+  | Button | What it does |
   |---|---|
-  | Pending, a fillable document | Fill Form |
-  | Pending, anything else | Download (From Nirmaan: **Select & Download**) + Upload Signed |
-  | Form Filled | Download + Upload Signed |
-  | Completed | View Signed |
+  | **Edit** | opens the document — the form, or the From Nirmaan records. A library text does not get it (its content is the library's) |
+  | **Preview** | shows the row's "HOD Document" print on screen |
+  | **Download** | saves it |
 
-  The ⋮ menu offers: view/edit form, view records, Preview PDF, download, and replace/remove/upload the signed copy.
+  For a From Nirmaan row the "HOD Document" print is the page LISTING its ticked records, so Preview shows
+  that and **Download** is what builds the records themselves. (Routing Preview through the build was tried
+  and reverted on 2026-09-25 — `build_plan` refuses a document that is not answered YES, which is every row
+  worth previewing.) The cell takes `busy` (disable — any build blocks every From Nirmaan row) and
+  `working` (spin — this row's own work only).
 - `DocumentDialog`: routes to the right form:
   - `forms/TableForms`: Escalation, Attic, Key List, Inventory matrix;
   - `forms/TemplateForms`: O&M blanks + part ticks, Do's & Don'ts, Tools (Remarks per tool), Warranty, Completion;
@@ -184,7 +199,8 @@ Nobody picks a status by hand. `update_row` does not accept one.
 - Supporting modules:
   - `hodApi`: every call and SWR key.
   - `hodDownloads`: PDF URLs, `usePdfDownload`, `saveUrlAs`.
-  - `useHodBinder`: enqueue, socket events + a 2-second `get_job_status` poll, finish-once guard.
+  - `useHodBinder`: enqueue, socket events + a 2-second `get_job_status` poll, finish-once guard. The
+    finished PDF is always SAVED (`fetch_temp_file` spends its one-shot token).
   - `HodDownloadDialogs`: the progress window and the "nothing to include" list.
   - `hodRules` (pure, 11 vitest).
   - `library/`: the Packages Settings → Handover Documents screen — `HodLibraryMaster` (systems, their settings and text
@@ -199,10 +215,12 @@ Nobody picks a status by hand. `update_row` does not accept one.
 |---|---|---|---|---|
 | 2 / 3 / 14 | Demo & Training / Commissioning / Factory Test | **Submitted / Client Accepted** tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, "factory test" → 14, every other task (incl. Earthing, Megger, pressure tests) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
 | 4 | Material TDS | `Project TDS Item List` by `tds_work_package` | each item | its attached data sheet |
-| 15 | Snag List | the project's snag batches (whole project), counting their **Completed** snags; a batch with none is not listed | each batch | the Snag List print of that batch, filtered to Completed snags |
+| 15 | Snag List | the project's snag batches (whole project), counting **every** snag; only a batch with no snags at all is not listed | each batch | the Snag List print of that batch, unfiltered — open snags included (owner 2026-09-25) |
 | 16 | As Built | Design Tracker **Handover-phase** tasks that are **Submitted / Approved**. A category belongs to the system named in it; unclaimed categories (ELV, BMS, Overall Project) go by keywords | each drawing | the drawing, downloaded from its Google Drive link or its stored file |
 
-Nothing is written to those features. The ticks are saved in `form_data.selected`, and the binder uses the same ticks.
+Nothing is written to those features. The ticks are saved in `form_data.selected`, and Preview, Download
+and the binder all build from the same ticks. A picker opens with **nothing ticked** (owner 2026-09-25) —
+the person picks the records they want; the header checkbox takes them all in one click.
 
 ### Downloads
 
@@ -293,7 +311,7 @@ plus the 2-second poll: 73 steps, 168 pages, token returned.
 | Was | Now |
 |---|---|
 | Step 2: Excel importer + `hod_seed/` + build script | deleted; library created on screen on each site (no library fixtures) |
-| Status Pending / Yes (then set by hand) | derived Pending / Form Filled / Completed, read-only |
+| Status Pending / Yes (then set by hand) | briefly derived (Pending / Form Filled / Completed, read-only), then replaced 2026-09-24 by the hand-picked **YES / NO / NA** |
 | `add_system` (one system) | `add_systems` (several, all or nothing) |
 | Remove system refused once anything was entered | warns, removes with `force` after confirmation |
 | From Nirmaan binder part = a list page + the records | the records only (the actual reports, sheets, batches, drawings) |

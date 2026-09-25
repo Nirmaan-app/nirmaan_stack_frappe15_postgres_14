@@ -5,6 +5,9 @@
 //               Packages Settings, so a project has nothing to change (owner 2026-09-24).
 //   Preview  -> the "HOD Document" print of this row, on screen. Every one of the 16 has one: a From
 //               Nirmaan document prints the page that LISTS the records it hands over.
+//               Building the REAL merged records here instead was tried on 2026-09-25 and reverted the
+//               same day: `enqueue_binder` refuses a document that is not answered YES, and Preview is
+//               what you look at BEFORE answering, so it threw on every unanswered row.
 //   Download -> the same document as a file. For a From Nirmaan document that means the records
 //               themselves, built on the server (with no selection saved yet, Edit opens first).
 //
@@ -25,8 +28,12 @@ export interface HodActionCellProps {
   row: HodRow;
   meta: HodDocumentMeta;
   canEdit: boolean;
-  /** Something is running for this row (a save, a download). */
+  /** Buttons are disabled. Wider than `working`: while ANY build runs, every From Nirmaan row is
+   *  blocked, because the server takes one build at a time. */
   busy: boolean;
+  /** THIS row's own work (a save, its own download). Only this spins the button — `busy` alone used to,
+   *  so every From Nirmaan row's Download spun while a build ran on ONE of them. */
+  working: boolean;
   /** Open the row's dialog: the form, the library text, or the From Nirmaan records. */
   onOpen: () => void;
   /** Download the document (From Nirmaan documents: the reports themselves, built on the server). */
@@ -38,6 +45,7 @@ export const HodActionCell: React.FC<HodActionCellProps> = ({
   meta,
   canEdit,
   busy,
+  working,
   onOpen,
   onDownload,
 }) => {
@@ -66,7 +74,7 @@ export const HodActionCell: React.FC<HodActionCellProps> = ({
       disabled={busy}
       title={label}
     >
-      {busy && spins ? (
+      {working && spins ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : (
         <Icon className="h-3 w-3" />
