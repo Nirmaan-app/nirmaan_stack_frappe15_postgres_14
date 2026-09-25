@@ -109,7 +109,15 @@ def _validate_one_config(cfg, label):
         frappe.throw("%s is not an object." % label)
     if not (cfg.get("category_id") or "").strip():
         frappe.throw("%s is missing 'category_id'." % label)
-    if not isinstance(cfg.get("attribute_definitions"), list) or not cfg["attribute_definitions"]:
+    # SLICE 2 (2026-09-22, owner ruling STOP 1 option (a)): an EMPTY attribute_definitions list is
+    # allowed ONLY when pipelines is ALSO empty -- a MESSAGE-ONLY config (no items, no attributes,
+    # nothing to price; it carries helper_message / pending_label and nothing else, e.g. the four
+    # HVAC vendor-quote categories). A missing / non-list key is refused exactly as before, and an
+    # empty list beside a NON-empty pipelines value is still refused: a pipeline with no attributes
+    # to feed it is the misconfiguration this check has always caught. Check order is unchanged.
+    if not isinstance(cfg.get("attribute_definitions"), list) or (
+        not cfg["attribute_definitions"] and cfg.get("pipelines")
+    ):
         frappe.throw("%s is missing 'attribute_definitions'." % label)
     pipelines = cfg.get("pipelines")
     # EA-1b: an EMPTY pipelines dict is allowed -- a DATA-ONLY config (definitions + items, no

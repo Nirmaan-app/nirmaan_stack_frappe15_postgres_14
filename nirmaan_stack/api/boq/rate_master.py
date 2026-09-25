@@ -151,6 +151,7 @@ from frappe.utils.background_jobs import get_job_status  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
 from nirmaan_stack.services.boq_rate_master import freeze  # noqa: E402  (deployment freeze guard)
+from nirmaan_stack.services.boq_rate_master import spec_reader  # noqa: E402  (slice 1c: item text -> attributes)
 from nirmaan_stack.api.boq.wizard import pricing  # noqa: E402  (D8 gate reuse; import UP api->api)
 
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"
@@ -1227,11 +1228,149 @@ def update_rate_config_param(
 
 
 @frappe.whitelist(methods=["POST"])
-def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
+def _resolve_spec_write(spec_cat, item_name, item_detail, unit, spec_decision, spec_fingerprint):
+    """SLICE 1d -- THE ONE resolver both manual endpoints use for an opted-in kind.
+
+    Returns (attributes, spec_out, ask). `ask` is None when the write may proceed; otherwise it is the
+    NEEDS-CONFIRMATION reply the endpoint returns INSTEAD of writing: the exact read refused, the
+    suggester has a best match, and no decision was sent. With `spec_decision`:
+      "accept"  -> the suggestion is RE-DERIVED here and its fingerprint must equal `spec_fingerprint`
+                   (what the form was shown), else refused; stored as CONFIRMED (who + when);
+      "reject"  -> not_understood, exactly as 1c;
+      anything else -> refused.
+    A spec with NO suggestion never asks: it is stored not_understood (owner T-b 4)."""
+    attributes, reason = spec_reader.attributes_for(spec_cat, item_name, item_detail, unit)
+    spec_out = {"status": spec_reader.NOT_UNDERSTOOD if reason else "ok", "reason": reason}
+    if not reason:
+        return attributes, spec_out, None
+    sugg, why = spec_reader.suggest_spec(spec_cat, item_name, item_detail, unit)
+    suggestion = ({
+        "attributes": sugg["attributes"],
+        "label": spec_reader.suggestion_label(sugg["attributes"]),
+        "notes": sugg["notes"],
+        "fingerprint": sugg["fingerprint"],
+    } if sugg else None)
+    spec_out["suggestion"] = suggestion
+    spec_out["no_suggestion_reason"] = None if sugg else why
+    if spec_decision is None:
+        if suggestion is None:
+            return attributes, spec_out, None          # nothing to ask: flagged, as today
+        text = " / ".join(t for t in (item_name.strip(), item_detail.strip()) if t)
+        return None, spec_out, {
+            "ok": False,
+            "needs_confirmation": True,
+            "question": "Couldn't read '%s' exactly. Best match: %s. Accept?" % (text, suggestion["label"]),
+            "suggestion": suggestion,
+            "no_suggestion_reason": None,
+        }
+    if spec_decision == "reject":
+        spec_out["decision"] = "reject"
+        return attributes, spec_out, None
+    if spec_decision != "accept":
+        frappe.throw("spec_decision must be 'accept' or 'reject'.", title="Invalid value")
+    if suggestion is None:
+        frappe.throw("There is no suggestion to accept for this spec -- %s" % why, title="Nothing to accept")
+    if not spec_fingerprint or spec_fingerprint != suggestion["fingerprint"]:
+        frappe.throw(
+            "The suggestion is not the one that was shown (or no fingerprint was sent), so it cannot be "
+            "accepted. Re-open the entry and answer again.",
+            title="Suggestion out of date",
+        )
+    confirmed = spec_reader.confirmed_attributes(
+        item_name, item_detail, sugg["attributes"], frappe.session.user,
+        frappe.utils.now_datetime().replace(microsecond=0).isoformat(),
+    )
+    spec_out.update({"status": spec_reader.CONFIRMED, "reason": None, "decision": "accept"})
+    return confirmed, spec_out, None
+
+
+def _resolve_twin_write(discipline, kind, brand, unit, attributes, rates, spec_cat, twin_decision,
+                        twin_fingerprint, exclude_name=None, case="new", edited_uid=None):
+    """SLICE 1f -- THE ONE duplicate resolver both manual endpoints use (owner Y-a / Y-b 3 / Y-e).
+
+    Returns (ask, target, block). `ask` non-None: return it INSTEAD of writing -- the entry means the
+    same as an existing active item and either no decision was sent (needs_twin_confirmation) or the
+    user DECLINED (nothing written, `written: False`). `target` non-None: the user CONFIRMED and the
+    fingerprint matches what the form was shown -- the caller updates THAT item's rates and markups
+    and nothing else (never inserts, never saves the edited item). Both None: no twin, write as today.
+    The identity, the finder and the block are `csv_importer`'s -- one definition for every path."""
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    target, ident, ambiguous = csv_importer.find_active_twin(
+        discipline, kind, brand, unit, attributes, exclude_name=exclude_name)
+    if ambiguous:
+        frappe.throw(
+            "This entry means the same as %d existing items (%s) -- the catalog already holds twins; "
+            "resolve those first. Nothing was written." % (len(ambiguous), ", ".join(ambiguous)),
+            title="Duplicate items",
+        )
+    if target is None:
+        return None, None, None
+    block = csv_importer.twin_block(case, target, ident, kind, brand, unit, attributes, rates, spec_cat,
+                                    edited_uid=edited_uid)
+    if twin_decision is None:
+        return {"ok": False, "needs_twin_confirmation": True, "twin": block}, None, block
+    if twin_decision == csv_importer.TWIN_DECLINE:
+        block["decision"] = csv_importer.TWIN_DECLINE
+        return {"ok": True, "written": False, "twin": block}, None, block     # no change at all (Y-a)
+    if twin_decision != csv_importer.TWIN_CONFIRM:
+        frappe.throw("twin_decision must be 'confirm' or 'decline'.", title="Invalid value")
+    if not twin_fingerprint or twin_fingerprint != block["fingerprint"]:
+        frappe.throw(
+            "The existing item this entry would update is not the one that was shown, or it changed since "
+            "(or no fingerprint was sent). Re-open the entry and answer again. Nothing was written.",
+            title="Duplicate target out of date",
+        )
+    block["decision"] = csv_importer.TWIN_CONFIRM
+    return None, target, block
+
+
+def _twin_confirmed_write(target_name, rates, block, spec_out=None):
+    """The CONFIRMED write: the existing item takes the entry's non-blank rates and markups; its uid,
+    wording, attributes, spec status and provenance are untouched. Audited (doc.save)."""
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    tdoc = frappe.get_doc(ITEM_DOCTYPE, target_name)
+    tdoc.rates = json.dumps(csv_importer.merge_rates(_parse_json(tdoc.rates, {}) or {}, rates))
+    tdoc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    frappe.db.commit()
+    out = {
+        "ok": True,
+        "item": {
+            "name": tdoc.name,
+            "discipline": tdoc.discipline,
+            "kind": tdoc.kind,
+            "brand": tdoc.brand,
+            "unit": tdoc.unit,
+            "attributes": _parse_json(tdoc.attributes, {}),
+            "rates": _parse_json(tdoc.rates, {}),
+            "source_sheet": tdoc.source_sheet,
+            "source_row": tdoc.source_row,
+            "import_batch": tdoc.import_batch,
+            "active": tdoc.active,
+        },
+        "twin": block,
+    }
+    if spec_out is not None:
+        out["spec"] = spec_out
+    return out
+
+
+@frappe.whitelist(methods=["POST"])
+def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
+                            spec_decision=None, spec_fingerprint=None,
+                            twin_decision=None, twin_fingerprint=None):
     """ADMIN-ONLY: merge a rates_patch and/or attributes_patch onto an item's existing JSON dicts.
     Rate values numeric-or-null; attribute keys validated against the discipline's active config
     attribute-definitions where determinable, and material/insulation canonicalised to UPPERCASE.
-    Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item"""
+    Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item
+    SLICE 1d: for an opted-in kind whose changed text the exact read refuses, returns
+    {ok: False, needs_confirmation: True, question, suggestion} WITHOUT writing until the caller answers
+    with spec_decision (+ spec_fingerprint on accept); see _resolve_spec_write.
+    SLICE 1f (owner Y-e): an attributes_patch that would make this item mean the same as ANOTHER active
+    item returns {ok: False, needs_twin_confirmation: True, twin} WITHOUT writing; twin_decision "confirm"
+    (+ twin_fingerprint) updates the OTHER item's rates and markups and leaves this one exactly as it
+    was; "decline" writes nothing. A rates-only patch never checks."""
     _require_rate_admin()  # BEFORE resolution/write
     freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
@@ -1250,6 +1389,7 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
     doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
     rates = _parse_json(doc.rates, {}) or {}
     attributes = _parse_json(doc.attributes, {}) or {}
+    original_attributes = json.dumps(attributes, sort_keys=True, default=str)
 
     if rates_patch:
         for k, v in rates_patch.items():
@@ -1257,7 +1397,31 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
                 rates[k] = None  # numeric-OR-NULL
             else:
                 rates[k] = _finite_number(v, f"rates.{k}")
-    if attributes_patch:
+    # SLICE 1c: an item of an opted-in category (`attributes_from_spec`) takes its attributes from its
+    # item_name / item_detail through the SAME reader the CSV upload uses -- no back door (S-c 3). Only
+    # the two text keys may be patched; a changed text is re-read, an unchanged one leaves the stored
+    # attributes exactly as they are. A category without the key takes the legacy branch, byte-identical.
+    spec_cat = spec_reader.spec_categories(doc.discipline).get(doc.kind)
+    spec_out = None
+    if attributes_patch and spec_cat:
+        bad = sorted(set(attributes_patch) - set(spec_reader.TEXT_ATTRS))
+        if bad:
+            frappe.throw(
+                f"The attributes of {spec_cat} are read from Item and Item detail and cannot be edited "
+                f"by hand: {', '.join(bad)}. Change the text instead.",
+                title="Read from spec",
+            )
+        old_name, old_detail = spec_reader.text_of(attributes)
+        new_name = str(attributes_patch.get("item_name", old_name) or "")
+        new_detail = str(attributes_patch.get("item_detail", old_detail) or "")
+        if not new_name.strip():
+            frappe.throw("item_name is required -- the attributes are read from it.", title="Missing field: item_name")
+        if (new_name, new_detail) != (old_name, old_detail):
+            attributes, spec_out, ask = _resolve_spec_write(
+                spec_cat, new_name, new_detail, doc.unit, spec_decision, spec_fingerprint)
+            if ask is not None:
+                return ask            # NOTHING written -- the form asks first (owner T-b 6)
+    elif attributes_patch:
         known = _active_config_attr_ids(doc.discipline)
         merged = dict(attributes)
         for k, v in attributes_patch.items():
@@ -1269,11 +1433,23 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
             merged[k] = v
         attributes = loader._canonicalize_attributes(merged)  # material/insulation -> UPPERCASE
 
+    # SLICE 1f: ONLY an identity change is checked -- a rates-only patch, and a patch that leaves the
+    # attributes as they were, never warn even when the item already has a twin today (G2).
+    if attributes_patch and json.dumps(attributes, sort_keys=True, default=str) != original_attributes:
+        ask, target, block = _resolve_twin_write(
+            doc.discipline, doc.kind, doc.brand, doc.unit, attributes, rates, spec_cat,
+            twin_decision, twin_fingerprint, exclude_name=doc.name, case="edit", edited_uid=doc.item_uid)
+        if ask is not None:
+            return ask                # NOTHING written -- the form asks first, or the user declined
+        if target is not None:
+            # Y-e: the OTHER item takes the row's rates and markups; THIS item is not saved at all.
+            return _twin_confirmed_write(target["name"], rates, block, spec_out)
+
     doc.rates = json.dumps(rates)
     doc.attributes = json.dumps(attributes)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
     frappe.db.commit()
-    return {
+    out = {
         "ok": True,
         "item": {
             "name": doc.name,
@@ -1286,16 +1462,24 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
             "active": doc.active,
         },
     }
+    if spec_out is not None:
+        out["spec"] = spec_out
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
 def create_rate_master_item(
-    discipline=None, kind=None, brand=None, unit=None, attributes=None, rates=None
+    discipline=None, kind=None, brand=None, unit=None, attributes=None, rates=None,
+    spec_decision=None, spec_fingerprint=None, twin_decision=None, twin_fingerprint=None,
 ):
     """ADMIN-ONLY: insert a new ACTIVE item row with MANUAL provenance (import_batch='manual-'+hash,
     source_sheet='Manual entry', source_row=0). Attribute keys validated against the discipline's
     active config where determinable; material/insulation canonicalised to UPPERCASE; rate values
     numeric-or-null. Audited on insert. Returns {ok, item}.
+    SLICE 1f (owner Y-a): an entry that means the same as an existing active item returns
+    {ok: False, needs_twin_confirmation: True, twin} WITHOUT writing; twin_decision "confirm"
+    (+ twin_fingerprint) updates the EXISTING item's rates and markups and inserts NOTHING; "decline"
+    writes nothing.
     URL: .../rate_master.create_rate_master_item"""
     _require_rate_admin()  # BEFORE resolution/write
     freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
@@ -1309,18 +1493,51 @@ def create_rate_master_item(
         frappe.throw("attributes must be an object.", title="Invalid value")
     if not isinstance(rates, dict):
         frappe.throw("rates must be an object.", title="Invalid value")
-    known = _active_config_attr_ids(discipline)
-    if known is not None:
-        for k in attributes:
-            if k not in known:
-                frappe.throw(
-                    f"Unknown attribute '{k}' for discipline '{discipline}'.",
-                    title="Invalid attribute",
-                )
     clean_rates = {}
     for k, v in rates.items():
         clean_rates[k] = None if v is None else _finite_number(v, f"rates.{k}")
-    attrs = loader._canonicalize_attributes(attributes)  # material/insulation -> UPPERCASE
+    # SLICE 1c: an opted-in category (`attributes_from_spec`) -- the caller supplies item_name /
+    # item_detail and NOTHING else; the reader derives the rest (or flags the row). Same reader, same
+    # flag behaviour as the CSV upload (S-c 3). Any other category: the legacy path, byte-identical.
+    spec_cat = spec_reader.spec_categories(discipline).get(kind.strip())
+    spec_out = None
+    if spec_cat:
+        bad = sorted(set(attributes) - set(spec_reader.TEXT_ATTRS))
+        if bad:
+            frappe.throw(
+                f"The attributes of {spec_cat} are read from Item and Item detail and cannot be typed in: "
+                f"{', '.join(bad)}.",
+                title="Read from spec",
+            )
+        item_name = str(attributes.get("item_name") or "")
+        item_detail = str(attributes.get("item_detail") or "")
+        if not item_name.strip():
+            frappe.throw("item_name is required -- the attributes are read from it.", title="Missing field: item_name")
+        attrs, spec_out, ask = _resolve_spec_write(
+            spec_cat, item_name, item_detail, unit, spec_decision, spec_fingerprint)
+        if ask is not None:
+            return ask                # NOTHING inserted -- the form asks first (owner T-b 6)
+    else:
+        known = _active_config_attr_ids(discipline)
+        if known is not None:
+            for k in attributes:
+                if k not in known:
+                    frappe.throw(
+                        f"Unknown attribute '{k}' for discipline '{discipline}'.",
+                        title="Invalid attribute",
+                    )
+        attrs = loader._canonicalize_attributes(attributes)  # material/insulation -> UPPERCASE
+
+    # SLICE 1f: does this entry mean the same as an active item? Asked AFTER the spec is resolved (the
+    # reader decides the attributes the meaning is made of) and BEFORE anything is inserted.
+    ask, target, block = _resolve_twin_write(
+        discipline, kind.strip(), brand, unit, attrs, clean_rates, spec_cat, twin_decision, twin_fingerprint)
+    if ask is not None:
+        return ask                    # NOTHING inserted -- the form asks first, or the user declined
+    if target is not None:
+        return _twin_confirmed_write(target["name"], clean_rates, block, spec_out)   # NO new item (Y-d)
+
+    from nirmaan_stack.services.boq_rate_master import csv_importer
 
     doc = frappe.get_doc(
         {
@@ -1329,6 +1546,9 @@ def create_rate_master_item(
             "kind": kind.strip(),
             "brand": brand,
             "unit": unit,
+            # SLICE 1g (owner Z-a): a hand-added item gets an id exactly as an uploaded row does -- the
+            # ONE mint, so it round-trips through the file like every other item.
+            "item_uid": csv_importer.mint_item_uid(discipline),
             "attributes": json.dumps(attrs),
             "rates": json.dumps(clean_rates),
             "source_sheet": _MANUAL_SOURCE_SHEET,
@@ -1339,7 +1559,7 @@ def create_rate_master_item(
     )
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
-    return {
+    out = {
         "ok": True,
         "item": {
             "name": doc.name,
@@ -1349,12 +1569,16 @@ def create_rate_master_item(
             "unit": doc.unit,
             "attributes": _parse_json(doc.attributes, {}),
             "rates": _parse_json(doc.rates, {}),
+            "item_uid": doc.item_uid,
             "source_sheet": doc.source_sheet,
             "source_row": doc.source_row,
             "import_batch": doc.import_batch,
             "active": doc.active,
         },
     }
+    if spec_out is not None:
+        out["spec"] = spec_out
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1489,40 +1713,57 @@ def export_rate_master_asset(discipline=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def export_rate_master_csv(discipline=None, category_id=None):
-    """ADMIN-ONLY: the EDITABLE csv -- what a pricer edits in Excel and uploads back.
+def export_rate_master_csv(discipline=None, category_id=None, fmt=None):
+    """ADMIN-ONLY: the EDITABLE rate file -- what a pricer edits in Excel and uploads back.
 
     MODE A when `category_id` is given: exactly that category's attribute + rate columns.
     MODE B when it is omitted: every category in one file, with a `category` column and the UNION
     of every category's keys (sparse by construction).
 
+    SLICE 1e (owner X-a): `fmt` is "xlsx" (the DEFAULT -- Excel keeps a text cell as typed, where a
+    CSV let it rewrite "1:6" as a time) or "csv" (the second option). Both carry the same columns and
+    the same values, and neither carries a system column (X-b). The endpoint keeps its historical
+    name; the client and the tests call it by that name.
+
     Same download shape and the SAME admin gate as export_rate_master_asset -- an editable dump of
     the priced catalog is no less sensitive than the asset.
 
-    Returns {filename, content_type, content_base64, discipline, category_id, mode, columns,
+    Returns {filename, content_type, content_base64, discipline, category_id, mode, format, columns,
     column_count, row_count}. URL: .../rate_master.export_rate_master_csv
     """
     _require_rate_admin()  # BEFORE any read
     if not discipline:
         frappe.throw("discipline is required.", title="Missing field: discipline")
 
-    from nirmaan_stack.services.boq_rate_master import csv_exporter
+    from nirmaan_stack.services.boq_rate_master import csv_exporter, xlsx_io
+
+    fmt = (fmt or csv_exporter.FORMAT_XLSX).strip().lower()
+    if fmt not in csv_exporter.FORMATS:
+        frappe.throw("fmt must be one of %s." % ", ".join(csv_exporter.FORMATS), title="Invalid value")
 
     if category_id:
-        text, headers, n = csv_exporter.build_category_csv(discipline, category_id)
+        built = csv_exporter.build_category_rows(discipline, category_id)
         mode, label = "category", category_id
     else:
-        text, headers, n = csv_exporter.build_all_categories_csv(discipline)
+        built = csv_exporter.build_all_categories_rows(discipline)
         mode, label = "all", "all_categories"
+    headers, n = built["headers"], built["n"]
+    if fmt == csv_exporter.FORMAT_XLSX:
+        payload = csv_exporter.to_xlsx(headers, built["rows"], built["numeric"])
+        content_type = xlsx_io.XLSX_CONTENT_TYPE
+    else:
+        payload = csv_exporter.to_csv(headers, built["rows"]).encode("utf-8")
+        content_type = xlsx_io.CSV_CONTENT_TYPE
 
     slug = re.sub(r"[^A-Za-z0-9_-]+", "_", "%s_%s" % (discipline, label)).strip("_").lower()
     return {
-        "filename": f"rate_master_{slug}.csv",
-        "content_type": "text/csv",
-        "content_base64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+        "filename": f"rate_master_{slug}.{fmt}",
+        "content_type": content_type,
+        "content_base64": base64.b64encode(payload).decode("ascii"),
         "discipline": discipline,
         "category_id": category_id or None,
         "mode": mode,
+        "format": fmt,
         "columns": headers,
         "column_count": len(headers),
         "row_count": n,
@@ -1567,10 +1808,13 @@ def _decode_upload(content_base64, csv_text):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None):
+def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None, category_id=None):
     """ADMIN-ONLY, READ-ONLY: what this file WOULD do. Writes nothing, commits nothing.
 
-    Returns the plan: {discipline, mode, encoding, row_count, columns, counts, errors,
+    SLICE 1e: the file may be an .xlsx or a csv (detected by content); `category_id` is the optional
+    hint that types a NEW row in a headers-only template (see csv_importer.build_plan).
+
+    Returns the plan: {discipline, mode, format, encoding, row_count, columns, counts, errors,
     changes, digest}. `counts` carries rates_changed / items_added / unchanged / errors
     (the owner's four headline numbers) plus `other_changed` for rows that moved in some
     way other than a rate -- an honest fifth number rather than mislabelling those rows as
@@ -1588,13 +1832,15 @@ def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None)
 
     from nirmaan_stack.services.boq_rate_master import csv_importer
 
-    plan = csv_importer.build_plan(discipline, _decode_upload(content_base64, csv_text))
+    plan = csv_importer.build_plan(discipline, _decode_upload(content_base64, csv_text),
+                                   category_id=(category_id or None))
     return csv_importer.public_plan(plan)
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
-                          expected_digest=None):
+                          expected_digest=None, decisions=None, accepted_fingerprints=None,
+                          category_id=None, twin_decisions=None, twin_fingerprints=None):
     """ADMIN-ONLY: apply an already-previewed CSV. ALL-OR-NOTHING.
 
     A SNAPSHOT of the pre-upload catalog is written FIRST, in the SAME transaction, via
@@ -1617,8 +1863,29 @@ def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
 
     from nirmaan_stack.services.boq_rate_master import csv_importer
 
+    # SLICE 1d: the user's per-row Accept / Reject answers + the accepted suggestions' fingerprints, both
+    # OPTIONAL. Absent -> exactly the 1c apply. Present -> apply_plan re-plans with them and refuses an
+    # accept whose re-derived suggestion is not the one previewed.
+    decisions = _parse_json(decisions, None)
+    accepted_fingerprints = _parse_json(accepted_fingerprints, None)
+    if decisions is not None and not isinstance(decisions, dict):
+        frappe.throw("decisions must be an object of row -> accept | reject.", title="Invalid value")
+    if accepted_fingerprints is not None and not isinstance(accepted_fingerprints, dict):
+        frappe.throw("accepted_fingerprints must be an object of row -> fingerprint.", title="Invalid value")
+    # SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning + the confirmed targets'
+    # fingerprints, both OPTIONAL. Absent -> exactly the 1e apply (a plan with a warning is then refused
+    # as unanswered, nothing written). Present -> apply_plan re-derives each target and checks it.
+    twin_decisions = _parse_json(twin_decisions, None)
+    twin_fingerprints = _parse_json(twin_fingerprints, None)
+    if twin_decisions is not None and not isinstance(twin_decisions, dict):
+        frappe.throw("twin_decisions must be an object of row -> confirm | decline.", title="Invalid value")
+    if twin_fingerprints is not None and not isinstance(twin_fingerprints, dict):
+        frappe.throw("twin_fingerprints must be an object of row -> fingerprint.", title="Invalid value")
     result = csv_importer.apply_plan(
-        discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest
+        discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest,
+        decisions=decisions or None, accepted_fingerprints=accepted_fingerprints or None,
+        category_id=(category_id or None),
+        twin_decisions=twin_decisions or None, twin_fingerprints=twin_fingerprints or None,
     )
     frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
     result["plan"] = csv_importer.public_plan(result["plan"])

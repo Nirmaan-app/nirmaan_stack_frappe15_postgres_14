@@ -84,6 +84,12 @@ USAGE
     # the built-in calibration on known-answer pairs (T1-T5)
     python3 scripts/mint_completeness_check.py --self-test
 
+    # slice 1b (owner amendment 2026-09-21): each discipline's series ON ITS OWN -- the latest file
+    # of every series found, each history walked INDEPENDENTLY, the latest files' item kinds
+    # proven disjoint (Electrical x HVAC). A first version has no predecessor: the removal check
+    # is reported N/A, never as a pass.
+    python3 scripts/mint_completeness_check.py --latest
+
 Stdlib only, ASCII-only output. No bench context, no DB, no network -- like
 scripts/residence_check.py. Exit code 0 when every removal is declared, 1 when any is
 not. This gate is INVOKED, not automatic: nothing in this repo runs it for you.
@@ -103,6 +109,13 @@ DATA_DIR = "nirmaan_stack/services/boq_rate_master/data"
 
 # The E-ALL series filename shape, used to derive which mints are UNINSPECTABLE.
 EALL_RE = re.compile(r"^rate_master_electrical_all_v(\d+)([a-z]*)\.json$")
+# HVAC slice 1b (2026-09-21, owner amendment "yes we should do it"): the HVAC series is a SEPARATE
+# file with its OWN version number -- only the discipline that changed is minted, merged and loaded.
+# One pattern per discipline; `EALL_RE` stays the Electrical one so the T1-T5 self-test constants
+# below are untouched.
+HVAC_RE = re.compile(r"^rate_master_hvac_all_v(\d+)([a-z]*)\.json$")
+SERIES = {"Electrical": ("rate_master_electrical_all_v%s.json", EALL_RE),
+          "HVAC": ("rate_master_hvac_all_v%s.json", HVAC_RE)}
 
 
 # --- git access ---------------------------------------------------------------
@@ -260,15 +273,16 @@ def classify(lost: dict[str, str], old: dict, new: dict) -> tuple[dict, dict]:
 # --- uninspectable window -----------------------------------------------------
 
 
-def uninspectable_versions() -> list[str]:
-    """Which E-ALL mints cannot be inspected at all -- DERIVED from the files present,
+def uninspectable_versions(series_re: re.Pattern = EALL_RE) -> list[str]:
+    """Which mints of ONE series cannot be inspected at all -- DERIVED from the files present,
     not hardcoded. A bare integer gap is a missing mint; a suffix beyond 'a' implies
-    the earlier suffixed attempts existed and are gone."""
+    the earlier suffixed attempts existed and are gone. Default series: E-ALL (unchanged);
+    the HVAC series is walked with `HVAC_RE` (slice 1b)."""
     present, seen = set(), []
     d = REPO_ROOT / DATA_DIR
     if d.is_dir():
         for f in sorted(p.name for p in d.iterdir()):
-            m = EALL_RE.match(f)
+            m = series_re.match(f)
             if m:
                 seen.append((int(m.group(1)), m.group(2)))
                 present.add(f"v{m.group(1)}{m.group(2)}")
@@ -364,12 +378,15 @@ def compare(old_ref: Ref, new_ref: Ref) -> tuple[dict, dict, list]:
         for line in _wrap(note_new, 70):
             print(f"       {line}")
 
-    miss = uninspectable_versions()
+    # The window is reported for the series the NEW operand belongs to (E-ALL unless the
+    # filename says HVAC), so an HVAC comparison never prints the Electrical gap as its own.
+    series_re = HVAC_RE if HVAC_RE.match(Path(new_ref.path).name) else EALL_RE
+    miss = uninspectable_versions(series_re)
     if miss:
         print()
         print("  -- UNINSPECTABLE WINDOW --")
-        print(f"     These E-ALL mints have no asset on disk and CANNOT be inspected: "
-              f"{', '.join(miss)}.")
+        print(f"     These {'HVAC' if series_re is HVAC_RE else 'E-ALL'} mints have no asset on disk "
+              f"and CANNOT be inspected: {', '.join(miss)}.")
         print("     Anything lost in those mints is invisible to this gate. The one known")
         print("     loss from that era (the dbu3 golden, lost at EA-4d and repaired by")
         print("     hand) is recorded and repaired -- but it was found by accident.")
@@ -401,6 +418,99 @@ def do_history(path: str) -> int:
         _dec, und, _bl = compare(Ref(f"{a}:{path}"), Ref(f"{b}:{path}"))
         if und:
             rc = 1
+    return rc
+
+
+# --- per-series latest (slice 1b) ---------------------------------------------
+
+
+def item_kinds(payload: dict) -> set[str]:
+    """The distinct item kinds an asset carries. PURE."""
+    return {(it.get("kind") or "").strip() for it in payload.get("items") or [] if it.get("kind")}
+
+
+def kind_overlap(payload_a: dict, payload_b: dict) -> set[str]:
+    """Kinds present in BOTH assets. PURE. Must be EMPTY for two disciplines' files: the
+    interpreter's `matchMasterRow` filters items by KIND and attributes, never by discipline
+    (ratePipelineInterpreter.ts:324-329), so a shared kind name would let one discipline's rows
+    enter the other's matches. The convention is that every HVAC kind is prefixed `hvac_`."""
+    return item_kinds(payload_a) & item_kinds(payload_b)
+
+
+def latest_in(series: str, names: list[str]) -> str | None:
+    """The latest file of ONE series among `names` (highest version, then suffix). PURE; None when
+    the series has no file. Never crosses series: an Electrical name is invisible to HVAC."""
+    _tmpl, series_re = SERIES[series]
+    best = None
+    for n in names:
+        m = series_re.match(n)
+        if m:
+            key = (int(m.group(1)), m.group(2))
+            if best is None or key > best[0]:
+                best = (key, n)
+    return best[1] if best else None
+
+
+def latest_asset(series: str) -> str | None:
+    """`latest_in` over the data dir on disk."""
+    d = REPO_ROOT / DATA_DIR
+    return latest_in(series, sorted(p.name for p in d.iterdir())) if d.is_dir() else None
+
+
+def do_latest() -> int:
+    """Owner amendment 2026-09-21: each discipline's asset is versioned, minted, merged and loaded
+    ON ITS OWN. So the gate finds the latest file of EVERY series, walks each history INDEPENDENTLY,
+    and proves the latest files' item kinds disjoint. A FIRST version (one file in its series) has no
+    predecessor: 'no atoms disappeared' is VACUOUS there, so it is reported as NOT APPLICABLE -- never
+    as a pass -- and what IS checked is stated: the file parses, its discipline stamp matches the
+    series, its items / configs / kinds are listed, and the disjointness check must hold."""
+    print("=" * 78)
+    print(f"LATEST PER SERIES  ({', '.join(SERIES)})")
+    print("=" * 78)
+    rc = 0
+    latest: dict[str, str] = {}
+    for disc in SERIES:
+        name = latest_asset(disc)
+        print(f"\n--- {disc} ---")
+        if not name:
+            print("  no file in this series")
+            continue
+        path = f"{DATA_DIR}/{name}"
+        latest[disc] = path
+        series_files = [n for n in sorted(p.name for p in (REPO_ROOT / DATA_DIR).iterdir())
+                        if SERIES[disc][1].match(n)]
+        payload = Ref(path).load()
+        stamp = (payload.get("discipline") or "").strip()
+        kinds = sorted(item_kinds(payload))
+        print(f"  latest: {name}   ({len(series_files)} file(s) in the series)")
+        print(f"  discipline stamp: {stamp!r}  items: {len(payload.get('items') or [])}  "
+              f"configs: {len(_configs(payload))}  kinds: {kinds}")
+        if stamp != disc:
+            print(f"  ** discipline stamp {stamp!r} does not match the series {disc!r} **")
+            rc = 1
+        cs = commits_for(path)
+        if len(series_files) == 1:
+            print("  FIRST VERSION of this series: no predecessor exists, so the removal check")
+            print("  ('no atoms disappeared') is NOT APPLICABLE here -- it is not reported as passed.")
+            print(f"  commits touching it: {len(cs)}" + ("  (UNCOMMITTED -- walk again after the commit)" if not cs else ""))
+            continue
+        if not cs:
+            print(f"  UNCOMMITTED -- no history yet (walk it again after the commit)")
+            continue
+        if do_history(path):
+            rc = 1
+    discs = list(latest)
+    for i in range(len(discs)):
+        for j in range(i + 1, len(discs)):
+            ov = kind_overlap(Ref(latest[discs[i]]).load(), Ref(latest[discs[j]]).load())
+            print(f"\n  item kinds {Path(latest[discs[i]]).name} x {Path(latest[discs[j]]).name}: "
+                  + ("DISJOINT" if not ov else f"** OVERLAP: {sorted(ov)} **"))
+            if ov:
+                rc = 1
+    if len(discs) < 2:
+        print("\n  ** fewer than two series present -- the disjointness check did not run **")
+        rc = 1
+    print("\n  LATEST RESULT: " + ("PASS" if rc == 0 else "FAIL"))
     return rc
 
 
@@ -493,11 +603,15 @@ def main() -> int:
     ap.add_argument("old", nargs="?", help='OLD asset: "<rev>:<repo-path>" or a path')
     ap.add_argument("new", nargs="?", help='NEW asset: "<rev>:<repo-path>" or a path')
     ap.add_argument("--history", metavar="PATH", help="walk every commit of one asset")
+    ap.add_argument("--latest", action="store_true",
+                    help="each series on its own: latest file, independent history walk, disjoint kinds")
     ap.add_argument("--self-test", action="store_true", help="run the T1-T5 calibration")
     args = ap.parse_args()
 
     if args.self_test:
         return do_self_test()
+    if args.latest:
+        return do_latest()
     if args.history:
         return do_history(args.history)
     if not (args.old and args.new):

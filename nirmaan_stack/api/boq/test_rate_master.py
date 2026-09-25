@@ -677,15 +677,39 @@ class TestRateMaster(FrappeTestCase):
         it = frappe.get_all(
             "BoQ Rate Master Item", filters={"discipline": disc, "kind": "cable"}, fields=["name"], limit=1
         )[0]["name"]
+        # a rates-only edit: audited, as before
         res = rate_master.update_rate_master_item(
             name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
-            attributes_patch=json.dumps({"material": "copper"}),  # canonicalised -> COPPER
         )
         self.assertTrue(res["ok"])
         self.assertEqual(res["item"]["rates"]["list_price_per_mtr"], 999.5)
-        self.assertEqual(res["item"]["attributes"]["material"], "COPPER")
         # AUDIT
         self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+        # SLICE 1f (inverted under owner Y-b 3 / Y-e): this cable is ALUMINIUM, and "copper" (canonicalised ->
+        # COPPER) would make it MEAN THE SAME as the COPPER cable with the same core / insulation / thickness,
+        # so the endpoint ASKS and writes nothing -- no second Version, attributes untouched.
+        ask = rate_master.update_rate_master_item(
+            name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
+            attributes_patch=json.dumps({"material": "copper"}),
+        )
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        self.assertEqual(ask["twin"]["case"], "edit")
+        self.assertIn("material=COPPER", ask["twin"]["existing_wording"])
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+        self.assertEqual(_obj(frappe.db.get_value("BoQ Rate Master Item", it, "attributes"))["material"], "ALUMINIUM")
+        # confirm: the OTHER (copper) item takes the rates, audited on ITS document; this one is untouched
+        target = ask["twin"]["name"]
+        ok = rate_master.update_rate_master_item(
+            name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
+            attributes_patch=json.dumps({"material": "copper"}),
+            twin_decision="confirm", twin_fingerprint=ask["twin"]["fingerprint"],
+        )
+        self.assertTrue(ok["ok"]); self.assertEqual(ok["item"]["name"], target)
+        self.assertEqual(ok["item"]["rates"]["list_price_per_mtr"], 999.5)
+        self.assertEqual(ok["item"]["attributes"]["material"], "COPPER")
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", target)), 1)
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+        self.assertEqual(_obj(frappe.db.get_value("BoQ Rate Master Item", it, "attributes"))["material"], "ALUMINIUM")
 
     def test_12_item_edit_negatives(self):
         disc = self._new_disc()
@@ -2020,19 +2044,27 @@ class TestRateMaster(FrappeTestCase):
         # tray_install_rate table); the table is retired, so its CSV scope shrank by exactly the
         # retired kind -- a positive signal, not merely a count edit.
         self.assertEqual(n, 450)
+        # SLICE 1e (owner X-b / X-d): NO system column -- the source pair is gone, and `kind` is gone
+        # too because cabletray_raceway lists ONE item kind (the upload fills it). Inverted, not deleted.
+        # SLICE 1g (owner Z-c): `discipline` and `category` right after item_uid, in EVERY file. Inverted,
+        # not deleted -- every 1e value claim kept; the two are the ONLY non-edited columns beside the id.
         self.assertEqual(headers,
-                         ["item_uid", "kind", "brand", "unit",
+                         ["item_uid", "discipline", "category", "brand", "unit",
                           "material", "thickness_mm", "tray_type", "width_mm",
-                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
-                          "source_sheet", "source_row"])
+                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
+        self.assertNotIn("source_sheet", headers)  # NEGATIVE (1e): a system column is never in the file
+        self.assertNotIn("source_row", headers)
+        self.assertNotIn("kind", headers)          # NEGATIVE (1e): a single-kind category carries no kind
         self.assertNotIn("core", headers)          # a wiring attribute must NOT appear
-        self.assertNotIn("category", headers)      # MODE A has no category column
+        self.assertNotIn("import_batch", headers)  # NEGATIVE (1g): no OTHER system column returns
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(rows[0], headers)
         self.assertEqual(len(rows) - 1, 450)   # F-16: 460 -> 450, same reason as the count above
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]),
                         "every row must carry item_uid")
+        self.assertTrue(all(r[1] == disc and r[2] == "cabletray_raceway" for r in rows[1:]),
+                        "every row names its discipline and category (1g)")
 
     def test_24n_mode_b_gives_the_union_plus_a_category_column(self):
         """SLICE 5 MODE B -- one file, every category, the UNION of all keys.
@@ -2047,8 +2079,12 @@ class TestRateMaster(FrappeTestCase):
 
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(n, 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
-        self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
-        self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
+        # SLICE 1g (owner Z-c): `discipline` joins right after item_uid -- inverted, not deleted.
+        self.assertEqual(headers[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"])
+        # SLICE 1e (owner X-b): the source pair is NOT in the file any more -- inverted, not deleted.
+        self.assertNotIn("source_sheet", headers)
+        self.assertNotIn("source_row", headers)
+        self.assertNotIn("import_batch", headers)      # NEGATIVE (1g): no other system column returns
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
             self.assertIn(k, headers)
         # SLICE 2b: 45 -> 48. The MCB-ladder mint gave the 106 `family: Switchgear` rows the four
@@ -2060,17 +2096,20 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 5: 48 -> 49, the single `modules` column (the per-SKU module width). It is a
         # DECLARED attribute -- which is the whole reason it round-trips as a NUMBER rather than a
         # string -- so it necessarily joins the Mode B union.
-        self.assertEqual(len(headers), 49)
+        # SLICE 1e: 49 -> 47, the two system columns (source_sheet, source_row) removed (owner X-b).
+        # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c).
+        self.assertEqual(len(headers), 48)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(len(rows) - 1, 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
-        cats = {r[1] for r in rows[1:]}
+        self.assertEqual({r[1] for r in rows[1:]}, {disc})          # 1g: every row names the discipline
+        cats = {r[2] for r in rows[1:]}
         self.assertIn("cabletray_raceway", cats)
         self.assertIn("wiring_cabling", cats)
         # a cable row is BLANK in the tray column -- sparse, not wrong
         ti = headers.index("tray_type")
-        cable = next(r for r in rows[1:] if r[2] == "cable")
+        cable = next(r for r in rows[1:] if r[3] == "cable")      # 1g: kind sits after discipline + category
         self.assertEqual(cable[ti], "")
 
     def test_24o_a_comma_or_quote_survives_and_values_are_emitted_as_stored(self):
@@ -2117,17 +2156,25 @@ class TestRateMaster(FrappeTestCase):
         finally:
             frappe.set_user(original)
 
-        # POSITIVE twin: as admin both modes return a decodable file
+        # POSITIVE twin: as admin both modes return a decodable file. SLICE 1e (owner X-a): the DEFAULT
+        # is now .xlsx; the CSV is the explicit second option -- inverted, not deleted.
         res = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
-        self.assertEqual(res["content_type"], "text/csv")
+        self.assertEqual(res["content_type"],
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         self.assertEqual(res["mode"], "category")
-        self.assertTrue(res["filename"].endswith(".csv"))
-        self.assertIn("item_uid", base64.b64decode(res["content_base64"]).decode("utf-8"))
+        self.assertTrue(res["filename"].endswith(".xlsx"))
+        self.assertEqual(base64.b64decode(res["content_base64"])[:4], b"PK\x03\x04")
+        res_csv = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="csv")
+        self.assertEqual(res_csv["content_type"], "text/csv")
+        self.assertTrue(res_csv["filename"].endswith(".csv"))
+        self.assertIn("item_uid", base64.b64decode(res_csv["content_base64"]).decode("utf-8"))
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         self.assertEqual(res_all["mode"], "all")
         # SLICE 2b: 45 -> 48, the same +3 as test_24n (device / amp_a / curve; `pole` already existed).
         # SLICE 5: 48 -> 49, the `modules` width column -- the same +1 as test_24n.
-        self.assertEqual(res_all["column_count"], 49)
+        # SLICE 1e: 49 -> 47, the two system columns removed (owner X-b) -- the same -2 as test_24n.
+        # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c) -- the same +1 as test_24n.
+        self.assertEqual(res_all["column_count"], 48)
         self.assertEqual(res_all["row_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
@@ -4542,8 +4589,8 @@ class TestRateMaster(FrappeTestCase):
         new_row = list(rows[0])
         new_row[0] = ""                                       # blank uid -> ADD
         new_row[headers.index("width_mm")] = "999.0"
-        new_row[headers.index("source_sheet")] = ""
-        new_row[headers.index("source_row")] = ""
+        # SLICE 1e: the file carries no source columns (and no kind -- one item kind); nothing to blank.
+        self.assertNotIn("source_sheet", headers); self.assertNotIn("kind", headers)
         rows.append(new_row)
         edited = self._csv_text(headers, rows)
 
@@ -4616,7 +4663,10 @@ class TestRateMaster(FrappeTestCase):
 
         plan_a = csv_importer.build_plan(disc, a_text)
         self.assertEqual(plan_a["mode"], "category")
-        self.assertNotIn("category", plan_a["columns"]["fixed"])
+        # SLICE 1g (owner Z-c): a Mode A file carries `category` (and `discipline`) too; the mode is decided by
+        # the file's VALUES -- one category here -- inverted, not deleted.
+        self.assertIn("category", plan_a["columns"]["fixed"]); self.assertIn("discipline", plan_a["columns"]["fixed"])
+        self.assertEqual(plan_a["target"]["category"], "junction_box_raceway")
         self.assertEqual((plan_a["errors"], plan_a["changes"]), ([], []))
         self.assertEqual(plan_a["counts"]["unchanged"], na)
 
@@ -4635,7 +4685,14 @@ class TestRateMaster(FrappeTestCase):
         victim = next(r for r in rows if r[cat_i] not in ("", "wiring_cabling"))
         victim[cat_i] = "wiring_cabling"
         bad = csv_importer.build_plan(disc, self._csv_text(headers, rows))
-        self.assertTrue(any("does not match kind" in e["message"] for e in bad["errors"]))
+        # SLICE 1g (owner Z-c): an EXISTING item's edited category cell is refused in the ruled words --
+        # "cannot be moved to another category by editing these cells" -- inverted, not deleted; the
+        # pre-1g "does not match kind" wording now covers a NEW row whose kind and category disagree.
+        self.assertTrue(any("cannot be moved to another category" in e["message"] for e in bad["errors"]))
+        self.assertEqual(bad["changes"], [])
+        new_bad = list(victim); new_bad[0] = ""
+        bad2 = csv_importer.build_plan(disc, self._csv_text(headers, [new_bad]))
+        self.assertTrue(any("does not match kind" in e["message"] for e in bad2["errors"]))
 
     # ---- F-21 (2026-08-14): the >=10% boundary keeps its own promise -------------------
     # Plain-English coverage summary (test -> changed behaviour):
@@ -5120,7 +5177,9 @@ class TestRateMaster(FrappeTestCase):
         p3 = csv_importer.build_plan(disc, self._csv_text(headers, dup))
         self.assertTrue(any("appears twice" in e["message"] for e in p3["errors"]))
 
-        p4 = csv_importer.build_plan(disc, self._csv_text(headers + ["kind"],
+        # SLICE 1e: `kind` is no longer in a single-kind file, so the duplicate is `brand` (still a
+        # fixed column) -- the rule under test is unchanged.
+        p4 = csv_importer.build_plan(disc, self._csv_text(headers + ["brand"],
                                                           [r + ["x"] for r in rows]))
         self.assertTrue(any("appears more than once" in e["message"] for e in p4["errors"]))
 
@@ -5142,13 +5201,736 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(sorted(spec["rates"]), ["list_price"])
 
         spec_b, errs_b = csv_importer.classify_columns(
-            ["item_uid", "category", "kind"], attrs, rates)
+            ["item_uid", "discipline", "category", "kind"], attrs, rates)
         self.assertEqual(errs_b, [])
-        self.assertEqual(spec_b["mode"], "all")
+        # SLICE 1g (owner Z-c): every file carries `category` (and `discipline`), so the header no longer
+        # decides the mode -- build_plan decides it from the VALUES; both columns are fixed columns here.
+        self.assertEqual(spec_b["mode"], "category")
+        self.assertEqual(sorted(spec_b["fixed"]), ["category", "discipline", "item_uid", "kind"])
 
         _s, collide = csv_importer.classify_columns(
             ["item_uid", "kind", "material"], {"material"}, {"material"})
         self.assertTrue(any("both an attribute and a rate key" in e["message"] for e in collide))
+
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1e -- EXCEL BY DEFAULT; NO SYSTEM COLUMNS IN RATE FILES (owner X-a..X-e). Plain-English:
+    #   e01  THE ROUND TRIP, .xlsx: every Electrical category (Mode A) and the all-categories file
+    #        (Mode B, 1,367 rows) download as .xlsx and re-upload UNCHANGED to ZERO changes; every rate
+    #        and markup read back equals the stored value as a NUMBER and as the stored string.
+    #   e02  the same round trip as .csv, and the .xlsx and .csv of the same content give the SAME
+    #        preview counts and the SAME digest.
+    #   e03  COLUMNS: source_sheet / source_row absent from both formats and both modes; item_uid, brand,
+    #        unit and every person-edited column present; `kind` present ONLY in a multi-kind file --
+    #        Mode A wiring_cabling / db_switchgear / popup_boxes and Mode B -- and ABSENT for every
+    #        single-kind category (NEGATIVE).
+    #   e04  TEXT CELLS ARE TEXT: a text attribute holding "1/2", "3/4", "1:6", a leading-zero value and
+    #        a long digit string survives the .xlsx round trip byte-for-byte; the numeric columns are
+    #        numbers.
+    #   e05  UPLOAD without kind: a new single-kind row is accepted with kind filled from the category and
+    #        source stamped by the system; NEGATIVE: a new row in a multi-kind category with a blank kind
+    #        is refused by a clear message naming the kinds; nothing written.
+    #   e06  OLD FORMAT: a file still carrying kind + source columns uploads with zero changes; a CHANGED
+    #        value in an ignored column is NOT applied (NEGATIVE) and is not a change.
+    #   e07  detection is by CONTENT: xlsx bytes under a .csv name and csv text under any name both read;
+    #        the plan reports the format.
+    #   e08  the endpoint: default .xlsx (content type + name), fmt=csv gives the CSV, a bad fmt refuses;
+    #        preview / apply accept category_id and it is needed only for a headers-only template.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    def _xlsx_rows(self, raw):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        return xlsx_io.read_xlsx(raw)
+
+    def _rate_columns(self, headers, rate_keys):
+        return [h for h in headers if h in rate_keys]
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1f -- SAME-MEANING DUPLICATES (owner Y-a..Y-f), the ELECTRICAL half. Plain-English coverage:
+    #   e09  TWIN FOUND for the same kind + brand + unit + EVERY attribute (the live cable rmi-2c2f8e25a3e0);
+    #        the warning names the identifying fields as the file shows them; a typed lower-case value and a
+    #        typed integer still mean the same (the importer canonicalises, numbers compare as numbers);
+    #        NEGATIVE: differing ONLY in brand is NOT a twin; differing in one attribute is not.
+    #   e10  CONFIRM: the existing cable takes the row's rates, its uid / attributes untouched, NO new item
+    #        (1,367 stays 1,367); DECLINE: that row is skipped, the other new row applied.
+    #   e11  THE ROUND TRIP, NEGATIVE: every Electrical file (12 Mode A .xlsx + .csv, Mode B) re-uploaded
+    #        unchanged -> zero changes AND zero warnings; with a planted twin pair present, still zero; a
+    #        rates-only edit of one twin is a plain update with no warning; an item shared by two categories
+    #        under ONE uid is one item, never its own twin (no identity in the index carries two uids).
+    #   e12  MANUAL ADD / EDIT: ask with nothing written; decline writes nothing; confirm updates the existing
+    #        cable only (add: no new item; edit: the OTHER item's rates, the edited one byte-for-byte
+    #        unchanged); a rates-only patch never asks.
+    #   e13  IN-FILE TWINS: two identical new rows are refused naming the rows, nothing written.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    E_TWIN_UID = "rmi-2c2f8e25a3e0"      # Polycab / Mtr / cable / core 3 / ARMOURED / COPPER / 2.5 sqmm
+
+    def _e_state(self, name):
+        d = frappe.db.get_value("BoQ Rate Master Item", name,
+                                ["item_uid", "kind", "brand", "unit", "attributes", "rates", "source_sheet",
+                                 "source_row", "import_batch", "active", "modified"], as_dict=True)
+        d["attributes"] = _obj(d["attributes"]); d["rates"] = _obj(d["rates"])
+        return d
+
+    def _e_uid_name(self, disc, uid):
+        rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1, "item_uid": uid}, fields=["name"])
+        self.assertEqual(len(rows), 1, (uid, rows))
+        return rows[0]["name"]
+
+    def _wiring_with(self, disc, extra_rows):
+        """The wiring_cabling csv plus the given rows (dicts keyed by header name; blank where absent)."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        text, headers, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        lines = [",".join(str(r.get(h, "")) for h in headers) for r in extra_rows]
+        return text + "\r\n".join(lines) + "\r\n", headers
+
+    def test_e09_electrical_twin_same_kind_brand_unit_every_attribute_and_the_negatives(self):
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        row = {"kind": "cable", "brand": "Polycab", "unit": "Mtr", "core": "3", "insulation": "armoured",
+               "material": "copper", "thickness_sqmm": "2.5", "install_base_per_mtr": "15", "list_price_per_mtr": "500"}
+        text, headers = self._wiring_with(disc, [row])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(plan["errors"], [], plan["errors"][:2])
+        self.assertEqual(len(plan["changes"]), 1); self.assertEqual(plan["counts"]["twins"], 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["kind"], "add"); self.assertTrue(ch["major"])
+        tw = ch["twin"]
+        self.assertEqual((tw["case"], tw["item_uid"]), ("new", self.E_TWIN_UID))
+        self.assertEqual(tw["existing_wording"],
+                         "kind=cable, brand=Polycab, unit=Mtr, core=3.0, insulation=ARMOURED, material=COPPER, thickness_sqmm=2.5")
+        self.assertEqual(tw["row_wording"], tw["existing_wording"])     # identical meaning, identical fields
+        self.assertEqual(tw["compared"], ["kind", "brand", "unit", "core", "insulation", "material", "thickness_sqmm"])
+        self.assertEqual(tw["existing_rates"], {"install_base_per_mtr": "14.0", "list_price_per_mtr": "481.0"})
+        self.assertEqual(tw["row_rates"], {"install_base_per_mtr": "15.0", "list_price_per_mtr": "500.0"})
+        # NEGATIVE: differing ONLY in brand is NOT a twin; differing in ONE attribute is not
+        for over in ({"brand": "Havells"}, {"thickness_sqmm": "999"}):
+            t2, _h = self._wiring_with(disc, [{**row, **over}])
+            p2 = csv_importer.build_plan(disc, t2)
+            self.assertEqual(p2["errors"], [], over); self.assertEqual(len(p2["changes"]), 1)
+            self.assertNotIn("twin", p2["changes"][0], over); self.assertEqual(p2["counts"]["twins"], 0, over)
+        # a typed INTEGER means the same as the stored float (the manual path sends numbers as typed)
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+                                                  attributes=json.dumps({"core": 3, "insulation": "armoured", "material": "copper", "thickness_sqmm": 2.5}),
+                                                  rates=json.dumps({"list_price_per_mtr": 500.0}))
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        self.assertEqual(ask["twin"]["item_uid"], self.E_TWIN_UID)
+
+    def test_e10_electrical_confirm_updates_the_existing_cable_and_decline_skips_the_row(self):
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        target = self._e_uid_name(disc, self.E_TWIN_UID)
+        before = self._e_state(target)
+        n_before = self._active_items(disc)
+        self.assertEqual(n_before, 1367)
+        row = {"kind": "cable", "brand": "Polycab", "unit": "Mtr", "core": "3", "insulation": "ARMOURED",
+               "material": "COPPER", "thickness_sqmm": "2.5", "install_base_per_mtr": "15", "list_price_per_mtr": "500"}
+        text, _h = self._wiring_with(disc, [row])
+        plan = csv_importer.build_plan(disc, text)
+        row_no = str(plan["changes"][0]["row"])                  # the appended row: 589 (588 existing rows)
+        self.assertEqual(row_no, "589")
+        fp = plan["changes"][0]["twin"]["fingerprint"]
+        # NEGATIVE: unanswered -> refused, nothing written
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
+        self.assertEqual(self._active_items(disc), 1367); self.assertEqual(self._e_state(target), before)
+        # CONFIRM
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={row_no: "confirm"}, twin_fingerprints={row_no: fp})
+        frappe.db.commit()
+        self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
+        self.assertEqual(self._active_items(disc), 1367)                                   # NO new item
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", target, "active"), 0)  # superseded, retained
+        after = self._e_state(self._e_uid_name(disc, self.E_TWIN_UID))
+        self.assertEqual(after["attributes"], before["attributes"])
+        self.assertEqual((after["kind"], after["brand"], after["unit"]), ("cable", "Polycab", "Mtr"))
+        self.assertEqual(after["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 15.0})
+        # DECLINE with an unrelated new row in the same file: the twin row skipped, the other added
+        t2, _h = self._wiring_with(disc, [{**row, "list_price_per_mtr": "600"}, {**row, "brand": "Havells"}])
+        p2 = csv_importer.build_plan(disc, t2)
+        self.assertEqual(p2["counts"]["twins"], 1); self.assertIn("twin", p2["changes"][0]); self.assertNotIn("twin", p2["changes"][1])
+        r2 = csv_importer.apply_plan(disc, t2, expected_digest=p2["digest"], twin_decisions={str(p2["changes"][0]["row"]): "decline"})
+        frappe.db.commit()
+        self.assertEqual((r2["applied"], r2["items_added"], r2["items_replaced"]), (1, 1, 0))
+        self.assertEqual(r2["plan"]["counts"]["twins_declined"], 1)
+        self.assertEqual(self._active_items(disc), 1368)
+        still = self._e_state(self._e_uid_name(disc, self.E_TWIN_UID))
+        self.assertEqual(still["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 15.0})   # not 600
+        added = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1, "import_batch": r2["batch"]}, fields=["brand"])
+        self.assertEqual([a["brand"] for a in added], ["Havells"])
+
+    def test_e11_every_electrical_file_round_trips_to_zero_changes_and_zero_warnings(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, spec_reader
+        disc = self._loaded_disc()
+        _items, _kc, cat_kinds = csv_exporter._load(disc)
+        self.assertEqual(len(cat_kinds), 12)
+        def zero(payload, n, label):
+            p = csv_importer.build_plan(disc, payload)
+            self.assertEqual(p["errors"], [], label); self.assertEqual(p["changes"], [], label)
+            self.assertEqual(p["counts"]["unchanged"], n, label)
+            self.assertEqual((p["counts"]["twins"], p["counts"]["twins_declined"]), (0, 0), label)
+            return p
+        for cat in cat_kinds:
+            raw, _h, n = csv_exporter.build_category_xlsx(disc, cat)
+            zero(raw, n, cat)
+            text, _h2, n2 = csv_exporter.build_category_csv(disc, cat)
+            zero(text, n2, cat)
+        raw_b, _hb, nb = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(nb, 1367); zero(raw_b, 1367, "mode B")
+        self.assertEqual(csv_importer.apply_plan(disc, raw_b)["applied"], 0)
+        # an item shared by two categories under ONE uid is one item, never its own twin: no identity in
+        # the index carries two uids (and switch_socket_item IS in both popup_boxes and switches_sockets)
+        active = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
+                                fields=["name", "item_uid", "kind", "brand", "unit", "attributes", "rates"])
+        idx = csv_importer.twin_index(active, spec_reader.spec_categories(disc))
+        self.assertEqual([k for k, v in idx.items() if len(v) > 1], [])
+        self.assertIn("switch_socket_item", cat_kinds["popup_boxes"]); self.assertIn("switch_socket_item", cat_kinds["switches_sockets"])
+        # plant a twin of the live cable DIRECTLY (a new uid): the file still round trips to zero, and a
+        # rates-only edit of the original is a plain update with no warning
+        src = frappe.get_doc("BoQ Rate Master Item", self._e_uid_name(disc, self.E_TWIN_UID))
+        frappe.get_doc({"doctype": "BoQ Rate Master Item", "discipline": disc, "kind": src.kind, "brand": src.brand,
+                        "unit": src.unit, "item_uid": "rmi-1f1f1f1f1f1f", "attributes": src.attributes, "rates": src.rates,
+                        "source_sheet": "test", "source_row": 999, "import_batch": "test-1f", "active": 1}).insert(ignore_permissions=True)
+        frappe.db.commit()
+        raw_w, hw, nw = csv_exporter.build_category_xlsx(disc, "wiring_cabling")
+        self.assertEqual(nw, 589); zero(raw_w, 589, "wiring with twins")
+        text, headers = self._wiring_with(disc, [{"item_uid": self.E_TWIN_UID, "kind": "cable", "brand": "Polycab", "unit": "Mtr",
+                                                 "core": "3.0", "insulation": "ARMOURED", "material": "COPPER", "thickness_sqmm": "2.5",
+                                                 "install_base_per_mtr": "14", "list_price_per_mtr": "482"}])
+        # (the file now names the uid twice: once in the export and once in the appended row -> use ONLY the appended row)
+        one = "\r\n".join([",".join(headers), text.strip().split("\r\n")[-1]]) + "\r\n"
+        p = csv_importer.build_plan(disc, one)
+        self.assertEqual(p["errors"], [], p["errors"][:2]); self.assertEqual(len(p["changes"]), 1)
+        self.assertNotIn("twin", p["changes"][0]); self.assertEqual(p["counts"]["twins"], 0)
+        self.assertEqual([f["column"] for f in p["changes"][0]["fields"]], ["list_price_per_mtr"])
+
+    def test_e12_electrical_manual_add_and_edit_ask_decline_and_confirm(self):
+        disc = self._loaded_disc()
+        target = self._e_uid_name(disc, self.E_TWIN_UID)
+        before = self._e_state(target)
+        n_before = self._active_items(disc)
+        attrs = json.dumps({"core": 3.0, "insulation": "ARMOURED", "material": "COPPER", "thickness_sqmm": 2.5})
+        rates = json.dumps({"list_price_per_mtr": 500.0})
+        ask = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates)
+        self.assertFalse(ask["ok"]); self.assertTrue(ask["needs_twin_confirmation"])
+        self.assertEqual((ask["twin"]["item_uid"], ask["twin"]["name"]), (self.E_TWIN_UID, target))
+        self.assertEqual(ask["twin"]["compared"], ["kind", "brand", "unit", "core", "insulation", "material", "thickness_sqmm"])
+        self.assertEqual(self._active_items(disc), n_before)
+        dec = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates,
+                                                  twin_decision="decline")
+        self.assertTrue(dec["ok"]); self.assertFalse(dec["written"]); self.assertEqual(self._active_items(disc), n_before)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates,
+                                                twin_decision="confirm", twin_fingerprint="nope")
+        self.assertEqual(self._e_state(target), before)
+        ok = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr", attributes=attrs, rates=rates,
+                                                 twin_decision="confirm", twin_fingerprint=ask["twin"]["fingerprint"])
+        self.assertTrue(ok["ok"]); self.assertEqual(ok["item"]["name"], target)
+        self.assertEqual(ok["item"]["attributes"], before["attributes"])
+        self.assertEqual(ok["item"]["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 14.0})
+        self.assertEqual(self._active_items(disc), n_before)                                  # NO new item
+        # NEGATIVE: differing only in brand -> a plain create, no question
+        other = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Havells", unit="Mtr", attributes=attrs, rates=rates)
+        self.assertTrue(other["ok"]); self.assertNotIn("twin", other); self.assertEqual(self._active_items(disc), n_before + 1)
+        # EDIT (Y-e): X (thickness 999) patched to 2.5 would mean the same as the target -> ask; confirm -> the
+        # target takes X's rates, X byte-for-byte unchanged; a rates-only patch never asks
+        x = rate_master.create_rate_master_item(discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+                                                attributes=json.dumps({"core": 3.0, "insulation": "ARMOURED", "material": "COPPER", "thickness_sqmm": 999.0}),
+                                                rates=json.dumps({"list_price_per_mtr": 7.0}))
+        x_name = x["item"]["name"]; x_state = self._e_state(x_name); t_state = self._e_state(target)
+        ask2 = rate_master.update_rate_master_item(name=x_name, attributes_patch=json.dumps({"thickness_sqmm": 2.5}), rates_patch=json.dumps({"list_price_per_mtr": 8.0}))
+        self.assertTrue(ask2["needs_twin_confirmation"])
+        self.assertEqual((ask2["twin"]["case"], ask2["twin"]["item_uid"], ask2["twin"]["edited_item_uid"]), ("edit", self.E_TWIN_UID, x_state["item_uid"]))
+        self.assertEqual(self._e_state(x_name), x_state); self.assertEqual(self._e_state(target), t_state)
+        ok2 = rate_master.update_rate_master_item(name=x_name, attributes_patch=json.dumps({"thickness_sqmm": 2.5}), rates_patch=json.dumps({"list_price_per_mtr": 8.0}),
+                                                  twin_decision="confirm", twin_fingerprint=ask2["twin"]["fingerprint"])
+        self.assertEqual(ok2["item"]["name"], target)
+        self.assertEqual(ok2["item"]["rates"], {"list_price_per_mtr": 8.0, "install_base_per_mtr": 14.0})
+        self.assertEqual(ok2["item"]["attributes"], before["attributes"])
+        self.assertEqual(self._e_state(x_name), x_state)
+        r3 = rate_master.update_rate_master_item(name=x_name, rates_patch=json.dumps({"list_price_per_mtr": 9.0}))
+        self.assertTrue(r3["ok"]); self.assertNotIn("twin", r3)
+
+    def test_e13_electrical_two_identical_new_rows_are_refused_naming_the_rows(self):
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        row = {"kind": "cable", "brand": "Havells", "unit": "Mtr", "core": "3", "insulation": "ARMOURED",
+               "material": "COPPER", "thickness_sqmm": "2.5", "list_price_per_mtr": "500"}
+        text, _h = self._wiring_with(disc, [row, {**row, "list_price_per_mtr": "510"}])
+        plan = csv_importer.build_plan(disc, text)
+        self.assertEqual(len(plan["errors"]), 1)
+        self.assertIn("Rows 589 and 590 mean the same item", plan["errors"][0]["message"])
+        self.assertIn("remove one", plan["errors"][0]["message"])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
+        self.assertEqual(self._active_items(disc), 1367)
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 1g -- SELF-DESCRIBING FILES + IDs FOR HAND-ADDED ITEMS (owner Z-a..Z-e), Electrical half:
+    #   e14  COLUMNS: `discipline` and `category` right after item_uid in every Mode A file and Mode B,
+    #        both formats, filled on every row (the discipline as the system names it; the category id
+    #        Mode B always used); TEXT cells in the .xlsx; NEGATIVE: no other system column returns.
+    #   e15  UPLOAD CHECKS: the matching file -> zero changes and the target names the category; a wrong
+    #        discipline -> refused naming the row, file-says vs page; a wrong category (not this
+    #        discipline's) -> refused; a single-category file on another category's page -> refused; the
+    #        all-categories file with a category of another discipline -> refused; an existing item's
+    #        category edited -> refused ("cannot be moved"); a blank new row filled from the file; a
+    #        blank new row in a file whose rows disagree -> refused; a file with NO values -> the page
+    #        decides and `from_page` is set; a 1f-format file (no columns) -> exactly today's result.
+    #        Nothing written on any refusal.
+    #   e16  IDs: the manual create mints an item_uid in the shared format through the ONE mint; the
+    #        download shows it; re-upload -> zero changes and ZERO warnings; NEGATIVE: no path creates a
+    #        uid-less active item any more.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+
+    def test_e14_every_file_carries_discipline_and_category_as_text(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        import csv
+        import io as _io
+        import openpyxl
+        disc = self._loaded_disc()
+        _items, kind_cat, cat_kinds = csv_exporter._load(disc)
+        for cat in cat_kinds:
+            text, headers, n = csv_exporter.build_category_csv(disc, cat)
+            self.assertEqual(headers[:3], ["item_uid", "discipline", "category"], cat)
+            rows = list(csv.reader(_io.StringIO(text.lstrip(BOM))))[1:]
+            self.assertEqual(len(rows), n)
+            self.assertTrue(all(r[1] == disc and r[2] == cat for r in rows), cat)
+            raw, hx, nx = csv_exporter.build_category_xlsx(disc, cat)
+            self.assertEqual(hx, headers)
+            ws = openpyxl.load_workbook(_io.BytesIO(raw)).worksheets[0]
+            if nx:
+                self.assertEqual({ws.cell(row=r, column=2).number_format for r in range(2, nx + 2)}, {"@"}, cat)
+                self.assertEqual({ws.cell(row=r, column=3).number_format for r in range(2, nx + 2)}, {"@"}, cat)
+                self.assertEqual({ws.cell(row=r, column=2).value for r in range(2, nx + 2)}, {disc}, cat)
+                self.assertEqual({ws.cell(row=r, column=3).value for r in range(2, nx + 2)}, {cat}, cat)
+            for gone in ("source_sheet", "source_row", "import_batch", "name"):
+                self.assertNotIn(gone, headers, cat)                        # NEGATIVE
+        text_b, hb, nb = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(hb[:3], ["item_uid", "discipline", "category"])
+        rows_b = list(csv.reader(_io.StringIO(text_b.lstrip(BOM))))[1:]
+        self.assertEqual(len(rows_b), 1367)
+        self.assertEqual({r[1] for r in rows_b}, {disc})
+        self.assertEqual({r[2] for r in rows_b}, set(kind_cat.values()))       # the category ID, as before
+        raw_b, hxb, _n = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(hxb, hb)
+
+    def test_e15_upload_refuses_a_file_that_does_not_describe_this_page(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        import csv
+        disc = self._loaded_disc()
+        n_before = self._active_items(disc)
+        text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        hdr_line, body = text.split("\r\n")[0], text.split("\r\n")[1:]
+        di, ci, ui = headers.index("discipline"), headers.index("category"), headers.index("item_uid")
+
+        def with_rows(rows, header=hdr_line):
+            return header + "\r\n" + "\r\n".join(rows) + "\r\n"
+
+        def edited(row_text, **cells):
+            parts = next(csv.reader([row_text]))
+            for k, v in cells.items():
+                parts[headers.index(k)] = v
+            buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts); return buf.getvalue()
+
+        # 1. the matching file: zero changes, the target names the page's category, not from the page
+        plan = csv_importer.build_plan(disc, text, category_id="cabletray_raceway")
+        self.assertEqual((plan["errors"], plan["changes"]), ([], []))
+        self.assertEqual(plan["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": False})
+        self.assertEqual(plan["mode"], "category")
+        # 2. a wrong DISCIPLINE on one row: refused naming the row, file-says vs page
+        bad = with_rows([edited(body[0], discipline="HVAC")] + body[1:3])
+        p = csv_importer.build_plan(disc, bad, category_id="cabletray_raceway")
+        self.assertEqual(len(p["errors"]), 1); self.assertEqual(p["errors"][0]["row"], 1)
+        self.assertIn("the file says discipline 'HVAC' but this page is '%s'" % disc, p["errors"][0]["message"])
+        # 3. a CATEGORY that is not this discipline's: refused
+        bad = with_rows([edited(body[0], category="hvac_adp")] + body[1:3])
+        p = csv_importer.build_plan(disc, bad, category_id="cabletray_raceway")
+        self.assertEqual(len(p["errors"]), 1)
+        self.assertIn("the file says category 'hvac_adp', which is not a category of %s" % disc, p["errors"][0]["message"])
+        # 4. a single-category file uploaded on ANOTHER category's page: refused, file-says vs page
+        p = csv_importer.build_plan(disc, text, category_id="earthing")
+        self.assertEqual(len(p["errors"]), n)
+        self.assertIn("the file says category 'cabletray_raceway' but this page is on 'earthing'", p["errors"][0]["message"])
+        # 5. the all-categories file: an all-categories upload on any page of the discipline, zero changes;
+        #    one row given a category of ANOTHER discipline: refused
+        text_b, hb, _nb = csv_exporter.build_all_categories_csv(disc)
+        pb = csv_importer.build_plan(disc, text_b, category_id="earthing")
+        self.assertEqual((pb["errors"], pb["changes"]), ([], []))
+        self.assertEqual(pb["target"], {"discipline": disc, "category": None, "mode": "all", "from_page": False})
+        lines_b = text_b.split("\r\n")
+        parts = next(csv.reader([lines_b[1]])); parts[hb.index("category")] = "hvac_adp"
+        buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts)
+        pb2 = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n" + "\r\n".join(lines_b[2:]))
+        self.assertEqual(len(pb2["errors"]), 1); self.assertIn("not a category of", pb2["errors"][0]["message"])
+        # 6. an EXISTING item's category cell edited to another real category: refused ("cannot be moved")
+        lines_b = text_b.split("\r\n")
+        tray_line = next(l for l in lines_b[1:] if ",cabletray_raceway," in l)
+        parts = next(csv.reader([tray_line])); parts[hb.index("category")] = "earthing"
+        buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts)
+        pm = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n")
+        self.assertEqual(len(pm["errors"]), 1)
+        self.assertIn("belongs to category 'cabletray_raceway'; the file says 'earthing'", pm["errors"][0]["message"])
+        self.assertIn("cannot be moved to another category", pm["errors"][0]["message"])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n", expected_digest=pm["digest"])
+        # 7. a NEW row with BLANK discipline / category is filled from the file's rows (all agree)
+        new_row = edited(body[0], item_uid="", discipline="", category="", width_mm="999", install_rate="1")
+        pn = csv_importer.build_plan(disc, with_rows(body[:2] + [new_row]), category_id="cabletray_raceway")
+        self.assertEqual(pn["errors"], [], pn["errors"][:2]); self.assertEqual(pn["counts"]["items_added"], 1)
+        self.assertEqual(pn["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertFalse(pn["target"]["from_page"])
+        # 8. a blank new row in a file whose rows name SEVERAL categories: refused (cannot be filled)
+        lines_b = text_b.split("\r\n")
+        new_b = edited(body[0], item_uid="", discipline="", category="", width_mm="999", install_rate="1")
+        parts = next(csv.reader([new_b]))
+        # re-shape the tray row onto the Mode B header: blank every column the tray file lacks
+        mode_b_new = [""] * len(hb)
+        for k, v in zip(headers, parts):
+            mode_b_new[hb.index(k)] = v
+        buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(mode_b_new)
+        cable_line = next(l for l in lines_b[1:] if ",wiring_cabling," in l)
+        pd = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + cable_line + "\r\n" + tray_line + "\r\n" + buf.getvalue() + "\r\n")
+        self.assertEqual(len(pd["errors"]), 1)
+        self.assertIn("name more than one category", pd["errors"][0]["message"])
+        # 9. a file with NO discipline / category value at all: the page decides, and the plan says so
+        blanked = with_rows([edited(l, discipline="", category="") for l in body[:3]])
+        pz = csv_importer.build_plan(disc, blanked, category_id="cabletray_raceway")
+        self.assertEqual((pz["errors"], pz["changes"]), ([], []))
+        self.assertEqual(pz["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": True})
+        # 10. a 1f-format file (no such columns at all): exactly today's result, the page decides
+        old_hdr = [h for h in headers if h not in ("discipline", "category")]
+        old_rows = []
+        for l in body[:3]:
+            parts = next(csv.reader([l])); old_rows.append([parts[headers.index(h)] for h in old_hdr])
+        po = csv_importer.build_plan(disc, self._csv_text(old_hdr, old_rows), category_id="cabletray_raceway")
+        self.assertEqual((po["errors"], po["changes"]), ([], [])); self.assertEqual(po["counts"]["unchanged"], 3)
+        self.assertEqual(po["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": True})
+        self.assertEqual(po["columns"]["ignored"], [])
+        # nothing written by any of the above
+        self.assertEqual(self._active_items(disc), n_before)
+
+    def test_e16_a_hand_added_item_gets_a_uid_and_round_trips_with_zero_warnings(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        res = rate_master.create_rate_master_item(
+            discipline=disc, kind="cable_tray", brand="Generic", unit="Rmt",
+            attributes=json.dumps({"material": "GI", "thickness_mm": 2.0, "tray_type": "Perforated", "width_mm": 999.0}),
+            rates=json.dumps({"install_rate": 5.0}),
+        )
+        self.assertTrue(res["ok"])
+        uid = res["item"]["item_uid"]
+        self.assertRegex(uid, r"^rmi-[0-9a-f]{12}$")                         # the shared format
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", res["item"]["name"], "item_uid"), uid)
+        self.assertEqual(csv_importer.UID_PREFIX + "x" * csv_importer.UID_HEX_LEN, "rmi-xxxxxxxxxxxx")
+        # unique among EVERY row of the discipline (active and inactive)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "item_uid": uid}), 1)
+        # the download shows it, and an unchanged re-upload is zero changes and ZERO warnings
+        text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        self.assertEqual(n, 451)
+        self.assertIn(uid, text)
+        plan = csv_importer.build_plan(disc, text, category_id="cabletray_raceway")
+        self.assertEqual((plan["errors"], plan["changes"], plan["counts"]["unchanged"], plan["counts"]["twins"]), ([], [], 451, 0))
+        raw, _h, _n = csv_exporter.build_category_xlsx(disc, "cabletray_raceway")
+        px = csv_importer.build_plan(disc, raw, category_id="cabletray_raceway")
+        self.assertEqual((px["errors"], px["changes"], px["counts"]["twins"]), ([], [], 0))
+        # NEGATIVE: no active item of the discipline is without a uid (the manual path was the only one)
+        self.assertEqual(frappe.db.sql(
+            'select count(*) from "tabBoQ Rate Master Item" where discipline=%s and active=1 and (item_uid is null or item_uid=%s)',
+            (disc, "")), [(0,)])
+        # the mint itself: unique against a taken set, and it adds what it minted -- proven by FORCING the
+        # first draw to collide (a random draw would pass a broken loop by luck)
+        from unittest.mock import patch as _patch
+        taken = {uid}
+        with _patch("frappe.generate_hash", side_effect=[uid[len("rmi-"):], "abcdef012345"]):
+            minted = csv_importer.mint_item_uid(disc, taken)
+        self.assertEqual(minted, "rmi-abcdef012345")                 # the collision was skipped
+        self.assertIn(minted, taken); self.assertRegex(minted, r"^rmi-[0-9a-f]{12}$")
+
+    def test_e01_xlsx_round_trip_is_a_no_op_for_every_electrical_file(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
+        disc = self._loaded_disc()
+        _attr_ids, rate_keys, _types, _kc = csv_importer.column_spaces(disc)
+        stored = self._active_rows(disc)
+        items, kind_cat, cat_kinds = csv_exporter._load(disc)
+        seen_uids = set()
+        for cat, kinds in cat_kinds.items():
+            raw, headers, n = csv_exporter.build_category_xlsx(disc, cat)
+            self.assertTrue(xlsx_io.is_xlsx(raw))
+            # a Mode A file holds every active item of the category's kinds (a kind shared by two
+            # categories -- switch_socket_item: popup_boxes AND switches_sockets -- is in both files)
+            self.assertEqual(n, sum(1 for it in items if it["kind"] in set(kinds)), cat)
+            plan = csv_importer.build_plan(disc, raw, category_id=cat)
+            self.assertEqual(plan["errors"], [], (cat, plan["errors"][:3]))
+            self.assertEqual(plan["changes"], [], (cat, plan["changes"][:2]))
+            self.assertEqual(plan["counts"]["unchanged"], n, cat)
+            self.assertEqual(plan["format"], "xlsx")
+            # every rate / markup equals the stored value as a NUMBER and as the stored STRING
+            hdr, rows = self._xlsx_rows(raw)
+            self.assertEqual(hdr, headers)
+            ui = hdr.index("item_uid")
+            for _i, cells in rows:
+                seen_uids.add(cells[ui])
+                row = stored[cells[ui]]
+                rates = _obj(row["rates"])
+                for col in self._rate_columns(hdr, rate_keys):
+                    text = cells[hdr.index(col)]
+                    sv = rates.get(col)
+                    if sv is None:
+                        self.assertEqual(text, "", (cat, col))
+                    else:
+                        self.assertEqual(float(text), float(sv), (cat, col))
+                        self.assertEqual(float(text), float(csv_exporter._cell(sv)))
+        self.assertEqual(len(seen_uids), 1367)              # every active item was in some file
+        self.assertEqual(seen_uids, set(stored))
+        # MODE B
+        raw_b, headers_b, n_b = csv_exporter.build_all_categories_xlsx(disc)
+        self.assertEqual(n_b, 1367)
+        plan_b = csv_importer.build_plan(disc, raw_b)
+        self.assertEqual(plan_b["errors"], [])
+        self.assertEqual(plan_b["changes"], [])
+        self.assertEqual(plan_b["counts"]["unchanged"], 1367)
+        self.assertEqual(plan_b["mode"], "all")
+
+    def test_e02_csv_round_trip_still_zero_and_both_formats_agree(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        for cat in ("cabletray_raceway", "wiring_cabling", "db_switchgear", "earthing"):
+            text, headers, n = csv_exporter.build_category_csv(disc, cat)
+            raw, headers_x, n_x = csv_exporter.build_category_xlsx(disc, cat)
+            self.assertEqual((headers, n), (headers_x, n_x))
+            p_csv = csv_importer.build_plan(disc, text, category_id=cat)
+            p_x = csv_importer.build_plan(disc, raw, category_id=cat)
+            self.assertEqual(p_csv["errors"], []); self.assertEqual(p_csv["changes"], [])
+            self.assertEqual(p_csv["counts"]["unchanged"], n)
+            self.assertEqual(p_csv["format"], "csv")
+            self.assertEqual(p_csv["digest"], p_x["digest"], cat)
+            self.assertEqual(p_csv["counts"], p_x["counts"], cat)
+        text_b, _h, n_b = csv_exporter.build_all_categories_csv(disc)
+        p_b = csv_importer.build_plan(disc, text_b)
+        self.assertEqual((p_b["errors"], p_b["changes"], p_b["counts"]["unchanged"]), ([], [], 1367))
+        # the SAME EDIT in both formats plans the same change and the same digest
+        raw_x, hdr, _n = csv_exporter.build_category_xlsx(disc, "earthing")
+        hx, rows_x = self._xlsx_rows(raw_x)
+        rate_cols = [h for h in hx if h not in ("item_uid", "brand", "unit") and any(
+            (r[hx.index(h)] or "").strip() for _i, r in rows_x)]
+        # pick a populated rate column and double the first populated cell
+        _a, rate_keys, _t, _kc = csv_importer.column_spaces(disc)
+        col = next(h for h in rate_cols if h in rate_keys)
+        ci = hx.index(col)
+        i = next(i for i, (_r, cells) in enumerate(rows_x) if (cells[ci] or "").strip())
+        edited = [list(c) for _r, c in rows_x]
+        edited[i][ci] = str(float(edited[i][ci]) * 2)
+        csv_text = self._csv_text(hx, edited)
+        numeric = set(rate_keys)
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        xlsx_raw = xlsx_io.write_xlsx(hx, [[(float(v) if (h in numeric and v != "") else (v if v != "" else None))
+                                            for h, v in zip(hx, r)] for r in edited], numeric)
+        p1 = csv_importer.build_plan(disc, csv_text, category_id="earthing")
+        p2 = csv_importer.build_plan(disc, xlsx_raw, category_id="earthing")
+        self.assertEqual(p1["errors"], []); self.assertEqual(len(p1["changes"]), 1)
+        self.assertEqual(p1["digest"], p2["digest"])
+        self.assertEqual(p1["changes"][0]["fields"], p2["changes"][0]["fields"])
+
+    def test_e03_columns_no_system_columns_kind_only_where_multi_kind(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        disc = self._loaded_disc()
+        _items, _kc, cat_kinds = csv_exporter._load(disc)
+        multi = csv_exporter.multi_kind_categories(cat_kinds)
+        self.assertEqual(multi, {"wiring_cabling", "db_switchgear", "popup_boxes"})
+        for cat in cat_kinds:
+            for build in (csv_exporter.build_category_csv, csv_exporter.build_category_xlsx):
+                _payload, headers, _n = build(disc, cat)
+                self.assertNotIn("source_sheet", headers, cat)
+                self.assertNotIn("source_row", headers, cat)
+                for must in ("item_uid", "brand", "unit"):
+                    self.assertIn(must, headers, cat)
+                self.assertEqual(headers[:3], ["item_uid", "discipline", "category"])   # 1g (owner Z-c)
+                self.assertNotIn("import_batch", headers, cat)             # NEGATIVE (1g): nothing else returns
+                if cat in multi:
+                    self.assertEqual(headers[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"], cat)
+                else:
+                    self.assertNotIn("kind", headers, cat)              # NEGATIVE
+                    self.assertEqual(headers[:5], ["item_uid", "discipline", "category", "brand", "unit"], cat)
+        # the person-edited columns are all there (one multi-kind, one single-kind example)
+        # SLICE 1g: discipline + category after item_uid -- inverted, not deleted; every other column kept.
+        _t, h_wire, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        self.assertEqual(h_wire, ["item_uid", "discipline", "category", "kind", "brand", "unit",
+                                  "core", "insulation", "material", "thickness_sqmm",
+                                  "gland_band1_list", "gland_band2_list", "install_base_per_mtr",
+                                  "list_price_per_mtr", "lug_list"])
+        _t, h_tray, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        self.assertEqual(h_tray, ["item_uid", "discipline", "category", "brand", "unit",
+                                  "material", "thickness_mm", "tray_type", "width_mm",
+                                  "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
+        # MODE B: category + kind (the file holds multi-kind categories), no system columns
+        for build in (csv_exporter.build_all_categories_csv, csv_exporter.build_all_categories_xlsx):
+            _p, hb, nb = build(disc)
+            self.assertEqual(hb[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"])   # 1g
+            self.assertNotIn("source_sheet", hb); self.assertNotIn("source_row", hb)
+            self.assertNotIn("import_batch", hb)   # NEGATIVE (1g): no other system column returns
+            self.assertEqual(len(hb), 48)          # 49 before 1e, minus the two system columns, plus discipline (1g)
+            self.assertEqual(nb, 1367)
+
+    def test_e04_text_cells_stay_text_in_the_xlsx(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
+        disc = self._loaded_disc()
+        # plant Excel-hostile TEXT values on a junction_box row's `size` (a text attribute) and check
+        # the .xlsx keeps each one as typed through a full round trip
+        name = frappe.db.get_value("BoQ Rate Master Item",
+                                   {"discipline": disc, "kind": "junction_box", "active": 1}, "name")
+        for nasty in ("1:6", "1:4", "1/2", "3/4", "007", "12345678901234567890"):
+            frappe.db.set_value("BoQ Rate Master Item", name, "attributes",
+                                json.dumps({"size": nasty}), update_modified=False)
+            frappe.db.commit()
+            raw, headers, _n = csv_exporter.build_category_xlsx(disc, "junction_box_raceway")
+            hdr, rows = xlsx_io.read_xlsx(raw)
+            si = hdr.index("size")
+            self.assertIn(nasty, [c[si] for _i, c in rows], nasty)
+            plan = csv_importer.build_plan(disc, raw, category_id="junction_box_raceway")
+            self.assertEqual(plan["errors"], []); self.assertEqual(plan["changes"], [], nasty)
+        # and the cell really is TEXT-formatted in the workbook (not merely a string value)
+        import io as _io
+        import openpyxl
+        wb = openpyxl.load_workbook(_io.BytesIO(raw))
+        ws = wb.worksheets[0]
+        self.assertEqual(ws.cell(row=1, column=si + 1).value, "size")
+        fmts = {ws.cell(row=r, column=si + 1).number_format for r in range(2, ws.max_row + 1)}
+        self.assertEqual(fmts, {"@"})
+        # a numeric column is a number cell, not text
+        ri = next(i for i, h in enumerate(hdr) if h in ("list_price", "install_rate", "rate")) if any(
+            h in ("list_price", "install_rate", "rate") for h in hdr) else None
+        if ri is not None:
+            vals = [ws.cell(row=r, column=ri + 1).value for r in range(2, ws.max_row + 1)]
+            self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in vals))
+
+    def test_e05_new_row_kind_is_filled_from_a_single_kind_category_and_refused_for_multi(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        # single-kind: a new tray row with NO kind column (the 1e file has none)
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        self.assertNotIn("kind", headers)
+        new_row = list(rows[0]); new_row[0] = ""
+        new_row[headers.index("width_mm")] = "1234.0"
+        plan = csv_importer.build_plan(disc, self._csv_text(headers, rows + [new_row]), category_id="cabletray_raceway")
+        self.assertEqual(plan["errors"], [], plan["errors"][:2])
+        self.assertEqual(plan["counts"]["items_added"], 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["_payload"]["kind"], "cable_tray")
+        self.assertEqual(ch["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
+        self.assertEqual(ch["_payload"]["source_row"], len(rows) + 1)
+        # ... and WITHOUT the category hint the kind is inferred from the file's own existing rows
+        plan2 = csv_importer.build_plan(disc, self._csv_text(headers, rows + [new_row]))
+        self.assertEqual(plan2["errors"], []); self.assertEqual(plan2["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertEqual(plan2["digest"], plan["digest"])
+        before = set(self._active_rows(disc))
+        res = csv_importer.apply_plan(disc, self._csv_text(headers, rows + [new_row]),
+                                      expected_digest=plan["digest"], category_id="cabletray_raceway")
+        frappe.db.commit()
+        self.assertEqual(res["items_added"], 1)
+        after = self._active_rows(disc)
+        uid = (set(after) - before).pop()
+        self.assertEqual(after[uid]["kind"], "cable_tray")
+        self.assertEqual(after[uid]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
+        # NEGATIVE: multi-kind wiring_cabling, blank kind on a new row -> refused, naming the kinds
+        text_w, _h, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        hw, rw = self._csv_parts(text_w)
+        self.assertIn("kind", hw)
+        nr = list(rw[0]); nr[0] = ""; nr[hw.index("kind")] = ""
+        p_bad = csv_importer.build_plan(disc, self._csv_text(hw, rw + [nr]), category_id="wiring_cabling")
+        msgs = [e["message"] for e in p_bad["errors"]]
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertIn("kind", msgs[0]); self.assertIn("cable", msgs[0]); self.assertIn("termination", msgs[0])
+        self.assertEqual(p_bad["changes"], [])
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, self._csv_text(hw, rw + [nr]), category_id="wiring_cabling")
+        self.assertEqual(set(self._active_rows(disc)), set(after))     # nothing written
+        # SLICE 1g (owner Z-c / U4): the row's OWN category cell types it, even with no hint and no existing rows
+        p_self = csv_importer.build_plan(disc, self._csv_text(headers, [new_row]))
+        self.assertEqual(p_self["errors"], []); self.assertEqual(p_self["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertFalse(p_self["target"]["from_page"])
+        # NEGATIVE (kept): with the cells BLANK, a headers-only template with a new row and NO hint and NO
+        # existing rows cannot type it
+        blank_row = list(new_row); blank_row[headers.index("discipline")] = ""; blank_row[headers.index("category")] = ""
+        p_none = csv_importer.build_plan(disc, self._csv_text(headers, [blank_row]))
+        self.assertTrue(any("kind" in e["message"] for e in p_none["errors"]))
+        # ... the category hint resolves it, and the plan says the page decided
+        p_hint = csv_importer.build_plan(disc, self._csv_text(headers, [blank_row]), category_id="cabletray_raceway")
+        self.assertEqual(p_hint["errors"], []); self.assertEqual(p_hint["changes"][0]["_payload"]["kind"], "cable_tray")
+        self.assertTrue(p_hint["target"]["from_page"])
+
+    def test_e06_an_old_format_file_uploads_and_its_system_columns_are_ignored(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        disc = self._loaded_disc()
+        text, _h, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        stored = self._active_rows(disc)
+        # rebuild the PRE-1e shape: kind after item_uid, source_sheet / source_row at the end
+        old_hdr = [headers[0], "kind"] + headers[1:] + ["source_sheet", "source_row"]
+        old_rows = []
+        for r in rows:
+            s = stored[r[0]]
+            old_rows.append([r[0], s["kind"]] + r[1:] + [s["source_sheet"] or "", str(s["source_row"])])
+        plan = csv_importer.build_plan(disc, self._csv_text(old_hdr, old_rows))
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["counts"]["unchanged"], n)
+        self.assertEqual(plan["columns"]["ignored"], ["source_row", "source_sheet"])
+        # NEGATIVE: a CHANGED value in an ignored column is not a change and is never applied
+        changed = [list(r) for r in old_rows]
+        changed[0][-2] = "Somewhere else"; changed[0][-1] = "999"
+        p2 = csv_importer.build_plan(disc, self._csv_text(old_hdr, changed))
+        self.assertEqual(p2["errors"], []); self.assertEqual(p2["changes"], [])
+        res = csv_importer.apply_plan(disc, self._csv_text(old_hdr, changed))
+        frappe.db.commit()
+        self.assertEqual(res["applied"], 0)
+        after = self._active_rows(disc)
+        self.assertEqual(after[old_rows[0][0]]["source_sheet"], stored[old_rows[0][0]]["source_sheet"])
+        self.assertEqual(after[old_rows[0][0]]["source_row"], stored[old_rows[0][0]]["source_row"])
+        # a kind column that is PRESENT is still honoured (it is the item type, not a system column)
+        # SLICE 1g (owner Z-c): the file is rebuilt from a current download, so it also carries the two
+        # self-describing columns -- inverted, not deleted.
+        self.assertEqual(plan["columns"]["fixed"], ["brand", "category", "discipline", "item_uid", "kind", "unit"])
+
+    def test_e07_format_is_detected_by_content_not_name(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
+        disc = self._loaded_disc()
+        raw, _h, n = csv_exporter.build_category_xlsx(disc, "earthing")
+        text, _h2, _n2 = csv_exporter.build_category_csv(disc, "earthing")
+        self.assertTrue(xlsx_io.is_xlsx(raw))
+        self.assertFalse(xlsx_io.is_xlsx(text.encode("utf-8")))
+        self.assertFalse(xlsx_io.is_xlsx(text))
+        # the importer needs no file name at all
+        self.assertEqual(csv_importer.build_plan(disc, raw)["format"], "xlsx")
+        self.assertEqual(csv_importer.build_plan(disc, text.encode("utf-8"))["format"], "csv")
+        self.assertEqual(csv_importer.build_plan(disc, text)["format"], "csv")
+        # NEGATIVE: a zip that is not a workbook is a named error, not a crash
+        p = csv_importer.build_plan(disc, b"PK\x03\x04" + b"\x00" * 64)
+        self.assertTrue(p["errors"]); self.assertIn("workbook", p["errors"][0]["message"].lower())
+
+    def test_e08_the_endpoint_defaults_to_xlsx_and_still_serves_csv(self):
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        disc = self._loaded_disc()
+        res = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
+        self.assertEqual(res["content_type"], xlsx_io.XLSX_CONTENT_TYPE)
+        self.assertTrue(res["filename"].endswith(".xlsx"))
+        self.assertEqual(res["format"], "xlsx")
+        self.assertTrue(xlsx_io.is_xlsx(base64.b64decode(res["content_base64"])))
+        self.assertNotIn("source_row", res["columns"]); self.assertNotIn("kind", res["columns"])
+        res_c = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="csv")
+        self.assertEqual(res_c["content_type"], "text/csv")
+        self.assertTrue(res_c["filename"].endswith(".csv"))
+        self.assertIn("item_uid", base64.b64decode(res_c["content_base64"]).decode("utf-8"))
+        self.assertEqual(res_c["columns"], res["columns"])
+        res_all = rate_master.export_rate_master_csv(discipline=disc)
+        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 48, 1367))   # 1g: +discipline
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="pdf")
+        # preview / apply take the category hint and report the format
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=res["content_base64"],
+                                                   category_id="earthing")
+        self.assertEqual(plan["errors"], []); self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["format"], "xlsx")
 
     # ── SLICE 4 (F-1 / F-8): three free NUMBER fields become CATALOGUE-FED pick-lists ──────────
     #
@@ -5602,8 +6384,19 @@ class TestRateMasterFreeze(FrappeTestCase):
             name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
             param_key=_RMF_PARAM_KEY, new_value=0.5)
         b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
-        applied = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        # SLICE 1f (inverted under owner Y-a): this fixture's items carry no item_uid, so each row of its own
+        # export is a new row that MEANS THE SAME as the item it came from -- every row warns, and an
+        # unanswered apply is refused. Declining every row proves the write path itself is open again.
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["counts"]["twins"], plan["row_count"]); self.assertGreater(plan["row_count"], 0)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        decisions = {str(c["row"]): "decline" for c in plan["changes"] if c.get("twin")}
+        applied = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64,
+                                                    twin_decisions=json.dumps(decisions))
         self.assertIn("applied", applied)
+        self.assertEqual(applied["applied"], 0)
 
     def test_rmf_07_freezing_records_who_and_when(self):
         """POSITIVE: attribution. The live fields say who SET the freeze and when, and the flip lands
@@ -10050,3 +10843,2458 @@ class TestValidationGaps(FrappeTestCase):
                         "the loader must validate before it deactivates")
         api_src = open(rate_master.__file__, "r", encoding="utf-8").read()
         self.assertNotIn("\ndef _validate_config(", api_src, "no second copy of the predicate in api/")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 1b (2026-09-21) -- THE HVAC ASSET (ADP ITEMS, v1, ITS OWN SERIES) + HVAC IN THE RATE MASTER
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# OWNER AMENDMENT (2026-09-21, "yes we should do it"): each discipline keeps its OWN version number; only
+# the file that changed is minted, merged and loaded. The HVAC series therefore starts at v1 and NO
+# Electrical asset file is created or modified by this slice (CURRENT_EALL_ASSET above is untouched).
+# SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
+# spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
+# on disk byte-identical to its committed form (pinned in h07).
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v13.json"
+# SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
+# (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
+# conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
+# v10 BY NAME below.
+# SLICE 6 (owner S6 / S7 / S8 / T7, 2026-09-24): v8 = v7 + the config-level per-item default pipelines (the
+# eligibility switch), UL absent = not mentioned, the mixing box at any size, second_opinion OFF. The slice-5 class
+# loads v7 BY NAME below.
+# SLICE 5 (owner R1-R21, 2026-09-24): v7 = v6 + the ADP config's `list_spec.pricing` block (items and the six other
+# configs byte-identical; pipelines still {} -- NOT eligible). The v05 pin loads v6 BY NAME below.
+# CHECK 3a (owner 2026-09-23, corrected by the stage-2 ruling 1): v6 = v5 with " / Single Skin Plenum" inserted
+# into the ITEM NAME of the FOUR 'Low Pressure Plenum / Mixing Box' items, right after "Mixing Box" (uids
+# unchanged; ITEM DETAIL untouched). Every older "current = prior + known deltas" pin compares items through this
+# strip, so each still asserts exactly its own delta and nothing else.
+_SINGLE_SKIN_ANCHOR = "Low Pressure Plenum / Mixing Box"
+_SINGLE_SKIN_INSERT = " / Single Skin Plenum"
+# SLICE 9 (owner A-5): the six 595x595 square diffusers gained the alternative name a BoQ writing "600x600"
+# is asking for, and with it the two derived keys the reader takes from that wording. Set aside here for the
+# same reason as the 3a insert: each class must still assert exactly its OWN delta.
+_ALT_OUTER_SUFFIX = " (600X600)"
+_ALT_OUTER_KEYS = ("face_alt_w_mm", "face_alt_h_mm")
+def _items_without_3a_wording(items):
+    out, stripped, alt = [], 0, 0
+    for it in items:
+        a = dict(it.get("attributes") or {})
+        n = a.get("item_name")
+        if isinstance(n, str) and n.startswith(_SINGLE_SKIN_ANCHOR + _SINGLE_SKIN_INSERT):
+            a["item_name"] = _SINGLE_SKIN_ANCHOR + n[len(_SINGLE_SKIN_ANCHOR + _SINGLE_SKIN_INSERT):]; stripped += 1
+        d = a.get("item_detail")
+        if isinstance(d, str) and d.endswith(_ALT_OUTER_SUFFIX):
+            a["item_detail"] = d[: -len(_ALT_OUTER_SUFFIX)]
+            for k in _ALT_OUTER_KEYS:
+                a.pop(k, None)
+            alt += 1
+        out.append(dict(it, attributes=a))
+    assert stripped in (0, 4), stripped
+    assert alt in (0, 6), alt
+    return out
+
+
+def _mint_gate_module():
+    """scripts/mint_completeness_check.py, loaded BY PATH (it is a script, not a package). Only its PURE
+    helpers are used here (`item_kinds`, `kind_overlap`): no git, no bench context, no I/O."""
+    import importlib.util
+    path = os.path.abspath(os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "scripts",
+                                        "mint_completeness_check.py"))
+    spec = importlib.util.spec_from_file_location("mint_completeness_check", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _electrical_active_checksum():
+    """sha256 over the ACTIVE Electrical rows' CONTENT (never `name` -- freeze-and-supersede regenerates
+    it), sorted by a total key, per the CLAUDE.md rule for a stability guard."""
+    import hashlib
+    items = frappe.get_all("BoQ Rate Master Item", filters={"discipline": "Electrical", "active": 1},
+                           fields=["kind", "item_uid", "brand", "unit", "attributes", "rates"])
+    cfgs = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "Electrical", "active": 1},
+                          fields=["category_id", "config"])
+    rows = sorted(json.dumps([i["kind"], i["item_uid"], i["brand"], i["unit"], _obj(i["attributes"]),
+                              _obj(i["rates"])], sort_keys=True) for i in items)
+    rows += sorted(json.dumps([c["category_id"], _obj(c["config"])], sort_keys=True) for c in cfgs)
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest(), len(items), len(cfgs)
+
+
+class TestHvacAssetSlice1b(FrappeTestCase):
+    """SLICE 1b -- the first HVAC asset, versioned ON ITS OWN (owner amendment 2026-09-21). Owner rulings
+    R-a..R-f (quoted in the slice prompt and in the untracked mint script `_mint_hvac_v1_tmp.py`).
+    Plain-English coverage:
+
+      test_h01  the HVAC asset LOADS through the unchanged loader: 95 `hvac_adp_item` items, ONE
+                `hvac_adp` config, provenance (`ADP`, sheet row), 95 distinct uids, the sheet's units.
+      test_h02  PRICING RULE PIN (R-c, not yet built): for every one of the 87 items that carries a cost,
+                ROUNDUP(cost x (1 + markup), 0) equals the owner's sheet BoQ figure, SUPPLY and INSTALL --
+                the three R-e rows against the owner's new costs (7685/1600, 5075/1120, 8700/1280);
+                NEGATIVE: the eight R-f derived items carry markups and NO cost at all.
+      test_h03  ELECTRICAL UNTOUCHED: the load leaves every active Electrical item and config
+                byte-identical (counts AND a content checksum) -- the scoped supersede keys on the
+                payload's discipline; NEGATIVE: not one Electrical kind appears among the loaded rows.
+      test_h04  THE KIND CONVENTION: every HVAC kind is `hvac_`-prefixed and DISJOINT from every
+                Electrical kind (the mint gate's `kind_overlap`); NEGATIVE: an HVAC item wearing an
+                Electrical kind name (`cable`) is caught by that same function.
+      test_h05  THE CSV ROUND TRIP: the column space carries the FOUR rate columns and the 14 attributes;
+                the HVAC file carries the rates and the two TEXT columns and NONE of the derived ids (slice 1c,
+                S-b), no header classifies as a conflict, the export has 95 rows, and re-importing that
+                export UNCHANGED plans zero changes; NEGATIVE: a header that is both an attribute id and a
+                rate key is an error.
+      test_h06  NOT ELIGIBLE FOR PRICING: `pipelines: {}` fails `extraction.config_is_eligible` AND the
+                frontend `isEligibleConfig` (source-pinned), so no panel and no extraction run sees ADP;
+                the validator ACCEPTS the config as stored; NEGATIVE: one pipeline makes it eligible, one
+                unknown def key makes the validator refuse it.
+      test_h07  OWN SERIES (amendment; slice 1c ruling): the HVAC series is exactly v1 + v2 with v2 current and
+                v1 byte-identical to its committed form, the Electrical current asset is UNMOVED (no newer
+                Electrical file exists in the data dir), the version lives ONLY in the filename (no
+                `version` key, no "v1" / "v2" text inside), the mint gate resolves each series' latest file
+                INDEPENDENTLY, no rate key shares a name with an attribute; NEGATIVE: the resolver DOES
+                surface a newer Electrical file when one is listed, so the "unmoved" pin is not vacuous."""
+
+    DERIVED_ROWS = {81, 82, 83, 84, 85, 86, 89, 91}   # R-f: sheet formulas preserved, no own cost
+    RATE_KEYS = {"cost_supply", "cost_install", "supply_markup", "install_markup"}
+    ATTR_IDS = {"family", "damper", "insulated", "neck_mm", "face_w_mm", "face_h_mm", "depth_mm", "dia_mm",
+                "slot_count", "torque_nm", "ul", "panel_ratio", "thickness_mm", "variant"}
+    # (sheet row, unit) -> (BoQ supply, BoQ install) exactly as the owner's ADP tab computes them with
+    # =ROUNDUP(F*(1+D),0) / =ROUNDUP(G*(1+E),0); rows 34 / 38 / 94 use the R-e costs. Row 80 is the
+    # canvas connection split three ways (R-d 3). Row 9's install cell on the sheet holds the stray text
+    # "would " (a save on 2026-09-21 15:52 overwrote the formula); its value here is the rule's own 800.
+    EXPECTED_BOQ = {
+        (2, "SQM"): (7830, 1920),
+        (3, "SQM"): (10005, 1920),
+        (4, "SQM"): (12325, 1920),
+        (5, "SQM"): (20880, 1920),
+        (6, "SQM"): (14138, 1920),
+        (7, "SQM"): (12470, 1920),
+        (8, "SQM"): (21750, 1920),
+        (9, "Nos"): (26100, 800),
+        (10, "Nos"): (23925, 800),
+        (11, "Nos"): (21460, 800),
+        (12, "Nos"): (15660, 800),
+        (13, "Nos"): (13050, 800),
+        (14, "Nos"): (9570, 800),
+        (15, "Nos"): (8410, 800),
+        (16, "Nos"): (20300, 800),
+        (17, "Nos"): (16791, 800),
+        (18, "Nos"): (12905, 800),
+        (19, "SQM"): (4829, 880),
+        (20, "SQM"): (9628, 2800),
+        (21, "SQM"): (10730, 2800),
+        (22, "SQM"): (5510, 880),
+        (23, "SQM"): (7250, 2800),
+        (24, "SQM"): (8918, 2800),
+        (25, "Rmt"): (1465, 352),
+        (26, "Rmt"): (1160, 352),
+        (27, "Rmt"): (2204, 352),
+        (28, "Rmt"): (1682, 352),
+        (29, "SQM"): (12992, 2864),
+        (30, "Nos"): (1972, 576),
+        (31, "Nos"): (2248, 576),
+        (32, "Nos"): (2523, 576),
+        (33, "Nos"): (2755, 576),
+        (34, "SQM"): (7685, 1600),
+        (35, "Nos"): (1532, 400),
+        (36, "Nos"): (1668, 400),
+        (37, "Nos"): (1813, 400),
+        (38, "SQM"): (5075, 1120),
+        (39, "Nos"): (1603, 400),
+        (40, "Nos"): (1450, 400),
+        (41, "Nos"): (1378, 400),
+        (42, "Nos"): (1276, 400),
+        (43, "Nos"): (1059, 400),
+        (44, "Nos"): (1044, 400),
+        (45, "Nos"): (1015, 400),
+        (46, "Nos"): (986, 400),
+        (47, "Nos"): (334, 0),
+        (48, "Nos"): (725, 0),
+        (49, "Nos"): (1015, 0),
+        (50, "Nos"): (1305, 0),
+        (51, "Nos"): (1595, 0),
+        (52, "Nos"): (1885, 0),
+        (53, "RMT"): (160, 0),
+        (54, "RMT"): (450, 0),
+        (55, "RMT"): (595, 0),
+        (56, "RMT"): (740, 0),
+        (57, "RMT"): (885, 0),
+        (58, "RMT"): (1030, 0),
+        (59, "RMT"): (131, 0),
+        (60, "RMT"): (174, 0),
+        (61, "RMT"): (218, 0),
+        (62, "RMT"): (261, 0),
+        (63, "RMT"): (305, 0),
+        (64, "RMT"): (348, 0),
+        (65, "Nos"): (551, 176),
+        (66, "Nos"): (653, 176),
+        (67, "SQM"): (6888, 1600),
+        (68, "SQM"): (5220, 800),
+        (69, "SQM"): (6235, 2880),
+        (70, "SQM"): (4785, 640),
+        (71, "SQM"): (5655, 640),
+        (72, "SQM"): (18343, 1920),
+        (73, "SQM"): (13775, 1920),
+        (74, "Nos"): (189, 64),
+        (75, "Nos"): (211, 64),
+        (76, "Nos"): (232, 64),
+        (77, "Nos"): (254, 64),
+        (78, "Nos"): (276, 64),
+        (79, "Nos"): (298, 64),
+        (80, "NOS"): (1450, 1280),
+        (80, "RMT"): (1450, 1280),
+        (80, "SQM"): (1450, 1280),
+        (87, "SQM"): (2320, 800),
+        (88, "SQM"): (1276, 0),
+        (90, "SQM"): (1784, 0),
+        (92, "Nos"): (3045, 640),
+        (93, "Nos"): (3698, 640),
+        (94, "Nos"): (8700, 1280),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.hvac = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _load_hvac(self, disc):
+        payload = copy.deepcopy(self.hvac)
+        payload["discipline"] = disc
+        return loader.load_rate_master(payload=payload)
+
+    @staticmethod
+    def _roundup0(x):
+        import math
+        return math.ceil(x - 1e-9)
+
+    # -- h01 ----------------------------------------------------------------------------------------
+    def test_h01_the_hvac_asset_loads_95_adp_items_and_one_config(self):
+        disc = self._new_disc()
+        r = self._load_hvac(disc)
+        self.assertEqual(r["items_total"], 95)
+        self.assertEqual(r["items_by_kind"], {"hvac_adp_item": 95})
+        # slice 2 (owner P-a / P-e, inverting the 1b "one config" pin): FIVE configs -- ADP plus the four
+        # vendor-quote MESSAGE-ONLY configs (no items, no attributes, no pipelines); the ITEMS are unchanged
+        # slice 3 (owner Q-a / Q-e, inverting the slice-2 pin): SEVEN configs -- ADP, the four vendor-quote
+        # message-only configs AND the two ALIAS configs (hvac_cables, hvac_raceway); the ITEMS are unchanged
+        self.assertEqual(r["configs_loaded"], 7)
+        self.assertEqual(r["category_ids"], ["hvac_adp", "hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps",
+                                             "hvac_cables", "hvac_raceway"])
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 7)
+        rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
+                              fields=["kind", "unit", "source_sheet", "source_row", "item_uid", "import_batch"])
+        self.assertEqual({x["source_sheet"] for x in rows}, {"ADP"})
+        self.assertEqual(len({x["item_uid"] for x in rows}), 95)
+        self.assertEqual(len({x["import_batch"] for x in rows}), 1)
+        self.assertTrue(all(2 <= x["source_row"] <= 94 for x in rows))
+        # the sheet's own units, verbatim; row 80 contributes SQM / RMT / NOS (R-d 3)
+        self.assertEqual({x["unit"] for x in rows}, {"SQM", "Nos", "Rmt", "RMT", "NOS"})
+        self.assertEqual(sum(1 for x in rows if x["source_row"] == 80), 3)
+        cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                    {"discipline": disc, "active": 1, "category_id": "hvac_adp"}, "config"))
+        self.assertEqual(cfg["item_kinds"], ["hvac_adp_item"])
+        # slice 1c (owner ruling, inverting the 1b pin): the config declares the 14 derived ids PLUS the two
+        # text definitions item_name / item_detail (D1, S-a), and the two text defs come FIRST
+        self.assertEqual({d["id"] for d in cfg["attribute_definitions"]}, self.ATTR_IDS | {"item_name", "item_detail"})
+        self.assertEqual([d["id"] for d in cfg["attribute_definitions"]][:2], ["item_name", "item_detail"])
+
+    # -- h02 ----------------------------------------------------------------------------------------
+    def test_h02_roundup_of_cost_times_markup_reproduces_every_sheet_boq_figure(self):
+        items = self.hvac["items"]
+        priced = [i for i in items if "cost_supply" in i["rates"]]
+        derived = [i for i in items if "cost_supply" not in i["rates"]]
+        self.assertEqual(len(priced), 87)
+        self.assertEqual(len(derived), 8)
+        seen = set()
+        for i in priced:
+            key = (i["source"]["row"], i["unit"])
+            self.assertIn(key, self.EXPECTED_BOQ, key)
+            rt = i["rates"]
+            self.assertEqual(set(rt), self.RATE_KEYS)
+            got = (self._roundup0(rt["cost_supply"] * (1 + rt["supply_markup"])),
+                   self._roundup0(rt["cost_install"] * (1 + rt["install_markup"])))
+            self.assertEqual(got, self.EXPECTED_BOQ[key], key)
+            seen.add(key)
+        self.assertEqual(seen, set(self.EXPECTED_BOQ))
+        # R-e, spelled out: the owner's new costs on the three rows that had none
+        by_row = {(i["source"]["row"], i["unit"]): i["rates"] for i in priced}
+        self.assertEqual(by_row[(34, "SQM")]["cost_supply"], 5300.0)
+        self.assertEqual(by_row[(34, "SQM")]["cost_install"], 1000.0)
+        self.assertEqual(by_row[(38, "SQM")]["cost_supply"], 3500.0)
+        self.assertEqual(by_row[(38, "SQM")]["cost_install"], 700.0)
+        self.assertEqual(by_row[(94, "Nos")]["cost_supply"], 6000.0)
+        self.assertEqual(by_row[(94, "Nos")]["cost_install"], 800.0)
+        self.assertEqual(self.EXPECTED_BOQ[(34, "SQM")], (7685, 1600))
+        self.assertEqual(self.EXPECTED_BOQ[(38, "SQM")], (5075, 1120))
+        self.assertEqual(self.EXPECTED_BOQ[(94, "Nos")], (8700, 1280))
+        # NEGATIVE (R-f, as amended by S-d -- owner ruling, slice 1c): the eight derived items carry NO
+        # cost_supply; rows 89 and 91 carry the sheet's typed cost_install 0; the other six carry no
+        # cost_install at all -- markups only.
+        self.assertEqual({i["source"]["row"] for i in derived}, self.DERIVED_ROWS)
+        for i in derived:
+            self.assertNotIn("cost_supply", i["rates"], i["source"])
+            if i["source"]["row"] in (89, 91):
+                self.assertEqual(set(i["rates"]), {"supply_markup", "install_markup", "cost_install"}, i["source"])
+                self.assertEqual(i["rates"]["cost_install"], 0.0, i["source"])
+            else:
+                self.assertEqual(set(i["rates"]), {"supply_markup", "install_markup"}, i["source"])
+
+    # -- h03 ----------------------------------------------------------------------------------------
+    def test_h03_loading_the_hvac_asset_leaves_active_electrical_byte_identical(self):
+        before, n_items, n_cfgs = _electrical_active_checksum()
+        # the live catalogue is the CURRENT Electrical asset: the same counts as the file
+        self.assertEqual(n_items, len(self.eall["items"]))
+        self.assertEqual(n_cfgs, len(self.eall["category_configs"]))
+        disc = self._new_disc()
+        self._load_hvac(disc)
+        after, n_items2, n_cfgs2 = _electrical_active_checksum()
+        self.assertEqual((n_items2, n_cfgs2), (n_items, n_cfgs))
+        self.assertEqual(after, before, "an HVAC load changed the active Electrical content")
+        # NEGATIVE: nothing Electrical-shaped rode in under the HVAC discipline
+        e_kinds = {i["kind"] for i in self.eall["items"]}
+        loaded_kinds = {x["kind"] for x in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc},
+                                                          fields=["kind"])}
+        self.assertEqual(loaded_kinds & e_kinds, set())
+
+    # -- h04 ----------------------------------------------------------------------------------------
+    def test_h04_hvac_kinds_are_prefixed_and_disjoint_and_a_collision_is_caught(self):
+        gate = _mint_gate_module()
+        h_kinds = gate.item_kinds(self.hvac)
+        e_kinds = gate.item_kinds(self.eall)
+        self.assertEqual(h_kinds, {"hvac_adp_item"})
+        self.assertTrue(all(k.startswith("hvac_") for k in h_kinds))
+        self.assertEqual(gate.kind_overlap(self.eall, self.hvac), set())
+        self.assertIn("cable", e_kinds)  # the collision the negative half plants must be a REAL Electrical kind
+        # NEGATIVE: one HVAC item wearing an Electrical kind is reported by name
+        doctored = copy.deepcopy(self.hvac)
+        doctored["items"][0]["kind"] = "cable"
+        self.assertEqual(gate.kind_overlap(self.eall, doctored), {"cable"})
+
+    # -- h05 ----------------------------------------------------------------------------------------
+    def test_h05_csv_round_trip_columns_and_a_zero_change_reimport(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        disc = self._new_disc()
+        self._load_hvac(disc)
+        attr_ids, rate_keys, attr_types, kind_cat = csv_importer.column_spaces(disc)
+        self.assertEqual(rate_keys, self.RATE_KEYS)
+        self.assertTrue(self.ATTR_IDS <= attr_ids, self.ATTR_IDS - attr_ids)
+        self.assertEqual(kind_cat, {"hvac_adp_item": "hvac_adp"})
+        text, headers, n = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(n, 95)
+        # slice 1c (owner ruling S-b, inverting the 1b pin): the HVAC CSV carries the FOUR rate columns and the
+        # TWO text columns, and NONE of the 14 derived ids -- those are read from the text, never a column
+        for col in self.RATE_KEYS | {"item_name", "item_detail"}:
+            self.assertIn(col, headers, col)
+        for col in self.ATTR_IDS:
+            self.assertNotIn(col, headers, col)
+        spec, errors = csv_importer.classify_columns(headers, attr_ids, rate_keys)
+        self.assertEqual(errors, [], errors)
+        # the exported file, re-imported UNCHANGED, plans zero changes (the C4 cert, in code)
+        plan = csv_importer.build_plan(disc, text.encode("utf-8"))
+        self.assertEqual(plan["errors"], [], plan["errors"][:3])
+        self.assertEqual(plan["counts"]["unchanged"], 95)
+        self.assertEqual(plan["counts"]["items_added"], 0)
+        self.assertEqual(plan["counts"]["rates_changed"], 0)
+        # NEGATIVE: a header that is BOTH an attribute id and a rate key is a conflict, not a column
+        _spec2, errors2 = csv_importer.classify_columns(headers, attr_ids | {"cost_supply"}, rate_keys)
+        self.assertTrue(errors2, "a rate key shadowed by an attribute id must be refused")
+
+    # -- h06 ----------------------------------------------------------------------------------------
+    def test_h06_adp_is_eligible_since_v8_the_emptiness_gate_still_holds_and_the_validator_accepts_it(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        cfg = loader._loaded_config(self.hvac["category_configs"][0], "HVAC", self.hvac.get("goldens") or {})
+        # SLICE 6 (owner T7, INVERTING the slice-1b pin): the current ADP config carries the shared per-item default
+        # pipelines, so it IS eligible -- by the SAME two-fact predicate every category answers. The emptiness gate is
+        # unchanged: the same config with its pipelines emptied is not eligible (the negative half, kept).
+        self.assertEqual(list(cfg["pipelines"]), ["item_supply", "item_install"])
+        self.assertTrue(extraction.config_is_eligible(cfg))
+        emptied = copy.deepcopy(cfg); emptied["pipelines"] = {}
+        self.assertFalse(extraction.config_is_eligible(emptied))
+        config_validation._validate_config(cfg)  # the loader's import gate: must not raise
+        # the FRONTEND predicate reads the same fact: non-empty pipelines are required
+        helper_path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", "pages",
+                                   "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        src = open(os.path.abspath(helper_path), "r", encoding="utf-8").read()
+        body = src[src.index("export function isEligibleConfig("):]
+        body = body[:body.index("\n}")]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        # NEGATIVE 1 (kept, from the emptied copy): one pipeline makes it eligible -- the emptiness IS the gate
+        with_pipe = copy.deepcopy(emptied)
+        with_pipe["pipelines"] = {"p": {"output": ["supply"], "steps": [{"step": "match_master_row",
+                                                                         "params": {"kind": "hvac_adp_item"}}]}}
+        self.assertTrue(extraction.config_is_eligible(with_pipe))
+        # NEGATIVE 2: the validator is live on this config -- an unknown definition key is refused
+        bad = copy.deepcopy(cfg)
+        bad["attribute_definitions"][0]["not_a_key"] = 1
+        with self.assertRaises(frappe.ValidationError):
+            config_validation._validate_config(bad)
+
+    # -- h07 ----------------------------------------------------------------------------------------
+    def test_h07_hvac_series_is_v1_to_v13_electrical_unmoved_version_only_in_the_filename(self):
+        gate = _mint_gate_module()
+        # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v13.json")
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        names = sorted(os.listdir(data_dir))
+        # each series resolved on its own (owner ruling, slice 1c, INVERTING the 1b first-version pin): the HVAC
+        # series lists EXACTLY v1 and v2, the latest is the current asset, and v1 is BYTE-IDENTICAL to its
+        # committed form -- a superseded version is history, never edited; Electrical's latest file IS the
+        # pinned current asset -- no slice created an Electrical file at any newer N
+        self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
+                         # ALPHABETICAL, which is what os.listdir + sorted gives: v10 sorts between v1 and v2.
+                         # That is exactly why `latest_in` must resolve NUMERICALLY, pinned two lines below --
+                         # v10 is the first two-digit version in either series.
+                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json",
+                          "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json",
+                          CURRENT_HVAC_ASSET,
+                          "rate_master_hvac_all_v2.json",
+                          "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
+                          "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
+                          "rate_master_hvac_all_v9.json"])
+        import subprocess
+        repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
+        for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
+                      "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
+                      "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
+                      "rate_master_hvac_all_v9.json", "rate_master_hvac_all_v10.json",
+                      "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json"):
+            committed = subprocess.run(
+                ["git", "-c", "safe.directory=*", "-C", repo, "show",
+                 "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
+                capture_output=True, check=True).stdout
+            with open(_asset_path(prior), "rb") as fh:
+                # line endings normalised on BOTH sides: the working copy of a Windows-minted asset is CRLF
+                # while git stores it LF (core.autocrlf), and that difference is not an edit
+                self.assertEqual(fh.read().replace(b"\r\n", b"\n"), committed.replace(b"\r\n", b"\n"),
+                                 prior + " must stay identical to its committed form")
+        self.assertEqual(gate.latest_in("HVAC", names), CURRENT_HVAC_ASSET)
+        self.assertEqual(gate.latest_in("Electrical", names), CURRENT_EALL_ASSET)
+        self.assertEqual(gate.latest_asset("HVAC"), CURRENT_HVAC_ASSET)
+        self.assertEqual(gate.latest_asset("Electrical"), CURRENT_EALL_ASSET)
+        # the version lives ONLY in the filename: no key, no text
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            raw = fh.read()
+        self.assertNotIn("version", self.hvac)
+        self.assertNotIn("v1", raw)
+        self.assertNotIn("v2", raw)
+        self.assertNotIn("v3", raw)
+        self.assertNotIn("v4", raw)
+        self.assertNotIn("v5", raw)
+        self.assertNotIn("v6", raw)
+        self.assertNotIn("v7", raw)
+        self.assertNotIn("v8", raw)
+        self.assertNotIn("v9", raw)
+        self.assertNotIn("v10", raw)
+        self.assertNotIn("v11", raw)
+        self.assertEqual(self.hvac["discipline"], "HVAC")
+        attr_ids = {d["id"] for d in self.hvac["category_configs"][0]["attribute_definitions"]}
+        rate_keys = {k for i in self.hvac["items"] for k in i["rates"]}
+        self.assertEqual(attr_ids & rate_keys, set())
+        self.assertEqual(rate_keys, self.RATE_KEYS)
+        # NEGATIVE: the resolver is live -- a newer Electrical file, if one were listed, WOULD be surfaced
+        # (so the "unmoved" pin above can fail), and it never crosses series
+        self.assertEqual(gate.latest_in("Electrical", names + ["rate_master_electrical_all_v64.json"]),
+                         "rate_master_electrical_all_v64.json")
+        self.assertEqual(gate.latest_in("HVAC", names + ["rate_master_electrical_all_v64.json"]),
+                         CURRENT_HVAC_ASSET)
+        self.assertIsNone(gate.latest_in("HVAC", [n for n in names if not gate.HVAC_RE.match(n)]))
+
+
+class TestHvacVendorQuoteSlice2(FrappeTestCase):
+    """SLICE 2 (2026-09-22) -- HVAC pricing: the four VENDOR-QUOTE categories (AHU, DX Unit, Panels, Pumps)
+    ship as MESSAGE-ONLY configs in HVAC v3 (owner P-a / P-b / P-d / P-e; STOP 1 ruled option (a)).
+    A category with nothing to price declares its message (`helper_message`) and its pending mark
+    (`pending_label`) IN CONFIG, never in code. Plain-English coverage:
+
+      test_s01  THE TWO KEYS + THE LOADER RELAXATION: the validator accepts helper_message / pending_label and
+                the four data-only configs pass BOTH `config_validation._validate_config` and
+                `loader._validate_one_config`; NEGATIVE: an unknown key is still refused; an empty
+                attribute_definitions list beside NON-empty pipelines is still refused; a config MISSING the
+                key, or carrying a non-list, is refused with today's message.
+      test_s02  THE ASSET SWEEP (A8): every asset file in the data directory -- every Electrical version and
+                HVAC v1 / v2 / v3 -- validates and would load with exactly today's outcome: the loader's shape
+                check accepts every config, and the full validator refuses exactly the ONE pre-existing v12
+                `point_wiring` defect and nothing else.
+      test_s03  HVAC v3 = v2 UNCHANGED + the four: the 95 items and the ADP config are DEEP-EQUAL to v2 (uids
+                identical), the four ids are the CLASSIFIER's exact ids with its display names, each carries
+                the two messages and NOTHING else to price; NEGATIVE: none is eligible (`config_is_eligible`)
+                and the extraction population's eligibility filter admits NONE of the five HVAC configs, so no
+                AI call can ever touch them; the frontend predicate reads the same fact.
+      test_s04  THE LOAD: through the loader under a fresh discipline, 95 items / 5 configs, and the config
+                endpoint hands the frontend the two keys VERBATIM; Electrical is byte-identical before and
+                after (counts + content checksum); NEGATIVE: `_load_active_configs` sees 5, 0 eligible.
+      test_s05  NO CATEGORY NAMED IN CODE (the HV-10 rule): neither message literal nor any vendor id appears
+                in the frontend helper / grid / calculator / page sources -- the four categories are DATA.
+    """
+    VENDOR_IDS = ["hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"]
+    HELPER_MESSAGE = "Take Vendor Quotation"
+    PENDING_LABEL = "Awaiting vendor quote"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v3 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v2.json"), "r", encoding="utf-8") as fh:
+            cls.v2 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _vendor_configs(self):
+        return [c for c in self.v3["category_configs"] if c["category_id"] in self.VENDOR_IDS]
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- s01 ----------------------------------------------------------------------------------------
+    def test_s01_the_two_keys_are_accepted_and_the_loader_admits_a_message_only_config(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        self.assertIn("helper_message", config_validation._KNOWN_CONFIG_KEYS)
+        self.assertIn("pending_label", config_validation._KNOWN_CONFIG_KEYS)
+        vendors = self._vendor_configs()
+        self.assertEqual([c["category_id"] for c in vendors], self.VENDOR_IDS)
+        for c in vendors:
+            stored = loader._loaded_config(c, "HVAC", self.v3.get("goldens") or {})
+            config_validation._validate_config(stored)      # the import gate: must not raise
+            loader._validate_one_config(c, "category_configs[x]")  # the shape check: must not raise
+        # NEGATIVE 1: an unknown top-level key is still refused, by name
+        bad = copy.deepcopy(vendors[0])
+        bad["not_a_key"] = 1
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            config_validation._validate_config(bad)
+        self.assertIn("not_a_key", str(ctx.exception))
+        # NEGATIVE 2: an EMPTY definitions list beside NON-empty pipelines is still refused by the loader --
+        # the relaxation is scoped to "nothing to price"
+        bad2 = copy.deepcopy(vendors[0])
+        bad2["pipelines"] = {"p": {"output": ["x"], "steps": [{"step": "match_master_row", "params": {"kind": "k"}}]}}
+        with self.assertRaises(frappe.ValidationError) as ctx2:
+            loader._validate_one_config(bad2, "x")
+        self.assertIn("missing 'attribute_definitions'", str(ctx2.exception))
+        # NEGATIVE 3: a config MISSING the key entirely, or carrying a non-list, behaves exactly as today
+        bad3 = copy.deepcopy(vendors[0])
+        del bad3["attribute_definitions"]
+        bad4 = copy.deepcopy(vendors[0])
+        bad4["attribute_definitions"] = "x"
+        for b in (bad3, bad4):
+            with self.assertRaises(frappe.ValidationError) as ctx3:
+                loader._validate_one_config(b, "x")
+            self.assertIn("missing 'attribute_definitions'", str(ctx3.exception))
+
+    # -- s02 ----------------------------------------------------------------------------------------
+    def test_s02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertGreaterEqual(len(files), 50)
+        self.assertIn(os.path.join(data_dir, CURRENT_HVAC_ASSET), files)
+        n_configs = 0
+        full_refusals = []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc = d.get("discipline") or "Electrical"
+            gold = d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))  # every config: accepted, as before
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 564)
+        # the ONE pre-existing refusal (a bare `choice` with no values in a retired asset) and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- s03 ----------------------------------------------------------------------------------------
+    def test_s03_v3_is_v2_plus_four_message_only_configs_none_eligible(self):
+        self.assertEqual(_items_without_3a_wording(self.v3["items"]), self.v2["items"])   # CHECK 3a wording set aside
+        self.assertEqual([i["item_uid"] for i in self.v3["items"]], [i["item_uid"] for i in self.v2["items"]])
+        # slice 4 (owner W-a..W-e, inverting the slice-2 pin): the ADP config gained matching_mode + list_spec
+        # (and a notes suffix); everything else about it is still v2's config
+        adp_now = dict(self.v3["category_configs"][0])
+        self.assertEqual(adp_now.pop("matching_mode"), "item_list")
+        self.assertIsInstance(adp_now.pop("list_spec"), dict)
+        self.assertTrue(adp_now.pop("notes").startswith(self.v2["category_configs"][0]["notes"]))
+        # slice 6 (owner T7, inverting): the current ADP config carries the shared per-item default pipelines
+        self.assertEqual(list(adp_now.pop("pipelines")), ["item_supply", "item_install"])
+        adp_v2 = dict(self.v2["category_configs"][0]); adp_v2.pop("notes")
+        self.assertEqual(adp_v2.pop("pipelines"), {})
+        self.assertEqual(adp_now, adp_v2)
+        # slice 3 (owner Q-a / Q-e, inverting): the current asset also carries the two ALIAS configs, last
+        self.assertEqual([c["category_id"] for c in self.v3["category_configs"]],
+                         ["hvac_adp"] + self.VENDOR_IDS + ["hvac_cables", "hvac_raceway"])
+        # the classifier's EXACT ids and display names (J2)
+        cls_path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "categories_hvac.json")
+        with open(os.path.abspath(cls_path), "r", encoding="utf-8") as fh:
+            names = {c["category_id"]: c["name"] for c in json.load(fh)["categories"]}
+        for c in self._vendor_configs():
+            self.assertIn(c["category_id"], names)
+            self.assertEqual(c["category_display"], names[c["category_id"]])
+            self.assertEqual(c["helper_message"], self.HELPER_MESSAGE)
+            self.assertEqual(c["pending_label"], self.PENDING_LABEL)
+            self.assertEqual(c["attribute_definitions"], [])
+            self.assertEqual(c["pipelines"], {})
+            self.assertEqual(c["item_kinds"], [])
+            self.assertFalse(extraction.config_is_eligible(c))
+        # no item wears a vendor kind (there are none): the items are ADP only
+        self.assertEqual({i["kind"] for i in self.v3["items"]}, {"hvac_adp_item"})
+        # SLICE 6 (owner T7, INVERTING the slice-2 negative): the extraction population's eligibility filter -- the
+        # exact expression assemble_population applies -- now admits EXACTLY the ADP config of the current asset and
+        # none of the vendor-quote / alias configs (their eligibility is unmoved)
+        all_cfgs = {("HVAC", c["category_id"]): c for c in self.v3["category_configs"]}
+        eligible_seen = {k: v for k, v in all_cfgs.items() if extraction.config_is_eligible(v)}
+        self.assertEqual(set(eligible_seen), {("HVAC", "hvac_adp")})
+        # the FRONTEND predicate reads the same two facts (non-empty pipelines AND definitions)
+        src = self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        body = src[src.index("export function isEligibleConfig("):]
+        body = body[:body.index("\n}")]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        self.assertIn("(config.attribute_definitions ?? []).length > 0", body)
+
+    # -- s04 ----------------------------------------------------------------------------------------
+    def test_s04_the_load_and_the_endpoint_hand_the_frontend_the_keys_verbatim_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v3)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual(r["items_total"], 95)
+        # slice 3 (owner Q-a / Q-e, inverting): SEVEN configs -- the two alias configs ride the same load
+        self.assertEqual(r["configs_loaded"], 7)
+        self.assertEqual(r["category_ids"], ["hvac_adp"] + self.VENDOR_IDS + ["hvac_cables", "hvac_raceway"])
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), 95)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 7)
+        for cid in self.VENDOR_IDS:
+            out = api.get_rate_category_config(discipline=disc, category_id=cid)
+            self.assertIsNotNone(out["config"])
+            self.assertEqual(out["config"]["helper_message"], self.HELPER_MESSAGE)
+            self.assertEqual(out["config"]["pending_label"], self.PENDING_LABEL)
+            self.assertEqual(out["config"]["pipelines"], {})
+            self.assertEqual(out["config"]["attribute_definitions"], [])
+        self.assertIsNone(api.get_rate_category_config(discipline=disc, category_id="hvac_ducting")["config"])
+        # NEGATIVE: the extraction loader sees all five and finds NOTHING eligible under this discipline
+        active = extraction._load_active_configs({disc})
+        self.assertEqual(sorted(k[1] for k in active), sorted(["hvac_adp"] + self.VENDOR_IDS + ["hvac_cables", "hvac_raceway"]))
+        # of its OWN nothing is eligible (the plain test); slice 3's alias eligibility is pinned in TestHvacAliasSlice3
+        # SLICE 6 (T7, INVERTING): the current ADP config is eligible; the four vendor-quote configs are not
+        self.assertEqual({k for k, v in active.items() if extraction.config_is_eligible(v)}, {(disc, "hvac_adp")})
+        self.assertEqual(_electrical_active_checksum(), before)
+
+    # -- s05 ----------------------------------------------------------------------------------------
+    def test_s05_no_category_and_no_message_is_named_in_frontend_code(self):
+        for parts in (("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"),
+                      ("pages", "boq-wizard", "PricingGrid.tsx"),
+                      ("pages", "pricing", "PricingCalculator.tsx"),
+                      ("pages", "boq-wizard", "SheetPricingPage.tsx")):
+            src = self._frontend_src(*parts)
+            self.assertNotIn(self.HELPER_MESSAGE, src, parts[-1])
+            self.assertNotIn(self.PENDING_LABEL, src, parts[-1])
+            for cid in self.VENDOR_IDS:
+                self.assertNotIn('"%s"' % cid, src, parts[-1])
+        # the two keys ARE read where the design says: the helper reads helper_message, the page the label
+        self.assertIn("helper_message", self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"))
+        self.assertIn("pending_label", self._frontend_src("pages", "boq-wizard", "SheetPricingPage.tsx"))
+
+
+class TestHvacAliasSlice3(FrappeTestCase):
+    """SLICE 3 (2026-09-22) -- HVAC cables and raceway RESOLVE to Electrical's wiring_cabling and cabletray_raceway
+    (owner Q-a "all logic all pricing must be same exactly"; Q-b stored ONCE, shared at lookup, never copied; Q-e
+    HVAC v4 only). A category may declare `alias_of`; its rows resolve ONE HOP to the target discipline's config,
+    items and catalogue. Plain-English coverage:
+
+      test_a01  THE ALIAS KEY: the validator accepts `alias_of` on the two v4 configs (both validators);
+                NEGATIVE: a non-object, a missing / blank discipline or category_id, an unknown alias key, a
+                self-alias, and an alias carrying its OWN pipelines or definitions are each refused, by name.
+      test_a02  THE ASSET SWEEP (A8): every asset file on disk validates with exactly today's outcome (the one
+                v12 point_wiring refusal and nothing else).
+      test_a03  v4 = v3 + two: items deep-equal (uids identical), the five slice-2 configs deep-equal, the two alias
+                configs name EXISTING Electrical targets and carry nothing of their own; ELIGIBILITY BY TARGET:
+                an alias is eligible iff its target is (resolved with the Electrical configs); NEGATIVE: an alias
+                on its own is not eligible, an alias to a missing target is not, a CHAIN is resolved one hop
+                only and is not eligible.
+      test_a04  THE LOAD under a fresh discipline: 95 / 7, the config endpoint hands `alias_of` VERBATIM, the
+                alias-aware loader pulls the TARGET discipline's configs alongside, the aliased keys are eligible
+                and the non-aliased HVAC keys are not; Electrical byte-identical before and after.
+      test_a05  NO CATEGORY NAMED IN CODE: neither alias id nor either target id appears in extraction.py, and
+                neither alias id appears in the frontend helper / calculator / page / grid sources (the wiring
+                pairing constant predates this slice and is the one target literal the helper may hold).
+    """
+    ALIASES = [("hvac_cables", "wiring_cabling"), ("hvac_raceway", "cabletray_raceway")]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v4 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v3.json"), "r", encoding="utf-8") as fh:
+            cls.v3 = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _alias_configs(self):
+        ids = [a for a, _t in self.ALIASES]
+        return [c for c in self.v4["category_configs"] if c["category_id"] in ids]
+
+    def _eall_configs(self):
+        gold = self.eall.get("goldens") or {}
+        return {("Electrical", c["category_id"]): loader._loaded_config(c, "Electrical", gold)
+                for c in self.eall["category_configs"]}
+
+    @staticmethod
+    def _src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- a01 ----------------------------------------------------------------------------------------
+    def test_a01_alias_of_is_accepted_and_every_malformed_alias_is_refused_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        self.assertIn("alias_of", config_validation._KNOWN_CONFIG_KEYS)
+        aliases = self._alias_configs()
+        self.assertEqual([c["category_id"] for c in aliases], [a for a, _t in self.ALIASES])
+        for c in aliases:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", self.v4.get("goldens") or {}))
+            loader._validate_one_config(c, "category_configs[x]")
+        base = loader._loaded_config(aliases[0], "HVAC", {})
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception))
+        refused(lambda c: c.__setitem__("alias_of", "wiring_cabling"), "must be an object")
+        refused(lambda c: c["alias_of"].pop("category_id"), "non-empty string 'category_id'")
+        refused(lambda c: c["alias_of"].__setitem__("discipline", "  "), "non-empty string 'discipline'")
+        refused(lambda c: c["alias_of"].__setitem__("extra", 1), "unknown key")
+        refused(lambda c: c.__setitem__("alias_of", {"discipline": "HVAC", "category_id": c["category_id"]}), "itself")
+        refused(lambda c: c.__setitem__("pipelines", {"p": {"output": ["x"], "steps": [{"step": "match_master_row", "params": {"kind": "k"}}]}}), "EMPTY pipelines")
+        refused(lambda c: c.__setitem__("attribute_definitions", [{"id": "x", "label": "X", "type": "choice", "values": ["a"]}]), "EMPTY attribute_definitions")
+        # NEGATIVE: a config WITHOUT the key is untouched by the alias check (the ADP config still validates)
+        config_validation._validate_config(loader._loaded_config(self.v4["category_configs"][0], "HVAC", {}))
+
+    # -- a02 ----------------------------------------------------------------------------------------
+    def test_a02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertGreaterEqual(len(files), 51)
+        n_configs, full_refusals = 0, []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc, gold = d.get("discipline") or "Electrical", d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 571)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- a03 ----------------------------------------------------------------------------------------
+    def test_a03_v4_is_v3_plus_two_aliases_and_eligibility_follows_the_target_one_hop(self):
+        self.assertEqual(_items_without_3a_wording(self.v4["items"]), self.v3["items"])   # CHECK 3a wording set aside
+        self.assertEqual([i["item_uid"] for i in self.v4["items"]], [i["item_uid"] for i in self.v3["items"]])
+        # slice 4 (owner W-a..W-e, inverting the slice-3 pin): the ADP config gained its extraction shape; the
+        # four vendor-quote configs are byte-equal to v3's
+        self.assertEqual(self.v4["category_configs"][1:5], self.v3["category_configs"][1:])
+        adp_now = dict(self.v4["category_configs"][0]); adp_v3 = dict(self.v3["category_configs"][0])
+        self.assertEqual(adp_now.pop("matching_mode"), "item_list"); adp_now.pop("list_spec")
+        self.assertTrue(adp_now.pop("notes").startswith(adp_v3.pop("notes")))
+        # slice 6 (owner T7, inverting): the current ADP config carries the shared per-item default pipelines
+        self.assertEqual(list(adp_now.pop("pipelines")), ["item_supply", "item_install"])
+        self.assertEqual(adp_v3.pop("pipelines"), {})
+        self.assertEqual(adp_now, adp_v3)
+        self.assertEqual([c["category_id"] for c in self.v4["category_configs"]][5:], [a for a, _t in self.ALIASES])
+        cls_path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "categories_hvac.json")
+        with open(os.path.abspath(cls_path), "r", encoding="utf-8") as fh:
+            names = {c["category_id"]: c["name"] for c in json.load(fh)["categories"]}
+        eall = self._eall_configs()
+        for c, (own, target) in zip(self._alias_configs(), self.ALIASES):
+            self.assertEqual(c["category_id"], own)
+            self.assertEqual(c["category_display"], names[own])
+            self.assertEqual(c["alias_of"], {"discipline": "Electrical", "category_id": target})
+            self.assertIn(("Electrical", target), eall)   # the target EXISTS in the current Electrical asset
+            self.assertEqual((c["attribute_definitions"], c["pipelines"], c["item_kinds"]), ([], {}, []))
+            self.assertEqual(extraction.alias_target(c), ("Electrical", target))
+            # NEGATIVE: an alias on its own is NOT eligible; with the configs it is eligible BY ITS TARGET
+            self.assertFalse(extraction.config_is_eligible(c))
+            stamped = loader._loaded_config(c, "HVAC", {})
+            configs = dict(eall); configs[("HVAC", own)] = stamped
+            self.assertTrue(extraction.config_is_eligible(stamped, configs))
+            self.assertEqual(extraction.resolve_alias(configs, "HVAC", own), ("Electrical", target, eall[("Electrical", target)]))
+        # NEGATIVE: the ADP / vendor configs carry no alias and resolve to themselves
+        for c in self.v4["category_configs"][:5]:
+            self.assertIsNone(extraction.alias_target(c))
+            st = loader._loaded_config(c, "HVAC", {})
+            self.assertEqual(extraction.resolve_alias({("HVAC", c["category_id"]): st}, "HVAC", c["category_id"]), ("HVAC", c["category_id"], st))
+        # NEGATIVE: a missing target is not eligible and resolves to the row's own (empty) config
+        lone = loader._loaded_config(self._alias_configs()[0], "HVAC", {})
+        self.assertFalse(extraction.config_is_eligible(lone, {("HVAC", "hvac_cables"): lone}))
+        self.assertEqual(extraction.resolve_alias({("HVAC", "hvac_cables"): lone}, "HVAC", "hvac_cables"), ("HVAC", "hvac_cables", lone))
+        # NEGATIVE: a CHAIN (A -> B -> C) is resolved ONE HOP: A lands on B, an alias with nothing of its own
+        a = {"discipline": "X", "category_id": "a", "attribute_definitions": [], "pipelines": {}, "alias_of": {"discipline": "X", "category_id": "b"}}
+        b = {"discipline": "X", "category_id": "b", "attribute_definitions": [], "pipelines": {}, "alias_of": {"discipline": "Electrical", "category_id": "wiring_cabling"}}
+        chain = dict(eall); chain[("X", "a")] = a; chain[("X", "b")] = b
+        self.assertEqual(extraction.resolve_alias(chain, "X", "a"), ("X", "b", b))
+        self.assertFalse(extraction.config_is_eligible(a, chain))
+        self.assertTrue(extraction.config_is_eligible(b, chain))   # b itself is one hop from the real target
+
+    # -- a04 ----------------------------------------------------------------------------------------
+    def test_a04_the_load_the_endpoint_and_the_alias_aware_loader_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v4)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual((r["items_total"], r["configs_loaded"]), (95, 7))
+        for own, target in self.ALIASES:
+            out = api.get_rate_category_config(discipline=disc, category_id=own)
+            self.assertEqual(out["config"]["alias_of"], {"discipline": "Electrical", "category_id": target})
+            self.assertEqual((out["config"]["pipelines"], out["config"]["attribute_definitions"]), ({}, []))
+        # the alias-aware loader pulls the TARGET discipline alongside the row discipline
+        plain = extraction._load_active_configs({disc})
+        self.assertEqual({d for (d, _c) in plain}, {disc})
+        with_targets = extraction.load_configs_with_alias_targets({disc})
+        self.assertEqual({d for (d, _c) in with_targets}, {disc, "Electrical"})
+        self.assertEqual(len(with_targets), 7 + 12)
+        for own, target in self.ALIASES:
+            self.assertTrue(extraction.config_is_eligible(with_targets[(disc, own)], with_targets))
+            self.assertEqual(extraction.resolve_alias(with_targets, disc, own)[:2], ("Electrical", target))
+        # SLICE 6 (owner T7, INVERTING the slice-3 negative): the ADP config of the current asset is eligible OF ITS
+        # OWN; the four vendor-quote keys stay ineligible (nothing to run of their own)
+        self.assertTrue(extraction.config_is_eligible(with_targets[(disc, "hvac_adp")], with_targets))
+        for cid in ("hvac_ahu", "hvac_dx_unit", "hvac_panels", "hvac_pumps"):
+            self.assertFalse(extraction.config_is_eligible(with_targets[(disc, cid)], with_targets))
+        # NEGATIVE: a discipline with no alias loads exactly as before (one query, same keys)
+        self.assertEqual(set(extraction.load_configs_with_alias_targets({"Electrical"})), set(extraction._load_active_configs({"Electrical"})))
+        self.assertEqual(_electrical_active_checksum(), before)
+
+    # -- a05 ----------------------------------------------------------------------------------------
+    def test_a05_no_alias_or_target_category_is_named_in_code(self):
+        ext_src = self._src("nirmaan_stack", "services", "boq_rate_master", "extraction.py")
+        for own, target in self.ALIASES:
+            self.assertNotIn('"%s"' % own, ext_src)
+        # the ONE pre-existing target literal is the RM-3 legacy module constant (`CATEGORY_ID = "wiring_cabling"`,
+        # predating this slice); no alias resolution adds a second, and the tray target is named nowhere
+        self.assertEqual(ext_src.count('"wiring_cabling"'), 1)
+        self.assertIn('CATEGORY_ID = "wiring_cabling"', ext_src)
+        self.assertNotIn('"cabletray_raceway"', ext_src)
+        for parts in (("frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"),
+                      ("frontend", "src", "pages", "pricing", "PricingCalculator.tsx"),
+                      ("frontend", "src", "pages", "boq-wizard", "SheetPricingPage.tsx"),
+                      ("frontend", "src", "pages", "boq-wizard", "PricingGrid.tsx")):
+            src = self._src(*parts)
+            for own, _t in self.ALIASES:
+                self.assertNotIn('"%s"' % own, src, parts[-1])
+        # the ONE resolution each side reads the key generically
+        self.assertIn("def resolve_alias(", ext_src)
+        self.assertIn("alias_of", self._src("frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"))
+
+
+class TestHvacItemListSlice4(FrappeTestCase):
+    """SLICE 4 (2026-09-23, owner W-a..W-e) -- HVAC v5: the ADP config's real extraction shape (matching_mode
+    item_list + list_spec). Plain-English coverage:
+
+      test_v01  THE VALIDATOR: the v5 ADP config passes both validators; NEGATIVE: a list_spec without the mode,
+                the mode without a list_spec, a missing / mistyped family or qty reference, an unknown def key, a
+                choice without values, a text with values, a duplicate id, a non-bool allow_none, an unknown
+                list_spec key -- each refused by name.
+      test_v02  THE ASSET SWEEP (A8): every asset file on disk validates with exactly today's outcome.
+      test_v03  v5 = v4 + the ADP shape: items deep-equal (uids identical), the six other configs deep-equal, the
+                ADP config equal to v4's once the three new keys are set aside; the per-item defs (which are text,
+                which numeric, which allow_none); NEGATIVE: pipelines still empty, still not eligible.
+      test_v04  THE LOAD under a fresh discipline (95 / 7) and the config endpoint hands list_spec + mode VERBATIM;
+                Electrical byte-identical before and after.
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v5.json"), "r", encoding="utf-8") as fh:
+            cls.v5 = json.load(fh)
+        # slice 5: v6 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v7); the v05 pin is v6 = v5 + the wording
+        with open(_asset_path("rate_master_hvac_all_v6.json"), "r", encoding="utf-8") as fh:
+            cls.v6 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v4.json"), "r", encoding="utf-8") as fh:
+            cls.v4 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _adp(self):
+        return loader._loaded_config(self.v5["category_configs"][0], "HVAC", self.v5.get("goldens") or {})
+
+    # -- v01 ----------------------------------------------------------------------------------------
+    def test_v01_list_spec_is_validated_and_every_malformed_shape_is_refused_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        self.assertIn("list_spec", config_validation._KNOWN_CONFIG_KEYS)
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(self.v5["category_configs"][0], "x")
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda c: c.pop("matching_mode"), "only meaningful with matching_mode")
+        refused(lambda c: c.pop("list_spec"), "needs a list_spec object")
+        refused(lambda c: c["list_spec"].__setitem__("extra", 1), "unknown key")
+        refused(lambda c: c["list_spec"].__setitem__("attribute_definitions", []), "non-empty list")
+        refused(lambda c: c["list_spec"].__setitem__("family_attribute_id", "nope"), "family_attribute_id must name")
+        refused(lambda c: c["list_spec"].__setitem__("qty_attribute_id", "torque"), "qty_attribute_id must name a number")
+        refused(lambda c: c["list_spec"].__setitem__("qty_attribute_id", "nope"), "qty_attribute_id must name one")
+        # POSITIVE (ruling D): a spec WITHOUT a qty reference validates -- v5 itself carries none
+        self.assertNotIn("qty_attribute_id", base["list_spec"])
+        # values_by_family (owner design fix): only on a choice; keys are family values; values are the def's own
+        def variant(c):
+            return [d for d in c["list_spec"]["attribute_definitions"] if d["id"] == "variant"][0]
+        self.assertEqual(set(variant(base)["values_by_family"]), {"VCD", "fire damper"})
+        refused(lambda c: [d for d in c["list_spec"]["attribute_definitions"] if d["id"] == "torque"][0].__setitem__("values_by_family", {"VCD": ["x"]}),
+                "only a choice carries values_by_family")
+        refused(lambda c: variant(c).__setitem__("values_by_family", {}), "must be a non-empty object")
+        refused(lambda c: variant(c).__setitem__("values_by_family", {"widget": ["motorised"]}), "is not a family value")
+        refused(lambda c: variant(c).__setitem__("values_by_family", {"VCD": ["motorised", "gold plated"]}), "must list values from the attribute's own values")
+        refused(lambda c: variant(c).__setitem__("values_by_family", {"VCD": []}), "must list values from the attribute's own values")
+        refused(lambda c: variant(c).__setitem__("values_by_family", "VCD"), "must be a non-empty object")
+        # CHECK 2 switch (owner 2026-09-23): a bool, declared per category; v5 ADP declares it ON
+        self.assertIs(base["list_spec"]["second_opinion"], True)
+        refused(lambda c: c["list_spec"].__setitem__("second_opinion", "yes"), "second_opinion must be true or false")
+        ok = copy.deepcopy(base); ok["list_spec"].pop("second_opinion"); config_validation._validate_config(ok)   # absent = OFF, valid
+        refused(lambda c: c["list_spec"]["attribute_definitions"][0].__setitem__("bogus", 1), "unknown key(s) bogus")
+        refused(lambda c: c["list_spec"]["attribute_definitions"][0].__setitem__("values", []), "non-empty list of string values")
+        refused(lambda c: [d for d in c["list_spec"]["attribute_definitions"] if d["id"] == "torque"][0].__setitem__("values", ["a"]), "only a choice carries values")
+        refused(lambda c: c["list_spec"]["attribute_definitions"].append(dict(c["list_spec"]["attribute_definitions"][0])), "duplicate item attribute id")
+        refused(lambda c: c["list_spec"]["attribute_definitions"][1].__setitem__("allow_none", "yes"), "allow_none must be true or false")
+        refused(lambda c: c["list_spec"]["attribute_definitions"][0].__setitem__("type", "date"), "type must be one of")
+        # NEGATIVE: a config WITHOUT the key and mode is untouched by the check (the vendor configs still validate)
+        for c in self.v5["category_configs"][1:5]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    # -- v02 ----------------------------------------------------------------------------------------
+    def test_v02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertGreaterEqual(len(files), 52)
+        n_configs, full_refusals = 0, []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc, gold = d.get("discipline") or "Electrical", d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 578)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- v03 ----------------------------------------------------------------------------------------
+    def test_v03_v5_is_v4_plus_the_adp_extraction_shape_and_adp_stays_ineligible(self):
+        self.assertEqual(self.v5["items"], self.v4["items"])
+        self.assertEqual([i["item_uid"] for i in self.v5["items"]], [i["item_uid"] for i in self.v4["items"]])
+        self.assertEqual(self.v5["category_configs"][1:], self.v4["category_configs"][1:])
+        adp, adp4 = dict(self.v5["category_configs"][0]), dict(self.v4["category_configs"][0])
+        self.assertEqual(adp.pop("matching_mode"), "item_list")
+        spec = adp.pop("list_spec")
+        self.assertTrue(adp.pop("notes").startswith(adp4.pop("notes")))
+        self.assertEqual(adp, adp4)
+        defs = {d["id"]: d for d in spec["attribute_definitions"]}
+        self.assertEqual(list(defs), ["family", "damper", "insulated", "air", "neck_mm", "face_w_mm", "face_h_mm", "depth_mm", "dia_mm",
+                                      "slot_count", "torque", "ul", "panel_ratio", "thickness_mm", "insulation_thickness_mm", "area_band", "variant"])
+        self.assertEqual({i for i, d in defs.items() if d["type"] == "text"},
+                         {"neck_mm", "face_w_mm", "face_h_mm", "depth_mm", "dia_mm", "slot_count", "torque", "panel_ratio", "thickness_mm",
+                          "insulation_thickness_mm", "area_band"})
+        self.assertEqual({i for i, d in defs.items() if d["type"] == "number"}, set())          # ruling D: no quantity def
+        self.assertEqual({i for i, d in defs.items() if d["type"] == "choice"}, {"family", "damper", "insulated", "air", "ul", "variant"})
+        self.assertEqual({i for i, d in defs.items() if d.get("allow_none")}, {"air", "damper", "insulated", "ul", "variant"})
+        family_vals = defs["family"]["values"]
+        self.assertEqual(family_vals[:-2], [d for d in self.v4["category_configs"][0]["attribute_definitions"] if d["id"] == "family"][0]["values"])
+        self.assertEqual(family_vals[-2:], ["grille, type not stated", "none of these"])
+        self.assertEqual(spec["family_attribute_id"], "family")
+        self.assertNotIn("qty_attribute_id", spec)
+        # the variant is a CLOSED per-family pick whose lists are exactly the CATALOGUE's stored variants per family,
+        # and whose union is exactly the spec reader's own variant vocabulary (nothing typed by hand)
+        adp_kinds = set(self.v5["category_configs"][0]["item_kinds"])
+        from_items = {}
+        for it in self.v5["items"]:
+            a = it.get("attributes") or {}
+            if it.get("kind") in adp_kinds and a.get("variant"):
+                from_items.setdefault(a["family"], [])
+                if a["variant"] not in from_items[a["family"]]:
+                    from_items[a["family"]].append(a["variant"])
+        self.assertEqual(defs["variant"]["values_by_family"], from_items)
+        self.assertEqual(set(defs["variant"]["values"]),
+                         set([d for d in self.v4["category_configs"][0]["attribute_definitions"] if d["id"] == "variant"][0]["values"]))
+        self.assertEqual({v for vs in from_items.values() for v in vs}, set(defs["variant"]["values"]))
+        self.assertEqual([i for i, d in defs.items() if "values_by_family" in d], ["variant"])
+        # owner checks (2026-09-23): the second opinion is ON for ADP; the rulings written as notes are on the defs
+        self.assertIs(spec["second_opinion"], True)
+        self.assertIn("no SKU", defs["family"]["note"])                                                  # 6b in the note
+        self.assertIn("single skin plenum", defs["family"]["note"].lower())                              # 3a: the ALIAS reaches the model through the note
+        self.assertIn("spill air box", defs["family"]["note"].lower())
+        self.assertIn("only when the row or its ancestors STATE it", defs["air"]["note"])              # 3c
+        self.assertIn("1:N", defs["panel_ratio"]["note"])
+        self.assertIn("insulation", defs["insulation_thickness_mm"]["note"].lower())
+        # NEGATIVE: still NOT eligible -- empty pipelines on both predicates
+        self.assertEqual(self.v5["category_configs"][0]["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(self._adp()))
+
+    # -- v05 (CHECK 3a) ---------------------------------------------------------------------------------
+    def test_v05_v6_is_v5_plus_the_single_skin_wording_on_the_four_lp_plenum_items_reader_reproduces_all_95(self):
+        """Owner CHECK 3a (2026-09-23), corrected by the stage-2 ruling 1: the single-skin case lives in the ITEM NAME
+        (a NAME belongs in ITEM, beside the other names; ITEM DETAIL carries the specification), never in a note.
+        v6 = v5 with the four 'Low Pressure Plenum / Mixing Box' items' item_name gaining ' / Single Skin Plenum'
+        right after 'Mixing Box' -- every existing word kept, item_detail untouched, uids unchanged, the configs
+        deep-equal -- and the spec reader derives the SAME attributes for all 95 items before and after."""
+        from nirmaan_stack.services.boq_rate_master import spec_reader
+        ANCHOR, INS = "Low Pressure Plenum / Mixing Box", " / Single Skin Plenum"
+        self.assertEqual(self.v6["category_configs"], self.v5["category_configs"])
+        self.assertEqual([i["item_uid"] for i in self.v6["items"]], [i["item_uid"] for i in self.v5["items"]])
+        changed = []
+        for o, n in zip(self.v5["items"], self.v6["items"]):
+            if o == n:
+                continue
+            oa, na = dict(o["attributes"]), dict(n["attributes"])
+            ob, nb = oa.pop("item_name"), na.pop("item_name")
+            self.assertTrue(ob.startswith(ANCHOR)); self.assertEqual(nb, ANCHOR + INS + ob[len(ANCHOR):])
+            self.assertEqual(oa, na)                                          # item_detail and every derived attribute untouched
+            self.assertEqual({k: v for k, v in o.items() if k != "attributes"}, {k: v for k, v in n.items() if k != "attributes"})
+            changed.append(n["source"]["row"])
+        self.assertEqual(sorted(changed), [88, 89, 90, 91])
+        # the reader reproduces every stored derived attribute, on v5 AND on v6 (non-vacuous: 95 items, each with a family)
+        def derived(a):
+            return {k: v for k, v in a.items() if k not in ("item_name", "item_detail") and not k.startswith("spec_")}
+        for tag, asset in (("v5", self.v5), ("v6", self.v6)):
+            n_checked = 0
+            for it in asset["items"]:
+                a = it["attributes"]
+                got = spec_reader.read_adp_spec(a.get("item_name"), a.get("item_detail"), it.get("unit"))
+                got = got[0] if isinstance(got, tuple) else got
+                got = got.get("attributes", got) if isinstance(got, dict) and "attributes" in got else got
+                self.assertEqual(derived(dict(got)), derived(a), (tag, it["item_uid"]))
+                self.assertIn("family", derived(a))
+                n_checked += 1
+            self.assertEqual(n_checked, 95, tag)
+        # and the wording is what a person now sees for those items: "Single Skin Plenum" is in the NAME, not the detail
+        lp = [i for i in self.v6["items"] if i["attributes"].get("family") == "mixing box / LP plenum"]
+        self.assertEqual(len(lp), 4)
+        self.assertTrue(all("Single Skin Plenum" in i["attributes"]["item_name"] for i in lp))
+        self.assertFalse(any("single skin" in (i["attributes"].get("item_detail") or "").lower() for i in lp))
+        # NEGATIVE: no 6a note remains on the family def (3c: notes carry only 6b and ruling 5)
+        fam = [d for d in self.v6["category_configs"][0]["list_spec"]["attribute_definitions"] if d["id"] == "family"][0]
+        self.assertIn("no SKU", fam["note"]); self.assertIn("single skin plenum", fam["note"].lower())   # the alias is IN the note (stage-2 ruling 3a)
+
+    # -- v04 ----------------------------------------------------------------------------------------
+    def test_v04_the_load_and_the_endpoint_hand_the_list_shape_verbatim_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v5)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual((r["items_total"], r["configs_loaded"]), (95, 7))
+        out = api.get_rate_category_config(discipline=disc, category_id="hvac_adp")["config"]
+        self.assertEqual(out["matching_mode"], "item_list")
+        self.assertEqual(out["list_spec"], self.v5["category_configs"][0]["list_spec"])
+        self.assertEqual(out["pipelines"], {})
+        active = extraction.load_configs_with_alias_targets({disc})
+        self.assertFalse(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
+        self.assertEqual(_electrical_active_checksum(), before)
+
+
+# ==================================================================================================
+# SLICE 5 (2026-09-24, owner rulings R1-R21) -- ADP PRICING AS CONFIG: the `list_spec.pricing` block on HVAC v7.
+# The block is DATA the frontend `rate-helper/itemListPricing.ts` module executes through the existing interpreter
+# steps; this suite pins the validator, the asset sweep, v7 = v6 + the block, the load / endpoint and the P8
+# invariant (ADP still NOT eligible; no panel / calculator / helper file imports the module).
+# ==================================================================================================
+class TestHvacAdpPricingSlice5(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_p01  THE VALIDATOR: v7's ADP config passes both validators; NEGATIVE: every malformed pricing shape is
+                refused BY NAME -- an unknown block key, a kind outside item_kinds, a number reader fed from a
+                non-text def, a family that is not a family value / an alias / a no-SKU family, an unknown unit
+                class, a conversion FROM a class the family already prices, a default on a non-allow_none attr, an
+                R13 rule whose `then` is off-list, a pipeline step outside the five item-list steps (catalog_fit),
+                a match on another kind, a scale `_from_attr` on a non-SKU attribute, a component_ref without qty
+                / with a foreign ref key, ladders naming an unknown attribute, a self-alias.
+      test_p02  THE ASSET SWEEP (A8): every asset file on disk validates with exactly today's outcome (v7 included).
+      test_p03  v7 = v6 + the block: items deep-equal (uids identical), the six other configs deep-equal, the ADP
+                config equal to v6's once `list_spec.pricing` (and the notes suffix) is set aside; the block's content
+                is the OWNER'S RULINGS (R1 / R3 / R5 / R13 / R14 / R18 / the R6 ladders / R20's base refs), its
+                families are exactly the catalogue's 25 with exactly the catalogue's unit classes per family, and every
+                needed key is one the family's SKUs carry; NEGATIVE (P8): pipelines still {}, still not eligible on
+                the backend predicate, and NO frontend panel / helper / calculator / grid file imports the module.
+      test_p04  THE LOAD under a fresh discipline (95 / 7) and the config endpoint hands `list_spec.pricing` VERBATIM;
+                the alias-aware eligibility map still admits NO HVAC config; Electrical byte-identical before / after.
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v6.json"), "r", encoding="utf-8") as fh:
+            cls.v6 = json.load(fh)
+        # slice 6: v7 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v8); the p-pins are v7 = v6 + the block
+        with open(_asset_path("rate_master_hvac_all_v7.json"), "r", encoding="utf-8") as fh:
+            cls.v7 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _adp(self):
+        return loader._loaded_config(self.v7["category_configs"][0], "HVAC", self.v7.get("goldens") or {})
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- p01 ----------------------------------------------------------------------------------------
+    def test_p01_the_pricing_block_is_validated_and_every_malformed_shape_is_refused_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(self.v7["category_configs"][0], "x")
+        pr = base["list_spec"]["pricing"]
+        # slice 8 (owner M-b, INVERTING the slice-6b literal): the validator now also knows `override_when`, which v7's
+        # block predates as well -- v7's keys are exactly the known keys MINUS those two (`panel_controls` is present
+        # from v9 on, `override_when` from v11 on)
+        # slice 9: `second_key` joins the keys declared AFTER v7, so v7's block is the full set minus them
+        # SLICE 11 added `unit_factors`, which v7 does not carry -- the same exclusion the three keys above get
+        self.assertEqual(set(pr), config_validation._PRICING_KEYS
+                         - {"panel_controls", "override_when", "second_key", "unit_factors"})
+        self.assertNotIn("panel_controls", pr)
+        self.assertNotIn("override_when", pr)
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda p: p.__setitem__("extra", 1), "list_spec.pricing: unknown key(s): extra")
+        refused(lambda p: p.__setitem__("kind", "cable"), "is not one of the config's item_kinds")
+        refused(lambda p: p.__setitem__("unit_class_attr", "damper"), "collides with an item attribute definition")
+        refused(lambda p: p.__setitem__("unit_classes", {}), "unit_classes must map each class")
+        refused(lambda p: p["numbers"]["dia_mm"].__setitem__("from", ["damper"]), "numbers['dia_mm'].from must list text item attribute definitions")
+        refused(lambda p: p["numbers"]["dia_mm"].__setitem__("bogus", 1), "numbers['dia_mm']: unknown key(s): bogus")
+        refused(lambda p: p["numbers"]["thickness_mm"].__setitem__("reject_below", "5"), "reject_below must be a finite number")
+        refused(lambda p: p.__setitem__("choice_attrs", ["torque"]), "choice_attrs must list choice item attribute definitions")
+        refused(lambda p: p.__setitem__("ladders", ["torque"]), "ladders must list SKU attributes")
+        refused(lambda p: p.__setitem__("match_attrs", ["item_name"]), "match_attrs must list SKU attributes")
+        refused(lambda p: p.__setitem__("reason_names", {"nope": "x"}), "reason_names must name SKU attributes only")
+        refused(lambda p: p.__setitem__("family_alias", {"VCD": "VCD"}), "family_alias must map family values to other family values")
+        refused(lambda p: p.__setitem__("no_sku_families", ["widgets"]), "no_sku_families must list family values")
+        refused(lambda p: p["families"].__setitem__("widgets", p["families"]["VCD"]), "families['widgets']: not a priceable family value")
+        refused(lambda p: p["families"].__setitem__("none of these", p["families"]["VCD"]), "not a priceable family value")
+        refused(lambda p: p["families"]["VCD"].__setitem__("needs", ["item_name"]), "families['VCD'].needs must list SKU attributes")
+        refused(lambda p: p["families"]["VCD"]["units"].__setitem__("volume", p["families"]["VCD"]["units"]["area"]), "'volume' is not a unit class")
+        refused(lambda p: p["families"]["VCD"]["convert"].__setitem__("area", p["families"]["VCD"]["convert"]["count"]), "already prices per area; a conversion from it is unreachable")
+        refused(lambda p: p["families"]["VCD"]["convert"]["count"][0].__setitem__("to", "length"), "must name a unit class the family prices")
+        refused(lambda p: p["families"]["VCD"]["convert"]["count"][0].__setitem__("needs", []), "needs must be a non-empty list of SKU attributes")
+        refused(lambda p: p["defaults"].__setitem__("family", {"value": "VCD", "rule": "x"}), "only an allow_none choice attribute may carry a default")
+        refused(lambda p: p["defaults"]["damper"].__setitem__("value", "maybe"), "defaults['damper'].value must be one of the attribute's values")
+        refused(lambda p: p["defaults"]["variant"].__setitem__("by_family", {"widgets": "GI oval"}), "by_family must map priceable families")
+        refused(lambda p: p["defaults"]["damper"].__setitem__("by_family", {"VCD": "with"}), "must carry exactly one of value / by_family")
+        refused(lambda p: p["derive_when_none"][0].__setitem__("then", "maybe"), "then must be one of the attribute's values")
+        refused(lambda p: p["derive_when_none"][0].__setitem__("families", ["widgets"]), "families must list priceable families")
+        refused(lambda p: p["derive_when_none"][0].__setitem__("when", {"attr": "air", "equals": "sideways"}), "when must be {attr: a choice attribute")
+        # the pipelines: existing steps only, on the pricing kind, reading SKU attributes
+        def pipe(p):
+            return p["families"]["VCD"]["units"]["area"]["pipelines"]["supply"]["steps"]
+        refused(lambda p: pipe(p).append({"step": "catalog_fit", "params": {}}), "is not one of the item-list pricing steps")
+        refused(lambda p: pipe(p).__setitem__(0, {"step": "match_master_row", "params": {"kind": "cable"}}), "must match the pricing kind")
+        refused(lambda p: pipe(p)[1]["params"].__setitem__("w_from_attr", "item_name"), "names 'item_name', which is not a SKU attribute")
+        def ct(p):
+            return p["families"]["cross-talk"]["units"]["count"]["pipelines"]["supply"]["steps"]
+        refused(lambda p: ct(p)[1].pop("qty"), "carries a numeric qty")
+        refused(lambda p: ct(p)[1]["ref"].__setitem__("item_name", "x"), "ref key 'item_name' is not a SKU attribute")
+        refused(lambda p: ct(p)[1]["ref"].__setitem__("insulated", "@item_name"), "reads '@item_name', which is not a SKU attribute")
+        refused(lambda p: p["families"]["VCD"]["units"]["area"].__setitem__("pipelines", {}), "pipelines must be a non-empty object")
+        # NEGATIVE: a config WITHOUT the block (v6's ADP, the vendor and alias configs) is untouched by the check
+        for c in self.v6["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+        for c in self.v7["category_configs"][1:]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    # -- p02 ----------------------------------------------------------------------------------------
+    def test_p02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertIn(os.path.join(data_dir, CURRENT_HVAC_ASSET), files)
+        self.assertGreaterEqual(len(files), 53)
+        n_configs, full_refusals = 0, []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc, gold = d.get("discipline") or "Electrical", d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 585)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- p03 ----------------------------------------------------------------------------------------
+    def test_p03_v7_is_v6_plus_the_pricing_block_which_is_the_owners_rulings_and_adp_stays_ineligible(self):
+        self.assertEqual(self.v7["items"], self.v6["items"])
+        self.assertEqual([i["item_uid"] for i in self.v7["items"]], [i["item_uid"] for i in self.v6["items"]])
+        self.assertEqual(self.v7["category_configs"][1:], self.v6["category_configs"][1:])
+        a7, a6 = dict(self.v7["category_configs"][0]), dict(self.v6["category_configs"][0])
+        ls7, ls6 = dict(a7.pop("list_spec")), dict(a6.pop("list_spec"))
+        pr = ls7.pop("pricing")
+        self.assertEqual(ls7, ls6)
+        self.assertTrue(a7.pop("notes").startswith(a6.pop("notes")))
+        self.assertEqual(a7, a6)
+        # the block IS the owner's rulings
+        self.assertEqual(pr["kind"], "hvac_adp_item")
+        self.assertEqual(pr["family_alias"], {"grille, type not stated": "linear grille"})                   # R3
+        self.assertEqual(pr["no_sku_families"], ["none of these"])                                           # R18
+        self.assertEqual({k: v.get("value") or v.get("by_family") for k, v in pr["defaults"].items()},
+                         {"damper": "without", "insulated": "with", "ul": "no",
+                          "variant": {"VCD": "GI rectangular", "fire damper": "without sleeve"}})            # R1 / R5 / R14
+        self.assertEqual(pr["derive_when_none"], [{"attr": "damper", "families": ["linear grille"],
+                                                   "when": {"attr": "air", "equals": "supply"}, "then": "with",
+                                                   "rule": "R13 supply-air linear / plain grille = with damper"}])   # R13
+        self.assertEqual(pr["ladders"], ["dia_mm", "neck_mm", "torque_nm", "panel_ratio", "thickness_mm"])   # R6
+        self.assertEqual(pr["numbers"]["panel_ratio"]["ratio"], True)                                        # R17
+        self.assertEqual(pr["numbers"]["area_sqm"], {"from": ["area_band"], "name": "area", "unit": "sqm", "range": "max"})  # R16
+        # the families are EXACTLY the catalogue's 25, each with exactly the catalogue's unit classes, and every
+        # needed key is one the family's SKUs of that class carry (a need no SKU carries could never match)
+        def unit_class(u):
+            u = (u or "").strip().lower().rstrip(".")
+            for cls, sp in pr["unit_classes"].items():
+                if u in [x.rstrip(".") for x in sp]:
+                    return cls
+            self.fail("unclassified unit %r" % u)
+        by_fam = {}
+        for it in self.v7["items"]:
+            by_fam.setdefault(it["attributes"]["family"], {}).setdefault(unit_class(it["unit"]), []).append(it)
+        self.assertEqual(set(pr["families"]), set(by_fam))
+        self.assertEqual(len(pr["families"]), 25)
+        for fam, f in pr["families"].items():
+            self.assertEqual(set(f["units"]), set(by_fam[fam]), fam)
+            for cls, u in f["units"].items():
+                carried = {k for it in by_fam[fam][cls] for k in it["attributes"]}
+                for n in f["needs"] + (u.get("needs") or []):
+                    self.assertIn(n, carried, (fam, cls, n))
+                self.assertEqual(set(u["pipelines"]), {"supply", "install"}, (fam, cls))
+            for cls, opts in (f.get("convert") or {}).items():
+                self.assertNotIn(cls, f["units"], (fam, cls))
+                for o in opts:
+                    self.assertIn(o["to"], f["units"], (fam, cls))
+        # R20: the derived count rows read their base per-sq.m SKU LIVE through a component_ref on the SAME family
+        for fam in ("cross-talk", "mixing box / LP plenum"):
+            steps = pr["families"][fam]["units"]["count"]["pipelines"]["supply"]["steps"]
+            ref = [st for st in steps if st["step"] == "component_ref"][0]["ref"]
+            self.assertEqual((ref["kind"], ref["family"], ref["unit_class"]), ("hvac_adp_item", fam, "area"))
+        self.assertEqual([st for st in pr["families"]["mixing box / LP plenum"]["units"]["count"]["pipelines"]["supply"]["steps"]
+                          if st["step"] == "component_ref"][0]["ref"]["insulated"], "@insulated")
+        # every step in the block is one of the FIVE existing steps -- no new interpreter vocabulary this slice
+        used = set()
+        def walk(pipes):
+            for pl in pipes.values():
+                for st in pl["steps"]:
+                    used.add(st["step"])
+        for f in pr["families"].values():
+            for u in f["units"].values():
+                walk(u["pipelines"])
+            for opts in (f.get("convert") or {}).values():
+                for o in opts:
+                    walk(o["pipelines"])
+        self.assertEqual(used, {"match_master_row", "component_ref", "sum_components", "scale", "roundup"})
+        # NEGATIVE (P8): still NOT eligible -- empty pipelines on the backend predicate
+        self.assertEqual(self.v7["category_configs"][0]["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(self._adp()))
+        # NEGATIVE (P8): no panel / helper / calculator / grid file imports the module; the module exists and is pure
+        # slice 6 (owner T7, INVERTING the slice-5 P8 pin): the helper (the list path) and the calculator (no
+        # placeholder blocks for a list-mode category) now import the module; the grid, the page and the plumbing
+        # still do not, and the panel reaches it only through the helper's suggestion
+        self.assertIn('from "./itemListPricing"', self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"))
+        self.assertIn("itemListPricingSpec", self._frontend_src("pages", "pricing", "PricingCalculator.tsx"))
+        for parts in (("pages", "boq-wizard", "rate-helper", "RateHelperPanel.tsx"),
+                      ("pages", "boq-wizard", "rate-helper", "rateHelperPlumbing.tsx"),
+                      ("pages", "boq-wizard", "PricingGrid.tsx"),
+                      ("pages", "boq-wizard", "SheetPricingPage.tsx")):
+            self.assertNotIn('from "./itemListPricing"', self._frontend_src(*parts), parts[-1])
+            self.assertNotIn("rate-helper/itemListPricing", self._frontend_src(*parts), parts[-1])
+        mod = self._frontend_src("pages", "boq-wizard", "rate-helper", "itemListPricing.ts")
+        self.assertNotIn("from \"react\"", mod)
+        self.assertNotIn("useFrappe", mod)
+        self.assertIn("export function priceItemList(", mod)
+
+    # -- p04 ----------------------------------------------------------------------------------------
+    def test_p04_the_load_and_the_endpoint_hand_the_pricing_block_verbatim_electrical_untouched(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v7)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual((r["items_total"], r["configs_loaded"]), (95, 7))
+        out = api.get_rate_category_config(discipline=disc, category_id="hvac_adp")["config"]
+        self.assertEqual(out["matching_mode"], "item_list")
+        self.assertEqual(out["list_spec"], self.v7["category_configs"][0]["list_spec"])
+        self.assertEqual(out["list_spec"]["pricing"]["families"]["VCD"]["needs"], ["variant"])
+        self.assertEqual(out["pipelines"], {})
+        active = extraction.load_configs_with_alias_targets({disc})
+        self.assertFalse(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
+        # no HVAC config OF ITS OWN is eligible (the two alias configs follow their Electrical targets one hop,
+        # exactly as slice 3 pinned -- that is the alias mechanism, not ADP)
+        own = {k for k, v in active.items() if k[0] == disc and not extraction.alias_target(v)}
+        self.assertEqual({k for k in own if extraction.config_is_eligible(active[k], active)}, set())
+        self.assertEqual({k[1] for k in active if k[0] == disc and extraction.alias_target(active[k])}, {"hvac_cables", "hvac_raceway"})
+        self.assertEqual(_electrical_active_checksum(), before)
+
+
+# ==================================================================================================
+# SLICE 6 (2026-09-24, owner rulings S1-S9) -- ADP GOES LIVE on HVAC v8: the eligibility switch (T7), UL absent = not
+# mentioned (S6), the mixing box at any size (S7), the second opinion OFF (S8), the correction record's items (T5).
+# ==================================================================================================
+class TestHvacAdpLiveSlice6(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_q01  THE VALIDATOR: v8's ADP config passes both validators; `absent_as_none` is a bool on a default;
+                NEGATIVE: a non-bool refused; a unit block WITHOUT pipelines is refused when the config's own pipelines
+                are empty (nothing would price it) and accepted when they are declared; the config's own pipelines
+                are checked as item-list pipelines (a foreign step refused).
+      test_q02  THE ASSET SWEEP: every asset file on disk validates with exactly today's outcome (v8 included).
+      test_q03  v8 = v7 + the FOUR deltas and nothing else: items deep-equal; the six other configs deep-equal; the
+                ADP config equal once `pipelines`, `second_opinion`, ul's `absent_as_none` (+ its rule wording), the
+                mixing-box block and the 29 dropped plain-block pipelines are set aside; the deltas ARE the owner's
+                rulings.
+      test_q04  T7 ELIGIBILITY on BOTH sides: `config_is_eligible` (backend, unchanged code) and the frontend
+                `isEligibleConfig` (source-pinned) admit v8's ADP; NEGATIVE: v7's ADP is not; every other HVAC config's
+                eligibility is unmoved between v7 and v8; every Electrical config's is unmoved.
+      test_q05  THE LOAD under a fresh discipline (95 / 7), the endpoint hands `pipelines` + `list_spec` verbatim, the
+                alias-aware map admits EXACTLY ADP + the two aliases, Electrical byte-identical; the event endpoint
+                stores an `items` list inside its JSON fields verbatim (T5) and a plain payload exactly as before.
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v7.json"), "r", encoding="utf-8") as fh:
+            cls.v7 = json.load(fh)
+        # slice 6b: v8 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v9); the q-pins are v8 = v7 + the four deltas
+        with open(_asset_path("rate_master_hvac_all_v8.json"), "r", encoding="utf-8") as fh:
+            cls.v8 = json.load(fh)
+        cls._disciplines = set()
+        cls._events = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._events:
+            frappe.db.delete(rate_master.EVENT_DOCTYPE, {"name": name})
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _adp(self, asset=None):
+        a = asset or self.v8
+        return loader._loaded_config(a["category_configs"][0], "HVAC", a.get("goldens") or {})
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- q01 ----------------------------------------------------------------------------------------
+    def test_q01_the_validator_absent_as_none_and_the_block_without_pipelines(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(self.v8["category_configs"][0], "x")
+        pr = base["list_spec"]["pricing"]
+        self.assertIs(pr["defaults"]["ul"]["absent_as_none"], True)
+        self.assertEqual({k for k, d in pr["defaults"].items() if "absent_as_none" in d}, {"ul"})   # UL ONLY (S6)
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda c: c["list_spec"]["pricing"]["defaults"]["ul"].__setitem__("absent_as_none", "yes"), "absent_as_none must be true or false")
+        # a block without pipelines needs the config's own pipelines
+        self.assertNotIn("pipelines", pr["families"]["spigot"]["units"]["count"])
+        refused(lambda c: c.__setitem__("pipelines", {}), "declares no pipelines and the config's own pipelines are empty")
+        # the config's own pipelines are item-list pipelines: a foreign step is refused by name
+        refused(lambda c: c["pipelines"]["item_supply"]["steps"].append({"step": "catalog_fit", "params": {}}), "is not one of the item-list pricing steps")
+        refused(lambda c: c["pipelines"]["item_supply"]["steps"].__setitem__(0, {"step": "match_master_row", "params": {"kind": "cable"}}), "must match the pricing kind")
+        # NEGATIVE: v7 (every block with its own pipelines, empty config pipelines) still validates as it did
+        config_validation._validate_config(self._adp(self.v7))
+        for c in self.v8["category_configs"][1:]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    # -- q02 ----------------------------------------------------------------------------------------
+    def test_q02_every_asset_file_on_disk_validates_with_exactly_todays_outcome(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        files = sorted(glob.glob(os.path.join(data_dir, "rate_master_*_all_v*.json")))
+        self.assertIn(os.path.join(data_dir, CURRENT_HVAC_ASSET), files)
+        self.assertGreaterEqual(len(files), 54)
+        n_configs, full_refusals = 0, []
+        for path in files:
+            with open(path, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            disc, gold = d.get("discipline") or "Electrical", d.get("goldens") or {}
+            for c in d["category_configs"]:
+                n_configs += 1
+                loader._validate_one_config(c, os.path.basename(path))
+                try:
+                    config_validation._validate_config(loader._loaded_config(c, disc, gold))
+                except frappe.ValidationError:
+                    full_refusals.append((os.path.basename(path), c["category_id"]))
+        self.assertGreaterEqual(n_configs, 592)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+
+    # -- q03 ----------------------------------------------------------------------------------------
+    def test_q03_v8_is_v7_plus_the_four_deltas_and_nothing_else(self):
+        self.assertEqual(self.v8["items"], self.v7["items"])
+        self.assertEqual([i["item_uid"] for i in self.v8["items"]], [i["item_uid"] for i in self.v7["items"]])
+        self.assertEqual(self.v8["category_configs"][1:], self.v7["category_configs"][1:])
+        a8, a7 = copy.deepcopy(self.v8["category_configs"][0]), copy.deepcopy(self.v7["category_configs"][0])
+        self.assertTrue(a8.pop("notes").startswith(a7.pop("notes")))
+        # T7: the shared per-item default pipelines -- match + the R15 markup, per side
+        pipes = a8.pop("pipelines")
+        self.assertEqual(a7.pop("pipelines"), {})
+        self.assertEqual(list(pipes), ["item_supply", "item_install"])
+        for side in ("supply", "install"):
+            steps = pipes[f"item_{side}"]["steps"]
+            self.assertEqual([st["step"] for st in steps], ["match_master_row", "scale", "roundup"])
+            self.assertEqual(steps[0]["params"], {"kind": "hvac_adp_item"})
+            self.assertEqual((steps[1]["target"], steps[1]["result"], steps[1]["params"], steps[1]["formula"]),
+                             (f"cost_{side}", side, {"m_from_ctx": f"{side}_markup"}, "base*(1+m)"))
+            self.assertEqual((steps[2]["target"], steps[2]["params"]), (side, {"digits": 0}))
+            self.assertEqual(pipes[f"item_{side}"]["output"], [side])
+        # S8: the second opinion OFF
+        self.assertIs(a8["list_spec"].pop("second_opinion"), False)
+        self.assertIs(a7["list_spec"].pop("second_opinion"), True)
+        p8, p7 = a8["list_spec"].pop("pricing"), a7["list_spec"].pop("pricing")
+        self.assertEqual(a8, a7)
+        # S6: UL only
+        self.assertIs(p8["defaults"]["ul"].pop("absent_as_none"), True)
+        self.assertNotIn("absent_as_none", p7["defaults"]["ul"])
+        p8["defaults"]["ul"]["rule"] = p7["defaults"]["ul"]["rule"]
+        for k in ("damper", "insulated", "variant"):
+            self.assertEqual(p8["defaults"][k], p7["defaults"][k])
+        # S7: the mixing box prices per number by CONVERSION from its per-sq.m rows, with the +150 on supply only
+        mb8, mb7 = p8["families"]["mixing box / LP plenum"], p7["families"]["mixing box / LP plenum"]
+        self.assertEqual(set(mb8["units"]), {"area"}); self.assertEqual(set(mb7["units"]), {"area", "count"})
+        conv = mb8.pop("convert")["count"]
+        self.assertEqual(len(conv), 1)
+        self.assertEqual((conv[0]["to"], conv[0]["needs"]), ("area", ["face_w_mm", "face_h_mm", "depth_mm"]))
+        sup = conv[0]["pipelines"]["supply"]["steps"]; ins = conv[0]["pipelines"]["install"]["steps"]
+        self.assertEqual(sup[1]["formula"], "base*2*(w*h+h*d+w*d)/1000000+150")
+        self.assertEqual(ins[1]["formula"], "base*2*(w*h+h*d+w*d)/1000000")
+        self.assertEqual([st["step"] for st in sup], ["match_master_row", "scale", "roundup", "scale", "roundup"])
+        mb7["units"].pop("count")
+        # the 29 plain blocks dropped their own copy of the default pair; every other block kept its pipelines
+        dropped = 0
+        for fam, f in p8["families"].items():
+            for cls, u in f["units"].items():
+                u7 = p7["families"][fam]["units"][cls]
+                if "pipelines" not in u:
+                    dropped += 1
+                    self.assertEqual(u7["pipelines"], {"supply": self._plain("supply"), "install": self._plain("install")}, (fam, cls))
+                    u7 = dict(u7); u7.pop("pipelines")
+                self.assertEqual(u, u7, (fam, cls))
+        self.assertEqual(dropped, 29)
+        self.assertEqual({f for f, fam in p8["families"].items() for u in fam["units"].values() if "pipelines" in u}, {"cross-talk"})
+        # everything else is v7's
+        for fam in p8["families"].values():
+            for u in fam["units"].values():
+                u.pop("pipelines", None)
+        for fam in p7["families"].values():
+            for u in fam["units"].values():
+                u.pop("pipelines", None)
+        self.assertEqual(p8, p7)
+
+    @staticmethod
+    def _plain(side):
+        match = {"step": "match_master_row", "params": {"kind": "hvac_adp_item"}, "explain": "match the ADP SKU (family, unit class and the stated attributes)"}
+        return {"output": [side], "steps": [match,
+                {"step": "scale", "target": f"cost_{side}", "result": side, "params": {"m_from_ctx": f"{side}_markup"},
+                 "formula": "base*(1+m)", "explain": f"{side}: cost x (1 + the SKU's {side} markup) (R15)"},
+                {"step": "roundup", "target": side, "params": {"digits": 0}, "explain": f"ROUNDUP({side}, 0) (R15)"}]}
+
+    # -- q04 ----------------------------------------------------------------------------------------
+    def test_q04_adp_is_eligible_on_both_sides_and_no_other_category_moved(self):
+        # the backend predicate, its code UNCHANGED: two facts, non-empty pipelines AND definitions
+        self.assertTrue(extraction.config_is_eligible(self._adp()))
+        self.assertFalse(extraction.config_is_eligible(self._adp(self.v7)))
+        for c8, c7 in zip(self.v8["category_configs"][1:], self.v7["category_configs"][1:]):
+            l8, l7 = loader._loaded_config(c8, "HVAC", {}), loader._loaded_config(c7, "HVAC", {})
+            self.assertEqual(extraction.config_is_eligible(l8), extraction.config_is_eligible(l7), c8["category_id"])
+            self.assertFalse(extraction.config_is_eligible(l8), c8["category_id"])
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        for c in eall["category_configs"]:
+            lc = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+            self.assertEqual(extraction.config_is_eligible(lc), bool(lc.get("pipelines")) and bool(lc.get("attribute_definitions")), c["category_id"])
+        self.assertEqual(len(eall["category_configs"]), 12)
+        # the frontend predicate reads the same two facts (source-pinned, as h06 has always pinned it)
+        src = self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        body = src[src.index("export function isEligibleConfig("):]
+        body = body[:body.index("\n}")]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        self.assertIn("(config.attribute_definitions ?? []).length > 0", body)
+        # and the extraction population's own filter -- the exact expression assemble_population applies
+        cfgs = {("HVAC", c["category_id"]): loader._loaded_config(c, "HVAC", {}) for c in self.v8["category_configs"]}
+        for c in eall["category_configs"]:
+            cfgs[("Electrical", c["category_id"])] = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+        hvac_eligible = {k for k, v in cfgs.items() if k[0] == "HVAC" and extraction.config_is_eligible(v, cfgs)}
+        self.assertEqual(hvac_eligible, {("HVAC", "hvac_adp"), ("HVAC", "hvac_cables"), ("HVAC", "hvac_raceway")})
+
+    # -- q05 ----------------------------------------------------------------------------------------
+    def test_q05_the_load_the_endpoint_the_alias_map_and_the_event_json_with_items(self):
+        from nirmaan_stack.api.boq import rate_master as api
+        before = _electrical_active_checksum()
+        disc = self._new_disc()
+        payload = copy.deepcopy(self.v8)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual((r["items_total"], r["configs_loaded"]), (95, 7))
+        out = api.get_rate_category_config(discipline=disc, category_id="hvac_adp")["config"]
+        self.assertEqual(out["matching_mode"], "item_list")
+        self.assertEqual(out["list_spec"], self.v8["category_configs"][0]["list_spec"])
+        self.assertEqual(out["pipelines"], self.v8["category_configs"][0]["pipelines"])
+        active = extraction.load_configs_with_alias_targets({disc})
+        self.assertTrue(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
+        self.assertEqual({k[1] for k in active if k[0] == disc and extraction.config_is_eligible(active[k], active)},
+                         {"hvac_adp", "hvac_cables", "hvac_raceway"})
+        self.assertEqual(_electrical_active_checksum(), before)
+        # T5: the correction record carries the ITEMS on both sides inside the EXISTING JSON text fields -- no
+        # doctype change; a plain (non-list) payload is stored exactly as before
+        boq_name = frappe.get_all("BOQs", fields=["name"], limit=1, order_by="creation asc")[0]["name"]
+        extracted = {"items": [{"attributes": {"family": "actuator", "ul": None, "torque": "8 NM"}}]}
+        corrected = {"items": [{"family": "actuator", "source": "model", "attributes": {"ul": "no", "torque": "8 NM"}, "qty": "1"}]}
+        res = api.record_rate_suggestion_event(boq=boq_name, sheet_name="S6-TEST", excel_row=1, col="F", kind="supply_rate",
+                                               helper_id="pricing_sheet", category_id="hvac_adp", run_id="", extracted_attributes=extracted,
+                                               extracted_confidences={}, corrected_attributes=corrected, computed_value=9570, used_value=9570)
+        type(self)._events.append(res["name"])
+        doc = frappe.get_doc(api.EVENT_DOCTYPE, res["name"])
+        self.assertEqual(_obj(doc.extracted_attributes), extracted)
+        self.assertEqual(_obj(doc.corrected_attributes), corrected)
+        plain = api.record_rate_suggestion_event(boq=boq_name, sheet_name="S6-TEST", excel_row=2, col="F", kind="supply_rate",
+                                                 helper_id="pricing_sheet", category_id="wiring_cabling", run_id="", extracted_attributes={"core": 1},
+                                                 extracted_confidences={"core": 0.9}, corrected_attributes={"core": "1"}, computed_value=120, used_value=120)
+        type(self)._events.append(plain["name"])
+        pdoc = frappe.get_doc(api.EVENT_DOCTYPE, plain["name"])
+        self.assertEqual((_obj(pdoc.extracted_attributes), _obj(pdoc.corrected_attributes)), ({"core": 1}, {"core": "1"}))
+        self.assertNotIn("items", _obj(pdoc.extracted_attributes)); self.assertNotIn("items", _obj(pdoc.corrected_attributes))
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6b (2026-09-24, owner V1-V8) -- HVAC v9: `list_spec.pricing.panel_controls`, the panel's control
+# declared PER ATTRIBUTE in config (V5); screen-only (V2): the block sits where the model-side projection
+# never reads.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpPanelControlsSlice6b(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_r01  THE VALIDATOR: v9's ADP config passes both validators; the block is a closed, COMPLETE map over the
+                panel's attribute namespace (numbers + choices + the family attribute + a derive_when_none source).
+                NEGATIVE: an attribute the panel cannot show refused; a control other than dropdown / text refused;
+                a missing attribute refused (naming it); a non-object refused; ABSENT (v8) still accepted.
+      test_r02  v9 = v8 + panel_controls and NOTHING else: items deep-equal; the six other configs deep-equal; the
+                ADP config equal once `panel_controls` is set aside; no version token in the file.
+      test_r03  THE LIST, attribute by attribute, IS the owner's X1 list: every ladder attribute + slot_count + every
+                choice + the family + the air stream are dropdowns; width / height / depth / area band are text.
+      test_r04  ELIGIBILITY unmoved between v8 and v9 for every HVAC config (ADP eligible, the vendor four not, the
+                two aliases not their own) -- the panel key is not an eligibility fact.
+      test_r05  THE ASSET SWEEP admits v9 (every file on disk validates exactly as today).
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v8.json"), "r", encoding="utf-8") as fh:
+            cls.v8 = json.load(fh)
+        # slice 6d: v9 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v10); the r-pins are v9 = v8 + panel_controls
+        with open(_asset_path("rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
+            cls.v9 = json.load(fh)
+
+    def _adp(self, asset=None):
+        asset = asset or self.v9
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def test_r01_the_validator_panel_controls_is_closed_complete_and_optional(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        pc = base["list_spec"]["pricing"]["panel_controls"]
+        self.assertEqual(set(pc.values()), {"dropdown", "text"})
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda c: c["list_spec"]["pricing"]["panel_controls"].__setitem__("item_name", "dropdown"), "cannot show: item_name")
+        refused(lambda c: c["list_spec"]["pricing"]["panel_controls"].__setitem__("dia_mm", "combo"), "each control must be one of")
+        refused(lambda c: c["list_spec"]["pricing"]["panel_controls"].pop("torque_nm"), "missing: torque_nm")
+        refused(lambda c: c["list_spec"]["pricing"].__setitem__("panel_controls", ["dia_mm"]), "must be an object")
+        # ABSENT = today's controls: v8 (no block) still validates
+        config_validation._validate_config(self._adp(self.v8))
+        self.assertNotIn("panel_controls", self._adp(self.v8)["list_spec"]["pricing"])
+
+    def test_r02_v9_is_v8_plus_panel_controls_and_nothing_else(self):
+        self.assertEqual(self.v9["items"], self.v8["items"])
+        self.assertEqual(self.v9["category_configs"][1:], self.v8["category_configs"][1:])
+        a9, a8 = self._adp(self.v9), self._adp(self.v8)
+        self.assertIn("panel_controls", a9["list_spec"]["pricing"])
+        a9["list_spec"]["pricing"].pop("panel_controls")
+        self.assertEqual(a9, a8)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"):
+            self.assertNotIn(f'"{tok}"', text)
+
+    def test_r03_the_declared_list_is_the_owners_x1_list(self):
+        pr = self._adp()["list_spec"]["pricing"]
+        pc = pr["panel_controls"]
+        dropdown = sorted(k for k, v in pc.items() if v == "dropdown")
+        text = sorted(k for k, v in pc.items() if v == "text")
+        self.assertEqual(dropdown, ["air", "damper", "dia_mm", "family", "insulated", "neck_mm", "panel_ratio", "slot_count", "thickness_mm", "torque_nm", "ul", "variant"])
+        self.assertEqual(text, ["area_sqm", "depth_mm", "face_h_mm", "face_w_mm"])
+        for ladder in pr["ladders"]:
+            self.assertEqual(pc[ladder], "dropdown", ladder)
+        for choice in pr["choice_attrs"]:
+            self.assertEqual(pc[choice], "dropdown", choice)
+        # complete over the namespace and nothing beyond it
+        ns = set(pr["numbers"]) | set(pr["choice_attrs"]) | {"family"} | {r["when"]["attr"] for r in pr["derive_when_none"]}
+        self.assertEqual(set(pc), ns)
+
+    def test_r04_eligibility_is_unmoved_between_v8_and_v9(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        def elig(asset):
+            cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in asset["category_configs"]}
+            return {cid: extraction.config_is_eligible(cfg, cfgs) for (_d, cid), cfg in cfgs.items()}
+        self.assertEqual(elig(self.v9), elig(self.v8))
+        self.assertTrue(elig(self.v9)["hvac_adp"])
+        self.assertEqual({k for k, v in elig(self.v9).items() if v}, {"hvac_adp"})
+
+    def test_r05_the_asset_sweep_admits_v9(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        for c in self.v9["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6d (owner ruling "yes ask the question", 2026-09-24) -- HVAC v10: the model is asked, per item,
+# how many of it make ONE unit of the row. The question is the EXISTING optional `list_spec.qty_attribute_id`
+# plus one `number` / `allow_none` definition -- no new config key, no `extraction.py` change.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpCountQuestionSlice6d(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_s01  THE VALIDATOR: v10's ADP config passes both validators; `qty_attribute_id` names the new NUMBER
+                definition. NEGATIVE: naming a text / choice definition is refused, naming nothing is refused,
+                and v9 (which declares none) still validates -- the key is optional.
+      test_s02  v10 = v9 + the two additions and NOTHING else: items deep-equal; the six other configs
+                deep-equal; the ADP config equal once the new definition and `qty_attribute_id` are set aside;
+                the definition is appended LAST; it is NOT a SKU attribute and NOT a panel control; no version
+                token in the file.
+      test_s03  THE PROMPT ASSET carries the count bullet VERBATIM as the slice-6c check run sent it -- every
+                clause that produced 0 false counts in 42 chances, including the CAPACITY sentence.
+      test_s04  ELIGIBILITY unmoved between v9 and v10 for every HVAC config (asking a question is not an
+                eligibility fact).
+      test_s05  THE ASSET SWEEP admits v10 (every file on disk validates exactly as today).
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
+            cls.v9 = json.load(fh)
+        # slice 8: v10 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v11); the s-pins are v10 = v9 + the count
+        with open(_asset_path("rate_master_hvac_all_v10.json"), "r", encoding="utf-8") as fh:
+            cls.v10 = json.load(fh)
+
+    QTY = "qty_per_row_unit"
+
+    def _adp(self, asset=None):
+        asset = asset or self.v10
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def test_s01_the_validator_accepts_the_count_question_and_refuses_a_bad_reference(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        ls = base["list_spec"]
+        self.assertEqual(ls["qty_attribute_id"], self.QTY)
+        by_id = {d["id"]: d for d in ls["attribute_definitions"]}
+        self.assertEqual(by_id[self.QTY]["type"], "number")
+        self.assertIs(by_id[self.QTY]["allow_none"], True)
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad["list_spec"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+        refused(lambda s: s.__setitem__("qty_attribute_id", "family"), "must name a number attribute")
+        refused(lambda s: s.__setitem__("qty_attribute_id", "dia_mm"), "must name a number attribute")
+        refused(lambda s: s.__setitem__("qty_attribute_id", "nope"), "must name one of the item attribute definitions")
+        # OPTIONAL: v9 declares none and still validates
+        v9adp = self._adp(self.v9)
+        self.assertNotIn("qty_attribute_id", v9adp["list_spec"])
+        config_validation._validate_config(v9adp)
+
+    def test_s02_v10_is_v9_plus_the_question_and_nothing_else(self):
+        self.assertEqual(self.v10["items"], self.v9["items"])
+        self.assertEqual(self.v10["category_configs"][1:], self.v9["category_configs"][1:])
+        a10, a9 = self._adp(self.v10), self._adp(self.v9)
+        ids10 = [d["id"] for d in a10["list_spec"]["attribute_definitions"]]
+        ids9 = [d["id"] for d in a9["list_spec"]["attribute_definitions"]]
+        self.assertEqual(ids10, ids9 + [self.QTY], "the new definition is APPENDED, so no existing one moves")
+        a10["list_spec"]["attribute_definitions"] = [d for d in a10["list_spec"]["attribute_definitions"] if d["id"] != self.QTY]
+        a10["list_spec"].pop("qty_attribute_id")
+        self.assertEqual(a10, a9)
+        # the count is not a SKU attribute and must never be a panel control
+        pr = self._adp()["list_spec"]["pricing"]
+        for key in ("numbers", "choice_attrs", "ladders", "match_attrs", "panel_controls"):
+            self.assertNotIn(self.QTY, pr[key], key)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11"):
+            self.assertNotIn(f'"{tok}"', text)
+
+    def test_s03_the_prompt_asset_carries_the_checked_bullet_verbatim(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        prompt = extraction._read_item_list_prompt() if hasattr(extraction, "_read_item_list_prompt") else None
+        if prompt is None:
+            path = os.path.join(os.path.dirname(loader.__file__), "..", "boq_category", "prompts",
+                                "boq_rate_item_list_prompt.md")
+            with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+                prompt = fh.read()
+        # every clause the check run sent -- the wording that produced 0 false counts in 42 chances
+        for clause in [
+            "- qty_per_row_unit (how many of this item make ONE unit of the row):",
+            "answer a NUMBER only when the row's own text or its ancestors state",
+            'how many of this item one unit pays for ("with 2 plenum boxes" -> 2,',
+            'It is NOT the BoQ\'s',
+            "own quantity for the row (which you never see) and it is NOT a",
+            'measurement: never read a gauge ("18 G", "20 SWG"), a thickness or',
+            'size ("10mm thick", "600 x 600"), a slot count ("3 Slot"), a neck',
+            "size, a diameter, a torque or an area band as this count.",
+            "number saying how many items ONE PANEL or ONE CONTROLLER serves is",
+            "that product's capacity, not a count of items this row pays for.",
+            "When the text does not plainly say how many, answer \"None\".",
+        ]:
+            self.assertIn(clause, prompt, clause[:50])
+
+    def test_s04_eligibility_is_unmoved_between_v9_and_v10(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        def elig(asset):
+            cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in asset["category_configs"]}
+            return {cid: extraction.config_is_eligible(cfg, cfgs) for (_d, cid), cfg in cfgs.items()}
+        self.assertEqual(elig(self.v10), elig(self.v9))
+        self.assertEqual({k for k, v in elig(self.v10).items() if v}, {"hvac_adp"})
+
+    def test_s05_the_asset_sweep_admits_v10(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        for c in self.v10["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 8 (owner M-b / M-c, 2026-09-24) -- HVAC v11. Two declarations, both in config.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpOverrideAndStandardLengthSlice8(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_t01  THE VALIDATOR knows `override_when`: v11's ADP config passes both validators, and every
+                malformed shape is refused BY NAME -- an unknown key, a target that is not a choice
+                attribute, a `then` outside the attribute's vocabulary, a family that is not priceable,
+                a malformed `when`, a condition on the attribute the rule sets, and a blank rule.
+                NEGATIVE: the key is OPTIONAL -- v10, which declares none, still validates.
+      test_t02  v11 = v10 + the two declarations and NOTHING else: items deep-equal; the six other
+                configs deep-equal; the ADP config equal once `override_when` and the flexible duct's
+                `convert` are set aside. NEGATIVE: v10 carries neither, so the stripping is not vacuous.
+      test_t03  THE STANDARD LENGTH IS CONFIG, NOT CODE: the conversion declares it as a named numeric
+                pipeline param, the markup and the ROUNDUP come after it, and the frontend module's own
+                source carries no such number. NEGATIVE: a conversion whose `to` names a class the family
+                does not price is refused, as it always was.
+      test_t04  THE ASSET SWEEP admits v11 (every file on disk validates exactly as today).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # slice 8: v10 is the predecessor, loaded BY NAME; v11 is the current asset
+        with open(_asset_path("rate_master_hvac_all_v10.json"), "r", encoding="utf-8") as fh:
+            cls.v10 = json.load(fh)
+        # slice 9: v11 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v12)
+        with open(_asset_path("rate_master_hvac_all_v11.json"), "r", encoding="utf-8") as fh:
+            cls.v11 = json.load(fh)
+
+    def _adp(self, asset=None):
+        asset = asset or self.v11
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def test_t01_the_validator_knows_override_when_and_refuses_every_malformed_shape_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        ovr = base["list_spec"]["pricing"]["override_when"]
+        self.assertEqual(ovr, [{
+            "attr": "variant",
+            "families": ["fire damper"],
+            "when": {"attr": "ul", "equals": "yes"},
+            "then": "UL",
+            "rule": "UL stated, so the UL 555 SKU is used (R-M-b)",
+        }])
+
+        def refused(mutate, needle):
+            bad = self._adp()
+            mutate(bad["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+
+        refused(lambda p: p["override_when"][0].__setitem__("extra", 1),
+                "override_when[0] must carry attr / families / when / then / rule")
+        refused(lambda p: p["override_when"][0].pop("rule"),
+                "override_when[0] must carry attr / families / when / then / rule")
+        # a TARGET that is not a choice attribute of this category (a number reader is not one)
+        refused(lambda p: p["override_when"][0].__setitem__("attr", "dia_mm"),
+                "override_when[0].attr must be a choice attribute")
+        refused(lambda p: p["override_when"][0].__setitem__("attr", "no_such_attr"),
+                "override_when[0].attr must be a choice attribute")
+        # a value outside the attribute's own vocabulary -- the typo that would silently match no SKU
+        refused(lambda p: p["override_when"][0].__setitem__("then", "UL555"),
+                "override_when[0].then must be one of the attribute's values")
+        refused(lambda p: p["override_when"][0].__setitem__("families", ["no such family"]),
+                "override_when[0].families must list priceable families")
+        refused(lambda p: p["override_when"][0].__setitem__("families", []),
+                "override_when[0].families must list priceable families")
+        for bad_when in ({"attr": "ul"}, {"attr": "dia_mm", "equals": "yes"}, {"attr": "ul", "equals": "maybe"}):
+            refused(lambda p, w=bad_when: p["override_when"][0].__setitem__("when", w),
+                    "override_when[0].when must be")
+        # a rule conditioned on the attribute it sets could never be read as anything but a loop
+        refused(lambda p: p["override_when"][0].update({"when": {"attr": "variant", "equals": "UL"}}),
+                "an override cannot be conditioned on the attribute it sets")
+        refused(lambda p: p["override_when"][0].__setitem__("rule", ""),
+                "override_when[0].rule must be a non-empty string")
+        refused(lambda p: p.__setitem__("override_when", {}),
+                "override_when must be a list")
+        # NEGATIVE: the key is OPTIONAL -- the predecessor declares none and still validates on both validators
+        v10_adp = self._adp(self.v10)
+        self.assertNotIn("override_when", v10_adp["list_spec"]["pricing"])
+        config_validation._validate_config(v10_adp)
+        loader._validate_one_config(v10_adp, "x")
+
+    def test_t02_v11_is_v10_plus_exactly_the_two_declarations(self):
+        self.assertEqual(self.v11["items"], self.v10["items"])
+        self.assertEqual(self.v11["category_configs"][1:], self.v10["category_configs"][1:])
+        a11, a10 = self._adp(), self._adp(self.v10)
+        # NEGATIVE first: the predecessor carries NEITHER, so setting them aside below is not vacuous
+        self.assertNotIn("override_when", a10["list_spec"]["pricing"])
+        self.assertNotIn("convert", a10["list_spec"]["pricing"]["families"]["flexible duct"])
+        a11["list_spec"]["pricing"].pop("override_when")
+        a11["list_spec"]["pricing"]["families"]["flexible duct"].pop("convert")
+        self.assertEqual(a11, a10)
+
+    def test_t03_the_standard_length_is_a_named_config_param_and_the_rounding_comes_after_it(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+
+        fd = self._adp()["list_spec"]["pricing"]["families"]["flexible duct"]
+        # the family prices per METRE; the conversion is what a per-NUMBER row reaches
+        self.assertEqual(sorted(fd["units"]), ["length"])
+        opt = fd["convert"]["count"][0]
+        self.assertEqual(opt["to"], "length")
+        self.assertEqual(opt["rule"], "per piece: per-metre rate x 2.5 m standard length (R-M-c)")
+        for pid in ("item_supply", "item_install"):
+            steps = opt["pipelines"][pid]["steps"]
+            lengths = [s.get("params", {}).get("standard_length_m") for s in steps]
+            self.assertEqual([v for v in lengths if v is not None], [2.5], pid)
+            # ORDER IS THE RULE: match, then the standard length, then the markup, then ONE roundup LAST
+            self.assertEqual([s["step"] for s in steps],
+                             ["match_master_row", "scale", "scale", "roundup"], pid)
+            self.assertEqual(steps[1]["formula"], "base*standard_length_m", pid)
+            self.assertEqual(steps[2]["formula"], "base*(1+m)", pid)
+        # and the number lives ONLY in config -- the frontend module that executes it carries no such constant
+        src_path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..",
+                                "frontend", "src", "pages", "boq-wizard", "rate-helper", "itemListPricing.ts")
+        with open(os.path.abspath(src_path), "r", encoding="utf-8") as fh:
+            code = "\n".join(l for l in fh.read().split("\n") if not l.lstrip().startswith(("//", "*", "/*")))
+        self.assertNotIn("2.5", code)
+        self.assertNotIn("standard_length_m", code)
+        # NEGATIVE: a `to` the family does not price is still refused, exactly as before this slice
+        bad = self._adp()
+        bad["list_spec"]["pricing"]["families"]["flexible duct"]["convert"]["count"][0]["to"] = "area"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            config_validation._validate_config(bad)
+        self.assertIn("to must name a unit class the family prices", str(ctx.exception))
+
+    def test_t04_the_asset_sweep_admits_v11(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+
+        for c in self.v11["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 9 (owner A-1 .. A-5, 2026-09-25) -- HVAC v12. One size field, the second key, the wording.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacAdpOneSizeFieldAndSecondKeySlice9(FrappeTestCase):
+    """Plain-English coverage:
+
+      test_u01  THE VALIDATOR knows the axis key: v12's ADP config passes both validators, and every
+                malformed shape is refused BY NAME -- an axis outside 1..3, a boolean, and an axis on a
+                reader that reads from more than one attribute (which axis came from where would be
+                unanswerable). NEGATIVE: the key is OPTIONAL -- v11, which declares none, validates.
+      test_u02  THE VALIDATOR knows the second key, and checks every name in the namespace it reads
+                from: the primary and each key entry must be SKU attributes, the families priceable,
+                the pick closed to the ruled vocabulary, and the alternative key one entry per key
+                entry. NEGATIVE: v11 declares none and validates; an empty LIST is a real declaration
+                and is accepted, an empty DICT is refused (the falsy-dict trap the override key
+                recorded).
+      test_u03  v12 = v11 + the declared edits and NOTHING else: the six other configs deep-equal; only
+                SIX items moved and every item_uid is unchanged; the ADP config equal once the one size
+                field, the four def notes and the second key are set aside.
+      test_u04  THE MODEL IS ASKED FOR ONE SIZE: the size attribute is in ITEMS_SPEC and the three axis
+                fields are not; the pricing block still keys on all three SKU attributes. NEGATIVE: the
+                second-key block is NOT projected to the model (it lives in the pricing block, which the
+                projection never reads), so the catalogue's alternative wording can never reach it.
+      test_u05  THE SPEC READER still reproduces all 95 items and every uid; the six 595x595 diffusers
+                carry the alternative outer, and every other item derives exactly what it did on v11.
+                NEGATIVE: a detail with no bracketed pair produces no alternative key at all, and the
+                alternative never overwrites the real outer.
+      test_u06  ELIGIBILITY unmoved between v11 and v12, and the asset sweep admits v12.
+      test_u07  ELECTRICAL IS UNTOUCHED: its current asset declares neither key and still validates.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # slice 9: v11 is the predecessor, loaded BY NAME. SLICE 11: v12 is loaded BY NAME too -- it was
+        # CURRENT_HVAC_ASSET until v13 -- so the u-pins keep asserting exactly slice 9's own delta and nothing
+        # a later slice added (the same convention every earlier class here follows).
+        with open(_asset_path("rate_master_hvac_all_v11.json"), "r", encoding="utf-8") as fh:
+            cls.v11 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v12.json"), "r", encoding="utf-8") as fh:
+            cls.v12 = json.load(fh)
+
+    SIZE = "size_mm"
+    AXES = ("face_w_mm", "face_h_mm", "depth_mm")
+
+    def _adp(self, asset=None):
+        asset = asset if asset is not None else self.v12
+        return copy.deepcopy(next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp"))
+
+    def _refused(self, mutate, needle, base=None):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        bad = copy.deepcopy(base or self._adp())
+        mutate(bad["list_spec"]["pricing"])
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            config_validation._validate_config(bad)
+        self.assertIn(needle, str(ctx.exception), needle)
+
+    def test_u01_the_validator_knows_the_axis_key_and_refuses_a_bad_axis(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        config_validation._validate_config(base)
+        loader._validate_one_config(base, "x")
+        for axis, attr in ((1, "face_w_mm"), (2, "face_h_mm"), (3, "depth_mm")):
+            rd = base["list_spec"]["pricing"]["numbers"][attr]
+            self.assertEqual(rd["from"], [self.SIZE])
+            self.assertEqual(rd["component"], axis)
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("component", 0), "must be 1, 2 or 3")
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("component", 4), "must be 1, 2 or 3")
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("component", True), "must be 1, 2 or 3")
+        self._refused(lambda p: p["numbers"]["face_w_mm"].__setitem__("from", [self.SIZE, "neck_mm"]),
+                      "needs exactly one")
+        # NEGATIVE: OPTIONAL -- v11 declares no axis anywhere and still validates
+        v11adp = self._adp(self.v11)
+        for attr in self.AXES:
+            self.assertNotIn("component", v11adp["list_spec"]["pricing"]["numbers"][attr])
+        config_validation._validate_config(v11adp)
+
+    def test_u02_the_validator_knows_the_second_key_and_checks_every_name_in_its_own_namespace(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp()
+        sk = base["list_spec"]["pricing"]["second_key"]
+        self.assertEqual(len(sk), 1)
+        self.assertEqual(sk[0]["primary"], "neck_mm")
+        self.assertEqual(sk[0]["key"], ["face_w_mm", "face_h_mm"])
+        self.assertEqual(sk[0]["alt_key"], ["face_alt_w_mm", "face_alt_h_mm"])
+        self.assertEqual(sk[0]["primary_pick"], "largest")
+        self._refused(lambda p: p["second_key"][0].__setitem__("primary", "nope"),
+                      "primary must be a SKU attribute")
+        self._refused(lambda p: p["second_key"][0].__setitem__("key", ["nope"]),
+                      "key must be a non-empty list of SKU attributes")
+        self._refused(lambda p: p["second_key"][0].__setitem__("key", ["neck_mm", "face_h_mm"]),
+                      "cannot contain the primary key")
+        self._refused(lambda p: p["second_key"][0].__setitem__("families", ["not a family"]),
+                      "families must list priceable families")
+        self._refused(lambda p: p["second_key"][0].__setitem__("primary_pick", "smallest"),
+                      "primary_pick must be one of")
+        self._refused(lambda p: p["second_key"][0].__setitem__("alt_key", ["only_one"]),
+                      "one catalogue attribute per key entry")
+        self._refused(lambda p: p["second_key"][0].__setitem__("alt_key", ["face_w_mm", "face_h_mm"]),
+                      "cannot name a key attribute")
+        self._refused(lambda p: p["second_key"][0].__setitem__("surprise", 1),
+                      "must carry families / primary / key")
+        self._refused(lambda p: p["second_key"][0].pop("name"), "must carry families / primary / key")
+        # THE FALSY-DICT TRAP (recorded on the override key): an empty dict would be swallowed by the
+        # or-empty-list idiom and ship a silently inert block, so presence is tested first
+        self._refused(lambda p: p.__setitem__("second_key", {}), "second_key must be a list")
+        # an empty LIST is a real, meaningful declaration and is accepted
+        ok = self._adp()
+        ok["list_spec"]["pricing"]["second_key"] = []
+        config_validation._validate_config(ok)
+        # B6 (owner A-6): the override carries the word the PANEL shows. It is OPTIONAL and must be a real
+        # string; it never reaches the model or the matcher (u04 pins that the projection carries no such key).
+        self._refused(lambda p: p["override_when"][0].__setitem__("display", ""), "display must be a non-empty string")
+        self._refused(lambda p: p["override_when"][0].__setitem__("display", 555), "display must be a non-empty string")
+        self._refused(lambda p: p["override_when"][0].__setitem__("surprise", 1),
+                      "must carry attr / families / when / then / rule")
+        self.assertEqual(base["list_spec"]["pricing"]["override_when"][0]["display"], "UL 555")
+        # NEGATIVE: OPTIONAL -- v11 declares none and validates
+        v11adp = self._adp(self.v11)
+        self.assertNotIn("second_key", v11adp["list_spec"]["pricing"])
+        self.assertNotIn("display", v11adp["list_spec"]["pricing"]["override_when"][0])
+        config_validation._validate_config(v11adp)
+
+    def test_u03_v12_is_v11_plus_the_declared_edits_and_nothing_else(self):
+        self.assertEqual(self.v12["category_configs"][1:], self.v11["category_configs"][1:])
+        # only the SIX 595x595 diffusers moved, and no uid did
+        self.assertEqual([i["item_uid"] for i in self.v12["items"]], [i["item_uid"] for i in self.v11["items"]])
+        moved = [(a, b) for a, b in zip(self.v12["items"], self.v11["items"]) if a != b]
+        self.assertEqual(len(moved), 6)
+        for a, b in moved:
+            self.assertEqual(b["attributes"]["item_detail"] + " (600X600)", a["attributes"]["item_detail"])
+            self.assertEqual((a["attributes"]["face_alt_w_mm"], a["attributes"]["face_alt_h_mm"]), (600.0, 600.0))
+            self.assertNotIn("face_alt_w_mm", b["attributes"])
+            self.assertEqual({k: v for k, v in a["attributes"].items()
+                              if k not in ("item_detail", "face_alt_w_mm", "face_alt_h_mm")},
+                             {k: v for k, v in b["attributes"].items() if k != "item_detail"})
+        # the ADP config is equal once the declared edits are set aside
+        a12, a11 = self._adp(), self._adp(self.v11)
+        pr12 = a12["list_spec"]["pricing"]
+        del pr12["second_key"]
+        del pr12["override_when"][0]["display"]   # B6 (A-6): panel wording only, added this slice
+        for attr in self.AXES:
+            pr12["numbers"][attr]["from"] = [attr]
+            del pr12["numbers"][attr]["component"]
+        d12 = a12["list_spec"]["attribute_definitions"]
+        i = [d["id"] for d in d12].index(self.SIZE)
+        d12[i:i + 1] = [d for d in a11["list_spec"]["attribute_definitions"] if d["id"] in self.AXES]
+        by12 = {d["id"]: d for d in d12}
+        by11 = {d["id"]: d for d in a11["list_spec"]["attribute_definitions"]}
+        for k in ("family", "damper"):
+            self.assertTrue(by12[k]["note"].startswith(by11[k]["note"]), k)
+            by12[k]["note"] = by11[k]["note"]
+        for k in ("dia_mm", "neck_mm"):
+            self.assertNotIn("note", by11[k])
+            del by12[k]["note"]
+        self.assertEqual(a12, a11)
+
+    def test_u04_the_model_is_asked_for_one_size_and_never_sees_the_second_key(self):
+        from nirmaan_stack.services.boq_rate_master import extraction
+        spec = extraction.build_items_spec(self._adp())
+        ids = [d["id"] for d in spec["attribute_definitions"]]
+        self.assertIn(self.SIZE, ids)
+        for gone in self.AXES:
+            self.assertNotIn(gone, ids)
+        # the note is projected (it is a catalogue fact about how to READ the field)
+        note = next(d for d in spec["attribute_definitions"] if d["id"] == self.SIZE)["note"]
+        self.assertIn("in ONE field", note)
+        self.assertIn("250 mm high", note)
+        # NEGATIVE: the pricing block never reaches the model, so neither does the catalogue's
+        # alternative wording -- the whole projection carries no such string
+        blob = json.dumps(spec)
+        for leaked in ("second_key", "face_alt_w_mm", "600X600", "595"):
+            self.assertNotIn(leaked, blob, leaked)
+        # and the SKU side still keys on all three axes: only the QUESTION changed
+        pr = self._adp()["list_spec"]["pricing"]
+        for attr in self.AXES:
+            self.assertIn(attr, pr["match_attrs"])
+            self.assertIn(attr, pr["panel_controls"])
+
+    def test_u05_the_spec_reader_reproduces_all_95_items_and_the_alternative_is_wording_only(self):
+        from nirmaan_stack.services.boq_rate_master import spec_reader
+        alt = 0
+        for it in self.v12["items"]:
+            a = it["attributes"]
+            derived, reason = spec_reader.read_spec("hvac_adp", a["item_name"], a["item_detail"])
+            self.assertIsNone(reason, it["item_uid"])
+            self.assertEqual(derived, {k: v for k, v in a.items() if k not in ("item_name", "item_detail")},
+                             it["item_uid"])
+            if "face_alt_w_mm" in derived:
+                alt += 1
+        self.assertEqual(len(self.v12["items"]), 95)
+        self.assertEqual(alt, 6)
+        # NEGATIVE: no bracketed pair, no alternative key -- every pre-slice-9 detail reads as it did
+        plain, _ = spec_reader.read_spec("hvac_adp", "Diffuser With Al Collar Damper",
+                                         "NECK:300X300/OUTER: 595X595")
+        self.assertNotIn("face_alt_w_mm", plain)
+        self.assertEqual((plain["face_w_mm"], plain["face_h_mm"]), (595.0, 595.0))
+        # and the alternative NEVER overwrites the real outer: 595 is still what the SKU is
+        with_alt, _ = spec_reader.read_spec("hvac_adp", "Diffuser With Al Collar Damper",
+                                            "NECK:300X300/OUTER: 595X595 (600X600)")
+        self.assertEqual((with_alt["face_w_mm"], with_alt["face_h_mm"]), (595.0, 595.0))
+        self.assertEqual((with_alt["face_alt_w_mm"], with_alt["face_alt_h_mm"]), (600.0, 600.0))
+
+    def test_u06_eligibility_is_unmoved_and_the_asset_sweep_admits_v12(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+
+        def elig(asset):
+            cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in asset["category_configs"]}
+            return {cid: extraction.config_is_eligible(cfg, cfgs) for (_d, cid), cfg in cfgs.items()}
+        self.assertEqual(elig(self.v12), elig(self.v11))
+        self.assertEqual({k for k, v in elig(self.v12).items() if v}, {"hvac_adp"})
+        for c in self.v12["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    def test_u07_electrical_declares_neither_key_and_is_untouched(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        blob = json.dumps(eall)
+        self.assertNotIn("second_key", blob)
+        # NOTE: a bare "component" search would hit the interpreter's own `component_ref` steps, which are a
+        # different thing. The axis key lives on a `numbers` reader, so that is where it is checked.
+        for c in eall["category_configs"]:
+            for rd in ((c.get("list_spec") or {}).get("pricing") or {}).get("numbers", {}).values():
+                self.assertNotIn("component", rd, c["category_id"])
+        for c in eall["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(c, "Electrical", {}))
+
+
+class TestHvacAdpAbsentUnitsAndAlternativesSlice11(FrappeTestCase):
+    """SLICE 11 (owner rulings F-1..F-4, 2026-09-25). Plain-English coverage:
+
+      test_w01  THE VALIDATOR knows `unit_factors`: v13's ADP config passes both validators, and every
+                malformed shape is refused BY NAME -- an unknown key, a class that is not a unit class, a
+                factor that is not a positive number, a factor of 1 (that is a SYNONYM and belongs in
+                unit_classes), a missing word, and a spelling that ALREADY appears in unit_classes (a unit
+                is declared in ONE place only, or the reader would resolve it twice). NEGATIVE: the key is
+                OPTIONAL -- v12, which declares none, validates unchanged.
+      test_w02  v13 = v12 + the declared edits and NOTHING else: every item byte-identical (no catalogue
+                cell moved this slice), the six other configs deep-equal, and the ADP config equal once
+                `absent_as_none` on three defaults, their reworded rules, the four unit synonyms,
+                `unit_factors` and the two def notes are set aside.
+      test_w03  F-1: `absent_as_none` now sits on damper, insulated, variant AND ul -- and on nothing else.
+                NEGATIVE: on v12 it sat on ul alone, which is what changed; the DEFAULT VALUES themselves
+                are untouched, so no row's ruled value moved.
+      test_w04  F-2: the four TRUE synonyms are in the right classes and `sqft` is in NO class, in either
+                version. NEGATIVE: Lot / R/O / Cum are declared nowhere, so they keep refusing.
+      test_w05  F-2b: the square foot is declared as a different unit of the area class -- the four
+                normalised spellings that cover all nine forms the live corpus writes, one class, one
+                factor, one word. NEGATIVE: no unit_factors entry names a class the catalogue does not
+                quote, and the block reaches the FRONTEND only (the model never sees it -- test_il_18).
+      test_w06  NO ITEM MOVED: all 95 items and every uid are byte-identical to v12, and the items-only
+                sha256 is the one slice 9 recorded -- so nothing derived from the catalogue can have changed.
+      test_w07  ELECTRICAL IS UNTOUCHED: its asset, its configs and its prompts are byte-identical to
+                HEAD, and its ADP-shaped keys are absent -- no unit_factors, no widened absent_as_none.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v13 = json.load(fh)
+        # slice 11: v12 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v13); the w-pins are v13 = v12 + F-1/F-2/F-4
+        with open(_asset_path("rate_master_hvac_all_v12.json"), "r", encoding="utf-8") as fh:
+            cls.v12 = json.load(fh)
+
+    def _adp(self, asset):
+        return loader._loaded_config(asset["category_configs"][0], "HVAC", asset.get("goldens") or {})
+
+    SYNONYMS = {"length": ["mtrs", "rmts"], "area": ["smt", "sq. mtr"]}
+    SQFT_SPELLINGS = ["sft", "sq ft", "sq.ft", "sqft"]
+
+    # -- w01 ----------------------------------------------------------------------------------------
+    def test_w01_the_validator_knows_unit_factors_and_refuses_every_malformed_shape(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp(self.v13)
+        config_validation._validate_config(base)
+        loader._validate_one_config(self.v13["category_configs"][0], "x")
+
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("nope", 1), "unknown key(s): nope")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("class", "volume"), "must name a unit_classes key")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", 0), "must be a positive number")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", "0.0929"), "must be a positive number")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", True), "must be a positive number")
+        # a factor of 1 is a SYNONYM -- it must be declared in unit_classes, never here
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", 1), "is a synonym -- declare it in unit_classes instead")
+        refused(lambda p: p["unit_factors"]["sqft"].pop("word"), "needs a word naming the unit")
+        refused(lambda p: p["unit_factors"].__setitem__("sqm", {"class": "area", "factor": 2, "word": "x"}),
+                "is already a unit_classes spelling")
+        # ... and the same-spelling check uses the CLIENT's normalisation, so a case / trailing-dot variant is caught too
+        refused(lambda p: p["unit_factors"].__setitem__("SQM.", {"class": "area", "factor": 2, "word": "x"}),
+                "is already a unit_classes spelling")
+        refused(lambda p: p.__setitem__("unit_factors", {}), "must be a non-empty object")
+        refused(lambda p: p.__setitem__("unit_factors", {"sqft2": "no"}), "must be an object")
+        # NEGATIVE: the key is OPTIONAL -- v12 declares none and still validates, and so does every other config
+        v12adp = self._adp(self.v12)
+        self.assertNotIn("unit_factors", v12adp["list_spec"]["pricing"])
+        config_validation._validate_config(v12adp)
+        for c in self.v13["category_configs"][1:]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    # -- w02 ----------------------------------------------------------------------------------------
+    def test_w02_v13_is_v12_plus_the_declared_edits_and_nothing_else(self):
+        # NO catalogue cell moved this slice
+        self.assertEqual(self.v13["items"], self.v12["items"])
+        self.assertEqual([i["item_uid"] for i in self.v13["items"]], [i["item_uid"] for i in self.v12["items"]])
+        self.assertEqual(len(self.v13["items"]), 95)
+        # the six other configs are deep-equal
+        self.assertEqual(self.v13["category_configs"][1:], self.v12["category_configs"][1:])
+        for key in ("goldens", "retired_kinds", "retired_category_ids", "retirement_reasons", "discipline"):
+            self.assertEqual(self.v13.get(key), self.v12.get(key), key)
+
+        def strip(asset):
+            c = copy.deepcopy(asset["category_configs"][0])
+            p = c["list_spec"]["pricing"]
+            for attr in ("damper", "insulated", "variant"):
+                p["defaults"][attr].pop("absent_as_none", None)
+                p["defaults"][attr].pop("rule", None)
+            p.pop("unit_factors", None)
+            for cls, words in self.SYNONYMS.items():
+                p["unit_classes"][cls] = [w for w in p["unit_classes"][cls] if w not in words]
+            for d in c["list_spec"]["attribute_definitions"]:
+                if d["id"] in ("family", "damper"):
+                    d.pop("note", None)
+            return c
+
+        self.assertEqual(strip(self.v13), strip(self.v12))
+
+    # -- w03 ----------------------------------------------------------------------------------------
+    def test_w03_absent_means_not_mentioned_now_covers_damper_insulated_and_variant(self):
+        p13 = self._adp(self.v13)["list_spec"]["pricing"]
+        p12 = self._adp(self.v12)["list_spec"]["pricing"]
+        self.assertEqual({k for k, d in p13["defaults"].items() if d.get("absent_as_none")},
+                         {"damper", "insulated", "ul", "variant"})
+        # NEGATIVE: on v12 it was UL alone -- that is exactly what this slice widened
+        self.assertEqual({k for k, d in p12["defaults"].items() if d.get("absent_as_none")}, {"ul"})
+        # NEGATIVE: the ruled VALUES are untouched, so no row's default figure can have moved
+        self.assertEqual(p13["defaults"]["damper"]["value"], "without")
+        self.assertEqual(p13["defaults"]["insulated"]["value"], "with")
+        self.assertEqual(p13["defaults"]["ul"]["value"], "no")
+        self.assertEqual(p13["defaults"]["variant"]["by_family"], {"VCD": "GI rectangular", "fire damper": "without sleeve"})
+        for attr in ("damper", "insulated", "ul", "variant"):
+            self.assertEqual(p13["defaults"][attr].get("value"), p12["defaults"][attr].get("value"), attr)
+            self.assertEqual(p13["defaults"][attr].get("by_family"), p12["defaults"][attr].get("by_family"), attr)
+        # every rule sentence still names its owner ruling
+        for attr in ("damper", "insulated", "variant"):
+            self.assertIn("slice 11", p13["defaults"][attr]["rule"], attr)
+
+    # -- w04 ----------------------------------------------------------------------------------------
+    def test_w04_four_true_synonyms_and_three_strings_that_are_not_units(self):
+        p13 = self._adp(self.v13)["list_spec"]["pricing"]
+        p12 = self._adp(self.v12)["list_spec"]["pricing"]
+        for cls, words in self.SYNONYMS.items():
+            self.assertEqual(p13["unit_classes"][cls], p12["unit_classes"][cls] + words, cls)
+        self.assertEqual(set(p13["unit_classes"]), set(p12["unit_classes"]))    # no new class
+        # NEGATIVE: sqft is in NO class, on EITHER version -- it is a different unit, not a spelling
+        from nirmaan_stack.services.boq_rate_master.config_validation import _norm_unit_spelling
+        for pr in (p12, p13):
+            spelled = {_norm_unit_spelling(s) for words in pr["unit_classes"].values() for s in words}
+            for sq in self.SQFT_SPELLINGS:
+                self.assertNotIn(sq, spelled, sq)
+        # NEGATIVE: Lot, R/O and Cum are declared nowhere, in no class and with no factor, so they refuse
+        declared = {_norm_unit_spelling(s) for words in p13["unit_classes"].values() for s in words}
+        declared |= {_norm_unit_spelling(s) for s in p13["unit_factors"]}
+        for u in ("Lot", "R/O", "Cum"):
+            self.assertNotIn(_norm_unit_spelling(u), declared, u)
+
+    # -- w05 ----------------------------------------------------------------------------------------
+    def test_w05_the_square_foot_is_a_different_unit_of_the_area_class(self):
+        import math
+        p13 = self._adp(self.v13)["list_spec"]["pricing"]
+        self.assertEqual(sorted(p13["unit_factors"]), self.SQFT_SPELLINGS)
+        for spelling, d in p13["unit_factors"].items():
+            self.assertEqual(d, {"class": "area", "factor": 0.0929, "word": "sq.ft"}, spelling)
+            self.assertIn(d["class"], p13["unit_classes"], spelling)
+        # the factor's arithmetic, on the owner's own worked figure
+        self.assertEqual(math.ceil(7830 * 0.0929), 728)
+        self.assertEqual(math.ceil(1920 * 0.0929), 179)
+        # the declared factor is the OWNER's 0.0929, and it is within a rupee of the exact 0.09290304 on
+        # every rate this catalogue holds -- which is why one declared number is used, shown and computed
+        rates = [float(v) for i in self.v13["items"] for k, v in (i.get("rates") or {}).items()
+                 if isinstance(v, (int, float))]
+        self.assertTrue(rates)
+        for r in rates:
+            self.assertEqual(math.ceil(r * 0.0929), math.ceil(r * 0.09290304), r)
+        # NEGATIVE: every other config declares no unit_factors at all
+        for c in self.v13["category_configs"][1:]:
+            self.assertNotIn("unit_factors", (c.get("list_spec") or {}).get("pricing") or {})
+
+    # -- w06 ----------------------------------------------------------------------------------------
+    def test_w06_no_item_moved_so_everything_derived_from_them_is_byte_identical(self):
+        import hashlib
+        self.assertEqual(len(self.v13["items"]), 95)
+        # this slice touched no item, so the assets' items are identical and so is anything derived from them
+        self.assertEqual(json.dumps(self.v13["items"], sort_keys=True),
+                         json.dumps(self.v12["items"], sort_keys=True))
+        self.assertEqual(hashlib.sha256(json.dumps(self.v13["items"], sort_keys=True).encode()).hexdigest(),
+                         hashlib.sha256(json.dumps(self.v12["items"], sort_keys=True).encode()).hexdigest())
+        # the algorithm, stated: sha256(json.dumps(asset["items"], sort_keys=True)) -- slice 9's own
+        self.assertEqual(hashlib.sha256(json.dumps(self.v13["items"], sort_keys=True).encode()).hexdigest(),
+                         "23a8e471044695848293776561d4bab5baa89ffdbd5c02634fdc28156c6e13e5")
+
+    # -- w07 ----------------------------------------------------------------------------------------
+    def test_w07_electrical_is_untouched_by_every_one_of_the_four_fixes(self):
+        import subprocess
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
+        committed = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", repo, "show",
+             "HEAD:nirmaan_stack/services/boq_rate_master/data/" + CURRENT_EALL_ASSET],
+            capture_output=True, check=True).stdout
+        with open(_asset_path(CURRENT_EALL_ASSET), "rb") as fh:
+            self.assertEqual(fh.read().replace(b"\r\n", b"\n"), committed.replace(b"\r\n", b"\n"),
+                             "the Electrical asset must be byte-identical to HEAD")
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        # NEGATIVE: no Electrical config carries any of this slice's keys, and none is in item_list mode
+        for c in eall["category_configs"]:
+            blob = json.dumps(c)
+            self.assertNotIn("unit_factors", blob, c["category_id"])
+            self.assertNotIn("absent_as_none", blob, c["category_id"])
+            self.assertNotEqual(c.get("matching_mode"), "item_list", c["category_id"])
+        # the three prompt assets Electrical reads are byte-identical to HEAD; only the item-list one changed
+        from nirmaan_stack.services.boq_rate_master import extraction
+        for fname in ("boq_rate_attr_extraction_prompt.md", "boq_rate_item_identity_prompt.md",
+                      "boq_composite_decomposition_prompt.md"):
+            path = os.path.join(extraction._PROMPT_DIR, fname)
+            rel = os.path.relpath(os.path.abspath(path), repo).replace(os.sep, "/")
+            head = subprocess.run(["git", "-c", "safe.directory=*", "-C", repo, "show", "HEAD:" + rel],
+                                  capture_output=True, check=True).stdout
+            with open(path, "rb") as fh:
+                self.assertEqual(fh.read().replace(b"\r\n", b"\n"), head.replace(b"\r\n", b"\n"), fname)

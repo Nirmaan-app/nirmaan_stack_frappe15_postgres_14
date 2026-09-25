@@ -11,6 +11,7 @@ The function is PURE (a definition dict + a raw value in, a stored value out), s
 a direct call -- no DB, no AI, no fixtures.
 """
 
+import copy
 import json
 import os
 
@@ -1482,7 +1483,16 @@ class TestFillPairedSlotDefaults(FrappeTestCase):
         self.assertLess(i_scrub, i_fill)
         self.assertLess(i_fill, i_absent)
         # and run_extraction threads the plan through, derived from the config
-        src2 = inspect.getsource(extraction.run_extraction)
+        # SLICE 3 (owner ruling): the group context moved out of run_extraction VERBATIM into _group_context, so the
+        # two guarded facts now live in two functions -- the plan BUILT from the config (below, in _group_context)
+        # and the plan THREADED into every batch call (`_gc[...]`, still in run_extraction). Each literal occurs
+        # exactly once in extraction.py, so pinning the concatenation is exact, not looser.
+        # SLICE 4 (owner ruling 4 on stage 2, same fix as before): the dict literal moved VERBATIM from _group_context
+        # into _group_context_body (the split that makes the N6 byte-identical proof possible), so the concatenation
+        # now spans the three functions the guarded lines live in; each literal still occurs exactly once in
+        # extraction.py, so the pin stays exact, and every assertion below is untouched.
+        src2 = (inspect.getsource(extraction._group_context) + inspect.getsource(extraction._group_context_body)
+                + inspect.getsource(extraction.run_extraction))
         self.assertIn('"paired_fill": paired_fill_plan(cfg)', src2)
         self.assertIn('_gc["paired_fill"]', src2)
 
@@ -1717,7 +1727,16 @@ class TestModuleCountAtTheBatchSite(FrappeTestCase):
         i_parse = src.index("parsed_count = module_count_from_text(raw)")
         i_coerce = src.index("value, reason = _coerce_value_ex(defn, raw, (synonyms or {}).get(aid))")
         self.assertLess(i_parse, i_coerce)
-        src2 = inspect.getsource(extraction.run_extraction)
+        # SLICE 3 (owner ruling): the group context moved out of run_extraction VERBATIM into _group_context, so the
+        # two guarded facts now live in two functions -- the plan BUILT from the config (below, in _group_context)
+        # and the plan THREADED into every batch call (`_gc[...]`, still in run_extraction). Each literal occurs
+        # exactly once in extraction.py, so pinning the concatenation is exact, not looser.
+        # SLICE 4 (owner ruling 4 on stage 2, same fix as before): the dict literal moved VERBATIM from _group_context
+        # into _group_context_body (the split that makes the N6 byte-identical proof possible), so the concatenation
+        # now spans the three functions the guarded lines live in; each literal still occurs exactly once in
+        # extraction.py, so the pin stays exact, and every assertion below is untouched.
+        src2 = (inspect.getsource(extraction._group_context) + inspect.getsource(extraction._group_context_body)
+                + inspect.getsource(extraction.run_extraction))
         self.assertIn('"module_count_attrs": zero_path_stated_attrs(cfg)', src2)
         self.assertIn('_gc["module_count_attrs"]', src2)
 
@@ -1904,3 +1923,940 @@ class TestInchTradeSize(FrappeTestCase):
         contributes nothing."""
         cfg = self._cfg({" 1  1/2 ": 40, "1": 25})
         self.assertEqual(extraction.inch_trade_tables(cfg), {"size_mm": {"1 1/2": 40, "1": 25}})
+
+
+class TestAliasResolutionSlice3(FrappeTestCase):
+    """SLICE 3 (2026-09-22, owner Q-a / Q-b) -- the extraction side of `alias_of`. Plain-English coverage:
+
+      test_al_01  `resolve_alias` is ONE HOP and never errors: own triple for a non-alias, the target triple
+                  for a loaded alias, the own (empty) triple for a missing target, ONE hop on a chain.
+      test_al_02  THE L4 PROOF, no AI call: for the SAME fixture cable row, the group context (attribute
+                  definitions, prompt template, synonyms, defaults, none guidance, slot spec, rules, ...) built
+                  for (HVAC, hvac_cables) is DEEP-EQUAL to the one built for (Electrical, wiring_cabling), and
+                  the ASSEMBLED batch prompt is BYTE-IDENTICAL; the same for raceway vs cabletray_raceway.
+                  NEGATIVE: a non-aliased HVAC category's context is its own (not the wiring one); the Electrical
+                  context is unchanged by the presence of aliases in the map.
+      test_al_03  `_extract_batch` sends EXACTLY `batch_prompt_content(...)` -- a fake client captures the
+                  message and the string is compared byte-for-byte (the factor-out is a move, not a rewrite).
+    """
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_rate_master import loader
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            hvac = json.load(fh)
+        cfgs = {}
+        for c in eall["category_configs"]:
+            cfgs[("Electrical", c["category_id"])] = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+        for c in hvac["category_configs"]:
+            cfgs[("HVAC", c["category_id"])] = loader._loaded_config(c, "HVAC", hvac.get("goldens") or {})
+        cls.cfgs = cfgs
+        cls.aliases = [(c["category_id"], c["alias_of"]["category_id"]) for c in hvac["category_configs"] if c.get("alias_of")]
+
+    @staticmethod
+    def _row(excel_row, description):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "S", "ancestors": [
+            {"node_type": "Preamble", "description": "CABLES/TERMINATIONS"}], "own_notes_raw": [], "attached_notes": "",
+            "append_notes_raw": []}
+
+    def test_al_01_resolve_alias_is_one_hop_and_never_errors(self):
+        cfgs = self.cfgs
+        self.assertTrue(self.aliases, "the current HVAC asset must carry alias configs")
+        for own, target in self.aliases:
+            self.assertEqual(extraction.resolve_alias(cfgs, "HVAC", own), ("Electrical", target, cfgs[("Electrical", target)]))
+            self.assertEqual(extraction.resolve_alias(cfgs, "Electrical", target), ("Electrical", target, cfgs[("Electrical", target)]))
+        self.assertEqual(extraction.resolve_alias(cfgs, "HVAC", "hvac_adp"), ("HVAC", "hvac_adp", cfgs[("HVAC", "hvac_adp")]))
+        self.assertEqual(extraction.resolve_alias(cfgs, "HVAC", "hvac_nope"), ("HVAC", "hvac_nope", {}))
+        lone = {"discipline": "Z", "category_id": "z", "alias_of": {"discipline": "Nowhere", "category_id": "x"}, "pipelines": {}, "attribute_definitions": []}
+        self.assertEqual(extraction.resolve_alias({("Z", "z"): lone}, "Z", "z"), ("Z", "z", lone))
+        a = {"discipline": "Z", "category_id": "a", "alias_of": {"discipline": "Z", "category_id": "b"}, "pipelines": {}, "attribute_definitions": []}
+        b = {"discipline": "Z", "category_id": "b", "alias_of": {"discipline": "Electrical", "category_id": self.aliases[0][1]}, "pipelines": {}, "attribute_definitions": []}
+        chain = dict(cfgs); chain[("Z", "a")] = a; chain[("Z", "b")] = b
+        self.assertEqual(extraction.resolve_alias(chain, "Z", "a"), ("Z", "b", b))   # one hop, lands on the alias b
+        self.assertFalse(extraction.config_is_eligible(a, chain))
+
+    def test_al_02_the_aliased_group_context_and_prompt_are_byte_identical_to_electricals(self):
+        cfgs = self.cfgs
+        row = self._row(41, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")
+        for own, target in self.aliases:
+            h = extraction._group_context(cfgs, "HVAC", own)
+            e = extraction._group_context(cfgs, "Electrical", target)
+            self.assertEqual(h, e, own)
+            self.assertTrue(h["defs"], "the target's definitions must be present -- an empty context would be a vacuous match")
+            payload = [extraction._ai_item(row)]
+            ph = extraction.batch_prompt_content(h["prompt"], h["defs"], payload, synonyms=h["synonyms"], defaults=h["defaults"],
+                                                 none_guidance=h["none_guidance"], slot_spec=h["slot_spec"],
+                                                 resolution_rules=h["resolution_rules"], rules=h["rules"])
+            pe = extraction.batch_prompt_content(e["prompt"], e["defs"], payload, synonyms=e["synonyms"], defaults=e["defaults"],
+                                                 none_guidance=e["none_guidance"], slot_spec=e["slot_spec"],
+                                                 resolution_rules=e["resolution_rules"], rules=e["rules"])
+            self.assertEqual(ph, pe)
+            self.assertIn("ATTRIBUTE_DEFINITIONS", ph)
+            self.assertIn(json.dumps(payload, ensure_ascii=False), ph)
+        # NEGATIVE: a non-aliased HVAC category builds ITS OWN context (not the wiring one)
+        adp = extraction._group_context(cfgs, "HVAC", "hvac_adp")
+        self.assertNotEqual(adp, extraction._group_context(cfgs, "Electrical", self.aliases[0][1]))
+        # NEGATIVE: an Electrical context is what it was with a map holding NO aliases at all
+        only_e = {k: v for k, v in cfgs.items() if k[0] == "Electrical"}
+        for _own, target in self.aliases:
+            self.assertEqual(extraction._group_context(only_e, "Electrical", target), extraction._group_context(cfgs, "Electrical", target))
+
+    def test_al_03_extract_batch_sends_exactly_batch_prompt_content(self):
+        cfgs = self.cfgs
+        own, target = self.aliases[0]
+        ctx = extraction._group_context(cfgs, "HVAC", own)
+        rows = [self._row(7, "4C x 95 Sq.mm. AL.Armoured"), self._row(8, "Cable end termination")]
+        seen = {}
+        class _Block:  # the shape _extract_batch reads: resp.content[i].text, resp.stop_reason, resp.usage
+            def __init__(self, text): self.text = text
+        class _Resp:
+            def __init__(self, text): self.content = [_Block(text)]; self.stop_reason = "end_turn"; self.usage = None
+        class _Messages:
+            def create(self, **kw):
+                seen["content"] = kw["messages"][0]["content"]
+                return _Resp(json.dumps([{"id": r["excel_row"], "attributes": {}} for r in rows]))
+        class _Client:
+            messages = _Messages()
+        extraction._extract_batch(_Client(), "m", ctx["prompt"], ctx["defs"], rows, synonyms=ctx["synonyms"], defaults=ctx["defaults"],
+                                  none_guidance=ctx["none_guidance"], slot_spec=ctx["slot_spec"],
+                                  resolution_rules=ctx["resolution_rules"], rules=ctx["rules"])
+        expected = extraction.batch_prompt_content(ctx["prompt"], ctx["defs"], [extraction._ai_item(r) for r in rows],
+                                                   synonyms=ctx["synonyms"], defaults=ctx["defaults"], none_guidance=ctx["none_guidance"],
+                                                   slot_spec=ctx["slot_spec"], resolution_rules=ctx["resolution_rules"], rules=ctx["rules"])
+        self.assertEqual(seen.get("content"), expected)
+
+
+class TestItemListSlice4(FrappeTestCase):
+    """SLICE 4 (2026-09-23, owner W-a..W-e) -- the item_list extraction mode: the FOURTH prompt asset, the
+    ITEMS_SPEC block, the sibling reply parse and the three-state answer. NO pricing, NO UI. Plain-English
+    coverage:
+
+      test_il_01  PROMPT SELECTION: item_list picks the new asset; NEGATIVE: the three existing modes pick
+                  exactly today's assets, and all three asset files are BYTE-IDENTICAL to the pre-slice commit.
+      test_il_02  ITEMS_SPEC: built from list_spec only in item_list mode (defs projected with type / values /
+                  allow_none; family + qty ids); None for every other mode; the ADP v5 spec's text-vs-number split.
+      test_il_03  THE CONTENT: ITEMS_SPEC is emitted only when given; NEGATIVE: without it `batch_prompt_content`
+                  is byte-identical whether or not the kwarg is passed.
+      test_il_04  N6 -- ELECTRICAL UNCHANGED, the hard proof: for wiring_cabling, switches_sockets, db_switchgear
+                  and point_wiring the group context (prompt, attribute defs, catalogue, slot spec, every key)
+                  AND the assembled batch prompt are BYTE-IDENTICAL to the PRE-SLICE commit's code, executed
+                  side by side from `git show`.
+      test_il_05  THE PARSE (N5): a list reply stores every item's attributes with the three states (stated
+                  value / "None" / absent); NEGATIVE: empty list, missing items key, unknown family, non-object
+                  item -- each handled as named, no exception, nothing stored wrongly; a non-JSON reply still
+                  raises through the existing path.
+      test_il_06  W-d: sizes and torques stored AS STATED ("10-12 NM", "3.5, 7.9 & 15.9", "1 5/8", "40-45mm");
+                  NEGATIVE: nothing coerces a text def to a number, and a number def refuses text.
+      test_il_07  THE RESULT ROW: an item-list batch returns {ITEMS_KEY: [...]} per row and `_row_result` lifts
+                  it onto the result row as `items` (source pin); NEGATIVE: a non-list batch never carries the key.
+      test_il_08  ADP STAYS INELIGIBLE: the v5 config has empty pipelines, `config_is_eligible` is False with and
+                  without the map, and the frontend predicate still reads pipelines (source pin).
+      test_il_09  CHECK 1 -- THE TEXT CHECK (owner 2026-09-23, code, no AI): an as-stated string must be in THAT
+                  row's own payload. POSITIVE: a row-text value and a legitimate ANCESTOR value are KEPT; NEGATIVE: a
+                  value taken from ANOTHER ROW in the batch is DROPPED (reason not_in_row_text), recorded, and the
+                  row FLAGGED; choice values and "None" are never touched; the flags are lifted onto the result row.
+      test_il_10  CHECK 2 -- THE SECOND OPINION (owner 2026-09-23): OFF unless the config declares
+                  list_spec.second_opinion (exactly ONE model call); ON: one extra call PER ROW whose content holds
+                  ONLY that row's payload and its items (no other row's text); a "disagree" FLAGS the row with the
+                  reason and NEVER rewrites a value or drops an item; "agree" flags nothing; a review that does not
+                  parse is recorded and never halts; its usage is counted SEPARATELY from the main call.
+      test_il_11  CHECK 3 -- CONFIG NOTES REACH THE MODEL: a def's `note` is projected into ITEMS_SPEC and appears
+                  in the assembled batch content; the row payload is untouched by it.
+    """
+    PRE_SLICE_COMMIT = "f9d63ffc"   # slice 3's fix commit -- the last code before this slice
+    ELECTRICAL_CATS = ("wiring_cabling", "switches_sockets", "db_switchgear", "point_wiring")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_rate_master import loader
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            hvac = json.load(fh)
+        cls.cfgs = {}
+        for c in eall["category_configs"]:
+            cls.cfgs[("Electrical", c["category_id"])] = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+        for c in hvac["category_configs"]:
+            cls.cfgs[("HVAC", c["category_id"])] = loader._loaded_config(c, "HVAC", hvac.get("goldens") or {})
+        cls.adp = cls.cfgs[("HVAC", "hvac_adp")]
+        cls.repo = os.path.abspath(os.path.join(os.path.dirname(extraction.__file__), "..", "..", ".."))
+
+    def _git_show(self, path):
+        import subprocess
+        return subprocess.run(["git", "-c", "safe.directory=*", "-C", self.repo, "show", f"{self.PRE_SLICE_COMMIT}:{path}"],
+                              capture_output=True, check=True).stdout
+
+    def _pre_slice_extraction(self):
+        """The PRE-SLICE extraction module, executed from `git show` as its own module object."""
+        import types
+        src = self._git_show("nirmaan_stack/services/boq_rate_master/extraction.py").decode("utf-8")
+        mod = types.ModuleType("extraction_pre_slice_4")
+        mod.__file__ = extraction.__file__   # the prompt dir resolves relative to the file's location
+        exec(compile(src, extraction.__file__, "exec"), mod.__dict__)
+        return mod
+
+    @staticmethod
+    def _row(excel_row, description):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "S",
+                "ancestors": [{"node_type": "Preamble", "description": "AIR DISTRIBUTION"}],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    @staticmethod
+    def _fake_client(reply_text, seen):
+        class _Block:
+            def __init__(self, t): self.text = t
+        class _Resp:
+            def __init__(self, t): self.content = [_Block(t)]; self.stop_reason = "end_turn"; self.usage = None
+        class _Msgs:
+            def create(self, **kw):
+                c = kw["messages"][0]["content"]
+                seen.setdefault("content", c)                 # the FIRST call (the batch)
+                seen.setdefault("contents", []).append(c)     # every call, in order
+                return _Resp(reply_text)
+        class _Client:
+            messages = _Msgs()
+        return _Client()
+
+    @staticmethod
+    def _fake_client_scripted(batch_reply, review_replies, seen, usage=(11, 7)):
+        """CHECK 2: the batch call answers `batch_reply`; each per-row review call answers
+        `review_replies[<row id in the ROW json>]` (a string), so a test can script agree / disagree /
+        garbage per row. Records every call's content in order."""
+        import re as _re
+        class _Usage:
+            input_tokens, output_tokens = usage
+        class _Block:
+            def __init__(self, t): self.text = t
+        class _Resp:
+            def __init__(self, t): self.content = [_Block(t)]; self.stop_reason = "end_turn"; self.usage = _Usage()
+        class _Msgs:
+            def create(self, **kw):
+                c = kw["messages"][0]["content"]
+                seen.setdefault("contents", []).append(c)
+                m = _re.search(r'ROW:\n\{"id": (\d+)', c)
+                if m:
+                    return _Resp(review_replies[int(m.group(1))])
+                return _Resp(batch_reply)
+        class _Client:
+            messages = _Msgs()
+        return _Client()
+
+    @staticmethod
+    def _row_with(excel_row, description, ancestor_descriptions):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "S",
+                "ancestors": [{"node_type": "Preamble", "description": a} for a in ancestor_descriptions],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    def _spec_off(self):
+        """The ADP context with the second opinion switched OFF (a deep copy; the live config is untouched)."""
+        import copy
+        cfgs = copy.deepcopy(self.cfgs)
+        cfgs[("HVAC", "hvac_adp")]["list_spec"]["second_opinion"] = False
+        return cfgs
+
+    def _collect_captures(self):
+        """Monkeypatch `extraction._capture_write` to collect records; returns (records, restore)."""
+        records = []
+        orig = extraction._capture_write
+        extraction._capture_write = lambda rec: records.append(rec)
+        return records, (lambda: setattr(extraction, "_capture_write", orig))
+
+    def _run_list_batch(self, reply, rows):
+        ctx = extraction._group_context(self.cfgs, "HVAC", "hvac_adp")
+        seen = {}
+        out = extraction._extract_batch(self._fake_client(json.dumps(reply), seen), "m", ctx["prompt"], ctx["defs"], rows,
+                                        ctx["synonyms"], ctx["defaults"], ctx["none_guidance"], ctx["slot_spec"],
+                                        ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                        ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"],
+                                        ctx["module_count_attrs"], ctx["inch_trade"], ctx["items_spec"])
+        return out, seen, ctx
+
+    # -- il_01 ----------------------------------------------------------------------------------------
+    def test_il_01_the_fourth_asset_is_selected_only_by_item_list_and_the_three_others_are_untouched(self):
+        new_path = os.path.join(extraction._PROMPT_DIR, "boq_rate_item_list_prompt.md")
+        with open(new_path, "r", encoding="utf-8") as fh:
+            new_text = fh.read()
+        self.assertEqual(extraction.select_prompt_text({"matching_mode": "item_list"}), new_text)
+        for needle in ("COMPOSITE only when THIS ROW pays for", '"None"', "LEAVE THE ATTRIBUTE OUT", "Never invent a size", "EXACTLY", '"items"',
+                       "type not stated", "none of these",
+                       # the re-pilot rulings (owner 2026-09-23): E -- one row from its own text only; A -- "None" is
+                       # REQUIRED on a silent allow_none attribute; ruling 4 -- a built-in part is not a second item;
+                       # the per-family choice list
+                       "FROM ITS OWN TEXT ONLY", "Never take a size, a type, a family or any value from\n  another row",
+                       "REQUIRED whenever the text is silent", "A part built into a priced variant is NOT a separate item",
+                       "contributes NOTHING to this row", "values_by_family", "provided by others",
+                       # checks 3 + the two-variants ruling (owner 2026-09-23)
+                       "a catalogue fact about how", "TWO of a choice's allowed values", "LEAVE THE\n  ATTRIBUTE OUT",
+                       # owner rulings 3c / 3d on stage 2
+                       "AN ATTRIBUTE BELONGS TO THE ITEM IT DESCRIBES", "Never carry one item's\n  attribute onto another item",
+                       "answer it ONLY when the row\n  or its ancestors state it",
+                       # SLICE 9 (owner A-2 / A-3): a stated diameter is the diameter, including a round
+                       # item's neck; and an attribute or a second item comes from the row or from an
+                       # ancestor DESCRIBING this row's item -- never from one that heads another section.
+                       "A DIAMETER THE TEXT STATES IS THE DIAMETER",
+                       "On a\n  ROUND item the NECK size is the diameter too",
+                       "AN ATTRIBUTE COMES FROM THE ROW, OR FROM AN ANCESTOR THAT DESCRIBES",
+                       "never from an ancestor that merely names another\n  section or a product family",
+                       "does the row's\n  own text settle it? Then the row wins",
+                       # SLICE 9, after the re-read (owner ruling): the new rule is a restriction on WHERE a
+                       # value may come from, and on a live re-read the model read it as licence to OMIT --
+                       # "None" answers fell 64% -> 56% of allow_none slots. This sentence ties it back to the
+                       # rule above it, so "no licence" can never be read as "could not tell".
+                       'Finding no licence for a value is NOT "could not tell": if the',
+                       "attribute is marked allow_none, the answer is \"None\".",
+                       "ONLY ITEMS THAT GO TOWARDS PRICING THIS ROW MATTER",
+                       "Never\n    add a part because items of that kind commonly come with one",
+                       "The test is whether the\n    text says so, never how usual the pairing is"):
+            self.assertIn(needle, new_text, needle)
+        # NEGATIVE (the cross-talk convention, root CLAUDE.md): a rule STATES ITS TEST; it does not quote
+        # corpus text. A phrase lifted from the corpus is visible to every OTHER question the payload asks
+        # and has twice flipped an unrelated verdict, so the two slice-9 rules name no BoQ string.
+        for quoted in ("Collar Damper", "without VCD", "600x600", "BOQ-26-"):
+            self.assertNotIn(quoted, new_text, quoted)
+        # CHECK 2: the fifth asset, read by its own reader (never by select_prompt_text)
+        with open(os.path.join(extraction._PROMPT_DIR, "boq_rate_item_list_review_prompt.md"), "r", encoding="utf-8") as fh:
+            review = fh.read()
+        self.assertEqual(extraction._read_review_prompt(), review)
+        for needle in ("SECOND OPINION", "ONE construction BoQ row on its own", '"agree" | "disagree"', "Do not rewrite values",
+                       "(0) ITEMS_SPEC", "Judge\nevery value by its LABEL and NOTE", "carried onto ANOTHER item"):
+            self.assertIn(needle, review, needle)
+        self.assertNotEqual(review, new_text)
+        # slice 6d INVERSION (owner "yes ask the question", superseding slice 4's ruling D): the prompt DOES ask
+        # for a per-item count again -- but only as the one attribute, in the wording the check run proved
+        # (0 false counts in 42 chances). The negative half is kept and made SHARPER: the old decomposition
+        # vocabulary stays gone, and the ONLY "qty" in the prompt is that attribute's own id.
+        self.assertIn("qty_per_row_unit (how many of this item make ONE unit of the row)", new_text)
+        self.assertIn("that product's capacity, not a count of items this row pays for.", new_text)
+        for gone in ("quantity attribute", "ONE unit of the row buys", "qty_attr", "switch_qty", "socket_qty"):
+            self.assertNotIn(gone, new_text, gone)
+        self.assertEqual(new_text.count("qty"), new_text.count("qty_per_row_unit"))
+        # NEGATIVE: every existing mode picks exactly today's asset ...
+        pairs = {"item_identity": "boq_rate_item_identity_prompt.md", "composite_decomposition": "boq_composite_decomposition_prompt.md",
+                 None: "boq_rate_attr_extraction_prompt.md", "anything_else": "boq_rate_attr_extraction_prompt.md"}
+        for mode, fname in pairs.items():
+            with open(os.path.join(extraction._PROMPT_DIR, fname), "r", encoding="utf-8") as fh:
+                self.assertEqual(extraction.select_prompt_text({"matching_mode": mode} if mode else {}), fh.read(), fname)
+        # ... and the three asset FILES are byte-identical to the pre-slice commit
+        for fname in ("boq_rate_item_identity_prompt.md", "boq_composite_decomposition_prompt.md", "boq_rate_attr_extraction_prompt.md"):
+            with open(os.path.join(extraction._PROMPT_DIR, fname), "rb") as fh:
+                self.assertEqual(fh.read(), self._git_show("nirmaan_stack/services/boq_category/prompts/" + fname), fname)
+
+    # -- il_02 ----------------------------------------------------------------------------------------
+    def test_il_02_items_spec_is_built_from_list_spec_in_item_list_mode_only(self):
+        spec = extraction.build_items_spec(self.adp)
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec["family_attribute_id"], "family")
+        # slice 6d INVERSION (owner "yes ask the question", superseding slice 4's ruling D): ADP now DOES ask
+        # how many of each item make one unit of the row, so the id is projected. The negative half -- a spec
+        # that declares none projects none -- is pinned just below on a config built without it.
+        self.assertEqual(spec["qty_attribute_id"], "qty_per_row_unit")
+        no_qty = copy.deepcopy(self.adp)
+        no_qty["list_spec"].pop("qty_attribute_id")
+        self.assertNotIn("qty_attribute_id", extraction.build_items_spec(no_qty))
+        by_id = {d["id"]: d for d in spec["attribute_definitions"]}
+        text_defs = sorted(i for i, d in by_id.items() if d["type"] == "text")
+        # SLICE 9 INVERSION (owner A-1, superseding slice 4's three-field question): a BoQ writes a size as
+        # ONE phrase, so the model is asked for it ONCE and code splits it into width / height / depth. The
+        # negative half is kept below: the three old ids are GONE from what the model is asked.
+        self.assertEqual(text_defs, ["area_band", "dia_mm", "insulation_thickness_mm", "neck_mm",
+                                     "panel_ratio", "size_mm", "slot_count", "thickness_mm", "torque"])
+        for gone in ("face_w_mm", "face_h_mm", "depth_mm"):
+            self.assertNotIn(gone, by_id, gone)
+        # slice 6d INVERSION: the ONE number definition is the count the model is now asked for, and it is
+        # allow_none so "None" can mean "the row says nothing" -- every other definition is unmoved.
+        self.assertEqual([i for i, d in by_id.items() if d["type"] == "number"], ["qty_per_row_unit"])
+        self.assertEqual(sorted(i for i, d in by_id.items() if d.get("allow_none")),
+                         ["air", "damper", "insulated", "qty_per_row_unit", "ul", "variant"])
+        self.assertIn("grille, type not stated", by_id["family"]["values"])
+        self.assertIn("none of these", by_id["family"]["values"])
+        self.assertEqual(len(by_id["family"]["values"]), 27)
+        # the per-family choice list (owner design fix): projected VERBATIM from the config, on the variant only
+        self.assertEqual(by_id["variant"]["type"], "choice")
+        self.assertEqual(by_id["variant"]["values_by_family"],
+                         [d for d in self.adp["list_spec"]["attribute_definitions"] if d["id"] == "variant"][0]["values_by_family"])
+        self.assertEqual(set(by_id["variant"]["values_by_family"]), {"VCD", "fire damper"})
+        self.assertEqual([i for i, d in by_id.items() if "values_by_family" in d], ["variant"])
+        for d in spec["attribute_definitions"]:
+            self.assertEqual(set(d.keys()) <= {"id", "label", "type", "values", "allow_none", "values_by_family", "note"}, True, d)
+        # CHECK 3: every configured note is projected VERBATIM (6a / 6b on the family, ruling 5 on the panel ratio)
+        cfg_defs = {d["id"]: d for d in self.adp["list_spec"]["attribute_definitions"]}
+        for aid, d in cfg_defs.items():
+            if d.get("note"):
+                self.assertEqual(by_id[aid]["note"], d["note"].strip(), aid)
+            else:
+                self.assertNotIn("note", by_id[aid], aid)
+        self.assertIn("no SKU", by_id["family"]["note"])                  # 6b lives in the note ...
+        self.assertIn("single skin plenum", by_id["family"]["note"].lower())   # ... and so does the 3a ALIAS (stage-2 ruling 3a: the model picks from the list, so the alias must reach it here)
+        self.assertIn("thickness or gauge (as written)", by_id["thickness_mm"]["label"])
+        self.assertIn("1:N", by_id["panel_ratio"]["note"])                 # ruling 5 lives in the note
+        # CHECK 2: the switch is carried on the spec -- SLICE 6 (owner S8, INVERTING): OFF for the current ADP (it
+        # went live); a copy that declares it ON still projects True, and a spec that does not declare it False
+        self.assertIs(spec["second_opinion"], False)
+        on_cfg = copy.deepcopy(self.adp); on_cfg["list_spec"]["second_opinion"] = True
+        self.assertIs(extraction.build_items_spec(on_cfg)["second_opinion"], True)
+        # a spec that DOES declare a qty id still projects it (the key is optional, not removed)
+        with_qty = {"matching_mode": "item_list", "list_spec": {"attribute_definitions": [
+            {"id": "family", "label": "F", "type": "choice", "values": ["a"]}, {"id": "n", "label": "N", "type": "number"}],
+            "family_attribute_id": "family", "qty_attribute_id": "n"}}
+        self.assertEqual(extraction.build_items_spec(with_qty)["qty_attribute_id"], "n")
+        self.assertIs(extraction.build_items_spec(with_qty)["second_opinion"], False)
+        # NEGATIVE: every other mode yields None
+        for key in self.cfgs:
+            if key != ("HVAC", "hvac_adp"):
+                self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
+        self.assertIsNone(extraction.build_items_spec({"matching_mode": "item_list"}))   # mode without a spec
+
+    # -- il_03 ----------------------------------------------------------------------------------------
+    def test_il_03_items_spec_is_emitted_only_when_given(self):
+        payload = [extraction._ai_item(self._row(3, "600 x 600 square diffuser with plenum box"))]
+        spec = extraction.build_items_spec(self.adp)
+        with_spec = extraction.batch_prompt_content("P", [], payload, items_spec=spec)
+        self.assertIn("\n\nITEMS_SPEC:\n" + json.dumps(spec, ensure_ascii=False), with_spec)
+        self.assertLess(with_spec.index("ITEMS_SPEC"), with_spec.index("\n\nROWS:\n"))
+        # NEGATIVE: absent -> byte-identical whether the kwarg is passed or not
+        self.assertEqual(extraction.batch_prompt_content("P", [], payload), extraction.batch_prompt_content("P", [], payload, items_spec=None))
+        self.assertNotIn("ITEMS_SPEC", extraction.batch_prompt_content("P", [], payload))
+
+    # -- il_04 ----------------------------------------------------------------------------------------
+    def test_il_04_n6_the_four_electrical_categories_are_byte_identical_to_the_pre_slice_code(self):
+        pre = self._pre_slice_extraction()
+        row = self._row(41, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")
+        checked = 0
+        for cat in self.ELECTRICAL_CATS:
+            self.assertIn(("Electrical", cat), self.cfgs, cat)
+            now = extraction._group_context(self.cfgs, "Electrical", cat)
+            before = pre._group_context(self.cfgs, "Electrical", cat)
+            self.assertIsNone(now.pop("items_spec"), cat)          # the ONE new key, and it is None
+            self.assertEqual(now, before, cat)                      # prompt, defs, catalogue, slot spec, every key
+            self.assertTrue(now["defs"], cat)                       # non-vacuous: the defs are there
+            payload = [extraction._ai_item(row)]
+            kw = dict(synonyms=now["synonyms"], defaults=now["defaults"], none_guidance=now["none_guidance"],
+                      slot_spec=now["slot_spec"], resolution_rules=now["resolution_rules"], rules=now["rules"])
+            self.assertEqual(extraction.batch_prompt_content(now["prompt"], now["defs"], payload, **kw),
+                             pre.batch_prompt_content(before["prompt"], before["defs"], payload, **kw), cat)
+            checked += 1
+        self.assertEqual(checked, 4)
+        # and the pre-slice module really is different code: it has no list mode at all
+        self.assertFalse(hasattr(pre, "build_items_spec"))
+
+    # -- il_05 ----------------------------------------------------------------------------------------
+    def test_il_05_the_list_parse_stores_every_item_with_the_three_states_and_never_raises(self):
+        rows = [self._row(3, "600 x 600 square diffuser with plenum box"), self._row(4, "actuator"), self._row(5, "x"),
+                self._row(6, "y"), self._row(7, "z"), self._row(8, "dampers")]
+        reply = [
+            {"id": 3, "items": [
+                {"attributes": {"family": {"value": "square diffuser", "confidence": 0.9}, "damper": {"value": "None", "confidence": 0.8},
+                                "size_mm": {"value": "600 x 600", "confidence": 0.9},
+                                "variant": {"value": "motorised", "confidence": 0.9}}},          # a family with NO variant list
+                {"attributes": {"family": {"value": "double-skin plenum", "confidence": 0.7}, "thickness_mm": {"value": None, "confidence": 0.1},
+                                "variant": {"value": "None", "confidence": 0.6}}},
+            ]},
+            {"id": 4, "items": []},                                    # empty list
+            {"id": 5, "attributes": {"family": {"value": "x"}}},       # missing items key (an attribute reply)
+            {"id": 6, "items": [{"attributes": {"family": {"value": "widget", "confidence": 0.9}, "torque": {"value": "  "}}}]},
+            {"id": 7, "items": ["not an object", {"attributes": {"family": {"value": "actuator", "confidence": 0.9}}}]},
+            {"id": 8, "items": [                                       # the per-family choice list, enforced in code
+                {"attributes": {"family": {"value": "fire damper", "confidence": 0.9}, "variant": {"value": "GI oval", "confidence": 0.9}}},
+                {"attributes": {"family": {"value": "fire damper", "confidence": 0.9}, "variant": {"value": "with sleeve", "confidence": 0.9}}},
+                {"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "GI oval", "confidence": 0.9}}},
+                {"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "None", "confidence": 0.9}}},
+                {"attributes": {"variant": {"value": "GI oval", "confidence": 0.9}}},                     # no family answer at all
+            ]},
+        ]
+        out, seen, ctx = self._run_list_batch(reply, rows)
+        self.assertIn("ITEMS_SPEC", seen["content"])
+        # the list mode asks NO row-level question: the ATTRIBUTE_DEFINITIONS block is EMPTY and the row's
+        # spec-reader definitions (family, damper, ...) are never projected as row attributes
+        self.assertEqual(ctx["defs"], [])
+        self.assertIn("ATTRIBUTE_DEFINITIONS:" + chr(10) + "[]", seen["content"])
+        self.assertEqual(seen["content"], extraction.batch_prompt_content(ctx["prompt"], ctx["defs"], [extraction._ai_item(r) for r in rows],
+                         synonyms=ctx["synonyms"], defaults=ctx["defaults"], none_guidance=ctx["none_guidance"], slot_spec=ctx["slot_spec"],
+                         resolution_rules=ctx["resolution_rules"], rules=ctx["rules"], items_spec=ctx["items_spec"]))
+        K = extraction.ITEMS_KEY
+        n_defs = len(ctx["items_spec"]["attribute_definitions"])
+        # row 3: two items, every def present on each, the three states legible
+        items = out[3][K]
+        self.assertEqual(len(items), 2)
+        a0 = items[0]["attributes"]
+        self.assertEqual(set(a0.keys()).__len__(), n_defs)
+        self.assertEqual(a0["family"]["value"], "square diffuser")           # stated
+        self.assertEqual(a0["damper"]["value"], "None")                      # not mentioned (allow_none)
+        self.assertIsNone(a0["insulated"]["value"])                          # left out -> could not tell
+        self.assertEqual(a0["size_mm"]["value"], "600 x 600")                # text, as stated (SLICE 9: ONE field)
+        for gone in ("face_w_mm", "face_h_mm", "depth_mm"):
+            self.assertNotIn(gone, a0, gone)                                 # NEGATIVE: never asked, never stored
+        self.assertIsNone(a0["variant"]["value"])                            # a square diffuser has no variant list: the pick is dropped
+        self.assertNotIn("qty_per_unit", a0)                                 # ruling D: never asked, never stored
+        a1 = items[1]["attributes"]
+        self.assertEqual(a1["family"]["value"], "double-skin plenum")
+        self.assertIsNone(a1["thickness_mm"]["value"])                       # null -> could not tell
+        self.assertEqual(a1["variant"]["value"], "None")                     # "None" passes the per-family check untouched
+        self.assertEqual(set(out[3].keys()), {K, extraction.ITEM_FLAGS_KEY})  # no row-level attribute at all
+        # NEGATIVE: empty list -> [] stored; missing items key -> [] stored (never the attributes map)
+        self.assertEqual(out[4][K], [])
+        self.assertEqual(out[5][K], [])
+        # NEGATIVE: unknown family -> the item is KEPT with family None; a blank text -> None
+        self.assertEqual(len(out[6][K]), 1)
+        self.assertIsNone(out[6][K][0]["attributes"]["family"]["value"])
+        self.assertIsNone(out[6][K][0]["attributes"]["torque"]["value"])
+        # the per-family choice list (owner design fix), enforced in CODE: off-list -> None; on-list kept;
+        # "None" kept; an item with no family answer keeps the coerced value (nothing to check it against)
+        v8 = [it["attributes"]["variant"]["value"] for it in out[8][K]]
+        self.assertEqual(v8, [None, "with sleeve", "GI oval", "None", "GI oval"])
+        # NEGATIVE: a non-object element is skipped, the object beside it is kept
+        self.assertEqual(len(out[7][K]), 1)
+        self.assertEqual(out[7][K][0]["attributes"]["family"]["value"], "actuator")
+        # and every observation landed in a drops key that exists (the parse recorded, never raised)
+        drops = {"items_rows_without_list": [], "items_empty_rows": [], "items_not_objects": {}, "items_family_unrecognised": {}, "items_coerce_failed": {}}
+        extraction.parse_item_list(reply[1], ctx["items_spec"], drops, 4)
+        extraction.parse_item_list(reply[2], ctx["items_spec"], drops, 5)
+        extraction.parse_item_list(reply[3], ctx["items_spec"], drops, 6)
+        extraction.parse_item_list(reply[4], ctx["items_spec"], drops, 7)
+        extraction.parse_item_list(reply[5], ctx["items_spec"], drops, 8)
+        self.assertEqual(drops["items_empty_rows"], [4])
+        self.assertEqual([d["excel_row"] for d in drops["items_rows_without_list"]], [5])
+        self.assertEqual(drops["items_family_unrecognised"], {"6": [{"item": 0, "raw": "widget"}]})
+        self.assertEqual(drops["items_not_objects"], {"7": [0]})
+        self.assertIn({"item": 0, "attr": "family", "raw": "widget", "reason": extraction.COERCE_NOT_ALLOWED}, drops["items_coerce_failed"]["6"])
+        self.assertEqual(drops["items_coerce_failed"]["8"],
+                         [{"item": 0, "attr": "variant", "raw": "GI oval", "reason": extraction.COERCE_NOT_IN_FAMILY_LIST}])
+        # NEGATIVE: a malformed (non-JSON) reply still raises through the shared parser, as for every mode
+        with self.assertRaises(ValueError):
+            extraction._extract_json_array("this is not json at all")
+
+    # -- il_06 ----------------------------------------------------------------------------------------
+    def test_il_06_sizes_and_torques_are_stored_as_stated_never_as_numbers(self):
+        spec = extraction.build_items_spec(self.adp)
+        by_id = {d["id"]: d for d in spec["attribute_definitions"]}
+        for aid, raw in (("torque", "10-12 NM"), ("torque", "3.5, 7.9 & 15.9"), ("dia_mm", "1 5/8"), ("neck_mm", "40-45mm"), ("size_mm", "600 x 600")):
+            value, reason = extraction._coerce_item_value(by_id[aid], raw)
+            self.assertEqual(value, raw, aid)
+            self.assertIsInstance(value, str)
+            self.assertEqual(reason, extraction.COERCE_OK)
+        # through the batch as well: the stored cell keeps the text verbatim
+        rows = [self._row(9, "actuator 10-12 NM, dia 3.5, 7.9 & 15.9")]
+        reply = [{"id": 9, "items": [{"attributes": {"family": {"value": "actuator", "confidence": 0.9}, "torque": {"value": "10-12 NM", "confidence": 0.9},
+                                                     "dia_mm": {"value": "3.5, 7.9 & 15.9", "confidence": 0.5}}}]}]
+        out, _seen, _ctx = self._run_list_batch(reply, rows)
+        a = out[9][extraction.ITEMS_KEY][0]["attributes"]
+        self.assertEqual(a["torque"]["value"], "10-12 NM")
+        self.assertEqual(a["dia_mm"]["value"], "3.5, 7.9 & 15.9")
+        # NEGATIVE: a text def is never a number; a number def refuses text; a blank text is absent
+        self.assertEqual(extraction._coerce_item_value(by_id["torque"], 8), ("8", extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_item_value({"id": "n", "type": "number"}, "10-12 NM"), (None, extraction.COERCE_NOT_A_NUMBER))
+        self.assertEqual(extraction._coerce_item_value({"id": "n", "type": "number"}, "1"), (1, extraction.COERCE_OK))
+        # the new text defs keep a stated band / insulation thickness verbatim (owner rulings 6c + the thickness split)
+        self.assertEqual(extraction._coerce_item_value(by_id["area_band"], "up to 0.5 Sqmt"), ("up to 0.5 Sqmt", extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_item_value(by_id["insulation_thickness_mm"], "25mm"), ("25mm", extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_item_value(by_id["torque"], "   "), (None, extraction.COERCE_ABSENT))
+        self.assertEqual(extraction._coerce_item_value(by_id["damper"], "None"), ("None", extraction.COERCE_OK_NONE))
+        self.assertEqual(extraction._coerce_item_value(by_id["family"], "None"), (None, extraction.COERCE_NOT_ALLOWED))   # not allow_none
+
+    # -- il_07 ----------------------------------------------------------------------------------------
+    def test_il_07_the_result_row_lifts_items_and_a_non_list_batch_never_carries_the_key(self):
+        import inspect
+        src = inspect.getsource(extraction.run_extraction)
+        self.assertIn("items = row_attrs.pop(ITEMS_KEY, None) if isinstance(row_attrs, dict) else None", src)
+        self.assertIn('res["items"] = items', src)
+        self.assertIn('_gc["inch_trade"], _gc.get("items_spec"),', src)   # threaded into every batch call, positionally
+        # NEGATIVE: an ordinary (attribute-mode) batch returns rows WITHOUT the key
+        ctx = extraction._group_context(self.cfgs, "Electrical", "wiring_cabling")
+        rows = [self._row(11, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")]
+        seen = {}
+        reply = [{"id": 11, "attributes": {"material": {"value": "ALUMINIUM", "confidence": 0.9}}}]
+        out = extraction._extract_batch(self._fake_client(json.dumps(reply), seen), "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"],
+                                        ctx["none_guidance"], ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                        ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"], ctx["inch_trade"], ctx["items_spec"])
+        self.assertNotIn(extraction.ITEMS_KEY, out[11])
+        self.assertNotIn("ITEMS_SPEC", seen["content"])
+        self.assertEqual(out[11]["material"]["value"], "ALUMINIUM")
+
+    # -- il_09 (CHECK 1) --------------------------------------------------------------------------------
+    def test_il_09_check1_an_as_stated_string_must_be_in_the_rows_own_payload(self):
+        F = extraction.ITEM_FLAGS_KEY
+        rows = [self._row_with(21, "Spot grille with end flange 150 mm width with collar damper (750 x 150 mm)", ["AIR TERMINALS"]),
+                self._row_with(22, "250 mm dia", ["Supply Air Round Diffuser"]),
+                self._row_with(23, "150 x 150 MM", ["Return air square diffuser without Collar Damper. Outer 600 x 600 mm 18G AL"])]
+        reply = [
+            {"id": 21, "items": [{"attributes": {"family": {"value": "grille, type not stated", "confidence": 0.7},
+                                                 "damper": {"value": "with", "confidence": 0.8},
+                                                 "size_mm": {"value": "750 x 150 mm", "confidence": 0.8}}}]},
+            # the LEAK: #16's size and family copied onto the 250 mm round diffuser row
+            {"id": 22, "items": [{"attributes": {"family": {"value": "grille, type not stated", "confidence": 0.6},
+                                                 "damper": {"value": "None", "confidence": 0.5},
+                                                 "dia_mm": {"value": "250 mm", "confidence": 0.9},
+                                                 "size_mm": {"value": "750 x 150 mm", "confidence": 0.7},
+                                                 "torque": {"value": "20 Nm", "confidence": 0.7}}}]},
+            # a legitimate ANCESTOR value
+            {"id": 23, "items": [{"attributes": {"family": {"value": "square diffuser", "confidence": 0.9},
+                                                 "neck_mm": {"value": "150 x 150 mm", "confidence": 0.9},
+                                                 "size_mm": {"value": "600 X 600 MM", "confidence": 0.7}}}]},
+        ]
+        records, restore = self._collect_captures()
+        try:
+            out, seen, ctx = self._run_list_batch(reply, rows)   # second opinion is ON for ADP: the fake answers "agree"-less objects
+        finally:
+            restore()
+        K = extraction.ITEMS_KEY
+        # POSITIVE: the row's own strings are kept (case / whitespace insensitive substring)
+        a21 = out[21][K][0]["attributes"]; a22 = out[22][K][0]["attributes"]; a23 = out[23][K][0]["attributes"]
+        self.assertEqual(a21["size_mm"]["value"], "750 x 150 mm")
+        self.assertEqual(a22["dia_mm"]["value"], "250 mm")
+        self.assertEqual(a23["neck_mm"]["value"], "150 x 150 mm")
+        self.assertEqual(a23["size_mm"]["value"], "600 X 600 MM")            # from the ANCESTOR -> kept
+        self.assertEqual(out[21][F], []); self.assertEqual(out[23][F], [])
+        # NEGATIVE: the strings not in the row's text are FLAGGED and recorded -- and KEPT (owner ruling 2: never a drop)
+        self.assertEqual(a22["size_mm"]["value"], "750 x 150 mm"); self.assertEqual(a22["torque"]["value"], "20 Nm")
+        self.assertEqual(a22["family"]["value"], "grille, type not stated")   # a choice is not the text check's business
+        self.assertEqual(a22["damper"]["value"], "None")
+        flags = [f for f in out[22][F] if f["check"] == "text"]
+        self.assertEqual([(f["attr"], f["reason"], f["raw"]) for f in flags],
+                         [("size_mm", extraction.COERCE_NOT_IN_ROW_TEXT, "750 x 150 mm"), ("torque", extraction.COERCE_NOT_IN_ROW_TEXT, "20 Nm")])
+        batch = [r for r in records if r.get("kind") == "batch" or "drops" in r][-1]
+        self.assertEqual(batch["drops"]["items_not_in_row_text"], {"22": [{"item": 0, "attr": "size_mm", "raw": "750 x 150 mm"},
+                                                                          {"item": 0, "attr": "torque", "raw": "20 Nm"}]})
+        # the unit itself, on a payload item: value in row text / in an ancestor / nowhere
+        spec = ctx["items_spec"]; drops = {"items_not_in_row_text": {}}
+        p = extraction._ai_item(rows[2])
+        items = [{"attributes": {"neck_mm": {"value": "150x150 mm", "confidence": 1}, "size_mm": {"value": "600 x 600", "confidence": 1},
+                                 "dia_mm": {"value": "300 mm", "confidence": 1}, "damper": {"value": "with", "confidence": 1}}}]
+        fl = extraction.apply_row_text_check(items, p, spec, drops, 23)
+        self.assertEqual(items[0]["attributes"]["neck_mm"]["value"], "150x150 mm")   # "150x150" is NOT a substring of "150 x 150": flagged, KEPT
+        self.assertEqual(items[0]["attributes"]["size_mm"]["value"], "600 x 600")
+        self.assertEqual(items[0]["attributes"]["dia_mm"]["value"], "300 mm")        # flagged, KEPT
+        self.assertEqual(items[0]["attributes"]["damper"]["value"], "with")
+        self.assertEqual([f["attr"] for f in fl], ["neck_mm", "dia_mm"])
+        self.assertEqual({f["reason"] for f in fl}, {"value_not_found_in_row_text"})
+        self.assertEqual(sorted(drops["items_not_in_row_text"]["23"], key=lambda x: x["attr"]),
+                         [{"item": 0, "attr": "dia_mm", "raw": "300 mm"}, {"item": 0, "attr": "neck_mm", "raw": "150x150 mm"}])
+        # the result row carries the flags (source pin on the lift; the key never reaches `attributes`)
+        import inspect
+        src = inspect.getsource(extraction.run_extraction)
+        self.assertIn('item_flags = row_attrs.pop(ITEM_FLAGS_KEY, None) if isinstance(row_attrs, dict) else None', src)
+        self.assertIn('res["item_flags"] = list(item_flags or [])', src)
+
+    # -- il_10 (CHECK 2) --------------------------------------------------------------------------------
+    def test_il_10_check2_the_second_opinion_is_config_switched_per_row_isolated_and_only_flags(self):
+        K, F = extraction.ITEMS_KEY, extraction.ITEM_FLAGS_KEY
+        rows = [self._row_with(31, "600 x 600 square diffuser with plenum box", ["AIR DISTRIBUTION"]),
+                self._row_with(32, "Actuator 8 Nm", ["ACTUATORS"]),
+                self._row_with(33, "VCD 750X450", ["VOLUME CONTROL DAMPER"])]
+        batch_reply = json.dumps([
+            {"id": 31, "items": [{"attributes": {"family": {"value": "square diffuser", "confidence": 0.9}, "damper": {"value": "None", "confidence": 0.6},
+                                                 "size_mm": {"value": "600 x 600", "confidence": 0.9}}},
+                                 {"attributes": {"family": {"value": "mixing box / LP plenum", "confidence": 0.7}}}]},
+            {"id": 32, "items": [{"attributes": {"family": {"value": "actuator", "confidence": 0.9}, "torque": {"value": "8 Nm", "confidence": 0.9}}}]},
+            {"id": 33, "items": [{"attributes": {"family": {"value": "VCD", "confidence": 0.9}, "variant": {"value": "None", "confidence": 0.5}}}]},
+        ])
+        review = {
+            31: json.dumps({"id": 31, "verdict": "disagree", "issues": [{"item": 0, "attribute": "damper", "reason": "the plenum text implies no damper"}]}),
+            32: json.dumps({"id": 32, "verdict": "agree", "issues": []}),
+            33: "this is not json at all",
+        }
+        # OFF: exactly ONE model call, no flags at all
+        seen = {}
+        cfgs_off = self._spec_off()
+        ctx = extraction._group_context(cfgs_off, "HVAC", "hvac_adp")
+        self.assertIs(ctx["items_spec"]["second_opinion"], False)
+        client = self._fake_client_scripted(batch_reply, review, seen)
+        out = extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
+                                        ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                        ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"],
+                                        ctx["inch_trade"], ctx["items_spec"])
+        self.assertEqual(len(seen["contents"]), 1)
+        self.assertEqual({rid: out[rid][F] for rid in (31, 32, 33)}, {31: [], 32: [], 33: []})
+        off_items = {rid: out[rid][K] for rid in (31, 32, 33)}
+        # ON (ADP v5 declares it): one extra call PER ROW, each holding ONLY that row's payload + items
+        seen = {}
+        records, restore = self._collect_captures()
+        try:
+            # SLICE 6 (owner S8, INVERTING): the current ADP config ships with the switch OFF, so the ON path runs on
+            # a copy that turns it on -- the mechanism is what this test pins, not the shipped setting
+            cfgs_on = copy.deepcopy(self.cfgs); cfgs_on[("HVAC", "hvac_adp")]["list_spec"]["second_opinion"] = True
+            ctx = extraction._group_context(cfgs_on, "HVAC", "hvac_adp")
+            self.assertIs(ctx["items_spec"]["second_opinion"], True)
+            client = self._fake_client_scripted(batch_reply, review, seen)
+            out = extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
+                                            ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                            ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"],
+                                            ctx["inch_trade"], ctx["items_spec"])
+        finally:
+            restore()
+        self.assertEqual(len(seen["contents"]), 4)                          # 1 batch + 3 reviews
+        review_prompt = extraction._read_review_prompt()
+        texts = {31: "600 x 600 square diffuser with plenum box", 32: "Actuator 8 Nm", 33: "VCD 750X450"}
+        for c in seen["contents"][1:]:
+            self.assertTrue(c.startswith(review_prompt))
+            rid = int(__import__("re").search(r'ROW:\n\{"id": (\d+)', c).group(1))
+            self.assertIn(texts[rid], c)
+            for other, t in texts.items():
+                if other != rid:
+                    self.assertNotIn(t, c, (rid, other))                     # ISOLATION: no other row's content
+            self.assertIn('"ITEMS:', c.replace("\n", '"'))                   # the row's items are shown
+            # 3b: the reviewer is given the SAME ITEMS_SPEC (ids, labels, notes) the extraction call carried
+            self.assertIn("\n\nITEMS_SPEC:\n" + json.dumps(ctx["items_spec"], ensure_ascii=False), c)
+            self.assertIn("thickness or gauge (as written)", c)
+        self.assertNotIn("ROW_CONTEXT_SHAPE", seen["contents"][1])          # the review is not the batch prompt
+        self.assertNotIn("ATTRIBUTE_DEFINITIONS", seen["contents"][1])
+        self.assertEqual(extraction.second_opinion_content("P", {"id": 1}, []), "P\n\nROW:\n{\"id\": 1}\n\nITEMS:\n[]")   # no spec -> no block
+        # a disagree FLAGS with the reason; an agree flags nothing; garbage is recorded and flags nothing
+        self.assertEqual(out[31][F], [{"check": "second_opinion", "item": 0, "attr": "damper", "reason": "the plenum text implies no damper"}])
+        self.assertEqual(out[32][F], [])
+        self.assertEqual(out[33][F], [])
+        # NEVER a rewrite, never a dropped item: the stored items are IDENTICAL to the OFF run
+        self.assertEqual({rid: out[rid][K] for rid in (31, 32, 33)}, off_items)
+        self.assertEqual(len(out[31][K]), 2)
+        self.assertEqual(out[31][K][0]["attributes"]["damper"]["value"], "None")
+        batch = [r for r in records if "drops" in r][-1]
+        d = batch["drops"]
+        self.assertEqual(d["second_opinion_verdicts"], {"31": "disagree", "32": "agree"})
+        self.assertEqual([x["excel_row"] for x in d["second_opinion_failed"]], [33])
+        self.assertEqual(d["second_opinion_usage"], {"calls": 3, "input": 33, "output": 21})   # every review CALL made, counted SEPARATELY (the garbage reply still cost a call)
+        self.assertEqual(batch["usage"]["input_tokens"], 11)                                   # the batch call counted once, on its own
+
+    # -- il_11 (CHECK 3) --------------------------------------------------------------------------------
+    def test_il_11_check3_config_notes_reach_the_model_through_items_spec_only(self):
+        spec = extraction.build_items_spec(self.adp)
+        by_id = {d["id"]: d for d in spec["attribute_definitions"]}
+        note = [d for d in self.adp["list_spec"]["attribute_definitions"] if d["id"] == "panel_ratio"][0]["note"]
+        self.assertIn("1:N", note)                                                        # ruling 5, a catalogue fact
+        self.assertEqual(by_id["panel_ratio"]["note"], note.strip())
+        fam_note = by_id["family"]["note"]
+        self.assertIn("no SKU", fam_note)                                                 # ruling 6b
+        row = self._row(3, "Control panel with maximum 6 outgoing feeders")
+        payload = [extraction._ai_item(row)]
+        content = extraction.batch_prompt_content("P", [], payload, items_spec=spec)
+        self.assertIn(json.dumps(note.strip(), ensure_ascii=False)[1:-1][:40], content)   # the note is in the assembled spec ...
+        self.assertIn(json.dumps(fam_note, ensure_ascii=False)[1:-1][:40], content)
+        self.assertNotIn("1:N", json.dumps(payload, ensure_ascii=False))                  # ... and the row payload is untouched
+        self.assertNotIn("no SKU", json.dumps(payload, ensure_ascii=False))
+        # SLICE 9 (owner A-2): the neck now CARRIES a note -- a round item's neck is its diameter, which is a
+        # catalogue fact about how to read the field, so it is projected like every other note.
+        self.assertIn("round item", by_id["neck_mm"]["note"])
+        self.assertIn("ROUND item the neck size IS the diameter", by_id["dia_mm"]["note"])
+        # NEGATIVE, kept: a def without a note still projects no note key
+        self.assertNotIn("note", by_id["slot_count"])
+
+    # -- il_08 ----------------------------------------------------------------------------------------
+    def test_il_08_adp_is_eligible_since_v8_with_its_list_shape(self):
+        # SLICE 6 (owner T7, INVERTING the slice-4 pin): the current ADP config keeps its list shape AND carries the
+        # shared per-item default pipelines, so it is eligible on the extraction side; the emptiness gate is proven
+        # on a copy with the pipelines removed (the negative half, kept).
+        self.assertEqual(self.adp["matching_mode"], "item_list")
+        self.assertEqual(list(self.adp["pipelines"]), ["item_supply", "item_install"])
+        self.assertTrue(extraction.config_is_eligible(self.adp))
+        self.assertTrue(extraction.config_is_eligible(self.adp, self.cfgs))
+        eligible = {k: v for k, v in self.cfgs.items() if extraction.config_is_eligible(v, self.cfgs)}
+        self.assertIn(("HVAC", "hvac_adp"), eligible)
+        emptied = dict(self.adp); emptied["pipelines"] = {}
+        self.assertFalse(extraction.config_is_eligible(emptied))
+        helper = os.path.join(self.repo, "frontend", "src", "pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
+        with open(helper, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        body = src[src.index("export function isEligibleConfig("):]
+        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body[:body.index("\n}")])
+
+    # -- il_12 (slice 6, S6) ----------------------------------------------------------------------------
+    def test_il_12_the_prompt_asks_for_none_on_ul_when_the_text_is_silent(self):
+        """S6: the pricing side reads an absent UL as not mentioned; the prompt is fixed too, so the rule is not
+        covering a defect -- the asset now says, for ul, answer "None" when the text is silent and never leave it
+        out. The three other prompt assets are untouched (il_01 pins them)."""
+        text = extraction.select_prompt_text({"matching_mode": "item_list"})
+        self.assertIn("- ul (UL listed): when the text says NOTHING about UL", text)
+        self.assertIn('answer "None" -- never leave ul out', text)
+        self.assertIn('Answer "yes" only when a\n  UL listing is stated for THAT item', text)
+        # NEGATIVE: the sentence names UL only -- damper and insulation keep the general rule
+        self.assertNotIn("- damper (", text)
+        self.assertNotIn("- insulated (", text)
+
+    # -- il_13 (slice 6, S8) ----------------------------------------------------------------------------
+    def test_il_13_the_second_opinion_is_off_for_adp_and_the_mechanism_still_switches_on(self):
+        spec = extraction.build_items_spec(self.adp)
+        self.assertIs(spec["second_opinion"], False)
+        # NEGATIVE: a config that turns it on gets it (the mechanism is a switch, not removed)
+        on = dict(self.adp); on["list_spec"] = dict(self.adp["list_spec"]); on["list_spec"]["second_opinion"] = True
+        self.assertIs(extraction.build_items_spec(on)["second_opinion"], True)
+        absent = dict(self.adp); absent["list_spec"] = dict(self.adp["list_spec"]); absent["list_spec"].pop("second_opinion")
+        self.assertIs(extraction.build_items_spec(absent)["second_opinion"], False)
+
+    # ── SLICE 6b (owner V2, X4): SCREEN-ONLY -- the panel-control declaration never reaches the model ──────────
+    def test_il_14_x4_the_assembled_model_call_for_an_adp_row_is_byte_identical_between_v8_and_v9(self):
+        """V2 / X4. `panel_controls` lives in `list_spec.pricing`, which `build_items_spec` never reads, so the
+        ITEMS_SPEC, the group context and the assembled batch content for an ADP row are BYTE-IDENTICAL between v8
+        (no block) and v9 (the block). NEGATIVE: the key's name appears nowhere in what the model is sent."""
+        import os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+        def asset(name):
+            with open(os.path.join(here, "data", name), "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        v8, v9 = asset("rate_master_hvac_all_v8.json"), asset("rate_master_hvac_all_v9.json")
+        def cfgs_of(a):
+            return {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in a["category_configs"]}
+        c8, c9 = cfgs_of(v8), cfgs_of(v9)
+        self.assertIn("panel_controls", c9[("HVAC", "hvac_adp")]["list_spec"]["pricing"])
+        self.assertNotIn("panel_controls", c8[("HVAC", "hvac_adp")]["list_spec"]["pricing"])
+        self.assertEqual(extraction.build_items_spec(c9[("HVAC", "hvac_adp")]), extraction.build_items_spec(c8[("HVAC", "hvac_adp")]))
+        g8 = extraction._group_context(c8, "HVAC", "hvac_adp")
+        g9 = extraction._group_context(c9, "HVAC", "hvac_adp")
+        self.assertEqual(g9, g8)
+        self.assertTrue(g9.get("items_spec"), "the ADP context must carry an ITEMS_SPEC -- an empty one would be a vacuous match")
+        row = {"excel_row": 13, "description": "Supply, installation, testing and balancing of Al powder coated disc valve for exhaust.",
+               "sheet_name": "S", "ancestors": [{"node_type": "Preamble", "description": "AIR DISTRIBUTION SYSTEM"}],
+               "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        payload = [extraction._ai_item(row)]
+        def content(g):
+            return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                                   none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                                   resolution_rules=g["resolution_rules"], rules=g["rules"],
+                                                   items_spec=g.get("items_spec"))
+        p8, p9 = content(g8), content(g9)
+        self.assertEqual(p9, p8)
+        self.assertIn("ITEMS_SPEC", p9)
+        self.assertNotIn("panel_controls", p9)
+        self.assertNotIn("panel_controls", json.dumps(g9, default=str))
+        self.assertNotIn("dropdown", p9)
+
+    # ── SLICE 6d (owner ruling "yes ask the question"): the count question reaches ITEMS_SPEC, the parse keeps
+    #    its three states apart, and it cannot reach an Electrical call ───────────────────────────────────────
+    def test_il_15_the_count_question_reaches_items_spec_and_the_parse_keeps_its_three_states(self):
+        """v10 projects `qty_attribute_id` + the new NUMBER / allow_none definition into ITEMS_SPEC, the prompt
+        carries the bullet, and `parse_item_list` stores the three answers apart: a number is a number, "None"
+        is the sentinel (the row says nothing, so code's default applies), an unreadable answer and no answer
+        are both null. NEGATIVE: v9 projects neither, and no Electrical config is in item_list mode, so none
+        has an items spec and the question cannot appear in an Electrical call."""
+        QTY = "qty_per_row_unit"
+        ctx = extraction._group_context(self.cfgs, "HVAC", "hvac_adp")
+        self.assertEqual(ctx["items_spec"]["qty_attribute_id"], QTY)
+        d = next(x for x in ctx["items_spec"]["attribute_definitions"] if x["id"] == QTY)
+        self.assertEqual(d, {"id": QTY, "label": "How many of this item make ONE unit of the row",
+                             "type": "number", "allow_none": True})
+        self.assertIn("qty_per_row_unit (how many of this item make ONE unit of the row)", ctx["prompt"])
+        self.assertIn("that product's capacity, not a count of items this row pays for.", ctx["prompt"])
+
+        rows = [self._row(3, "spigot 150 dia")]
+        reply = [{"id": 3, "items": [
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}, QTY: {"value": 2, "confidence": 0.9}}},
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}, QTY: {"value": "None", "confidence": 0.9}}},
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}, QTY: {"value": "two", "confidence": 0.9}}},
+            {"attributes": {"family": {"value": "spigot", "confidence": 0.9}}},
+        ]}]
+        out, seen, _ = self._run_list_batch(reply, rows)
+        items = out[3][extraction.ITEMS_KEY]
+        self.assertEqual([it["attributes"][QTY]["value"] for it in items], [2, "None", None, None])
+        self.assertIn(QTY, seen["content"])
+
+        # NEGATIVE: v9 asked nothing -- its spec carries neither the id nor the definition
+        import os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+        with open(os.path.join(here, "data", "rate_master_hvac_all_v9.json"), "r", encoding="utf-8") as fh:
+            v9 = json.load(fh)
+        adp9 = dict(next(c for c in v9["category_configs"] if c["category_id"] == "hvac_adp"), discipline="HVAC")
+        spec9 = extraction.build_items_spec(adp9)
+        self.assertNotIn("qty_attribute_id", spec9)
+        self.assertFalse(any(x["id"] == QTY for x in spec9["attribute_definitions"]))
+
+        # NEGATIVE: no Electrical config is in item_list mode -> no items spec, and the assembled Electrical
+        # call names neither the attribute nor an ITEMS_SPEC block
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        cfgs = {("Electrical", c["category_id"]): dict(c, discipline="Electrical") for c in eall["category_configs"]}
+        for (_d, cid), cfg in cfgs.items():
+            self.assertIsNone(extraction.build_items_spec(cfg), cid)
+        row = {"excel_row": 41, "description": "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable", "sheet_name": "S",
+               "ancestors": [{"node_type": "Preamble", "description": "CABLES/TERMINATIONS"}],
+               "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        payload = [extraction._ai_item(row)]
+        for cid in sorted({c["category_id"] for c in eall["category_configs"]})[:4]:
+            g = extraction._group_context(cfgs, "Electrical", cid)
+            content = extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"],
+                                                     defaults=g["defaults"], none_guidance=g["none_guidance"],
+                                                     slot_spec=g["slot_spec"], resolution_rules=g["resolution_rules"],
+                                                     rules=g["rules"], items_spec=g.get("items_spec"))
+            self.assertNotIn(QTY, content, cid)
+            self.assertNotIn("ITEMS_SPEC", content, cid)
+
+    # ── SLICE 11 (owner F-4, 2026-09-25) ──────────────────────────────────────────────────────────────────────
+    def test_il_16_a_damper_named_as_part_of_a_grille_or_diffuser_is_not_a_separate_item(self):
+        """F-4. The owner's ruling, applied one level down from R19 (a part built into a priced variant is not
+        separate): a damper NAMED AS PART OF a grille or a diffuser sets that item's damper attribute and is
+        never a second item; a damper the row buys ON ITS OWN is still its own item.
+
+        Measured cause (slice-10 audit, all 1,151 rows): exactly THREE rows returned both a host and a
+        standalone damper. One priced 10,049 by accident -- a linear grille read as WITHOUT a damper plus a
+        separate collar damper; the other two refused only because the extra damper's unit could not convert,
+        and would otherwise have DOUBLE-CHARGED.
+        """
+        text = extraction.select_prompt_text({"matching_mode": "item_list"})
+        # the instruction, in the owner's terms, inside the COMPOSITE block
+        self.assertIn("A DAMPER NAMED AS PART OF A GRILLE OR A DIFFUSER IS THAT ITEM'S", text)
+        self.assertIn("DAMPER, NEVER A SECOND ITEM", text)
+        self.assertIn('with its damper attribute set to "with"', text)
+        # the other half of the ruling: a row that buys the damper itself still returns a damper item
+        self.assertIn("A damper is its own item", text)
+        self.assertIn("only when the row buys the damper itself", text)
+        # it sits with R19, which it extends -- and R19 itself is untouched
+        self.assertIn("A part built into a priced variant is NOT a separate item", text)
+        self.assertLess(text.index("A part built into a priced variant"), text.index("A DAMPER NAMED AS PART OF"))
+        # NEGATIVE: the composite rule is NOT weakened -- a genuine second thing is still returned
+        self.assertIn("second thing it pays for, return both", text)
+        # NEGATIVE: the rule STATES ITS TEST and quotes no corpus text (the root CLAUDE.md cross-talk convention)
+        block = text[text.index("A DAMPER NAMED AS PART OF"):]
+        cut = block.find("\n  * ")
+        if cut > 0:
+            block = block[:cut]
+        for corpus in ("750X150", "1200 mm x 300", "Curved grille with collar damper", "difflector"):
+            self.assertNotIn(corpus, block, corpus)
+        # NEGATIVE: the three other prompt assets are untouched by this slice (il_01 pins them byte-for-byte)
+        for mode in ("item_identity", "composite_decomposition", None):
+            other = extraction.select_prompt_text({"matching_mode": mode} if mode else {})
+            self.assertNotIn("A DAMPER NAMED AS PART OF", other, str(mode))
+
+    def test_il_17_f4_worked_shapes_live_in_the_def_notes_not_in_the_shared_rule(self):
+        """The slice-9 B3 precedent, and the root CLAUDE.md convention behind it: a shared rule STATES ITS TEST
+        and does not quote corpus text, because one rules block is visible to every other question a payload
+        asks; a def NOTE is projected PER ATTRIBUTE, so worked shapes belong there. F-4's shapes sit in the
+        `family` and `damper` notes and reach the model through ITEMS_SPEC (CHECK 3) and nowhere else."""
+        spec = extraction.build_items_spec(self.adp)
+        notes = {d["id"]: d.get("note", "") for d in spec["attribute_definitions"]}
+        self.assertIn("A DAMPER NAMED AS PART OF A GRILLE OR DIFFUSER IS NOT A SECOND ITEM", notes["family"])
+        self.assertIn("WHERE THE ROW NAMES A DAMPER AS PART OF A GRILLE OR DIFFUSER", notes["damper"])
+        self.assertIn("Where the row buys dampers alone, the damper IS the item", notes["damper"])
+        # NEGATIVE: the ROW PAYLOAD never carries a def note -- the notes reach ITEMS_SPEC only
+        row = {"excel_row": 69, "description": "750X150 mm Curved grille with collar damper", "sheet_name": "S",
+               "ancestors": [], "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        self.assertNotIn("A DAMPER NAMED AS PART OF", json.dumps(extraction._ai_item(row)))
+
+    def test_il_18_slice_11_adds_no_new_key_to_what_the_model_is_sent(self):
+        """F-1 / F-2 / F-2b are PRICING declarations: `defaults.<attr>.absent_as_none`, four `unit_classes`
+        spellings and the whole `unit_factors` block live in `list_spec.pricing`, which `build_items_spec` never
+        reads. So the ITEMS_SPEC an ADP row is sent is identical between v12 and v13 apart from the two def notes
+        F-4 deliberately changed -- nothing about units or defaults reaches the model."""
+        import os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+
+        def asset(name):
+            with open(os.path.join(here, "data", name), "r", encoding="utf-8") as fh:
+                return json.load(fh)
+
+        v12, v13 = asset("rate_master_hvac_all_v12.json"), asset("rate_master_hvac_all_v13.json")
+        c12 = next(dict(c, discipline="HVAC") for c in v12["category_configs"] if c["category_id"] == "hvac_adp")
+        c13 = next(dict(c, discipline="HVAC") for c in v13["category_configs"] if c["category_id"] == "hvac_adp")
+        s12, s13 = extraction.build_items_spec(c12), extraction.build_items_spec(c13)
+        # strip ONLY the two notes F-4 changed; everything else must be byte-identical
+        def stripped(spec):
+            out = json.loads(json.dumps(spec))
+            for d in out["attribute_definitions"]:
+                if d["id"] in ("family", "damper"):
+                    d.pop("note", None)
+            return out
+        self.assertEqual(stripped(s12), stripped(s13))
+        # NEGATIVE: no unit spelling, no factor and no default key appears in the ITEMS_SPEC of either version
+        blob13 = json.dumps(s13)
+        for token in ("unit_factors", "absent_as_none", "0.0929", "sqft", "sq.ft", "mtrs", "rmts", "smt"):
+            self.assertNotIn(token, blob13, token)

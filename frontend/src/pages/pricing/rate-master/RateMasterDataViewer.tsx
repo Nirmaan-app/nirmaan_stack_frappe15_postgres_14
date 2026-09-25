@@ -24,13 +24,21 @@ import { parseFiniteInput } from "./rateMasterEdit";
 import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
 import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
 import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
-import type { UploadPlan, UploadResult } from "./rateMasterUpload";
+import {
+  DEFAULT_RATE_FILE_FORMAT, FORMAT_COPY, RATE_FILE_FORMATS, TWIN_COPY, twinNumbers,
+  type RateFileFormat, type TwinDecision, type UploadPlan, type UploadResult, type UploadTwin,
+} from "./rateMasterUpload";
 import {
   categoryItemKinds,
   isCategoryDataScopeEmpty,
   isDropdownAttributeType,
   isNumericAttributeType,
 } from "./rateMasterStructure";
+import {
+  SPEC_COPY, SPEC_CONFIRM_COPY, confirmedTag, isSpecDrivenConfig, specConfirmedInfo, specNotUnderstoodReason,
+  specQuestion, splitSpecColumns,
+  type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
+} from "./rateMasterSpec";
 
 /**
  * THE THIRD COERCION SITE. What an edited / newly-entered attribute value is STORED as on a master
@@ -78,24 +86,32 @@ interface Props {
   // is the action the freeze exists to protect, and both buttons live in the same dashed panel as
   // the upload, so this distinction is easy to lose and must not be.
   frozen?: boolean;
-  onSaveItem?: (
-    name: string,
-    patch: { rates_patch?: Record<string, number | null>; attributes_patch?: Record<string, string | number> },
-  ) => Promise<void>;
-  onCreateItem?: (payload: {
-    kind: string; brand?: string; unit?: string;
-    attributes: Record<string, string | number>; rates: Record<string, number | null>;
-  }) => Promise<void>;
+  // SLICE 1d: both return the endpoint's reply -- for an opted-in kind whose text the exact read refused
+  // and the suggester matched, the server writes NOTHING and answers `needs_confirmation` with the best
+  // match; the form then asks Accept / Reject and re-calls with `spec_decision` (+ the fingerprint).
+  onSaveItem?: (name: string, patch: SaveItemPatch) => Promise<SpecConfirmationReply | undefined | void>;
+  onCreateItem?: (payload: CreateItemPayload) => Promise<SpecConfirmationReply | undefined | void>;
   onDeactivateItem?: (name: string) => Promise<void>;
   // SLICE 5: the two download surfaces. The page owns the SDK calls and hands these down, exactly
   // as it already does for save/create/deactivate -- the viewer stays free of frappe-react-sdk.
-  // `categoryId === null` means MODE B (every category in one file).
-  onDownloadCsv?: (categoryId: string | null) => Promise<void>;
+  // `categoryId === null` means MODE B (every category in one file). SLICE 1e: `fmt` is the file format
+  // the user chose -- Excel by default, CSV as the second option (owner X-a).
+  onDownloadCsv?: (categoryId: string | null, fmt: RateFileFormat) => Promise<void>;
   onDownloadAsset?: () => Promise<void>;
   // SLICE 6: the upload half of the round trip. Withheld (not disabled) for a non-admin, like
   // every other write affordance here; the endpoints re-gate server-side, which is the boundary.
-  onPreviewCsv?: (contentBase64: string) => Promise<UploadPlan>;
-  onApplyCsv?: (contentBase64: string, expectedDigest: string) => Promise<UploadResult>;
+  // SLICE 1e: both carry the selected category as an OPTIONAL hint for typing a new row in a
+  // headers-only template; the file's own rows win over it server-side.
+  onPreviewCsv?: (contentBase64: string, categoryId?: string | null) => Promise<UploadPlan>;
+  onApplyCsv?: (
+    contentBase64: string, expectedDigest: string,
+    // SLICE 1d: the per-row Accept / Reject answers and the accepted suggestions' fingerprints, both optional.
+    decisions?: Record<number, SpecDecision>, acceptedFingerprints?: Record<number, string>,
+    categoryId?: string | null,
+    // SLICE 1f: the per-row Confirm / Decline answers to the duplicate warning + the confirmed targets'
+    // fingerprints, both optional (absent -> the payload is byte-identical to before).
+    twinDecisions?: Record<number, TwinDecision>, twinFingerprints?: Record<number, string>,
+  ) => Promise<UploadResult>;
   onUploadApplied?: () => void;
 }
 
@@ -113,6 +129,8 @@ export function RateMasterDataViewer({
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
   const [downloading, setDownloading] = useState<null | "cat" | "all" | "asset">(null);
+  // SLICE 1e: the rate-file format for the two edit downloads -- Excel by default (owner X-a).
+  const [fileFormat, setFileFormat] = useState<RateFileFormat>(DEFAULT_RATE_FILE_FORMAT);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
   const runDownload = async (which: "cat" | "all" | "asset", fn: () => Promise<void>) => {
     setDownloading(which);
@@ -140,6 +158,12 @@ export function RateMasterDataViewer({
   const [draftRates, setDraftRates] = useState<Record<string, string>>({});
   const [rowSaving, setRowSaving] = useState(false);
   const [rowErr, setRowErr] = useState<string | null>(null);
+  // SLICE 1d: an edit the exact read refused, awaiting the user's Accept / Reject of the server's best match.
+  const [rowAsk, setRowAsk] = useState<{ name: string; patch: SaveItemPatch; reply: SpecConfirmationReply } | null>(null);
+  // SLICE 1f (owner Y-e): an edit that would make this item mean the same as ANOTHER item -- the warning is
+  // answered in the row; Confirm sends the answer (the OTHER item takes the rates, this one stays), Decline
+  // sends nothing at all.
+  const [rowTwinAsk, setRowTwinAsk] = useState<{ name: string; patch: SaveItemPatch; twin: UploadTwin } | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<{ name: string; label: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -162,10 +186,18 @@ export function RateMasterDataViewer({
   const showKindCol = categoryKinds.length > 1;
 
   // Attribute columns = every definition EXCEPT brand (brand is its own named column).
+  // SLICE 1c: a SPEC-DRIVEN category (`attributes_from_spec: true`) splits them into the TEXT columns
+  // (item_name, item_detail -- editable, rendered FIRST) and the DERIVED columns (read-only, greyed,
+  // "read from spec"). Any other category takes the branch that was here, unchanged.
+  const specMode = isSpecDrivenConfig(config);
+  const specCols = useMemo(() => splitSpecColumns(config.attribute_definitions), [config]);
+  const textCols = useMemo(() => (specMode ? specCols.text : []), [specMode, specCols]);
   const attrCols = useMemo(
-    () => config.attribute_definitions.filter((d) => d.id !== "brand"),
-    [config]
+    () => (specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand")),
+    [config, specMode, specCols]
   );
+  // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
+  const editableAttrCols = specMode ? textCols : attrCols;
 
   // Rate columns = union of rate keys across THIS CATEGORY's items, in first-seen order.
   const rateCols = useMemo(() => {
@@ -205,6 +237,10 @@ export function RateMasterDataViewer({
   const columns = useMemo(
     () => [
       ...(showKindCol ? [{ key: "kind", get: (it: RateMasterItem) => it.kind }] : []),
+      ...textCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
+      ...(specMode
+        ? [{ key: "spec", get: (it: RateMasterItem) => specNotUnderstoodReason(it) ?? SPEC_COPY.readFromSpec }]
+        : []),
       { key: "brand", get: (it: RateMasterItem) => it.brand },
       ...attrCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
       ...rateCols.map((k) => ({ key: `rate:${k}`, get: (it: RateMasterItem) => it.rates?.[k] })),
@@ -212,7 +248,7 @@ export function RateMasterDataViewer({
       { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
       { key: "source_row", get: (it: RateMasterItem) => it.source_row },
     ],
-    [showKindCol, attrCols, rateCols],
+    [showKindCol, specMode, textCols, attrCols, rateCols],
   );
   const distinctByColumn = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -247,6 +283,8 @@ export function RateMasterDataViewer({
     return scopedItems.map((it) => {
       const cells: string[] = [
         cellText(it.kind),
+        ...textCols.map((d) => cellText(it.attributes?.[d.id])),
+        ...(specMode ? [specNotUnderstoodReason(it) ?? SPEC_COPY.readFromSpec] : []),
         cellText(it.brand),
         ...attrCols.map((d) => cellText(it.attributes?.[d.id])),
         ...rateCols.map((k) => cellText(it.rates?.[k])),
@@ -256,7 +294,7 @@ export function RateMasterDataViewer({
       ];
       return { it, cells, haystack: cells.join("  ") };
     });
-  }, [scopedItems, attrCols, rateCols]);
+  }, [scopedItems, specMode, textCols, attrCols, rateCols]);
 
   const filtered = useMemo(() => {
     const filterEntries = Object.entries(columnFilters);
@@ -326,7 +364,7 @@ export function RateMasterDataViewer({
   const beginEdit = (it: RateMasterItem) => {
     setRowErr(null);
     const a: Record<string, string> = {};
-    for (const d of attrCols) a[d.id] = cellText(it.attributes?.[d.id]);
+    for (const d of editableAttrCols) a[d.id] = cellText(it.attributes?.[d.id]);
     const rr: Record<string, string> = {};
     for (const k of rateCols) rr[k] = cellText(it.rates?.[k]);
     setDraftAttrs(a);
@@ -336,6 +374,8 @@ export function RateMasterDataViewer({
   const cancelEdit = () => {
     setEditingRow(null);
     setRowErr(null);
+    setRowAsk(null);
+    setRowTwinAsk(null);
   };
   const saveEdit = async (it: RateMasterItem) => {
     if (!onSaveItem || !it.name) return;
@@ -357,31 +397,64 @@ export function RateMasterDataViewer({
       }
     }
     const attributes_patch: Record<string, string | number> = {};
-    for (const d of attrCols) {
+    // SLICE 1c: in spec mode ONLY the two text columns can be patched (editableAttrCols); the server
+    // re-reads the derived attributes from them and refuses any other key -- no back door.
+    for (const d of editableAttrCols) {
       const raw = draftAttrs[d.id] ?? "";
       const orig = cellText(it.attributes?.[d.id]);
       if (raw === orig) continue;
       // NUMERIC-typed attributes (number AND number_choice) are stored numeric; choice/text stay
       // as-is (the server canonicalises). See coerceAttributeForStorage -- the third coercion site.
-      attributes_patch[d.id] = coerceAttributeForStorage(d, raw);
+      attributes_patch[d.id] = specMode ? raw : coerceAttributeForStorage(d, raw);
     }
     if (Object.keys(rates_patch).length === 0 && Object.keys(attributes_patch).length === 0) {
       cancelEdit();
       return;
     }
+    const patch: SaveItemPatch = {
+      rates_patch: Object.keys(rates_patch).length ? rates_patch : undefined,
+      attributes_patch: Object.keys(attributes_patch).length ? attributes_patch : undefined,
+    };
+    await sendSave(it.name, patch);
+  };
+  // SLICE 1d: the ONE sender for a row save. A `needs_confirmation` reply keeps the row in edit mode and
+  // shows the question; the answer re-sends the SAME patch with spec_decision (+ fingerprint on accept).
+  const sendSave = async (name: string, patch: SaveItemPatch) => {
+    if (!onSaveItem) return;
     setRowSaving(true);
     setRowErr(null);
     try {
-      await onSaveItem(it.name, {
-        rates_patch: Object.keys(rates_patch).length ? rates_patch : undefined,
-        attributes_patch: Object.keys(attributes_patch).length ? attributes_patch : undefined,
-      });
+      const reply = await onSaveItem(name, patch);
+      if (reply && reply.needs_confirmation) {
+        setRowAsk({ name, patch, reply });
+        return;
+      }
+      setRowAsk(null);
+      if (reply && reply.needs_twin_confirmation && reply.twin) {
+        setRowTwinAsk({ name, patch, twin: reply.twin });   // NOTHING written -- ask first
+        return;
+      }
+      setRowTwinAsk(null);
       setEditingRow(null);
     } catch (e) {
       setRowErr((e as { message?: string })?.message ?? "Save failed");
     } finally {
       setRowSaving(false);
     }
+  };
+  const answerRowAsk = async (d: SpecDecision) => {
+    if (!rowAsk) return;
+    const fp = rowAsk.reply.suggestion?.fingerprint;
+    await sendSave(rowAsk.name, { ...rowAsk.patch, spec_decision: d, spec_fingerprint: d === "accept" ? fp : undefined });
+  };
+  const answerRowTwin = async (d: TwinDecision) => {
+    if (!rowTwinAsk) return;
+    if (d === "decline") {
+      // Declined: no request, no change (owner Y-a / Y-e). The row stays in edit mode with its draft.
+      setRowTwinAsk(null);
+      return;
+    }
+    await sendSave(rowTwinAsk.name, { ...rowTwinAsk.patch, twin_decision: "confirm", twin_fingerprint: rowTwinAsk.twin.fingerprint });
   };
   const doDeactivate = async () => {
     if (!onDeactivateItem || !confirmDeactivate) return;
@@ -393,9 +466,12 @@ export function RateMasterDataViewer({
   };
 
   // A column header = its label + a per-column faceted filter (funnel -> search + checkbox list).
-  const hdr = (colKey: string, label: string, rightAlign = false) => (
+  const hdr = (colKey: string, label: string, rightAlign = false, tag?: string) => (
     <div className={cn("flex items-center gap-1", rightAlign && "justify-end")}>
       <span>{label}</span>
+      {tag ? (
+        <span className="rounded bg-muted px-1 text-[9px] font-normal uppercase tracking-wide text-muted-foreground">{tag}</span>
+      ) : null}
       <ColumnFilter
         label={label}
         values={distinctByColumn[colKey] ?? []}
@@ -432,18 +508,32 @@ export function RateMasterDataViewer({
             <div className="flex items-center gap-2">
               <Button
                 size="sm" variant="outline" disabled={downloading !== null}
-                onClick={() => void runDownload("cat", () => onDownloadCsv(config.category_id))}
+                onClick={() => void runDownload("cat", () => onDownloadCsv(config.category_id, fileFormat))}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
                 {downloading === "cat" ? "Preparing..." : DOWNLOAD_COPY.editThisCategory}
               </Button>
               <Button
                 size="sm" variant="outline" disabled={downloading !== null}
-                onClick={() => void runDownload("all", () => onDownloadCsv(null))}
+                onClick={() => void runDownload("all", () => onDownloadCsv(null, fileFormat))}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
                 {downloading === "all" ? "Preparing..." : DOWNLOAD_COPY.editAllCategories}
               </Button>
+              {/* SLICE 1e (owner X-a): Excel by default; CSV is the second option. A segmented pair, not a
+                  select -- two choices, always visible, no menu to open. */}
+              <div className="ml-1 flex items-center gap-1" role="radiogroup" aria-label={FORMAT_COPY.label} title={FORMAT_COPY.hint}>
+                <span className="text-[11px] text-muted-foreground">{FORMAT_COPY.label}</span>
+                {RATE_FILE_FORMATS.map((f) => (
+                  <Button
+                    key={f.id} size="sm" variant={fileFormat === f.id ? "default" : "ghost"}
+                    className="h-7 px-2 text-[11px]" role="radio" aria-checked={fileFormat === f.id}
+                    data-testid={`rate-file-format-${f.id}`} onClick={() => setFileFormat(f.id)}
+                  >
+                    {f.label}
+                  </Button>
+                ))}
+              </div>
             </div>
             <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.editHint}</p>
             <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.newRowHint}</p>
@@ -452,8 +542,10 @@ export function RateMasterDataViewer({
         {onPreviewCsv && onApplyCsv && (
           <RateMasterUploadDialog
             frozen={writeBlocked}
-            onPreview={onPreviewCsv}
-            onApply={onApplyCsv}
+            // SLICE 1e: the selected category rides as the optional hint (see the prop comments above)
+            onPreview={(b64) => onPreviewCsv(b64, config.category_id)}
+            onApply={(b64, digest, decisions, fps, tdec, tfps) => onApplyCsv(b64, digest, decisions, fps, config.category_id, tdec, tfps)}
+            targetLabels={{ disciplineLabel, categoryId: config.category_id, categoryLabel }}
             onApplied={onUploadApplied}
           />
         )}
@@ -534,6 +626,10 @@ export function RateMasterDataViewer({
 
       {downloadPanel}
 
+      {specMode && (
+        <p className="text-[11px] text-muted-foreground" data-testid="spec-hint">{SPEC_COPY.hint}</p>
+      )}
+
       {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar).
           EA-2 rider 3: force the sticky header's top:0 with a scoped rule -- the Tailwind `top-0`
           utility is overridden to `top:auto` here (a global table reset from Ant Design), which
@@ -550,9 +646,17 @@ export function RateMasterDataViewer({
                   never ghosts. */}
               {canEdit && <TableHead className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>}
               {showKindCol && <TableHead className="sticky top-0 z-20 bg-background">{hdr("kind", "kind")}</TableHead>}
+              {/* SLICE 1c (U3): the text pair FIRST, then the spec verdict, then brand, then the derived
+                  attributes each tagged "read from spec". Absent entirely for a non-spec category. */}
+              {textCols.map((d) => (
+                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
+              ))}
+              {specMode && <TableHead className="sticky top-0 z-20 bg-background">{hdr("spec", SPEC_COPY.specColumn)}</TableHead>}
               <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>
               {attrCols.map((d) => (
-                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
+                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">
+                  {hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
+                </TableHead>
               ))}
               {rateCols.map((k) => (
                 <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
@@ -570,14 +674,20 @@ export function RateMasterDataViewer({
                 {canEdit && (
                   <TableCell className="sticky left-0 z-10 bg-background text-right">
                     {editing ? (
-                      <div className="flex items-center justify-end gap-1">
-                        {rowErr && <span className="text-[10px] text-destructive">{rowErr}</span>}
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Save row" onClick={() => void saveEdit(r.it)}>
-                          <Check className="h-4 w-4 text-emerald-600" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Cancel edit" onClick={cancelEdit}>
-                          <X className="h-4 w-4" />
-                        </Button>
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center justify-end gap-1">
+                          {rowErr && <span className="text-[10px] text-destructive">{rowErr}</span>}
+                          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving || !!rowTwinAsk} aria-label="Save row" onClick={() => void saveEdit(r.it)}>
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Cancel edit" onClick={cancelEdit}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        {rowTwinAsk && rowTwinAsk.name === r.it.name ? (
+                          // SLICE 1f (owner Y-e): the edit would make this item mean the same as another one.
+                          <TwinQuestion twin={rowTwinAsk.twin} busy={rowSaving} onAnswer={(d) => void answerRowTwin(d)} testId="row-twin-question" />
+                        ) : null}
                       </div>
                     ) : (
                       <div className="flex items-center justify-end gap-1">
@@ -594,7 +704,12 @@ export function RateMasterDataViewer({
                             size="icon" variant="ghost" className="h-7 w-7 text-destructive" aria-label="Deactivate row"
                             disabled={writeBlocked}
                             title={writeBlocked ? FREEZE_BLOCKED_MESSAGE : undefined}
-                            onClick={() => setConfirmDeactivate({ name: r.it.name ?? "", label: `${r.it.kind} ${cellText(r.it.attributes?.material)}` })}
+                            onClick={() => setConfirmDeactivate({
+                              name: r.it.name ?? "",
+                              label: specMode
+                                ? `${cellText(r.it.attributes?.item_name)} ${cellText(r.it.attributes?.item_detail)}`.trim()
+                                : `${r.it.kind} ${cellText(r.it.attributes?.material)}`,
+                            })}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -604,10 +719,64 @@ export function RateMasterDataViewer({
                   </TableCell>
                 )}
                 {showKindCol && <TableCell>{r.it.kind}</TableCell>}
+                {textCols.map((d) => (
+                  <TableCell key={d.id} className="max-w-[20rem] whitespace-normal">
+                    {editing ? (
+                      <Input
+                        className="h-7 w-56 text-xs"
+                        value={draftAttrs[d.id] ?? ""}
+                        disabled={rowSaving}
+                        onChange={(e) => setDraftAttrs((p) => ({ ...p, [d.id]: e.target.value }))}
+                        aria-label={`${d.label} value`}
+                      />
+                    ) : (
+                      cellText(r.it.attributes?.[d.id])
+                    )}
+                  </TableCell>
+                ))}
+                {specMode && (
+                  <TableCell className="whitespace-normal" data-testid="spec-cell">
+                    {editing && rowAsk && rowAsk.name === r.it.name && rowAsk.reply.suggestion ? (
+                      // SLICE 1d (owner T-b 6): the edit's text was not read exactly -- ask before saving.
+                      <div className="max-w-[18rem] rounded border border-amber-500/40 bg-amber-50 p-1.5 text-[10px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" data-testid="row-spec-question">
+                        <div>{specQuestion(
+                          String(rowAsk.patch.attributes_patch?.item_name ?? r.it.attributes?.item_name ?? ""),
+                          String(rowAsk.patch.attributes_patch?.item_detail ?? r.it.attributes?.item_detail ?? ""),
+                          rowAsk.reply.suggestion,
+                        )}</div>
+                        <div className="mt-1 flex gap-1">
+                          <Button size="sm" className="h-6 px-2 text-[10px]" disabled={rowSaving} onClick={() => void answerRowAsk("accept")} aria-label="Accept suggestion">{SPEC_CONFIRM_COPY.accept}</Button>
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" disabled={rowSaving} onClick={() => void answerRowAsk("reject")} aria-label="Reject suggestion">{SPEC_CONFIRM_COPY.reject}</Button>
+                        </div>
+                      </div>
+                    ) : specConfirmedInfo(r.it) ? (
+                      // SLICE 1d (owner T-b 5): a CONFIRMED item -- amber, who and when, distinct from the grey
+                      // "read from spec" and the red "won't price".
+                      <Badge
+                        className="h-auto whitespace-normal border-amber-500/50 bg-amber-100 px-1 py-0.5 text-[10px] font-normal leading-tight text-amber-900 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-200"
+                        variant="outline"
+                        data-testid="spec-confirmed"
+                      >
+                        {confirmedTag(specConfirmedInfo(r.it)!.by, specConfirmedInfo(r.it)!.at)}
+                      </Badge>
+                    ) : specNotUnderstoodReason(r.it) ? (
+                      <div>
+                        <Badge variant="destructive" className="h-4 px-1 text-[10px] leading-none">{SPEC_COPY.wontPrice}</Badge>
+                        <div className="mt-0.5 max-w-[16rem] text-[10px] text-destructive">{specNotUnderstoodReason(r.it)}</div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">{SPEC_COPY.readFromSpec}</span>
+                    )}
+                  </TableCell>
+                )}
                 <TableCell>{r.it.brand}</TableCell>
                 {attrCols.map((d) => (
-                  <TableCell key={d.id}>
-                    {editing ? (
+                  <TableCell
+                    key={d.id}
+                    className={specMode ? "bg-muted/40 text-muted-foreground" : undefined}
+                    title={specMode ? SPEC_COPY.readFromSpec : undefined}
+                  >
+                    {editing && !specMode ? (
                       <Input
                         className="h-7 w-28 text-xs"
                         value={draftAttrs[d.id] ?? ""}
@@ -646,7 +815,7 @@ export function RateMasterDataViewer({
             })}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3} className="text-center text-muted-foreground">
+                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + textCols.length + (specMode ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3} className="text-center text-muted-foreground">
                   No rows match.
                 </TableCell>
               </TableRow>
@@ -696,6 +865,8 @@ export function RateMasterDataViewer({
           config={config}
           rateCols={rateCols}
           kinds={kinds}
+          specMode={specMode}
+          textDefs={textCols}
           onCreate={onCreateItem}
         />
       )}
@@ -706,18 +877,41 @@ export function RateMasterDataViewer({
 // RM-4a: the Add-item form -- selects/inputs built from the attribute definitions + the known rate
 // keys. Attribute choices come from each definition's stored values; numbers + rates are free inputs.
 // Manual provenance ("Manual entry", batch manual-...) is stamped server-side.
+/**
+ * SLICE 1f -- the duplicate warning in a form (owner Y-a / Y-b 3 / Y-e): the approved sentence with BOTH wordings
+ * and BOTH sets of numbers, Confirm / Decline. The same text as the upload preview; nothing is decided here.
+ */
+function TwinQuestion({ twin, busy, onAnswer, testId }: {
+  twin: UploadTwin; busy: boolean; onAnswer: (d: TwinDecision) => void; testId: string;
+}) {
+  return (
+    <div className="max-w-[24rem] rounded border border-orange-500/50 bg-orange-50 p-1.5 text-left text-[10px] text-orange-950 dark:bg-orange-950/30 dark:text-orange-200" data-testid={testId}>
+      <div>{TWIN_COPY.warning(twin.existing_wording, twin.item_uid, twin.row_wording)}</div>
+      {twin.case === "edit" && twin.edited_item_uid ? <div className="mt-0.5">{TWIN_COPY.editNote(twin.edited_item_uid)}</div> : null}
+      <div className="mt-0.5 font-mono">{TWIN_COPY.existingNumbers}: {twinNumbers(twin.existing_rates) || "—"}</div>
+      <div className="font-mono">{TWIN_COPY.rowNumbers}: {twinNumbers(twin.row_rates) || "—"}</div>
+      <div className="mt-1 flex gap-1">
+        <Button size="sm" className="h-6 px-2 text-[10px]" disabled={busy} onClick={() => onAnswer("confirm")} aria-label="Confirm duplicate">{TWIN_COPY.confirm}</Button>
+        <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" disabled={busy} onClick={() => onAnswer("decline")} aria-label="Decline duplicate">{TWIN_COPY.decline}</Button>
+      </div>
+    </div>
+  );
+}
+
 function AddItemDialog({
-  open, onOpenChange, config, rateCols, kinds, onCreate,
+  open, onOpenChange, config, rateCols, kinds, specMode, textDefs, onCreate,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   config: RateCategoryConfig;
   rateCols: string[];
   kinds: string[];
-  onCreate: (payload: {
-    kind: string; brand?: string; unit?: string;
-    attributes: Record<string, string | number>; rates: Record<string, number | null>;
-  }) => Promise<void>;
+  // SLICE 1c: a spec-driven category -- the form takes Item + Item detail + unit + the numbers, and
+  // NOTHING else; the server runs the reader on save (the same one the upload uses) and flags what it
+  // cannot understand. No brand, no attribute inputs: there is no back door.
+  specMode?: boolean;
+  textDefs?: AttributeDefinition[];
+  onCreate: (payload: CreateItemPayload) => Promise<SpecConfirmationReply | undefined | void>;
 }) {
   const attrDefs = useMemo(() => config.attribute_definitions.filter((d) => d.id !== "brand"), [config]);
   const brandDef = useMemo(() => config.attribute_definitions.find((d) => d.id === "brand"), [config]);
@@ -728,13 +922,66 @@ function AddItemDialog({
   const [rates, setRates] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // SLICE 1d: the server's "needs confirmation" reply for THIS entry -- the form asks before anything is saved.
+  const [ask, setAsk] = useState<{ payload: CreateItemPayload; reply: SpecConfirmationReply } | null>(null);
+  // SLICE 1f (owner Y-a): the entry means the same as an existing item -- the server wrote NOTHING and asks;
+  // Confirm updates the EXISTING item's rates (no new item), Decline sends nothing and leaves the form open.
+  const [twinAsk, setTwinAsk] = useState<{ payload: CreateItemPayload; twin: UploadTwin } | null>(null);
+
+  const send = async (payload: CreateItemPayload) => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const reply = await onCreate(payload);
+      if (reply && reply.needs_confirmation) {
+        setAsk({ payload, reply });
+        return;
+      }
+      setAsk(null);
+      if (reply && reply.needs_twin_confirmation && reply.twin) {
+        setTwinAsk({ payload, twin: reply.twin });
+        return;
+      }
+      setTwinAsk(null);
+      onOpenChange(false);
+      setAttrs({});
+      setRates({});
+    } catch (e) {
+      setErr((e as { message?: string })?.message ?? "Create failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const answerAsk = async (d: SpecDecision) => {
+    if (!ask) return;
+    const fp = ask.reply.suggestion?.fingerprint;
+    await send({ ...ask.payload, spec_decision: d, spec_fingerprint: d === "accept" ? fp : undefined });
+  };
+  const answerTwin = async (d: TwinDecision) => {
+    if (!twinAsk) return;
+    if (d === "decline") {
+      setTwinAsk(null);          // no request, no change; the entry stays for the user to change or cancel
+      return;
+    }
+    await send({ ...twinAsk.payload, twin_decision: "confirm", twin_fingerprint: twinAsk.twin.fingerprint });
+  };
 
   const submit = async () => {
+    setAsk(null);
+    setTwinAsk(null);
     const attributes: Record<string, string | number> = {};
-    for (const d of attrDefs) {
-      const raw = attrs[d.id];
-      if (raw === undefined || raw === "") continue;
-      attributes[d.id] = coerceAttributeForStorage(d, raw);
+    if (specMode) {
+      for (const d of textDefs ?? []) attributes[d.id] = attrs[d.id] ?? "";
+      if (!String(attributes.item_name ?? "").trim()) {
+        setErr(`${SPEC_COPY.itemLabel} is required.`);
+        return;
+      }
+    } else {
+      for (const d of attrDefs) {
+        const raw = attrs[d.id];
+        if (raw === undefined || raw === "") continue;
+        attributes[d.id] = coerceAttributeForStorage(d, raw);
+      }
     }
     const rateOut: Record<string, number | null> = {};
     for (const k of rateCols) {
@@ -747,18 +994,7 @@ function AddItemDialog({
       }
       rateOut[k] = n;
     }
-    setSaving(true);
-    setErr(null);
-    try {
-      await onCreate({ kind, brand: brand || undefined, unit: unit || undefined, attributes, rates: rateOut });
-      onOpenChange(false);
-      setAttrs({});
-      setRates({});
-    } catch (e) {
-      setErr((e as { message?: string })?.message ?? "Create failed");
-    } finally {
-      setSaving(false);
-    }
+    await send({ kind, brand: specMode ? undefined : (brand || undefined), unit: unit || undefined, attributes, rates: rateOut });
   };
 
   return (
@@ -784,15 +1020,31 @@ function AddItemDialog({
               </Select>
             )}
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">brand</span>
-            <Input className="h-8" value={brand} onChange={(e) => setBrand(e.target.value)} />
-          </label>
+          {!specMode && (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">brand</span>
+              <Input className="h-8" value={brand} onChange={(e) => setBrand(e.target.value)} />
+            </label>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">unit</span>
             <Input className="h-8" value={unit} onChange={(e) => setUnit(e.target.value)} />
           </label>
-          {attrDefs.map((d) => (
+          {specMode && (textDefs ?? []).map((d) => (
+            <label key={d.id} className="col-span-2 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">{d.label}</span>
+              <Input
+                className="h-8"
+                value={attrs[d.id] ?? ""}
+                onChange={(e) => setAttrs((p) => ({ ...p, [d.id]: e.target.value }))}
+                aria-label={`${d.label} value`}
+              />
+            </label>
+          ))}
+          {specMode && (
+            <p className="col-span-2 text-[11px] text-muted-foreground">{SPEC_COPY.addHint}</p>
+          )}
+          {!specMode && attrDefs.map((d) => (
             <label key={d.id} className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{d.label}</span>
               {/* a DROPDOWN type with a static list gets a Select; a number_choice whose domain is
@@ -830,9 +1082,26 @@ function AddItemDialog({
           ))}
         </div>
         {err && <p className="text-xs text-destructive">{err}</p>}
+        {ask && ask.reply.suggestion ? (
+          // SLICE 1d (owner T-b 6): the entry was not read exactly -- the same question the upload asks,
+          // answered BEFORE anything is saved. Reject saves it flagged; Accept saves it confirmed.
+          <div className="rounded border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" data-testid="add-spec-question">
+            <div>{specQuestion(String(ask.payload.attributes.item_name ?? ""), String(ask.payload.attributes.item_detail ?? ""), ask.reply.suggestion)}</div>
+            {ask.reply.suggestion.notes.length ? (
+              <div className="mt-0.5 text-[11px] opacity-80">{Array.from(new Set(ask.reply.suggestion.notes)).join("; ")}</div>
+            ) : null}
+            <div className="mt-1.5 flex gap-2">
+              <Button size="sm" className="h-7" disabled={saving} onClick={() => void answerAsk("accept")} aria-label="Accept suggestion">{SPEC_CONFIRM_COPY.accept}</Button>
+              <Button size="sm" variant="outline" className="h-7" disabled={saving} onClick={() => void answerAsk("reject")} aria-label="Reject suggestion">{SPEC_CONFIRM_COPY.reject}</Button>
+            </div>
+          </div>
+        ) : null}
+        {twinAsk ? (
+          <TwinQuestion twin={twinAsk.twin} busy={saving} onAnswer={(d) => void answerTwin(d)} testId="add-twin-question" />
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={() => void submit()} disabled={saving || !kind}>Add item</Button>
+          <Button onClick={() => void submit()} disabled={saving || !kind || !!ask || !!twinAsk}>Add item</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

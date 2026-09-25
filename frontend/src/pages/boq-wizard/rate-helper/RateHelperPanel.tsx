@@ -6,12 +6,24 @@
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check } from "lucide-react";
+import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard, COPY_CONFIRM_MS } from "@/lib/clipboard";
 import { resolveRateHelpers } from "./rateHelperRegistry";
+// SLICE 6: the item-list view a list-mode suggestion carries, its session-edit operations and the two override
+// keys the panel writes them under (the helper decodes them -- edits never leave the panel session).
+import {
+  applyItemEdit,
+  ITEM_LIST_OVERRIDE_KEY,
+  itemsOnScreen,
+  ROW_UNIT_OVERRIDE_KEY,
+  rowTotals,
+  type ItemEditOp,
+  type ItemListSuggestion,
+  type ItemListView,
+} from "./pricingSheetHelper";
 import {
   attrDisplayValue,
   attrNoteText,
@@ -81,6 +93,9 @@ export interface UseMeta {
   correctedAttributes: Record<string, string>;
   /** The interpreter-computed value for this kind (before any manual final override). */
   computedValue: number | null;
+  /** SLICE 6 (T5): on an item-list row, the items ON SCREEN at Use -- family, source, every field as shown,
+   * quantity -- so the correction record can carry what people changed. Absent on every other row. */
+  itemsOnScreen?: ReturnType<typeof itemsOnScreen>;
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -124,6 +139,43 @@ function CopyFigureButton({ value, label }: { value: number; label: string }) {
     >
       {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
     </button>
+  );
+}
+
+/**
+ * SLICE 6 -- THE ONE RENDERER of a line's three figures (Supply / Install / Combined, each with its copy control).
+ * It used to live inline in `renderSection`; the item blocks and the row total needed the same three figures,
+ * and the calculator pin ("no second figure render anywhere") is exactly right to refuse a copy -- so the row
+ * moved into a component and every surface mounts it. `copy` off = the figures alone (the row total).
+ */
+function FiguresRow({ figures, copy = true, muted = false, unit }: {
+  figures: Partial<Record<string, number>> | undefined;
+  copy?: boolean;
+  muted?: boolean;
+  /** SLICE 11 (owner addition): the unit the figure is a rate IN, as the BoQ writes it -- shown on every
+   * priced item and on the row total. OMITTED on the non-item-list surface, which is what keeps Electrical's
+   * render byte-identical: the label is opt-in per call site, never a property of this component. */
+  unit?: string | null;
+}) {
+  const label = typeof unit === "string" && unit.trim() !== "" ? unit.trim() : null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+      {DISPLAY_RATE_KINDS.map((k) => {
+        const v = figures?.[k];
+        return (
+          <span key={k} className="inline-flex items-center gap-1 tabular-nums">
+            <span className={muted ? "opacity-70" : "text-muted-foreground"}>{kindLabel(k)}</span>
+            <span className="font-semibold text-foreground">
+              {typeof v === "number" ? v : "—"}
+            </span>
+            {label && typeof v === "number" && (
+              <span className={muted ? "opacity-70" : "text-muted-foreground"}>per {label}</span>
+            )}
+            {copy && typeof v === "number" && <CopyFigureButton value={v} label={kindLabel(k)} />}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -469,7 +521,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           const finalStr =
             finalOverride[helper.id] ?? (typeof computed === "number" ? String(computed) : "");
           const finalNum = Number.parseFloat(finalStr);
-          const canUse = Number.isFinite(finalNum);
+          // SLICE 6: an item-list suggestion renders its blocks instead of the flat attribute list, and "Use
+          // this value" stays disabled until EVERY item priced (S4 -- all or nothing).
+          const itemList = (result as ItemListSuggestion).itemList;
+          const canUse = Number.isFinite(finalNum) && (itemList ? itemList.rowPriced : true);
           return (
             <div key={helper.id} className="rounded-md border">
               <button
@@ -526,7 +581,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                 // below is unchanged, so the two BoQ variants render byte-identically; only the
                 // calculator's CSS order and containers differ. No element is rendered twice.
                 <div className={isCalculator ? "flex flex-col gap-3 border-t px-3 py-2" : "space-y-2 border-t px-3 py-2"}>
-                  {result.workings.attributes.length > 0 && (
+                  {itemList && (
+                    <div className={isCalculator ? "order-2" : undefined}>
+                      <ItemListBlocks
+                        view={itemList}
+                        onEdit={(op) => setAttr(helper.id, ITEM_LIST_OVERRIDE_KEY, JSON.stringify(applyItemEdit(itemList.editState, op)))}
+                        onUnit={(u) => setAttr(helper.id, ROW_UNIT_OVERRIDE_KEY, u)}
+                      />
+                    </div>
+                  )}
+                  {!itemList && result.workings.attributes.length > 0 && (
                     <div
                       className={isCalculator ? "order-2 grid gap-x-6 gap-y-2" : "space-y-1.5"}
                       // Calculator layout slice: the fields flow into N equal columns, N decided by the
@@ -768,7 +832,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       block (a group with empty `figures`, so the three kinds render as em dashes and
                       no copy button) go through the same JSX -- there is deliberately no second
                       renderer of a figure anywhere. */}
-                  {(() => {
+                  {!itemList && (() => {
                     const renderSection = (g: WorkingsGroup, gi: number) => (
                         <div key={gi} className="rounded-md border bg-muted/30 px-2 py-1.5">
                           <div className="text-xs font-semibold text-foreground">{g.label}</div>
@@ -797,20 +861,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               this slice takes off the screen. An older producer with no `figures`
                               renders three dashes rather than a blank. */}
                           {(g.figures !== undefined || Object.keys(g.finals).length > 0) && (
-                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-                              {DISPLAY_RATE_KINDS.map((k) => {
-                                const v = g.figures?.[k];
-                                return (
-                                  <span key={k} className="inline-flex items-center gap-1 tabular-nums">
-                                    <span className="text-muted-foreground">{kindLabel(k)}</span>
-                                    <span className="font-semibold text-foreground">
-                                      {typeof v === "number" ? v : "—"}
-                                    </span>
-                                    {typeof v === "number" && <CopyFigureButton value={v} label={kindLabel(k)} />}
-                                  </span>
-                                );
-                              })}
-                            </div>
+                            <FiguresRow figures={g.figures} />
                           )}
                         </div>
                     );
@@ -906,6 +957,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             result.workings.attributes.map((a) => [a.id, a.value]),
                           ),
                           computedValue: typeof computed === "number" ? computed : null,
+                          ...(itemList ? { itemsOnScreen: itemsOnScreen(itemList) } : {}),
                         })
                       }
                     >
@@ -952,5 +1004,233 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
       </div>
       )}
     </aside>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6 (owner S1-S4, 2026-09-24) -- THE ITEM BLOCKS of an item-list row (the owner-approved mockup, the
+// "Electrical style" artboard). One block per item: its family as the heading, whether the model identified it
+// or the pricer added it, its fields (the same three-way tone as every other field: blank = red border,
+// default = amber fill + "default" tag, a rule note in amber under the field, an undo arrow on an edited
+// field), "Change item" (the family list from the CONFIG), a remove control, the quantity per row unit, and
+// its own working + figures -- or its own refusal. Then "+ Add item" and the row total; all or nothing (S4).
+// Every edit is one operation applied to the session state the helper decodes (S3): nothing is written to
+// the row, and re-opening the panel shows the model's answers again.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+type ItemPicker = { mode: "change"; index: number } | { mode: "add" } | null;
+
+function ItemListBlocks({
+  view,
+  onEdit,
+  onUnit,
+}: {
+  view: ItemListView;
+  onEdit: (op: ItemEditOp) => void;
+  onUnit: (unit: string) => void;
+}) {
+  const [picker, setPicker] = useState<ItemPicker>(null);
+  const n = view.items.length;
+  const bad = view.items.filter((b) => b.state !== "priced").length;
+  const pick = (family: string) => {
+    if (!picker) return;
+    onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family } : { op: "add", family });
+    setPicker(null);
+  };
+  const familyPicker = (title: string) => (
+    <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="item-family-picker">
+      <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{title}</div>
+      {view.families.map((f) => (
+        <button
+          key={f.family}
+          type="button"
+          onClick={() => pick(f.family)}
+          className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+        >
+          {f.family} <span className="text-[11px] text-muted-foreground">&middot; {f.units}</span>
+        </button>
+      ))}
+      <button type="button" onClick={() => setPicker(null)} className="border-t px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-muted">
+        Cancel
+      </button>
+    </div>
+  );
+  return (
+    <div className="space-y-2" data-testid="item-list-blocks">
+      {view.unitPickable && (
+        // the calculator has no row, so the row unit is a pick (a BoQ row supplies its own and never shows this)
+        <label className="flex items-center justify-between gap-2 text-xs">
+          <span className="text-muted-foreground">Row unit</span>
+          <select
+            className="h-7 rounded border bg-background px-1 text-xs"
+            value={view.unit}
+            onChange={(e) => onUnit(e.target.value)}
+            aria-label="Row unit"
+          >
+            {view.unitChoices.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {view.items.map((b, i) => (
+        <div key={i} className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Item {i + 1} &middot; {b.source === "model" ? "identified by model" : "added by you"}
+              </div>
+              <div className="text-xs font-semibold">{b.family ?? "(no family)"}</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setPicker({ mode: "change", index: i })}
+                className="h-6 rounded border bg-background px-1.5 text-[11px] font-medium hover:bg-muted"
+              >
+                Change item
+              </button>
+              <button
+                type="button"
+                onClick={() => { setPicker(null); onEdit({ op: "remove", index: i }); }}
+                aria-label={`Remove item ${i + 1}${b.family ? `, ${b.family}` : ""}`}
+                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          {b.familyRaw && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
+              BoQ says &ldquo;{b.familyRaw}&rdquo;: priced as {b.family} (your rule).
+            </p>
+          )}
+          {picker?.mode === "change" && picker.index === i && familyPicker("Change to…")}
+          {b.fields.map((f) => {
+            const tone = f.blank
+              ? "border-red-500 dark:border-red-500"
+              : f.defaulted
+                ? "bg-amber-50 dark:bg-amber-950/30"
+                : undefined;
+            return (
+              <div key={f.id} className="group/attr space-y-0.5">
+                <label className="flex items-center justify-between gap-2 text-xs">
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    {f.label}
+                    {f.defaulted && (
+                      <span
+                        className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                        title="Filled from a ruled default -- the row text gave no positive identification"
+                      >
+                        default
+                      </span>
+                    )}
+                    {f.userEdited && (
+                      <button
+                        type="button"
+                        onClick={() => onEdit({ op: "undo_attr", index: i, id: f.id })}
+                        title="Undo my edit to this field -- restores the original value"
+                        aria-label={`Undo my edit to ${f.label}`}
+                        className="opacity-0 transition-opacity group-hover/attr:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                      >
+                        <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    )}
+                  </span>
+                  {f.options ? (
+                    <select
+                      className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", tone)}
+                      value={f.value}
+                      onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                    >
+                      <option value="">&mdash; select &mdash;</option>
+                      {f.options.map((o) => (
+                        // SLICE 9 (A-6): the VALUE is what prices; the TEXT may be the catalogue's own word
+                        // for it. Keeping the value real is what stops a controlled select falling back to
+                        // another option (frontend/CLAUDE.md) and keeps the field editable.
+                        <option key={o} value={o}>{f.optionLabels?.[o] ?? o}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      className={cn("h-7 w-28 text-xs", tone)}
+                      value={f.value}
+                      onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                    />
+                  )}
+                </label>
+                {f.rule && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.rule}</p>}
+                {f.note && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.note}</p>}
+              </div>
+            );
+          })}
+          <label className="flex items-center justify-between gap-2 text-xs">
+            {/* SLICE 6b (owner V7): how many of THIS item make up ONE unit of the row -- the row's own quantity
+                plays no part in the rate (the module never reads it).
+                SLICE 6c (owner ruling, 2026-09-24): a quantity the pricer has NOT typed is an ASSUMPTION, and it
+                is the one field that never refuses -- a blank attribute stops the row, but 1 is a real number, so
+                a row needing 2 of something prices low and looks complete. Marked amber with the same "default"
+                tag every other assumed value carries. Nothing reads a quantity from the row. */}
+            <span className="flex items-center gap-1 text-muted-foreground">
+              How many in one {view.unit} of this row
+              {b.qtyDefaulted && (
+                <span
+                  className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                  title="Assumed: one of this item per unit of the row. The row does not say -- change it if it means more."
+                >
+                  default
+                </span>
+              )}
+            </span>
+            <Input
+              className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}
+              value={b.qty}
+              inputMode="decimal"
+              onChange={(e) => onEdit({ op: "set_qty", index: i, qty: e.target.value })}
+            />
+          </label>
+          {b.state === "priced" ? (
+            <div className="space-y-0.5 text-xs text-muted-foreground">
+              {b.skuLine && <div>{b.skuLine}</div>}
+              {b.working.map((line, li) => (
+                <div key={li}>{line}</div>
+              ))}
+              <FiguresRow figures={b.figures} unit={view.unit} />
+            </div>
+          ) : (
+            <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {b.reason}</div>
+          )}
+        </div>
+      ))}
+      {picker?.mode === "add" ? (
+        familyPicker("Add an item")
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPicker({ mode: "add" })}
+          className="inline-flex h-7 items-center gap-1 self-start rounded-md border border-dashed bg-background px-2.5 text-xs font-medium hover:bg-muted"
+        >
+          <Plus className="h-3 w-3" /> Add item
+        </button>
+      )}
+      <div
+        className={cn(
+          "rounded-md border px-2 py-1.5",
+          view.rowPriced
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+            : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300",
+        )}
+        data-testid="item-row-total"
+      >
+        <div className="text-xs font-semibold">Row total per 1 {view.unit}</div>
+        {view.rowPriced ? (
+          <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />
+        ) : (
+          <div className="mt-0.5 text-xs">
+            {n === 0 ? "No items yet." : `${bad} of ${n} item${n === 1 ? "" : "s"} need a person before the row can price.`}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

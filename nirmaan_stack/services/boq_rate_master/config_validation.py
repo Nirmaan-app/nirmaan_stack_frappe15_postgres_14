@@ -122,7 +122,552 @@ _KNOWN_CONFIG_KEYS = {
     # IMPORT, by name -- before, it imported cleanly and only broke later, at the editor. Same trap the
     # EA-2 pass-through keys document; the fix is still "register the key here", just earlier.
     "rules",
+    # SLICE 1c (2026-09-21, owner S-a..S-c): `attributes_from_spec: true` opts a category in to the SPEC
+    # READER -- item_name + item_detail are the source of truth and every other attribute is READ from
+    # them (services/boq_rate_master/spec_reader.py); the CSV omits the derived columns, the screen shows
+    # them read-only, and the manual add/edit form runs the same reader. Pass-through here (allowlist
+    # only, like item_kinds): the consumers branch on `spec_reader.spec_categories`, which reads the key
+    # as `is True`, so a category WITHOUT it -- every Electrical category -- is byte-identical to before.
+    "attributes_from_spec",
+    # SLICE 2 (2026-09-22, owner P-a / P-b / P-c): a category with NOTHING TO PRICE declares its
+    # message and its pending mark IN CONFIG, never in code (the HV-10 rule -- no category named
+    # in code). `helper_message` is what the rate-helper panel and the calculator show instead of
+    # the generic "coming soon" for a config that is not eligible for pricing; `pending_label` is
+    # the mark shown on every empty / zero rate cell of a row in that category until a non-zero
+    # rate is typed. Pass-through here (allowlist only, like item_kinds): the consumers are the
+    # frontend `pricingSheetHelper.compute` and the pricing grid; a config WITHOUT them -- every
+    # Electrical category, and HVAC ADP -- is byte-identical to before.
+    "helper_message", "pending_label",
+    # SLICE 3 (2026-09-22, owner Q-a / Q-b): `alias_of = {discipline, category_id}` -- this category's
+    # rows RESOLVE to another discipline's config, items and catalogue at lookup time; NOTHING is ever
+    # copied between disciplines (a copy would drift: production edits rates by CSV). Structurally
+    # validated below (`_validate_alias_of`): an alias config holds NO pipelines and NO attribute
+    # definitions of its own and may not point at itself. A chain (alias -> alias) cannot be seen
+    # here (one config at a time) and is resolved ONE HOP ONLY by the consumers: the target's own
+    # emptiness makes it ineligible, so the row shows the coming-soon card, never an error.
+    "alias_of",
+    # SLICE 4 (2026-09-23, owner W-a..W-e): `matching_mode: "item_list"` asks the model for a LIST of
+    # items per row, each with its own attributes; `list_spec` declares the PER-ITEM attribute
+    # definitions (types choice | number | text -- text keeps sizes and torques AS STATED, W-d), the
+    # family attribute and the per-row-unit quantity attribute. Validated below (`_validate_list_spec`).
+    # "None" on an allow_none item attribute means NOT MENTIONED (code applies the owner's default
+    # later, W-c); an absent value means COULD NOT TELL (the row is not priced, W-b).
+    "list_spec",
 }
+
+_LIST_MODE = "item_list"
+_LIST_DEF_TYPES = ("choice", "number", "text")
+_LIST_DEF_KEYS = {"id", "label", "type", "values", "allow_none", "note", "values_by_family"}
+
+
+def _validate_list_spec(cfg):
+    """SLICE 4: the shape of `list_spec` and its coupling to the item_list mode. Absent key and a mode
+    other than item_list => nothing to check (byte-identical to before)."""
+    mode = cfg.get("matching_mode")
+    if "list_spec" not in cfg and mode != _LIST_MODE:
+        return
+    if mode != _LIST_MODE:
+        _vthrow("list_spec is only meaningful with matching_mode 'item_list'.")
+    spec = cfg.get("list_spec")
+    if not isinstance(spec, dict):
+        _vthrow("matching_mode 'item_list' needs a list_spec object.")
+    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing"}
+    if unknown:
+        _vthrow(f"list_spec: unknown key(s): {', '.join(sorted(unknown))}.")
+    if "second_opinion" in spec and not isinstance(spec["second_opinion"], bool):
+        _vthrow("list_spec.second_opinion must be true or false.")   # CHECK 2 switch (owner 2026-09-23)
+    defs = spec.get("attribute_definitions")
+    if not isinstance(defs, list) or not defs:
+        _vthrow("list_spec.attribute_definitions must be a non-empty list.")
+    by_id = {}
+    for i, d in enumerate(defs):
+        if not isinstance(d, dict):
+            _vthrow(f"list_spec.attribute_definitions[{i}] must be an object.")
+        did = d.get("id")
+        if not isinstance(did, str) or not did.strip():
+            _vthrow(f"list_spec.attribute_definitions[{i}] needs a non-empty string id.")
+        if did in by_id:
+            _vthrow(f"list_spec: duplicate item attribute id '{did}'.")
+        unknown_def = set(d.keys()) - _LIST_DEF_KEYS
+        if unknown_def:
+            _vthrow(f"list_spec item attribute '{did}': unknown key(s) {', '.join(sorted(unknown_def))}.")
+        if not isinstance(d.get("label"), str) or not d.get("label"):
+            _vthrow(f"list_spec item attribute '{did}' needs a label.")
+        if d.get("type") not in _LIST_DEF_TYPES:
+            _vthrow(f"list_spec item attribute '{did}': type must be one of {', '.join(_LIST_DEF_TYPES)}.")
+        if d["type"] == "choice":
+            vals = d.get("values")
+            if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v.strip() for v in vals):
+                _vthrow(f"list_spec item attribute '{did}': a choice needs a non-empty list of string values.")
+        elif "values" in d:
+            _vthrow(f"list_spec item attribute '{did}': only a choice carries values.")
+        if "allow_none" in d and not isinstance(d["allow_none"], bool):
+            _vthrow(f"list_spec item attribute '{did}': allow_none must be true or false.")
+        if "values_by_family" in d and d.get("type") != "choice":
+            _vthrow(f"list_spec item attribute '{did}': only a choice carries values_by_family.")
+        by_id[did] = d
+    # the family reference is REQUIRED; the qty reference is OPTIONAL (owner ruling D, 2026-09-23: unit
+    # rates -- code uses 1, the user changes it in the panel -- so a spec need not ask for a quantity)
+    for key, want, required in (("family_attribute_id", "choice", True), ("qty_attribute_id", "number", False)):
+        ref = spec.get(key)
+        if ref is None and not required:
+            continue
+        if not isinstance(ref, str) or ref not in by_id:
+            _vthrow(f"list_spec.{key} must name one of the item attribute definitions.")
+        if by_id[ref]["type"] != want:
+            _vthrow(f"list_spec.{key} must name a {want} attribute.")
+    # values_by_family (owner design fix, 2026-09-23): a per-family CHOICE list -- every key names one of
+    # the family attribute's values, every listed value is one of the def's own values (the union), so the
+    # sheet's ladder distinction (fire damper with sleeve / without sleeve / motorised / UL) survives as a
+    # closed pick and never as free text
+    family_vals = set(by_id[spec["family_attribute_id"]].get("values") or [])
+    for did, d in by_id.items():
+        vbf = d.get("values_by_family")
+        if vbf is None:
+            continue
+        if not isinstance(vbf, dict) or not vbf:
+            _vthrow(f"list_spec item attribute '{did}': values_by_family must be a non-empty object.")
+        for fam, vals in vbf.items():
+            if fam not in family_vals:
+                _vthrow(f"list_spec item attribute '{did}': values_by_family key '{fam}' is not a family value.")
+            if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v in d["values"] for v in vals):
+                _vthrow(f"list_spec item attribute '{did}': values_by_family['{fam}'] must list values from the attribute's own values.")
+    # SLICE 5 (2026-09-24, owner R1-R21): the item-list PRICING block, validated in its own namespace below
+    if "pricing" in spec:
+        _validate_list_pricing(spec, by_id, family_vals, cfg)
+
+
+# SLICE 5 -- the keys `list_spec.pricing` may carry. The block is DATA the frontend `itemListPricing` module
+# executes; a misspelled key here would ship a silently inert rule, so the allowlists are closed (the
+# `_KNOWN_DEF_KEYS` precedent).
+_PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_factors", "family_alias",
+                 "no_sku_families", "defaults",
+                 "derive_when_none", "override_when", "numbers", "ladders", "match_attrs", "choice_attrs",
+                 "reason_names", "families", "panel_controls", "second_key"}
+# SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
+# class -- a square foot is an area, but the catalogue quotes per square metre. Such a unit is declared here,
+# NEVER in `unit_classes`: a `unit_classes` spelling is a SYNONYM (factor 1, nothing is scaled), and a
+# `unit_factors` spelling carries a CONVERSION FACTOR to the class's own unit. The factor converts the RATE,
+# never the BoQ's quantity. ABSENT => every row is byte-identical to before this slice.
+_PRICING_UNIT_FACTOR_KEYS = {"class", "factor", "word"}
+
+
+def _norm_unit_spelling(s):
+    """The SAME normalisation the frontend reader uses (`itemListPricing.normUnit`): trim, lower-case, strip
+    ONE trailing dot, collapse whitespace. Duplicated across the language boundary on purpose -- the client
+    reads units and the validator must refuse a spelling the client would resolve twice. ONE trailing dot,
+    not every trailing dot, and in the client's own order -- trim, lower, drop the dot, collapse space."""
+    return re.sub(r"\s+", " ", re.sub(r"\.$", "", str(s or "").strip().lower()))
+# SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
+# definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
+# which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
+_PANEL_CONTROLS = {"dropdown", "text"}
+# SLICE 9 (owner A-1): `component` -- this SKU attribute is ONE AXIS (1 width, 2 height, 3 depth) of a size the
+# row writes as a SINGLE phrase, which CODE splits. ABSENT => the reader is byte-identical to before.
+_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range", "component"}
+# SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
+# beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
+_PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
+_PRICING_PRIMARY_PICKS = {"largest"}
+_PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
+_PRICING_UNIT_KEYS = {"needs", "pipelines"}
+_PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
+# SLICE 6 (owner S6): `absent_as_none` -- an ABSENT answer is read as NOT MENTIONED, so the default fires on it too
+# (declared per attribute; the owner ruled it for UL ONLY, and the config is where that stays).
+_PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none"}
+_PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
+# SLICE 8 (owner M-b): `override_when` -- a stated fact that DECIDES the pick whatever else the row said. Same
+# five keys as `derive_when_none` on purpose; what differs is when it fires (that one fills a "None", this one
+# REPLACES a stated value), so the shape check is deliberately shared and the SEMANTIC difference lives in the
+# frontend module. Its `attr` need NOT be allow_none -- an override does not depend on the row saying nothing.
+# SLICE 9 (owner A-6): `display` -- OPTIONAL, what the PANEL shows for the overridden field (the catalogue's
+# own word for the thing the row now prices as). It never reaches the model and never reaches the matcher.
+_PRICING_OVERRIDE_KEYS = {"attr", "families", "when", "then", "rule", "display"}
+_PRICING_OVERRIDE_REQUIRED = {"attr", "families", "when", "then", "rule"}
+# the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
+_PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
+
+
+def _validate_list_pricing(spec, by_id, family_vals, cfg):
+    """SLICE 5: the shape of `list_spec.pricing` -- the ADP pricing rules as CONFIG. Every attribute a rule names
+    is checked in the namespace it reads from: a SKU attribute (a `numbers` key, a `choice_attrs` entry or the
+    projected `unit_class_attr`), a model text attribute (`numbers[*].from` must name a `text` item def), a family
+    (a family-attribute value, or an alias target that is one), a unit class (a `unit_classes` key). Every pipeline
+    step is one of the existing interpreter steps, with the same per-step shape checks the config-level pipelines
+    get. A block that names nothing wrong but is absent is byte-identical to before (the key is optional)."""
+    pr = spec.get("pricing")
+    if not isinstance(pr, dict):
+        _vthrow("list_spec.pricing must be an object.")
+    unknown = set(pr.keys()) - _PRICING_KEYS
+    if unknown:
+        _vthrow(f"list_spec.pricing: unknown key(s): {', '.join(sorted(unknown))}.")
+    for key in ("kind", "unit_class_attr"):
+        if not isinstance(pr.get(key), str) or not pr.get(key).strip():
+            _vthrow(f"list_spec.pricing.{key} must be a non-empty string.")
+    kinds = cfg.get("item_kinds") or []
+    if pr["kind"] not in kinds:
+        _vthrow(f"list_spec.pricing.kind '{pr['kind']}' is not one of the config's item_kinds.")
+    ucls = pr.get("unit_classes")
+    if not isinstance(ucls, dict) or not ucls or not all(
+        isinstance(k, str) and isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v) for k, v in ucls.items()
+    ):
+        _vthrow("list_spec.pricing.unit_classes must map each class to a non-empty list of unit spellings.")
+    if pr["unit_class_attr"] in by_id:
+        _vthrow(f"list_spec.pricing.unit_class_attr '{pr['unit_class_attr']}' collides with an item attribute definition.")
+    uw = pr.get("unit_words")
+    if uw is not None and (not isinstance(uw, dict) or set(uw) - set(ucls) or not all(isinstance(v, str) and v for v in uw.values())):
+        _vthrow("list_spec.pricing.unit_words must name unit classes only, each with a word.")
+    # SLICE 11: `unit_factors` -- a unit of a declared class quoted in a DIFFERENT unit of it. The factor
+    # scales the RATE to that unit; `word` is how the note names it. A factor of 1 is a SYNONYM and belongs
+    # in `unit_classes`, so it is refused here -- otherwise one unit could be declared twice, in two places,
+    # and the reader would silently pick one.
+    uf = pr.get("unit_factors")
+    if uf is not None:
+        if not isinstance(uf, dict) or not uf:
+            _vthrow("list_spec.pricing.unit_factors must be a non-empty object of unit spelling -> {class, factor, word}.")
+        known = set()
+        for cls_spellings in ucls.values():
+            known |= {_norm_unit_spelling(s) for s in cls_spellings}
+        for spelling, d in uf.items():
+            if not isinstance(spelling, str) or not spelling.strip():
+                _vthrow("list_spec.pricing.unit_factors: every key must be a non-empty unit spelling.")
+            if not isinstance(d, dict):
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'] must be an object.")
+            unk = set(d) - _PRICING_UNIT_FACTOR_KEYS
+            if unk:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}']: unknown key(s): {', '.join(sorted(unk))}.")
+            if d.get("class") not in ucls:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'].class must name a unit_classes key.")
+            f = d.get("factor")
+            if not isinstance(f, (int, float)) or isinstance(f, bool) or not (f > 0):
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'].factor must be a positive number.")
+            if float(f) == 1.0:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'].factor 1 is a synonym -- declare it in unit_classes instead.")
+            if not isinstance(d.get("word"), str) or not d["word"].strip():
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'] needs a word naming the unit.")
+            if _norm_unit_spelling(spelling) in known:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'] is already a unit_classes spelling -- a unit is declared in one place only.")
+    # numbers: SKU attribute <- the model's text attributes
+    numbers = pr.get("numbers")
+    if not isinstance(numbers, dict) or not numbers:
+        _vthrow("list_spec.pricing.numbers must be a non-empty object.")
+    text_ids = {i for i, d in by_id.items() if d.get("type") == "text"}
+    for nid, rd in numbers.items():
+        if not isinstance(rd, dict):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'] must be an object.")
+        unk = set(rd) - _PRICING_NUMBER_KEYS
+        if unk:
+            _vthrow(f"list_spec.pricing.numbers['{nid}']: unknown key(s): {', '.join(sorted(unk))}.")
+        frm = rd.get("from")
+        if not isinstance(frm, list) or not frm or not all(isinstance(f, str) and f in text_ids for f in frm):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].from must list text item attribute definitions.")
+        if not isinstance(rd.get("name"), str) or not rd.get("name"):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'] needs a name.")
+        for bkey in ("square", "ratio"):
+            if bkey in rd and not isinstance(rd[bkey], bool):
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].{bkey} must be true or false.")
+        if "reject_tokens" in rd and (not isinstance(rd["reject_tokens"], list) or not all(isinstance(t, str) and t for t in rd["reject_tokens"])):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_tokens must be a list of strings.")
+        if "reject_below" in rd and not _is_finite_number(rd["reject_below"]):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_below must be a finite number.")
+        if "range" in rd and rd["range"] != "max":
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].range must be 'max'.")
+        # SLICE 9 (A-1): an axis index, 1..3. A `component` on a reader whose `from` names several attributes is
+        # refused: the phrase must come from ONE field, or which field an axis came from would be ambiguous.
+        if "component" in rd:
+            if rd["component"] not in (1, 2, 3) or isinstance(rd["component"], bool):
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].component must be 1, 2 or 3 (width, height, depth).")
+            if len(frm) != 1:
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].component needs exactly one `from` attribute.")
+    choice_attrs = pr.get("choice_attrs")
+    if not isinstance(choice_attrs, list) or not all(isinstance(c, str) and by_id.get(c, {}).get("type") == "choice" for c in choice_attrs):
+        _vthrow("list_spec.pricing.choice_attrs must list choice item attribute definitions.")
+    sku_attrs = set(numbers) | set(choice_attrs)
+    if set(numbers) & set(choice_attrs):
+        _vthrow("list_spec.pricing: an attribute cannot be both a number reader and a choice.")
+    for key in ("ladders", "match_attrs"):
+        lst = pr.get(key)
+        if not isinstance(lst, list) or not all(isinstance(a, str) and a in sku_attrs for a in lst):
+            _vthrow(f"list_spec.pricing.{key} must list SKU attributes (a numbers key or a choice_attrs entry).")
+    rn = pr.get("reason_names")
+    if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
+        _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")
+    # SLICE 6b: panel_controls -- OPTIONAL as a block (absent = today's controls), but when declared it must be COMPLETE
+    # over every attribute the panel can show (the SKU attributes, the family attribute, a derive_when_none source)
+    # and closed to that namespace, each with a known control. A missing attribute would fall back silently to a
+    # code default, which is the "declared per attribute" rule (V5) failing without a sound.
+    pc = pr.get("panel_controls")
+    if pc is not None:
+        if not isinstance(pc, dict):
+            _vthrow("list_spec.pricing.panel_controls must be an object.")
+        panel_ns = set(sku_attrs)
+        fam_attr = spec.get("family_attribute_id")
+        if isinstance(fam_attr, str) and fam_attr:
+            panel_ns.add(fam_attr)
+        for rule in pr.get("derive_when_none") or []:
+            when = rule.get("when") if isinstance(rule, dict) else None
+            if isinstance(when, dict) and isinstance(when.get("attr"), str):
+                panel_ns.add(when["attr"])
+        unknown_pc = set(pc) - panel_ns
+        if unknown_pc:
+            _vthrow(f"list_spec.pricing.panel_controls names attribute(s) the panel cannot show: {', '.join(sorted(unknown_pc))}.")
+        bad_pc = sorted(k for k, v in pc.items() if v not in _PANEL_CONTROLS)
+        if bad_pc:
+            _vthrow(f"list_spec.pricing.panel_controls: each control must be one of {sorted(_PANEL_CONTROLS)} (bad: {', '.join(bad_pc)}).")
+        missing_pc = panel_ns - set(pc)
+        if missing_pc:
+            _vthrow(f"list_spec.pricing.panel_controls must declare every attribute the panel can show; missing: {', '.join(sorted(missing_pc))}.")
+    # families: the family attribute's values, through the alias
+    alias = pr.get("family_alias") or {}
+    if not isinstance(alias, dict) or not all(isinstance(k, str) and isinstance(v, str) and k in family_vals and v in family_vals and k != v for k, v in alias.items()):
+        _vthrow("list_spec.pricing.family_alias must map family values to other family values.")
+    nsf = pr.get("no_sku_families") or []
+    if not isinstance(nsf, list) or not all(isinstance(f, str) and f in family_vals for f in nsf):
+        _vthrow("list_spec.pricing.no_sku_families must list family values.")
+    fams = pr.get("families")
+    if not isinstance(fams, dict) or not fams:
+        _vthrow("list_spec.pricing.families must be a non-empty object.")
+    for fname, f in fams.items():
+        loc = f"list_spec.pricing.families['{fname}']"
+        if fname not in family_vals or fname in alias or fname in nsf:
+            _vthrow(f"{loc}: not a priceable family value (must be a family value that is neither an alias nor a no-SKU family).")
+        if not isinstance(f, dict):
+            _vthrow(f"{loc} must be an object.")
+        unk = set(f) - _PRICING_FAMILY_KEYS
+        if unk:
+            _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+        needs = f.get("needs")
+        if not isinstance(needs, list) or not all(isinstance(n, str) and n in sku_attrs for n in needs):
+            _vthrow(f"{loc}.needs must list SKU attributes.")
+        units = f.get("units")
+        if not isinstance(units, dict) or not units:
+            _vthrow(f"{loc}.units must be a non-empty object keyed by unit class.")
+        for cls, u in units.items():
+            uloc = f"{loc}.units['{cls}']"
+            if cls not in ucls:
+                _vthrow(f"{uloc}: '{cls}' is not a unit class.")
+            if not isinstance(u, dict) or set(u) - _PRICING_UNIT_KEYS:
+                _vthrow(f"{uloc} must be an object with needs / pipelines only.")
+            if "needs" in u and (not isinstance(u["needs"], list) or not all(isinstance(n, str) and n in sku_attrs for n in u["needs"])):
+                _vthrow(f"{uloc}.needs must list SKU attributes.")
+            # SLICE 6 (owner T7): a block WITHOUT pipelines runs the config's own `pipelines` -- the shared per-item
+            # default -- so the config must declare them (a non-empty `pipelines` is also what makes the list-mode
+            # category eligible). A block WITH pipelines keeps its own (a conversion, a derived family).
+            if "pipelines" in u:
+                _validate_pricing_pipelines(u.get("pipelines"), uloc, pr, sku_attrs)
+            elif not cfg.get("pipelines"):
+                _vthrow(f"{uloc} declares no pipelines and the config's own pipelines are empty -- nothing would price this block.")
+        conv = f.get("convert")
+        if conv is not None:
+            if not isinstance(conv, dict):
+                _vthrow(f"{loc}.convert must be an object keyed by the ROW's unit class.")
+            for cls, opts in conv.items():
+                cloc = f"{loc}.convert['{cls}']"
+                if cls not in ucls:
+                    _vthrow(f"{cloc}: '{cls}' is not a unit class.")
+                if cls in units:
+                    _vthrow(f"{cloc}: the family already prices per {cls}; a conversion from it is unreachable.")
+                if not isinstance(opts, list) or not opts:
+                    _vthrow(f"{cloc} must be a non-empty list of options.")
+                for oi, o in enumerate(opts):
+                    oloc = f"{cloc}[{oi}]"
+                    if not isinstance(o, dict) or set(o) - _PRICING_CONVERT_KEYS:
+                        _vthrow(f"{oloc} must be an object with to / needs / rule / pipelines only.")
+                    if o.get("to") not in units:
+                        _vthrow(f"{oloc}.to must name a unit class the family prices.")
+                    if not isinstance(o.get("needs"), list) or not o["needs"] or not all(isinstance(n, str) and n in sku_attrs for n in o["needs"]):
+                        _vthrow(f"{oloc}.needs must be a non-empty list of SKU attributes.")
+                    if not isinstance(o.get("rule"), str) or not o["rule"]:
+                        _vthrow(f"{oloc}.rule must be a non-empty string.")
+                    _validate_pricing_pipelines(o.get("pipelines"), oloc, pr, sku_attrs)
+    # SLICE 6 (T7): the config-level pipelines of a list-mode config ARE per-item pipelines (the shared default), so
+    # they pass the item-list shape checks as well as the generic pipeline checks
+    if cfg.get("pipelines"):
+        _validate_pricing_pipelines(cfg.get("pipelines"), "list_spec.pricing (the config's own pipelines)", pr, sku_attrs)
+    # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
+    dfl = pr.get("defaults") or {}
+    if not isinstance(dfl, dict):
+        _vthrow("list_spec.pricing.defaults must be an object.")
+    for attr, d in dfl.items():
+        dloc = f"list_spec.pricing.defaults['{attr}']"
+        if attr not in choice_attrs or not by_id[attr].get("allow_none"):
+            _vthrow(f"{dloc}: only an allow_none choice attribute may carry a default.")
+        if not isinstance(d, dict) or set(d) - _PRICING_DEFAULT_KEYS or not isinstance(d.get("rule"), str) or not d["rule"]:
+            _vthrow(f"{dloc} must be an object with rule and value / by_family.")
+        vals = by_id[attr]["values"]
+        if ("value" in d) == ("by_family" in d):
+            _vthrow(f"{dloc} must carry exactly one of value / by_family.")
+        if "absent_as_none" in d and not isinstance(d["absent_as_none"], bool):
+            _vthrow(f"{dloc}.absent_as_none must be true or false.")
+        if "value" in d and d["value"] not in vals:
+            _vthrow(f"{dloc}.value must be one of the attribute's values.")
+        if "by_family" in d and (not isinstance(d["by_family"], dict) or not d["by_family"] or not all(
+                k in fams and v in vals for k, v in d["by_family"].items())):
+            _vthrow(f"{dloc}.by_family must map priceable families to the attribute's values.")
+    dwn = pr.get("derive_when_none") or []
+    if not isinstance(dwn, list):
+        _vthrow("list_spec.pricing.derive_when_none must be a list.")
+    for i, r in enumerate(dwn):
+        rloc = f"list_spec.pricing.derive_when_none[{i}]"
+        if not isinstance(r, dict) or set(r) - _PRICING_DERIVE_KEYS or set(_PRICING_DERIVE_KEYS) - set(r):
+            _vthrow(f"{rloc} must carry attr / families / when / then / rule.")
+        if r["attr"] not in choice_attrs or not by_id[r["attr"]].get("allow_none"):
+            _vthrow(f"{rloc}.attr must be an allow_none choice attribute.")
+        if r["then"] not in by_id[r["attr"]]["values"]:
+            _vthrow(f"{rloc}.then must be one of the attribute's values.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        w = r["when"]
+        if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in by_id or by_id[w["attr"]].get("type") != "choice" or w["equals"] not in by_id[w["attr"]]["values"]:
+            _vthrow(f"{rloc}.when must be {{attr: a choice attribute, equals: one of its values}}.")
+        if not isinstance(r["rule"], str) or not r["rule"]:
+            _vthrow(f"{rloc}.rule must be a non-empty string.")
+    # SLICE 8 (owner M-b): the overrides. Every name is checked in the namespace it reads from, exactly as
+    # `derive_when_none` is: the target and the condition are both CHOICE attributes of this category, the
+    # values are from their own vocabularies, and the families are priceable ones. The one deliberate
+    # difference from `derive_when_none` is that the TARGET need not be allow_none -- an override replaces a
+    # value the row DID state, so "the row may leave it unsaid" is not a precondition of it.
+    # the presence test comes BEFORE the `or []` idiom on purpose: an EMPTY dict is falsy, so `or []` would
+    # swallow `"override_when": {}` and ship a silently inert key -- the exact failure the closed allowlists exist
+    # to prevent. Absent is still absent, and still fine.
+    if "override_when" in pr and not isinstance(pr["override_when"], list):
+        _vthrow("list_spec.pricing.override_when must be a list.")
+    ovr = pr.get("override_when") or []
+    for i, r in enumerate(ovr):
+        rloc = f"list_spec.pricing.override_when[{i}]"
+        if not isinstance(r, dict) or set(r) - _PRICING_OVERRIDE_KEYS or _PRICING_OVERRIDE_REQUIRED - set(r):
+            _vthrow(f"{rloc} must carry attr / families / when / then / rule.")
+        if "display" in r and (not isinstance(r["display"], str) or not r["display"].strip()):
+            _vthrow(f"{rloc}.display must be a non-empty string.")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute.")
+        if r["then"] not in by_id[r["attr"]]["values"]:
+            _vthrow(f"{rloc}.then must be one of the attribute's values.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        w = r["when"]
+        if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in choice_attrs or w["equals"] not in by_id[w["attr"]]["values"]:
+            _vthrow(f"{rloc}.when must be {{attr: a choice attribute, equals: one of its values}}.")
+        if w["attr"] == r["attr"]:
+            _vthrow(f"{rloc}: an override cannot be conditioned on the attribute it sets.")
+        if not isinstance(r["rule"], str) or not r["rule"]:
+            _vthrow(f"{rloc}.rule must be a non-empty string.")
+    # SLICE 9 (owner A-4): the SECOND KEYS. `primary` and every `key` entry are SKU attributes of this category,
+    # so a typo cannot ship a rule that reads an attribute nothing carries. `alt_key` is deliberately NOT checked
+    # against that namespace: it names attributes the CATALOGUE carries (the spec reader's alternative wording),
+    # which no config declares -- it is checked for shape and for not colliding with the key itself.
+    # Presence before the `or []` idiom, for the reason recorded above `override_when`.
+    if "second_key" in pr and not isinstance(pr["second_key"], list):
+        _vthrow("list_spec.pricing.second_key must be a list.")
+    for i, r in enumerate(pr.get("second_key") or []):
+        rloc = f"list_spec.pricing.second_key[{i}]"
+        if not isinstance(r, dict) or set(r) - _PRICING_SECOND_KEY_KEYS or {"families", "primary", "key", "name", "primary_pick"} - set(r):
+            _vthrow(f"{rloc} must carry families / primary / key / name / primary_pick (alt_key optional).")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        if r["primary"] not in sku_attrs:
+            _vthrow(f"{rloc}.primary must be a SKU attribute.")
+        if not isinstance(r["key"], list) or not r["key"] or not all(isinstance(k, str) and k in sku_attrs for k in r["key"]):
+            _vthrow(f"{rloc}.key must be a non-empty list of SKU attributes.")
+        if r["primary"] in r["key"]:
+            _vthrow(f"{rloc}.key cannot contain the primary key.")
+        if "alt_key" in r:
+            ak = r["alt_key"]
+            if not isinstance(ak, list) or len(ak) != len(r["key"]) or not all(isinstance(k, str) and k.strip() for k in ak):
+                _vthrow(f"{rloc}.alt_key must list one catalogue attribute per key entry.")
+            if set(ak) & set(r["key"]):
+                _vthrow(f"{rloc}.alt_key cannot name a key attribute.")
+        if not isinstance(r["name"], str) or not r["name"]:
+            _vthrow(f"{rloc}.name must be a non-empty string.")
+        if r["primary_pick"] not in _PRICING_PRIMARY_PICKS:
+            _vthrow(f"{rloc}.primary_pick must be one of {sorted(_PRICING_PRIMARY_PICKS)}.")
+
+
+def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
+    """The pipelines an item-list unit block / conversion option declares: existing steps only, with the shape
+    checks the config-level pipelines get; every `_from_attr` names a SKU attribute; a component_ref's ref
+    names the pricing kind and, beyond kind / qty, only SKU attributes or the projected unit-class key."""
+    if not isinstance(pipelines, dict) or not pipelines:
+        _vthrow(f"{loc}.pipelines must be a non-empty object.")
+    readable = set(sku_attrs) | {pr["unit_class_attr"], "family"}
+    for pid, p in pipelines.items():
+        ploc = f"{loc}.pipelines['{pid}']"
+        if not isinstance(p, dict):
+            _vthrow(f"{ploc} must be an object.")
+        if not isinstance(p.get("output"), list) or not p["output"] or not all(isinstance(o, str) and o for o in p["output"]):
+            _vthrow(f"{ploc}: output must be a non-empty list of strings.")
+        steps = p.get("steps")
+        if not isinstance(steps, list) or not steps:
+            _vthrow(f"{ploc}: steps must be a non-empty list.")
+        for si, s in enumerate(steps):
+            where = f"{ploc} step {si}"
+            if not isinstance(s, dict):
+                _vthrow(f"{where}: must be an object.")
+            st = s.get("step")
+            if st not in _PRICING_STEP_TYPES:
+                _vthrow(f"{where}: step '{st}' is not one of the item-list pricing steps ({', '.join(sorted(_PRICING_STEP_TYPES))}).")
+            if st == "match_master_row":
+                params = s.get("params")
+                if not isinstance(params, dict) or params.get("kind") != pr["kind"]:
+                    _vthrow(f"{where}: match_master_row must match the pricing kind '{pr['kind']}'.")
+            elif st == "scale":
+                for key in ("target", "result", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: scale needs a string '{key}'.")
+                _validate_params(s.get("params"), where)
+                for pk, pv in (s.get("params") or {}).items():
+                    if pk.endswith(_FROM_ATTR_SUFFIX) and pv not in sku_attrs:
+                        _vthrow(f"{where}: '{pk}' names '{pv}', which is not a SKU attribute.")
+            elif st == "roundup":
+                if not isinstance(s.get("target"), str) or not s.get("target"):
+                    _vthrow(f"{where}: roundup needs a string 'target'.")
+                params = s.get("params")
+                if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
+                    _vthrow(f"{where}: roundup needs params.digits (a finite number).")
+            elif st == "sum_components":
+                if not isinstance(s.get("result"), str) or not s.get("result"):
+                    _vthrow(f"{where}: sum_components needs a string 'result'.")
+            elif st == "component_ref":
+                for key in ("name", "target"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component_ref needs a string '{key}'.")
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or ref.get("kind") != pr["kind"]:
+                    _vthrow(f"{where}: component_ref.ref must name the pricing kind '{pr['kind']}'.")
+                if "qty" not in s or not _is_finite_number(s.get("qty")):
+                    _vthrow(f"{where}: an item-list component_ref carries a numeric qty (the assembly shape).")
+                for rk, rv in ref.items():
+                    if rk == "kind":
+                        continue
+                    if rk not in readable:
+                        _vthrow(f"{where}: component_ref.ref key '{rk}' is not a SKU attribute.")
+                    if isinstance(rv, str) and rv.startswith("@") and rv[1:] not in readable:
+                        _vthrow(f"{where}: component_ref.ref '{rk}' reads '{rv}', which is not a SKU attribute.")
+
+
+def _validate_alias_of(cfg):
+    """SLICE 3: the alias key's shape. Absent => nothing to check (byte-identical to before)."""
+    if "alias_of" not in cfg:
+        return
+    alias = cfg.get("alias_of")
+    if not isinstance(alias, dict):
+        _vthrow("alias_of must be an object {discipline, category_id}.")
+    unknown = set(alias.keys()) - {"discipline", "category_id"}
+    if unknown:
+        _vthrow(f"alias_of: unknown key(s): {', '.join(sorted(unknown))}.")
+    for k in ("discipline", "category_id"):
+        v = alias.get(k)
+        if not isinstance(v, str) or not v.strip():
+            _vthrow(f"alias_of needs a non-empty string '{k}'.")
+    own_disc = (cfg.get("discipline") or "").strip()
+    own_cat = (cfg.get("category_id") or "").strip()
+    if alias["discipline"].strip() == own_disc and alias["category_id"].strip() == own_cat:
+        _vthrow("alias_of may not point at the config itself.")
+    # an alias holds nothing of its own -- the target's pipelines / definitions are THE definitions
+    if cfg.get("pipelines"):
+        _vthrow("an alias_of config must have EMPTY pipelines (the target's pipelines are used).")
+    if cfg.get("attribute_definitions"):
+        _vthrow("an alias_of config must have EMPTY attribute_definitions (the target's are used).")
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
 
@@ -210,6 +755,8 @@ def _validate_config(cfg):
     unknown = set(cfg.keys()) - _KNOWN_CONFIG_KEYS
     if unknown:
         _vthrow(f"Unknown top-level config key(s): {', '.join(sorted(unknown))}.")
+    _validate_alias_of(cfg)  # SLICE 3: shape of the alias key; a no-op for every config without it
+    _validate_list_spec(cfg)  # SLICE 4: the item-list mode's per-item schema; a no-op for every other config
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")

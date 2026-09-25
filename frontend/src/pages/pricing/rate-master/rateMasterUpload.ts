@@ -28,6 +28,26 @@ export interface UploadField {
   major?: boolean;
 }
 
+/**
+ * SLICE 1c -- what the SPEC READER made of a new or changed row of an opted-in category: the derived
+ * attributes it read, or the exact reason it could not. Server-computed (`csv_importer.build_plan`);
+ * absent on every other row. The dialog renders it, never recomputes it.
+ */
+export interface UploadSpec {
+  status: "ok" | "not_understood" | "confirmed";
+  reason: string | null;
+  read: Record<string, string | number>;
+  /** SLICE 1d: the text the verdict is about -- BOTH halves, even when only one changed. */
+  text?: { item_name: string; item_detail: string };
+  /**
+   * SLICE 1d: when the exact read refused -- the server's best match (deterministic rules), or null
+   * with `no_suggestion_reason`. `decision` echoes what the client sent on an apply; absent on a preview.
+   */
+  suggestion?: { attributes: Record<string, string | number>; label: string; notes: string[]; fingerprint: string } | null;
+  no_suggestion_reason?: string | null;
+  decision?: "accept" | "reject" | null;
+}
+
 export interface UploadChange {
   row: number;
   kind: "add" | "update";
@@ -36,6 +56,38 @@ export interface UploadChange {
   label: string;
   major: boolean;
   fields: UploadField[];
+  spec?: UploadSpec;
+  /**
+   * SLICE 1f -- this row MEANS THE SAME as an existing active item (owner Y-a..Y-f). Server-computed
+   * (`csv_importer.build_plan`); absent on every other row. The dialog asks Confirm / Decline per row
+   * and the apply is refused until every such row is answered.
+   */
+  twin?: UploadTwin;
+}
+
+/** SLICE 1f: the two answers to the duplicate warning. */
+export type TwinDecision = "confirm" | "decline";
+
+/**
+ * SLICE 1f -- the duplicate warning's payload, one per row that means the same as an existing item.
+ * `case` "new" = a blank-uid row; "edit" = an existing item edited into a twin of ANOTHER item (Y-e).
+ * `fingerprint` is what the apply re-verifies: the server re-derives the target and refuses a confirm
+ * whose target differs from, or has changed since, the preview.
+ */
+export interface UploadTwin {
+  case: "new" | "edit";
+  item_uid: string;
+  name: string | null;
+  existing_wording: string;
+  row_wording: string;
+  existing_rates: Record<string, string>;
+  row_rates: Record<string, string>;
+  /** Which fields the meaning was compared on (HVAC: the derived attributes; Electrical: kind, brand, unit, every attribute). */
+  compared: string[];
+  fingerprint: string;
+  decision?: TwinDecision | null;
+  /** The edit case only: the item whose row was edited -- it stays exactly as it is. */
+  edited_item_uid?: string | null;
 }
 
 export interface UploadError {
@@ -50,14 +102,36 @@ export interface UploadCounts {
   unchanged: number;
   other_changed: number;
   errors: number;
+  /** SLICE 1f: rows carrying the duplicate warning in this plan (absent on a pre-1f reply). */
+  twins?: number;
+  /** SLICE 1f: rows the user DECLINED on an apply (skipped; nothing written for them). */
+  twins_declined?: number;
+}
+
+/**
+ * SLICE 1g (owner Z-c / Z-d) -- where this upload goes, as the server decided it from the file's own
+ * discipline / category cells: ONE category (a single-category upload) or every category of the
+ * discipline ("all"). `from_page` is TRUE when no row carried a value and the page's selection (or the
+ * file's own matched rows) decided -- the banner then says so.
+ */
+export interface UploadTarget {
+  discipline: string;
+  category: string | null;
+  mode: "category" | "all";
+  from_page: boolean;
 }
 
 export interface UploadPlan {
   discipline: string;
   mode: "category" | "all";
+  /** SLICE 1g: absent on a pre-1g reply and on a plan refused at the header stage. */
+  target?: UploadTarget;
+  /** SLICE 1e: which format the server detected (by content, never by name). */
+  format?: RateFileFormat;
   encoding: string;
   row_count: number;
-  columns: { attributes: string[]; rates: string[]; fixed: string[] };
+  /** SLICE 1e: `ignored` names the system columns an OLD file still carried -- read past, never applied. */
+  columns: { attributes: string[]; rates: string[]; fixed: string[]; ignored?: string[] };
   counts: UploadCounts;
   errors: UploadError[];
   changes: UploadChange[];
@@ -128,6 +202,11 @@ export function headlineCounts(counts: UploadCounts): Array<{
   if (counts.other_changed > 0) {
     out.push({ key: "other_changed", label: "other changes", value: counts.other_changed, tone: "warn" });
   }
+  // SLICE 1f: like `other changes`, the duplicate chip appears ONLY when non-zero -- the ordinary upload
+  // keeps its four numbers.
+  if ((counts.twins ?? 0) > 0) {
+    out.push({ key: "twins", label: TWIN_COPY.chip, value: counts.twins ?? 0, tone: "warn" });
+  }
   out.push({ key: "unchanged", label: "rows unchanged", value: counts.unchanged, tone: "neutral" });
   out.push({ key: "errors", label: "errors", value: counts.errors, tone: "error" });
   return out;
@@ -138,9 +217,109 @@ export function planIsNoOp(plan: UploadPlan): boolean {
   return plan.errors.length === 0 && plan.changes.length === 0;
 }
 
-/** Whether Apply may be offered at all. Errors block absolutely -- the apply is all-or-nothing. */
-export function canApply(plan: UploadPlan | null): boolean {
-  return !!plan && plan.errors.length === 0 && plan.changes.length > 0;
+/**
+ * Whether Apply may be offered at all. Errors block absolutely -- the apply is all-or-nothing.
+ * SLICE 1f: so does an UNANSWERED duplicate warning -- a row that means the same as an existing item
+ * has exactly two outcomes (confirm: update it; decline: skip it), never a silent third; the server
+ * refuses the apply too, this only keeps the button honest.
+ */
+export function canApply(plan: UploadPlan | null, twinDecisions: Record<number, TwinDecision> = {}): boolean {
+  return !!plan && plan.errors.length === 0 && plan.changes.length > 0
+    && undecidedTwinRows(plan, twinDecisions).length === 0;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1f -- SAME-MEANING DUPLICATES: warn, update the existing item on confirm (owner Y-a..Y-f).
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// The SERVER decides what "the same" means (csv_importer.twin_identity) and finds the existing item;
+// this half asks the question with BOTH wordings and BOTH sets of numbers, carries the per-row answer
+// back, and keeps Apply disabled until every warning is answered. Nothing here compares two items.
+
+export const TWIN_COPY = {
+  /** The warning, exactly as approved (G3). */
+  warning: (existingWording: string, itemUid: string, rowWording: string) =>
+    // an item added by hand carries no uid (a pre-1f fact) -- the bracket is then left out, never shown empty
+    `This means the same as an existing item: ${existingWording}${itemUid ? ` (${itemUid})` : ""}. Your row says: ${rowWording}. ` +
+    "If you confirm, the existing item's rates and markups are updated to these; its wording stays as it is.",
+  /** The edit case (Y-e): the second line names the edited item, which stays exactly as it was. */
+  editNote: (editedUid: string) =>
+    `The edited item (${editedUid}) is left exactly as it is; this edit is not applied to it.`,
+  existingNumbers: "Existing item's numbers",
+  rowNumbers: "Your row's numbers",
+  confirm: "Confirm",
+  decline: "Decline",
+  decided: (d: TwinDecision) =>
+    d === "confirm" ? "Will update the existing item's rates." : "Declined: this row is skipped, nothing changes.",
+  undecided: (n: number) =>
+    `${n} row${n === 1 ? " means" : "s mean"} the same as an existing item -- confirm or decline each before applying.`,
+  chip: "same as existing",
+} as const;
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1g -- SELF-DESCRIBING FILES (owner Z-c / Z-d): the preview always states where the upload goes.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+export const TARGET_COPY = {
+  prefix: "Uploading into:",
+  allCategories: "all categories",
+  fromPage: "(taken from the page - the file doesn't say)",
+} as const;
+
+/** The labels the page knows: its discipline and the selected category (id + label). */
+export interface UploadTargetLabels {
+  disciplineLabel: string;
+  categoryId: string | null;
+  categoryLabel: string;
+}
+
+/**
+ * "Uploading into: HVAC > ADP (Air Distribution Products)" / "Uploading into: Electrical > all categories",
+ * plus the page note when the file said nothing. A single-category target is always the page's own
+ * category (the server refuses any other), so the page's label is the right one; an unknown id (an API
+ * caller's) falls back to the id itself. Null for a plan without a target (pre-1g reply / header error). PURE.
+ */
+export function uploadTargetLine(
+  plan: Pick<UploadPlan, "target"> | null | undefined,
+  labels: UploadTargetLabels,
+): string | null {
+  const t = plan?.target;
+  if (!t) return null;
+  const disc = labels.disciplineLabel || t.discipline;   // the server refuses any other discipline, so the page's label is right
+  let cat: string;
+  if (t.mode === "all" || t.category === null) cat = TARGET_COPY.allCategories;
+  else if (labels.categoryId && t.category === labels.categoryId) cat = labels.categoryLabel;
+  else cat = t.category;
+  const base = `${TARGET_COPY.prefix} ${disc} > ${cat}`;
+  return t.from_page ? `${base} ${TARGET_COPY.fromPage}` : base;
+}
+
+/** `key = value, key = value` -- the numbers, in a stable order. PURE. */
+export function twinNumbers(rates: Record<string, string>): string {
+  return Object.keys(rates).sort().map((k) => `${k} = ${cellText(rates[k])}`).join(", ");
+}
+
+/** The preview rows that carry the duplicate warning. PURE. */
+export function rowsWithTwin(plan: Pick<UploadPlan, "changes"> | null | undefined): number[] {
+  return (plan?.changes ?? []).filter((c) => !!c.twin).map((c) => c.row);
+}
+
+/** The warning rows not yet answered. PURE. */
+export function undecidedTwinRows(
+  plan: Pick<UploadPlan, "changes"> | null | undefined,
+  decisions: Record<number, TwinDecision>,
+): number[] {
+  return rowsWithTwin(plan).filter((row) => decisions[row] !== "confirm" && decisions[row] !== "decline");
+}
+
+/** The fingerprints the apply must send for every CONFIRMED row -- never for a decline. PURE. */
+export function twinFingerprints(
+  plan: Pick<UploadPlan, "changes"> | null | undefined,
+  decisions: Record<number, TwinDecision>,
+): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const c of plan?.changes ?? []) {
+    if (decisions[c.row] === "confirm" && c.twin) out[c.row] = c.twin.fingerprint;
+  }
+  return out;
 }
 
 /** `+12.4%` / `-10%` / "" when a percentage does not exist for this move. PURE. */
@@ -170,9 +349,39 @@ export function changeSummary(change: UploadChange): string {
  * THE WORDING, in one place -- the same discipline `DOWNLOAD_COPY` follows, so the two halves of the
  * round trip cannot drift apart.
  */
+/**
+ * SLICE 1e -- the two rate-file formats (owner X-a): EXCEL BY DEFAULT, CSV as the second option. The
+ * server builds the same columns and values either way; Excel is the default because a CSV carries no
+ * cell types and Excel rewrote "1:6" as a time on the owner's own upload. The upload accepts both,
+ * detected by CONTENT on the server -- the accept list below only steers the file picker.
+ */
+export type RateFileFormat = "xlsx" | "csv";
+export const DEFAULT_RATE_FILE_FORMAT: RateFileFormat = "xlsx";
+export const RATE_FILE_FORMATS: ReadonlyArray<{ id: RateFileFormat; label: string }> = [
+  { id: "xlsx", label: "Excel" },
+  { id: "csv", label: "CSV" },
+];
+export const UPLOAD_ACCEPT =
+  ".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
+/** The browser-side fallback name when the server sends none; the server's `filename` wins. */
+export function rateFileFallbackName(categoryId: string | null, fmt: RateFileFormat): string {
+  return `rate_master_${categoryId ?? "all"}.${fmt}`;
+}
+export const FORMAT_COPY = {
+  label: "Format",
+  hint: "Excel keeps text such as 1:6 exactly as typed; CSV is the plain-text option.",
+} as const;
+/**
+ * The cp1252 warning is about a CSV DECODE -- a workbook is not decoded, so it never applies to one.
+ * Found live at the 1e cert: the first .xlsx preview showed "read as xlsx, not UTF-8".
+ */
+export function showEncodingWarning(plan: Pick<UploadPlan, "encoding" | "format">): boolean {
+  return plan.format !== "xlsx" && plan.encoding !== "utf-8";
+}
+
 export const UPLOAD_COPY = {
   group: "Upload an edited file",
-  hint: "Choose the CSV you edited. Nothing is applied until you confirm.",
+  hint: "Choose the Excel or CSV file you edited. Nothing is applied until you confirm.",
   choose: "Choose file",
   previewing: "Reading...",
   applying: "Applying...",
@@ -184,7 +393,8 @@ export const UPLOAD_COPY = {
   /** ⚠️ THE SAFETY PROPERTY, said out loud. It is the reason a partial file is safe to upload. */
   absentHint: "Items that are not in this file are left untouched.",
   expandedHint:
-    "Shown in full: every new item, and every rate change of 10% or more in either direction.",
+    "Shown in full: every new item, every rate change of 10% or more in either direction, every row " +
+    "the spec reader must ask about or flags, and every row that means the same as an existing item.",
   collapsedLabel: (n: number) => `${n} smaller change${n === 1 ? "" : "s"}`,
   noOp: "This file matches the catalog exactly. There is nothing to apply.",
   errorsTitle: (n: number) => `${n} problem${n === 1 ? "" : "s"} — nothing will be applied`,

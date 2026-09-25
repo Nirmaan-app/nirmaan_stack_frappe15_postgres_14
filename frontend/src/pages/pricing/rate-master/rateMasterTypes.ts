@@ -732,6 +732,33 @@ export interface RateCategoryConfig {
    * EVERY category (never composite-gated) and rendered read-only on the Derivation tab. The index
    * signature below already round-tripped this key; the explicit field is for type safety only. */
   rules?: RateCategoryRule[];
+  /**
+   * SLICE 1c -- the SPEC READER opt-in. `true` means item_name + item_detail are the source of truth:
+   * the server derives every other attribute from them (services/boq_rate_master/spec_reader.py), the
+   * CSV omits the derived columns, the Data Viewer shows them read-only ("read from spec") and the
+   * add/edit form sends the text only. Read as `=== true` on both sides; absent => unchanged.
+   */
+  attributes_from_spec?: boolean;
+  /**
+   * SLICE 2 (2026-09-22, owner P-a / P-b): a category with NOTHING TO PRICE declares its message in
+   * config, never in code. When the config is not eligible for pricing, the rate helper panel and the
+   * calculator show this text instead of the generic "coming soon" (e.g. a vendor-quote category).
+   * Absent => the generic coming-soon, byte-identical to before.
+   */
+  helper_message?: string;
+  /**
+   * SLICE 2 (owner P-c): when present, every EMPTY or ZERO rate cell of a row in this category shows
+   * this mark (amber) until a non-zero rate is typed. A visible mark, NOT a submission block.
+   * Absent => no mark, byte-identical to before.
+   */
+  pending_label?: string;
+  /**
+   * SLICE 3 (2026-09-22, owner Q-a / Q-b): this category's rows RESOLVE to another discipline's config,
+   * items and catalogue at lookup time -- nothing is ever copied between disciplines. An alias config
+   * holds no pipelines and no attribute definitions of its own; `resolveAliasConfig` maps it ONE HOP to
+   * the target config (a missing or ineligible target leaves the row on the coming-soon card).
+   */
+  alias_of?: { discipline: string; category_id: string };
   [k: string]: unknown;
 }
 

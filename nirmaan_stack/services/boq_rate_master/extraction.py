@@ -200,6 +200,8 @@ COERCE_ABSENT = "absent"                  # the model returned null -- NOT a fai
 COERCE_NOT_A_NUMBER = "not_a_number"
 COERCE_OUTSIDE_DOMAIN = "outside_numeric_domain"
 COERCE_NOT_ALLOWED = "not_an_allowed_choice"
+COERCE_NOT_IN_FAMILY_LIST = "not_in_family_list"   # SLICE 4 re-pilot: a values_by_family pick off the family's list
+COERCE_NOT_IN_ROW_TEXT = "value_not_found_in_row_text"   # SLICE 4 CHECK 1: an as-stated string absent from the row's own payload (a FLAG, never a drop)
 
 # The POSITIVE-ABSENCE sentinel, as a named constant. The literal already appears in `_coerce_value_ex`
 # and in the allow_none prompt block; the slot-paired default scrub is the third reader, and three
@@ -335,6 +337,18 @@ _IDENTITY_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_rate_item_identity_prompt
 # breakers, a switch point, an industrial socket with a paired MCB, a future HVAC composite) into its
 # component SLOTS. Selected by matching_mode == "composite_decomposition".
 _DECOMPOSITION_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_composite_decomposition_prompt.md")
+# SLICE 4 (2026-09-23): the FOURTH prompt asset -- a category whose rows describe a LIST of priceable
+# items (ADP: a diffuser with its plenum box, an actuator with its control panel). Selected by
+# matching_mode == "item_list"; the three assets above are untouched (pinned byte-identical).
+_LIST_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_rate_item_list_prompt.md")
+_LIST_REVIEW_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_rate_item_list_review_prompt.md")   # SLICE 4 CHECK 2
+LIST_MODE = "item_list"
+# The reserved key an item-list batch uses to carry the parsed items inside a row's result dict until
+# `_row_result` lifts it onto the result row as `items`. Never an attribute id.
+ITEMS_KEY = "__items__"
+# SLICE 4 (owner rulings, checks 1 + 2): the per-row review flags travel beside the items under this key and
+# are lifted onto the result row as `item_flags` -- a flag NEVER rewrites a value and never drops an item.
+ITEM_FLAGS_KEY = "__item_flags__"
 
 
 def _read_prompt(path):
@@ -359,11 +373,49 @@ def _config_kinds(cfg):
     return out
 
 
-def config_is_eligible(cfg):
+def config_is_eligible(cfg, configs=None):
     """A config participates in extraction iff it has BOTH non-empty pipelines AND non-empty
     attribute_definitions. Empty-pipelines DATA-ONLY configs (e.g. lighting_mgmt_system) are
-    excluded automatically -- NO special case."""
+    excluded automatically -- NO special case.
+
+    SLICE 3 (owner Q-a / Q-b): with `configs` ({(discipline, category_id): cfg}) given, an ALIAS
+    config (`alias_of`) is eligible iff its TARGET is -- resolved ONE HOP by `resolve_alias`. A
+    target that is missing, or itself an alias (a chain), has no pipelines of its own and is NOT
+    eligible. Without `configs` the plain test runs, so an alias on its own is never eligible."""
+    if configs is not None and alias_target(cfg):
+        _d, _c, target = resolve_alias(configs, cfg.get("discipline"), cfg.get("category_id"), cfg)
+        return bool(target.get("pipelines")) and bool(target.get("attribute_definitions"))
     return bool(cfg.get("pipelines")) and bool(cfg.get("attribute_definitions"))
+
+
+def alias_target(cfg):
+    """SLICE 3: the (discipline, category_id) an alias config points at, or None. PURE; reads only
+    the config. A malformed key (the validator refuses it at import) reads as no alias."""
+    a = (cfg or {}).get("alias_of")
+    if not isinstance(a, dict):
+        return None
+    d, c = a.get("discipline"), a.get("category_id")
+    if not isinstance(d, str) or not isinstance(c, str) or not d.strip() or not c.strip():
+        return None
+    return (d.strip(), c.strip())
+
+
+def resolve_alias(configs, discipline, category_id, cfg=None):
+    """SLICE 3 -- THE ONE alias resolution, called at the recon's two sites (`assemble_population`
+    and `run_extraction`, via `_group_context`) and by `config_is_eligible`. Returns
+    `(discipline, category_id, cfg)` -- the TARGET triple when `(discipline, category_id)` is an
+    alias whose target is loaded, else the row's own triple with its own config (`{}` when none).
+    ONE HOP ONLY, by design: a target that is itself an alias is returned as-is (its own pipelines
+    are empty, so it is not eligible); nothing loops, nothing errors. `cfg` may be passed when the
+    caller already holds it."""
+    own = cfg if cfg is not None else (configs.get((discipline, category_id)) or {})
+    target = alias_target(own)
+    if not target:
+        return discipline, category_id, own
+    tcfg = configs.get(target)
+    if tcfg is None:
+        return discipline, category_id, own
+    return target[0], target[1], tcfg
 
 
 def _load_active_configs(disciplines=None):
@@ -379,6 +431,21 @@ def _load_active_configs(disciplines=None):
     for r in rows:
         cfg = r["config"] if isinstance(r["config"], dict) else json.loads(r["config"] or "{}")
         out[(r["discipline"], r["category_id"])] = cfg
+    return out
+
+
+def load_configs_with_alias_targets(disciplines=None):
+    """SLICE 3: `_load_active_configs` PLUS the configs of every discipline an alias in that set
+    points at (one extra query, only when an alias names a discipline not already loaded), so an
+    aliased row's target can be resolved. With no alias in the loaded set this IS
+    `_load_active_configs(disciplines)` -- one query, byte-identical result."""
+    out = _load_active_configs(disciplines)
+    loaded = {d for (d, _c) in out}
+    if disciplines:
+        loaded |= set(disciplines)
+    extra = {t[0] for cfg in out.values() for t in [alias_target(cfg)] if t and t[0] not in loaded}
+    if extra:
+        out.update(_load_active_configs(extra))
     return out
 
 
@@ -687,6 +754,12 @@ def get_extraction_attribute_defs(config=None, catalog=None):
     return build_attribute_defs(config, catalog)
 
 
+def _read_review_prompt():
+    """CHECK 2: the fifth prompt asset -- the per-row second-opinion request."""
+    with open(_LIST_REVIEW_PROMPT_PATH, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
 def select_prompt_text(cfg):
     """The prompt asset for one config, selected by matching_mode:
       - "item_identity"          -> the identity prompt (match ONE catalog item, refuse composites);
@@ -700,9 +773,250 @@ def select_prompt_text(cfg):
         path = _IDENTITY_PROMPT_PATH
     elif mode == "composite_decomposition":
         path = _DECOMPOSITION_PROMPT_PATH
+    elif mode == LIST_MODE:
+        path = _LIST_PROMPT_PATH  # SLICE 4: the item-list prompt
     else:
         path = _ATTR_PROMPT_PATH
     return _read_prompt(path)
+
+
+def build_items_spec(cfg):
+    """SLICE 4: the ITEMS_SPEC block an item-list config's prompt consumes -- the PER-ITEM attribute
+    definitions projected exactly like `build_attribute_defs` projects row attributes ({id, label, type
+    [, values][, allow_none]}), plus which attribute names the family and which the per-row-unit
+    quantity. Entirely CONFIG-DRIVEN from cfg.list_spec (no category named). Returns None unless the
+    config is in item_list mode with a list_spec, so every other mode is byte-identical."""
+    if cfg.get("matching_mode") != LIST_MODE:
+        return None
+    spec = cfg.get("list_spec")
+    if not isinstance(spec, dict) or not isinstance(spec.get("attribute_definitions"), list):
+        return None
+    defs = []
+    for d in spec["attribute_definitions"]:
+        entry = {"id": d["id"], "label": d.get("label") or d["id"], "type": d.get("type")}
+        if d.get("type") == "choice":
+            entry["values"] = list(d.get("values") or [])
+            if isinstance(d.get("values_by_family"), dict):
+                entry["values_by_family"] = {k: list(v) for k, v in d["values_by_family"].items()}
+        if d.get("allow_none"):
+            entry["allow_none"] = True
+        # CHECK 3 (owner 2026-09-23): a def's `note` is a CATALOGUE FACT about how to read or map the
+        # attribute (6a single skin = LP plenum, 6b no SKU = blank, 5 the panel ratio), so it is projected
+        # into ITEMS_SPEC -- the row PAYLOAD is untouched.
+        if isinstance(d.get("note"), str) and d["note"].strip():
+            entry["note"] = d["note"].strip()
+        defs.append(entry)
+    out = {"attribute_definitions": defs, "family_attribute_id": spec.get("family_attribute_id")}
+    if spec.get("qty_attribute_id"):   # OPTIONAL since the re-pilot (owner ruling D: unit rates, code uses 1)
+        out["qty_attribute_id"] = spec["qty_attribute_id"]
+    # CHECK 2 switch (owner 2026-09-23): declared in config per category; OFF for every category that does
+    # not declare it. Carried on the spec so the batch site reads ONE object.
+    out["second_opinion"] = bool(spec.get("second_opinion"))
+    return out
+
+
+def _norm_text(s):
+    """CHECK 1 normalisation: casefold + every whitespace run collapsed to one space."""
+    return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+
+
+def _payload_strings(node):
+    """Every string in a payload item (row text, its notes, its ancestors' descriptions and notes), in order."""
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        return [s for v in node.values() for s in _payload_strings(v)]
+    if isinstance(node, (list, tuple)):
+        return [s for v in node for s in _payload_strings(v)]
+    return []
+
+
+def apply_row_text_check(row_items, payload_item, items_spec, drops, rid):
+    """SLICE 4 CHECK 1 (owner 2026-09-23, code, no AI): every `text` def is "copied as stated" (sizes,
+    torque, bands, ratios, thickness), so its returned string must appear in THAT ROW'S OWN PAYLOAD --
+    its text, its notes, or its own ancestors (`_ai_item`'s projection of the row, which is exactly what
+    the model was shown for that row). A string that is not there is FLAGGED for a person ("value not
+    found in this row's text", reason `value_not_found_in_row_text`) and recorded in
+    drops["items_not_in_row_text"]; THE VALUE IS KEPT (owner ruling 2, 2026-09-23: the check's only
+    firing on a clean stage-2 row was a condensed copy of the row's own words -- a drop would have thrown
+    away a true value, so the check flags and never drops). A legitimate ancestor value passes because
+    the ancestor chain is part of the payload. Matching is casefold + whitespace-collapsed substring, so
+    "750" inside "750X450" and "25mm" inside "25mm thick" pass. Returns the flags."""
+    defs = items_spec.get("attribute_definitions") or []
+    text_ids = [d["id"] for d in defs if d.get("type") == "text"]
+    haystack = _norm_text(" | ".join(_payload_strings(payload_item)))
+    flags = []
+    for idx, it in enumerate(row_items):
+        attrs = it.get("attributes") or {}
+        for aid in text_ids:
+            cell = attrs.get(aid)
+            if not isinstance(cell, dict):
+                continue
+            val = cell.get("value")
+            if val is None or val == "None":
+                continue
+            if _norm_text(val) in haystack:
+                continue
+            drops["items_not_in_row_text"].setdefault(str(rid), []).append({"item": idx, "attr": aid, "raw": val})
+            flags.append({"check": "text", "item": idx, "attr": aid, "reason": COERCE_NOT_IN_ROW_TEXT, "raw": val})
+    return flags
+
+
+def second_opinion_content(review_prompt, payload_item, row_items, items_spec=None):
+    """CHECK 2: the review request for ONE row -- the SAME ITEMS_SPEC the extraction call carried (ids,
+    labels, types, values, notes -- owner ruling 3b, 2026-09-23: judged by id alone the reviewer called a
+    gauge in a `_mm` attribute wrong although its label allows one), then the row's own payload and the
+    items returned for it, and NOTHING from any other row (the reason the check is one call per row,
+    never a batch)."""
+    shown = [{"attributes": {k: c.get("value") for k, c in (it.get("attributes") or {}).items() if c.get("value") is not None}}
+             for it in row_items]
+    spec_block = ("\n\nITEMS_SPEC:\n" + json.dumps(items_spec, ensure_ascii=False)) if items_spec else ""
+    return (review_prompt + spec_block + "\n\nROW:\n" + json.dumps(payload_item, ensure_ascii=False)
+            + "\n\nITEMS:\n" + json.dumps(shown, ensure_ascii=False))
+
+
+def _parse_review_object(text):
+    """CHECK 2: the review reply is ONE JSON OBJECT. It is deliberately NOT read through the shared
+    `_extract_json_array`: that parser returns the first balanced span that is a LIST OF DICTS, and a
+    disagree's `issues` list is exactly that -- it would hand back the issues and lose the verdict.
+    Fences are stripped; the first balanced object in the text is decoded; anything else raises."""
+    t = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", (text or "").strip())
+    try:
+        obj = json.loads(t)
+    except ValueError:
+        start = t.find("{")
+        if start < 0:
+            raise ValueError("second opinion: no JSON object in the reply")
+        obj, _end = json.JSONDecoder().raw_decode(t[start:])
+    if not isinstance(obj, dict):
+        raise ValueError("second opinion: the reply is not a JSON object")
+    return obj
+
+
+def second_opinion_review(client, model, review_prompt, payload_item, row_items, drops, rid, items_spec=None):
+    """SLICE 4 CHECK 2 (owner 2026-09-23): ONE extra model call PER ROW, after the item-list reply, asking
+    whether every item and every attribute follows from that row alone. A "disagree" FLAGS the row with
+    the model's reason; it NEVER rewrites a value and never drops an item -- the first answer stands.
+    Advisory by construction: a call that fails or a reply that does not parse is RECORDED
+    (drops["second_opinion_failed"]) and never halts or retries the main batch. Its token usage is
+    accumulated SEPARATELY in drops["second_opinion_usage"]. Returns the flags."""
+    content = second_opinion_content(review_prompt, payload_item, row_items, items_spec)
+    try:
+        resp = client.messages.create(model=model, max_tokens=4000,
+                                      messages=[{"role": "user", "content": content}], timeout=_AI_TIMEOUT)
+        u = _usage_of(resp) or {}
+        acc = drops["second_opinion_usage"]
+        acc["calls"] += 1
+        acc["input"] += int(u.get("input_tokens") or 0)
+        acc["output"] += int(u.get("output_tokens") or 0)
+        text = "".join(getattr(b, "text", "") for b in resp.content)
+        verdict = _parse_review_object(text)
+    except Exception as exc:   # advisory: never fails the run
+        drops["second_opinion_failed"].append({"excel_row": rid, "error": repr(exc)[:300]})
+        return []
+    flags = []
+    if str(verdict.get("verdict") or "").strip().casefold() == "disagree":
+        issues = verdict.get("issues") if isinstance(verdict.get("issues"), list) else []
+        if not issues:
+            issues = [{"item": None, "attribute": None, "reason": "disagree (no reason given)"}]
+        for iss in issues:
+            iss = iss if isinstance(iss, dict) else {}
+            flags.append({"check": "second_opinion", "item": iss.get("item"), "attr": iss.get("attribute"),
+                          "reason": str(iss.get("reason") or "")[:300]})
+    drops["second_opinion_verdicts"][str(rid)] = "disagree" if flags else "agree"
+    return flags
+
+
+def _coerce_item_value(defn, raw):
+    """SLICE 4: coerce ONE per-item value against its list_spec definition. Mirrors `_coerce_value_ex`
+    for choice / number and the allow_none "None" sentinel, and adds the `text` type -- kept AS STATED
+    (W-d: "10-12 NM", "3.5, 7.9 & 15.9", "1 5/8"), never parsed into a number here; a blank text reads
+    as absent. `_coerce_value_ex` itself is untouched (the row-level coercion every Electrical
+    category runs)."""
+    if raw is None:
+        return None, COERCE_ABSENT
+    if defn.get("allow_none") and str(raw) == "None":
+        return "None", COERCE_OK_NONE
+    t = defn.get("type")
+    if t == "text":
+        s = str(raw).strip()
+        return (s, COERCE_OK) if s else (None, COERCE_ABSENT)
+    if t == "number":
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return None, COERCE_NOT_A_NUMBER
+        return (int(v) if v == int(v) else v), COERCE_OK
+    sval = str(raw)
+    allowed = defn.get("values")
+    if allowed and sval not in allowed:
+        return None, COERCE_NOT_ALLOWED
+    return sval, COERCE_OK
+
+
+def parse_item_list(el, items_spec, drops, rid):
+    """SLICE 4 (N5): the sibling parse for an item-list reply element `{id, items: [{attributes: {...}}]}`.
+    Returns the list stored on the row: one dict per item, `{"attributes": {aid: {value, confidence}}}`
+    with EVERY per-item definition present so the three states are legible -- a stated value, "None"
+    (not mentioned; allow_none only) or `value: None` (could not tell / left out). Never raises:
+      * `items` missing or not a list -> `[]`, recorded in drops["items_rows_without_list"];
+      * an empty list -> `[]`, recorded in drops["items_empty_rows"];
+      * an element that is not an object -> skipped, recorded in drops["items_not_objects"];
+      * a family the spec does not list -> the item is KEPT with family `value: None`, recorded in
+        drops["items_family_unrecognised"] (the pricer sees an unnamed item, never a wrong one);
+      * any value that fails coercion -> `value: None`, recorded in drops["items_coerce_failed"];
+      * a `values_by_family` choice answered OFF the item's family's list (or answered at all for a family
+        that has no list) -> `value: None`, recorded in drops["items_coerce_failed"] with reason
+        `not_in_family_list` -- the prompt sentence is guidance, this is the enforcement; a "None"
+        (not mentioned) passes untouched, and an item with NO family answer at all leaves the value as coerced.
+    A reply that is not JSON at all never reaches here: `_extract_json_array` raises and the batch's
+    existing retry / halt path handles it exactly as for every other mode."""
+    defs = items_spec.get("attribute_definitions") or []
+    family_id = items_spec.get("family_attribute_id")
+    raw_items = el.get("items")
+    if not isinstance(raw_items, list):
+        drops["items_rows_without_list"].append(
+            {"excel_row": rid, "keys_returned": sorted(str(k) for k in el.keys())})
+        return []
+    if not raw_items:
+        drops["items_empty_rows"].append(rid)
+        return []
+    out = []
+    for idx, it in enumerate(raw_items):
+        if not isinstance(it, dict):
+            drops["items_not_objects"].setdefault(str(rid), []).append(idx)
+            continue
+        attrs = it.get("attributes")
+        if not isinstance(attrs, dict):
+            attrs = {}
+        item = {}
+        fam_cell = attrs.get(family_id) if family_id else None
+        fam_raw = fam_cell.get("value") if isinstance(fam_cell, dict) else None
+        for d in defs:
+            aid = d["id"]
+            cell = attrs.get(aid)
+            cell = cell if isinstance(cell, dict) else {}
+            raw = cell.get("value")
+            value, reason = _coerce_item_value(d, raw)
+            vbf = d.get("values_by_family")
+            if isinstance(vbf, dict) and value is not None and value != "None" and fam_raw is not None:
+                # a per-family choice: the pick must sit on the item's OWN family's list; a family with no
+                # list may pick nothing (an absent family leaves the value as coerced)
+                if value not in vbf.get(fam_raw, []):
+                    value, reason = None, COERCE_NOT_IN_FAMILY_LIST
+            try:
+                conf = float(cell.get("confidence"))
+            except (TypeError, ValueError):
+                conf = 0.0
+            item[aid] = {"value": value, "confidence": max(0.0, min(1.0, conf))}
+            if raw is not None and value is None:
+                drops["items_coerce_failed"].setdefault(str(rid), []).append(
+                    {"item": idx, "attr": aid, "raw": raw, "reason": reason})
+                if aid == family_id:
+                    drops["items_family_unrecognised"].setdefault(str(rid), []).append(
+                        {"item": idx, "raw": raw})
+        out.append({"attributes": item})
+    return out
 
 
 def build_slot_spec(cfg, discipline=None):
@@ -819,9 +1133,10 @@ def assemble_population(boq, sheet_name):
     resolved = _resolved_categories(boq, sheet_name, cv)
     rate_editable = _rate_editable_excel_rows(boq, sheet_name, cv)
     disciplines = {disc for (_cat, disc) in resolved.values() if disc}
-    eligible = {
-        key: cfg for key, cfg in _load_active_configs(disciplines).items() if config_is_eligible(cfg)
-    }
+    # SLICE 3: aliases resolve ONE HOP to their target's config (and the target's discipline is
+    # loaded alongside); a row whose category is an alias is admitted iff the TARGET is eligible.
+    all_cfgs = load_configs_with_alias_targets(disciplines)
+    eligible = {key: cfg for key, cfg in all_cfgs.items() if config_is_eligible(cfg, all_cfgs)}
     rows = []
     for r in ctx["rows"]:
         er = r["excel_row"]
@@ -2269,22 +2584,13 @@ def stamp_pole_ladder(row_out, records):
             cell["pole_ladder"] = dict(extras, to=rec.get("to"))
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, inch_trade=None, *, capture_ctx=None):
-    """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
-    confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
-    (<=20 rows, 3 attempts, sleep 2*attempt).
-
-    EA-DIFF: when `synonyms` ({attr_id: {variant: canonical}}) is configured for the category, a
-    SYNONYMS section + one guidance line are appended (the .md prompt ASSETS stay untouched -- the
-    guidance lives in this wrapper). _coerce_value ALSO maps variant->canonical (defence in depth).
-
-    EA-4a: when `defaults` (cfg.extraction_defaults: {attr_id: default | {default, text_overrides}})
-    is configured, a DEFAULTS section + one guidance line are appended -- where the row text gives NO
-    positive identification of a default-carrying attribute the model returns the default with moderate
-    confidence and `defaulted: true`; a text_override word in the row text IS a positive identification
-    of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
-    keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
-    payload_items = [_ai_item(r) for r in rows_batch]
+def batch_prompt_content(prompt_text, attr_defs, payload_items, synonyms=None, defaults=None, none_guidance=None,
+                         slot_spec=None, resolution_rules=None, rules=None, items_spec=None):
+    """SLICE 3: the model-facing CONTENT of one extraction batch, assembled from the group context and
+    the rows' payload -- moved out of `_extract_batch` VERBATIM (the sections, their order and their
+    wording are untouched) so the assembled prompt can be compared byte-for-byte without a client:
+    the L4 proof asserts an aliased HVAC row's prompt equals the Electrical row's. `_extract_batch`
+    calls this and sends the string unchanged."""
     content = (
         prompt_text
         + "\n\nATTRIBUTE_DEFINITIONS:\n"
@@ -2300,6 +2606,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
         content += "\n\nSLOT_SPEC:\n" + json.dumps(slot_spec, ensure_ascii=False)
     if resolution_rules:
         content += "\n\nRESOLUTION_RULES:\n" + json.dumps(resolution_rules, ensure_ascii=False)
+    # SLICE 4: the item-list mode passes an ITEMS_SPEC (the per-item schema); every other mode passes
+    # None and its content is byte-identical (pinned for four Electrical categories).
+    if items_spec:
+        content += "\n\nITEMS_SPEC:\n" + json.dumps(items_spec, ensure_ascii=False)
     # EA-4 ext-a: owner-authored estimator rules, injected for EVERY category (never composite-gated).
     # The guidance text is authored by the estimator and passed through VERBATIM -- do not reword it
     # here. Absent => this block is skipped and the payload is byte-identical to pre-ext-a.
@@ -2361,6 +2671,28 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             + json.dumps(none_defs, ensure_ascii=False)
         )
     content += "\n\nROWS:\n" + json.dumps(payload_items, ensure_ascii=False)
+    return content
+
+
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, inch_trade=None, items_spec=None, *, capture_ctx=None):
+    """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
+    confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
+    (<=20 rows, 3 attempts, sleep 2*attempt).
+
+    EA-DIFF: when `synonyms` ({attr_id: {variant: canonical}}) is configured for the category, a
+    SYNONYMS section + one guidance line are appended (the .md prompt ASSETS stay untouched -- the
+    guidance lives in this wrapper). _coerce_value ALSO maps variant->canonical (defence in depth).
+
+    EA-4a: when `defaults` (cfg.extraction_defaults: {attr_id: default | {default, text_overrides}})
+    is configured, a DEFAULTS section + one guidance line are appended -- where the row text gives NO
+    positive identification of a default-carrying attribute the model returns the default with moderate
+    confidence and `defaulted: true`; a text_override word in the row text IS a positive identification
+    of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
+    keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
+    payload_items = [_ai_item(r) for r in rows_batch]
+    content = batch_prompt_content(prompt_text, attr_defs, payload_items, synonyms=synonyms, defaults=defaults,
+                                   none_guidance=none_guidance, slot_spec=slot_spec,
+                                   resolution_rules=resolution_rules, rules=rules, items_spec=items_spec)
     batch_ids = {r["excel_row"] for r in rows_batch}
     # TPN POST-MATCH: the SOURCE row behind each id, so a post-match correction can read the row's
     # own text. `payload_items` above is the model-facing projection; this is the row itself.
@@ -2444,12 +2776,40 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # `test_drops_keys_are_all_initialised` now fails for ANY key written here but
                 # missing from this literal, so the next one cannot repeat it.
                 "conductor_floor_applied": {},
+                # SLICE 4 (item_list mode): the list parse's observations -- see `parse_item_list`.
+                # Every key is initialised here (the drops-keys pin), and every one stays empty for
+                # every non-list batch.
+                "items_rows_without_list": [],
+                "items_empty_rows": [],
+                "items_not_objects": {},
+                "items_family_unrecognised": {},
+                "items_coerce_failed": {},
+                # SLICE 4 CHECKS (owner 2026-09-23): {excel_row: [{item, attr, raw}]} dropped by the text check;
+                # the second opinion's per-row verdicts, its failures, and its SEPARATE token usage.
+                "items_not_in_row_text": {},
+                "second_opinion_verdicts": {},
+                "second_opinion_failed": [],
+                "second_opinion_usage": {"calls": 0, "input": 0, "output": 0},
             }
             for el in _extract_json_array(text):
                 rid = int(el["id"])
                 if rid not in batch_ids:
                     drops["ids_not_in_batch"].append(rid)
                     continue  # ignore any id the model echoed that is not in THIS batch
+                # SLICE 4: an item-list batch reads `items`, never `attributes` / `slots`. The row's
+                # own attribute loop below then runs over an EMPTY defs map (the list mode asks no
+                # row-level question), so row_out carries the parsed items under ITEMS_KEY and nothing
+                # else; `_row_result` lifts them onto the result row.
+                if items_spec:
+                    row_items = parse_item_list(el, items_spec, drops, rid)
+                    payload_item = next((p for p in payload_items if p.get("id") == rid), None) or _ai_item(rows_by_id[rid])
+                    # CHECK 1 (code): an as-stated string must be in THIS row's own payload
+                    flags = apply_row_text_check(row_items, payload_item, items_spec, drops, rid)
+                    # CHECK 2 (one extra call per row, config-switched): a second opinion that only flags
+                    if items_spec.get("second_opinion"):
+                        flags += second_opinion_review(client, model, _read_review_prompt(), payload_item, row_items, drops, rid, items_spec)
+                    out[rid] = {ITEMS_KEY: row_items, ITEM_FLAGS_KEY: flags}
+                    continue
                 # EA-4d: the composite-decomposition prompt returns the filled slots under "slots"; the
                 # identity/attribute prompts use "attributes". Accept EITHER -- the per-attr shape
                 # ({value, confidence}) and the downstream coercion are identical for both.
@@ -2863,6 +3223,75 @@ def _corroborate(row, row_attrs):
 
 
 # ── the runner ──────────────────────────────────────────────────────────────────────
+
+def _group_context(configs, disc, cat):
+    """SLICE 3: ONE group's extraction context -- the config plus every per-discipline catalogue read
+    (`catalog_values`, `values_from_catalog` inside `build_attribute_defs`, `build_slot_spec`,
+    `breaker_catalog_for`) -- resolved through `resolve_alias` FIRST, so an aliased category
+    (HVAC hvac_cables -> Electrical wiring_cabling) is built from the TARGET config and the TARGET
+    discipline's catalogue. For a non-alias category `resolve_alias` returns its own triple and this
+    body is the one `run_extraction` always held, moved out verbatim so the L4 proof can compare two
+    groups' contexts directly: the aliased row's context must be byte-identical to the Electrical
+    row's."""
+    disc, cat, cfg = resolve_alias(configs, disc, cat)
+    catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
+    is_composite = cfg.get("matching_mode") == "composite_decomposition"
+    # SLICE 4: an item-list config asks NO row-level question -- its questions are the PER-ITEM
+    # definitions in `items_spec` -- so `defs` is emptied after the dict is built (the body below stays
+    # the verbatim move of slice 3); every other mode gets `items_spec: None` and is byte-identical.
+    is_list = cfg.get("matching_mode") == LIST_MODE
+    ctx = _group_context_body(cfg, catalog, disc, is_composite)
+    ctx["items_spec"] = build_items_spec(cfg) if is_list else None
+    if is_list:
+        ctx["defs"] = []
+    return ctx
+
+
+def _group_context_body(cfg, catalog, disc, is_composite):
+    return {
+        "defs": build_attribute_defs(cfg, catalog, disc),  # EA-4a: disc resolves values_from
+        "prompt": select_prompt_text(cfg),
+        "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
+        "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
+        "none_guidance": cfg.get("extraction_none_guidance"),  # EA-4a-r: optional per-config None wording
+        # EA-4d: the composite-decomposition slot spec + resolution rules (None for the other modes,
+        # so _extract_batch stays byte-identical for item_identity / attribute categories).
+        "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
+        "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
+        # TPN POST-MATCH: the repeatable slot's catalogue WITH attributes, so the post-match
+        # four-pole correction can read a pick's device/pole/amp/curve and find its sibling.
+        # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
+        # for every other mode, which leaves those categories byte-identical.
+        "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
+        "conductor_groups": conductor_floor_groups(cfg),
+        # PAIRED-QUANTITY FILL (2026-09-07): which paired item the pipeline COMPUTES (the plate
+        # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
+        # from the config; None for a config with no module_fit over a paired item.
+        "paired_fill": paired_fill_plan(cfg),
+        # F-25 SLICE 2: the attribute ids some module_fit ladder reads as its stated count on the
+        # zero-module path (`on_zero_from`). The model writes them AS WRITTEN; `_extract_batch`
+        # reads the higher count in CODE before coercion. Derived from the config; [] for a
+        # config declaring none, which leaves every other category byte-identical.
+        "module_count_attrs": zero_path_stated_attrs(cfg),
+        # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
+        # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
+        # a config that does not declare `point_type` yields an empty set and the matcher is
+        # inert for it, which is every category but point_wiring today.
+        "code_attrs": {d["id"] for d in (cfg.get("attribute_definitions") or [])
+                       if d.get("id") in _CODE_SUPPLIED_ATTRS},
+        # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
+        # resolution_rules (composite-only), these must reach EVERY category, composite or not
+        # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
+        # the prompt is byte-identical to before.
+        "rules": cfg.get("rules"),
+        # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
+        # a category declaring none yields {} and the corrector is inert for it.
+        "absent_rules": absent_dependent_rules(cfg),
+        # CONDUIT TRADE SIZE (v63): {attr_id: {inch_text: trade_mm}} read FROM THE CONFIG -- a
+        # category declaring no `inch_trade_mm` yields {} and the corrector is inert for it.
+        "inch_trade": inch_trade_tables(cfg),
+    }
+
 def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb=None, skip_rows=None,
                    only_rows=None):
     """Assemble the population and extract attributes ACROSS ALL eligible categories (EA-2). Returns
@@ -2954,55 +3383,10 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
     groups = OrderedDict()
     for r in rows:
         groups.setdefault((r["discipline"], r["category_id"]), []).append(r)
-    configs = _load_active_configs({disc for (disc, _cat) in groups})
+    configs = load_configs_with_alias_targets({disc for (disc, _cat) in groups})
     group_ctx = {}
     for (disc, cat), _grp in groups.items():
-        cfg = configs.get((disc, cat)) or {}
-        catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
-        is_composite = cfg.get("matching_mode") == "composite_decomposition"
-        group_ctx[(disc, cat)] = {
-            "defs": build_attribute_defs(cfg, catalog, disc),  # EA-4a: disc resolves values_from
-            "prompt": select_prompt_text(cfg),
-            "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
-            "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
-            "none_guidance": cfg.get("extraction_none_guidance"),  # EA-4a-r: optional per-config None wording
-            # EA-4d: the composite-decomposition slot spec + resolution rules (None for the other modes,
-            # so _extract_batch stays byte-identical for item_identity / attribute categories).
-            "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
-            "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
-            # TPN POST-MATCH: the repeatable slot's catalogue WITH attributes, so the post-match
-            # four-pole correction can read a pick's device/pole/amp/curve and find its sibling.
-            # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
-            # for every other mode, which leaves those categories byte-identical.
-            "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
-            "conductor_groups": conductor_floor_groups(cfg),
-            # PAIRED-QUANTITY FILL (2026-09-07): which paired item the pipeline COMPUTES (the plate
-            # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
-            # from the config; None for a config with no module_fit over a paired item.
-            "paired_fill": paired_fill_plan(cfg),
-            # F-25 SLICE 2: the attribute ids some module_fit ladder reads as its stated count on the
-            # zero-module path (`on_zero_from`). The model writes them AS WRITTEN; `_extract_batch`
-            # reads the higher count in CODE before coercion. Derived from the config; [] for a
-            # config declaring none, which leaves every other category byte-identical.
-            "module_count_attrs": zero_path_stated_attrs(cfg),
-            # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
-            # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
-            # a config that does not declare `point_type` yields an empty set and the matcher is
-            # inert for it, which is every category but point_wiring today.
-            "code_attrs": {d["id"] for d in (cfg.get("attribute_definitions") or [])
-                           if d.get("id") in _CODE_SUPPLIED_ATTRS},
-            # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
-            # resolution_rules (composite-only), these must reach EVERY category, composite or not
-            # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
-            # the prompt is byte-identical to before.
-            "rules": cfg.get("rules"),
-            # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
-            # a category declaring none yields {} and the corrector is inert for it.
-            "absent_rules": absent_dependent_rules(cfg),
-            # CONDUIT TRADE SIZE (v63): {attr_id: {inch_text: trade_mm}} read FROM THE CONFIG -- a
-            # category declaring no `inch_trade_mm` yields {} and the corrector is inert for it.
-            "inch_trade": inch_trade_tables(cfg),
-        }
+        group_ctx[(disc, cat)] = _group_context(configs, disc, cat)
 
     def _defs_for(r):
         return group_ctx[(r["discipline"], r["category_id"])]["defs"]
@@ -3037,13 +3421,28 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
     def _row_result(r, row_attrs):
         if row_attrs is None:
             row_attrs = {d["id"]: {"value": None, "confidence": 0.0} for d in _defs_for(r)}
+        # SLICE 4: an item-list row carries its parsed items under ITEMS_KEY -- lifted onto the result
+        # row as `items` (a row-level key beside `attributes`, so the attributes map keeps its
+        # {attr_id: cell} shape); absent for every other mode, whose result row is byte-identical.
+        # SLICE 6 (live defect, run BRSR-26-01129): this function runs TWICE on the same `ai_out` entry
+        # -- at the SR-1 checkpoint and again for the final envelope -- so it must NEVER mutate its
+        # input. Popping in place emptied the dict for the second call and every list-mode row reached
+        # the run document with `attributes: {}` and no `items`. Copy first; pop the copy.
+        if isinstance(row_attrs, dict):
+            row_attrs = dict(row_attrs)
+        items = row_attrs.pop(ITEMS_KEY, None) if isinstance(row_attrs, dict) else None
+        item_flags = row_attrs.pop(ITEM_FLAGS_KEY, None) if isinstance(row_attrs, dict) else None
         _corroborate(r, row_attrs)
-        return {
+        res = {
             "excel_row": r["excel_row"],
             "description": r.get("description") or "",
             "category_id": r["category_id"],
             "attributes": row_attrs,
         }
+        if items is not None:
+            res["items"] = items
+            res["item_flags"] = list(item_flags or [])   # checks 1 + 2: flags for a person, never a rewrite
+        return res
 
     try:
         for (disc, cat), grp_rows in groups.items():
@@ -3055,7 +3454,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
                     return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
-                                          _gc["paired_fill"], _gc["module_count_attrs"], _gc["inch_trade"],
+                                          _gc["paired_fill"], _gc["module_count_attrs"], _gc["inch_trade"], _gc.get("items_spec"),
                                           capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
