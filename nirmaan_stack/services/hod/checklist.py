@@ -155,7 +155,7 @@ def printable_rows(rows) -> list:
 # How the binder takes each switched-on document (owner rulings 2026-09-21; the uploaded-copy part was
 # retired with the upload itself on 2026-09-24).
 PART_PAGE = "page"  # the "HOD Document" print of the row
-PART_SOURCES = "sources"  # the "HOD Document" list page, then the records it lists
+PART_SOURCES = "sources"  # the records the document reads from Nirmaan (no index page since 2026-09-25)
 
 
 def binder_parts(rows) -> list:

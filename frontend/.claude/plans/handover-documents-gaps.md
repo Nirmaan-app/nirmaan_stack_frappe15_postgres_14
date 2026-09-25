@@ -67,6 +67,12 @@ done by eye (no OCR on this machine), so spot-check against the workbook. Two ty
 | G5 | ~~TDS items are filtered by package only~~ **Fixed 2026-09-24** | `tds_items` now narrows by `source_keywords` (category OR item name) where the package is SHARED -- `sources.tds_belongs` + `from_app.package_is_shared`. Only Critical Room ELV qualifies; a one-system package keeps every item, because a TDS category names the PART ("IP Cameras" holds no "CCTV"). Live check: 872 -> 838 items over 21 projects x 11 systems, all 34 removals on GSS/VESDA/WLD & RRS, nothing orphaned. | 4 unit tests |
 | G6 | **Design Tracker categories have no Work Package** on this site | As Built is matched by category NAME ("Electrical", "Fire Sprinkler" → Sprinkler, "Data Networking" → Networking); ELV/BMS/Overall Project by keywords. Renaming a category breaks the match | Fill `Design Tracker Category.work_package` (the rule prefers it automatically) |
 
+### 3a-2. Printing
+
+| # | Gap | Effect | Possible fix |
+|---|---|---|---|
+| G14 | **Nirmaan's default logo is a BUILD-HASHED url, shared with the TDS report** | The header strip falls back to `https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/logo-svg-**BptBZTzQ**.svg` when a project has not uploaded an MEP logo — the SAME url the `Project TDS Report` print format already uses (`company_details.logo_url`, `mep_logo or company_details.logo_url`). Vite hashes by CONTENT, so it survives a plain rebuild; it breaks when the **logo is edited** or a **Vite/rollup upgrade changes the hashing**, and then the file 404s. THREE things make that quiet: the url is ABSOLUTE at the production host (a localhost print fetches from prod), the PDF worker needs the network mid-render, and the TDS format hides the broken image with `onerror="this.style.display='none'"` — so the logo simply stops appearing, with no error anywhere. HOD now inherits all of it. | **Held 2026-09-25, owner — fix later.** Three ways: **(1) READ IT FROM DISK AND EMBED** — `frontend/src/assets/red-logo.png` is already a stable unhashed path in the repo, so no new file, no hash, and the PDF stops needing the network at all (recommended; use the PNG, wkhtmltopdf's SVG support is patchy). (2) A stable url under `nirmaan_stack/public/images/` — simple and reachable from the DB-stored TDS format, but adds a copy, still needs the network, and `public/` is marked don't-hand-edit. (3) Leave it and add a test that fetches the url, so it fails loudly instead of silently. **Whichever is chosen, the TDS print format needs the same change** — it is the origin of the url and has the identical exposure; it lives in the DATABASE, so hand over ready-to-paste HTML rather than patching the fixture. |
+
 ### 3b. Downloads
 
 | # | Gap | Effect | Possible fix |
@@ -111,6 +117,37 @@ returns `datetime`s that the report's `json.dumps` refuses -- `report_items` rou
 `frappe.as_json`. A project with no TDS Repository set up cannot build the pack, and the binder names it.
 The dialog also has **Save selection** beside Export PDF (`onSaveSelection`, HOD only), so the binder's
 contents can be set without downloading anything.
+
+**The binder carries NO index page in front of a From Nirmaan document's records (owner 2026-09-25,
+REVERSING the 2026-09-23 ruling that added one).** The divider page already carries the S.No and the
+document title, so a second page listing what follows repeated it. `_content_steps` no longer inserts
+`"<title> (list)"`. The "HOD Document" print of such a row STILL renders that list -- it is what Preview
+and the row's own Download show -- the binder just does not put it in front of the records. Measured on
+KOLKATA-PROJ-00102 / Electrical: 16 sections, 24 steps, 0 index pages.
+
+**The logo strip is a REPEATING PAGE HEADER, not body content (owner 2026-09-25).** It first shipped in
+the body, which prints ONCE at the top of the flow -- a 5-page O&M manual had logos on page 1 and five
+bare pages after it. Both formats now put it in `#header-html`, in the `{%- else -%}` branch of the same
+letterhead test, so every page is headed one way or the other and never both. `hod-checklist.html`'s top
+margin went 15mm -> 24mm to clear it (a page header needs room on EVERY page, not just the first) and the
+cover box to 252mm. Measured: om_manual 5 pages with logos on all 5, maintenance_checklist 2 of 2,
+checklist 2 of 2, completion_certificate 0 (letterhead). ⚠️ `page.images` counts TWO not three -- Nirmaan's
+logo is an external SVG that wkhtmltopdf draws as vector, so it is not an embedded raster; that is not a
+missing logo.
+
+**Two page headers, never both (owner 2026-09-25).** Every handover page is headed EITHER by the
+stakeholder logo strip OR by the STRATOS letterhead, decided by `header_logos.uses_letterhead`:
+Completion Certificate and Equipment Warranty take the letterhead, everything else takes the strip --
+the cover, the checklist, all 14 other documents and the binder's divider pages. The letterhead is
+wkhtmltopdf's repeating `#header-html` / `#footer-html`, so BOTH formats now wrap those two blocks in
+`{%- if ctx.top and ctx.top.letterhead -%}`; the strip is hidden by the same flag, so they can never
+both appear. The cover and the divider pages put their title in a BORDERED BOX filling the page.
+⚠️ **`hod-checklist.html`'s page margins were 30mm / 24mm to clear that letterhead.** With the
+letterhead gone from that format the cover box overflowed into a BLANK second page; the margins are
+back to 15mm / 15mm and the box is 245mm. `hod-document.html` KEEPS 30mm / 24mm -- its two letterhead
+documents still need the clearance, and a page margin is a per-FORMAT option, not per document, so the
+other 14 carry that whitespace. Measured after: checklist 2 pages (was 3 with a blank), Electrical
+binder 16 sections -> 16 divider pages, completion_certificate 1 page, om_manual 6 -- no blanks.
 
 **`status` IS the handover checklist answer now — YES / NO / NA, picked by hand (owner 2026-09-24).**
 It REPLACED the derived Pending / Form Filled / Completed: `derive_status` is deleted, the doctype field

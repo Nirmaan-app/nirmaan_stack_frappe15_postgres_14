@@ -91,8 +91,8 @@ def design_is_done(status) -> bool:
 
 def selected_items(items, selected):
 	"""The records a from-app document includes: the ones ticked on it, or all of them when nothing was
-	ticked (`form_data.selected` absent). The printed list and the binder read this same rule, so the page
-	that introduces the reports lists exactly the reports that follow it."""
+	ticked (`form_data.selected` absent). The printed list and the binder read this same rule, so the
+	document's own page and the binder always agree about which records belong to it."""
 	if not isinstance(selected, list):
 		return list(items or [])
 	keep = {str(s) for s in selected}

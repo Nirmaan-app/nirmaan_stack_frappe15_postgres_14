@@ -48,6 +48,7 @@ from frappe.utils.pdf import get_pdf
 from pypdf import PdfReader, PdfWriter
 
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
+from nirmaan_stack.api.hod import print_context
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import as_dict
 from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
@@ -164,7 +165,7 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 				steps.append(_file_step(label, t.file_link))
 	elif src_kind == index.SRC_TDS:
 		# ONE step, not one per sheet: the TDS report is a document in its own right and carries its own
-		# cover and table, so it also skips the HOD "(list)" page below.
+		# cover and table.
 		if any(chosen(t.name) for t in src.get("items") or []):
 			steps.append(_tds_step(title, project, hod_system, row.form_data))
 	elif src_kind == index.SRC_SNAG:
@@ -187,11 +188,11 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 				steps.append(_file_step(f"{title}: {t.task_name}", t.download_url))
 	if not steps and isinstance(selected, list) and src.get("items"):
 		return steps, EMPTY_REASON["none_selected"]
-	if steps and src_kind != index.SRC_TDS:
-		# The document's own page first: it says WHICH records follow (item, make, category, report name),
-		# then the records themselves. Without it the binder is a stack of data sheets with nothing naming
-		# what each one is for (owner 2026-09-23). The TDS report brings its own, so it is left out there.
-		steps.insert(0, _print_step(f"{title} (list)", DOCTYPE, row.name, PF_DOCUMENT))
+	# NO index page in front of the records (owner 2026-09-25, REVERSING the 2026-09-23 ruling that added
+	# one). The divider page already carries the S.No and the document's title, so a second page listing
+	# what follows was saying the same thing twice. The "HOD Document" print of a From Nirmaan row still
+	# RENDERS that list -- it is what Preview and the row's own download show -- the binder just no longer
+	# puts it in front of the records.
 	return steps, (None if steps else EMPTY_REASON[src_kind])
 
 
@@ -308,23 +309,47 @@ def _print(doctype: str, name: str, print_format: str, form: dict | None = None)
 	return frappe.get_print(doctype, name, print_format=print_format, as_pdf=True, no_letterhead=1)
 
 
-def _dividers(sections: list, display_name: str, project_name: str) -> list:
-	"""Every section's divider page, rendered in ONE pass (one page each)."""
+def _dividers(sections: list, display_name: str, project_name: str, project: str) -> list:
+	"""Every section's divider page, rendered in ONE pass (one page each).
+
+	Each carries the SAME stakeholder logo strip as the cover, the checklist and the documents behind
+	it (owner 2026-09-25), so a binder reads as one document rather than a stack of differently headed
+	pages. The strip is built ONCE and repeated -- the logos are identical on every divider."""
 	esc = frappe.utils.escape_html
+	top = print_context.top_of_page(project)
+	# The strip goes in a PAGE HEADER, exactly as the two print formats draw it (owner 2026-09-25,
+	# layout B). It used to sit in the body, which starts at the top MARGIN -- so a divider's logos sat
+	# 15mm lower than a document's, which is the drift the owner saw between pages. `frappe.utils.pdf`
+	# picks `#header-html` out of any html it is given, not just a Print Format.
+	header = ""
+	if top["logos"]:
+		cells = "".join(f'<td><img src="{l["src"]}" alt="{esc(l["name"])}"></td>' for l in top["logos"])
+		header = f'<div id="header-html"><table class="logos"><tr>{cells}</tr></table></div>'
 	pages = "".join(
-		f"""<div class="dv"><div class="no">{s["sno"]:02d}</div><div class="title">{esc(s["title"])}</div>
-		<div class="sys">{esc(display_name)} &mdash; {esc(project_name)}</div></div>"""
+		f"""<div class="dv"><div class="box"><div class="in">
+		<div class="no">{s["sno"]:02d}</div><div class="title">{esc(s["title"])}</div>
+		<div class="sys">{esc(display_name)} &mdash; {esc(project_name)}</div></div></div></div>"""
 		for s in sections
 	)
 	html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-	.print-format {{ margin-top: 15mm; margin-bottom: 15mm; }}
+	/* The same 20mm top margin and 14mm strip band as both print formats, so the logos land in the same
+	   place on a divider as on the page behind it. */
+	.print-format {{ margin-top: 20mm; margin-bottom: 15mm; }}
 	body {{ font-family: Helvetica, Arial, sans-serif; text-align: center; }}
-	.dv {{ page-break-after: always; height: 240mm; }}
+	.dv {{ page-break-after: always; }}
 	.dv:last-child {{ page-break-after: auto; }}
-	.no {{ font-size: 18px; color: #555; padding-top: 95mm; }}
+	.logos {{ width: 100%; height: 14mm; table-layout: fixed; border-collapse: collapse; margin: 0; }}
+	.logos td {{ text-align: center; vertical-align: middle; padding: 0 8px; border: 0; }}
+	.logos img {{ max-height: 42px; max-width: 100%; }}
+	/* The title sits in a BORDERED BOX filling the page, like the cover (owner 2026-09-25). Fixed
+	   height, and the padding does the vertical centring -- a percentage height has nothing to resolve
+	   against here and flexbox is not reliable in wkhtmltopdf. 297 - 20 - 15 = 262mm. */
+	.box {{ border: 1px solid #000; height: 258mm; }}
+	.in {{ padding-top: 105mm; }}
+	.no {{ font-size: 18px; color: #555; }}
 	.title {{ font-size: 30px; font-weight: 700; text-transform: uppercase; margin-top: 10px; }}
 	.sys {{ font-size: 14px; margin-top: 14px; color: #333; }}
-	</style></head><body>{pages}</body></html>"""
+	</style></head><body>{header}{pages}</body></html>"""
 	reader = PdfReader(io.BytesIO(get_pdf(html)))
 	if len(reader.pages) != len(sections):
 		raise ValueError(f"divider pages: expected {len(sections)}, got {len(reader.pages)}")
@@ -443,7 +468,7 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 			job = _Job(user, job_id, 2 + sum(len(s["steps"]) for s in sections))
 			job.step("Cover & checklist", lambda: _print("Projects", project, PF_CHECKLIST, {"hod_system": hod_system}))
 			try:
-				divider_pages = _dividers(sections, system.display_name, project_name)
+				divider_pages = _dividers(sections, system.display_name, project_name, project)
 			except Exception:
 				frappe.log_error(title="HOD binder: divider pages failed", message=frappe.get_traceback())
 				divider_pages = [None] * len(sections)

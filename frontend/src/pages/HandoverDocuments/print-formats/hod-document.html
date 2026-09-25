@@ -12,7 +12,10 @@
 {%- set h = ctx.header -%}
 
 <style>
-.print-format { margin-top: 30mm; margin-bottom: 24mm; margin-left: 12mm; margin-right: 12mm; }
+/* ONE top margin for both page headers (owner 2026-09-25, layout B): the logo strip and the STRATOS
+   letterhead are both pinned to 14mm, so the content starts in the same place whichever is drawn and
+   the gap under it never moves. The bottom stays roomier for the letterhead's three-line address. */
+.print-format { margin-top: 20mm; margin-bottom: 24mm; margin-left: 12mm; margin-right: 12mm; }
 /* The rule above is read ONLY as wkhtmltopdf page margins. The header/footer pages wrap their content in a
    .print-format div too, so cancel it as CSS (a div.* selector is not read as a page option). */
 div.print-format { margin: 0 auto !important; }
@@ -32,6 +35,35 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 /* The VENDOR / PROJECT / ... block: roomier rows than the data tables (owner's layout). */
 .hd-table.hd-head td, .print-format .hd-table.hd-head td { padding: 7px 10px !important; vertical-align: middle !important; font-size: 10.5px; }
 .hd-head td.hd-hl { width: 130px; font-weight: 700; }
+/* The stakeholder logo strip (owner 2026-09-24): one cell per logo, evenly spread, sitting above the
+   VENDOR/PROJECT block. `table-layout: fixed` keeps the cells equal whatever the logos measure, so two
+   logos are centred as sensibly as four. Heights are capped, never stretched -- a wide logo and a tall
+   one both stay in proportion. */
+/* FIXED height so the strip occupies the same band on every page and in every format -- the whole
+   point of layout B. Without it the header is as tall as its tallest logo and the gap below drifts. */
+.hd-logos { width: 100%; height: 14mm; table-layout: fixed; border-collapse: collapse; margin: 0; }
+.hd-logos td { text-align: center; vertical-align: middle; padding: 0 8px; border: 0 !important; }
+.hd-logos img { max-height: 42px; max-width: 100%; }
+/* The page frame (owner 2026-09-25): every document Nirmaan GENERATES sits in a box -- the forms and
+   the library texts. The six From Nirmaan documents do not (their pages are other people's reports,
+   merged in behind them), and neither do the two on letterhead, which have their own rules.
+   
+   It is a FIXED overlay, NOT a border on a div wrapped around the content. A bordered wrapper only
+   draws its top on the first page and its bottom on the last, and wkhtmltopdf clips the sides at every
+   page break -- which is why a 5-page O&M manual came out with a frame that opened on page 1 and never
+   closed. wkhtmltopdf repeats a `position: fixed` element on EVERY page, so this draws the same
+   rectangle on each one. It is inset 0 because `.print-format`'s margins are read as the PAGE margins,
+   so the fixed box already spans exactly the printable area. Pointer-free and behind the text. */
+/* `min-height` makes the frame FILL THE PAGE on a document that fits one page, instead of hugging the
+   content and stopping half way down -- which is how the cover and the divider pages already look.
+   297mm - 20mm top margin - 24mm bottom = 253mm of printable height.
+   ⚠️ On a document that RUNS PAST one page the frame still opens on page 1, carries its sides down, and
+   closes only on the last page: wkhtmltopdf cannot draw a per-page frame from CSS. `position: fixed`
+   was tried and MEASURED -- WebKit resolves such a box against the whole document, not the page, so a
+   2-page checklist drew one box 1663 units tall and a short document drew one only 334 tall. Fixing it
+   properly needs a Chromium-based PDF generator, not more CSS. */
+.hd-frame { border: 1px solid #000; padding: 8px 10px; min-height: 253mm; }
+{% if ctx.landscape %}.hd-frame { min-height: 160mm; }{% endif %}
 .hd-c { text-align: center; }
 .hd-r { text-align: right; }
 .hd-b { font-weight: 700; }
@@ -67,7 +99,13 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .hd-off { border: 1px dashed #999; padding: 16px; text-align: center; color: #555; margin-top: 30px; }
 </style>
 
+{#- The STRATOS letterhead (wkhtmltopdf's repeating page header / footer) prints ONLY on the two
+    documents that carry it -- Completion Certificate and Equipment Warranty. Every other page is headed
+    by the stakeholder logo strip instead, and showing both would put two letterheads on one page
+    (owner 2026-09-25). `ctx.top.letterhead` is the same flag the strip is hidden by, so the two can
+    never both appear. -#}
 <div id="header-html">
+{%- if ctx.top and ctx.top.letterhead -%}
     <div style="text-align: center; border-bottom: 1.5px solid #000; background: #fff;font-family: 'Inter', Helvetica, Arial, sans-serif;  line-height: 22px;">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1056 1056"
              preserveAspectRatio="xMidYMid meet"
@@ -82,8 +120,21 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
             STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED
         </span>
     </div>
+{%- else -%}
+    {#- Not a letterhead document: the stakeholder strip heads EVERY page. It lives HERE rather
+        than in the body (owner 2026-09-25) -- body content prints ONCE, at the top of the flow,
+        so a two-page document had its logos on page 1 and a bare page 2. -#}
+    <table class="hd-logos">
+        <tr>
+            {%- for logo in (ctx.top.logos if ctx.top else []) -%}
+            <td><img src="{{ logo.src }}" alt="{{ logo.name }}"></td>
+            {%- endfor -%}
+        </tr>
+    </table>
+{%- endif -%}
 </div>
 
+{%- if ctx.top and ctx.top.letterhead -%}
 <div id="footer-html">
     {# class letter-head-footer: Frappe's footer page starts 15mm down; this class pulls the address up so
        the CIN line is not clipped. (A Jinja comment: an HTML comment here prints as text in the PDF.) #}
@@ -93,6 +144,7 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
         <span style="text-align: center; font-size: 9px; font-weight: 700; color: #333;">CIN: U74999MH2021PTC358936</span>
     </div>
 </div>
+{%- endif -%}
 
 {#- v(): a value as escaped text; a missing key or None prints nothing (DebugUndefined would print the expression) -#}
 {%- macro v(x) -%}{%- if x is defined and x is not none -%}{{ x | string | e }}{%- endif -%}{%- endmacro -%}
@@ -125,6 +177,11 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 {%- endmacro -%}
 
 {%- macro fill(value) -%}{% if value %}{{ v(value) }}{% else %}<span class="hd-fill">&nbsp;</span>{% endif %}{%- endmacro -%}
+
+{#- Boxed unless the content is other people's reports (From Nirmaan) or the page carries the STRATOS
+    letterhead, whose own rules already frame it. -#}
+{%- set boxed = ctx.kind != "app" and not (ctx.top and ctx.top.letterhead) -%}
+{%- if boxed -%}<div class="hd-frame">{%- endif -%}
 
 {% if ctx.disabled %}
     <div class="hd-title">{{ v(ctx.title) }}</div>
@@ -427,3 +484,5 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     {% endif %}
 
 {% endif %}
+
+{%- if boxed -%}</div>{%- endif -%}

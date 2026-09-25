@@ -9,7 +9,7 @@
  */
 
 import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
-import { BookOpenText, Info, Loader2, Plus } from "lucide-react";
+import { BookOpenText, Images, Info, Loader2, Plus } from "lucide-react";
 import * as React from "react";
 import { Link } from "react-router-dom";
 
@@ -24,6 +24,7 @@ import {
   useHodMutations,
   useProjectHod,
 } from "./hodApi";
+import { HeaderLogosDialog } from "./HeaderLogosDialog";
 import { HodGuideDialog } from "./HodGuideDialog";
 import { NoHandoverDocumentsView } from "./NoHandoverDocumentsView";
 import { SystemChecklist } from "./SystemChecklist";
@@ -42,6 +43,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
   const { addSystems, removeSystem, updateRow } = useHodMutations();
   const { build, job, progress } = useHodBinder();
   const [showGuide, setShowGuide] = React.useState(false);
+  const [showLogos, setShowLogos] = React.useState(false);
   const { socket } = React.useContext(FrappeContext) as FrappeConfig;
   const [active, setActive] = React.useState<string>("");
   const [adding, setAdding] = React.useState(false);
@@ -171,6 +173,17 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
             {canEdit && (
               <Button
                 size="sm"
+                variant="ghost"
+                className="h-9 text-gray-600"
+                title="Which logos head this project's handover documents"
+                onClick={() => setShowLogos(true)}
+              >
+                <Images className="mr-1 h-4 w-4" /> Header logos
+              </Button>
+            )}
+            {canEdit && (
+              <Button
+                size="sm"
                 variant="outline"
                 className="h-9"
                 onClick={() => setAdding(true)}
@@ -236,6 +249,13 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
       )}
 
       <HodGuideDialog open={showGuide} onOpenChange={setShowGuide} />
+
+      <HeaderLogosDialog
+        open={showLogos}
+        onOpenChange={setShowLogos}
+        projectId={projectId}
+        canEdit={canEdit}
+      />
 
       <AddSystemDialog
         open={adding}

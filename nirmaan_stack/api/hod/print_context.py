@@ -21,10 +21,20 @@ from datetime import date
 import frappe
 from frappe.utils import formatdate, getdate, today
 
+from nirmaan_stack.api.hod import header_roles
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import VENDOR, as_dict, project_info
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
-from nirmaan_stack.services.hod import blanks, checklist, dates, escalation, index, maintenance, sources
+from nirmaan_stack.services.hod import (
+	blanks,
+	checklist,
+	dates,
+	escalation,
+	header_logos,
+	index,
+	maintenance,
+	sources,
+)
 
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
@@ -40,6 +50,33 @@ def _fmt(value) -> str:
 		return formatdate(getdate(value), DATE_FORMAT)
 	except Exception:
 		return str(value)
+
+
+def top_of_page(project: str, document: str = "") -> dict:
+	"""`{"letterhead": bool, "logos": [{label, name, src}]}` -- what heads a page of the handover.
+
+	`document` picks the letterhead for the two that carry it; pass "" for a page that belongs to no
+	single document (the cover, the checklist, the binder's divider pages), which always takes the strip.
+
+	The logos are EMBEDDED, like the O&M pictures: a stored file has no session behind it at print
+	time (and a public URL does not work on this site at all), so a `src` that fails to fetch is
+	dropped rather than printed as a broken image."""
+	top = header_roles.header_context(project, document)
+	if top["letterhead"]:
+		return {"letterhead": True, "logos": []}
+	logos = []
+	for item in top["logos"]:
+		# An absolute url (Nirmaan's own logo) is left for the renderer to fetch, exactly as the TDS
+		# report does with the same one. A STORED file has to be embedded -- there is no session behind
+		# a print, and this site's public file urls do not work.
+		logo = item["logo"]
+		if logo.startswith("http"):
+			src = logo
+		else:
+			src = _data_uri(logo, shrink=True) if logo else None
+		if src:
+			logos.append({"label": item["label"], "name": item["name"], "src": src})
+	return {"letterhead": False, "logos": logos}
 
 
 def _header(info: dict, system, date_value) -> dict:
@@ -203,6 +240,9 @@ def hod_print_context(doc) -> dict:
 		"consultant_label": f"{(system.system_name or '').upper()} CONSULTANT",
 		"project_name": info["project_name"],
 		"header": _header(info, system, fd.get("date") or today()),
+		# The strip of stakeholder logos across the top -- or the letterhead flag, for the two
+		# documents that carry the company letterhead instead (owner 2026-09-24).
+		"top": top_of_page(doc.project, key),
 		"form": fd,
 	}
 
@@ -288,6 +328,8 @@ def hod_checklist_context(project=None, hod_system=None) -> dict:
 		"system_name": system.system_name,
 		"consultant_label": f"{(system.system_name or '').upper()} CONSULTANT",
 		"header": _header(info, system, today()),
+		# The same strip the documents carry, on the cover and the checklist page (owner 2026-09-25).
+		"top": top_of_page(project),
 		"rows": printed,
 		"counts": checklist.counts(rows),
 		"generated_on": _fmt(date.today()),

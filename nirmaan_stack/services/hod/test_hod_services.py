@@ -12,7 +12,16 @@ import os
 import unittest
 from datetime import date
 
-from nirmaan_stack.services.hod import blanks, checklist, dates, escalation, index, maintenance, sources
+from nirmaan_stack.services.hod import (
+	blanks,
+	checklist,
+	dates,
+	escalation,
+	header_logos,
+	index,
+	maintenance,
+	sources,
+)
 
 _DOCTYPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stack", "doctype")
 
@@ -178,6 +187,112 @@ class TestChecklist(unittest.TestCase):
 		self.assertEqual(printed[-1][0], 15)
 		self.assertEqual(printed[-1][1]["document"], "as_built_drawings")
 		self.assertNotIn("snag_list", [r["document"] for _, r in printed])
+
+
+class TestHeaderLogos(unittest.TestCase):
+	"""Which stakeholder logos head a project's handover documents (owner 2026-09-24)."""
+
+	# Shaped like KOLKATA-PROJ-00102's real TDS Setting: three complete roles, one named-but-logoless
+	# (Nirmaan), one logo with no name, two empty.
+	SETTING = {
+		"client_name": "Maresk", "client_logo": "/files/maersk.png",
+		"gc_contractor_name": "ANJ Group", "gc_contractor_logo": "/files/anj.png",
+		"architect_name": "The Canvas Design", "architect_logo": "/files/canvas.png",
+		"mep_contractor_name": "Nirmaan", "mep_contractorlogo": "",
+		"manager_name": "", "mananger_logo": "/files/pm.png",
+		"data_tjxu": "", "consultant_logo": "",
+	}
+
+	def test_a_role_needs_both_a_name_and_a_logo(self):
+		self.assertEqual(
+			header_logos.selectable(self.SETTING),
+			["mep_contractor", "gc_contractor", "client", "architect"],
+		)
+		# The PM has a logo but no name, so it cannot be picked.
+		self.assertNotIn("manager", header_logos.selectable(self.SETTING))
+		self.assertNotIn("consultant", header_logos.selectable(self.SETTING))
+		# whitespace is not a logo
+		self.assertEqual(
+			header_logos.selectable({"client_name": "X", "client_logo": "   "}), ["mep_contractor"]
+		)
+
+	def test_nirmaan_is_always_selectable_and_never_waits_on_an_upload(self):
+		"""Owner 2026-09-25: the MEP row uses Nirmaan's own logo -- the SAME url the TDS report falls
+		back to -- so it is pickable even on a project with no TDS Setting at all."""
+		for setting in ({}, None, self.SETTING):  # SETTING names Nirmaan but uploads no logo
+			self.assertIn("mep_contractor", header_logos.selectable(setting))
+		self.assertEqual(header_logos.logo_of({}, "mep_contractor"), header_logos.BUNDLED_LOGO)
+		self.assertEqual(header_logos.name_of({}, "mep_contractor"), "Nirmaan")
+		# a project that DID upload one keeps its own
+		own = {"mep_contractorlogo": "/files/mine.png", "mep_contractor_name": "Nirmaan South"}
+		self.assertEqual(header_logos.logo_of(own, "mep_contractor"), "/files/mine.png")
+		self.assertEqual(header_logos.name_of(own, "mep_contractor"), "Nirmaan South")
+		# no other role gets a fallback
+		self.assertEqual(header_logos.logo_of({}, "client"), "")
+		self.assertEqual(header_logos.name_of({}, "client"), "")
+
+	def test_nothing_picked_prints_nirmaan_alone(self):
+		"""Owner 2026-09-25: a fresh project is headed with the one logo that is always right; the
+		client and GC are added deliberately, not by default."""
+		self.assertEqual(
+			[x["role"] for x in header_logos.header_logos(self.SETTING, "")], ["mep_contractor"]
+		)
+		self.assertEqual(
+			header_logos.header_logos(self.SETTING, None), header_logos.header_logos(self.SETTING, "")
+		)
+		# even with no TDS Setting at all
+		self.assertEqual([x["role"] for x in header_logos.header_logos({}, "")], ["mep_contractor"])
+
+	def test_a_pick_is_narrowed_to_what_is_still_selectable(self):
+		# the PM was ticked, then its name went away: it stops printing rather than leaving a gap.
+		self.assertEqual(
+			[x["role"] for x in header_logos.header_logos(self.SETTING, "manager\nclient")],
+			["client"],
+		)
+
+	def test_print_order_is_fixed_not_pick_order(self):
+		self.assertEqual(
+			[x["role"] for x in header_logos.header_logos(self.SETTING, "architect\nclient\nmep_contractor")],
+			["mep_contractor", "client", "architect"],
+		)
+
+	def test_what_prints_carries_its_label_name_and_logo(self):
+		first = header_logos.header_logos(self.SETTING, "gc_contractor")[0]
+		self.assertEqual(first, {
+			"role": "gc_contractor", "label": "GC Contractor",
+			"name": "ANJ Group", "logo": "/files/anj.png",
+		})
+
+	def test_parse_and_valid_roles_drop_junk(self):
+		self.assertEqual(header_logos.parse_roles("client\nnope\n\ngc_contractor"), ["gc_contractor", "client"])
+		self.assertEqual(header_logos.parse_roles(""), [])
+		self.assertEqual(header_logos.valid_roles(["client", "bogus"]), ["client"])
+		self.assertEqual(header_logos.valid_roles(None), [])
+		# a repeat is not two logos
+		self.assertEqual(header_logos.valid_roles(["client", "client"]), ["client"])
+
+	def test_the_two_letterhead_documents(self):
+		self.assertTrue(header_logos.uses_letterhead("completion_certificate"))
+		self.assertTrue(header_logos.uses_letterhead("equipment_warranty"))
+		self.assertFalse(header_logos.uses_letterhead("om_manual"))
+		self.assertFalse(header_logos.uses_letterhead(""))
+		# a typo in that list would silently give a document the logo strip instead
+		self.assertTrue(header_logos.letterhead_documents_are_real())
+
+	def test_every_role_carries_a_label_and_its_two_fields(self):
+		self.assertEqual(set(header_logos.ROLES), set(header_logos.ROLE_ORDER))
+		self.assertEqual(len(header_logos.ROLES), 6)
+		for role, (label, name_f, logo_f) in header_logos.ROLES.items():
+			self.assertTrue(label and name_f and logo_f, role)
+
+	def test_the_doctype_stores_the_choice(self):
+		path = os.path.join(_DOCTYPE_DIR, "project_hod_setting", "project_hod_setting.json")
+		meta = json.load(open(path))
+		self.assertEqual(meta["autoname"], "field:project")  # one row per project, by construction
+		fields = {f["fieldname"]: f for f in meta["fields"]}
+		self.assertEqual(set(fields), {"project", "header_roles"})
+		self.assertEqual(fields["project"]["options"], "Projects")
+		self.assertTrue(fields["project"]["unique"])
 
 
 class TestBlanks(unittest.TestCase):
