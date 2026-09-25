@@ -83,6 +83,21 @@ def _fresh_parse():
     )
 
 
+def _split_children(payments) -> list[str]:
+    """The payments `payment_split` minted from `payments` -- `[]` when `payments` is empty.
+
+    ⚠️ NEVER "FIX" THE EMPTY CASE WITH `payments or [""]`. That shape wiped ~8,240 real Project
+    Payments off a developer's live site (2026-09-24): `split_from` is a nullable Link, so
+    `frappe.get_all` renders `["in", [""]]` as `ifnull(split_from, '') in ('')`, which matches
+    EVERY payment that was never split -- and each caller then deletes the payment, its Version
+    rows and its PO Payment Terms. `IN ('')` is only harmless on `name`. Pinned by
+    `TestTheSplitChildSweepNeverReachesABystander`.
+    """
+    if not payments:
+        return []
+    return frappe.get_all(PAYMENT, filters={"split_from": ["in", list(payments)]}, pluck="name")
+
+
 class PaymentSettlementFixture(unittest.TestCase):
     """Stages a batch, plants one APPROVED payment per settleable row, and runs the match.
 
@@ -310,10 +325,7 @@ class PaymentSettlementFixture(unittest.TestCase):
         # have nothing to do with it. That cost four confusing red runs before it was pinned down,
         # each looking like a defect in the code under test. Swept HERE rather than in the partial
         # fixture alone, because `test_unreconcile_tds` part-settles through this base class too.
-        children = frappe.get_all(
-            PAYMENT, filters={"split_from": ["in", self.payments or [""]]}, pluck="name"
-        )
-        for name in children:
+        for name in _split_children(self.payments):
             frappe.db.delete("Version", {"ref_doctype": PAYMENT, "docname": name})
             frappe.db.delete("PO Payment Terms", {"project_payment": name})
             frappe.db.delete(PAYMENT, {"name": name})
@@ -973,10 +985,7 @@ class PartialSettlementFixture(PaymentSettlementFixture):
 
     def tearDown(self):
         # Children minted by the split are not in `self.payments`, so purge by the link.
-        children = frappe.get_all(
-            PAYMENT, filters={"split_from": ["in", self.payments or [""]]}, pluck="name"
-        )
-        for name in children:
+        for name in _split_children(self.payments):
             frappe.db.delete("Version", {"ref_doctype": PAYMENT, "docname": name})
             frappe.db.delete(PAYMENT, {"name": name})
         frappe.db.delete("PO Payment Terms", {"parent": self.split_po})
@@ -1665,6 +1674,59 @@ class TestTheTaxedWorkOrderFixtureIsReachableHere(PaymentSettlementFixture):
         self.assertEqual(frappe.db.count("Payment TDS Deduction", {"project_payment": made.name}), 1)
         self.assertEqual(float(frappe.db.get_value(PAYMENT, made.name, "amount")), made.net)
         self.assertLess(made.net, made.gross)
+
+
+class TestTheSplitChildSweepNeverReachesABystander(unittest.TestCase):
+    """The fixtures' split-child sweep must never name a payment the test did not split.
+
+    ⚠️ THE DEFECT THIS PINS DELETED ~8,240 REAL PAYMENTS (2026-09-24). The sweep read
+    `split_from in (self.payments or [""])`; any fixture that ended a test with no payments of its
+    own asked for `ifnull(split_from, '') in ('')` and got back every payment never split, which the
+    tearDown then deleted with its Versions and PO Payment Terms. See `_split_children`.
+
+    It plants its own bystander (never split) and its own parent/child pair rather than trusting
+    what the site holds, so it is red on the old expression whatever the database looks like.
+    """
+
+    def setUp(self):
+        stamp = frappe.generate_hash(length=10)
+        self.bystander = f"TEST-OFI-SWEEP-BY-{stamp}"
+        self.parent = f"TEST-OFI-SWEEP-PA-{stamp}"
+        self.child = f"TEST-OFI-SWEEP-CH-{stamp}"
+        for name, split_from in (
+            (self.bystander, None),
+            (self.parent, None),
+            (self.child, self.parent),
+        ):
+            frappe.db.sql(
+                """INSERT INTO "tabProject Payments"
+                       (name, creation, modified, modified_by, owner, docstatus, idx,
+                        amount, status, split_from)
+                   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
+                           1, %s, %s)""",
+                (name, SETTLEABLE, split_from),
+            )
+        frappe.db.commit()
+
+    def tearDown(self):
+        for name in (self.child, self.parent, self.bystander):
+            frappe.db.delete(PAYMENT, {"name": name})
+        frappe.db.commit()
+
+    def test_no_payments_sweeps_nothing(self):
+        self.assertEqual(_split_children([]), [])
+        self.assertEqual(_split_children(None), [])
+
+    def test_it_finds_only_the_children_of_the_payments_it_is_given(self):
+        found = _split_children([self.parent])
+        self.assertEqual(found, [self.child])
+        self.assertNotIn(self.bystander, found)
+
+    def test_the_old_expression_would_have_swept_the_bystander(self):
+        """The trap itself, kept visible: if this ever stops holding, Frappe changed how it renders
+        an empty-string `in` on a nullable column, and the note on `_split_children` is stale."""
+        swept = frappe.get_all(PAYMENT, filters={"split_from": ["in", [""]]}, pluck="name")
+        self.assertIn(self.bystander, swept)
 
 
 if __name__ == "__main__":
