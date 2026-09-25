@@ -27,6 +27,7 @@ import {
     recordsHeading,
     reverseAllBlockedSentence,
     reverseAllLabel,
+    type LegOutcomeLine,
     type LegTone,
     type UnreconcilePlan,
     type UnreconcileResult,
@@ -40,6 +41,35 @@ const TONE_CLASS: Record<LegTone, string> = {
     refused: "text-muted-foreground",
     other: "text-foreground",
 };
+
+/**
+ * One record's coloured "what happens" line -- its icon, lead-in, sentence and bullets. Shared by this
+ * dialog and the bulk check step (#1319), so a record reads the same in both.
+ */
+export const LegOutcomeText = ({ line }: { line: LegOutcomeLine }) => (
+    <div className={`flex items-start gap-1.5 text-xs ${TONE_CLASS[line.tone]}`}>
+        {line.tone === "refused" ? (
+            <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        ) : line.tone === "deleted" ? (
+            <Trash2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        ) : line.tone === "split" ? (
+            <GitMerge className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        ) : (
+            <CornerUpLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        )}
+        <div>
+            {line.lead && <b className="font-semibold">{line.lead} </b>}
+            {line.text}
+            {line.items && (
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {line.items.map((item) => (
+                        <li key={item}>{item}</li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    </div>
+);
 
 /** Counts panel openings; each one keys its own plan fetch (see `UnreconcilePanel`). */
 let planOpenings = 0;
@@ -187,28 +217,7 @@ export const UnreconcilePanel = ({
                                     </Button>
                                 )}
                             </div>
-                            <div className={`flex items-start gap-1.5 text-xs ${TONE_CLASS[line.tone]}`}>
-                                {refused ? (
-                                    <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                ) : line.tone === "deleted" ? (
-                                    <Trash2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                ) : line.tone === "split" ? (
-                                    <GitMerge className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                ) : (
-                                    <CornerUpLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                )}
-                                <div>
-                                    {line.lead && <b className="font-semibold">{line.lead} </b>}
-                                    {line.text}
-                                    {line.items && (
-                                        <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                                            {line.items.map((item) => (
-                                                <li key={item}>{item}</li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </div>
-                            </div>
+                            <LegOutcomeText line={line} />
                         </div>
                     );
                 })}

@@ -405,6 +405,15 @@ def _build_safe_sql_expression(expression_obj: dict, meta) -> str:
         frappe.throw(_("Invalid custom aggregate expression format."))
     func = expression_obj["function"].upper()
     args = expression_obj["args"]
+    # IS_SET(field) -> 1 when the field holds a non-blank value, else 0. Any field type (an Attach
+    # cleared by the UI is "" rather than NULL, so both count as empty). It is the one function
+    # whose argument is not cast to a number, so it takes exactly one real field name.
+    if func == "IS_SET":
+        if not isinstance(args, list) or len(args) != 1 or not isinstance(args[0], str):
+            frappe.throw(_("IS_SET takes exactly one field name."))
+        if not meta.get_field(args[0]):
+            frappe.throw(_(f"Invalid field in custom aggregate expression: {args[0]}"))
+        return f"(CASE WHEN COALESCE(CAST(`{args[0]}` AS TEXT), '') <> '' THEN 1 ELSE 0 END)"
     allowed_functions = {
         "MIN": "LEAST({0}, {1})", 
         "MAX": "GREATEST({0}, {1})",

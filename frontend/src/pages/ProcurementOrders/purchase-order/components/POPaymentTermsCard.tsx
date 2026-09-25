@@ -816,8 +816,10 @@ const canRequestPaymentForTerm = (term: PaymentTerm): boolean => {
 };
 
 const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
-  // PMO removed 2026-09-17 (PMO access review): no Request Payment. Keep in step with `isTermsReadOnly` below.
-  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
+  // PMO restored 2026-09-24 (owner): PMO raises payment requests again, reversing that part of the
+  // 2026-09-17 access review. Requesting and EDITING the terms are separate rights -- editing stays
+  // off for PMO (`isTermsReadOnly` below), so the two lists differ on purpose.
+  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", PMO_EXECUTIVE_PROFILE, "Nirmaan Project Lead Profile"].includes(role);
 
   // Calculate eligibility using the helper function
   const isEligibleForRequest = canRequestPaymentForTerm(term);
@@ -976,8 +978,9 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
 
   const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
-  // PMO removed from PAYMENT TERMS editing 2026-09-17 (PMO access review). GST for Billing & Notes
-  // stays editable for PMO -- it is required before dispatch, which PMO still does.
+  // PMO removed from PAYMENT TERMS editing 2026-09-17 (PMO access review); still off after the
+  // 2026-09-24 Request Payment restore above. GST for Billing & Notes stays editable for PMO -- it
+  // is required before dispatch, which PMO still does.
   const isTermsReadOnly = isReadOnly || role === PMO_EXECUTIVE_PROFILE;
 
   // const isPaymentTermsEditable = useMemo(() => {

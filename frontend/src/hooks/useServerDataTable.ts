@@ -87,7 +87,8 @@ const getAllParamsForSyncKey = (baseSyncKey: string): string[] => {
  * @example { function: 'SUBTRACT', args: ['amount_paid', 'po_amount_delivered'] }
  */
 export interface RowExpression {
-    function: 'MIN' | 'MAX' | 'ADD' | 'SUBTRACT' | 'MULTIPLY' | 'DIVIDE';
+    /** IS_SET takes exactly one field name (any type) and yields 1 when it is non-blank, else 0. */
+    function: 'MIN' | 'MAX' | 'ADD' | 'SUBTRACT' | 'MULTIPLY' | 'DIVIDE' | 'IS_SET';
     /** Arguments can be field names (string), literal numbers, or another nested expression. */
     args: (string | number | RowExpression)[];
 }

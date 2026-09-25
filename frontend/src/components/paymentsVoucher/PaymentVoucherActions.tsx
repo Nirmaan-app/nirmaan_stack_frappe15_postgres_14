@@ -29,6 +29,11 @@ interface PaymentVoucherActionsProps {
     hideActions?: boolean;
     /** PO payments: generate/download only — no upload, view or delete surface. */
     downloadOnly?: boolean;
+    /**
+     * Upload / Delete gate (screen-only). Default true = today's behaviour. False keeps Gen,
+     * Preview/Download and View but hides Upload and Delete (Payment Voucher Uploads report).
+     */
+    canEdit?: boolean;
 }
 
 // --- Upload Logic Component ---
@@ -116,7 +121,7 @@ const VoucherUploadAction = ({ payment, onVoucherUpdate, isLoading }: Omit<Payme
 }
 
 // --- Main Action Component ---
-export const PaymentVoucherActions = ({ payment, orderName, onVoucherUpdate, hideActions = false, downloadOnly = false }: PaymentVoucherActionsProps) => {
+export const PaymentVoucherActions = ({ payment, orderName, onVoucherUpdate, hideActions = false, downloadOnly = false, canEdit = true }: PaymentVoucherActionsProps) => {
     const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
@@ -300,7 +305,7 @@ export const PaymentVoucherActions = ({ payment, orderName, onVoucherUpdate, hid
                 <a href={`${SITEURL}${voucherAttachment}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700" title="View Voucher">
                     <FileText className="h-4 w-4" />
                 </a>
-                {!hideActions && (
+                {!hideActions && canEdit && (
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button
@@ -339,12 +344,12 @@ export const PaymentVoucherActions = ({ payment, orderName, onVoucherUpdate, hid
             <div className="flex items-center justify-center gap-2">
                 {generateVoucherDialog}
 
-                <VoucherUploadAction
+                {canEdit && <VoucherUploadAction
                     payment={payment}
                     orderName={orderName}
                     onVoucherUpdate={onVoucherUpdate}
                     isLoading={isLoading}
-                />
+                />}
             </div>
         );
     }

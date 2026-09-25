@@ -543,31 +543,72 @@ class TestPartReconciledOutflow(unittest.TestCase):
             self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 4000
         )
 
-    def test_the_bank_line_s_own_date_does_not_decide(self):
-        """The record's `payment_date` is the only date tested -- and it has none, so it counts.
+    def test_a_record_whose_newest_line_is_old_is_out_of_the_window(self):
+        """The NEWEST BANK LINE decides, and a 45-day-old one is outside the 30 days.
 
-        The line here is dated 45 days back, outside the window by any reading of ITS date. The
-        record still counts, because a Reconciliation Pending record carries no `payment_date`
-        (`derive_expense_status` withholds it until the lines cover the amount) and no date means
-        inside the window (owner, 2026-09-23). Test the line's date instead and this feature
-        reports a different number from the row it sits under.
+        ⚠️ INVERTS THE 2026-09-23 PIN `test_the_bank_line_s_own_date_does_not_decide`, which held
+        that a dateless record always counts. The owner reversed that on 2026-09-24: a July salary
+        run paid on 1 Aug was still "last 30 days" in late September. The record has no
+        `payment_date`, so its newest line is the date that decides (`latest_line_in_range`).
         """
         before = get_payment_dashboard_stats()
         expense = self._record(NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending")
         self._slip(self._line(4000, add_days(today(), -45)), NON_PROJECT_EXPENSE, expense, 4000)
         after = get_payment_dashboard_stats()
 
-        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 1)
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 0)
         self.assertAlmostEqual(
-            self._delta(before, after, "total_non_project_expense_30_days_amount"), 4000
+            self._delta(before, after, "total_non_project_expense_30_days_amount"), 0
         )
         self.assertAlmostEqual(
             self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_amount"),
-            4000,
+            0,
+        )
+        # The money is gone, just not recently: the pending row still nets it off, all time.
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 4000
         )
 
-    def test_a_record_dated_outside_the_window_does_not_count(self):
-        """A `payment_date` it DOES carry is held to the window, like every other row here."""
+    def test_one_recent_line_brings_the_whole_confirmed_part_in(self):
+        """ALL OR NOTHING: an old line and a recent one count TOGETHER, on the recent one's date.
+
+        The same way a Paid record is dated by its newest line and counted in full -- so the figure
+        does not jump when the last line lands and the record flips to Paid.
+        """
+        before = get_payment_dashboard_stats()
+        expense = self._record(NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending")
+        self._slip(self._line(4000, add_days(today(), -45)), NON_PROJECT_EXPENSE, expense, 4000)
+        self._slip(self._line(2000, add_days(today(), -3)), NON_PROJECT_EXPENSE, expense, 2000)
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 1)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_non_project_expense_30_days_amount"), 6000
+        )
+
+    def test_a_record_whose_lines_carry_no_date_is_out_of_the_window(self):
+        """A slip whose import row was deleted has no date; nothing can place it in 30 days."""
+        before = get_payment_dashboard_stats()
+        expense = self._record(NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending")
+        row = self._line(4000, add_days(today(), -3))
+        self._slip(row, NON_PROJECT_EXPENSE, expense, 4000)
+        frappe.db.delete(ROW_DOCTYPE, {"name": row})
+        self.rows.remove(row)
+        frappe.db.commit()
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 0)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 4000
+        )
+
+    def test_the_record_s_own_payment_date_does_not_decide(self):
+        """A `payment_date` on a pending record is not what dates its confirmed part.
+
+        ⚠️ INVERTS `test_a_record_dated_outside_the_window_does_not_count` (2026-09-23), which held
+        the record to its own `payment_date`. The confirmed money moved on its bank line's date; a
+        stale date on the record says nothing about when that happened.
+        """
         before = get_payment_dashboard_stats()
         expense = self._record(
             NON_PROJECT_EXPENSE, amount=10000, status="Reconciliation Pending",
@@ -576,13 +617,9 @@ class TestPartReconciledOutflow(unittest.TestCase):
         self._slip(self._line(4000, add_days(today(), -1)), NON_PROJECT_EXPENSE, expense, 4000)
         after = get_payment_dashboard_stats()
 
-        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 0)
+        self.assertEqual(self._delta(before, after, "total_non_project_expense_30_days_count"), 1)
         self.assertAlmostEqual(
-            self._delta(before, after, "total_non_project_expense_30_days_amount"), 0
-        )
-        # It is still money owed to the bank's confirmation, so the pending row still nets it off.
-        self.assertAlmostEqual(
-            self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 4000
+            self._delta(before, after, "total_non_project_expense_30_days_amount"), 4000
         )
 
     def test_what_leaves_the_pending_row_is_what_lands_in_outflow(self):
@@ -618,12 +655,14 @@ class TestPartReconciledOutflow(unittest.TestCase):
             self._delta(before, after, "total_non_project_expense_30_days_part_reconciled_amount"), 0
         )
 
-    def test_a_record_the_window_already_counted_in_full_is_not_counted_twice(self):
-        """The double-count this figure is one line away from.
+    def test_a_pending_payment_is_not_counted_in_full_as_outflow(self):
+        """Bug fixed 2026-09-24: the payment window now reads Paid records only.
 
-        A Project Payment enters the 30-day outflow on its `payment_date` with NO status filter,
-        so one still in Reconciliation Pending is already there at its FULL amount. Adding its
-        confirmed part on top would report the same 3,000 twice.
+        ⚠️ INVERTS `test_a_record_the_window_already_counted_in_full_is_not_counted_twice`. A
+        Project Payment used to enter the 30-day outflow on its `payment_date` with NO status
+        filter, so one still in Reconciliation Pending was counted at its FULL 9,000 as gone while
+        the pending row counted the same money as still waiting. Now only its bank-confirmed 3,000
+        is outflow, and the pending row nets that 3,000 off -- 3,000 out, 6,000 waiting, 9,000 total.
         """
         before = get_payment_dashboard_stats()
         payment = self._record(
@@ -635,12 +674,29 @@ class TestPartReconciledOutflow(unittest.TestCase):
 
         self.assertEqual(self._delta(before, after, "total_project_outflow_30_days_count"), 1)
         self.assertAlmostEqual(
-            self._delta(before, after, "total_project_outflow_30_days_amount"), 9000
-        )
-        # Nothing was added on top, so there is no subset to note either.
-        self.assertEqual(
-            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_count"), 0
+            self._delta(before, after, "total_project_outflow_30_days_amount"), 3000
         )
         self.assertAlmostEqual(
-            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_amount"), 0
+            self._delta(before, after, "total_project_outflow_30_days_part_reconciled_amount"), 3000
         )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_amount"), 9000
+        )
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_reconciliation_pending_reconciled_amount"), 3000
+        )
+
+    def test_a_pending_payment_with_no_bank_line_is_not_outflow(self):
+        """Bug 2 at its plainest: a dated pending payment with nothing confirmed is not outflow."""
+        before = get_payment_dashboard_stats()
+        self._record(
+            PAYMENT_DOCTYPE, amount=5000, status="Reconciliation Pending",
+            payment_date=add_days(today(), -1),
+        )
+        after = get_payment_dashboard_stats()
+
+        self.assertEqual(self._delta(before, after, "total_project_outflow_30_days_count"), 0)
+        self.assertAlmostEqual(
+            self._delta(before, after, "total_project_outflow_30_days_amount"), 0
+        )
+        self.assertEqual(self._delta(before, after, "total_reconciliation_pending_count"), 1)

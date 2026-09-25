@@ -411,6 +411,38 @@ still Admin + Accountant Lead only (`unreconcile.get_unreconcile_plan`, `unrecon
   ALLOWED and someone outside the module is refused; the Reverse and Unreconcile refusals for a plain
   Accountant are untouched.
 
+## Amendment F — Unreconcile several Settled lines at once (2026-09-25, #1320, parent #1317, owner)
+
+> **Numbering.** #1317 / #1320 call this "Amendment E"; that letter was taken the same day by the
+> Skip / Unskip ruling above, so it is recorded as **F**. This ADR also has **two sections headed
+> "Amendment C"** (the TDS refusal and Unskip-by-kind). Renumbering is left to the owner.
+
+**Reverses, for Unreconcile only:** the Decision's "each on one line at a time", #1270 story 72, and
+#1270's Out of Scope item "Bulk (multi-line) unreconcile". **Skip and Unskip stay one line at a time.**
+
+**Keeps, and clarifies, Amendment D's "there is no whole-import undo" (Q11):** there is still no
+one-click "undo this import" button. A multi-select that happens to cover every line of a small import
+IS allowed (owner, #1317 Q16): every line is shown in the check step, re-checked at write time, and
+carries a typed reason.
+
+- **Access.** Admin + Accountant Lead only, as every undo (`permissions.require_outflow_undo_access`),
+  on both endpoints; the tick box on a Settled line is the frontend mirror (`canUndoOutflow`).
+- **No rule of its own.** `api/outflow_import/bulk_unreconcile.py` is a thin loop: each line goes
+  through `unreconcile.unreconcile_line` with legs = all — the one write path for a reversal — and the
+  check step reads `unreconcile.plan_of_line`, the one-line dialog's plan. A vendor-refund line is
+  therefore undone whole under its existing rule, and Cashbook lines follow Amendment D unchanged.
+- **Each line stands on its own; inside a line, still all or nothing.** Every line runs in its own
+  transaction with its own locks and commits alone. A refusal or error on one line is rolled back,
+  recorded against it with its sentence, and the loop carries on. Only lines that were Settled when
+  their turn came are undone; anything else is blocked, never forced.
+- **Synchronous, no background job** (owner, after timing: 50 lines ≈ 5–15 s). A request killed
+  part-way (the web worker's timeout) leaves finished lines undone and the rest Settled; the screen
+  refetches on a failed request.
+- **At most 50 lines per run**, enforced by the server; the screen works one page (50) at a time.
+- **Audit.** The one reason is stamped on every line and record as today; each line's comment adds
+  "(bulk unreconcile of N lines)". No new field, no migrate. Every undone line is marked Confirm by hand
+  (#1280), as the one-line undo does.
+
 ## Consequences
 
 - A hand skip is reversible from the screen, and so is its reversal auditable (Version row, comment).

@@ -465,7 +465,8 @@ export function OutflowReportTable() {
                                             done={{ ...partiallyReconciled, amount: partiallyReconciledExclGST }}
                                             paidAmount={totalAmountExclGST || 0}
                                             mutedClassName="text-slate-500 dark:text-slate-400"
-                                            borderClassName="border-slate-200 dark:border-slate-700" />
+                                            borderClassName="border-slate-200 dark:border-slate-700"
+                                            withDetails={false} />
                                     </div>
                                 </div>
                             </CardContent>

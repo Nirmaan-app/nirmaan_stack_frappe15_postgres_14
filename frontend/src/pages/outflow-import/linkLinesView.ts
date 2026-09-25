@@ -12,6 +12,7 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { offPageTicks } from "./offPageTicks";
 import { isCreditRow, isPartLinkedRecord, type SettleableRecord } from "./outflowTableModel";
 
 /** Mirrors `amounts.AMOUNT_TOLERANCE` (pinned by `linkLinesParity.test.ts`): the ₹5 a link may overshoot
@@ -60,19 +61,12 @@ export interface LinkButtonState {
     offPage: string | null;
 }
 
-const pagesPhrase = (pages: number[]): string => {
-    const shown = pages.map((p) => String(p + 1));
-    if (shown.length === 1) return `page ${shown[0]}`;
-    return `pages ${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
-};
-
 /**
  * Whether "Link N to one expense" may open, and the note that says why not (ADR-0027 R2, Q16).
  *
  * ⚠️ ONE GRID PAGE AT A TIME. Ticks survive paging, but only this page's lines carry an amount the
  * screen can add up and show, so a tick that is not in `rows` turns the button off and says which page
- * it is on. `tickedOnPage` is the page each line was ticked on; a line with no entry reads "another
- * page" rather than a guessed number.
+ * it is on -- the shared `offPageTicks` check, worded "Linking".
  *
  * ⚠️ THE OTHER PAGE IS REPORTED BEFORE A MONEY-IN LINE. A money-in line on another page cannot be seen
  * to untick, so the first thing to fix is getting back to it.
@@ -89,25 +83,8 @@ export const linkButtonState = (
     const count = selected.size;
     if (!count) return { enabled: false, count, note: null, offPage: null };
 
-    const onPage = new Set(rows.map((r) => r.name));
-    const away = [...selected].filter((name) => !onPage.has(name));
-    if (away.length) {
-        const known = away.map((name) => tickedOnPage.get(name));
-        const pages = [...new Set(known.filter((p): p is number => p !== undefined && p !== currentPage))].sort(
-            (a, b) => a - b
-        );
-        const where = pages.length && known.every((p) => p !== undefined) ? pagesPhrase(pages) : null;
-        const n = away.length;
-        const lead = `${n} ticked ${n === 1 ? "line is" : "lines are"} on ${where ?? "another page"}.`;
-        const back = !where ? "it" : pages.length === 1 ? where : "those pages";
-        const untick = n === 1 ? "untick it" : `untick those ${n}`;
-        return {
-            enabled: false,
-            count,
-            note: `${lead} Linking works on one page at a time: go back to ${back}, or ${untick}.`,
-            offPage: `${n} on ${where ?? "another page"}`,
-        };
-    }
+    const away = offPageTicks(rows, selected, tickedOnPage, currentPage, "Linking");
+    if (away) return { enabled: false, count, ...away };
 
     const moneyIn = rows.filter((r) => selected.has(r.name) && isCreditRow(r)).length;
     if (moneyIn) {

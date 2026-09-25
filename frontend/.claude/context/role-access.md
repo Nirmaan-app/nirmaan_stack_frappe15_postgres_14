@@ -173,7 +173,7 @@ Roles that don't require `has_project === "true"`:
 |---------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|:---------:|
 | Approve PO Tabs | Y | - | Y | - | - | - | - |
 | Status Tabs | Y | Y | Y | - | Y | - | Read-only |
-| Request Payment | Y | - | Y | - | Y | - | - |
+| Request Payment | Y | Y | Y | - | Y | - | - |
 | Edit Payment Terms | Y | - | Y | - | Y | - | - |
 | Update Delivery | Y | Y | Y | Y | Y | - | - |
 | Dispatch PO | Y | Y | Y | - | Y | - | - |
@@ -181,7 +181,7 @@ Roles that don't require `has_project === "true"`:
 | Delete Custom PO | Y | Y | Y | - | Y | - | - |
 | Mark Inactive | Y | Y | - | - | - | Y | - |
 
-> **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost Request Payment and payment-terms edit (`POPaymentTermsCard.tsx`); GST for Billing & Notes stays editable.
+> **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost payment-terms edit (`POPaymentTermsCard.tsx`); GST for Billing & Notes stays editable. **Request Payment was given back on 2026-09-24 (owner)** — PMO raises PO payment requests again, while editing the terms themselves stays off.
 
 **Key files:**
 - `release-po-select.tsx:104-105,223-264`
@@ -308,7 +308,7 @@ Roles that don't require `has_project === "true"`:
 | Add Project Expense | Y | Y | - | - | - | Y |
 | Export Vendor Ledger | Y | Y | - | - | - | Y |
 | Edit Vendor Bank Details | Y | Y | Y | - | Y | Y |
-| Request Payments (PO) | Y | - | Y | - | Y | - |
+| Request Payments (PO) | Y | Y | Y | - | Y | - |
 | Edit Design Tracker Structure | Y | Y | - | - | - | - |
 | Edit User Role Profiles | Y | Y | - | - | - | - |
 | Edit Items/Products | Y | Y | - | - | - | - |
@@ -316,7 +316,7 @@ Roles that don't require `has_project === "true"`:
 
 **Design Tracker specific:** Design Lead can edit structure; Design Executive can only edit assigned tasks; Project Manager is view-only.
 
-**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. PMO further **cannot approve POs / Sent Back POs / PO Revisions / WOs / Amended WOs**, **cannot settle payments** (Mark as Paid, Mark Reconciled, Record Paid Entry), **cannot request PO payments or edit PO payment terms**, and **cannot approve/reject vendor invoices** — *2026-09-17 access review*. In all other areas, PMO mirrors Admin.
+**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. PMO further **cannot approve POs / Sent Back POs / PO Revisions / WOs / Amended WOs**, **cannot settle payments** (Mark as Paid, Mark Reconciled, Record Paid Entry), **cannot edit PO payment terms** (requesting PO payments was restored 2026-09-24), and **cannot approve/reject vendor invoices** — *2026-09-17 access review*. In all other areas, PMO mirrors Admin.
 
 **TDS History deletion** *(2026-08-05)*: the Actions column in `TdsHistoryTable` is gated by TWO predicates, because they answer different questions — `canManageTDS` (Admin **or** PMO) decides who sees the COLUMN, `canDeleteRow(item)` decides which rows get a button. PMO deletes rows whose `tds_status` is **Pending or Rejected**; an Approved row is part of the signed submittal record and stays Admin-only. So a PMO sees the column with buttons on eligible rows and `--` on the rest, rather than icons that fail on click. `New` is NOT PMO-deletable (the status list is taken literally; no rows currently carry it). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
 

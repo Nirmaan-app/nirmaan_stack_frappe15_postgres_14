@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
+import { poLinkFor } from "@/pages/ProjectPayments/components/poRoute";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 import { Info } from "lucide-react";
@@ -366,7 +367,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
               <div className="font-medium flex items-center gap-1 group">
                 <Link
                   className="text-blue-600 hover:underline whitespace-nowrap"
-                  to={`po/${po.name.replaceAll("/", "&=")}`}
+                  to={poLinkFor(po.name, po.status, projectId)}
                 >
                   {po.name}
                 </Link>
@@ -687,6 +688,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       poAmountsDict,
       calculateTotalLiabilities,
       hideFinancialColumns,
+      projectId,
     ]
   );
 

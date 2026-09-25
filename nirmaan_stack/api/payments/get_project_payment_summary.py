@@ -2,7 +2,10 @@ import frappe
 from frappe.utils import today, add_days, getdate
 
 from nirmaan_stack.api.outflow_import.review import not_matched_totals
-from nirmaan_stack.services.outflow_import.expense_links import load_linked_totals
+from nirmaan_stack.services.outflow_import.expense_links import (
+    latest_line_in_range,
+    load_part_reconciled,
+)
 
 
 def _to_float(value):
@@ -149,14 +152,6 @@ def get_payment_dashboard_stats():
                        'ceo_approval_date', 'payment_date', 'auto_approved']
 
         all_payments = []
-        # Reconciliation Pending records -> {name: payment_date}. The DATE is what 2h2 needs:
-        # a record in this state normally has NONE (`derive_expense_status` returns
-        # `payment_date=None` until the last bank line lands), and a record with no date is
-        # taken as inside the 30-day window.
-        reconciliation_pending = {_ledger: {} for _ledger in LEDGERS}
-        # (ledger, name) of every record the 30-day outflow has already taken at its FULL amount.
-        # 2h2 adds the part-reconciled ones and must not touch a record that is in here twice.
-        outflow_window_records = set()
         for _ledger in LEDGERS:
             for _row in frappe.get_all(_ledger, fields=_row_fields, limit_page_length=None):
                 _row['ledger'] = _ledger
@@ -187,7 +182,6 @@ def get_payment_dashboard_stats():
             if status == 'Reconciliation Pending':
                 stats['total_reconciliation_pending_count'] += 1
                 stats['total_reconciliation_pending_amount'] += amount
-                reconciliation_pending[doc.ledger][doc.name] = doc.payment_date
 
             # --- 2b & 2c. APPROVED Check (L1) ---
             # Exclude auto-approved payments — they skipped the L1 gate and are
@@ -252,10 +246,19 @@ def get_payment_dashboard_stats():
                 # ⚠️ PAYMENTS ONLY, and the guard is load-bearing: Project Expenses are
                 # added to this same accumulator at 2e2 below and Non-Project at 2g, so
                 # without it the widened loop would count every expense TWICE.
-                if is_payment and payment_date >= thirty_days_ago and payment_date <= today_date:
+                #
+                # ⚠️ PAID ONLY, like the expense queries at 2e2 / 2g. A Reconciliation Pending
+                # payment is ALSO on the pending row above; counting it here at its full amount
+                # would report the same money as both "gone" and "still waiting". Its bank-confirmed
+                # part, if any, reaches the outflow through 2h2 instead.
+                if (
+                    is_payment
+                    and status == 'Paid'
+                    and payment_date >= thirty_days_ago
+                    and payment_date <= today_date
+                ):
                     stats['total_project_outflow_30_days_count'] += 1
                     stats['total_project_outflow_30_days_amount'] += amount
-                    outflow_window_records.add((doc.ledger, doc.name))
 
         # --- 2e2. Project Expenses → also project outflow (last 30 days) ---
         # Folded into the same bucket as PO + WO payments so "Project Outflow"
@@ -330,47 +333,31 @@ def get_payment_dashboard_stats():
             not_matched = not_matched_totals()
 
             # --- 2h2. The bank-confirmed part of a Reconciliation Pending record ----------
-            # `load_linked_totals` is the live-slip aggregate the queue and the Bank lines card
-            # read, grouped by record; only the Reconciliation Pending records' share is taken.
-            # That one figure is used TWICE, and reading it once is what keeps the two sides of
-            # the card tied to the penny:
+            # `expense_links.load_part_reconciled` is the one reader of part-reconciled money --
+            # the Outflow Reports read it too. Its linked total is used TWICE, and reading it once
+            # is what keeps the two sides of the card tied to the penny:
             #
             #   * SUBTRACTED from the pending row, which prints what is ACTUALLY still waiting.
+            #     All time, like the pending row itself.
             #   * ADDED to the 30-day outflow it belongs to, project or non-project by ledger.
-            #     Its status keeps it out of the two outflow queries above (they read Paid
-            #     records and stamped `payment_date`s), so without this the confirmed part is
-            #     reported NOWHERE -- gone from pending, not yet in outflow.
+            #     Its status keeps it out of the outflow queries above (they read Paid records
+            #     only), so without this the confirmed part is reported NOWHERE.
             #
-            # ⚠️ NO DATE OF ITS OWN MEANS INSIDE THE WINDOW (owner, 2026-09-23). These records
-            # carry `payment_date = None` by design -- `derive_expense_status` withholds it until
-            # the lines cover the amount -- so there is no date to test and every one of them
-            # counts. A record that DOES carry a date is held to it like any other row here: in
-            # the window it counts, outside it does not. One rule, one field, the same
-            # `payment_date` the queries above use.
-            #
-            # ⚠️ NO DOUBLE COUNT. A record the window already took in FULL is skipped via
-            # `outflow_window_records` -- a Project Payment is counted on `payment_date` with no
-            # status filter, so one in Reconciliation Pending can be in both sets. The expense
-            # queries (2e2, 2g) filter `status = Paid`, which a Reconciliation Pending expense
-            # can never satisfy. And a record becomes Paid only once its lines cover it, at which
-            # point it leaves this set and its FULL amount is counted there instead.
+            # ⚠️ DATED BY ITS NEWEST BANK LINE, ALL OR NOTHING (owner, 2026-09-24,
+            # `latest_line_in_range`). This REVERSES the 2026-09-23 rule "no date of its own means
+            # inside the window": these records never carry a `payment_date`, so that rule put the
+            # confirmed part of EVERY one of them in the 30 days however old its lines were (a July
+            # salary run paid on 1 Aug was still "last 30 days" in late September). The newest line
+            # is the date the record will inherit as `payment_date` when it goes Paid, so a Paid
+            # record and a part-reconciled one now answer the window by one rule. A record whose
+            # lines carry no date is left out of the window. One outside the window still leaves
+            # the pending row -- that money is gone, just not recently.
             reconciled_in_pending = 0.0
-            for _ledger, _pending in reconciliation_pending.items():
-                if not _pending:
-                    continue
-                for _name, _links in load_linked_totals(_ledger).items():
-                    if _name not in _pending:
-                        continue
+            for _ledger in LEDGERS:
+                for _name, _links in load_part_reconciled(_ledger).items():
                     _confirmed = float(_links.linked_total)
-                    if not _confirmed:
-                        continue
-                    # The pending row's subtraction takes every one of them, counted or not.
                     reconciled_in_pending += _confirmed
-
-                    if (_ledger, _name) in outflow_window_records:
-                        continue
-                    _paid_on = _pending[_name]
-                    if _paid_on and not (thirty_days_ago <= _paid_on <= today_date):
+                    if not latest_line_in_range(_links, thirty_days_ago, today_date):
                         continue
                     if _ledger == 'Non Project Expenses':
                         stats['total_non_project_expense_30_days_count'] += 1

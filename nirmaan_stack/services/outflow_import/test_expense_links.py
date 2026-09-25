@@ -18,6 +18,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
     bulk_id_of,
     delete_while_linked_refusal,
     derive_expense_status,
+    latest_line_in_range,
     lines_fit,
     one_line_fits,
     paid_while_short_refusal,
@@ -217,3 +218,28 @@ class TestDeleteWhileLinkedRefusal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLatestLineInRange(unittest.TestCase):
+    """How a part-reconciled record answers a date range: by its newest line, all or nothing."""
+
+    def test_no_range_is_all_time_even_with_no_date(self):
+        self.assertTrue(latest_line_in_range(_links(100)))
+        self.assertTrue(latest_line_in_range(_links(100, latest=None)))
+
+    def test_a_range_leaves_out_a_record_with_no_date(self):
+        self.assertFalse(latest_line_in_range(_links(100, latest=None), date(2026, 8, 1), date(2026, 8, 31)))
+
+    def test_both_edges_are_inclusive(self):
+        self.assertTrue(latest_line_in_range(_links(100), date(2026, 8, 18), date(2026, 8, 18)))
+
+    def test_before_and_after_the_range_are_out(self):
+        self.assertFalse(latest_line_in_range(_links(100), date(2026, 8, 19), date(2026, 8, 31)))
+        self.assertFalse(latest_line_in_range(_links(100), date(2026, 8, 1), date(2026, 8, 17)))
+
+    def test_iso_strings_are_read_as_dates(self):
+        self.assertTrue(latest_line_in_range(_links(100), "2026-08-01", "2026-08-31"))
+
+    def test_one_open_end(self):
+        self.assertTrue(latest_line_in_range(_links(100), from_date=date(2026, 8, 1)))
+        self.assertFalse(latest_line_in_range(_links(100), to_date=date(2026, 8, 1)))

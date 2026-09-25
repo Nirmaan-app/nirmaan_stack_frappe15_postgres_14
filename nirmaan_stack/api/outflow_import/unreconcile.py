@@ -11,8 +11,9 @@ TWO WHITELISTED ENDPOINTS SINCE #1275, both behind the narrower Admin + Accounta
 
   * `get_unreconcile_plan(row)` -- READ ONLY. The bank-line facts and every Settled leg with its
     verdict, its "what happens" sentence and any refusal. What the Unreconcile dialog renders.
-  * `unreconcile_row(row, legs | "all", reason)` -- the write. `expenses.reverse_allocation` is a
-    wrapper over it with one leg, so there is still exactly one write path for a reversal.
+  * `unreconcile_row(row, legs | "all", reason)` -- the write: the access check, then
+    `unreconcile_line`. `expenses.reverse_allocation` calls `unreconcile_line` with one leg, and a
+    loop may call it once per line (#1318), so there is still exactly one write path for a reversal.
 
 ⚠️ THE PLAN IS NEVER TRUSTED BY THE WRITE. Both read the same facts through `_read_facts` and ask the
 same `leg_verdict`, but the write reads them again UNDER ITS LOCKS; a plan shown a minute ago may be
@@ -148,6 +149,16 @@ def get_unreconcile_plan(row: str) -> dict:
     Accountant is offered none (#1270 Q1).
     """
     require_outflow_undo_access()
+    return plan_of_line(row)
+
+
+def plan_of_line(row: str) -> dict:
+    """`get_unreconcile_plan` bar the access check -- the ONE plan, so the bulk check step
+    (`bulk_unreconcile.get_bulk_unreconcile_plan`, #1319) can never describe a line differently from
+    the one-line dialog. Reads only; takes no lock.
+
+    ⚠️ THE CALLER HAS ALREADY CHECKED UNDO ACCESS. This is not whitelisted.
+    """
     line = frappe.db.get_value(ROW_DOCTYPE, row, _ROW_FIELDS, as_dict=True)
     if not line:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
@@ -214,6 +225,30 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
     reason is also stamped on every reversed leg, and each save leaves a Version row.
     """
     actor = require_outflow_undo_access()
+    return unreconcile_line(row=row, legs=legs, reason=reason, actor=actor)
+
+
+def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | None = None) -> dict:
+    """The one-line undo itself, callable from a loop (#1318): everything `unreconcile_row` does bar the
+    access check, and the same response. The one write path for a reversal -- `unreconcile_row` and
+    `expenses.reverse_allocation` both end here.
+
+    ⚠️ THE CALLER HAS ALREADY CHECKED UNDO ACCESS and passes the `actor` that check returned. This is
+    not whitelisted; a caller that skips `require_outflow_undo_access` has no gate at all.
+
+    ⚠️ ONE LINE, ONE TRANSACTION. On success it takes this line's locks, writes, and COMMITS before it
+    returns, so the row -> legs -> targets lock order holds per line. A concurrent writer's refusal has
+    already rolled back to its sentence; nothing of an earlier line is reachable by that, because every
+    earlier line has committed.
+
+    ⚠️ ANY OTHER REFUSAL THROWS WITH THIS LINE'S LOCKS STILL HELD -- the row and leg locks are taken
+    before the whole-line-only and verdict refusals, and nothing rolls them back here. A loop that
+    catches a refusal and moves on must `frappe.db.rollback()` first, or it carries this line's locks
+    into the next one.
+
+    `bulk_of` is the size of the bulk run this line is part of (#1320); it only adds
+    "(bulk unreconcile of N lines)" to the line's comment.
+    """
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")
@@ -255,7 +290,7 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
             # #1280: the line keeps its old pick, so it is marked Confirm by hand and a bulk confirm
             # refuses it until a person settles it.
             new_status = _refresh_row_allocation(line.name, actor, confirm_by_hand=True)
-            _comment_on_line(line.name, actor, reason, requested)
+            _comment_on_line(line.name, actor, reason, requested, bulk_of=bulk_of)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
             raise
@@ -306,14 +341,21 @@ def _amount_after(leg) -> float | None:
     return None if amount is None else float(amount)
 
 
-def _comment_on_line(row: str, actor: str, reason: str, legs) -> None:
-    """"Unreconciled by <user>: <reason> (<N> record(s): <names>)" on the import line (#1275)."""
+def _comment_on_line(row: str, actor: str, reason: str, legs, *, bulk_of: int | None = None) -> None:
+    """"Unreconciled by <user>: <reason> (<N> record(s): <names>)" on the import line (#1275), plus
+    " (bulk unreconcile of <M> lines)" when the line was undone in a bulk run (#1320)."""
     count = len(legs)
     names = ", ".join(leg.target_name for leg in legs)
     noun = "record" if count == 1 else "records"
-    frappe.get_doc(ROW_DOCTYPE, row).add_comment(
-        "Comment", text=f"Unreconciled by {actor}: {reason} ({count} {noun}: {names})"
-    )
+    text = f"Unreconciled by {actor}: {reason} ({count} {noun}: {names})"
+    if bulk_of:
+        text += f" {bulk_note(bulk_of)}"
+    frappe.get_doc(ROW_DOCTYPE, row).add_comment("Comment", text=text)
+
+
+def bulk_note(count: int) -> str:
+    """What a bulk run adds to each line's comment (#1320)."""
+    return f"(bulk unreconcile of {count} {'line' if count == 1 else 'lines'})"
 
 
 def _carry_out(

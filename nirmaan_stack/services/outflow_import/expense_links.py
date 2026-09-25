@@ -13,6 +13,9 @@ Two halves, deliberately in one module:
     linked line. It reads, never writes, and takes no request context.
   * `derive_expense_status` / `remaining_balance` -- PURE. Given the expense's amount and those
     two facts they return Paid or Reconciliation Pending, the payment date, and what is left.
+  * `load_part_reconciled` / `latest_line_in_range` -- the ONE home of "partially reconciled"
+    money and the date it counts on (its newest bank line). The Payments summary card and both
+    Outflow Reports read it; neither may date that money by a rule of its own.
   * The three REFUSAL builders (#1302) -- also pure. They are rules 1-3 of the four document rules
     `integrations/controllers/expense_bank_links.py` applies on every save and delete; rule 4 is
     `derive_expense_status` itself. Each returns the sentence a person should read, or `None`.
@@ -57,7 +60,9 @@ __all__ = [
     "list_expense_lines",
     "one_line_fits",
     "load_expense_links",
+    "latest_line_in_range",
     "load_linked_totals",
+    "load_part_reconciled",
     "paid_while_short_refusal",
     "remaining_balance",
 ]
@@ -262,12 +267,9 @@ def load_expense_links(doctype: str, name: str) -> ExpenseLinks:
         {"doctype": doctype, "name": name, "settled": MATCH_SETTLED},
         as_dict=True,
     )[0]
-    latest = result.get("latest_added_on")
-    if isinstance(latest, datetime):
-        latest = latest.date()
     return ExpenseLinks(
         linked_total=to_decimal(result.get("linked_total")),
-        latest_line_date=latest,
+        latest_line_date=_as_date(result.get("latest_added_on")),
         line_count=int(result.get("line_count") or 0),
     )
 
@@ -320,55 +322,100 @@ def list_expense_lines(doctype: str, name: str) -> list[dict]:
     )
 
 
-def load_linked_totals(
-    doctype: str, from_date=None, to_date=None
-) -> dict[str, ExpenseLinks]:
-    """Every expense of one doctype that has live slips -> its linked total and line count, ONE query.
+def load_linked_totals(doctype: str) -> dict[str, ExpenseLinks]:
+    """Every expense of one doctype that has live slips -> its linked total, line count and latest
+    line date, ONE query.
 
     ⚠️ THE SAME AGGREGATE AS `load_expense_links`, grouped by expense, for a list that needs it for
-    many expenses at once (the link dialog's picker, #1298). Kept beside the one-expense read so the
-    two cannot drift into counting a linked total differently. `latest_line_date` is not read here.
+    many expenses at once (the link dialog's picker, #1298; the part-reconciled figures). Kept beside
+    the one-expense read so the two cannot drift into counting a linked total differently.
 
-    `from_date` / `to_date` narrow the slips to those whose BANK LINE falls in that window -- the
-    row's `added_on` date, the very field a settle writes as the expense's `payment_date`, so a
-    windowed total means the same thing here as a `payment_date` filter does on a Paid record.
-    Read by the Outflow Reports, whose "Reconciliation Done" figure has to answer to a date range
-    the user picked, on records that carry no `payment_date` of their own.
-
-    ⚠️ A SLIP WHOSE IMPORT ROW WAS DELETED HAS NO DATE, so it counts in the unwindowed total (the
-    LEFT JOIN keeps it, matching `load_expense_links`) and falls OUT of a windowed one: nothing can
-    honestly place it inside a period. Both readings are deliberate.
+    ⚠️ NO DATE WINDOW HERE, AND THAT IS DELIBERATE (owner, 2026-09-24). This used to narrow the SLIPS
+    to a range, which dated a part-reconciled record line by line while a Paid one is dated by its
+    newest line -- two rules for one question. A date range is now answered once, per RECORD, by
+    `latest_line_in_range` over the `latest_line_date` read here.
     """
-    conditions = ["m.target_doctype = %(doctype)s", "m.match_kind = %(settled)s"]
-    params = {"doctype": doctype, "settled": MATCH_SETTLED}
-    if from_date is not None:
-        conditions.append("CAST(r.added_on AS DATE) >= %(from_date)s")
-        params["from_date"] = from_date
-    if to_date is not None:
-        conditions.append("CAST(r.added_on AS DATE) <= %(to_date)s")
-        params["to_date"] = to_date
-
     rows = frappe.db.sql(
         f"""
         SELECT m.target_name,
                COALESCE(SUM(m.target_amount), 0) AS linked_total,
-               COUNT(m.name) AS line_count
+               COUNT(m.name) AS line_count,
+               MAX(r.added_on) AS latest_added_on
         FROM "tab{_MATCH_DOCTYPE}" m
         LEFT JOIN "tab{_ROW_DOCTYPE}" r ON r.name = m.import_row
-        WHERE {" AND ".join(conditions)}
+        WHERE m.target_doctype = %(doctype)s AND m.match_kind = %(settled)s
         GROUP BY m.target_name
         """,
-        params,
+        {"doctype": doctype, "settled": MATCH_SETTLED},
         as_dict=True,
     )
     return {
         r["target_name"]: ExpenseLinks(
             linked_total=to_decimal(r.get("linked_total")),
-            latest_line_date=None,
+            latest_line_date=_as_date(r.get("latest_added_on")),
             line_count=int(r.get("line_count") or 0),
         )
         for r in rows
     }
+
+
+def load_part_reconciled(doctype: str) -> dict[str, ExpenseLinks]:
+    """Every `Reconciliation Pending` record of `doctype` that live slips ALREADY part-cover.
+
+    The one reader of "partially reconciled" money: the Payments summary card and the Outflow
+    Reports both take their figure from here, so the two can never pick a different set of records.
+    A record with no live slip, or slips netting to zero, is not part-reconciled and is left out.
+    """
+    pending = set(
+        frappe.get_all(
+            doctype,
+            filters={"status": RECONCILIATION_PENDING},
+            pluck="name",
+            limit_page_length=None,
+        )
+    )
+    if not pending:
+        return {}
+    return {
+        name: links
+        for name, links in load_linked_totals(doctype).items()
+        if name in pending and links.linked_total
+    }
+
+
+def latest_line_in_range(links: ExpenseLinks, from_date=None, to_date=None) -> bool:
+    """Does a part-reconciled record's confirmed money fall inside `from_date`..`to_date`?
+
+    ⚠️ DATED BY ITS NEWEST BANK LINE, ALL OR NOTHING (owner, 2026-09-24). The same date the record
+    will carry as `payment_date` once it goes Paid (`derive_expense_status`), so a part-reconciled
+    record and a Paid one answer a date range by ONE rule -- and the figure never jumps when the
+    last line lands and the record flips to Paid.
+
+    No range (both ends `None`) is all time: every record counts. With a range, a record whose lines
+    carry no date at all (their import rows were deleted) is left out -- nothing can honestly place
+    it inside a period. Both ends inclusive; either may be `None`.
+    """
+    if from_date is None and to_date is None:
+        return True
+    latest = links.latest_line_date
+    if latest is None:
+        return False
+    if from_date is not None and latest < _as_date(from_date):
+        return False
+    if to_date is not None and latest > _as_date(to_date):
+        return False
+    return True
+
+
+def _as_date(value) -> date | None:
+    """A `datetime` / ISO string / `date` as a `date`; `None` stays `None`."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
 
 
 def linked_totals_join(doctype: str, alias: str) -> str:

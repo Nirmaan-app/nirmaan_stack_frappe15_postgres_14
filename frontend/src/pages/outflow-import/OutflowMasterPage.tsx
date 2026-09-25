@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Columns3, History, Info, Link2, Search, Upload, Wallet, X } from "lucide-react";
+import { Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -28,9 +28,12 @@ import type {
     OutflowImportSummary,
 } from "@/types/NirmaanStack/OutflowImportBatch";
 import { useUserData } from "@/hooks/useUserData";
-import { OPEN_ROW_STATUSES, canUndoOutflow } from "./outflowImportStatus";
+import { canUndoOutflow } from "./outflowImportStatus";
 import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } from "./unreconcileView";
 import { UnreconcileDialog } from "./components/UnreconcileDialog";
+import { BulkUnreconcileDialog } from "./components/BulkUnreconcileDialog";
+import { unreconcileButtonState } from "./bulkUnreconcileView";
+import { selectionMode, settledTicksAllowed, tickKindOf, tickRules, type TickKind } from "./tickMode";
 import { LinkLinesDialog, type LinkLinesResult } from "./components/LinkLinesDialog";
 import { linkButtonState, linkedNotice, selectedMoneyIn } from "./linkLinesView";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
@@ -258,6 +261,8 @@ export const OutflowMasterPage = () => {
     const [linkingLines, setLinkingLines] = useState<OutflowImportRow[] | null>(null);
     /** The Settled line whose Unreconcile dialog is open (#1275), or `null`. */
     const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
+    /** The ticked Settled lines the bulk Unreconcile check step is open on (#1319), or `null`. A snapshot. */
+    const [bulkUnreconcileRows, setBulkUnreconcileRows] = useState<string[] | null>(null);
     const { role, user_id } = useUserData();
     const canUndo = canUndoOutflow(role, user_id);
     /**
@@ -293,6 +298,11 @@ export const OutflowMasterPage = () => {
     const pageRef = useRef(table.page);
     pageRef.current = table.page;
     const tickedOnPageRef = useRef(new Map<string, number>());
+    /**
+     * What each ticked line was ticked AS -- open or Settled (#1319) -- so the tick mode survives paging
+     * and a refetch that moves a line's status. A REF for the same reason as `tickedOnPageRef`.
+     */
+    const tickKindRef = useRef(new Map<string, TickKind>());
 
     /**
      * The Inflow tabs hide when the chosen source can never carry a credit (#1264). The SERVER
@@ -473,15 +483,22 @@ export const OutflowMasterPage = () => {
     /**
      * Which rows may be ticked, computed PER ROW rather than per tab (2026-08-10 retab).
      *
-     * ⚠️ IT KEYS ON THE STATUS DERIVER, not on the tab. The new tabs deliberately do not partition
-     * open from terminal -- "Matched / Settled" pairs an open status with a terminal one -- so
-     * asking the tab is asking the wrong question. `OPEN_ROW_STATUSES` is the same set that decides
-     * whether anyone still owes this row a decision, which is exactly what "can I tick it" means.
+     * ⚠️ IT KEYS ON THE STATUS DERIVER, not on the tab: "Matched / Settled" pairs an open status with
+     * a terminal one. Since #1319 it is a MODE -- all open lines or all Settled lines, never both --
+     * and the rule lives in the pure `tickMode.tickRules`, not here.
      */
-    const selectableRowNames = useMemo(
-        () => new Set(rows.filter((r) => OPEN_ROW_STATUSES.has(r.row_status)).map((r) => r.name)),
-        [rows]
+    const tickMode = useMemo(() => selectionMode(selected, tickKindRef.current), [selected]);
+    const ticks = useMemo(
+        () => tickRules({ rows, mode: tickMode, tab, canUndo }),
+        [rows, tickMode, tab, canUndo]
     );
+    const selectableRowNames = ticks.tickable;
+    const settledMode = tickMode === "settled";
+    // Read inside the stable `toggleRow` / `toggleAll` to record what a line is ticked as.
+    const settledTickableRef = useRef(false);
+    settledTickableRef.current = settledTicksAllowed(tab, canUndo);
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
     const readyToConfirm = useMemo(
         () => decidedRows(rows, selected, decisions),
         [rows, selected, decisions]
@@ -492,6 +509,13 @@ export const OutflowMasterPage = () => {
         () => linkButtonState(rows, selected, tickedOnPageRef.current, table.page),
         [rows, selected, table.page]
     );
+    const unreconcileState = useMemo(
+        () => unreconcileButtonState(rows, selected, tickedOnPageRef.current, table.page),
+        [rows, selected, table.page]
+    );
+    // The toolbar's off-page chip and amber note follow whichever action the mode offers.
+    const offPageChip = settledMode ? unreconcileState.offPage : linkState.offPage;
+    const toolbarNote = settledMode ? unreconcileState.note ?? ticks.note : linkState.note;
     const originByRow = useMemo(() => {
         const out = new Map<string, DecisionOrigin>();
         for (const row of rows) out.set(row.name, decisionOrigin(row, decisions.get(row.name)));
@@ -501,6 +525,12 @@ export const OutflowMasterPage = () => {
     const refreshAll = useCallback(async () => {
         await Promise.all([mutateRows(), mutateSummary(), mutateImports()]);
     }, [mutateRows, mutateSummary, mutateImports]);
+
+    /** Record what `name` is being ticked as, from its row on this page (#1319). */
+    const recordTickKind = useCallback((name: string) => {
+        const row = rowsRef.current.find((r) => r.name === name);
+        tickKindRef.current.set(name, (row && tickKindOf(row, settledTickableRef.current)) ?? "open");
+    }, []);
 
     /**
      * The facet values one funnel offers, fetched when it opens.
@@ -513,22 +543,26 @@ export const OutflowMasterPage = () => {
      */
     const toggleRow = useCallback((name: string) => {
         tickedOnPageRef.current.set(name, pageRef.current);
+        recordTickKind(name);
         setSelected((prev) => {
             const next = new Set(prev);
             next.has(name) ? next.delete(name) : next.add(name);
             return next;
         });
-    }, []);
+    }, [recordTickKind]);
 
-    const toggleAll = useCallback((names: string[]) => {
-        names.forEach((n) => tickedOnPageRef.current.set(n, pageRef.current));
+    const toggleAll = useCallback((names: readonly string[]) => {
+        names.forEach((n) => {
+            tickedOnPageRef.current.set(n, pageRef.current);
+            recordTickKind(n);
+        });
         setSelected((prev) => {
             const everyOne = names.every((n) => prev.has(n));
             const next = new Set(prev);
             names.forEach((n) => (everyOne ? next.delete(n) : next.add(n)));
             return next;
         });
-    }, []);
+    }, [recordTickKind]);
 
     // ⚠️ STABLE. The decision dialog feeds this into a `useCallback` that a child effect depends
     // on; a fresh arrow every render would re-fire that effect on every render of the page.
@@ -746,6 +780,17 @@ export const OutflowMasterPage = () => {
         },
         [refreshAll]
     );
+
+    /**
+     * The bulk Unreconcile result box closed (#1320). Every tick is cleared -- the undone lines are open
+     * now, and leaving them ticked would drop the toolbar into Confirm mode (#1317 story 28) -- and the
+     * table and the summary refetch.
+     */
+    const handleBulkUnreconciled = useCallback(async () => {
+        setBulkUnreconcileRows(null);
+        setSelected(new Set());
+        await refreshAll();
+    }, [refreshAll]);
 
     /** Reference-stable: every memoized table row receives it. */
     const handleOpenUnreconcile = useCallback((row: OutflowImportRow) => {
@@ -1312,12 +1357,14 @@ export const OutflowMasterPage = () => {
                                     + {formatToRoundedIndianRupee(selectedIn)} in
                                 </span>
                             )}
-                            {linkState.offPage && (
-                                <span className="text-xs text-amber-700">{linkState.offPage}</span>
+                            {offPageChip && (
+                                <span className="text-xs text-amber-700">{offPageChip}</span>
                             )}
-                            <span className="text-xs text-muted-foreground">
-                                {readyToConfirm.length} decided
+                            {!settledMode && (
+                                <span className="text-xs text-muted-foreground">
+                                    {readyToConfirm.length} decided
                             </span>
+                            )}
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -1326,6 +1373,27 @@ export const OutflowMasterPage = () => {
                             >
                                 Clear
                             </Button>
+                            {/* #1319: Settled lines ticked -> only Unreconcile, drawn like Link. Its
+                                off-page note sits under the toolbar, from the pure
+                                `unreconcileButtonState`. Link and Confirm only work on open lines. */}
+                            {settledMode ? (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-red-700 hover:text-red-800"
+                                    disabled={!unreconcileState.enabled || busy}
+                                    title={unreconcileState.note ?? undefined}
+                                    onClick={() =>
+                                        setBulkUnreconcileRows(
+                                            rows.filter((row) => selected.has(row.name)).map((row) => row.name)
+                                        )
+                                    }
+                                >
+                                    <Undo2 className="mr-1.5 h-3.5 w-3.5" />
+                                    Unreconcile {unreconcileState.count}
+                                </Button>
+                            ) : (
+                            <>
                             {/* #1298: many lines -> one expense. Its off-state note sits under the
                                 toolbar, from the pure `linkButtonState`. */}
                             <Button
@@ -1351,6 +1419,8 @@ export const OutflowMasterPage = () => {
                                     ? `Confirm ${readyToConfirm.length} decided`
                                     : "Confirm decided"}
                             </Button>
+                            </>
+                            )}
                             <span aria-hidden className="h-5 w-px bg-border" />
                         </>
                     )}
@@ -1360,10 +1430,10 @@ export const OutflowMasterPage = () => {
                         {table.total === 1 ? "transfer" : "transfers"}
                     </span>
                 </div>
-                {selected.size > 0 && linkState.note && (
+                {selected.size > 0 && toolbarNote && (
                     <div className="flex w-full items-center justify-end gap-1.5 text-xs text-amber-700">
                         <Info className="h-3.5 w-3.5 shrink-0" />
-                        <span>{linkState.note}</span>
+                        <span>{toolbarNote}</span>
                     </div>
                 )}
             </div>
@@ -1414,6 +1484,9 @@ export const OutflowMasterPage = () => {
                         decidedRowNames={decidedNames}
                         originByRow={originByRow}
                         selectableRowNames={selectableRowNames}
+                        lockedRowNames={ticks.locked}
+                        selectAllRowNames={ticks.selectAll}
+                        selectAllHint={ticks.selectAllHint}
                         onSort={table.toggleSort}
                         onFilter={table.setFilter}
                         onToggleRow={toggleRow}
@@ -1493,6 +1566,17 @@ export const OutflowMasterPage = () => {
                 onClose={() => setLinkingLines(null)}
                 onLinked={handleLinked}
             />
+
+            {/* #1319 check step, #1320 run and result. Rendered only for the undo roles -- only they can
+                tick a Settled line, and both endpoints refuse anyone else. */}
+            {canUndo && (
+                <BulkUnreconcileDialog
+                    rows={bulkUnreconcileRows}
+                    onClose={() => setBulkUnreconcileRows(null)}
+                    onFinished={handleBulkUnreconciled}
+                    onRefresh={refreshAll}
+                />
+            )}
 
             <UnreconcileDialog
                 row={unreconcilingRow}

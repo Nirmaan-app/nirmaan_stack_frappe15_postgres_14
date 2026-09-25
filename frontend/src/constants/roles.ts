@@ -395,6 +395,18 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
 
 /**
+ * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the
+ * `Administrator` user, checked by the caller). Everyone else on the WO tab may still Gen /
+ * download / view. SCREEN-ONLY: the write is `frappe.client.set_value`, and the WO page itself
+ * still lets any non-Estimates role upload, so this is not a server lock.
+ */
+export const PAYMENT_VOUCHER_EDIT: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
  * Who REVIEWS expense requests -- and therefore who sees the `Pending Approval` and
  * `All` tabs on `/expense/requests`. Everyone else gets `Expense Raised By Me` alone
  * (owner, 2026-09-23).

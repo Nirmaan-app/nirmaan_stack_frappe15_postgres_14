@@ -93,6 +93,7 @@ pick one ad-hoc; ask.
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing. **Its inverse lives beside it** (#1279): `unsplit_payment` joins a balance back — delete it, restore the original's amount, fold the balance term into the original's — so the sum invariant has one implementation in each direction. Whether a leftover is safe to join back is `services/outflow_import/unsplit.py`'s question, never this module's |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
 | **Can this leg be unreconciled, and what happens?** (#1271) | `services/outflow_import/unreconcile.py` (`leg_verdict`, `first_refusal`, `LegFacts`, `VERDICT_*`) — pure, B1; the ONE writer that acts on it is `api/outflow_import/unreconcile.unreconcile_row`, which `expenses.reverse_allocation` wraps with one leg; the ONE reader of the plan is `unreconcile.get_unreconcile_plan` (#1275), sharing `_read_facts` with the write. Screen copy: `frontend/.../outflow-import/unreconcileView.ts` | decide at a call site whether a leg may be reversed, or write a reversal anywhere else. The write path reads the facts UNDER its row / leg / target locks and asks here; a plan shown earlier is never trusted. One refused leg means NOTHING is written. Refusal sentences and their ORDER are pinned by `test_unreconcile.py` (a leg wrong in several ways is told only the first). Later verdicts (`revert_expense`, `delete_created`, `unsplit_payment`, `unlink_expense_line`) are new branches here; which split child is a leg's own leftover, and whether it is untouched, is decided here too (#1279). **`unlink_expense_line` (#1300, ADR-0027 Q15/Q21) is one line off a many-line expense: NONE of the three "changed elsewhere" checks (amount, Paid, reference) apply** — linking never rewrote the amount or wrote that line's reference, and the expense is only Paid once every line is in, so each check would refuse every line but one. **Which legs are many-line is `_is_many_line_expense`, and nothing stored says it** — no flag marks a 1:1 settle — so it reads the slips: another slip shared the expense (live, or Reversed AFTER this leg was matched), or this lone line only part-fills a Reconciliation Pending expense (short by more than ₹5). ⚠️ **EVERY DOUBT IS 1:1**, which keeps the exact checks: an unknown match or reversal time is not sharing, and a 1:1 settle that was reversed and settled again by a new line is still 1:1. ⚠️ **THE SECOND SHAPE GOES PAST Q21's LETTER AND IS AWAITING OWNER RATIFICATION** (flagged at #1300): Q21 says "a single-slip undo keeps today's exact check", and a lone line that only part-fills IS single-slip — but it is the FIRST GO OF A RUN, and today's checks refuse it on all three counts (short amount, not Paid, the run's reference), so without this shape that line can never come off and the run is stuck. The cost is that a 1:1 expense whose amount was RAISED after settling (which #1302's rule 4 flips to Reconciliation Pending) reads as part-linked and reverts instead of refusing — which is the Q8 reading, a raised amount being an expense with room. A LOWERED amount still refuses, because it leaves the expense Paid and not short. The write `api/.../unreconcile._unlink_expense_line` touches NEITHER the amount, the reference nor `payment_by` (other lines still settle it) and re-derives status + date through the same `settle._derive_status_and_save` every expense settle ends in, AFTER the Reversed stamp so it reads only the lines that stay. The statement attachment — and its `File` link row, via `CarriedOut.statement_still_linked` — comes off only when no live line from the same import is left. Figures for the screen ride the plan and the response through `expense_line_fields` (`stays_linked`, `other_lines`, `expense_amount`, `stays_paid`); `unreconcileView.expenseLineConsequences` / `legAmountLabel` render them, and ⚠️ **such a leg is excluded from the notice's changed-amount line** — its figure is one line's, the expense keeps its own |
+| **Bulk Unreconcile — several Settled lines at once** (#1317; read side #1319, write #1320) | `api/outflow_import/bulk_unreconcile.py` — a thin loop (B4): `get_bulk_unreconcile_plan` calls `unreconcile.plan_of_line` per line (the SAME function `get_unreconcile_plan` wraps); the write `bulk_unreconcile_rows` calls `unreconcile.unreconcile_line(legs="all", bulk_of=N)` per line, each in its own transaction, and owns ONLY the per-line isolation (Settled re-check under the row lock, rollback + drop the queued message on a refusal). Cap `BULK_UNRECONCILE_LIMIT` = 50. Screen: `frontend/.../outflow-import/tickMode.ts` (which lines are tickable — open OR Settled, never both), `bulkUnreconcileView.ts` (the toolbar button, the check-step summary, the run's labels, the result box's `bulkResultSummary`) | describe a line in the bulk check step differently from the one-line dialog, put a decision rule in the bulk module, or write a line any way but through `unreconcile_line`. ⚠️ The tick-mode rule lives ONLY in `tickMode.tickRules`; the page and table read its answer |
 | **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
@@ -6159,3 +6160,136 @@ unreconcile deletes it again; a hand Link reverts to Reconciliation Pending like
 `UNRECONCILE_CASHBOOK_SENTENCE` are gone). `get_outflow_rows` now ships `suggested_expense_type`.
 Frontend sets mirrored + parity-pinned: `NEVER_MATCHED_SOURCES`, `SPENDER_NAMED_SOURCES`
 (`outflowUndoAccessParity.test.ts`).
+
+## 2026-09-24 — part-reconciled money is dated by its NEWEST bank line, all or nothing
+
+**Owner ruling, reversing the 2026-09-23 "no date of its own means inside the window".** A Reconciliation
+Pending record that bank lines part-cover carries no `payment_date` (`derive_expense_status` withholds it),
+so the Payments summary card counted its confirmed part in "Outflow (30 Days)" **however old its lines were**
+(measured: the July salary run `ahn0k1hrsc`, lines all dated 1 Aug, ₹32,35,376, was still "last 30 days" on
+24 Sep), while the Outflow Reports dated the same money line by line. Two rules, neither the Paid rule.
+
+- **ONE home: `services/outflow_import/expense_links.py`.** `load_part_reconciled(doctype)` = every
+  `Reconciliation Pending` record with a non-zero live-slip total (now carrying `latest_line_date`);
+  `latest_line_in_range(links, from, to)` = the date rule. The card (`get_payment_dashboard_stats` 2h2) and
+  the reports (`api/reports/partially_reconciled.py`) both read these; neither may date this money itself.
+- **The rule:** the whole confirmed part counts when the record's newest bank line (`Outflow Import Row.added_on`)
+  falls in the window/range, and not at all otherwise — the same date the record inherits as `payment_date`
+  when it goes Paid, so the figure never jumps at the flip. No range = all time (everything counts). With a
+  range, a record whose lines have no date (import rows deleted) is out. The card's pending row still nets off
+  the confirmed part ALL TIME.
+- **`load_linked_totals` lost its `from_date`/`to_date`** (the line-by-line window); its only windowed caller was
+  the report.
+- **Rejected: stamping `payment_date` on part-reconciled expenses.** Audited 2026-09-24: ~13 readers assume
+  "a date on an expense ⇒ Paid" (Paid Today / 7 days on the card count it at FULL amount with no status test,
+  the Bank lines card's "Paid on", the Reconciliation Pending tab's "Paid on" column + sort, the Non-Project
+  page's date filter) and 10 tests pin "pending ⇒ no date". `payment_date` keeps meaning "fully paid on".
+- **Bug fixed alongside:** the card's 30-day PO/WO payment outflow had no status filter, so a Reconciliation
+  Pending payment carrying a `payment_date` was counted in full as outflow AND on the pending row. It now
+  reads `status == 'Paid'` like the expense queries; the `outflow_window_records` skip it needed is gone.
+- **Report dialog:** clicking "+ Partially Reconciled (n)" (`PartiallyReconciledLines`) opens
+  `PartiallyReconciledDialog` — record, type/description, project, bill, bank-matched, still pending, newest
+  bank line, line count; the record id opens the shared `ExpenseBankLinesPopover`. The dialog's Bank-matched
+  total IS the headline addend (`items[].amount`). The Excl. GST tile passes `withDetails={false}` (its figure
+  is GST-stripped, so an incl.-GST list would not add up to it). Still summary-only: the tables stay Paid rows.
+- **Not a code defect, measured:** the `:8000` bundle (built 23 Sep 18:57) predates `82dc3e8eb`, so the reports
+  show no Partially Reconciled line there until `yarn build`. The Project report is honestly ₹0 today — a
+  payment part-match splits (slips sit on the Paid kept part), and no Project Expense is part-linked.
+- Tests: `test_payment_dashboard_stats.TestPartReconciledOutflow` (two 2026-09-23 pins INVERTED, bug-fix pins),
+  `test_partially_reconciled` (two INVERTED range pins + dialog fields), `test_expense_links.TestLatestLineInRange`.
+
+## #1319 (2026-09-25) — Bulk unreconcile 1: tick Settled lines and preview (read only)
+
+Parent #1317. Nothing is written and there is no run button yet (next ticket).
+
+- **Server.** `bulk_unreconcile.get_bulk_unreconcile_plan(rows)` — behind `require_outflow_undo_access`, up to
+  50 distinct names (JSON list or list), refuses none / >50. Returns `{"lines": [...]}`, each entry EQUAL to
+  `get_unreconcile_plan(row)` — pinned by comparison in `test_bulk_unreconcile_plan.py` (a split, a refused leg,
+  a Cashbook-source line). `get_unreconcile_plan`'s body moved to `unreconcile.plan_of_line` so both share it. A name that no
+  longer exists reads `not_found: True` with no legs (greyed "left out") rather than failing the whole step.
+- **Tick mode** (`tickMode.ts`, pure, 11 tests). Empty selection: open lines + Settled lines (undo roles, only on
+  *Matched / Settled – Outflow* and *Settled – Inflow*); select-all ticks the OPEN lines, with a hint. Open mode:
+  Settled boxes greyed. Settled mode: open boxes greyed, select-all ticks the Settled lines. Partially Allocated
+  and Skipped are never tickable. The mode is read from what each line was ticked AS (`tickKindRef` on the page),
+  so it survives paging and a refetch.
+- **Toolbar.** Settled mode shows N selected, the ₹ totals, Clear and an outline red **Unreconcile N** (`Undo2`);
+  Link, Confirm decided and "N decided" are hidden. One page at a time through `offPageTicks` (verb
+  "Unreconcile"); otherwise the amber note is `SETTLED_MODE_NOTE`.
+- **Check step** (`BulkUnreconcileDialog`, `bulkUnreconcileView.bulkCheckSummary`). One read of the bulk plan per
+  opening. Each line: amount, beneficiary, reference, date, then each record with the one-line dialog's
+  sentence (`LegOutcomeText`, lifted out of `UnreconcileDialog` so both render it). A line with a refused record
+  (or no longer Settled, or nothing settled) is greyed, marked "left out" and listed last. Pills: "N will be undone
+  · ₹X" and "M can't be undone · left out". Only Cancel.
+- **Memo shield.** Rows still get only booleans: `rowSelectable` plus the new `rowLocked` (greyed box).
+
+## #1320 (2026-09-25) — Bulk unreconcile 2: undo the ticked lines (reason, run, result)
+
+Parent #1317. ADR-0022 **Amendment F** (the ticket said "E"; that letter was already the Skip/Unskip ruling of
+the same day — the ADR also has two sections headed "Amendment C", renumbering left to the owner).
+
+- **Server.** `bulk_unreconcile.bulk_unreconcile_rows(rows, reason)` — POST only, behind
+  `require_outflow_undo_access`. Refuses an empty reason and none / >50 names for the WHOLE request, before
+  anything is written. Then, per line, in the order sent: lock the row, re-read its status, and call
+  `unreconcile.unreconcile_line(legs="all", bulk_of=N)` — which commits that line alone. Returns
+  `{"count": N, "lines": [...]}`: `{row, undone: True, ...the one-line response}` or
+  `{row, undone: False, reason}`.
+  - **"Refuses a non-Settled line" is PER LINE, not per request.** A line that is not Settled when its turn comes
+    is blocked with `NOT_SETTLED_REFUSAL` ("This transfer is <status> now, not Settled, so it was left as it is.")
+    and the others go ahead. Refusing the whole request would let one line that changed after the check step stop
+    every other line, which the ticket rules out ("each line stands on its own").
+  - **A refusal** (any `ValidationError`, incl. the concurrent-writer sentence) is rolled back — `unreconcile_line`
+    throws most refusals with the line's locks still held — and its own sentence is returned. The message
+    `frappe.throw` queued for the screen is DROPPED (`message_log` truncated), or the screen would pop the first
+    blocked line's refusal as if the whole run had failed.
+  - **Any other error** is rolled back too, logged to Error Log (title `Bulk unreconcile: <row>`), and returned as
+    `UNEXPECTED_REFUSAL`. Earlier lines are already committed; the loop carries on.
+  - ⚠️ **A failure AFTER `unreconcile_line`'s commit** (reading its response back) would otherwise read as "nothing
+    changed". `_undone_after_all` re-reads the line: Settled at its turn and not Settled now → reported undone,
+    with `reversed: []`.
+  - The not-Settled sentence names the status as the screen does (`Mismatched` → "Not-Matched", `STATUS_LABELS`).
+  - **Comment.** `_comment_on_line` appends `unreconcile.bulk_note(N)`, "(bulk unreconcile of N lines)". The
+    one-line undo passes no `bulk_of` and is byte-unchanged. No new field, no migrate.
+- **Screen** (`BulkUnreconcileDialog`). The check step gains one reason box and a red **Unreconcile N transfers**
+  (N = lines NOT blocked in the plan; only those are sent). Running: a blocking spinner "Unreconciling N
+  transfers…", no X, Escape and outside-click ignored, Close disabled. Result: `bulkResultSummary` — title
+  "N transfers unreconciled, M blocked", *Undone* grouped by the server's `row_status` (Matched first, with a
+  Confirm by hand chip; then Not-Matched), each record in a few words; *Blocked, still Settled* with each reason — INCLUDING lines the check step left out, which were never sent;
+  the Confirm-by-hand note when any line landed Matched. A failed request says so, refetches the table
+  immediately, and explains that finished lines stay done. Closing after a run (or a failure) clears every tick
+  and refetches table + summary (`OutflowMasterPage.handleBulkUnreconciled`).
+- **Production web timeout (verified 2026-09-25).** The deployed image (`Nirmaan-app/frappe_docker`, branch
+  `performance`, `images/layered/Containerfile` → `resources/start.sh`) runs gunicorn with
+  `--timeout=${GUNICORN_TIMEOUT:-120}`, and nginx with `PROXY_READ_TIMEOUT` defaulting to 120 (`compose.yaml`
+  sets both `${…:-120}`). So **120 s** unless the host `.env` overrides it (not visible from the repo). Measured
+  50 lines ≈ 5–15 s; a killed request is safe because every line commits alone.
+- **Tests.** `test_bulk_unreconcile.py` (21): three lines one refused; the undone entry carries the one-line
+  response; Matched + Confirm by hand; reason stamped and the bulk note on each comment (and absent on a one-line
+  undo); no queued message on a refusal; a line changed after the plan / no longer Settled / gone is blocked at write
+  time; an error on a line's second leg rolls back only that line; an error after the commit still reads undone; empty reason, >50, a non-Settled line, a plain
+  Accountant refused, an Accountant Lead allowed, POST-only; vendor credit + CEO Hold equal a fresh recompute with
+  one ledger entry per line; a whole Cashbook import lands Not-Matched with no pick; a vendor-refund line undone
+  whole. Vitest `bulkUnreconcileView.test.ts` +5 (labels, result-box grouping / blocked reasons incl. left-out lines /
+  titles).
+- **Live walk (2026-09-25, local).** Cashbook import `OFI-26-00124`: all 14 Settled lines ticked (select-all after
+  one tick), check step, reason, run → all 14 Not-Matched, expenses deleted, ticks cleared, table + summary
+  refetched. Cashfree `OFI-26-00130`: 2 lines → result box "2 transfers unreconciled", both Matched + Confirm by
+  hand. The spinner showed Close disabled and no X.
+
+
+## #1321 (2026-09-25) — Bulk unreconcile 3: select-all follows the tick mode
+
+- The behaviour itself shipped with #1319 (`tickMode.tickRules.selectAll` / `selectAllHint`); this slice pins it
+  and fixes one hint. Nothing ticked → the top box ticks the open lines (unchanged for a plain Accountant); one
+  Settled line ticked → it ticks every Settled line on the page; open lines ticked → open lines, as before.
+- ⚠️ **The hint is now withheld in OPEN mode.** With open lines ticked every Settled box is greyed, so "tick one
+  Settled line first" was a step the user could not take. It shows only with nothing ticked, only for the undo
+  roles, only on *Matched / Settled – Outflow* and *Settled – Inflow*, and only when the page holds a Settled line.
+- Tests: `tickMode.test.ts` — plain Accountant select-all in every mode/tab, the none → Settled → none walk,
+  page order in Settled mode, `selectAll` under the tab gate.
+- **Live walk (2026-09-25, local, Administrator, Matched / Settled – Outflow, 2 open + 48 Settled):** empty →
+  select all ticked the 2 open lines (Settled greyed); one Settled ticked → select all ticked all 48 ("Unreconcile
+  48"); cleared → select all ticked the 2 open lines again. Hint present on the two tabs, absent on *All* and
+  *Not Matched – Outflow*, absent once an open line is ticked.
+- **Plain-Accountant walk (same day, `Nirmaan Accountant Profile`):** Matched / Settled – Outflow — Settled lines
+  have NO box, select all ticks the 2 open lines and unticks them, no hint. Not Matched – Outflow — select all ticks
+  all 36, no hint. Settled – Inflow — no checkbox column at all (nothing tickable), as before #1319.

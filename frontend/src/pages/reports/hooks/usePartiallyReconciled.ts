@@ -13,18 +13,31 @@ import { formatISO } from "date-fns";
  * part-reconciled record is not a transaction anybody can point at in that list, it is part of one
  * that is still open.
  *
- * ⚠️ THE RANGE IS APPLIED TO THE BANK LINE'S DATE, not the record's -- these records carry no
- * `payment_date` at all, so there is nothing on them a range could test. The server explains why
- * that is the right date (`api/reports/partially_reconciled.py`). No range = all time, which is
- * what the reports' default "ALL" means.
+ * ⚠️ THE RANGE IS APPLIED TO EACH RECORD'S NEWEST BANK LINE, ALL OR NOTHING (owner, 2026-09-24) --
+ * these records carry no `payment_date` at all, so the newest line stands in for the date they
+ * will get when they go Paid. The server owns the rule (`expense_links.latest_line_in_range`, read
+ * by the Payments summary card too). No range = all time, which is what the reports' default
+ * "ALL" means.
  */
 export interface PartiallyReconciledItem {
-    doctype: string;
+    doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
     name: string;
+    /** The CONFIRMED part -- what the summary adds. Not the record's own amount (`bill_amount`). */
     amount: number;
     /** Set only for Project Payments -- an expense has no order and so no GST rate. */
     document_type: string | null;
     document_name: string | null;
+    // --- for the "Partially Reconciled" dialog ---
+    bill_amount: number;
+    /** `bill_amount - amount`: what no bank line has covered yet. */
+    pending_amount: number;
+    /** The newest bank line's date -- the one the range was tested against. */
+    latest_line_date: string | null;
+    line_count: number;
+    project: string | null;
+    project_name: string | null;
+    type: string | null;
+    description: string | null;
 }
 
 export interface PartiallyReconciledFigure {

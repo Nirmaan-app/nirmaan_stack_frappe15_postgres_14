@@ -18,6 +18,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { DateFilterPopover } from "@/components/data-table/date-filter-popover";
 
 import { TERMINAL_ROW_STATUSES, rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
+import { lockedTitle } from "../tickMode";
 import {
     OUTFLOW_COLUMNS,
     SERVER_SORT_COLUMNS,
@@ -81,10 +82,22 @@ interface Props {
      * are the entire point of that tab.
      */
     selectableRowNames: ReadonlySet<string>;
+    /**
+     * Rows that could be ticked but for the current tick mode (#1319, `tickMode.tickRules`): a greyed
+     * box whose title says why. Absent = none.
+     */
+    lockedRowNames?: ReadonlySet<string>;
+    /**
+     * What the top box ticks, in page order (#1319). Absent = every selectable row on the page -- which
+     * is what it ticked before the Settled tick mode, and still is on every other surface.
+     */
+    selectAllRowNames?: readonly string[];
+    /** The top box's title, or absent. */
+    selectAllHint?: string | null;
     onSort: (columnId: string) => void;
     onFilter: (columnId: string, value: ColumnFilters[string]) => void;
     onToggleRow: (name: string) => void;
-    onToggleAll: (names: string[]) => void;
+    onToggleAll: (names: readonly string[]) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
     /**
      * One extra column after the others, for a surface with its own per-row action -- the Skipped
@@ -138,6 +151,9 @@ export const OutflowRowsTable = ({
     decidedRowNames,
     originByRow,
     selectableRowNames,
+    lockedRowNames,
+    selectAllRowNames,
+    selectAllHint,
     onSort,
     onFilter,
     onToggleRow,
@@ -155,12 +171,16 @@ export const OutflowRowsTable = ({
     // differ, and ticking a settled row would put it in a selection the confirm then silently
     // ignores -- so the bulk bar would say "12 selected · 4 decided" with no way to see why.
     const names = useMemo(
-        () => rows.map((r) => r.name).filter((n) => selectableRowNames.has(n)),
-        [rows, selectableRowNames]
+        () => selectAllRowNames ?? rows.map((r) => r.name).filter((n) => selectableRowNames.has(n)),
+        [rows, selectableRowNames, selectAllRowNames]
     );
-    // ⚠️ The checkbox COLUMN is present whenever this page holds anything tickable. A tab that
-    // happens to load a page of purely terminal rows drops it rather than showing a dead column.
-    const selectable = names.length > 0;
+    // ⚠️ The checkbox COLUMN is present whenever this page holds anything tickable -- or greyed for
+    // the tick mode, which must stay visible so the note under the toolbar has something to explain.
+    // A tab that happens to load a page of purely terminal rows drops it rather than showing a dead column.
+    const selectable = useMemo(
+        () => rows.some((r) => selectableRowNames.has(r.name) || lockedRowNames?.has(r.name)),
+        [rows, selectableRowNames, lockedRowNames]
+    );
     const allSelected = names.length > 0 && names.every((n) => selected.has(n));
 
     if (!rows.length) {
@@ -178,11 +198,14 @@ export const OutflowRowsTable = ({
                     <tr>
                         {selectable && (
                             <th className="w-9 px-2 py-2">
-                                <Checkbox
-                                    checked={allSelected}
-                                    onCheckedChange={() => onToggleAll(names)}
-                                    aria-label="Select all rows"
-                                />
+                                <span className="inline-flex" title={selectAllHint ?? undefined}>
+                                    <Checkbox
+                                        checked={allSelected}
+                                        disabled={!names.length}
+                                        onCheckedChange={() => onToggleAll(names)}
+                                        aria-label="Select all rows"
+                                    />
+                                </span>
                             </th>
                         )}
                         {columns.map((column) => (
@@ -214,6 +237,7 @@ export const OutflowRowsTable = ({
                             // ⚠️ The row's OWN boolean, like `selected` -- never the Set. Handing a
                             // memoized row the Set re-renders every row on every tick.
                             rowSelectable={selectableRowNames.has(row.name)}
+                            rowLocked={lockedRowNames?.has(row.name) ?? false}
                             selected={selected.has(row.name)}
                             decided={decidedRowNames.has(row.name)}
                             origin={originByRow.get(row.name) ?? "none"}
@@ -491,6 +515,8 @@ interface RowProps {
     selectable: boolean;
     /** ⚠️ The row's OWN boolean, never the shared Set -- see the component docstring. */
     rowSelectable: boolean;
+    /** Tickable but for the tick mode: a greyed box (#1319). The row's OWN boolean, never the Set. */
+    rowLocked: boolean;
     /** ⚠️ The row's OWN boolean, never the shared Set -- see the component docstring. */
     selected: boolean;
     decided: boolean;
@@ -508,6 +534,7 @@ const Row = memo(function Row({
     query,
     selectable,
     rowSelectable,
+    rowLocked,
     selected,
     decided,
     origin,
@@ -523,13 +550,22 @@ const Row = memo(function Row({
                 column left -- a settled row's Beneficiary landing under the checkbox header. */}
             {selectable && (
                 <td className="px-2 py-1.5 align-top">
-                    {rowSelectable && (
+                    {/* A ticked line stays untickable even if a refetch locked it: its tick must show. */}
+                    {rowSelectable || (rowLocked && selected) ? (
                         <Checkbox
                             checked={selected}
                             onCheckedChange={() => onToggleRow(row.name)}
                             aria-label={`Select ${row.beneficiary_name}`}
                         />
-                    )}
+                    ) : rowLocked ? (
+                        // The title sits on a wrapper: a disabled button gets no hover, so no tooltip.
+                        <span
+                            className="inline-flex"
+                            title={lockedTitle(row)}
+                        >
+                            <Checkbox checked={false} disabled aria-label={`Select ${row.beneficiary_name}`} />
+                        </span>
+                    ) : null}
                 </td>
             )}
             {columns.map((column) => (
