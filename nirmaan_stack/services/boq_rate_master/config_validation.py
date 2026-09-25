@@ -240,9 +240,24 @@ def _validate_list_spec(cfg):
 # SLICE 5 -- the keys `list_spec.pricing` may carry. The block is DATA the frontend `itemListPricing` module
 # executes; a misspelled key here would ship a silently inert rule, so the allowlists are closed (the
 # `_KNOWN_DEF_KEYS` precedent).
-_PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "family_alias", "no_sku_families", "defaults",
+_PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_factors", "family_alias",
+                 "no_sku_families", "defaults",
                  "derive_when_none", "override_when", "numbers", "ladders", "match_attrs", "choice_attrs",
                  "reason_names", "families", "panel_controls", "second_key"}
+# SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
+# class -- a square foot is an area, but the catalogue quotes per square metre. Such a unit is declared here,
+# NEVER in `unit_classes`: a `unit_classes` spelling is a SYNONYM (factor 1, nothing is scaled), and a
+# `unit_factors` spelling carries a CONVERSION FACTOR to the class's own unit. The factor converts the RATE,
+# never the BoQ's quantity. ABSENT => every row is byte-identical to before this slice.
+_PRICING_UNIT_FACTOR_KEYS = {"class", "factor", "word"}
+
+
+def _norm_unit_spelling(s):
+    """The SAME normalisation the frontend reader uses (`itemListPricing.normUnit`): trim, lower-case, strip
+    ONE trailing dot, collapse whitespace. Duplicated across the language boundary on purpose -- the client
+    reads units and the validator must refuse a spelling the client would resolve twice. ONE trailing dot,
+    not every trailing dot, and in the client's own order -- trim, lower, drop the dot, collapse space."""
+    return re.sub(r"\s+", " ", re.sub(r"\.$", "", str(s or "").strip().lower()))
 # SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
 # definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
 # which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
@@ -302,6 +317,36 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     uw = pr.get("unit_words")
     if uw is not None and (not isinstance(uw, dict) or set(uw) - set(ucls) or not all(isinstance(v, str) and v for v in uw.values())):
         _vthrow("list_spec.pricing.unit_words must name unit classes only, each with a word.")
+    # SLICE 11: `unit_factors` -- a unit of a declared class quoted in a DIFFERENT unit of it. The factor
+    # scales the RATE to that unit; `word` is how the note names it. A factor of 1 is a SYNONYM and belongs
+    # in `unit_classes`, so it is refused here -- otherwise one unit could be declared twice, in two places,
+    # and the reader would silently pick one.
+    uf = pr.get("unit_factors")
+    if uf is not None:
+        if not isinstance(uf, dict) or not uf:
+            _vthrow("list_spec.pricing.unit_factors must be a non-empty object of unit spelling -> {class, factor, word}.")
+        known = set()
+        for cls_spellings in ucls.values():
+            known |= {_norm_unit_spelling(s) for s in cls_spellings}
+        for spelling, d in uf.items():
+            if not isinstance(spelling, str) or not spelling.strip():
+                _vthrow("list_spec.pricing.unit_factors: every key must be a non-empty unit spelling.")
+            if not isinstance(d, dict):
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'] must be an object.")
+            unk = set(d) - _PRICING_UNIT_FACTOR_KEYS
+            if unk:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}']: unknown key(s): {', '.join(sorted(unk))}.")
+            if d.get("class") not in ucls:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'].class must name a unit_classes key.")
+            f = d.get("factor")
+            if not isinstance(f, (int, float)) or isinstance(f, bool) or not (f > 0):
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'].factor must be a positive number.")
+            if float(f) == 1.0:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'].factor 1 is a synonym -- declare it in unit_classes instead.")
+            if not isinstance(d.get("word"), str) or not d["word"].strip():
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'] needs a word naming the unit.")
+            if _norm_unit_spelling(spelling) in known:
+                _vthrow(f"list_spec.pricing.unit_factors['{spelling}'] is already a unit_classes spelling -- a unit is declared in one place only.")
     # numbers: SKU attribute <- the model's text attributes
     numbers = pr.get("numbers")
     if not isinstance(numbers, dict) or not numbers:

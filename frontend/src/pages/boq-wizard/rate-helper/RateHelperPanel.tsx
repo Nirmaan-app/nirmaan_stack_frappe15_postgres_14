@@ -148,7 +148,16 @@ function CopyFigureButton({ value, label }: { value: number; label: string }) {
  * and the calculator pin ("no second figure render anywhere") is exactly right to refuse a copy -- so the row
  * moved into a component and every surface mounts it. `copy` off = the figures alone (the row total).
  */
-function FiguresRow({ figures, copy = true, muted = false }: { figures: Partial<Record<string, number>> | undefined; copy?: boolean; muted?: boolean }) {
+function FiguresRow({ figures, copy = true, muted = false, unit }: {
+  figures: Partial<Record<string, number>> | undefined;
+  copy?: boolean;
+  muted?: boolean;
+  /** SLICE 11 (owner addition): the unit the figure is a rate IN, as the BoQ writes it -- shown on every
+   * priced item and on the row total. OMITTED on the non-item-list surface, which is what keeps Electrical's
+   * render byte-identical: the label is opt-in per call site, never a property of this component. */
+  unit?: string | null;
+}) {
+  const label = typeof unit === "string" && unit.trim() !== "" ? unit.trim() : null;
   return (
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
       {DISPLAY_RATE_KINDS.map((k) => {
@@ -159,6 +168,9 @@ function FiguresRow({ figures, copy = true, muted = false }: { figures: Partial<
             <span className="font-semibold text-foreground">
               {typeof v === "number" ? v : "—"}
             </span>
+            {label && typeof v === "number" && (
+              <span className={muted ? "opacity-70" : "text-muted-foreground"}>per {label}</span>
+            )}
             {copy && typeof v === "number" && <CopyFigureButton value={v} label={kindLabel(k)} />}
           </span>
         );
@@ -1183,7 +1195,7 @@ function ItemListBlocks({
               {b.working.map((line, li) => (
                 <div key={li}>{line}</div>
               ))}
-              <FiguresRow figures={b.figures} />
+              <FiguresRow figures={b.figures} unit={view.unit} />
             </div>
           ) : (
             <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {b.reason}</div>
@@ -1212,7 +1224,7 @@ function ItemListBlocks({
       >
         <div className="text-xs font-semibold">Row total per 1 {view.unit}</div>
         {view.rowPriced ? (
-          <FiguresRow figures={rowTotals(view)} copy={false} muted />
+          <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />
         ) : (
           <div className="mt-0.5 text-xs">
             {n === 0 ? "No items yet." : `${bad} of ${n} item${n === 1 ? "" : "s"} need a person before the row can price.`}

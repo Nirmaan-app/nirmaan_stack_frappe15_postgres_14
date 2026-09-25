@@ -2780,3 +2780,83 @@ class TestItemListSlice4(FrappeTestCase):
                                                      rules=g["rules"], items_spec=g.get("items_spec"))
             self.assertNotIn(QTY, content, cid)
             self.assertNotIn("ITEMS_SPEC", content, cid)
+
+    # ── SLICE 11 (owner F-4, 2026-09-25) ──────────────────────────────────────────────────────────────────────
+    def test_il_16_a_damper_named_as_part_of_a_grille_or_diffuser_is_not_a_separate_item(self):
+        """F-4. The owner's ruling, applied one level down from R19 (a part built into a priced variant is not
+        separate): a damper NAMED AS PART OF a grille or a diffuser sets that item's damper attribute and is
+        never a second item; a damper the row buys ON ITS OWN is still its own item.
+
+        Measured cause (slice-10 audit, all 1,151 rows): exactly THREE rows returned both a host and a
+        standalone damper. One priced 10,049 by accident -- a linear grille read as WITHOUT a damper plus a
+        separate collar damper; the other two refused only because the extra damper's unit could not convert,
+        and would otherwise have DOUBLE-CHARGED.
+        """
+        text = extraction.select_prompt_text({"matching_mode": "item_list"})
+        # the instruction, in the owner's terms, inside the COMPOSITE block
+        self.assertIn("A DAMPER NAMED AS PART OF A GRILLE OR A DIFFUSER IS THAT ITEM'S", text)
+        self.assertIn("DAMPER, NEVER A SECOND ITEM", text)
+        self.assertIn('with its damper attribute set to "with"', text)
+        # the other half of the ruling: a row that buys the damper itself still returns a damper item
+        self.assertIn("A damper is its own item", text)
+        self.assertIn("only when the row buys the damper itself", text)
+        # it sits with R19, which it extends -- and R19 itself is untouched
+        self.assertIn("A part built into a priced variant is NOT a separate item", text)
+        self.assertLess(text.index("A part built into a priced variant"), text.index("A DAMPER NAMED AS PART OF"))
+        # NEGATIVE: the composite rule is NOT weakened -- a genuine second thing is still returned
+        self.assertIn("second thing it pays for, return both", text)
+        # NEGATIVE: the rule STATES ITS TEST and quotes no corpus text (the root CLAUDE.md cross-talk convention)
+        block = text[text.index("A DAMPER NAMED AS PART OF"):]
+        cut = block.find("\n  * ")
+        if cut > 0:
+            block = block[:cut]
+        for corpus in ("750X150", "1200 mm x 300", "Curved grille with collar damper", "difflector"):
+            self.assertNotIn(corpus, block, corpus)
+        # NEGATIVE: the three other prompt assets are untouched by this slice (il_01 pins them byte-for-byte)
+        for mode in ("item_identity", "composite_decomposition", None):
+            other = extraction.select_prompt_text({"matching_mode": mode} if mode else {})
+            self.assertNotIn("A DAMPER NAMED AS PART OF", other, str(mode))
+
+    def test_il_17_f4_worked_shapes_live_in_the_def_notes_not_in_the_shared_rule(self):
+        """The slice-9 B3 precedent, and the root CLAUDE.md convention behind it: a shared rule STATES ITS TEST
+        and does not quote corpus text, because one rules block is visible to every other question a payload
+        asks; a def NOTE is projected PER ATTRIBUTE, so worked shapes belong there. F-4's shapes sit in the
+        `family` and `damper` notes and reach the model through ITEMS_SPEC (CHECK 3) and nowhere else."""
+        spec = extraction.build_items_spec(self.adp)
+        notes = {d["id"]: d.get("note", "") for d in spec["attribute_definitions"]}
+        self.assertIn("A DAMPER NAMED AS PART OF A GRILLE OR DIFFUSER IS NOT A SECOND ITEM", notes["family"])
+        self.assertIn("WHERE THE ROW NAMES A DAMPER AS PART OF A GRILLE OR DIFFUSER", notes["damper"])
+        self.assertIn("Where the row buys dampers alone, the damper IS the item", notes["damper"])
+        # NEGATIVE: the ROW PAYLOAD never carries a def note -- the notes reach ITEMS_SPEC only
+        row = {"excel_row": 69, "description": "750X150 mm Curved grille with collar damper", "sheet_name": "S",
+               "ancestors": [], "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        self.assertNotIn("A DAMPER NAMED AS PART OF", json.dumps(extraction._ai_item(row)))
+
+    def test_il_18_slice_11_adds_no_new_key_to_what_the_model_is_sent(self):
+        """F-1 / F-2 / F-2b are PRICING declarations: `defaults.<attr>.absent_as_none`, four `unit_classes`
+        spellings and the whole `unit_factors` block live in `list_spec.pricing`, which `build_items_spec` never
+        reads. So the ITEMS_SPEC an ADP row is sent is identical between v12 and v13 apart from the two def notes
+        F-4 deliberately changed -- nothing about units or defaults reaches the model."""
+        import os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+
+        def asset(name):
+            with open(os.path.join(here, "data", name), "r", encoding="utf-8") as fh:
+                return json.load(fh)
+
+        v12, v13 = asset("rate_master_hvac_all_v12.json"), asset("rate_master_hvac_all_v13.json")
+        c12 = next(dict(c, discipline="HVAC") for c in v12["category_configs"] if c["category_id"] == "hvac_adp")
+        c13 = next(dict(c, discipline="HVAC") for c in v13["category_configs"] if c["category_id"] == "hvac_adp")
+        s12, s13 = extraction.build_items_spec(c12), extraction.build_items_spec(c13)
+        # strip ONLY the two notes F-4 changed; everything else must be byte-identical
+        def stripped(spec):
+            out = json.loads(json.dumps(spec))
+            for d in out["attribute_definitions"]:
+                if d["id"] in ("family", "damper"):
+                    d.pop("note", None)
+            return out
+        self.assertEqual(stripped(s12), stripped(s13))
+        # NEGATIVE: no unit spelling, no factor and no default key appears in the ITEMS_SPEC of either version
+        blob13 = json.dumps(s13)
+        for token in ("unit_factors", "absent_as_none", "0.0929", "sqft", "sq.ft", "mtrs", "rmts", "smt"):
+            self.assertNotIn(token, blob13, token)

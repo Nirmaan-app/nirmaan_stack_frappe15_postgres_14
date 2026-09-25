@@ -19,15 +19,19 @@ import {
   priceItemList,
   projectUnitClass,
   readNumber,
+  splitSizePhrase,
   unitClassOf,
+  unitFactorOf,
   type ExtractedListItem,
   type ItemListPricingSpec,
+  type NumberReader,
 } from "./itemListPricing";
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
 import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
 import HVAC_V11 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v11.json";
 import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
+import HVAC_V13 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v13.json";
 import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
@@ -222,12 +226,17 @@ describe("slice 5 / R6 -- ladders: next size up; above the largest = refuse; a r
     expect(r.items[0].working.some((w) => w.includes("range '10-12 NM' -> its top value 12 (R6)"))).toBe(true);
     expect(figures(one("Nos", { family: "actuator", ul: "None", torque: "8 to 10 Nm" }))).toEqual([true, 13050, 800]);
   });
-  it("NEGATIVE: SEVERAL values = blank (a list is not a range)", () => {
-    for (const t of ["4, 8, 10 N-M", "3.5, 7.9 & 15.9 NM", "9/10 NM"]) {
+  it("NEGATIVE: SEVERAL values = blank (a list is not a range) -- the '9/10 NM' half INVERTED by slice 11", () => {
+    for (const t of ["4, 8, 10 N-M", "3.5, 7.9 & 15.9 NM"]) {
       const r = one("Nos", { family: "actuator", ul: "None", torque: t });
       expect(r.priced).toBe(false);
       expect(r.reason).toBe(`several values stated for torque ('${t}')`);
     }
+    // SLICE 11 (owner "take the higher value"): a SLASH PAIR is an ALTERNATIVE, not a list. "9/10 NM" was
+    // pinned here as priced === false with "several values stated for torque ('9/10 NM')"; it now reads 10.
+    // The two COMMA lists above keep the negative half -- a list is still not a pair and still refuses.
+    const pair = one("Nos", { family: "actuator", ul: "None", torque: "9/10 NM" });
+    expect([pair.priced, pair.supply]).toEqual([true, 13050]);
   });
   it("POSITIVE: a diffuser matches on its NECK; the stated OUTER size never enters the match", () => {
     const r = one("Nos", { family: "square diffuser", damper: "with", neck_mm: "300 x 300", face_w_mm: "600", face_h_mm: "600" });
@@ -391,9 +400,14 @@ describe("slice 5 / R17 -- 'maximum 6 outgoing feeders' maps to the 1:6 panel", 
     expect(up.items[0].ladderHops[0]).toMatchObject({ requested: 8, fitted: 12 });
     expect(figures(one("Nos", { family: "control panel", panel_ratio: "8-10 actuators/panel" }))).toEqual([true, 20300, 800]);
   });
-  it("NEGATIVE: several stated ratios = blank; above the largest = refuse", () => {
-    expect(one("Nos", { family: "control panel", panel_ratio: "10/12 Module" }).reason).toBe("several values stated for panel ratio ('10/12 Module')");
+  it("NEGATIVE: several stated ratios = blank; above the largest = refuse -- the '10/12 Module' half INVERTED by slice 11", () => {
+    // SLICE 11: this line read .reason).toBe("several values stated for panel ratio ('10/12 Module')").
+    // A slash pair is an alternative and takes the higher, so the row now prices on the 1:12 panel.
+    const pair = one("Nos", { family: "control panel", panel_ratio: "10/12 Module" });
+    expect([pair.priced, pair.supply]).toEqual([true, 20300]);
     expect(one("Nos", { family: "control panel", panel_ratio: "1:16" }).reason).toBe("panel ratio 16 is above the largest size on the sheet (12)");
+    // NEGATIVE kept: FOUR values are not a pair, and still refuse by name
+    expect(one("Nos", { family: "control panel", panel_ratio: "4 / 8 / 10/ 12" }).reason).toContain("several values stated for panel ratio");
   });
 });
 
@@ -485,7 +499,9 @@ describe("slice 5 / the number reader (R6 / R16 / R17 in code, never in the prom
     expect(readNumber("as per drawing", mm)).toEqual({ blank: "no number in 'as per drawing' for diameter" });
     expect(readNumber("300 x 300 x 450 mm Height", spec.numbers.neck_mm)).toEqual({ blank: "neck size '300 x 300 x 450 mm Height' is not a single square size" });
     expect(readNumber("100, 150, 200 mm", mm)).toEqual({ blank: "several values stated for diameter ('100, 150, 200 mm')" });
-    expect(readNumber("350/400", spec.numbers.face_h_mm)).toEqual({ blank: "several values stated for height ('350/400')" });
+    // SLICE 11: this line pinned { blank: "several values stated for height ('350/400')" }. A slash pair is
+    // an alternative; the higher is taken and the note says so. The comma list above keeps the negative.
+    expect(readNumber("350/400", spec.numbers.face_h_mm)).toEqual({ value: 400, note: "'350/400' states two values -- the higher, 400, is taken" });
     expect(readNumber("8 inch", mm)).toEqual({ blank: "diameter stated in inches ('8 inch')" });
     expect(readNumber("upto 4(For Small critical room) / 8 / 10/ 12", ratio)).toEqual({ blank: "several values stated for panel ratio ('upto 4(For Small critical room) / 8 / 10/ 12')" });
   });
@@ -1304,12 +1320,19 @@ describe("slice 9 / A-1 -- every size spelling the live capture contains, and wh
 
   it("NEGATIVE: a form code cannot read REFUSES by name and never guesses a number", () => {
     // a list of sizes is several values, not a size -- the refusal names the quantity and quotes the text
-    for (const text of ["100/150", "900/1000", "350/400 mm", "100, 150, 200 mm", "100/150/200/250 mm/600mmx600mm"]) {
+    // SLICE 11: "100/150", "900/1000" and "350/400 mm" were in this list. They are ALTERNATIVE PAIRS and now
+    // read as their higher value (asserted just below); the two genuine LISTS keep the negative half.
+    for (const text of ["100, 150, 200 mm", "100/150/200/250 mm/600mmx600mm"]) {
       const got = axes(text).w;
       expect(got, text).not.toBeNull();
       expect(got && "blank" in got, text).toBe(true);
       expect((got as { blank: string }).blank, text).toContain("several values stated for width");
       expect((got as { blank: string }).blank, text).toContain(text);
+    }
+    // SLICE 11, the inverted half: each of the three pairs reads its HIGHER value as the width
+    for (const [text, hi] of [["100/150", 150], ["900/1000", 1000], ["350/400 mm", 400]] as const) {
+      const got = axes(text).w;
+      expect(got && "value" in got ? got.value : null, text).toBe(hi);
     }
     // inches are refused by name, exactly as before this slice
     const inch = axes('6"').w as { blank: string };
@@ -1473,5 +1496,289 @@ describe("slice 9 / A-6 -- an overridden field shows the catalogue's own word, a
     const already = price12("Sq.m", ext({ family: "fire damper", ul: "yes", variant: "UL" }));
     expect(already.items[0].overrides).toEqual([]);
     expect([already.priced, already.supply, already.install]).toEqual([true, 21750, 1920]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 11 (2026-09-25) -- absent means NOT MENTIONED for damper / insulated / variant; four unit synonyms;
+// the square foot as a different unit of the area class; a slash pair takes the higher value.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+const asset13 = HVAC_V13 as unknown as Asset;
+const items13: RateMasterItem[] = asset13.items.map((i) => ({ ...i, discipline: "HVAC" }));
+const adp13 = asset13.category_configs.find((c) => c.category_id === "hvac_adp")!;
+const spec13 = itemListPricingSpec(adp13)!;
+const skuOf13 = (r: ReturnType<typeof priceItemList>, i = 0) =>
+  `${r.items[i].sku?.item_name} / ${r.items[i].sku?.item_detail}`;
+
+describe("slice 11 / v13 = v12 + the declared edits, and NOTHING else", () => {
+  it("the ADP config differs ONLY by absent_as_none on three defaults, the four unit synonyms, unit_factors and the two def notes; every other config and EVERY item is byte-identical", () => {
+    expect(asset13.category_configs.slice(1)).toEqual(asset12.category_configs.slice(1));
+    // the items did NOT move at all this slice -- no catalogue cell was touched
+    expect(asset13.items).toEqual(asset12.items);
+
+    // F-1: the key `ul` already carried (owner S6) is now on three more defaults, and on NO others
+    const withKey = (s: ItemListPricingSpec) =>
+      Object.entries(s.defaults ?? {}).filter(([, d]) => (d as { absent_as_none?: boolean }).absent_as_none).map(([k]) => k).sort();
+    expect(withKey(spec12)).toEqual(["ul"]);                                     // NEGATIVE: v12 = UL only
+    expect(withKey(spec13)).toEqual(["damper", "insulated", "ul", "variant"]);
+
+    // F-2: four TRUE synonyms, and sqft is NOT one of them -- in EITHER version
+    expect(spec13.unit_classes.length).toEqual([...spec12.unit_classes.length, "mtrs", "rmts"]);
+    expect(spec13.unit_classes.area).toEqual([...spec12.unit_classes.area, "smt", "sq. mtr"]);
+    for (const cls of Object.values(spec13.unit_classes)) {
+      for (const s of cls) expect(s.replace(/\.$/, "")).not.toMatch(/^(sqft|sq ?\.?ft|sft)$/i);
+    }
+
+    // F-2b: the square foot is declared as a DIFFERENT unit of the area class, never as a spelling of it
+    expect(spec12.unit_factors).toBeUndefined();                                 // NEGATIVE: v12 has none
+    expect(Object.keys(spec13.unit_factors!).sort()).toEqual(["sft", "sq ft", "sq.ft", "sqft"]);
+    for (const d of Object.values(spec13.unit_factors!)) {
+      expect(d).toEqual({ class: "area", factor: 0.0929, word: "sq.ft" });
+    }
+
+    // and the strip below proves the list above is exhaustive
+    const strip = (a: Asset) => {
+      const c = JSON.parse(JSON.stringify(a.category_configs[0])) as RateCategoryConfig;
+      const p = (c as unknown as { list_spec: { pricing: Record<string, unknown>; attribute_definitions: Array<Record<string, unknown>> } }).list_spec;
+      for (const k of ["damper", "insulated", "variant"]) {
+        delete (p.pricing.defaults as Record<string, Record<string, unknown>>)[k].absent_as_none;
+        delete (p.pricing.defaults as Record<string, Record<string, unknown>>)[k].rule;
+      }
+      delete p.pricing.unit_factors;
+      const uc = p.pricing.unit_classes as Record<string, string[]>;
+      uc.length = uc.length.filter((s) => !["mtrs", "rmts"].includes(s));
+      uc.area = uc.area.filter((s) => !["smt", "sq. mtr"].includes(s));
+      for (const d of p.attribute_definitions) if (["family", "damper"].includes(String(d.id))) delete d.note;
+      return c;
+    };
+    expect(strip(asset13)).toEqual(strip(asset12));
+  });
+});
+
+describe("slice 11 / F-1 -- an ABSENT answer means NOT MENTIONED, so the ruled default fires", () => {
+  // Owner ruling 2026-09-25 on the slice-10 evidence: of 70 omitted slots read by hand, 70 of 70 were rows
+  // that genuinely do not state the fact; corpus-wide only 12 of 2,208 sat on a row whose text does state it.
+  // This widens the key `ul` has carried since S6 to damper, insulated and variant -- and it SUPERSEDES the
+  // earlier "damper and insulation keep absent = blank" line in root CLAUDE.md.
+  const p13 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec13, items13, unit, its);
+  const p12 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec12, items12, unit, its);
+  const defaulted = (r: ReturnType<typeof p13>, i = 0) =>
+    r.items[i].defaulted.map((d) => `${d.attr}=${d.value}`).sort();
+
+  it("a LEFT-OUT damper prices the row on the ruled default, and the panel is told it is a default", () => {
+    const row = ext({ family: "linear grille", size_mm: "600 x 600", damper: null, air: "None", insulated: "None", variant: "None" });
+    const r = p13("Sqm", row);
+    expect([r.priced, r.items[0].selection.damper]).toEqual([true, "without"]);
+    expect(defaulted(r)).toContain("damper=without");
+    // NEGATIVE, the same row on v12: it REFUSED, in the owner's words
+    const before = p12("Sqm", ext({ family: "linear grille", size_mm: "600 x 600", damper: null, air: "None", insulated: "None", variant: "None" }));
+    expect(before.priced).toBe(false);
+    expect(before.reason).toBe("could not tell whether it is with or without a damper");
+  });
+
+  it("a LEFT-OUT insulated and a LEFT-OUT variant do the same, each on its own ruled value", () => {
+    const box = p13("Nos", ext({ family: "mixing box / LP plenum", size_mm: "525 x 525 x 450 mm", insulated: null }));
+    expect(box.priced).toBe(true);
+    expect(box.items[0].selection.insulated).toBe("with");
+    expect(defaulted(box)).toContain("insulated=with");
+    const vcd = p13("Sqm", ext({ family: "VCD", variant: null, damper: "None", insulated: "None" }));
+    expect(vcd.priced).toBe(true);
+    expect(vcd.items[0].selection.variant).toBe("GI rectangular");
+    expect(defaulted(vcd)).toContain("variant=GI rectangular");
+  });
+
+  it("⚠️ NEGATIVE: a STATED value still wins, and it is NOT marked as a default", () => {
+    const r = p13("Sqm", ext({ family: "VCD", variant: "motorised", damper: "None", insulated: "None" }));
+    expect(r.items[0].selection.variant).toBe("motorised");
+    expect(defaulted(r)).not.toContain("variant=GI rectangular");
+    expect(skuOf13(r)).toContain("Motorized");
+  });
+
+  it("⚠️ NEGATIVE: \"None\" is unchanged -- absent and \"None\" now reach the SAME figure, which is the point", () => {
+    const absent = p13("Sqm", ext({ family: "linear grille", size_mm: "600 x 600", damper: null, air: "None", insulated: "None", variant: "None" }));
+    const none = p13("Sqm", ext({ family: "linear grille", size_mm: "600 x 600", damper: "None", air: "None", insulated: "None", variant: "None" }));
+    expect([absent.supply, absent.install]).toEqual([none.supply, none.install]);
+    expect(defaulted(absent)).toEqual(defaulted(none));
+  });
+
+  it("⚠️ NEGATIVE: a config WITHOUT the key still omits the attribute -- the behaviour is the key's, not the code's", () => {
+    const noKey = JSON.parse(JSON.stringify(spec13)) as ItemListPricingSpec;
+    delete (noKey.defaults!.damper as { absent_as_none?: boolean }).absent_as_none;
+    const r = priceItemList(noKey, items13, "Sqm", [ext({ family: "linear grille", size_mm: "600 x 600", damper: null, air: "None", insulated: "None", variant: "None" })]);
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("could not tell whether it is with or without a damper");
+  });
+
+  it("⚠️ NEGATIVE: ul is untouched -- its rule and its behaviour are the same on both versions", () => {
+    const mk = () => ext({ family: "fire damper", size_mm: "600 x 600", ul: null, variant: "None", damper: "None", insulated: "None" });
+    const a = p12("Sqm", mk());
+    const b = p13("Sqm", mk());
+    expect([a.priced, a.supply]).toEqual([b.priced, b.supply]);
+  });
+});
+
+describe("slice 11 / F-2 -- four TRUE synonyms, and three strings that are not units at all", () => {
+  it("every spelling the live corpus writes resolves to the right class, in every case and with a trailing dot", () => {
+    for (const u of ["Mtrs", "mtrs", "Mtrs.", "MTRS", "Rmts", "rmts"]) expect(unitClassOf(spec13, u), u).toBe("length");
+    for (const u of ["SMT", "smt", "Sq. Mtr", "sq. mtr", "Sq. Mtr."]) expect(unitClassOf(spec13, u), u).toBe("area");
+    // the spellings the table ALREADY held are untouched
+    for (const u of ["Sqm", "sq.mtr", "Rmt", "Nos"]) expect(unitClassOf(spec13, u), u).toBe(unitClassOf(spec12, u));
+  });
+
+  it("⚠️ NEGATIVE: Lot, R/O and Cum are not units of measure and keep refusing in today's words", () => {
+    for (const u of ["Lot", "R/O", "Cum"]) {
+      expect(unitClassOf(spec13, u), u).toBeNull();
+      const r = priceItemList(spec13, items13, u, [ext({ family: "VCD", variant: "None", damper: "None", insulated: "None" })]);
+      expect(r.priced, u).toBe(false);
+      expect(r.reason, u).toBe(`unit '${u}' is not a count, area or length unit (R12)`);
+    }
+  });
+
+  it("⚠️ NEGATIVE: on v12 all four synonyms were unknown -- so the four entries above are what changed", () => {
+    for (const u of ["Mtrs", "Rmts", "SMT", "Sq. Mtr"]) expect(unitClassOf(spec12, u), u).toBeNull();
+  });
+});
+
+describe("slice 11 / F-2b -- a square foot is a DIFFERENT unit of the area class, and the RATE converts", () => {
+  // Owner ruling 2026-09-25. 1 sq.ft is exactly 0.09290304 sq.m; the declared factor is the owner's 0.0929,
+  // and declaring, computing and SHOWING one number matters more than 0.0033% -- which is far below the
+  // 1-rupee ROUNDUP granularity on every rate this catalogue holds.
+  const p13 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec13, items13, unit, its);
+  const vcd = () => ext({ family: "VCD", variant: "GI rectangular", damper: "None", insulated: "None" });
+
+  it("every sq.ft spelling the live committed tier holds resolves to the area class WITH the factor", () => {
+    // the 9 spellings and their row counts, surveyed 2026-09-25 over the whole committed tier:
+    // Sqft 15, Sq ft 5, Sqft. 4, Sq.ft 3, SQFT 3, SFT 2, Sq.Ft. 2, Sft 1, sqft 1 -- 36 rows
+    for (const u of ["Sqft", "Sq ft", "Sqft.", "Sq.ft", "SQFT", "SFT", "Sq.Ft.", "Sft", "sqft"]) {
+      expect(unitClassOf(spec13, u), u).toBe("area");
+      expect(unitFactorOf(spec13, u), u).toEqual({ class: "area", factor: 0.0929, word: "sq.ft" });
+    }
+  });
+
+  it("the owner's stated test: the GI rectangular VCD prices 728 per sq.ft, and the working says how", () => {
+    const perSqm = p13("Sqm", vcd());
+    expect([perSqm.priced, perSqm.supply, perSqm.install]).toEqual([true, 7830, 1920]);
+    const perSqft = p13("Sqft", vcd());
+    expect([perSqft.priced, perSqft.supply, perSqft.install]).toEqual([true, 728, 179]);
+    expect(perSqft.items[0].working).toContain("per sq.ft: sq.m rate x 0.0929");
+    // the arithmetic, spelled out: the RATE is converted and then rounded, and the quantity is untouched
+    expect(Math.ceil(7830 * 0.0929)).toBe(728);
+    expect(Math.ceil(1920 * 0.0929)).toBe(179);
+    expect(perSqft.items[0].qty).toBe(1);
+  });
+
+  it("⚠️ NEGATIVE: a TRUE synonym carries no factor and its figure does not move", () => {
+    for (const u of ["SMT", "Sq. Mtr", "Sqm", "sq.mtr"]) {
+      expect(unitFactorOf(spec13, u), u).toBeNull();
+      const r = p13(u, vcd());
+      expect([r.priced, r.supply, r.install], u).toEqual([true, 7830, 1920]);
+      expect(r.items[0].working.join(" | "), u).not.toContain("sq.ft");
+    }
+  });
+
+  it("⚠️ NEGATIVE: a unit with NO declared factor and no spelling still refuses in today's words", () => {
+    expect(unitFactorOf(spec13, "Lot")).toBeNull();
+    expect(unitFactorOf(spec13, "")).toBeNull();
+    expect(unitFactorOf(spec13, null)).toBeNull();
+    const r = p13("Sqft2", vcd());
+    expect(r.reason).toBe("unit 'Sqft2' is not a count, area or length unit (R12)");
+  });
+
+  it("⚠️ NEGATIVE: on v12 nothing declares a factor, so a sq.ft row refused -- that is what changed", () => {
+    expect(unitFactorOf(spec12, "Sqft")).toBeNull();
+    expect(unitClassOf(spec12, "Sqft")).toBeNull();
+    const r = priceItemList(spec12, items12, "Sqft", [vcd()]);
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("unit 'Sqft' is not a count, area or length unit (R12)");
+  });
+
+  it("⚠️ NEGATIVE: a unit_classes spelling ALWAYS wins -- a unit is declared in one place only", () => {
+    const both = JSON.parse(JSON.stringify(spec13)) as ItemListPricingSpec;
+    both.unit_classes.area.push("sqft");        // the shape the backend validator refuses outright
+    expect(unitFactorOf(both, "Sqft")).toBeNull();
+    expect(unitClassOf(both, "Sqft")).toBe("area");
+  });
+});
+
+describe("slice 11 / F-3 -- a value written as an ALTERNATIVE takes the HIGHER, and says so", () => {
+  // Owner ruling 2026-09-25 ("take the higher value"), consistent with the next-size-up ladder and the area
+  // band. Every phrase below is one the model actually produced on the 1,151-row audit corpus.
+  const W: NumberReader = { from: ["size_mm"], name: "width", unit: "mm", component: 1 };
+  const H: NumberReader = { from: ["size_mm"], name: "height", unit: "mm", component: 2 };
+  const D: NumberReader = { from: ["size_mm"], name: "depth", unit: "mm", component: 3 };
+  const RATIO: NumberReader = { from: ["panel_ratio"], name: "panel ratio", ratio: true };
+  const DIA: NumberReader = { from: ["dia_mm"], name: "diameter", unit: "mm" };
+  const TORQUE: NumberReader = { from: ["torque"], name: "torque", unit: "nm" };
+  const THK: NumberReader = { from: ["thickness_mm"], name: "plenum thickness", unit: "mm" };
+
+  const TABLE: Array<[string, number | null, number | null, number | null]> = [
+    ["375x 375 x 350/400 mm High", 375, 375, 400],
+    ["450x 450 x 350/400 mm High", 450, 450, 400],
+    ["600x 600 x 350/400 mm High", 600, 600, 400],
+    ["1050x 100/150 x 300/350 mm High", 1050, 150, 350],
+    ["600x 100/150 x 350/400 mm High", 600, 150, 400],
+    ["750x 100/150 x350/400 mm High", 750, 150, 400],
+    ["900/1000x 100/150 x 350/400 mm High", 1000, 150, 400],
+    ["1150x100/150 x 400 mm High", 1150, 150, 400],
+    ["600/750x600/150 x 400 mm High", 750, 600, 400],
+    ["900/1000x 150 x 400 mm High", 1000, 150, 400],
+    ["600/750 x 150 x 400 mm High", 750, 150, 400],
+    ["1050x 150 x 300/350 mm High", 1050, 150, 350],
+    ["900/1000x 150/300 x 350/400 mm High", 1000, 300, 400],
+  ];
+
+  it.each(TABLE)("%s -> width %s, height %s, depth %s", (text, w, h, d) => {
+    const read = (r: NumberReader) => {
+      const got = readNumber(text, r);
+      return got && "value" in got ? got.value : null;
+    };
+    expect([read(W), read(H), read(D)]).toEqual([w, h, d]);
+  });
+
+  it("the note names the value taken and why, on every axis that resolved a pair", () => {
+    const got = readNumber("900/1000x 100/150 x 350/400 mm High", W);
+    expect(got).toEqual({ value: 1000, note: "'900/1000' states two values -- the higher, 1000, is taken" });
+    expect(readNumber("375x 375 x 350/400 mm High", D)).toEqual({
+      value: 400, note: "'350/400 mm High' states two values -- the higher, 400, is taken",
+    });
+  });
+
+  it("a ratio and a diameter take the higher too -- the ruling is about a value, not only a size", () => {
+    expect(readNumber("10/12 Module", RATIO)).toEqual({ value: 12, note: "'10/12 Module' states two values -- the higher, 12, is taken" });
+    expect(readNumber("4/6 Module", RATIO)).toEqual({ value: 6, note: "'4/6 Module' states two values -- the higher, 6, is taken" });
+    const dia = readNumber("150/200mm dia", DIA);
+    expect(dia && "value" in dia ? dia.value : null).toBe(200);
+  });
+
+  it("⚠️ NEGATIVE: three values are not a pair, and a COMMA list is not one either -- both refuse BY NAME", () => {
+    expect(readNumber("6/8 / 10 Port", RATIO)).toEqual({ blank: "several values stated for panel ratio ('6/8 / 10 Port')" });
+    expect(readNumber("3.5, 7.9 & 15.9 Nm", TORQUE)).toEqual({
+      blank: "several values stated for torque ('3.5, 7.9 & 15.9 Nm')",
+    });
+    expect(readNumber("100/150/200 mm", W)).toEqual({ blank: "several values stated for width ('100/150/200 mm')" });
+    expect(splitSizePhrase("100/150/200 mm")).toBeNull();
+  });
+
+  it("⚠️ NEGATIVE: a TOLERANCE is not an alternative -- '25 +/- 2 mm' keeps refusing", () => {
+    expect(readNumber("25 +/- 2 mm", THK)).toEqual({
+      blank: "several values stated for plenum thickness ('25 +/- 2 mm')",
+    });
+  });
+
+  it("⚠️ NEGATIVE: a plain size and a RANGE are byte-identical to before -- nothing else moved", () => {
+    expect(splitSizePhrase("1100(W) X 250(D) X 400(H)")).toEqual(["1100(W)", "400(H)", "250(D)"]);
+    expect(splitSizePhrase("375x375x375")).toEqual(["375", "375", "375"]);
+    expect(readNumber("250 mm high", H)).toEqual({ value: 250 });
+    expect(readNumber("10-12 NM", TORQUE)).toEqual({
+      value: 12, note: "range '10-12 NM' -> its top value 12 (R6)",
+    });
+  });
+
+  it("the alternative rule is NARROW by construction: the gap must be a bare slash, never one carrying a sign", () => {
+    const code = readFileSync(join(__dirname, "itemListPricing.ts"), "utf-8");
+    const fn = code.slice(code.indexOf("function isAltPair"), code.indexOf("}", code.indexOf("function isAltPair")) + 1);
+    expect(fn).toContain("\\/");
+    expect(fn).not.toContain("+");          // a '+' in the gap is a tolerance, and must not be admitted
+    expect(fn).not.toContain(",");          // nor a comma: a comma list is not an alternative
   });
 });

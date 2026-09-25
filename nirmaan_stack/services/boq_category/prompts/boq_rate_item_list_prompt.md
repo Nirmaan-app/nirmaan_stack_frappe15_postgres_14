@@ -21,6 +21,11 @@ Rules:
   * A part built into a priced variant is NOT a separate item: a
     motorised damper is ONE item (the damper, variant motorised), never
     a damper plus an actuator; a damper with its sleeve is ONE item.
+  * A DAMPER NAMED AS PART OF A GRILLE OR A DIFFUSER IS THAT ITEM'S
+    DAMPER, NEVER A SECOND ITEM: return the grille or diffuser alone,
+    with its damper attribute set to "with". A damper is its own item
+    only when the row buys the damper itself - when no grille, diffuser
+    or other host is what the row pays for.
   * An ancestor header tells you what the row's thing IS and what it
     includes; it never ADDS a second thing the row does not pay for. A
     header that names other products (a neighbouring section's disc

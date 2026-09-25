@@ -10854,7 +10854,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v12.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v13.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -11252,10 +11252,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
             config_validation._validate_config(bad)
 
     # -- h07 ----------------------------------------------------------------------------------------
-    def test_h07_hvac_series_is_v1_to_v12_electrical_unmoved_version_only_in_the_filename(self):
+    def test_h07_hvac_series_is_v1_to_v13_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
-        # slice 9 (owner A-1..A-5, inverting the slice-8 pin): the series now holds EXACTLY v1..v12
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v12.json")
+        # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v13.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11268,7 +11268,8 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                          # That is exactly why `latest_in` must resolve NUMERICALLY, pinned two lines below --
                          # v10 is the first two-digit version in either series.
                          ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json",
-                          "rate_master_hvac_all_v11.json", CURRENT_HVAC_ASSET,
+                          "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json",
+                          CURRENT_HVAC_ASSET,
                           "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
@@ -11279,7 +11280,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                       "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
                       "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
                       "rate_master_hvac_all_v9.json", "rate_master_hvac_all_v10.json",
-                      "rate_master_hvac_all_v11.json"):
+                      "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json"):
             committed = subprocess.run(
                 ["git", "-c", "safe.directory=*", "-C", repo, "show",
                  "HEAD:nirmaan_stack/services/boq_rate_master/data/" + prior],
@@ -12064,7 +12065,9 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         # block predates as well -- v7's keys are exactly the known keys MINUS those two (`panel_controls` is present
         # from v9 on, `override_when` from v11 on)
         # slice 9: `second_key` joins the keys declared AFTER v7, so v7's block is the full set minus them
-        self.assertEqual(set(pr), config_validation._PRICING_KEYS - {"panel_controls", "override_when", "second_key"})
+        # SLICE 11 added `unit_factors`, which v7 does not carry -- the same exclusion the three keys above get
+        self.assertEqual(set(pr), config_validation._PRICING_KEYS
+                         - {"panel_controls", "override_when", "second_key", "unit_factors"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         def refused(mutate, needle):
@@ -12890,10 +12893,12 @@ class TestHvacAdpOneSizeFieldAndSecondKeySlice9(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # slice 9: v11 is the predecessor, loaded BY NAME; v12 is the current asset
+        # slice 9: v11 is the predecessor, loaded BY NAME. SLICE 11: v12 is loaded BY NAME too -- it was
+        # CURRENT_HVAC_ASSET until v13 -- so the u-pins keep asserting exactly slice 9's own delta and nothing
+        # a later slice added (the same convention every earlier class here follows).
         with open(_asset_path("rate_master_hvac_all_v11.json"), "r", encoding="utf-8") as fh:
             cls.v11 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v12.json"), "r", encoding="utf-8") as fh:
             cls.v12 = json.load(fh)
 
     SIZE = "size_mm"
@@ -13081,3 +13086,215 @@ class TestHvacAdpOneSizeFieldAndSecondKeySlice9(FrappeTestCase):
                 self.assertNotIn("component", rd, c["category_id"])
         for c in eall["category_configs"]:
             config_validation._validate_config(loader._loaded_config(c, "Electrical", {}))
+
+
+class TestHvacAdpAbsentUnitsAndAlternativesSlice11(FrappeTestCase):
+    """SLICE 11 (owner rulings F-1..F-4, 2026-09-25). Plain-English coverage:
+
+      test_w01  THE VALIDATOR knows `unit_factors`: v13's ADP config passes both validators, and every
+                malformed shape is refused BY NAME -- an unknown key, a class that is not a unit class, a
+                factor that is not a positive number, a factor of 1 (that is a SYNONYM and belongs in
+                unit_classes), a missing word, and a spelling that ALREADY appears in unit_classes (a unit
+                is declared in ONE place only, or the reader would resolve it twice). NEGATIVE: the key is
+                OPTIONAL -- v12, which declares none, validates unchanged.
+      test_w02  v13 = v12 + the declared edits and NOTHING else: every item byte-identical (no catalogue
+                cell moved this slice), the six other configs deep-equal, and the ADP config equal once
+                `absent_as_none` on three defaults, their reworded rules, the four unit synonyms,
+                `unit_factors` and the two def notes are set aside.
+      test_w03  F-1: `absent_as_none` now sits on damper, insulated, variant AND ul -- and on nothing else.
+                NEGATIVE: on v12 it sat on ul alone, which is what changed; the DEFAULT VALUES themselves
+                are untouched, so no row's ruled value moved.
+      test_w04  F-2: the four TRUE synonyms are in the right classes and `sqft` is in NO class, in either
+                version. NEGATIVE: Lot / R/O / Cum are declared nowhere, so they keep refusing.
+      test_w05  F-2b: the square foot is declared as a different unit of the area class -- the four
+                normalised spellings that cover all nine forms the live corpus writes, one class, one
+                factor, one word. NEGATIVE: no unit_factors entry names a class the catalogue does not
+                quote, and the block reaches the FRONTEND only (the model never sees it -- test_il_18).
+      test_w06  NO ITEM MOVED: all 95 items and every uid are byte-identical to v12, and the items-only
+                sha256 is the one slice 9 recorded -- so nothing derived from the catalogue can have changed.
+      test_w07  ELECTRICAL IS UNTOUCHED: its asset, its configs and its prompts are byte-identical to
+                HEAD, and its ADP-shaped keys are absent -- no unit_factors, no widened absent_as_none.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v13 = json.load(fh)
+        # slice 11: v12 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v13); the w-pins are v13 = v12 + F-1/F-2/F-4
+        with open(_asset_path("rate_master_hvac_all_v12.json"), "r", encoding="utf-8") as fh:
+            cls.v12 = json.load(fh)
+
+    def _adp(self, asset):
+        return loader._loaded_config(asset["category_configs"][0], "HVAC", asset.get("goldens") or {})
+
+    SYNONYMS = {"length": ["mtrs", "rmts"], "area": ["smt", "sq. mtr"]}
+    SQFT_SPELLINGS = ["sft", "sq ft", "sq.ft", "sqft"]
+
+    # -- w01 ----------------------------------------------------------------------------------------
+    def test_w01_the_validator_knows_unit_factors_and_refuses_every_malformed_shape(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation
+        base = self._adp(self.v13)
+        config_validation._validate_config(base)
+        loader._validate_one_config(self.v13["category_configs"][0], "x")
+
+        def refused(mutate, needle):
+            bad = copy.deepcopy(base)
+            mutate(bad["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                config_validation._validate_config(bad)
+            self.assertIn(needle, str(ctx.exception), needle)
+
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("nope", 1), "unknown key(s): nope")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("class", "volume"), "must name a unit_classes key")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", 0), "must be a positive number")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", "0.0929"), "must be a positive number")
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", True), "must be a positive number")
+        # a factor of 1 is a SYNONYM -- it must be declared in unit_classes, never here
+        refused(lambda p: p["unit_factors"]["sqft"].__setitem__("factor", 1), "is a synonym -- declare it in unit_classes instead")
+        refused(lambda p: p["unit_factors"]["sqft"].pop("word"), "needs a word naming the unit")
+        refused(lambda p: p["unit_factors"].__setitem__("sqm", {"class": "area", "factor": 2, "word": "x"}),
+                "is already a unit_classes spelling")
+        # ... and the same-spelling check uses the CLIENT's normalisation, so a case / trailing-dot variant is caught too
+        refused(lambda p: p["unit_factors"].__setitem__("SQM.", {"class": "area", "factor": 2, "word": "x"}),
+                "is already a unit_classes spelling")
+        refused(lambda p: p.__setitem__("unit_factors", {}), "must be a non-empty object")
+        refused(lambda p: p.__setitem__("unit_factors", {"sqft2": "no"}), "must be an object")
+        # NEGATIVE: the key is OPTIONAL -- v12 declares none and still validates, and so does every other config
+        v12adp = self._adp(self.v12)
+        self.assertNotIn("unit_factors", v12adp["list_spec"]["pricing"])
+        config_validation._validate_config(v12adp)
+        for c in self.v13["category_configs"][1:]:
+            config_validation._validate_config(loader._loaded_config(c, "HVAC", {}))
+
+    # -- w02 ----------------------------------------------------------------------------------------
+    def test_w02_v13_is_v12_plus_the_declared_edits_and_nothing_else(self):
+        # NO catalogue cell moved this slice
+        self.assertEqual(self.v13["items"], self.v12["items"])
+        self.assertEqual([i["item_uid"] for i in self.v13["items"]], [i["item_uid"] for i in self.v12["items"]])
+        self.assertEqual(len(self.v13["items"]), 95)
+        # the six other configs are deep-equal
+        self.assertEqual(self.v13["category_configs"][1:], self.v12["category_configs"][1:])
+        for key in ("goldens", "retired_kinds", "retired_category_ids", "retirement_reasons", "discipline"):
+            self.assertEqual(self.v13.get(key), self.v12.get(key), key)
+
+        def strip(asset):
+            c = copy.deepcopy(asset["category_configs"][0])
+            p = c["list_spec"]["pricing"]
+            for attr in ("damper", "insulated", "variant"):
+                p["defaults"][attr].pop("absent_as_none", None)
+                p["defaults"][attr].pop("rule", None)
+            p.pop("unit_factors", None)
+            for cls, words in self.SYNONYMS.items():
+                p["unit_classes"][cls] = [w for w in p["unit_classes"][cls] if w not in words]
+            for d in c["list_spec"]["attribute_definitions"]:
+                if d["id"] in ("family", "damper"):
+                    d.pop("note", None)
+            return c
+
+        self.assertEqual(strip(self.v13), strip(self.v12))
+
+    # -- w03 ----------------------------------------------------------------------------------------
+    def test_w03_absent_means_not_mentioned_now_covers_damper_insulated_and_variant(self):
+        p13 = self._adp(self.v13)["list_spec"]["pricing"]
+        p12 = self._adp(self.v12)["list_spec"]["pricing"]
+        self.assertEqual({k for k, d in p13["defaults"].items() if d.get("absent_as_none")},
+                         {"damper", "insulated", "ul", "variant"})
+        # NEGATIVE: on v12 it was UL alone -- that is exactly what this slice widened
+        self.assertEqual({k for k, d in p12["defaults"].items() if d.get("absent_as_none")}, {"ul"})
+        # NEGATIVE: the ruled VALUES are untouched, so no row's default figure can have moved
+        self.assertEqual(p13["defaults"]["damper"]["value"], "without")
+        self.assertEqual(p13["defaults"]["insulated"]["value"], "with")
+        self.assertEqual(p13["defaults"]["ul"]["value"], "no")
+        self.assertEqual(p13["defaults"]["variant"]["by_family"], {"VCD": "GI rectangular", "fire damper": "without sleeve"})
+        for attr in ("damper", "insulated", "ul", "variant"):
+            self.assertEqual(p13["defaults"][attr].get("value"), p12["defaults"][attr].get("value"), attr)
+            self.assertEqual(p13["defaults"][attr].get("by_family"), p12["defaults"][attr].get("by_family"), attr)
+        # every rule sentence still names its owner ruling
+        for attr in ("damper", "insulated", "variant"):
+            self.assertIn("slice 11", p13["defaults"][attr]["rule"], attr)
+
+    # -- w04 ----------------------------------------------------------------------------------------
+    def test_w04_four_true_synonyms_and_three_strings_that_are_not_units(self):
+        p13 = self._adp(self.v13)["list_spec"]["pricing"]
+        p12 = self._adp(self.v12)["list_spec"]["pricing"]
+        for cls, words in self.SYNONYMS.items():
+            self.assertEqual(p13["unit_classes"][cls], p12["unit_classes"][cls] + words, cls)
+        self.assertEqual(set(p13["unit_classes"]), set(p12["unit_classes"]))    # no new class
+        # NEGATIVE: sqft is in NO class, on EITHER version -- it is a different unit, not a spelling
+        from nirmaan_stack.services.boq_rate_master.config_validation import _norm_unit_spelling
+        for pr in (p12, p13):
+            spelled = {_norm_unit_spelling(s) for words in pr["unit_classes"].values() for s in words}
+            for sq in self.SQFT_SPELLINGS:
+                self.assertNotIn(sq, spelled, sq)
+        # NEGATIVE: Lot, R/O and Cum are declared nowhere, in no class and with no factor, so they refuse
+        declared = {_norm_unit_spelling(s) for words in p13["unit_classes"].values() for s in words}
+        declared |= {_norm_unit_spelling(s) for s in p13["unit_factors"]}
+        for u in ("Lot", "R/O", "Cum"):
+            self.assertNotIn(_norm_unit_spelling(u), declared, u)
+
+    # -- w05 ----------------------------------------------------------------------------------------
+    def test_w05_the_square_foot_is_a_different_unit_of_the_area_class(self):
+        import math
+        p13 = self._adp(self.v13)["list_spec"]["pricing"]
+        self.assertEqual(sorted(p13["unit_factors"]), self.SQFT_SPELLINGS)
+        for spelling, d in p13["unit_factors"].items():
+            self.assertEqual(d, {"class": "area", "factor": 0.0929, "word": "sq.ft"}, spelling)
+            self.assertIn(d["class"], p13["unit_classes"], spelling)
+        # the factor's arithmetic, on the owner's own worked figure
+        self.assertEqual(math.ceil(7830 * 0.0929), 728)
+        self.assertEqual(math.ceil(1920 * 0.0929), 179)
+        # the declared factor is the OWNER's 0.0929, and it is within a rupee of the exact 0.09290304 on
+        # every rate this catalogue holds -- which is why one declared number is used, shown and computed
+        rates = [float(v) for i in self.v13["items"] for k, v in (i.get("rates") or {}).items()
+                 if isinstance(v, (int, float))]
+        self.assertTrue(rates)
+        for r in rates:
+            self.assertEqual(math.ceil(r * 0.0929), math.ceil(r * 0.09290304), r)
+        # NEGATIVE: every other config declares no unit_factors at all
+        for c in self.v13["category_configs"][1:]:
+            self.assertNotIn("unit_factors", (c.get("list_spec") or {}).get("pricing") or {})
+
+    # -- w06 ----------------------------------------------------------------------------------------
+    def test_w06_no_item_moved_so_everything_derived_from_them_is_byte_identical(self):
+        import hashlib
+        self.assertEqual(len(self.v13["items"]), 95)
+        # this slice touched no item, so the assets' items are identical and so is anything derived from them
+        self.assertEqual(json.dumps(self.v13["items"], sort_keys=True),
+                         json.dumps(self.v12["items"], sort_keys=True))
+        self.assertEqual(hashlib.sha256(json.dumps(self.v13["items"], sort_keys=True).encode()).hexdigest(),
+                         hashlib.sha256(json.dumps(self.v12["items"], sort_keys=True).encode()).hexdigest())
+        # the algorithm, stated: sha256(json.dumps(asset["items"], sort_keys=True)) -- slice 9's own
+        self.assertEqual(hashlib.sha256(json.dumps(self.v13["items"], sort_keys=True).encode()).hexdigest(),
+                         "23a8e471044695848293776561d4bab5baa89ffdbd5c02634fdc28156c6e13e5")
+
+    # -- w07 ----------------------------------------------------------------------------------------
+    def test_w07_electrical_is_untouched_by_every_one_of_the_four_fixes(self):
+        import subprocess
+        data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
+        repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
+        committed = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", repo, "show",
+             "HEAD:nirmaan_stack/services/boq_rate_master/data/" + CURRENT_EALL_ASSET],
+            capture_output=True, check=True).stdout
+        with open(_asset_path(CURRENT_EALL_ASSET), "rb") as fh:
+            self.assertEqual(fh.read().replace(b"\r\n", b"\n"), committed.replace(b"\r\n", b"\n"),
+                             "the Electrical asset must be byte-identical to HEAD")
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        # NEGATIVE: no Electrical config carries any of this slice's keys, and none is in item_list mode
+        for c in eall["category_configs"]:
+            blob = json.dumps(c)
+            self.assertNotIn("unit_factors", blob, c["category_id"])
+            self.assertNotIn("absent_as_none", blob, c["category_id"])
+            self.assertNotEqual(c.get("matching_mode"), "item_list", c["category_id"])
+        # the three prompt assets Electrical reads are byte-identical to HEAD; only the item-list one changed
+        from nirmaan_stack.services.boq_rate_master import extraction
+        for fname in ("boq_rate_attr_extraction_prompt.md", "boq_rate_item_identity_prompt.md",
+                      "boq_composite_decomposition_prompt.md"):
+            path = os.path.join(extraction._PROMPT_DIR, fname)
+            rel = os.path.relpath(os.path.abspath(path), repo).replace(os.sep, "/")
+            head = subprocess.run(["git", "-c", "safe.directory=*", "-C", repo, "show", "HEAD:" + rel],
+                                  capture_output=True, check=True).stdout
+            with open(path, "rb") as fh:
+                self.assertEqual(fh.read().replace(b"\r\n", b"\n"), head.replace(b"\r\n", b"\n"), fname)

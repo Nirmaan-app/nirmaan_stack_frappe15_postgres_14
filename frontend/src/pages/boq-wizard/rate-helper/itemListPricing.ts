@@ -140,11 +140,24 @@ export interface SecondKey {
   primary_pick: "largest";
 }
 
+/** SLICE 11: one unit of a class quoted in a different unit of it. `class` is the class it belongs to,
+ * `factor` multiplies that class's rate to reach this unit, `word` is how the note names it. */
+export interface UnitFactor {
+  class: string;
+  factor: number;
+  word: string;
+}
+
 export interface ItemListPricingSpec {
   kind: string;
   unit_class_attr: string;
   unit_classes: Record<string, string[]>;
   unit_words?: Record<string, string>;
+  /** SLICE 11 (owner ruling, 2026-09-25): a unit that BELONGS to a class and is still a DIFFERENT unit of it
+   * -- a square foot is an area, but the catalogue quotes per square metre. A `unit_classes` spelling is a
+   * SYNONYM (nothing is scaled); one of these carries a CONVERSION FACTOR to the class's own unit, applied to
+   * the RATE and never to the BoQ's quantity. ABSENT => every row is byte-identical to before this slice. */
+  unit_factors?: Record<string, UnitFactor>;
   family_alias?: Record<string, string>;
   no_sku_families?: string[];
   defaults?: Record<string, DefaultSpec>;
@@ -272,12 +285,32 @@ function normUnit(u: string): string {
   return u.trim().toLowerCase().replace(/\.$/, "").replace(/\s+/g, " ");
 }
 
-/** The unit class of a unit string against the config table, or null when unknown; "" is its own case. PURE. */
+/** The unit class of a unit string against the config table, or null when unknown; "" is its own case. PURE.
+ * SLICE 11: a `unit_factors` spelling belongs to the class it declares, so it resolves here too -- the class
+ * is what picks the SKUs; the factor (below) is what converts their rate. */
 export function unitClassOf(spec: ItemListPricingSpec, unit: string | null | undefined): string | null {
   if (unit === null || unit === undefined || unit.trim() === "") return null;
   const u = normUnit(unit);
   for (const [cls, spellings] of Object.entries(spec.unit_classes)) {
     if (spellings.some((s) => normUnit(s) === u)) return cls;
+  }
+  const f = unitFactorOf(spec, unit);
+  return f ? f.class : null;
+}
+
+/** SLICE 11: the declared conversion for a unit string, or null when it declares none (a synonym, or unknown).
+ * A `unit_classes` spelling ALWAYS wins -- a unit is declared in one place only, and the validator refuses a
+ * spelling that appears in both. PURE. */
+export function unitFactorOf(spec: ItemListPricingSpec, unit: string | null | undefined): UnitFactor | null {
+  if (unit === null || unit === undefined || unit.trim() === "") return null;
+  const u = normUnit(unit);
+  for (const spellings of Object.values(spec.unit_classes)) {
+    if (spellings.some((s) => normUnit(s) === u)) return null;
+  }
+  for (const [spelling, d] of Object.entries(spec.unit_factors ?? {})) {
+    if (normUnit(spelling) === u && d && typeof d.factor === "number" && d.factor > 0 && d.class in spec.unit_classes) {
+      return d;
+    }
   }
   return null;
 }
@@ -321,6 +354,22 @@ const _AXIS_PATTERNS: Array<{ re: RegExp; axis: number }> = [
   { re: /(^|[^a-z])(?:d|deep|depth|l|long|length)([^a-z]|$)/i, axis: 2 },
 ];
 
+/** SLICE 11: the gap between two numbers that makes them an ALTERNATIVE PAIR -- a BARE slash, optionally
+ * carrying the unit. Deliberately narrow: a sign beside it ("+/-") is a tolerance, not an alternative. */
+function isAltPair(gap: string): boolean {
+  return /^\s*(mm|nm|n-m|sqm|sq\.?m)?\s*\/\s*$/.test(gap);
+}
+
+/** SLICE 11: is this one part of an x-joined size phrase a single number, or an alternative pair code can
+ * resolve? Two numbers joined by a bare slash are readable (the higher wins, in `readNumber`); anything else
+ * with more than one number is a list this splitter does not read. PURE. */
+function partIsReadable(part: string): boolean {
+  const found = numbersIn(part.toLowerCase());
+  if (found.length === 1) return true;
+  if (found.length !== 2) return false;
+  return isAltPair(part.toLowerCase().slice(found[0].end, found[1].start));
+}
+
 /** The axis a size part names, or null when it names none. A part is stripped of its number and unit first,
  * so "450 mm" names nothing while "400 mm High" names the depth slot and "250(D)" names it too. PURE. */
 function axisOf(part: string): number | null {
@@ -344,7 +393,7 @@ export function splitSizePhrase(text: string | number | null | undefined): strin
   // slots come back EMPTY, which the reader reads as NOT STATED. A one-part size with NO label keeps the
   // owner's ruling: it is the width, and a family that also needs a height refuses.
   if (parts.length === 1) {
-    if ((parts[0].match(/\d+(?:\.\d+)?/g) ?? []).length !== 1) return null;
+    if (!partIsReadable(parts[0])) return null;
     const axis = axisOf(parts[0]);
     if (axis === null || axis === 0) return null;
     const out = new Array(axis + 1).fill("");
@@ -352,8 +401,9 @@ export function splitSizePhrase(text: string | number | null | undefined): strin
     return out;
   }
   if (parts.length < 2 || parts.length > 3) return null;
-  // every part must hold EXACTLY one number: "100/150/200 mm/600mm x 600mm" is a list, not a size
-  for (const p of parts) if ((p.match(/\d+(?:\.\d+)?/g) ?? []).length !== 1) return null;
+  // every part must be one number, or (SLICE 11) an ALTERNATIVE PAIR code resolves to its higher value:
+  // "100/150/200 mm/600mm x 600mm" is a list, not a size, and still returns null here.
+  for (const p of parts) if (!partIsReadable(p)) return null;
   const axes = parts.map(axisOf);
   if (axes.every((a) => a !== null)) {
     const want = parts.map((_, i) => i);
@@ -443,6 +493,16 @@ export function readNumber(text: string | number | null | undefined, reader: Num
     const sc = scale(top);
     return below({ value: sc.value, note: `range '${raw}' -> its top value ${sc.value} (R6)` });
   }
+  // SLICE 11 (owner ruling, 2026-09-25): an ALTERNATIVE written as a SLASH PAIR takes the HIGHER value,
+  // consistent with the next-size-up ladder and the area band. EXACTLY TWO numbers joined by a BARE slash --
+  // three values ("6/8 / 10 Port") and a comma list ("3.5, 7.9 & 15.9 Nm") are not a pair and keep refusing
+  // by name, and a TOLERANCE ("25 +/- 2 mm") is not an alternative, which is why the gap must be a bare
+  // slash and never one carrying a sign.
+  if (found.length === 2 && isAltPair(gaps[0])) {
+    const hi = found[0].n >= found[1].n ? found[0] : found[1];
+    const sc = scale(hi);
+    return below({ value: sc.value, note: `'${raw}' states two values -- the higher, ${sc.value}, is taken` });
+  }
   return { blank: `several values stated for ${reader.name} ('${raw}')` };
 }
 
@@ -507,6 +567,8 @@ function priceOneItem(
   rowUnitClass: string,
   item: ExtractedListItem,
   index: number,
+  /** SLICE 11: the row unit's declared conversion, or null when it is a plain spelling of its class. */
+  unitFactor: UnitFactor | null = null,
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, defaulted: [],
@@ -815,6 +877,15 @@ function priceOneItem(
       if (st.produced) out.working.push(`${id}: ${st.label} = ${fmt(st.produced.value)}`);
     }
   }
+  // (6b) SLICE 11 (owner ruling, 2026-09-25) -- THE ROW UNIT'S CONVERSION FACTOR. The catalogue quotes this
+  // class's rate in the class's own unit; the row is billed in a DIFFERENT unit of the same class. THE RATE IS
+  // CONVERTED, NEVER THE QUANTITY: the class's rate x the factor, then today's rounding (the same ROUNDUP the
+  // pipeline's last step applies), supply and install alike. It runs AFTER the pipeline so a declared family
+  // `convert` option (R4 / R11 / R16) has already done its work and this composes on top of it.
+  if (unitFactor) {
+    for (const k of Object.keys(finals)) finals[k] = Math.ceil(finals[k] * unitFactor.factor);
+    out.working.push(`per ${unitFactor.word}: ${unitWord(spec, unitFactor.class)} rate x ${unitFactor.factor}`);
+  }
   const figures: Record<string, number> = {};
   for (const [k, v] of Object.entries(finals)) figures[k] = v * qty;
   if (qty !== 1) out.working.push(`x ${fmt(qty)} per row unit`);
@@ -850,7 +921,9 @@ export function priceItemList(
     return { unit, unitClass: cls, priced: false, reason: "no items were read on this row", items: [] };
   }
   const projected = projectUnitClass(spec, items);
-  const priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i));
+  // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
+  const unitFactor = unitFactorOf(spec, unit);
+  const priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor));
   const firstBlank = priced.find((p) => p.state === "blank");
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
