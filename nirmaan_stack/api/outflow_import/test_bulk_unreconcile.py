@@ -362,10 +362,14 @@ class TestCleanupRunsPerLine(CleanupFixture):
         frappe.db.commit()
 
     def tearDown(self):
-        frappe.db.delete(
-            "Comment", {"reference_doctype": ROW_DOCTYPE, "reference_name": ["in", self.rows or [""]]}
-        )
-        frappe.db.commit()
+        # ⚠️ NEVER `self.rows or [""]` here (the cad54f738 rule): `reference_name` is a nullable
+        # Dynamic Link, so an `in ('')` filter would sweep every Comment on an import row with no
+        # reference. A test that fails before it sets `rows` simply has nothing to clean.
+        if self.rows:
+            frappe.db.delete(
+                "Comment", {"reference_doctype": ROW_DOCTYPE, "reference_name": ["in", self.rows]}
+            )
+            frappe.db.commit()
         super().tearDown()
 
     rows = None

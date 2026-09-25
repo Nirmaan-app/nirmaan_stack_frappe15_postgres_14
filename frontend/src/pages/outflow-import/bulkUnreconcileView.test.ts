@@ -7,6 +7,10 @@ import {
     bulkStartLabel,
     bulkUnreconcileTitle,
     type BulkUnreconcileEntry,
+    CHECK_STEP_FOOTER,
+    FAILED_RUN_NOTE,
+    NOT_UNDONE_HEADING,
+    NOT_UNDONE_NOTE,
     LINE_GONE,
     NOT_SETTLED_ANY_MORE,
     NOTHING_SETTLED,
@@ -260,5 +264,28 @@ describe("bulkResultSummary", () => {
             { row: "R5", beneficiary: "Metro Cement", amount: 60, reason: "Someone changed its amount." },
             { row: "R6", beneficiary: null, amount: 10, reason: NOT_SETTLED_ANY_MORE },
         ]);
+    });
+});
+
+describe("the wording for lines a run did not undo", () => {
+    // Review finding (#1317): a line lands in this group for being refused, but ALSO for no longer
+    // existing or no longer being Settled -- so no sentence may claim these lines are "still Settled".
+    const texts = [NOT_UNDONE_HEADING, NOT_UNDONE_NOTE, CHECK_STEP_FOOTER, FAILED_RUN_NOTE];
+
+    it("never says the lines are Settled", () => {
+        for (const text of texts) expect(text).not.toMatch(/settled/i);
+    });
+
+    it("says what is true of every such line: nothing changed on it", () => {
+        expect(NOT_UNDONE_HEADING).toBe("Not undone");
+        expect(NOT_UNDONE_NOTE).toBe("nothing changed on these");
+        expect(CHECK_STEP_FOOTER).toMatch(/left exactly as it is/);
+        expect(FAILED_RUN_NOTE).toMatch(/left as they were/);
+    });
+
+    it("covers the gone and no-longer-Settled reasons the group can hold", () => {
+        // The heading has to be true for these two as well, which is why it cannot name a status.
+        expect(LINE_GONE).toMatch(/no longer exists/);
+        expect(NOT_SETTLED_ANY_MORE).toMatch(/no longer Settled/);
     });
 });

@@ -29,6 +29,10 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    CHECK_STEP_FOOTER,
+    FAILED_RUN_NOTE,
+    NOT_UNDONE_HEADING,
+    NOT_UNDONE_NOTE,
     bulkCheckSummary,
     bulkFailedSentence,
     bulkResultSummary,
@@ -124,8 +128,7 @@ const BulkRun = ({
                     <DialogDescription>{bulkFailedSentence(phase.count, phase.error)}</DialogDescription>
                 </DialogHeader>
                 <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-                    Each transfer is saved on its own, so any finished before it stopped stay undone and the rest
-                    are still Settled. The table has been refreshed to show what really changed.
+                    {FAILED_RUN_NOTE}
                 </p>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>
@@ -178,7 +181,7 @@ const BulkRun = ({
 
             <DialogFooter className="gap-2 sm:items-center">
                 <span className="mr-auto max-w-[44ch] text-xs text-muted-foreground">
-                    Blocked transfers stay Settled. You can fix them and undo them later on their own.
+                    {CHECK_STEP_FOOTER}
                 </span>
                 <Button variant="outline" onClick={onClose}>
                     Cancel
@@ -244,8 +247,8 @@ const ResultStep = ({
             {summary.blocked.length > 0 && (
                 <div className="overflow-hidden rounded-md border">
                     <div className="flex justify-between gap-2 bg-muted px-3 py-2 text-xs font-medium">
-                        <span>Blocked, still Settled</span>
-                        <span className="font-normal text-muted-foreground">nothing changed on these</span>
+                        <span>{NOT_UNDONE_HEADING}</span>
+                        <span className="font-normal text-muted-foreground">{NOT_UNDONE_NOTE}</span>
                     </div>
                     {summary.blocked.map((line) => (
                         <div key={line.row} className="space-y-0.5 border-t px-3 py-2 text-sm">

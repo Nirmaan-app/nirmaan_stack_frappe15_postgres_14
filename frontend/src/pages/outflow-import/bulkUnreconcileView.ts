@@ -66,6 +66,21 @@ export const NOT_SETTLED_ANY_MORE = "This transfer is no longer Settled, so ther
 /** A Settled line with no Settled record -- should not happen, and is left out rather than guessed at. */
 export const NOTHING_SETTLED = "Nothing on this transfer is settled, so there is nothing to undo.";
 
+/**
+ * The wording for the lines a run did NOT undo -- in the check step's footer, the result box's heading
+ * and the failed-request box.
+ *
+ * ⚠️ NEVER "STILL SETTLED". A line lands here for being refused, but also for no longer existing
+ * (`LINE_GONE`) or no longer being Settled (`NOT_SETTLED_ANY_MORE`), and calling those Settled is false.
+ * What IS true of every one of them is that this run changed nothing on it, so that is what is said.
+ */
+export const NOT_UNDONE_HEADING = "Not undone";
+export const NOT_UNDONE_NOTE = "nothing changed on these";
+export const CHECK_STEP_FOOTER =
+    "A transfer that can't be undone is left exactly as it is. You can fix it and undo it later on its own.";
+export const FAILED_RUN_NOTE =
+    "Each transfer is saved on its own, so any finished before it stopped stay undone and the rest are left as they were. The table has been refreshed to show what really changed.";
+
 export interface BulkCheckRecord {
     leg: UnreconcilePlanLeg;
     outcome: LegOutcomeLine;
@@ -180,7 +195,7 @@ export interface BulkResultSummary {
     undoneCount: number;
     /** Undone lines grouped by where each one went: Matched first, then Not-Matched, then anything else. */
     groups: BulkResultGroup[];
-    /** Blocked, still Settled -- each with the server's sentence. */
+    /** Not undone (refused, gone or no longer Settled) -- each with its sentence. */
     blocked: BulkBlockedLine[];
     /** Show the "marked Confirm by hand" note: some line landed Matched. */
     confirmByHandNote: boolean;
@@ -233,7 +248,7 @@ export const bulkResultSummary = (
     const groups = new Map<string, BulkResultGroup>();
     const blocked: BulkBlockedLine[] = [];
     // ⚠️ LINES LEFT OUT AT THE CHECK STEP WERE NEVER SENT, so the response does not name them -- but the
-    // person ticked them, and "Blocked, still Settled" must still account for every one.
+    // person ticked them, and "Not undone" must still account for every one.
     const sent = new Set(response.lines.map((entry) => entry.row));
     for (const line of plans.map(checkLine)) {
         if (!line.blocked || sent.has(line.plan.row)) continue;
