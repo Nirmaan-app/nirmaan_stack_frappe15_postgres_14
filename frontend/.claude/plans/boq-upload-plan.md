@@ -41955,7 +41955,9 @@ NO unit**, beside the two item-list mounts served with `unit: view.unit`.
 | **J6** Electrical | `BOQ-26-00224 / ELECTRICAL` | ✅ **354 rows**; row 216 hash **`b8db3d87`** identical to slices 5 and 9 (djb2 over the row's cell texts joined by `\|`); the helper renders `Rate master: Switches and Sockets @ Switch = 10A 1 WAY SWITCH ... Back box = No` -> **260**, verbatim as recorded; **zero unit labels anywhere in the Electrical panel** |
 | **J7** final DB | -- | ✅ HVAC **95 / 7**, batch `rmbulk-3c375e759bb0`, **DB items sha `f9989f8693ec0b29...` UNCHANGED**; Electrical **1,367 / 12**, batch and sha unchanged; **`BoQ Rate Suggestion Run` 93 -> 93 and Event 1,533 -> 1,533** (H2 ran through the harness, which writes nothing -- no in-product run was made); **`BoQ Cell Pricing` 37,702 rows, rate sha `2ca7e372a36a873f...` unchanged** -- no rate typed |
 
-⚠️ **FOUR CERT STEPS ARE BLOCKED, ALL BY ONE CAUSE, AND BLOCKED IS NOT FINISHED.** The panel renders the ACTIVE
+⚠️ **FOUR CERT STEPS WERE BLOCKED AT FIRST, ALL BY ONE CAUSE. The owner then authorised the runs and
+ALL FOUR ARE NOW CERTIFIED ON SCREEN -- see the CERT ADDENDUM at the end of this section. The cause is
+recorded because it recurs:** The panel renders the ACTIVE
 STORED RUN, and only two sheets in the database hold a run in the CURRENT extraction shape (`BOQ-26-00064 / HVAC`,
 and `BOQ-26-00140 / HVAC Lowside Works ` which is the slice-9 partial that halted at 19 rows). Every other stored
 run predates the one-field size and carries answers v13 cannot read -- `BOQ-26-00117 / HVAC BOQ ` r97 renders
@@ -41975,3 +41977,52 @@ through the real code paths; none is certified ON SCREEN.
 * **Three `150/200mm dia` rows moved from an extraction refusal to a CATALOGUE refusal** (`diameter 200 is above
   the largest size on the sheet (150)`). F-3 working as ruled, revealing a stock gap; it belongs with the other
   catalogue gaps parked for review.
+
+### CERT ADDENDUM -- THE FOUR BLOCKED STEPS, NOW CERTIFIED ON SCREEN (owner ruling: spend the runs)
+
+The four steps were blocked because the panel renders the ACTIVE STORED RUN and no sheet carrying their rows
+held a run in the current extraction shape. The owner authorised one fresh IN-PRODUCT "Suggest rates" run per
+sheet, asking for the sheets, their row counts and the cost first, and to be told before any sheet costing
+materially more than ~$0.10.
+
+**Forecast, given before spending** (`count_tokens` over the real batches; output estimated at 0.254x input, the
+ratio both prior runs showed). ⚠️ Two sheets were flagged as ABOVE the ~$0.10 bar, with the reason no cheaper
+route exists: J3 needs a sheet carrying a slash pair, and `BOQ-26-00164` (55 rows, one such row) is the smallest
+-- the alternatives were `BOQ-26-00149` at ~$0.58 and `BOQ-26-00117` at ~$0.72.
+
+| sheet | eligible rows | calls | forecast | actual | covers |
+|---|---:|---:|---:|---:|---|
+| `BOQ-26-00216 / 1. MECHANICAL` | 14 | 1 | $0.105 | **$0.123** | **J4** (r46) **+ J2** (SMT r38) |
+| `BOQ-26-00210 / HVAC` | 27 | 3 | $0.193 | **$0.187** | **the sq.ft row** (r83) |
+| `BOQ-26-00164 / BOQ` | 55 | 6 | $0.494 | **$0.492** | **J3** (r95) |
+| **total** | **96** | **10** | **$0.79** | **$0.802** | |
+
+**The forecast's INPUT tokens were exact on all three sheets** (9,279 / 17,002 / 43,545); only the output estimate
+moved. Each run's confirmation dialog stated the same eligible-row count the forecast had computed -- 14, 27, 55.
+Runs `BRSR-26-01369` / `-01370` / `-01371`, all **status complete, `ai_status: ran`, no halt**.
+
+| step | where | what the screen shows |
+|---|---|---|
+| **J2** a unit synonym now prices | `BOQ-26-00216 / 1. MECHANICAL` r38, unit **SMT** | ✅ **`Supply 9628 per SMT · Install 2800 per SMT · Combined 12428 per SMT`**, row total **`Row total per 1 SMT`**. Before this slice: *"unit 'SMT' is not a count, area or length unit (R12)"*. |
+| **J3** a slash pair takes the higher, note shown | `BOQ-26-00164 / BOQ` r95 | ✅ priced **1904**, and the working carries the note VERBATIM: **`width: '600/750' states two values -- the higher, 750, is taken`**, feeding the S7 box-surface formula (1312.35 -> 1313 -> 1904). Identical to H1's figure for this row. The same row also shows **`Insulated · default`** with the F-1 rule -- a second F-1 sighting. |
+| **J4** a named damper is not a separate item | `BOQ-26-00216 / 1. MECHANICAL` r46 | ✅ **TWO items now** (square diffuser + mixing box) where there were **THREE** (square diffuser + **collar damper** + mixing box) -- **the standalone damper item is gone**. The diffuser prices on the **`Diffuser With Al Collar Damper / 1200MM X300MM (Nos)`** SKU at **2755 / 576 / 3331 per Each**. ⚠️ **On this fresh read the Damper ATTRIBUTE came back blank** (H2's read answered `with`); the row still reaches the with-damper SKU through the A-4 second key (*"only one SKU carries the outer size 1200x300 -- used it"*). So F-4's item-count half is certified exactly; the attribute half varied run to run and is reported as it is, not as H2 had it. The row still refuses overall for item 2's missing W/H/D -- an unrelated reason, unchanged. |
+| **the sq.ft row** (owner's cert addition) | `BOQ-26-00210 / HVAC` r83, unit **Sqft** | ✅ the cleanest of the four. The working shows the SQM rate first (`= 7830`, `= 1920`), then **`per sq.ft: sq.m rate x 0.0929`** in the owner's own words, then **`Supply 728 per Sqft · Install 179 per Sqft · Combined 907 per Sqft`**, row total **`Row total per 1 Sqft`**. The conversion, the figures and the unit label are all visible in one block, and the label uses the BoQ's own spelling (`Sqft`), never the class name. |
+
+**With these, the owner's "one row of each kind" is complete on screen:** a DIRECT match (`BOQ-26-00064` r124,
+per-SQM SKU on a Sqm row -> `per Sqm`), a CONVERTED one (`BOQ-26-00064` r121 item 2, per-SQM SKU on a Nos row
+through the S7 conversion -> `per Nos`), and the SQ.FT row (`per Sqft`, with its factor line).
+
+**DB after the three runs:** `BoQ Rate Suggestion Run` **93 -> 96** (the three cert runs, and only those);
+**`BoQ Rate Suggestion Event` 1,533 -> 1,533** -- "Use this value" was never pressed; **`BoQ Cell Pricing` 37,702
+rows with rate sha `2ca7e372a36a873f...` UNCHANGED** -- no rate was typed anywhere. HVAC **95 / 7**, batch
+`rmbulk-3c375e759bb0`, items sha `f9989f8693ec0b29...` unchanged; Electrical **1,367 / 12**, batch and sha
+unchanged.
+
+⚠️ **THE THREE RUNS OVERWROTE THOSE SHEETS' STORED ATTRIBUTES, WHICH IS WHAT A WHOLE-SHEET RUN DOES** -- the
+confirmation dialog says so in terms ("This OVERWRITES the attributes on every row, including rows that are
+already correct"). It is the intended cost of certifying a prompt change in-product, and it also replaced three
+pre-slice-9-shaped runs with current-shape ones, so those sheets are now certifiable without spending again.
+
+⚠️ **`BOQ-26-00140 / HVAC Lowside Works ` STILL HOLDS ITS PARTIAL RUN** and was deliberately not re-run: it is
+134 rows (~$1.3), no cert step needed it once `BOQ-26-00164` covered J3, and the partial is a pre-existing
+finding carried from slice 9 rather than something this slice created.
