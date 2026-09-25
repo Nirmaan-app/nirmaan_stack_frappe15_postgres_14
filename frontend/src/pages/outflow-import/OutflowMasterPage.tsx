@@ -781,6 +781,17 @@ export const OutflowMasterPage = () => {
         [refreshAll]
     );
 
+    /**
+     * The bulk Unreconcile result box closed (#1320). Every tick is cleared -- the undone lines are open
+     * now, and leaving them ticked would drop the toolbar into Confirm mode (#1317 story 28) -- and the
+     * table and the summary refetch.
+     */
+    const handleBulkUnreconciled = useCallback(async () => {
+        setBulkUnreconcileRows(null);
+        setSelected(new Set());
+        await refreshAll();
+    }, [refreshAll]);
+
     /** Reference-stable: every memoized table row receives it. */
     const handleOpenUnreconcile = useCallback((row: OutflowImportRow) => {
         setReverseNotice(null);
@@ -1556,12 +1567,14 @@ export const OutflowMasterPage = () => {
                 onLinked={handleLinked}
             />
 
-            {/* #1319: read-only check step. Rendered only for the undo roles -- only they can tick a
-                Settled line, and the plan endpoint refuses anyone else. */}
+            {/* #1319 check step, #1320 run and result. Rendered only for the undo roles -- only they can
+                tick a Settled line, and both endpoints refuse anyone else. */}
             {canUndo && (
                 <BulkUnreconcileDialog
                     rows={bulkUnreconcileRows}
                     onClose={() => setBulkUnreconcileRows(null)}
+                    onFinished={handleBulkUnreconciled}
+                    onRefresh={refreshAll}
                 />
             )}
 

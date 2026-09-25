@@ -1,9 +1,9 @@
 // src/pages/outflow-import/bulkUnreconcileView.ts
 //
-// The bulk Unreconcile toolbar button and its check step (#1319, parent #1317). Pure: no React, no
-// fetch. `bulkUnreconcileView.test.ts` pins it; `OutflowMasterPage` / `BulkUnreconcileDialog` render it.
+// The bulk Unreconcile toolbar button, its check step (#1319), and the run's labels and result box
+// (#1320, parent #1317). Pure: no React, no fetch. `bulkUnreconcileView.test.ts` pins it; `OutflowMasterPage` / `BulkUnreconcileDialog` render it.
 //
-// ⚠️ NO RULE OF ITS OWN. Every record's sentence is the one-line dialog's (`unreconcileView.legOutcomeLine`)
+// ⚠️ NO RULE OF ITS OWN. Every record's sentence in the check step is the one-line dialog's (`unreconcileView.legOutcomeLine`)
 // and every verdict is the server's (`bulk_unreconcile.get_bulk_unreconcile_plan`, one `get_unreconcile_plan`
 // per line). The only thing added is the line-level rule the write already has: a line is undone whole,
 // so one refused record leaves the whole line out.
@@ -11,11 +11,18 @@
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { offPageTicks } from "./offPageTicks";
-import { ROW_SETTLED } from "./outflowImportStatus";
+import { ROW_MATCHED, ROW_MISMATCHED, ROW_SETTLED, rowStatusLabel } from "./outflowImportStatus";
 import {
     legOutcomeLine,
+    VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
+    VERDICT_REVERT_EXPENSE,
+    VERDICT_REVERT_PAYMENT,
+    VERDICT_UNLINK_EXPENSE_LINE,
+    VERDICT_UNSPLIT_PAYMENT,
     type LegOutcomeLine,
+    type ReversedLeg,
+    type UnreconcileResult,
     type UnreconcilePlan,
     type UnreconcilePlanLeg,
 } from "./unreconcileView";
@@ -123,5 +130,141 @@ export const bulkCheckSummary = (plans: readonly UnreconcilePlan[]): BulkCheckSu
         undoAmount,
         blockedCount: blocked.length,
         pills,
+    };
+};
+
+/** The check step's red button (mockup dialog 1). Counts only the lines that will be sent. */
+export const bulkStartLabel = (count: number): string => `Unreconcile ${transfers(count)}`;
+
+/** The blocking spinner's heading (mockup dialog 2). */
+export const bulkRunningTitle = (count: number): string => `Unreconciling ${transfers(count)}…`;
+
+/** One line as `bulk_unreconcile.bulk_unreconcile_rows` returns it: the one-line response, or a refusal. */
+export type BulkUnreconcileEntry =
+    | ({ row: string; undone: true } & Omit<UnreconcileResult, "row">)
+    | { row: string; undone: false; reason: string };
+
+export interface BulkUnreconcileResponse {
+    count: number;
+    lines: BulkUnreconcileEntry[];
+}
+
+export interface BulkResultLine {
+    row: string;
+    beneficiary: string | null;
+    /** `null` when the check step had no plan for the line. */
+    amount: number | null;
+    /** "PAY-18 back to Reconciliation Pending", one per record that came off. */
+    records: string[];
+}
+
+export interface BulkResultGroup {
+    /** The line's stored status now. */
+    status: string;
+    /** What the screen calls it (`Mismatched` reads "Not-Matched"). */
+    label: string;
+    /** A Matched line keeps its pick, so it is marked Confirm by hand (#1280). */
+    confirmByHand: boolean;
+    lines: BulkResultLine[];
+}
+
+export interface BulkBlockedLine {
+    row: string;
+    beneficiary: string | null;
+    amount: number | null;
+    reason: string;
+}
+
+export interface BulkResultSummary {
+    title: string;
+    undoneCount: number;
+    /** Undone lines grouped by where each one went: Matched first, then Not-Matched, then anything else. */
+    groups: BulkResultGroup[];
+    /** Blocked, still Settled -- each with the server's sentence. */
+    blocked: BulkBlockedLine[];
+    /** Show the "marked Confirm by hand" note: some line landed Matched. */
+    confirmByHandNote: boolean;
+}
+
+/**
+ * What happened to one record, in a few words, for the result box. The server's verdict decides it, never
+ * this. It is a PAST-TENSE summary of a write that has happened -- the check step above it still shows the
+ * one-line dialog's own sentences (`legOutcomeLine`) for what WILL happen.
+ */
+const recordOutcome = (leg: ReversedLeg): string => {
+    if (leg.verdict === VERDICT_DELETE_CREATED) return `${leg.target_name} deleted`;
+    if (leg.verdict === VERDICT_UNSPLIT_PAYMENT) return `${leg.target_name} split undone, back to Reconciliation Pending`;
+    if (leg.verdict === VERDICT_UNLINK_EXPENSE_LINE)
+        return leg.stays_paid
+            ? `${leg.target_name} came off; the expense stays Paid`
+            : `${leg.target_name} back to Reconciliation Pending`;
+    if (leg.verdict === VERDICT_REVERT_PAYMENT || leg.verdict === VERDICT_REVERT_EXPENSE)
+        return `${leg.target_name} back to Reconciliation Pending`;
+    // A verdict this screen has no words for yet: say only what is certain.
+    return `${leg.target_name} came off`;
+};
+
+/** The box a failed request leaves (#1317 story 21a). */
+export const bulkFailedSentence = (count: number, error: string): string =>
+    `The request for ${transfers(count)} failed (${error}).`;
+
+const STATUS_ORDER = [ROW_MATCHED, ROW_MISMATCHED];
+const statusRank = (status: string) => {
+    const at = STATUS_ORDER.indexOf(status);
+    return at === -1 ? STATUS_ORDER.length : at;
+};
+
+/**
+ * The result box, from the run's response and the check step's plans (#1320, mockup dialog 3). The plans
+ * give each line's name and money, and the lines the check step left out (listed as blocked first).
+ *
+ * ⚠️ "WHERE IT WENT" IS THE SERVER'S `row_status`, never guessed from the source: a Cashbook line lands
+ * Not-Matched because its pick was deleted, and so does a hand-linked line with no suggestion to fall back on.
+ */
+export const bulkResultSummary = (
+    response: BulkUnreconcileResponse,
+    plans: readonly UnreconcilePlan[]
+): BulkResultSummary => {
+    const byRow = new Map(plans.map((plan) => [plan.row, plan]));
+    const facts = (row: string) => {
+        const plan = byRow.get(row);
+        return { beneficiary: plan?.beneficiary_name || null, amount: plan ? plan.amount : null };
+    };
+    const groups = new Map<string, BulkResultGroup>();
+    const blocked: BulkBlockedLine[] = [];
+    // ⚠️ LINES LEFT OUT AT THE CHECK STEP WERE NEVER SENT, so the response does not name them -- but the
+    // person ticked them, and "Blocked, still Settled" must still account for every one.
+    const sent = new Set(response.lines.map((entry) => entry.row));
+    for (const line of plans.map(checkLine)) {
+        if (!line.blocked || sent.has(line.plan.row)) continue;
+        const refused = line.records.find(({ leg }) => leg.verdict === VERDICT_REFUSED);
+        blocked.push({
+            row: line.plan.row,
+            ...facts(line.plan.row),
+            reason: line.reason ?? refused?.leg.reason ?? NOTHING_SETTLED,
+        });
+    }
+    for (const entry of response.lines) {
+        if (!entry.undone) {
+            blocked.push({ row: entry.row, ...facts(entry.row), reason: entry.reason });
+            continue;
+        }
+        const status = entry.row_status;
+        let group = groups.get(status);
+        if (!group) {
+            group = { status, label: rowStatusLabel(status), confirmByHand: status === ROW_MATCHED, lines: [] };
+            groups.set(status, group);
+        }
+        group.lines.push({ row: entry.row, ...facts(entry.row), records: entry.reversed.map(recordOutcome) });
+    }
+    const ordered = [...groups.values()].sort((a, b) => statusRank(a.status) - statusRank(b.status));
+    const undoneCount = ordered.reduce((sum, group) => sum + group.lines.length, 0);
+    const head = undoneCount ? `${transfers(undoneCount)} unreconciled` : "Nothing unreconciled";
+    return {
+        title: blocked.length ? `${head}, ${blocked.length} blocked` : head,
+        undoneCount,
+        groups: ordered,
+        blocked,
+        confirmByHandNote: ordered.some((group) => group.confirmByHand),
     };
 };
