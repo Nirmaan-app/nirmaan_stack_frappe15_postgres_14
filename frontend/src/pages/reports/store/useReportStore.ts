@@ -17,7 +17,7 @@ export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'D
 
 // Define the specific report options for SRs (as per your request)
 // The 'value' for "Excess Payments" will be 'PO with Excess Payments'
-export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reconcile Report';
+export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reconcile Report' | 'Payment Voucher Uploads';
 
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 

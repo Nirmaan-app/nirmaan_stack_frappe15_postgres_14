@@ -24,6 +24,7 @@ const CustomerReports = React.lazy(() => import('./components/CustomerReports'))
 const DCMIRReports = React.lazy(() => import('./components/DCMIRReports'));
 const ITMDNDCQuantityReport = React.lazy(() => import('./components/ITMDNDCQuantityReport'));
 const ITMDispatchedReport = React.lazy(() => import('./components/ITMDispatchedReport'));
+const WOPaymentVoucherReport = React.lazy(() => import('./components/WOPaymentVoucherReport'));
 // Tax Deducted at Source. The page lives outside ./components because it predates this tab --
 // it was a sidebar route of its own until the ledger moved in here.
 const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductions/PaymentTDSDeductions'));
@@ -62,6 +63,7 @@ const srReportOptions: { label: string; value: SROption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'Excess Payments (WO)', value: 'PO with Excess Payments' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
+    { label: 'Payment Voucher Uploads', value: 'Payment Voucher Uploads' },
 ];
 
 const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
@@ -362,7 +364,12 @@ export default function ReportsContainer() {
             }
             return <POReports />;
         }
-        if (activeTab === REPORTS_TABS.SR) return <SRReports />;
+        if (activeTab === REPORTS_TABS.SR) {
+            // Its own server-side table over Project Payments -- routed here so SRReports'
+            // Work Order / payment preloads never run for it.
+            if (selectedReportType === 'Payment Voucher Uploads') return <WOPaymentVoucherReport />;
+            return <SRReports />;
+        }
         if (activeTab === REPORTS_TABS.PAYMENT_TDS) return <PaymentTDSDeductions />;
         if (activeTab === REPORTS_TABS.DCS_MIRS) {
             return (
