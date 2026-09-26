@@ -42273,3 +42273,59 @@ today: `lighting_mgmt_system / rate`'s first line, a 500-character inversion war
   * And in Mode B the formula row listed EVERY category saying "no pipeline reads it yet" about
     columns they do not even have -- fifty columns of twelve-line noise. Only the categories that
     actually carry a column comment on it now.
+
+### ⚠️ OPEN FINDING (owner 2026-09-27) — 24G IS TIED TO 26G, WHICH DEFEATS THE REASON IT EXISTS
+
+**NOTHING WAS BUILT OR CHANGED FOR THIS. Logged for a later decision** — owner: *"let it be for now.
+just log it as a finding. we will decide later on this."*
+
+**The concern.** The 68 24G rows exist so that 24G can be priced DIFFERENTLY in future — it is thicker
+metal. Ruling I-10 said *"24g same rate as 26g"*, and the intent behind it was **"the same number
+today, its own number later"**. A derivation makes the two move together permanently, which is not
+the same thing as copying a number once.
+
+**⚠️ CORRECTION TO THE FINDING'S PREMISE, measured on v14 before writing this down. NO 24G ROW DERIVES
+ANYTHING FROM ITS 26G TWIN.** Nothing anywhere points 24G at 26G. What is actually declared:
+
+| cladding | `cost_insulation` | `cost_cladding` |
+|---|---:|---:|
+| `24G Aluminium` (40 rows) | 40 — from the **un-clad sibling** | **0 — none; own geometry, already independent** |
+| `24G Aluminium with Glass Cloth` (28 rows) | 28 — from the **un-clad sibling** | 28 — from the **`Glass Cloth with paint`** row |
+| *(the 26G pair, for comparison)* | 40 + 28 — same shape | 0 + 28 — same shape |
+
+So of the 96 cells the 24G rows declare, **68 are `cost_insulation`** and **28 are `cost_cladding`**,
+and the 28 read a GLASS-CLOTH row, never a 26G one. The 40 plain `24G Aluminium` rows are **already
+independent on the cladding axis** — their `K` is computed from their own geometry and stored as their
+own figure. What ties 24G to 26G today is not a derivation at all: it is that the mint **copied the
+same eight rates** into each twin (ruling I-10), so the two carry equal numbers that a CSV edit can
+already separate row by row.
+
+**⚠️ THEREFORE THE OWNER'S ESTIMATE OF "about 56 fewer declared cells" IS NOT WHAT THE FIX COSTS.** The
+only 24G derivations that could be dropped on this axis are the **28** on
+`24G Aluminium with Glass Cloth`; dropping them takes the Insulation declaration from **228 to 200**.
+
+**What the fix would be, if it is taken.** The 28 `24G Aluminium with Glass Cloth` rows take their own
+TYPED `cost_cladding` equal to today's figure, and those 28 derivations are dropped — after which
+every 24G row is fully independent of every other row on the cladding axis and a pricer can give 24G
+its own rate by editing the cell. **No figure moves on the day it is done**, because the typed value
+is the value the derivation produces today.
+
+**What must NOT change.** The 68 `cost_insulation` derivations are **correct and stay**: the
+insulation MATERIAL is the same whatever the cladding gauge, so a 24G row's material cost genuinely IS
+its un-clad sibling's, and editing the bare row must keep moving it. Dropping those would re-create
+the very defect ruling I-2 exists to close.
+
+**The open question beside it.** The `26G Aluminium with Glass Cloth` rows derive their cladding from
+the plain `Glass Cloth with paint` row — `K78 = 450*1.25*π*(F+2E)/1000 + K106` in the source sheet,
+i.e. *the 26G aluminium computed from this row's own geometry PLUS the glass cloth's cladding cost*.
+That reads as **structural** (the glass cloth genuinely IS part of the assembly, and a glass-cloth
+price change should reach it), which is why it was declared. **But if 24G is to be priced
+independently, the same argument may apply to its glass-cloth half** — and possibly to 26G's too. The
+owner may want all 56 of those cross-row cladding terms replaced by typed figures, or may want them
+kept precisely because the glass cloth is a shared input. **This is the decision that has to be taken
+together with the one above; taking only one of them leaves the two gauges on different rules.**
+
+**Where this bites if it is left as it is:** the upload REFUSES a typed `cost_cladding` on those 28
+rows naming the glass-cloth base, so a pricer who wants to give 24G+GC its own cladding rate cannot do
+it from the rate file — they must edit the glass-cloth row, which moves 26G too. The 40 plain 24G rows
+are unaffected and can be repriced today.
