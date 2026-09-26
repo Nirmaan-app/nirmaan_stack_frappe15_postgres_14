@@ -93,6 +93,12 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // OFF the Rate Master page exactly like the vendor-quote entries above.
       { category_id: "hvac_cables", label: "Cables", holds_items: false },
       { category_id: "hvac_raceway", label: "Raceway", holds_items: false },
+      // SLICE 12a (2026-09-26, owner I-1): Insulation -- the CATALOGUE and the derived-cost MECHANISM.
+      // It DOES hold items (224: the sheet's 156 plus the 68 24G twins of owner ruling I-10), so
+      // `holds_items` is deliberately OMITTED and the category appears on the Rate Master page.
+      // Its config carries NO pipelines this slice, so it is not eligible for pricing or extraction --
+      // pricing, extraction and the panel are 12b -- and no BoQ screen changes.
+      { category_id: "hvac_insulation", label: "Insulation" },
     ],
   },
 ];

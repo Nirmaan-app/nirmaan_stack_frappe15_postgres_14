@@ -156,11 +156,12 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     expect(RATE_MASTER_CONFIG_TARGETS).toEqual(
       RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id }))),
     );
-    // 12 Electrical + 7 HVAC (`hvac_adp` slice 1b; four vendor-quote message-only categories slice 2;
-    // the two ALIAS categories slice 3, 2026-09-22): the targets flatten EVERY registry discipline
-    // INCLUDING `holds_items: false` entries (they must be FETCHED), so slice 3 moves this by exactly
-    // two (17 -> 19). Re-pinned under owner ruling L7.
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(19);
+    // 12 Electrical + 8 HVAC (`hvac_adp` slice 1b; four vendor-quote message-only categories slice 2;
+    // the two ALIAS categories slice 3, 2026-09-22; `hvac_insulation` slice 12a, 2026-09-26): the
+    // targets flatten EVERY registry discipline INCLUDING `holds_items: false` entries (they must be
+    // FETCHED), so slice 3 moved this by two (17 -> 19) and slice 12a by one (19 -> 20). Re-pinned
+    // under owner ruling L7 and again under I-1.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(20);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }
@@ -460,8 +461,12 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
   const noItems = hvacEntry.categories.filter((c) => c.holds_items === false).map((c) => c.category_id);
   const vendor = noItems.filter((id) => typeof HVAC_CONFIGS.get(id)?.helper_message === "string");
 
-  it("the registry lists seven HVAC categories: ADP holds items, the four vendor-quote and the two alias ones do not", () => {
-    expect(hvacEntry.categories.map((c) => c.category_id)).toEqual(["hvac_adp", ...noItems]);
+  // SLICE 12a (owner I-1, 2026-09-26): EIGHT -- `hvac_insulation` joins, and it DOES hold items, so it
+  // is not in `noItems` and it is NOT dropped by `rateMasterPageEntry`. The negative half below is what
+  // matters and is unchanged: the four vendor-quote and the two alias entries still hold none.
+  it("the registry lists eight HVAC categories: ADP and Insulation hold items, the four vendor-quote and the two alias ones do not", () => {
+    expect(hvacEntry.categories.map((c) => c.category_id))
+      .toEqual(["hvac_adp", ...noItems, "hvac_insulation"]);
     expect(noItems).toHaveLength(6);
     expect(vendor).toHaveLength(4);
     // every vendor entry's CONFIG carries the two messages -- the registry names no message
@@ -478,7 +483,9 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
   });
   it("⚠️ NEGATIVE: the Rate Master page's view of HVAC drops the four; Electrical's view is the SAME object", () => {
     const pageHvac = rateMasterPageEntry(hvacEntry);
-    expect(pageHvac.categories.map((c) => c.category_id)).toEqual(["hvac_adp"]);
+    // SLICE 12a: Insulation holds items, so the page keeps it -- what the filter drops is still
+    // exactly the six `holds_items: false` entries.
+    expect(pageHvac.categories.map((c) => c.category_id)).toEqual(["hvac_adp", "hvac_insulation"]);
     const electrical = RATE_MASTER_DISCIPLINES[0];
     expect(electrical.discipline).toBe("Electrical");
     expect(rateMasterPageEntry(electrical)).toBe(electrical);        // reference-identical
@@ -548,7 +555,8 @@ describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring a
       expect(hvacEntry.categories.find((c) => c.category_id === own)?.holds_items).toBe(false);
       expect(RATE_MASTER_CONFIG_TARGETS).toContainEqual({ discipline: "HVAC", categoryId: own });
     }
-    expect(rateMasterPageEntry(hvacEntry).categories.map((c) => c.category_id)).toEqual(["hvac_adp"]);
+    expect(rateMasterPageEntry(hvacEntry).categories.map((c) => c.category_id))
+      .toEqual(["hvac_adp", "hvac_insulation"]);   // SLICE 12a: Insulation holds items
   });
 
   for (const [own, target] of ALIASES) {

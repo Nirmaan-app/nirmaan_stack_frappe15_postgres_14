@@ -759,7 +759,38 @@ export interface RateCategoryConfig {
    * the target config (a missing or ineligible target leaves the row on the coming-soon card).
    */
   alias_of?: { discipline: string; category_id: string };
+  /**
+   * SLICE 12a (2026-09-26, owner I-2 / I-4 / I-5): the cells whose cost comes from ANOTHER catalogue
+   * row, per item_uid -> rate_key -> a LIST of terms summed as `base * multiplier + constant`.
+   * GENERATED AT MINT (from the config's own `component_ref` steps, or -- for a category with no
+   * pipelines yet -- from the source workbook's own formulas), FLATTENED to the ultimate base, and
+   * changed only by minting. DESCRIPTIVE, never authoritative: the price still comes from the
+   * pipeline. Absent => no cell is marked and no edit is refused, which is every Electrical category.
+   */
+  derived_rates?: Record<string, Record<string, DerivedRateTerm[]>>;
+  /**
+   * SLICE 12a (owner I-6): how this category's STORED cost PARTS make up its supply / install cost, so
+   * the row-level formula columns can show each step's own result for a category whose pipelines are
+   * not built yet. Declared in CONFIG, never in code (the HV-10 rule). Absent => the formula columns
+   * read `typed`.
+   */
+  rate_composition?: Record<"supply" | "install", RateComposition | undefined>;
   [k: string]: unknown;
+}
+
+/** SLICE 12a: one term of a derived cost -- the base cell it reads, scaled and offset. */
+export interface DerivedRateTerm {
+  from: { item_uid: string; rate_key: string };
+  multiplier?: number;
+  constant?: number;
+}
+
+/** SLICE 12a: one side of `rate_composition`. */
+export interface RateComposition {
+  parts: string[];
+  wastage_key?: string;
+  markup_key?: string;
+  roundup?: number;
 }
 
 /** EA-4 ext-a: one estimator rule. Authored by the estimator and passed through unchanged -- the

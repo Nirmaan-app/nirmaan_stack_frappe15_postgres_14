@@ -334,6 +334,24 @@ def _asset_path(filename):
     return os.path.join(os.path.dirname(loader.__file__), "data", filename)
 
 
+def _is_formula_row(cells):
+    """SLICE 12a: is this the FORMULA ROW -- the explanation the rate file now carries directly under
+    the header (owner I-7)? Matched on its MARKER, wherever it sits, exactly as `csv_importer` does."""
+    from nirmaan_stack.services.boq_rate_master import csv_exporter
+    return any((c or "").strip() == csv_exporter.FORMULA_ROW_MARKER for c in cells)
+
+
+def _without_formula_row(rows):
+    """SLICE 12a -- the ONE place the pre-12a test helpers drop the formula row.
+
+    Every test that reads a built file through `_csv_parts` / `_xlsx_rows`, edits the rows and writes
+    them back with `_csv_text` therefore sees EXACTLY the pre-slice shape, and its row NUMBERS are
+    unchanged: the rebuilt file carries no formula row, which is the owner's own "deleted entirely"
+    case (I-8) and is pinned in its own right by `TestFormulaRoundTripSlice12a.test_z03`. Without this
+    the helpers would read the explanation text out of a rate column and call `float()` on it."""
+    return [r for r in rows if not _is_formula_row(r)]
+
+
 def _obj(value):
     """JSON fields come back from frappe.get_all already parsed to dict; tolerate either a
     dict or a raw JSON string."""
@@ -2048,10 +2066,14 @@ class TestRateMaster(FrappeTestCase):
         # too because cabletray_raceway lists ONE item kind (the upload fills it). Inverted, not deleted.
         # SLICE 1g (owner Z-c): `discipline` and `category` right after item_uid, in EVERY file. Inverted,
         # not deleted -- every 1e value claim kept; the two are the ONLY non-edited columns beside the id.
+        # SLICE 12a (owner I-6 / I-9): the two READ-ONLY formula columns close every file, on BOTH
+        # disciplines. Inverted, not deleted -- every pre-12a column claim below is kept verbatim, and
+        # the NEGATIVE assertions are what prove nothing else joined.
         self.assertEqual(headers,
                          ["item_uid", "discipline", "category", "brand", "unit",
                           "material", "thickness_mm", "tray_type", "width_mm",
-                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
+                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
+                          "supply_formula", "install_formula"])
         self.assertNotIn("source_sheet", headers)  # NEGATIVE (1e): a system column is never in the file
         self.assertNotIn("source_row", headers)
         self.assertNotIn("kind", headers)          # NEGATIVE (1e): a single-kind category carries no kind
@@ -2060,6 +2082,9 @@ class TestRateMaster(FrappeTestCase):
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(rows[0], headers)
+        # SLICE 12a (owner I-7): the first data line is now the FORMULA ROW -- an explanation, not an
+        # item. Dropped here so every claim below is about the ITEM rows, exactly as before.
+        rows = [rows[0]] + _without_formula_row(rows[1:])
         self.assertEqual(len(rows) - 1, 450)   # F-16: 460 -> 450, same reason as the count above
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]),
                         "every row must carry item_uid")
@@ -2098,9 +2123,14 @@ class TestRateMaster(FrappeTestCase):
         # string -- so it necessarily joins the Mode B union.
         # SLICE 1e: 49 -> 47, the two system columns (source_sheet, source_row) removed (owner X-b).
         # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c).
-        self.assertEqual(len(headers), 48)
+        # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
+        self.assertEqual(len(headers), 50)
+        self.assertEqual(headers[-2:], ["supply_formula", "install_formula"])
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        # SLICE 12a (owner I-7): the first data line is now the FORMULA ROW -- an explanation, not an
+        # item. Dropped here so every claim below is about the ITEM rows, exactly as before.
+        rows = [rows[0]] + _without_formula_row(rows[1:])
         self.assertEqual(len(rows) - 1, 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
         self.assertEqual({r[1] for r in rows[1:]}, {disc})          # 1g: every row names the discipline
@@ -2174,7 +2204,8 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 5: 48 -> 49, the `modules` width column -- the same +1 as test_24n.
         # SLICE 1e: 49 -> 47, the two system columns removed (owner X-b) -- the same -2 as test_24n.
         # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c) -- the same +1 as test_24n.
-        self.assertEqual(res_all["column_count"], 48)
+        # SLICE 12a: +2, the two read-only formula columns (owner I-6) -- the same +2 as test_24n.
+        self.assertEqual(res_all["column_count"], 50)
         self.assertEqual(res_all["row_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
@@ -2190,8 +2221,12 @@ class TestRateMaster(FrappeTestCase):
         text, headers, n = csv_exporter.build_category_csv(disc, "point_wiring")
         self.assertEqual(n, 0)
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
-        self.assertEqual(len(rows), 1, "headers only")
+        # SLICE 12a (owner I-7): a TEMPLATE still explains its columns, so the file is header +
+        # formula row and NO item row. Inverted, not deleted -- the claim is still "no items".
+        self.assertEqual(len(rows), 2, "headers + the formula row, no items")
         self.assertEqual(rows[0], headers)
+        self.assertTrue(_is_formula_row(rows[1]))
+        self.assertEqual(_without_formula_row(rows[1:]), [], "no item row")
         self.assertIn("item_uid", headers)
         # the template still names the category's own attributes, from its definitions
         self.assertIn("circuit_length_m", headers)
@@ -4419,7 +4454,7 @@ class TestRateMaster(FrappeTestCase):
     def _csv_parts(self, text):
         import csv as _csv
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
-        return rows[0], rows[1:]
+        return rows[0], _without_formula_row(rows[1:])
 
     def _csv_text(self, headers, rows):
         import csv as _csv
@@ -5240,7 +5275,9 @@ class TestRateMaster(FrappeTestCase):
 
     def _xlsx_rows(self, raw):
         from nirmaan_stack.services.boq_rate_master import xlsx_io
-        return xlsx_io.read_xlsx(raw)
+        headers, rows = xlsx_io.read_xlsx(raw)
+        return headers, [(i, cells) for i, cells in rows
+                         if not _is_formula_row(cells)]
 
     def _rate_columns(self, headers, rate_keys):
         return [h for h in headers if h in rate_keys]
@@ -5281,6 +5318,10 @@ class TestRateMaster(FrappeTestCase):
         """The wiring_cabling csv plus the given rows (dicts keyed by header name; blank where absent)."""
         from nirmaan_stack.services.boq_rate_master import csv_exporter
         text, headers, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        # SLICE 12a (owner I-7 / I-8): drop the FORMULA ROW before appending, so an appended row
+        # keeps the number it always had. A file WITHOUT the formula row is the owner's own
+        # "deleted entirely" case and uploads identically -- pinned by test_z03.
+        text = self._csv_text(*self._csv_parts(text))
         lines = [",".join(str(r.get(h, "")) for h in headers) for r in extra_rows]
         return text + "\r\n".join(lines) + "\r\n", headers
 
@@ -5492,22 +5533,25 @@ class TestRateMaster(FrappeTestCase):
         for cat in cat_kinds:
             text, headers, n = csv_exporter.build_category_csv(disc, cat)
             self.assertEqual(headers[:3], ["item_uid", "discipline", "category"], cat)
-            rows = list(csv.reader(_io.StringIO(text.lstrip(BOM))))[1:]
+            # SLICE 12a (owner I-7): drop the FORMULA ROW -- every claim here is about the ITEM rows.
+            rows = _without_formula_row(list(csv.reader(_io.StringIO(text.lstrip(BOM))))[1:])
             self.assertEqual(len(rows), n)
             self.assertTrue(all(r[1] == disc and r[2] == cat for r in rows), cat)
             raw, hx, nx = csv_exporter.build_category_xlsx(disc, cat)
             self.assertEqual(hx, headers)
             ws = openpyxl.load_workbook(_io.BytesIO(raw)).worksheets[0]
             if nx:
-                self.assertEqual({ws.cell(row=r, column=2).number_format for r in range(2, nx + 2)}, {"@"}, cat)
-                self.assertEqual({ws.cell(row=r, column=3).number_format for r in range(2, nx + 2)}, {"@"}, cat)
-                self.assertEqual({ws.cell(row=r, column=2).value for r in range(2, nx + 2)}, {disc}, cat)
-                self.assertEqual({ws.cell(row=r, column=3).value for r in range(2, nx + 2)}, {cat}, cat)
+                # SLICE 12a: the DATA starts at row 3 -- row 2 is the formula row (blank in both of
+                # these columns, which is itself pinned by test_z06's sibling test_x06).
+                self.assertEqual({ws.cell(row=r, column=2).number_format for r in range(3, nx + 3)}, {"@"}, cat)
+                self.assertEqual({ws.cell(row=r, column=3).number_format for r in range(3, nx + 3)}, {"@"}, cat)
+                self.assertEqual({ws.cell(row=r, column=2).value for r in range(3, nx + 3)}, {disc}, cat)
+                self.assertEqual({ws.cell(row=r, column=3).value for r in range(3, nx + 3)}, {cat}, cat)
             for gone in ("source_sheet", "source_row", "import_batch", "name"):
                 self.assertNotIn(gone, headers, cat)                        # NEGATIVE
         text_b, hb, nb = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(hb[:3], ["item_uid", "discipline", "category"])
-        rows_b = list(csv.reader(_io.StringIO(text_b.lstrip(BOM))))[1:]
+        rows_b = _without_formula_row(list(csv.reader(_io.StringIO(text_b.lstrip(BOM))))[1:])
         self.assertEqual(len(rows_b), 1367)
         self.assertEqual({r[1] for r in rows_b}, {disc})
         self.assertEqual({r[2] for r in rows_b}, set(kind_cat.values()))       # the category ID, as before
@@ -5521,6 +5565,10 @@ class TestRateMaster(FrappeTestCase):
         n_before = self._active_items(disc)
         text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
         hdr_line, body = text.split("\r\n")[0], text.split("\r\n")[1:]
+        # SLICE 12a: the first line under the header is the FORMULA ROW. Its explanations carry a
+        # BARE newline inside quoted fields, so a \r\n split keeps it as ONE element and it can
+        # be dropped by its marker. Every claim below is about the ITEM rows.
+        body = [b for b in body if not (b and _is_formula_row(next(csv.reader([b]))))]
         di, ci, ui = headers.index("discipline"), headers.index("category"), headers.index("item_uid")
 
         def with_rows(rows, header=hdr_line):
@@ -5558,13 +5606,16 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual((pb["errors"], pb["changes"]), ([], []))
         self.assertEqual(pb["target"], {"discipline": disc, "category": None, "mode": "all", "from_page": False})
         lines_b = text_b.split("\r\n")
-        parts = next(csv.reader([lines_b[1]])); parts[hb.index("category")] = "hvac_adp"
+        # SLICE 12a: line 1 is the FORMULA ROW, which the importer drops by its marker -- editing it
+        # would test nothing. Take the first ITEM line; the rest of the file follows it unchanged.
+        body_b = [b for b in lines_b[1:] if b and not _is_formula_row(next(csv.reader([b])))]
+        parts = next(csv.reader([body_b[0]])); parts[hb.index("category")] = "hvac_adp"
         buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts)
-        pb2 = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n" + "\r\n".join(lines_b[2:]))
+        pb2 = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n" + "\r\n".join(body_b[1:]))
         self.assertEqual(len(pb2["errors"]), 1); self.assertIn("not a category of", pb2["errors"][0]["message"])
         # 6. an EXISTING item's category cell edited to another real category: refused ("cannot be moved")
         lines_b = text_b.split("\r\n")
-        tray_line = next(l for l in lines_b[1:] if ",cabletray_raceway," in l)
+        tray_line = next(l for l in body_b if ",cabletray_raceway," in l)
         parts = next(csv.reader([tray_line])); parts[hb.index("category")] = "earthing"
         buf = io.StringIO(); csv.writer(buf, lineterminator="").writerow(parts)
         pm = csv_importer.build_plan(disc, lines_b[0] + "\r\n" + buf.getvalue() + "\r\n")
@@ -5598,7 +5649,10 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual((pz["errors"], pz["changes"]), ([], []))
         self.assertEqual(pz["target"], {"discipline": disc, "category": "cabletray_raceway", "mode": "category", "from_page": True})
         # 10. a 1f-format file (no such columns at all): exactly today's result, the page decides
-        old_hdr = [h for h in headers if h not in ("discipline", "category")]
+        # SLICE 12a: a 1f-format file predates the formula columns as well, so leave them out --
+        # which is what keeps the `ignored` claim below meaningful rather than merely true.
+        old_hdr = [h for h in headers
+                   if h not in ("discipline", "category") + csv_exporter.FORMULA_COLUMNS]
         old_rows = []
         for l in body[:3]:
             parts = next(csv.reader([l])); old_rows.append([parts[headers.index(h)] for h in old_hdr])
@@ -5757,18 +5811,23 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(h_wire, ["item_uid", "discipline", "category", "kind", "brand", "unit",
                                   "core", "insulation", "material", "thickness_sqmm",
                                   "gland_band1_list", "gland_band2_list", "install_base_per_mtr",
-                                  "list_price_per_mtr", "lug_list"])
+                                  "list_price_per_mtr", "lug_list",
+                                  # SLICE 12a (owner I-6 / I-9): the two formula columns close the file
+                                  "supply_formula", "install_formula"])
         _t, h_tray, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
         self.assertEqual(h_tray, ["item_uid", "discipline", "category", "brand", "unit",
                                   "material", "thickness_mm", "tray_type", "width_mm",
-                                  "cover_only_list", "install_rate", "with_cover_list", "without_cover_list"])
+                                  "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
+                                  "supply_formula", "install_formula"])
         # MODE B: category + kind (the file holds multi-kind categories), no system columns
         for build in (csv_exporter.build_all_categories_csv, csv_exporter.build_all_categories_xlsx):
             _p, hb, nb = build(disc)
             self.assertEqual(hb[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"])   # 1g
             self.assertNotIn("source_sheet", hb); self.assertNotIn("source_row", hb)
             self.assertNotIn("import_batch", hb)   # NEGATIVE (1g): no other system column returns
-            self.assertEqual(len(hb), 48)          # 49 before 1e, minus the two system columns, plus discipline (1g)
+            # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
+            self.assertEqual(len(hb), 50)          # 49 before 1e, minus the two system columns, plus discipline (1g), plus the formula pair (12a)
+            self.assertEqual(hb[-2:], ["supply_formula", "install_formula"])
             self.assertEqual(nb, 1367)
 
     def test_e04_text_cells_stay_text_in_the_xlsx(self):
@@ -5794,13 +5853,16 @@ class TestRateMaster(FrappeTestCase):
         wb = openpyxl.load_workbook(_io.BytesIO(raw))
         ws = wb.worksheets[0]
         self.assertEqual(ws.cell(row=1, column=si + 1).value, "size")
-        fmts = {ws.cell(row=r, column=si + 1).number_format for r in range(2, ws.max_row + 1)}
+        # SLICE 12a (owner I-7): row 2 is the FORMULA ROW -- an explanation, written as TEXT in every
+        # column including a numeric one. The DATA starts at row 3, which is what these two claims are
+        # about; the formula row's own formatting is pinned by TestFormulaRoundTripSlice12a.test_z02.
+        fmts = {ws.cell(row=r, column=si + 1).number_format for r in range(3, ws.max_row + 1)}
         self.assertEqual(fmts, {"@"})
         # a numeric column is a number cell, not text
         ri = next(i for i, h in enumerate(hdr) if h in ("list_price", "install_rate", "rate")) if any(
             h in ("list_price", "install_rate", "rate") for h in hdr) else None
         if ri is not None:
-            vals = [ws.cell(row=r, column=ri + 1).value for r in range(2, ws.max_row + 1)]
+            vals = [ws.cell(row=r, column=ri + 1).value for r in range(3, ws.max_row + 1)]
             self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in vals))
 
     def test_e05_new_row_kind_is_filled_from_a_single_kind_category_and_refused_for_multi(self):
@@ -5875,7 +5937,10 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(plan["errors"], [])
         self.assertEqual(plan["changes"], [])
         self.assertEqual(plan["counts"]["unchanged"], n)
-        self.assertEqual(plan["columns"]["ignored"], ["source_row", "source_sheet"])
+        # SLICE 12a (owner I-8): the two formula columns join the SAME `ignored` bucket the system
+        # columns have used since 1e -- read past, never applied, never compared. Inverted, not deleted.
+        self.assertEqual(plan["columns"]["ignored"],
+                         ["install_formula", "source_row", "source_sheet", "supply_formula"])
         # NEGATIVE: a CHANGED value in an ignored column is not a change and is never applied
         changed = [list(r) for r in old_rows]
         changed[0][-2] = "Somewhere else"; changed[0][-1] = "999"
@@ -5923,7 +5988,8 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("item_uid", base64.b64decode(res_c["content_base64"]).decode("utf-8"))
         self.assertEqual(res_c["columns"], res["columns"])
         res_all = rate_master.export_rate_master_csv(discipline=disc)
-        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 48, 1367))   # 1g: +discipline
+        # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
+        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 50, 1367))   # 1g: +discipline; 12a: +the formula pair
         with self.assertRaises(frappe.ValidationError):
             rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="pdf")
         # preview / apply take the category hint and report the format
@@ -10854,7 +10920,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v13.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v14.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -11054,7 +11120,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             cls.hvac = json.load(fh)
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -11255,7 +11321,7 @@ class TestHvacAssetSlice1b(FrappeTestCase):
     def test_h07_hvac_series_is_v1_to_v13_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
         # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v13.json")
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v14.json")
         self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
@@ -11269,7 +11335,9 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                          # v10 is the first two-digit version in either series.
                          ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json",
                           "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json",
-                          CURRENT_HVAC_ASSET,
+                          # SLICE 12a: v13 becomes history and v14 is the current asset -- and note that
+                          # ALPHABETICALLY v13 and v14 both sort here, before v2.
+                          "rate_master_hvac_all_v13.json", CURRENT_HVAC_ASSET,
                           "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
@@ -11278,6 +11346,8 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
                       "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json", "rate_master_hvac_all_v6.json",
+                      # SLICE 12a: v13 is now a SUPERSEDED version and must stay byte-identical too
+                      "rate_master_hvac_all_v13.json",
                       "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
                       "rate_master_hvac_all_v9.json", "rate_master_hvac_all_v10.json",
                       "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json"):
@@ -11298,6 +11368,13 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
             raw = fh.read()
         self.assertNotIn("version", self.hvac)
+        # SLICE 12a: the SOURCE WORKBOOK is now named `... Edits v3.xlsx`, so a bare substring sweep
+        # over the whole file trips on the WORKBOOK's version rather than the asset's. The claim is
+        # unchanged and now says exactly what it means: the asset carries no version of ITS OWN, and
+        # the one place a vN token may appear is the recorded source-workbook name.
+        current = json.loads(raw)
+        raw = raw.replace(json.dumps(current.get("source_workbook") or "", ensure_ascii=False),
+                          chr(34) * 2)
         self.assertNotIn("v1", raw)
         self.assertNotIn("v2", raw)
         self.assertNotIn("v3", raw)
@@ -11356,7 +11433,7 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             cls.v3 = json.load(fh)
         with open(_asset_path("rate_master_hvac_all_v2.json"), "r", encoding="utf-8") as fh:
             cls.v2 = json.load(fh)
@@ -11569,7 +11646,7 @@ class TestHvacAliasSlice3(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             cls.v4 = json.load(fh)
         with open(_asset_path("rate_master_hvac_all_v3.json"), "r", encoding="utf-8") as fh:
             cls.v3 = json.load(fh)
@@ -12568,7 +12645,7 @@ class TestHvacAdpPanelControlsSlice6b(FrappeTestCase):
         self.assertIn("panel_controls", a9["list_spec"]["pricing"])
         a9["list_spec"]["pricing"].pop("panel_controls")
         self.assertEqual(a9, a8)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             text = fh.read()
         for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"):
             self.assertNotIn(f'"{tok}"', text)
@@ -12677,7 +12754,7 @@ class TestHvacAdpCountQuestionSlice6d(FrappeTestCase):
         pr = self._adp()["list_spec"]["pricing"]
         for key in ("numbers", "choice_attrs", "ladders", "match_attrs", "panel_controls"):
             self.assertNotIn(self.QTY, pr[key], key)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             text = fh.read()
         for tok in ("v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11"):
             self.assertNotIn(f'"{tok}"', text)
@@ -13119,7 +13196,7 @@ class TestHvacAdpAbsentUnitsAndAlternativesSlice11(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             cls.v13 = json.load(fh)
         # slice 11: v12 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v13); the w-pins are v13 = v12 + F-1/F-2/F-4
         with open(_asset_path("rate_master_hvac_all_v12.json"), "r", encoding="utf-8") as fh:
@@ -13298,3 +13375,949 @@ class TestHvacAdpAbsentUnitsAndAlternativesSlice11(FrappeTestCase):
                                   capture_output=True, check=True).stdout
             with open(path, "rb") as fh:
                 self.assertEqual(fh.read().replace(b"\r\n", b"\n"), head.replace(b"\r\n", b"\n"), fname)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12a -- INSULATION AS A RATE CATEGORY; DERIVED COSTS DECLARED AND PROTECTED; FORMULA
+# EXPLANATIONS. Owner rulings I-1..I-12 + I-7a (2026-09-26).
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+# The SHARED CROSS-LANGUAGE FIXTURE. Mirrored character for character in
+# `frontend/src/pages/pricing/rate-master/rateMasterFormula.test.ts`, which pins the SAME literals for
+# the TypeScript renderer. The rate FILE is built here and the Rate Master SCREEN renders the same text
+# client-side (it cannot call an exporter for one cell), so the duplication is deliberate -- the
+# precedent is `node_is_qty_bearing` / `isRowQtyBearing` -- and these two suites are the mechanism that
+# stops the two drifting.
+FORMULA_FIXTURE_CFG = {
+    "discipline": "HVAC",
+    "category_id": "fixture_cat",
+    "category_display": "Fixture",
+    "item_kinds": ["fixture_item"],
+    "attribute_definitions": [
+        {"id": "item", "label": "Item", "type": "choice", "values": ["Nitrile", "PUF"]},
+        {"id": "cladding", "label": "Cladding", "type": "choice", "values": ["No", "26G Aluminium"]},
+        {"id": "thickness_mm", "label": "Thickness", "type": "number_choice", "values": [13.0, 19.0]},
+    ],
+    "pipelines": {
+        "fx_boq": {
+            "output": ["supply"],
+            "steps": [
+                {"step": "match_master_row", "params": {"kind": "fixture_item"}},
+                {"step": "scale", "target": "cost_insulation", "result": "supply",
+                 "params": {"m_from_ctx": "supply_markup"}, "formula": "base*(1+m)",
+                 "explain": "supply: cost x (1 + markup)"},
+                {"step": "roundup", "target": "supply", "params": {"digits": 0}},
+            ],
+        },
+        # db_switchgear's shape: a step with NEITHER a formula NOR an explain. Before slice 12a
+        # its note read only "N pipelines", which said nothing; it now names what the step DOES.
+        "fx_assembly": {
+            "output": ["supply"],
+            "steps": [
+                {"step": "component_ref", "target": "cost_adhesive",
+                 "ref": {"kind": "fixture_item", "cladding": "No"}},
+                # wiring_cabling's shape: a `component_band` names its targets inside
+                # `bands[*].target`, NOT in `step.target`. The browser cert found both gland
+                # columns reading "no pipeline reads it yet" because of it.
+                {"step": "component_band", "band_on": "thickness_mm",
+                 "formula": "cost_cladding*2",
+                 "bands": [{"when": "<35", "target": "cost_install_cladding"}]},
+                {"step": "sum_components", "result": "supply"},
+            ],
+        },
+    },
+    "rate_composition": {
+        "supply": {"parts": ["cost_insulation", "cost_adhesive", "cost_cladding"],
+                   "wastage_key": "wastage", "markup_key": "supply_markup", "roundup": 0},
+        "install": {"parts": ["cost_install_insulation", "cost_install_cladding"],
+                    "markup_key": "install_markup", "roundup": 0},
+    },
+    "derived_rates": {
+        "rmi-clad0000001": {
+            "cost_insulation": [
+                {"from": {"item_uid": "rmi-bare0000001", "rate_key": "cost_insulation"},
+                 "multiplier": 1.0, "constant": 0.0},
+            ],
+            "cost_cladding": [
+                {"from": {"item_uid": "rmi-bare0000001", "rate_key": "cost_cladding"},
+                 "multiplier": 1.0, "constant": 132.46875},
+            ],
+        },
+    },
+}
+FORMULA_FIXTURE_BARE = {
+    "item_uid": "rmi-bare0000001", "kind": "fixture_item", "brand": None, "unit": "Mts",
+    "attributes": {"item": "Nitrile", "cladding": "No", "thickness_mm": 13.0},
+    "rates": {"cost_insulation": 99.0, "cost_adhesive": 30.0, "cost_cladding": 0.0,
+              "wastage": 0.05, "cost_install_insulation": 10.0, "cost_install_cladding": 0.0,
+              "supply_markup": 0.4, "install_markup": 0.4},
+}
+FORMULA_FIXTURE_CLAD = {
+    "item_uid": "rmi-clad0000001", "kind": "fixture_item", "brand": None, "unit": "Mts",
+    "attributes": {"item": "Nitrile", "cladding": "26G Aluminium", "thickness_mm": 13.0},
+    "rates": {"cost_insulation": 99.0, "cost_adhesive": 30.0, "cost_cladding": 132.46875,
+              "wastage": 0.05, "cost_install_insulation": 10.0, "cost_install_cladding": 150.0,
+              "supply_markup": 0.4, "install_markup": 0.4},
+}
+FORMULA_FIXTURE_PLAIN_CFG = {
+    "discipline": "Electrical", "category_id": "plain_cat", "attribute_definitions": [],
+    "pipelines": {}, "item_kinds": ["plain_item"],
+}
+FORMULA_FIXTURE_PLAIN = {
+    "item_uid": "rmi-plain000001", "kind": "plain_item", "brand": "ACME", "unit": "Nos",
+    "attributes": {}, "rates": {"list_price": 120.0},
+}
+
+
+class TestFormulaExplanations(FrappeTestCase):
+    """SLICE 12a, the PURE half -- the derived-cost declaration and the two formula surfaces.
+
+    Plain-English coverage:
+      test_x01  THE CROSS-LANGUAGE PIN: `_fmt_num`, `base_wording`, `row_formula` and `column_note`
+                produce exactly the strings `rateMasterFormula.test.ts` pins for the TypeScript mirror.
+                Change one side without the other and one of the two suites goes red.
+      test_x02  `is_derived_cell` marks ONLY the declared pairs. NEGATIVE: the row's own cost parts and
+                its markups are NOT derived, so they stay editable (owner I-3), the BASE row's own cost
+                is not derived, and a config declaring nothing marks nothing at all.
+      test_x03  the row-level text shows EACH STEP'S OWN RESULT and names the derived part's base row
+                (owner I-5 / I-6). NEGATIVE: a category with no composition and no derived cell reads
+                `typed` on both sides -- which is every Electrical row.
+      test_x04  the column note is GENERATED from the config: the composition role, the pipeline steps
+                that read the column (grouped by what they DO, not by which pipeline does it), the
+                derived count, and the I-7a BoQ-rate note on a markup column ONLY. NEGATIVE: a column
+                no pipeline reads says exactly that rather than inventing a rule.
+      test_x05  THE VALIDATOR: a well-formed `derived_rates` / `rate_composition` passes, and every
+                malformed shape is refused BY NAME -- an unknown term key, a `from` missing a field, a
+                self-reference, a non-finite multiplier, an empty term list, and (the load-bearing one)
+                a `from` pointing at a cell that is ITSELF declared derived, which is what "flattened
+                to the base" means (owner I-4). NEGATIVE: both keys are OPTIONAL -- a config carrying
+                neither validates exactly as before.
+      test_x06  the formula row's cells: the marker in `item_uid`, a note on every rate column, and
+                BLANK on every identity / attribute column.
+    """
+
+    def _ex(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        return csv_exporter
+
+    def _by_uid(self):
+        d = {FORMULA_FIXTURE_BARE["item_uid"]: FORMULA_FIXTURE_BARE,
+             FORMULA_FIXTURE_CLAD["item_uid"]: FORMULA_FIXTURE_CLAD}
+        return d.get
+
+    # -- x01 ----------------------------------------------------------------------------------------
+    def test_x01_the_python_renderer_matches_the_typescript_mirror_character_for_character(self):
+        ex = self._ex()
+        self.assertEqual(
+            [ex._fmt_num(v) for v in (0, 1, 1000, 1234567, 0.05, 132.46875, 1.4, 2.5, None)],
+            ["0", "1", "1,000", "1,234,567", "0.05", "132.47", "1.4", "2.5", ""])
+        self.assertEqual(ex.base_wording(FORMULA_FIXTURE_CFG, FORMULA_FIXTURE_BARE),
+                         "Nitrile, No, 13, Mts [rmi-bare0000001]")
+        self.assertEqual(ex.base_wording(FORMULA_FIXTURE_CFG, None), "")
+
+    # -- x02 ----------------------------------------------------------------------------------------
+    def test_x02_is_derived_cell_marks_only_the_declared_pairs(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation as cv
+        cfg, plain = FORMULA_FIXTURE_CFG, FORMULA_FIXTURE_PLAIN_CFG
+        self.assertTrue(cv.is_derived_cell(cfg, "rmi-clad0000001", "cost_insulation"))
+        self.assertTrue(cv.is_derived_cell(cfg, "rmi-clad0000001", "cost_cladding"))
+        # NEGATIVE -- owner I-3: the row's OWN parts and its markups stay editable
+        for k in ("cost_adhesive", "wastage", "supply_markup", "install_markup",
+                  "cost_install_insulation", "cost_install_cladding"):
+            self.assertFalse(cv.is_derived_cell(cfg, "rmi-clad0000001", k), k)
+        # NEGATIVE -- the base row's own cost, an unknown uid, and a config declaring nothing
+        self.assertFalse(cv.is_derived_cell(cfg, "rmi-bare0000001", "cost_insulation"))
+        self.assertFalse(cv.is_derived_cell(cfg, "rmi-nosuchrow01", "cost_insulation"))
+        self.assertFalse(cv.is_derived_cell(plain, "rmi-plain000001", "list_price"))
+        self.assertEqual(cv.derived_cells(plain), {})
+        self.assertEqual(cv.derived_cells({}), {})
+
+    # -- x03 ----------------------------------------------------------------------------------------
+    def test_x03_the_row_level_text_shows_each_step_result_and_names_the_base(self):
+        ex = self._ex()
+        clad_supply = "\n".join([
+            "insulation 99  <- derived from cost_insulation of Nitrile, No, 13, Mts [rmi-bare0000001]",
+            "+ adhesive 30",
+            "+ cladding 132.47  <- derived from cost_cladding of Nitrile, No, 13, Mts "
+            "[rmi-bare0000001] + 132.47",
+            "= 261.47",
+            "x (1 + wastage 0.05) = 274.54",
+            "ROUNDUP -> 275   (total BCS supply)",
+            "x (1 + supply markup 0.4) = 385",
+            "ROUNDUP -> 385   (BoQ supply)",
+        ])
+        clad_install = "\n".join([
+            "install insulation 10",
+            "+ install cladding 150",
+            "= 160",
+            "ROUNDUP -> 160   (total BCS install)",
+            "x (1 + install markup 0.4) = 224",
+            "ROUNDUP -> 224   (BoQ install)",
+        ])
+        bare_supply = "\n".join([
+            "insulation 99",
+            "+ adhesive 30",
+            "+ cladding 0",
+            "= 129",
+            "x (1 + wastage 0.05) = 135.45",
+            "ROUNDUP -> 136   (total BCS supply)",
+            "x (1 + supply markup 0.4) = 190.4",
+            "ROUNDUP -> 191   (BoQ supply)",
+        ])
+        self.assertEqual(ex.row_formula(FORMULA_FIXTURE_CFG, FORMULA_FIXTURE_CLAD, "supply",
+                                       self._by_uid()), clad_supply)
+        self.assertEqual(ex.row_formula(FORMULA_FIXTURE_CFG, FORMULA_FIXTURE_CLAD, "install",
+                                       self._by_uid()), clad_install)
+        got_bare = ex.row_formula(FORMULA_FIXTURE_CFG, FORMULA_FIXTURE_BARE, "supply", self._by_uid())
+        self.assertEqual(got_bare, bare_supply)
+        self.assertNotIn("derived", got_bare)
+        # NEGATIVE: no composition, no derived cell -> `typed` on both sides (every Electrical row)
+        for side in ("supply", "install"):
+            self.assertEqual(
+                ex.row_formula(FORMULA_FIXTURE_PLAIN_CFG, FORMULA_FIXTURE_PLAIN, side, lambda u: None),
+                ex.FORMULA_TYPED)
+
+    # -- x04 ----------------------------------------------------------------------------------------
+    def test_x04_the_column_note_is_generated_from_the_config(self):
+        ex = self._ex()
+        self.assertEqual(
+            ex.column_note(FORMULA_FIXTURE_CFG, "cost_insulation", ["rmi-clad0000001"]),
+            "\n".join([
+                "DERIVED on 1 row(s): the value comes from another catalogue row -- see that row's "
+                "supply_formula / install_formula.",
+                "a PART of the supply cost: (cost_insulation + cost_adhesive + cost_cladding) "
+                "x (1 + wastage), rounded up.",
+                # owner 2026-09-27 ("trim electrical"): the internal pipeline name and the step
+                # expression are DROPPED -- the plain-English explanation is the whole line now.
+                "supply: cost x (1 + markup)",
+            ]))
+        self.assertEqual(
+            ex.column_note(FORMULA_FIXTURE_CFG, "wastage"),
+            "the supply wastage fraction: (cost_insulation + cost_adhesive + cost_cladding) "
+            "x (1 + this), rounded up.")
+        # AN ASSEMBLY STEP WITH NEITHER A FORMULA NOR AN EXPLAIN names what it DOES. This branch was
+        # UNPINNED when it shipped -- the fixture had no such step -- which is why the fixture now
+        # carries one (db_switchgear's `list_price` note read a bare "18 pipelines" without it).
+        self.assertEqual(
+            ex.column_note(FORMULA_FIXTURE_CFG, "cost_adhesive"),
+            "a PART of the supply cost: (cost_insulation + cost_adhesive + cost_cladding) "
+            "x (1 + wastage), rounded up.\n"
+            "read off ANOTHER catalogue row, as one component of an assembly total")
+        self.assertEqual(ex.column_note(FORMULA_FIXTURE_CFG, "supply_markup"),
+                         "the supply markup fraction.\n" + ex.BOQ_RATE_NOTE)
+        # I-7a: the BoQ-rate note rides a MARKUP column only
+        self.assertNotIn(ex.BOQ_RATE_NOTE, ex.column_note(FORMULA_FIXTURE_CFG, "wastage"))
+        self.assertNotIn(ex.BOQ_RATE_NOTE, ex.column_note(FORMULA_FIXTURE_CFG, "cost_insulation"))
+        # A BANDED target is READ, and the note must say so -- `component_band` names its targets
+        # inside `bands[*].target`, so keying on `step.target` alone reported a read column as
+        # unread. Found in the browser cert on wiring_cabling's two gland columns.
+        self.assertEqual(
+            ex.column_note(FORMULA_FIXTURE_CFG, "cost_install_cladding"),
+            "a PART of the install cost: (cost_install_insulation + cost_install_cladding), "
+            "rounded up.\n"
+            "used when thickness_mm <35")
+        # NEGATIVE: a column no pipeline reads says so rather than inventing a rule
+        self.assertEqual(ex.column_note(FORMULA_FIXTURE_PLAIN_CFG, "list_price"),
+                         "a TYPED rate. No pipeline reads it yet.")
+
+    # -- x05 ----------------------------------------------------------------------------------------
+    def test_x05_the_validator_refuses_every_malformed_declaration_by_name(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation as cv
+        cv._validate_derived_rates(FORMULA_FIXTURE_CFG)
+        cv._validate_rate_composition(FORMULA_FIXTURE_CFG)
+        # NEGATIVE: both keys are OPTIONAL -- a config carrying neither validates as before
+        cv._validate_derived_rates(FORMULA_FIXTURE_PLAIN_CFG)
+        cv._validate_rate_composition(FORMULA_FIXTURE_PLAIN_CFG)
+
+        def bad(mutate, needle):
+            cfg = copy.deepcopy(FORMULA_FIXTURE_CFG)
+            mutate(cfg)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                cv._validate_derived_rates(cfg)
+            self.assertIn(needle, str(ctx.exception))
+
+        def term(cfg):
+            return cfg["derived_rates"]["rmi-clad0000001"]["cost_insulation"][0]
+
+        bad(lambda c: c["derived_rates"].__setitem__("rmi-clad0000001", {}), "non-empty object")
+        bad(lambda c: c["derived_rates"]["rmi-clad0000001"].__setitem__("cost_insulation", []),
+            "non-empty list")
+        bad(lambda c: term(c).__setitem__("scale", 2), "unknown key")
+        bad(lambda c: term(c)["from"].pop("rate_key"), "non-empty rate_key")
+        bad(lambda c: term(c)["from"].__setitem__("item_uid", "rmi-clad0000001"), "points at itself")
+        bad(lambda c: term(c).__setitem__("multiplier", "x"), "finite number")
+        bad(lambda c: term(c).__setitem__("constant", float("inf")), "finite number")
+        # THE LOAD-BEARING ONE (owner I-4): a base that is ITSELF declared derived is refused, so a
+        # declaration is always FLATTENED to the ultimate base.
+        def chain(c):
+            c["derived_rates"]["rmi-bare0000001"] = {
+                "cost_insulation": [{"from": {"item_uid": "rmi-other000001",
+                                             "rate_key": "cost_insulation"}}],
+            }
+        bad(chain, "FLATTENED")
+
+        def bad_comp(mutate, needle):
+            cfg = copy.deepcopy(FORMULA_FIXTURE_CFG)
+            mutate(cfg)
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                cv._validate_rate_composition(cfg)
+            self.assertIn(needle, str(ctx.exception))
+
+        bad_comp(lambda c: c["rate_composition"].__setitem__("bcs", {}), "unknown side")
+        bad_comp(lambda c: c["rate_composition"]["supply"].__setitem__("parts", []), "non-empty list")
+        bad_comp(lambda c: c["rate_composition"]["supply"].__setitem__("mystery", 1), "unknown key")
+        bad_comp(lambda c: c["rate_composition"]["supply"].__setitem__("roundup", "0"), "integer")
+
+    # -- x07 ----------------------------------------------------------------------------------------
+    def test_x07_the_discriminator_is_a_component_ref_and_a_stored_rate_key_and_both_are_needed(self):
+        """THE TEETH of the boundary, on SYNTHETIC configs rather than on today's data.
+
+        The vacuity run found that ADP and Electrical alone do NOT exercise the `component_ref`
+        requirement: ADP's 60 own-cost pipelines sit in `convert` blocks (skipped because the match is
+        re-pointed) and Electrical's assembly results are not stored rate keys, so removing the
+        requirement changed neither. That is exactly the kind of green a test must not be allowed to
+        report, so the two halves are pinned here directly -- an own-cost pipeline shaped like the 60,
+        and a component_ref whose result is NOT a stored key.
+        """
+        from nirmaan_stack.services.boq_rate_master import config_validation as cv
+        items = [
+            {"item_uid": "rmi-a", "kind": "k", "unit": "Nos", "attributes": {"family": "f"},
+             "rates": {"cost_supply": 10.0}},
+            {"item_uid": "rmi-b", "kind": "k", "unit": "SQM", "attributes": {"family": "f"},
+             "rates": {"cost_supply": 20.0}},
+        ]
+        base = {
+            "discipline": "X", "category_id": "c", "attribute_definitions": [], "item_kinds": ["k"],
+            "pipelines": {}, "matching_mode": "item_list",
+            "list_spec": {"family_attribute_id": "family", "attribute_definitions": [
+                {"id": "family", "label": "Family", "type": "choice", "values": ["f"]}],
+                "pricing": {"kind": "k", "unit_class_attr": "unit_class",
+                            "unit_classes": {"count": ["nos"], "area": ["sqm"]},
+                            "families": {}}},
+        }
+
+        def gen(units):
+            cfg = copy.deepcopy(base)
+            cfg["list_spec"]["pricing"]["families"]["f"] = {"needs": [], "units": units}
+            return cv.derived_rates_from_pipelines(cfg, items)
+
+        # (a) an OWN-COST pipeline -- the shape of ADP's 60. No component_ref => NOTHING declared.
+        own = {"count": {"needs": [], "pipelines": {"supply": {"output": ["supply"], "steps": [
+            {"step": "match_master_row", "params": {"kind": "k"}},
+            {"step": "scale", "target": "cost_supply", "result": "cost_supply",
+             "params": {"w_from_attr": "w"}, "formula": "base*w"},
+        ]}}}}
+        self.assertEqual(gen(own), {}, "an own-cost pipeline must never be declared derived")
+
+        # the SAME pipeline with a component_ref IS declared -- so (a) proves the requirement, not luck
+        cref = copy.deepcopy(own)
+        cref["count"]["pipelines"]["supply"]["steps"][1:1] = [
+            {"step": "component_ref", "name": "b", "ref": {"kind": "k", "unit_class": "area"},
+             "target": "cost_supply", "qty": 1},
+            {"step": "sum_components", "result": "base_cost_supply"},
+        ]
+        cref["count"]["pipelines"]["supply"]["steps"][-1] = {
+            "step": "scale", "target": "base_cost_supply", "result": "cost_supply",
+            "params": {"w_from_attr": "w"}, "formula": "base*w"}
+        self.assertEqual(gen(cref), {"rmi-a": {"cost_supply": [
+            {"from": {"item_uid": "rmi-b", "rate_key": "cost_supply"},
+             "multiplier": 1.0, "constant": 0.0}]}})
+
+        # (b) a component_ref whose RESULT is not a stored rate key -- Electrical's assembly shape.
+        assembly = copy.deepcopy(cref)
+        steps = assembly["count"]["pipelines"]["supply"]["steps"]
+        steps[-1] = {"step": "scale", "target": "base_cost_supply", "result": "supply",
+                     "params": {"w_from_attr": "w"}, "formula": "base*w"}
+        self.assertEqual(gen(assembly), {},
+                         "a component_ref that builds an ASSEMBLY total declares nothing")
+
+        # (a2) an OWN-ROW SUM -- `component` reads the MATCHED row's own key, so a sum_components over
+        # it must NOT taint even though its result IS a stored rate key. This is the case that pins the
+        # `component_ref` requirement itself: without it the sum taints and the generator either
+        # declares a cell nothing derives, or fails resolving a ref that was never there.
+        own_sum = {"count": {"needs": [], "pipelines": {"supply": {"output": ["supply"], "steps": [
+            {"step": "match_master_row", "params": {"kind": "k"}},
+            {"step": "component", "target": "cost_supply", "formula": "base"},
+            {"step": "sum_components", "result": "cost_supply"},
+        ]}}}}
+        self.assertEqual(gen(own_sum), {},
+                         "a sum over the row's OWN components must never be declared derived")
+
+        # (c) a CONVERT block re-points the match, so its rows are governed by their own class's block
+        conv = copy.deepcopy(base)
+        conv["list_spec"]["pricing"]["families"]["f"] = {
+            "needs": [], "units": {"area": {"needs": []}},
+            "convert": {"count": [{"to": "area", "pipelines": cref["count"]["pipelines"]}]}}
+        self.assertEqual(cv.derived_rates_from_pipelines(conv, items), {})
+
+    # -- x06 ----------------------------------------------------------------------------------------
+    def test_x06_the_formula_row_marks_itself_and_notes_only_the_rate_columns(self):
+        ex = self._ex()
+        headers = ["item_uid", "discipline", "category", "brand", "unit", "item", "cladding",
+                   "thickness_mm", "cost_insulation", "supply_markup"] + list(ex.FORMULA_COLUMNS)
+        cells = ex.formula_row_cells(FORMULA_FIXTURE_CFG, headers,
+                                     {"cost_insulation", "supply_markup"},
+                                     {"cost_insulation": ["rmi-clad0000001"]})
+        row = dict(zip(headers, cells))
+        self.assertEqual(row["item_uid"], ex.FORMULA_ROW_MARKER)
+        self.assertIn("DERIVED on 1 row(s)", row["cost_insulation"])
+        self.assertIn(ex.BOQ_RATE_NOTE, row["supply_markup"])
+        for col in ("discipline", "category", "brand", "unit", "item", "cladding", "thickness_mm"):
+            self.assertEqual(row[col], "", col)
+        for col in ex.FORMULA_COLUMNS:
+            self.assertIn("Read-only", row[col])
+
+
+class TestInsulationCatalogueSlice12a(FrappeTestCase):
+    """SLICE 12a, the ASSET + the round trip. Plain-English coverage:
+
+      test_y01  the Insulation catalogue LOADS: 224 items under ONE declared kind (156 from the sheet
+                plus the 68 24G twins of owner ruling I-10), every rate key present on every row, and
+                every UNCLAD row carrying `cost_cladding` 0 EXPLICITLY (finding 12 -- an omitted key
+                would refuse the row when 12b wires the pipelines, where a 0 prices it).
+      test_y02  v14 = v13 + the three declared additions and NOTHING else: every ADP item
+                byte-identical, the seven prior configs deep-equal once `derived_rates` is set aside.
+      test_y03  EVERY declared derived cell reproduces its own stored figure -- 240 of them (ADP's 12
+                plus Insulation's 228) -- and the composition reproduces the workbook's own total and
+                BoQ figures on all 224 Insulation rows.
+      test_y04  THE BOUNDARY, positively and negatively (owner I-2, the 60-pipeline trap): the shipped
+                generator declares EXACTLY the 12 ADP cross-talk cells from ADP's own `component_ref`
+                steps, and ZERO cells for Electrical -- whose 28 pipelines include 14 that DO carry a
+                `component_ref` and none that writes a stored rate key. The 60 own-cost ADP pipelines
+                and the two mixing-box rows are declared nowhere.
+      test_y05  the Insulation config is DATA-ONLY: `item_kinds` declared explicitly (a pipeline-less
+                category has nothing to derive a kind from), `pipelines` empty, and NO
+                `attributes_from_spec` / `helper_message` / `pending_label` -- which is what keeps
+                every BoQ screen unchanged.
+      test_y06  the kind is prefixed `hvac_` and is disjoint from every Electrical kind.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v14 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
+            cls.v13 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
+                       "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r["name"]})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    KIND = "hvac_insulation_item"
+    RATE_KEYS = {"cost_insulation", "cost_adhesive", "cost_cladding", "wastage",
+                 "cost_install_insulation", "cost_install_cladding", "supply_markup",
+                 "install_markup"}
+
+    def _ins_items(self, asset=None):
+        return [i for i in (asset or self.v14)["items"] if i["kind"] == self.KIND]
+
+    def _cfg(self, asset, cid):
+        return next(c for c in asset["category_configs"] if c["category_id"] == cid)
+
+    @staticmethod
+    def _roundup(x, digits=0):
+        import math
+        f = 10.0 ** digits
+        s = x * f
+        return (math.ceil(s - 1e-9) / f) if s >= 0 else (-math.ceil(-s - 1e-9) / f)
+
+    # -- y01 ----------------------------------------------------------------------------------------
+    def test_y01_the_insulation_catalogue_loads_224_items_under_one_kind(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        payload = copy.deepcopy(self.v14)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual(r["items_by_kind"], {"hvac_adp_item": 95, self.KIND: 224})
+        self.assertEqual(r["items_total"], 319)
+        self.assertEqual(r["configs_loaded"], 8)
+        self.assertIn("hvac_insulation", r["category_ids"])
+        rows = frappe.get_all("BoQ Rate Master Item",
+                              filters={"discipline": disc, "active": 1, "kind": self.KIND},
+                              fields=["item_uid", "unit", "attributes", "rates", "source_sheet"])
+        self.assertEqual(len(rows), 224)
+        self.assertEqual(len({x["item_uid"] for x in rows}), 224)
+        self.assertEqual({x["source_sheet"] for x in rows}, {"Insulation"})
+        self.assertEqual({x["unit"] for x in rows}, {"Mts", "SQM"})
+        unclad = 0
+        for x in rows:
+            rates = _obj(x["rates"])
+            attrs = _obj(x["attributes"])
+            self.assertEqual(set(rates), self.RATE_KEYS, x["item_uid"])
+            # finding 12: an UNCLAD row stores cost_cladding 0 EXPLICITLY, never omits the key
+            if attrs["cladding"] == "No":
+                unclad += 1
+                self.assertEqual(rates["cost_cladding"], 0.0, x["item_uid"])
+        self.assertEqual(unclad, 52)
+        # the SKU tuple is unique across the whole catalogue -- what makes a base row resolvable
+        keys = {(_obj(x["attributes"])["item"], _obj(x["attributes"])["cladding"], x["unit"],
+                 _obj(x["attributes"])["thickness_mm"], _obj(x["attributes"]).get("pipe_size_mm"))
+                for x in rows}
+        self.assertEqual(len(keys), 224)
+
+    # -- y02 ----------------------------------------------------------------------------------------
+    def test_y02_v14_is_v13_plus_the_three_declared_additions_and_nothing_else(self):
+        # every ADP item byte-identical -- nothing derived from the ADP catalogue can have moved
+        self.assertEqual([i for i in self.v14["items"] if i["kind"] != self.KIND], self.v13["items"])
+        self.assertEqual(len(self._ins_items()), 224)
+        # the seven prior configs, once `derived_rates` (added to ADP only) is set aside
+        prior = [copy.deepcopy(c) for c in self.v14["category_configs"]
+                 if c["category_id"] != "hvac_insulation"]
+        for c in prior:
+            c.pop("derived_rates", None)
+        self.assertEqual(prior, self.v13["category_configs"])
+        # and the ONLY config with a derived declaration among those seven is ADP
+        declared = [c["category_id"] for c in self.v14["category_configs"]
+                    if c.get("derived_rates") and c["category_id"] != "hvac_insulation"]
+        self.assertEqual(declared, ["hvac_adp"])
+
+    # -- y03 ----------------------------------------------------------------------------------------
+    def test_y03_every_declared_derived_cell_reproduces_its_own_stored_figure(self):
+        by_uid = {i["item_uid"]: i for i in self.v14["items"]}
+        total = 0
+        for cfg in self.v14["category_configs"]:
+            for uid, keys in (cfg.get("derived_rates") or {}).items():
+                for rate_key, terms in keys.items():
+                    total += 1
+                    stored = (by_uid[uid]["rates"] or {}).get(rate_key)
+                    want = 0.0
+                    for t in terms:
+                        src = t["from"]
+                        base = (by_uid[src["item_uid"]]["rates"] or {}).get(src["rate_key"])
+                        # ADP's cross-talk Nos rows carry NO stored cost at all -- the pipeline writes
+                        # it. Those cells are legitimately absent, so there is nothing to reproduce.
+                        if stored is None:
+                            self.assertIsNotNone(base, uid)
+                            break
+                        want += base * t.get("multiplier", 1.0) + t.get("constant", 0.0)
+                    else:
+                        self.assertAlmostEqual(stored, want, places=6,
+                                               msg="%s / %s" % (uid, rate_key))
+        self.assertEqual(total, 240)
+        # and the whole composition reproduces the workbook's own totals on every Insulation row
+        comp = self._cfg(self.v14, "hvac_insulation")["rate_composition"]
+        for it in self._ins_items():
+            r = it["rates"]
+            m = self._roundup(sum(r[p] for p in comp["supply"]["parts"])
+                              * (1 + r[comp["supply"]["wastage_key"]]))
+            q = self._roundup(m * (1 + r[comp["supply"]["markup_key"]]))
+            p = sum(r[k] for k in comp["install"]["parts"])
+            rr = self._roundup(p * (1 + r[comp["install"]["markup_key"]]))
+            for v in (m, q, p, rr):
+                self.assertGreaterEqual(v, 0.0, it["item_uid"])
+            self.assertGreaterEqual(q, m, it["item_uid"])
+            self.assertGreaterEqual(rr, p, it["item_uid"])
+
+    # -- y04 ----------------------------------------------------------------------------------------
+    def test_y04_the_generator_declares_exactly_adps_twelve_cells_and_nothing_electrical(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation as cv
+        adp = self._cfg(self.v14, "hvac_adp")
+        gen = cv.derived_rates_from_pipelines(adp, self.v14["items"])
+        self.assertEqual(sum(len(v) for v in gen.values()), 12)
+        self.assertEqual(len(gen), 6)
+        self.assertEqual(gen, adp["derived_rates"],
+                         "the SHIPPED declaration must be exactly what the generator produces")
+        for keys in gen.values():
+            self.assertEqual(set(keys), {"cost_supply", "cost_install"})
+        # every base is the ONE SQM cross-talk row
+        bases = {t["from"]["item_uid"] for keys in gen.values() for terms in keys.values()
+                 for t in terms}
+        self.assertEqual(len(bases), 1)
+        base = next(i for i in self.v14["items"] if i["item_uid"] == next(iter(bases)))
+        self.assertEqual(base["unit"], "SQM")
+        self.assertEqual(base["attributes"]["family"], "cross-talk")
+        # NEGATIVE, the 60-pipeline trap: the own-cost rows are declared NOWHERE. Search space: every
+        # ADP item, every rate key it stores.
+        declared = set(gen)
+        own_cost = [i for i in self.v14["items"]
+                    if i["kind"] == "hvac_adp_item" and i["item_uid"] not in declared]
+        self.assertEqual(len(own_cost), 89)
+        # NEGATIVE: the two 750x150x350 mixing-box Nos rows (group iii -- never matched) are NOT declared
+        mixing = [i for i in self.v14["items"]
+                  if (i["attributes"] or {}).get("family") == "mixing box / LP plenum"
+                  and i["unit"] != "SQM"]
+        self.assertTrue(mixing)
+        for i in mixing:
+            self.assertNotIn(i["item_uid"], declared, i["item_uid"])
+        # NEGATIVE: ELECTRICAL declares NOTHING, over its COMPLETE search space -- every config of the
+        # current asset. 14 of its 28 pipelines DO carry a component_ref; not one writes a stored rate
+        # key, so no rule of any strictness can declare an Electrical cell.
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        crefs = 0
+        for c in eall["category_configs"]:
+            self.assertEqual(cv.derived_rates_from_pipelines(c, eall["items"]), {}, c["category_id"])
+            self.assertNotIn("derived_rates", c, c["category_id"])
+            for _lbl, _f, _u, steps, _cv in cv._pipeline_scopes(c):
+                if any(s.get("step") == "component_ref" for s in steps):
+                    crefs += 1
+        self.assertEqual(crefs, 14, "Electrical's component_ref pipelines -- the reason the boundary "
+                                    "cannot be 'the pipeline carries a component_ref'")
+
+    # -- y05 ----------------------------------------------------------------------------------------
+    def test_y05_the_insulation_config_is_data_only_so_no_boq_screen_changes(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+        cfg = self._cfg(self.v14, "hvac_insulation")
+        self.assertEqual(cfg["item_kinds"], [self.KIND])
+        self.assertEqual(cfg["pipelines"], {})
+        for absent in ("attributes_from_spec", "helper_message", "pending_label", "alias_of",
+                       "matching_mode", "list_spec"):
+            self.assertNotIn(absent, cfg, absent)
+        self.assertEqual({d["id"] for d in cfg["attribute_definitions"]},
+                         {"item", "cladding", "thickness_mm", "pipe_size_mm"})
+        # NOT eligible for pricing or extraction -- both predicates need pipelines AND definitions
+        self.assertFalse(extraction.config_is_eligible(cfg, self.v14["category_configs"]))
+        config_validation._validate_config(
+            loader._loaded_config(copy.deepcopy(cfg), "HVAC", self.v14.get("goldens") or {}))
+
+    # -- y06 ----------------------------------------------------------------------------------------
+    def test_y06_the_new_kind_is_hvac_prefixed_and_disjoint_from_electrical(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        self.assertTrue(self.KIND.startswith("hvac_"))
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        self.assertNotIn(self.KIND, {i["kind"] for i in eall["items"]})
+        for c in eall["category_configs"]:
+            self.assertNotIn(self.KIND, csv_exporter._config_kinds(c), c["category_id"])
+
+
+class TestFormulaRoundTripSlice12a(FrappeTestCase):
+    """SLICE 12a, the FILE. Plain-English coverage:
+
+      test_z01  the ONLY change to a rate file's shape is the two formula columns at the END plus the
+                new first row -- proven by rebuilding the pre-slice header from the same pieces and
+                comparing. Run for BOTH disciplines, because owner I-9 extends both surfaces to
+                Electrical and U5 says nothing else there may move.
+      test_z02  the formula row is written in BOTH formats and survives BOTH readers: a multi-line
+                explanation comes back with its newlines intact, and the .xlsx carries the wrap and the
+                colour that make it legible (colour is emphasis only -- the CSV drops it and still
+                reads, which is why the wording never depends on it).
+      test_z03  INERT ON UPLOAD (owner I-8), all three of the owner's cases x both formats x both
+                disciplines: the formula columns and the formula row BLANKED, OVERWRITTEN with junk,
+                and DELETED ENTIRELY all upload with ZERO changes -- and the columns land in the
+                `ignored` bucket, so nothing reads, stores or compares them.
+      test_z04  a typed DERIVED cost is REFUSED, and the refusal NAMES the base row (owner I-2 / I-3).
+                NEGATIVE, the other half of I-3: the same row's OWN cost part and its markup are
+                ACCEPTED in the same upload -- a derived cell does not freeze its row.
+      test_z05  an UNTOUCHED download/upload of a category that HAS derived cells is still a silent
+                no-op -- the derived cell is exported with its stored figure and the refusal fires on a
+                CHANGE, not on the cell being non-blank. Without this the round trip would refuse
+                itself.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.hvac = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+        cls._disciplines = set()
+        cls._loaded = {}
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
+                       "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r["name"]})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    # One synthetic discipline per source asset, loaded ONCE and reused -- a full Electrical load is
+    # 1,367 rows and this class needs it four times over.
+    def _disc(self, which):
+        if which in type(self)._loaded:
+            return type(self)._loaded[which]
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        payload = copy.deepcopy(self.hvac if which == "hvac" else self.eall)
+        payload["discipline"] = disc
+        loader.load_rate_master(payload=payload)
+        frappe.db.commit()
+        type(self)._loaded[which] = disc
+        return disc
+
+    CASES = (("hvac", "hvac_insulation"), ("eall", "lighting_mgmt_system"))
+
+    def _ex(self):
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        return csv_exporter
+
+    # -- z01 ----------------------------------------------------------------------------------------
+    def test_z01_the_only_shape_change_is_two_columns_at_the_end_and_the_new_first_row(self):
+        ex = self._ex()
+        for which, cat in self.CASES:
+            disc = self._disc(which)
+            b = ex.build_category_rows(disc, cat)
+            self.assertEqual(tuple(b["headers"][-2:]), ex.FORMULA_COLUMNS, which)
+            # rebuild the PRE-SLICE header from the same pieces: lead + observed attrs + observed rates
+            items, _kc, cat_kinds, _t = ex._load_full(disc)
+            kinds = set(cat_kinds[cat])
+            rows_in = [i for i in items if i["kind"] in kinds]
+            attrs, rates = ex._keys_for(rows_in)
+            before = ex._lead_headers(ex.file_carries_kind(cat_kinds, cat), mode_b=False) + attrs + rates
+            cfg = ex._load_configs(disc).get(cat) or {}
+            if cfg.get("rate_composition"):
+                # OWNER 2026-09-27: a category that DECLARES the source sheet's order follows it, so the
+                # claim is that the SAME columns are there and the formula pair is last -- not that they
+                # are in the old sorted order. The five lead columns keep their exact position.
+                self.assertEqual(sorted(b["headers"][:-2]), sorted(before), which)
+                self.assertEqual(b["headers"][:5], before[:5], which)
+            else:
+                # NEGATIVE, and the one that carries owner U5: a category with NO declared order is
+                # BYTE-IDENTICAL but for the two new columns -- which is every Electrical category.
+                self.assertEqual(b["headers"][:-2], before, which)
+            # the formula columns are TEXT -- they must never join the numeric set
+            for fc in ex.FORMULA_COLUMNS:
+                self.assertNotIn(fc, b["numeric"], fc)
+            # every data row gained exactly two cells and nothing else moved
+            self.assertEqual(len(b["rows"][0]), len(b["headers"]), which)
+            self.assertEqual(len(b["formula_row"]), len(b["headers"]), which)
+
+    # -- z02 ----------------------------------------------------------------------------------------
+    def test_z02_the_formula_row_survives_both_writers_and_both_readers(self):
+        import openpyxl
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        ex = self._ex()
+        disc = self._disc("hvac")
+        b = ex.build_category_rows(disc, "hvac_insulation")
+        marker_col = b["headers"].index("item_uid")
+
+        text, _h, _n = ex.build_category_csv(disc, "hvac_insulation")
+        headers, data_rows = csv_importer.parse_csv_text(text.lstrip("﻿"))
+        self.assertEqual(headers, b["headers"])
+        self.assertEqual(data_rows[0][1][marker_col], ex.FORMULA_ROW_MARKER)
+        # a newline inside a quoted CSV field is legal and must survive
+        multi = [c for c in data_rows[0][1] if "\n" in c]
+        self.assertTrue(multi, "the formula row must carry at least one multi-line explanation")
+
+        blob, _h2, _n2 = ex.build_category_xlsx(disc, "hvac_insulation")
+        xheaders, xrows = xlsx_io.read_xlsx(blob)
+        self.assertEqual(xheaders, b["headers"])
+        self.assertEqual(xrows[0][1][marker_col], ex.FORMULA_ROW_MARKER)
+        self.assertEqual(xrows[0][1], [str(c) if c not in (None, "") else "" for c in b["formula_row"]])
+        # the same multi-line text, newlines intact, read back as a plain str
+        self.assertTrue([c for c in xrows[0][1] if "\n" in c])
+        # and the workbook carries the wrap + the colour that make it legible
+        wb = openpyxl.load_workbook(io.BytesIO(blob))
+        ws = wb.worksheets[0]
+        note = ws.cell(row=2, column=marker_col + 1)
+        self.assertTrue(note.alignment.wrap_text)
+        self.assertEqual(note.font.color.rgb, xlsx_io.FORMULA_ROW_COLOR)
+        fcol = b["headers"].index("supply_formula") + 1
+        cell = ws.cell(row=3, column=fcol)
+        self.assertTrue(cell.alignment.wrap_text)
+        self.assertEqual(cell.font.color.rgb, xlsx_io.FORMULA_CELL_COLOR)
+        # the data starts BELOW the formula row and the freeze follows it
+        self.assertEqual(ws.freeze_panes, "A3")
+        wb.close()
+
+    # -- z03 ----------------------------------------------------------------------------------------
+    def test_z03_the_formula_columns_and_row_are_inert_on_upload(self):
+        ex = self._ex()
+        for which, cat in self.CASES:
+            disc = self._disc(which)
+            b = ex.build_category_rows(disc, cat)
+            fidx = [b["headers"].index(c) for c in ex.FORMULA_COLUMNS]
+
+            def plan_of(headers, rows, fmt):
+                if fmt == "csv":
+                    raw = ex.to_csv(headers, rows).encode("utf-8")
+                else:
+                    raw = ex.to_xlsx(headers, rows, b["numeric"])
+                return csv_importer.build_plan(disc, raw, category_id=cat)
+
+            variants = {
+                "as downloaded": (b["headers"], [list(b["formula_row"])] + [list(r) for r in b["rows"]]),
+                "blanked": (b["headers"],
+                            [["" if i in fidx else c for i, c in enumerate(b["formula_row"])]]
+                            + [[("" if i in fidx else c) for i, c in enumerate(r)] for r in b["rows"]]),
+                "overwritten": (b["headers"],
+                                [["junk" if i in fidx else c for i, c in enumerate(b["formula_row"])]]
+                                + [[("junk" if i in fidx else c) for i, c in enumerate(r)]
+                                   for r in b["rows"]]),
+                # DELETED ENTIRELY -- both columns AND the formula row gone
+                "deleted": ([h for h in b["headers"] if h not in ex.FORMULA_COLUMNS],
+                            [[c for i, c in enumerate(r) if i not in fidx] for r in b["rows"]]),
+            }
+            for label, (headers, rows) in variants.items():
+                for fmt in ("csv", "xlsx"):
+                    plan = plan_of(headers, rows, fmt)
+                    where = "%s / %s / %s" % (which, label, fmt)
+                    self.assertEqual(plan["errors"], [], where)
+                    self.assertEqual(plan["counts"]["items_added"], 0, where)
+                    self.assertEqual(plan["counts"]["rates_changed"], 0, where)
+                    self.assertEqual(plan["counts"]["other_changed"], 0, where)
+                    self.assertEqual(plan["counts"]["unchanged"], b["n"], where)
+                    self.assertEqual(plan["changes"], [], where)
+                    self.assertEqual(plan["row_count"], b["n"], where)
+                    if label != "deleted":
+                        self.assertEqual(sorted(plan["columns"]["ignored"]),
+                                         sorted(ex.FORMULA_COLUMNS), where)
+                    else:
+                        self.assertEqual(plan["columns"]["ignored"], [], where)
+
+    # -- z04 ----------------------------------------------------------------------------------------
+    def test_z04_a_typed_derived_cost_is_refused_naming_the_base_while_its_own_parts_are_accepted(self):
+        ex = self._ex()
+        disc = self._disc("hvac")
+        b = ex.build_category_rows(disc, "hvac_insulation")
+        cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                    {"discipline": disc, "active": 1,
+                                     "category_id": "hvac_insulation"}, "config"))
+        ui = b["headers"].index("item_uid")
+        derived_uid = next(iter(cfg["derived_rates"]))
+        di = b["headers"].index("cost_insulation")
+        # the row's OWN part and its OWN markup -- the other half of owner I-3
+        oi = b["headers"].index("cost_adhesive")
+        mi = b["headers"].index("supply_markup")
+
+        rows = [list(r) for r in b["rows"]]
+        target = next(r for r in rows if r[ui] == derived_uid)
+        target[di] = 777.0            # a DERIVED cost -- must be refused
+        target[oi] = 31.0             # the row's own adhesive -- must be accepted
+        target[mi] = 0.45             # the row's own markup -- must be accepted
+        raw = ex.to_csv(b["headers"], [list(b["formula_row"])] + rows).encode("utf-8")
+        plan = csv_importer.build_plan(disc, raw, category_id="hvac_insulation")
+
+        msgs = [e["message"] for e in plan["errors"]]
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertIn("'cost_insulation' is a DERIVED cost", msgs[0])
+        self.assertIn("Edit that row instead", msgs[0])
+        # the message NAMES the base row, as wording, with its id at the end (owner I-5)
+        base_uid = cfg["derived_rates"][derived_uid]["cost_insulation"][0]["from"]["item_uid"]
+        self.assertIn("[" + base_uid + "]", msgs[0])
+        self.assertIn("cost_insulation of ", msgs[0])
+
+        # NEGATIVE: with the derived cell left ALONE the same two own-row edits are ACCEPTED
+        rows2 = [list(r) for r in b["rows"]]
+        t2 = next(r for r in rows2 if r[ui] == derived_uid)
+        t2[oi] = 31.0
+        t2[mi] = 0.45
+        raw2 = ex.to_csv(b["headers"], [list(b["formula_row"])] + rows2).encode("utf-8")
+        plan2 = csv_importer.build_plan(disc, raw2, category_id="hvac_insulation")
+        self.assertEqual(plan2["errors"], [])
+        self.assertEqual(plan2["counts"]["rates_changed"], 1)
+        changed = [c for c in plan2["changes"] if c.get("item_uid") == derived_uid]
+        self.assertEqual(len(changed), 1)
+
+    # -- z06 ----------------------------------------------------------------------------------------
+    def test_z06_a_declared_derived_cell_carries_the_word_never_its_figure(self):
+        """The cell never carries its FIGURE -- a many-decimal cladding cost does not survive the .xlsx
+        float budget, so exporting it made the round trip refuse an untouched file.
+
+        ⚠️ AND IT IS NOT BLANK EITHER (owner, 2026-09-27: "i cannot make out"). A blank cell in this file
+        already means not-applicable, not-filled-in AND not-editable, so it carried no signal; the cell
+        holds the WORD `derived`. This test INVERTS the "exported empty" claim it shipped with and keeps
+        the half that matters: the figure is never there. Pinned in BOTH modes, because Mode B resolves
+        the declaration per category.
+        ⚠️ The vacuity run found z03/z05 stay green when this is removed (the importer reads the word and
+        a blank alike), so the choice needs its own pin or it is not protected at all."""
+        ex = self._ex()
+        disc = self._disc("hvac")
+        cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                    {"discipline": disc, "active": 1,
+                                     "category_id": "hvac_insulation"}, "config"))
+        declared = {(uid, k) for uid, keys in cfg["derived_rates"].items() for k in keys}
+        self.assertEqual(len(declared), 228)
+        for label, b in (("mode A", ex.build_category_rows(disc, "hvac_insulation")),
+                         ("mode B", ex.build_all_categories_rows(disc))):
+            ui = b["headers"].index("item_uid")
+            seen = 0
+            for r in b["rows"]:
+                for (uid, key) in declared:
+                    if r[ui] != uid or key not in b["headers"]:
+                        continue
+                    seen += 1
+                    self.assertEqual(r[b["headers"].index(key)], ex.DERIVED_CELL_TEXT,
+                                     "%s %s/%s" % (label, uid, key))
+            self.assertEqual(seen, 228, label)
+            # NEGATIVE: an UNDECLARED rate on a DECLARED row still carries its figure -- the cell is
+            # emptied per (item, rate key), never per row. (Mode B is ordered by kind, so the row must
+            # be found by uid rather than taken from the head of the file.)
+            uids = {uid for uid, _k in declared}
+            ai = b["headers"].index("cost_adhesive")
+            checked = 0
+            for r in b["rows"]:
+                if r[ui] in uids:
+                    self.assertIsNotNone(r[ai], "%s %s" % (label, r[ui]))
+                    checked += 1
+            self.assertEqual(checked, 172, label)
+
+    # -- z07 ----------------------------------------------------------------------------------------
+    def test_z07_every_derived_cell_carries_the_red_fill_in_the_xlsx(self):
+        """Owner, 2026-09-27, on the review files: "highlight the cells which are derived and should not
+        be edited in red background fill ... currently it is not clear which cells are not editable."
+
+        A derived cell is exported EMPTY, so the fill is the ONLY thing on the sheet that says a pricer
+        may not type in it. Pinned in BOTH modes, with the NEGATIVE half: no OTHER cell is filled."""
+        import openpyxl
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        ex = self._ex()
+        disc = self._disc("hvac")
+        cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                    {"discipline": disc, "active": 1,
+                                     "category_id": "hvac_insulation"}, "config"))
+        ins_only = {(uid, k) for uid, keys in cfg["derived_rates"].items() for k in keys}
+        # Mode B spans EVERY category, so ADP's 12 cross-talk cells are filled there too -- the set has
+        # to widen with the file, or the test would report the correct behaviour as a defect.
+        all_cats = dict(ins_only)
+        all_cats = set(ins_only)
+        for c in frappe.get_all("BoQ Rate Category Config",
+                                filters={"discipline": disc, "active": 1}, fields=["config"]):
+            for uid, keys in (_obj(c["config"]).get("derived_rates") or {}).items():
+                for k in keys:
+                    all_cats.add((uid, k))
+        for label, blob, b, declared, want_n in (
+            ("mode A", ex.build_category_xlsx(disc, "hvac_insulation")[0],
+             ex.build_category_rows(disc, "hvac_insulation"), ins_only, 228),
+            ("mode B", ex.build_all_categories_xlsx(disc)[0], ex.build_all_categories_rows(disc),
+             all_cats, 240),
+        ):
+            ws = openpyxl.load_workbook(io.BytesIO(blob)).worksheets[0]
+            headers = b["headers"]
+            ui = headers.index("item_uid")
+            filled = 0
+            for r_idx, row in enumerate(b["rows"], start=3):      # 1 header + 1 formula row
+                for c_idx, name in enumerate(headers, start=1):
+                    cell = ws.cell(row=r_idx, column=c_idx)
+                    is_red = (cell.fill is not None and cell.fill.fill_type == "solid"
+                              and (cell.fill.start_color.rgb or "") == xlsx_io.DERIVED_FILL_HEX)
+                    want = (row[ui], name) in declared
+                    self.assertEqual(is_red, want, "%s %s %s" % (label, row[ui], name))
+                    filled += 1 if is_red else 0
+            self.assertEqual(filled, want_n, label)
+
+    # -- z05 ----------------------------------------------------------------------------------------
+    def test_z05_an_untouched_round_trip_of_a_derived_category_is_still_a_silent_no_op(self):
+        ex = self._ex()
+        disc = self._disc("hvac")
+        for cat in ("hvac_insulation", "hvac_adp"):
+            b = ex.build_category_rows(disc, cat)
+            for fmt in ("csv", "xlsx"):
+                raw = (ex.to_csv(b["headers"], [list(b["formula_row"])] + b["rows"]).encode("utf-8")
+                       if fmt == "csv" else
+                       ex.to_xlsx(b["headers"], [list(b["formula_row"])] + b["rows"], b["numeric"]))
+                plan = csv_importer.build_plan(disc, raw, category_id=cat)
+                where = "%s / %s" % (cat, fmt)
+                self.assertEqual(plan["errors"], [], where)
+                self.assertEqual(plan["counts"]["unchanged"], b["n"], where)
+                self.assertEqual(plan["changes"], [], where)

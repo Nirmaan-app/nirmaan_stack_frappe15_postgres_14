@@ -59,10 +59,12 @@ PURE: this module reads the database and returns text / bytes. It writes nothing
 import csv
 import io
 import json
+import math
+import re
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import spec_reader, xlsx_io
+from nirmaan_stack.services.boq_rate_master import config_validation, spec_reader, xlsx_io
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -154,6 +156,18 @@ def _load_full(discipline):
     return items, kind_cat, cat_kinds, attr_types
 
 
+def _load_configs(discipline):
+    """{category_id: config} for one discipline, active rows only. SLICE 12a: the formula row and the
+    two formula columns are rendered FROM THE CONFIG (its pipelines, its `rate_composition`, its
+    `derived_rates`), so the builders need the configs themselves and not only the attribute types."""
+    out = {}
+    for c in frappe.get_all(CONFIG_DOCTYPE,
+                            filters={"discipline": discipline, "active": 1},
+                            fields=["category_id", "config"], order_by="category_id asc"):
+        out[c["category_id"]] = _parsed(c["config"], {})
+    return out
+
+
 def multi_kind_categories(cat_kinds):
     """The categories whose config lists MORE THAN ONE item kind -- the only ones whose rows need a
     `kind` cell to be typed (owner X-d)."""
@@ -241,6 +255,53 @@ def _lead_headers(with_kind, mode_b=None):
     return hdr
 
 
+def _source_order(items):
+    """The items in the SOURCE WORKBOOK'S OWN ORDER (owner, 2026-09-27: "can we keep the order of rows
+    and columns as per the original excell sheet"). Sheet first, then row, then uid as the tie-break.
+
+    ⚠️ SHEET FIRST is load-bearing: `popup_boxes` and `wiring_cabling` each draw from TWO sheets, and
+    ordering on the row number alone would interleave them. PRESENTATION ONLY -- the importer keys rows
+    by `item_uid`, never by position (pinned).
+    """
+    def key(it):
+        row = it.get("source_row")
+        return ((it.get("source_sheet") or ""), 0 if row not in (None, "") else 1,
+                int(row) if str(row).strip().lstrip("-").isdigit() else 0,
+                it.get("item_uid") or "")
+    return sorted(items, key=key)
+
+
+def _sheet_column_order(cfg, attrs, rates):
+    """(attrs, rates) in the SOURCE SHEET'S own left-to-right order, for a category that DECLARES one.
+
+    The declaration is `rate_composition`, which already names the cost parts in the sheet's order plus
+    the wastage and the markup -- so the order is read from config, never from a list in code (the HV-10
+    rule). Attributes follow the config's own `attribute_definitions` order, which is the order they were
+    authored in from the sheet.
+
+    A category with NO `rate_composition` (ADP, every Electrical category) keeps TODAY'S sorted order,
+    byte-identical -- there is no sheet order declared for it to follow, and inventing one would reorder
+    files the owner did not ask about.
+    """
+    comp = cfg.get(config_validation.RATE_COMPOSITION_KEY) or {}
+    if not comp:
+        return attrs, rates
+    declared = [d["id"] for d in (cfg.get("attribute_definitions") or [])
+                if isinstance(d, dict) and d.get("id")]
+    ordered_attrs = [a for a in declared if a in attrs] + [a for a in attrs if a not in declared]
+    seq = []
+    for side in ("supply", "install"):
+        spec = comp.get(side) or {}
+        for k in list(spec.get("parts") or []) + [spec.get("wastage_key")]:
+            if k and k in rates and k not in seq:
+                seq.append(k)
+    for side in ("supply", "install"):            # the markups last, after every cost part
+        k = (comp.get(side) or {}).get("markup_key")
+        if k and k in rates and k not in seq:
+            seq.append(k)
+    return ordered_attrs, seq + [r for r in rates if r not in seq]
+
+
 def build_category_rows(discipline, category_id):
     """MODE A -- one category, format-neutral. Returns {headers, rows (raw values), numeric, n}.
 
@@ -273,16 +334,29 @@ def build_category_rows(discipline, category_id):
             attrs = sorted({d["id"] for d in defs if isinstance(d, dict) and d.get("id")})
 
     with_kind = file_carries_kind(cat_kinds, category_id)
-    headers = _lead_headers(with_kind, mode_b=False) + attrs + rates
+    cfg = _load_configs(discipline).get(category_id) or {}
+    rows_in = _source_order(rows_in)                      # owner 2026-09-27: the workbook's row order
+    attrs, rates = _sheet_column_order(cfg, attrs, rates)  # and its column order, where declared
+    # SLICE 12a (owner I-6): the two read-only formula columns, LAST, on every row of every
+    # discipline. They are TEXT, so they must stay out of `_numeric_columns` -- which they do by
+    # construction: they are neither an attribute nor a rate key.
+    headers = _lead_headers(with_kind, mode_b=False) + attrs + rates + list(FORMULA_COLUMNS)
+    texts, derived_by_key = formula_cells_for(cfg, rows_in)
+    derived = config_validation.derived_cells(cfg)
     rows = []
     for it in rows_in:
         rows.append(
             _lead(it, with_kind, discipline, category_id)
             + [it["attributes"].get(a) for a in attrs]
-            + [it["rates"].get(r) for r in rates]
+            + [_rate_cell(it, r, derived) for r in rates]
+            + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
     return {"headers": headers, "rows": rows, "n": len(rows),
-            "numeric": _numeric_columns(attrs, rates, attr_types)}
+            "numeric": _numeric_columns(attrs, rates, attr_types),
+            "formula_row": formula_row_cells(cfg, headers, set(rates), derived_by_key),
+            # one set per row: the cells a pricer must NOT type in (owner 2026-09-27 -- the .xlsx
+            # fills them red, because an EMPTY cell says nothing about whether it is editable)
+            "locked": [{r for r in rates if (it["item_uid"], r) in derived} for it in rows_in]}
 
 
 def build_all_categories_rows(discipline):
@@ -300,7 +374,23 @@ def build_all_categories_rows(discipline):
     else:
         attrs, rates = _keys_for(items)
     with_kind = file_carries_kind(cat_kinds, None)
-    headers = _lead_headers(with_kind, mode_b=True) + attrs + rates
+    # owner 2026-09-27: within a CATEGORY, the workbook's own row order. Mode B spans every category,
+    # so the category groups the file and the workbook orders each group.
+    items = sorted(_source_order(items), key=lambda it: kind_cat.get(it["kind"], ""))
+    headers = _lead_headers(with_kind, mode_b=True) + attrs + rates + list(FORMULA_COLUMNS)
+    # SLICE 12a: Mode B spans every category, so each ROW's formula text is rendered against ITS OWN
+    # category's config, and the formula ROW joins the per-category notes for a shared rate column.
+    configs = _load_configs(discipline)
+    items_by_cat = {}
+    for it in items:
+        items_by_cat.setdefault(kind_cat.get(it["kind"], ""), []).append(it)
+    texts, derived_by_cat, derived_cells_by_cat = {}, {}, {}
+    for cat, cat_items in items_by_cat.items():
+        t, dk = formula_cells_for(configs.get(cat) or {}, cat_items)
+        texts.update(t)
+        derived_by_cat[cat] = dk
+        # resolved ONCE per category, never per cell -- Mode B is 1,367 rows x ~45 columns
+        derived_cells_by_cat[cat] = config_validation.derived_cells(configs.get(cat) or {})
     rows = []
     for it in items:
         if it["kind"] in spec_kinds:
@@ -310,50 +400,486 @@ def build_all_categories_rows(discipline):
         rows.append(
             _lead(it, with_kind, discipline, kind_cat.get(it["kind"], ""))
             + attr_cells
-            + [it["rates"].get(r) for r in rates]
+            + [_rate_cell(it, r, derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})
+               for r in rates]
+            + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
     return {"headers": headers, "rows": rows, "n": len(rows),
-            "numeric": _numeric_columns(attrs, rates, attr_types)}
+            "numeric": _numeric_columns(attrs, rates, attr_types),
+            "locked": [{r for r in rates
+                        if (it["item_uid"], r)
+                        in (derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})}
+                       for it in items],
+            "formula_row": formula_row_cells_all(configs, headers, set(rates), derived_by_cat,
+                                                 set(items_by_cat),
+                                                 {c: set().union(*[set(i["rates"]) for i in its])
+                                                  if its else set()
+                                                  for c, its in items_by_cat.items()})}
 
 
 # ── writers ──────────────────────────────────────────────────────────────────────────────────
 
 
-def to_csv(headers, rows):
+def to_csv(headers, rows, formula_row=None):
     """csv.writer with \\r\\n (the RFC line ending Excel expects) and a UTF-8 BOM so Excel renders
-    non-ASCII correctly -- the same BOM convention exportReviewCsv already uses. Values as stored."""
+    non-ASCII correctly -- the same BOM convention exportReviewCsv already uses. Values as stored.
+
+    SLICE 12a: `formula_row` is written FIRST, directly under the header. A newline inside a quoted
+    CSV field is legal and survives the round trip, so the same multi-line text the .xlsx wraps reads
+    as indented lines here -- PLAINLY, with no colour (owner I-6: "CSV plain")."""
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\r\n")
     w.writerow(headers)
+    if formula_row:
+        w.writerow([_cell(v) for v in formula_row])
     for r in rows:
         w.writerow([_cell(v) for v in r])
     return "﻿" + buf.getvalue()
 
 
-def to_xlsx(headers, rows, numeric):
-    """One-sheet workbook bytes: text columns as TEXT, the numeric columns as numbers (xlsx_io)."""
-    return xlsx_io.write_xlsx(headers, rows, numeric)
+def to_xlsx(headers, rows, numeric, formula_row=None, locked=None):
+    """One-sheet workbook bytes: text columns as TEXT, the numeric columns as numbers (xlsx_io).
+
+    SLICE 12a: the formula row goes first and the formula columns wrap, both COLOURED -- the colour is
+    emphasis only, which is why the CSV can drop it and still read (owner I-6). `locked` additionally
+    fills every DERIVED cell RED, which is NOT mere emphasis: those cells are exported empty, so
+    without it nothing on the sheet says a pricer may not type in them (owner 2026-09-27). The CSV
+    cannot carry a fill, and there the row's `supply_formula` / `install_formula` is the only signal."""
+    return xlsx_io.write_xlsx(headers, rows, numeric, formula_row=formula_row,
+                              wrap_columns=FORMULA_COLUMNS, fill_columns_by_row=locked)
 
 
 def build_category_csv(discipline, category_id):
     """MODE A as CSV: (text, headers, row_count)."""
     b = build_category_rows(discipline, category_id)
-    return to_csv(b["headers"], b["rows"]), b["headers"], b["n"]
+    return to_csv(b["headers"], b["rows"], b.get("formula_row")), b["headers"], b["n"]
 
 
 def build_all_categories_csv(discipline):
     """MODE B as CSV: (text, headers, row_count)."""
     b = build_all_categories_rows(discipline)
-    return to_csv(b["headers"], b["rows"]), b["headers"], b["n"]
+    return to_csv(b["headers"], b["rows"], b.get("formula_row")), b["headers"], b["n"]
 
 
 def build_category_xlsx(discipline, category_id):
     """MODE A as .xlsx: (bytes, headers, row_count)."""
     b = build_category_rows(discipline, category_id)
-    return to_xlsx(b["headers"], b["rows"], b["numeric"]), b["headers"], b["n"]
+    return (to_xlsx(b["headers"], b["rows"], b["numeric"], b.get("formula_row"), b.get("locked")),
+            b["headers"], b["n"])
 
 
 def build_all_categories_xlsx(discipline):
     """MODE B as .xlsx: (bytes, headers, row_count)."""
     b = build_all_categories_rows(discipline)
-    return to_xlsx(b["headers"], b["rows"], b["numeric"]), b["headers"], b["n"]
+    return (to_xlsx(b["headers"], b["rows"], b["numeric"], b.get("formula_row"), b.get("locked")),
+            b["headers"], b["n"])
+
+
+# -- SLICE 12a: THE FORMULA EXPLANATIONS (owner I-5 / I-6 / I-7 / I-7a / I-8) ----------------------
+#
+# TWO surfaces, both generated, both INERT on upload:
+#
+#   THE COLUMN-LEVEL FORMULA ROW (I-7) -- the first row UNDER the header, one cell per column, saying
+#   what each computed rate column IS and how to update it. Generated from the category's OWN
+#   pipelines (Electrical, ADP), from `rate_composition` where a category has no pipelines yet
+#   (Insulation), and from `derived_rates` for a column some rows derive. I-7a adds, on each markup
+#   column, the rule the file cannot otherwise show: the BoQ rate is the cost x (1 + markup), rounded
+#   up. It is a NOTE, not a column -- nothing computes from it.
+#
+#   THE ROW-LEVEL FORMULA COLUMNS (I-6) -- `supply_formula` and `install_formula`, on EVERY row of
+#   EVERY discipline, read-only, showing that row's own arithmetic with each step's result and the
+#   numbers grouped. A plainly typed cost reads `typed`.
+#
+# WHY THE HEADER STAYS ROW 1 (owner-confirmed 2026-09-26). `csv_importer.parse_csv_text` and
+# `xlsx_io.read_xlsx` both read row 1 as the headers. The formula row is therefore the first row
+# UNDER the header, marked by `FORMULA_ROW_MARKER` in its `item_uid` cell, and the importer drops it
+# by that marker wherever it sits. Deleting it, blanking it or overwriting it all upload as before
+# (I-8) -- see `csv_importer._FORMULA_COLUMNS` and the marker skip.
+#
+# A CROSS-LANGUAGE DUPLICATION, DELIBERATELY. `rateMasterSpec.ts` renders the SAME text for the Rate
+# Master screen (U4/K1 want the explanation on screen, and the screen cannot call an exporter for one
+# cell). The two are pinned to byte-identical output on a shared fixture -- `test_rate_master`'s
+# `FORMULA_FIXTURE` and `rateMasterSpec.test.ts`'s copy of it -- exactly as `node_is_qty_bearing` /
+# `isRowQtyBearing` and `_NUMERIC_ATTR_TYPES` / `isNumericAttributeType` already are.
+FORMULA_COLUMNS = ("supply_formula", "install_formula")
+FORMULA_ROW_MARKER = "(formula row -- not an item; ignored on upload)"
+FORMULA_TYPED = "typed"
+# Owner, 2026-09-27: the word that stands in a DERIVED cost cell, so the cell is never EMPTY --
+# "i cannot make out" was said of an empty one. Short and lowercase so it cannot be mistaken for a
+# value. In the CSV, which carries neither colour nor sheet protection, this word is the ONLY signal.
+# ⚠️ The importer must read it as "untouched", NOT as a number it cannot parse -- see
+# `csv_importer` DERIVED_CELL_TEXT.
+DERIVED_CELL_TEXT = "derived"
+# The BoQ-rate rule the file cannot otherwise show (owner I-7a): a cost column plus a markup column
+# is a BoQ rate nobody typed. Emitted on the markup columns only, so a discipline with no stored
+# markup column (Electrical -- its markups live in pipeline params) never sees it.
+BOQ_RATE_NOTE = "BoQ rate = cost x (1 + markup), rounded up."
+_MARKUP_MARKER = "markup"
+# Owner, 2026-09-27 ("trim electrical"): a column note carries the PLAIN-ENGLISH explanation only.
+# The internal pipeline name and the step expression -- `pipelines.tray_boq_supply: base*factor --`
+# -- help nobody maintaining a RATE; the sentence after them is the owner's own reasoning, carried
+# forward from the config, and it is the part worth reading. A step with no explanation of its own
+# still says something true and short rather than an expression or a blank.
+_NOTE_MAX_CHARS = 300
+_NOTE_FALLBACK = "computed by this category's pricing rules"
+_INSTALL_MARKER = "install"
+
+
+def _fmt_num(value):
+    """A number as the formula text writes it: grouped thousands, an integer with no decimals, and at
+    most two decimals otherwise with trailing zeros trimmed. MIRRORED in `rateMasterSpec.formatNum` --
+    the two must agree character for character or the file and the screen disagree about a figure."""
+    if value is None:
+        return ""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return str(value)
+    if value != value or value in (float("inf"), float("-inf")):
+        return str(value)
+    if float(value).is_integer():
+        return "{:,}".format(int(value))
+    txt = "{:,.2f}".format(float(value))
+    if txt.endswith("0"):
+        txt = txt[:-1]
+    return txt
+
+
+def _wording_attr_ids(cfg):
+    """The attribute ids that NAME a row, in display order: the two text keys for a spec-read category,
+    else every definition except brand (brand is its own named column)."""
+    defs = [d for d in (cfg.get("attribute_definitions") or []) if isinstance(d, dict) and d.get("id")]
+    if cfg.get("attributes_from_spec") is True:
+        have = {d["id"] for d in defs}
+        return [a for a in TEXT_COLUMNS if a in have]
+    return [d["id"] for d in defs if d["id"] != "brand"]
+
+
+def base_wording(cfg, item):
+    """A base row AS WORDING, with its id at the end (owner I-5, "your way"): brand, the attributes
+    that name it, the unit -- then `[item_uid]`. A catalogue WORDING change therefore cannot
+    invalidate a declaration: only the uid is stored, the wording is looked up at render time."""
+    if item is None:
+        return ""
+    bits = []
+    if item.get("brand"):
+        bits.append(str(item["brand"]))
+    attrs = item.get("attributes") or {}
+    for aid in _wording_attr_ids(cfg):
+        v = attrs.get(aid)
+        if v not in (None, ""):
+            bits.append(_fmt_num(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v))
+    if item.get("unit"):
+        bits.append(str(item["unit"]))
+    return ", ".join(bits) + " [" + str(item.get("item_uid") or "") + "]"
+
+
+def _side_of(rate_key):
+    """Which formula column a rate key is talked about in. A key naming `install` is the install side;
+    everything else is supply. A NAME test, and it is only ever used to pick WHICH of the two columns
+    mentions a cell -- never to decide a price."""
+    return "install" if _INSTALL_MARKER in (rate_key or "").lower() else "supply"
+
+
+# What a step DOES, for a step that carries neither a formula nor an explain of its own.
+_STEP_PROSE = {
+    "component_ref": "read off ANOTHER catalogue row, as one component of an assembly total",
+    "component": "read off THIS row, as one component of an assembly total",
+    "component_band": "read off THIS row, banded by the selected value",
+    "scale": "scaled",
+    "roundup": "rounded up",
+    "apply_effective_multiplier": "the supplier discount and the company markup applied",
+    "install_as_ratio": "taken as a ratio of the supply figure",
+}
+
+
+def _steps_reading(cfg, rate_key):
+    """[(pipeline label, formula, explain, step type)] for every pipeline step that READS this rate key
+    -- the generated half of a column note (owner I-9: for Electrical the explanations come from the
+    pipeline configs). Walks the top-level pipelines and the item-list families' blocks alike."""
+    out = []
+    for label, _fam, _uc, steps, _is_conv in config_validation._pipeline_scopes(cfg):
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            explain = (s.get("explain") or "").strip()
+            if s.get("target") == rate_key:
+                out.append((label, s.get("formula") or "", explain, s.get("step") or ""))
+                continue
+            # ⚠️ A `component_band` names its targets inside `bands[*].target`, NOT in `step.target`.
+            # Found in the browser cert: both gland columns read "no pipeline reads it yet", which is
+            # false -- termination_boq reads whichever band the thickness falls in.
+            for band in (s.get("bands") or []):
+                if isinstance(band, dict) and band.get("target") == rate_key:
+                    when = str(band.get("when") or "").strip()
+                    said = explain or ("used when %s %s" % (s.get("band_on") or "the banded value", when)
+                                       if when else "")
+                    out.append((label, s.get("formula") or "", said, s.get("step") or ""))
+                    break
+    return out
+
+
+def _composition_role(cfg, rate_key):
+    """('part' | 'wastage' | 'markup' | None, side, spec) -- what `rate_composition` says this rate key
+    is. Config-declared, never a name in code (the HV-10 rule)."""
+    comp = cfg.get(config_validation.RATE_COMPOSITION_KEY) or {}
+    for side, spec in comp.items():
+        if not isinstance(spec, dict):
+            continue
+        if rate_key in (spec.get("parts") or []):
+            return "part", side, spec
+        if rate_key == spec.get("wastage_key"):
+            return "wastage", side, spec
+        if rate_key == spec.get("markup_key"):
+            return "markup", side, spec
+    return None, None, None
+
+
+def column_note(cfg, rate_key, derived_uids=()):
+    """The FORMULA ROW's cell for one rate column (owner I-7). PURE. Mirrored in
+    `rateMasterSpec.columnNote`."""
+    lines = []
+    if derived_uids:
+        lines.append("DERIVED on %d row(s): the value comes from another catalogue row -- see that "
+                     "row's supply_formula / install_formula." % len(derived_uids))
+    role, side, spec = _composition_role(cfg, rate_key)
+    if role == "part":
+        parts = " + ".join(spec.get("parts") or [])
+        tail = ""
+        if spec.get("wastage_key"):
+            tail += " x (1 + %s)" % spec["wastage_key"]
+        lines.append("a PART of the %s cost: (%s)%s, rounded up." % (side, parts, tail))
+    elif role == "wastage":
+        lines.append("the %s wastage fraction: (%s) x (1 + this), rounded up."
+                     % (side, " + ".join(spec.get("parts") or [])))
+    elif role == "markup":
+        lines.append("the %s markup fraction." % side)
+    # GROUPED BY WHAT THE STEP DOES, not by which pipeline does it. ADP's `cost_supply` is read by 62
+    # pipelines that between them do FOUR different things, so one line per pipeline made the cell
+    # unreadable -- and an unreadable explanation is the same as none. Identical (formula, explain)
+    # pairs collapse to one line, in first-seen order, naming the pipeline only when just one does it.
+    # THE EXPLANATION ONLY, deduplicated, in first-seen order. A step with no explanation of its own
+    # falls back to what the STEP DOES (db_switchgear's eighteen `component_ref`s are all of this
+    # shape), and an unknown step to the generic line -- never an expression, never a blank.
+    for _label, _formula, explain, step in _steps_reading(cfg, rate_key):
+        said = explain or _STEP_PROSE.get(step) or _NOTE_FALLBACK
+        if said not in lines:
+            lines.append(said)
+    if _MARKUP_MARKER in (rate_key or "").lower():
+        lines.append(BOQ_RATE_NOTE)
+    if not lines:
+        lines.append("a TYPED rate. No pipeline reads it yet.")
+    # THE CAP IS PER LINE, NOT PER NOTE. Applied to the whole note it kept only the FIRST line and
+    # dropped the rest: ADP's `cost_supply` carries EIGHT distinct explanations, every one short,
+    # and a whole-note cap cut it to the DERIVED banner alone. Per line tames the genuinely long
+    # ones (the LMS inversion warning, the wiring conduit ruling) and keeps every explanation.
+    return "\n".join(_capped(l) for l in lines)
+
+
+def _capped(text, limit=_NOTE_MAX_CHARS):
+    """A note the length of a paragraph is true and unreadable -- the wiring `list_price_per_mtr` note
+    ran to several hundred characters of conduit and parallel-run rulings in ONE cell. Past the cap,
+    keep whole leading SENTENCES (never a word cut in half) and end with an ellipsis so the reader
+    knows there is more; the full text is always in the config and on the Derivation tab."""
+    if len(text) <= limit:
+        return text
+    kept = ""
+    for piece in re.split(r"(?<=[.!?])\s+", text):
+        if kept and len(kept) + 1 + len(piece) > limit:
+            break
+        kept = (kept + " " + piece).strip() if kept else piece
+    if not kept:
+        kept = text[:limit].rsplit(" ", 1)[0]
+    return kept.rstrip() + " ..."
+
+
+def formula_row_cells(cfg, headers, rate_keys, derived_by_key):
+    """The FORMULA ROW aligned with `headers` (owner I-7). `item_uid` carries the marker so the
+    importer can drop the row wherever it sits; every identity / attribute cell is blank."""
+    cells = []
+    for name in headers:
+        if name == "item_uid":
+            cells.append(FORMULA_ROW_MARKER)
+        elif name in FORMULA_COLUMNS:
+            cells.append("How this row's %s cost is built. Read-only: edits here are ignored."
+                         % ("install" if name.startswith("install") else "supply"))
+        elif name in rate_keys:
+            cells.append(column_note(cfg, name, derived_by_key.get(name) or ()))
+        else:
+            cells.append("")
+    return cells
+
+
+def _part_label(rate_key):
+    """A part's human word in the row-level text: its key with the `cost_` prefix dropped and
+    underscores spaced, so `cost_install_insulation` reads `install insulation`."""
+    key = rate_key[5:] if rate_key.startswith("cost_") else rate_key
+    return key.replace("_", " ")
+
+
+def row_formula(cfg, item, side, base_lookup):
+    """The ROW-LEVEL formula cell for one item and one side (owner I-6). PURE. Mirrored in
+    `rateMasterSpec.rowFormula`.
+
+    `base_lookup(item_uid)` returns the base item dict (for the I-5 wording) or None.
+
+    A category declaring `rate_composition` shows each step's own result; a derived cost with no
+    composition names its base row; anything else reads `typed`.
+    """
+    rates = item.get("rates") or {}
+    cells = config_validation.derived_cells(cfg)
+    uid = item.get("item_uid")
+
+    def derived_note(rate_key):
+        terms = cells.get((uid, rate_key))
+        if not terms:
+            return None
+        bits = []
+        for t in terms:
+            src = t.get("from") or {}
+            word = base_wording(cfg, base_lookup(src.get("item_uid"))) or str(src.get("item_uid") or "")
+            bit = "%s of %s" % (src.get("rate_key"), word)
+            mult = t.get("multiplier", 1.0)
+            const = t.get("constant", 0.0)
+            if mult != 1:
+                bit += " x " + _fmt_num(mult)
+            if const:
+                bit += " + " + _fmt_num(const)
+            bits.append(bit)
+        return " plus ".join(bits)
+
+    comp = (cfg.get(config_validation.RATE_COMPOSITION_KEY) or {}).get(side)
+    if isinstance(comp, dict):
+        lines = []
+        total = 0.0
+        known = True
+        for i, part in enumerate(comp.get("parts") or []):
+            v = rates.get(part)
+            note = derived_note(part)
+            if v is None:
+                known = False
+                txt = "(not set)"
+            else:
+                total += float(v)
+                txt = _fmt_num(v)
+            prefix = "" if i == 0 else "+ "
+            line = "%s%s %s" % (prefix, _part_label(part), txt)
+            if note:
+                line += "  <- derived from " + note
+            lines.append(line)
+        if not known:
+            return "\n".join(lines) if lines else FORMULA_TYPED
+        lines.append("= " + _fmt_num(total))
+        running = total
+        wkey = comp.get("wastage_key")
+        if wkey and rates.get(wkey) is not None:
+            running = running * (1.0 + float(rates[wkey]))
+            lines.append("x (1 + %s %s) = %s" % (_part_label(wkey), _fmt_num(rates[wkey]),
+                                                 _fmt_num(running)))
+        digits = comp.get("roundup", 0)
+        running = _roundup(running, digits)
+        lines.append("ROUNDUP -> %s   (total BCS %s)" % (_fmt_num(running), side))
+        mkey = comp.get("markup_key")
+        if mkey and rates.get(mkey) is not None:
+            running = running * (1.0 + float(rates[mkey]))
+            lines.append("x (1 + %s %s) = %s" % (_part_label(mkey), _fmt_num(rates[mkey]),
+                                                 _fmt_num(running)))
+            running = _roundup(running, digits)
+            lines.append("ROUNDUP -> %s   (BoQ %s)" % (_fmt_num(running), side))
+        return "\n".join(lines)
+
+    notes = []
+    for rate_key in sorted(rates.keys()) + sorted(
+        k for (u, k) in cells if u == uid and k not in rates
+    ):
+        if _side_of(rate_key) != side:
+            continue
+        note = derived_note(rate_key)
+        if note:
+            notes.append("%s <- derived from %s" % (rate_key, note))
+    if notes:
+        return "\n".join(notes)
+    return FORMULA_TYPED
+
+
+def _roundup(value, digits=0):
+    """Excel ROUNDUP away from zero, the same rule `ratePipelineInterpreter` applies."""
+    factor = 10.0 ** digits
+    scaled = value * factor
+    if scaled >= 0:
+        return math.ceil(scaled - 1e-9) / factor
+    return -math.ceil(-scaled - 1e-9) / factor
+
+
+def _derived_by_key(cfg, items):
+    """{rate_key: [item_uid, ...]} over the items IN THIS FILE whose cell is declared derived."""
+    cells = config_validation.derived_cells(cfg)
+    present = {it["item_uid"] for it in items}
+    out = {}
+    for (uid, rate_key) in cells:
+        if uid in present:
+            out.setdefault(rate_key, []).append(uid)
+    return out
+
+
+def _rate_cell(item, rate_key, derived):
+    """A rate cell for the file. A DECLARED DERIVED cell is written EMPTY (owner I-2 / I-3).
+
+    ⚠️ IT DOES NOT CARRY ITS FIGURE, AND THAT IS A CORRECTNESS CHOICE, NOT TIDINESS. Exporting the figure made the .xlsx round trip refuse ITSELF: a cladding cost such as
+    46.0587... is 17 significant digits in Python and ~15 in a workbook, so the value read back
+    differed in its last digit and the derived guard, comparing type-strictly as this module must,
+    called an untouched cell an edit. An empty cell cannot drift. The figure is NOT lost -- the row's
+    `supply_formula` / `install_formula` names it AND the row it comes from, which is more than the
+    bare number ever said.
+
+    ⚠️ AND IT IS NOT BLANK EITHER (owner, 2026-09-27). A blank cell in this file already means three
+    other things -- not applicable, not filled in yet, and not editable -- so it carried no signal at
+    all. The cell holds the WORD `derived`, which the importer reads as "untouched" exactly as it reads
+    a blank one.
+    """
+    if (item["item_uid"], rate_key) in derived:
+        return DERIVED_CELL_TEXT
+    return item["rates"].get(rate_key)
+
+
+def formula_cells_for(cfg, items):
+    """({item_uid: [supply text, install text]}, formula-row-ready derived map). PURE."""
+    by_uid = {it["item_uid"]: it for it in items}
+    texts = {}
+    for it in items:
+        texts[it["item_uid"]] = [row_formula(cfg, it, "supply", by_uid.get),
+                                 row_formula(cfg, it, "install", by_uid.get)]
+    return texts, _derived_by_key(cfg, items)
+
+
+def formula_row_cells_all(configs, headers, rate_keys, derived_by_cat, cats_in_file,
+                          keys_by_cat=None):
+    """MODE B's formula row: one cell per column, joining the per-category notes for a rate column
+    several categories share, each labelled by its category id. A column no category in the file
+    describes falls back to the same "a TYPED rate" line Mode A uses, so the two modes never disagree
+    about a column they both carry."""
+    keys_by_cat = keys_by_cat or {}
+    cells = []
+    for name in headers:
+        if name == "item_uid":
+            cells.append(FORMULA_ROW_MARKER)
+            continue
+        if name in FORMULA_COLUMNS:
+            cells.append("How this row's %s cost is built. Read-only: edits here are ignored."
+                         % ("install" if name.startswith("install") else "supply"))
+            continue
+        if name not in rate_keys:
+            cells.append("")
+            continue
+        notes = []
+        for cat in sorted(cats_in_file):
+            cfg = configs.get(cat) or {}
+            # ONLY the categories that actually CARRY this column. Mode B is the UNION of every
+            # category rate key, so without this every one of the twelve contributed a line
+            # saying "no pipeline reads it yet" about a column it does not even have -- fifty
+            # columns of twelve-line noise, with the one category it belongs to lost in it.
+            if not cfg or name not in (keys_by_cat.get(cat) or set()):
+                continue
+            note = column_note(cfg, name, (derived_by_cat.get(cat) or {}).get(name) or ())
+            if note and note not in notes:
+                notes.append(cat + ": " + note.replace("\n", "\n  "))
+        cells.append("\n".join(notes) if notes else column_note({}, name))
+    return cells

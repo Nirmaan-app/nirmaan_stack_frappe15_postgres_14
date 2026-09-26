@@ -83,7 +83,8 @@ import json
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader, spec_reader, xlsx_io
+from nirmaan_stack.services.boq_rate_master import (config_validation, csv_exporter, exporter, freeze,
+                                                      loader, spec_reader, xlsx_io)
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -126,6 +127,20 @@ MAJOR_RATE_CHANGE_PCT = 10.0
 
 _LEAD = set(csv_exporter.LEAD_COLUMNS)          # item_uid, kind, brand, unit (kind OPTIONAL since 1e)
 _TAIL = set(csv_exporter.TAIL_COLUMNS)          # source_sheet, source_row -- SYSTEM columns: IGNORED since 1e
+# SLICE 12a (owner I-8): the two row-level formula columns and the formula ROW are EXPLANATIONS, not
+# data. "leaving it blank or overwriting it should not do anything" -- so the columns drop into the
+# `ignored` bucket that has carried `source_sheet` / `source_row` since 1e (read past, never applied,
+# never compared), and the formula row is dropped by its marker BEFORE any cell of it is read. Blanked,
+# overwritten and DELETED all behave identically, and a row whose only change is in them counts as
+# UNCHANGED -- `new_payload` is built from kind / brand / unit / attributes / rates / source_* only, so
+# the comparison cannot see a column that never entered the payload.
+_FORMULA_COLUMNS = set(csv_exporter.FORMULA_COLUMNS)
+_FORMULA_ROW_MARKER = csv_exporter.FORMULA_ROW_MARKER
+# Owner, 2026-09-27: a derived cell now carries the WORD `derived` rather than being blank, so
+# that it is never an ordinary empty cell. The importer must read that word EXACTLY as it reads a
+# blank -- "untouched" -- and NOT as a number it failed to parse. Case-insensitive, because Excel
+# and a pricer both capitalise.
+_DERIVED_CELL_TEXT = csv_exporter.DERIVED_CELL_TEXT
 _CATEGORY = csv_exporter.CATEGORY_COLUMN        # `category` -- in EVERY file since 1g (Mode B's marker before)
 _DISCIPLINE = csv_exporter.DISCIPLINE_COLUMN    # `discipline` -- in every file since 1g (owner Z-c)
 FORMAT_XLSX = csv_exporter.FORMAT_XLSX
@@ -221,6 +236,67 @@ def column_spaces(discipline):
     return attr_ids, rate_keys, attr_types, kind_cat
 
 
+def derived_rate_map(discipline, active_rows):
+    """SLICE 12a. {(item_uid, rate_key): [(term, base wording), ...]} over every active config of the
+    discipline -- the cells a config DECLARES derived, each already resolved to the wording the refusal
+    will name (owner I-5: the reference reads as wording, the id at the end).
+
+    Built ONCE per plan from the SAME `derived_cells` predicate the exporter's marking and the screen's
+    marking key on, so the file, the screen and the refusal can never disagree about which cell is
+    derived. EMPTY for a discipline whose configs declare nothing -- every Electrical config -- so its
+    upload path is byte-identical to before."""
+    by_uid = {}
+    for r in active_rows:
+        uid = (r.get("item_uid") or "").strip()
+        if uid and uid not in by_uid:
+            by_uid[uid] = {
+                "item_uid": uid,
+                "brand": r.get("brand"),
+                "unit": r.get("unit"),
+                "attributes": r["attributes"] if isinstance(r.get("attributes"), dict)
+                else json.loads(r.get("attributes") or "{}"),
+            }
+    out = {}
+    for c in frappe.get_all(CONFIG_DOCTYPE,
+                            filters={"discipline": discipline, "active": 1},
+                            fields=["category_id", "config"], order_by="category_id asc"):
+        cfg = c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+        for (uid, rate_key), terms in config_validation.derived_cells(cfg).items():
+            resolved = []
+            for t in terms:
+                src = (t.get("from") or {})
+                base = by_uid.get(src.get("item_uid"))
+                word = (csv_exporter.base_wording(cfg, base) if base
+                        else str(src.get("item_uid") or ""))
+                resolved.append((t, "%s of %s" % (src.get("rate_key"), word)))
+            out[(uid, rate_key)] = resolved
+    return out
+
+
+def derived_base_wording(resolved_terms):
+    """The base row(s) a derived cell reads, as the refusal names them."""
+    return " plus ".join(w for _t, w in resolved_terms)
+
+
+def _same_rate(typed, stored):
+    """SLICE 12a -- "did the user CHANGE this derived cell?", and ONLY that question.
+
+    ⚠️ A DELIBERATE, NARROW EXCEPTION to this module's type-strict comparison, and it earns its place
+    on the BACKWARDS-COMPATIBILITY case alone: a PRE-12a file still carries the derived figure in the
+    cell (we now export it empty), and a many-decimal cladding cost such as 46.0587... is ~15
+    significant digits in a workbook against 17 in Python -- so a faithful old file would be REFUSED
+    for a difference no human made. The tolerance is relative and microscopic; any real edit a pricer
+    types clears it by orders of magnitude. NOTHING IS REPAIRED: the value is not stored, not written
+    and not reported -- the answer is used only to decide refuse-or-ignore."""
+    if stored is None:
+        return False
+    try:
+        a, b = float(typed), float(stored)
+    except (TypeError, ValueError):
+        return False
+    return abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
+
+
 def _category_kinds(discipline):
     """SLICE 1e: {category_id: [kinds]} for one discipline -- what fills `kind` on a new row of a
     single-kind category, and what names the kinds when a multi-kind row leaves it blank."""
@@ -286,7 +362,7 @@ def classify_columns(headers, attr_ids, rate_keys):
         seen.add(name)
         if name in (_CATEGORY, _DISCIPLINE):
             spec["fixed"][name] = idx          # SLICE 1g: self-describing columns, checked in build_plan
-        elif name in _TAIL:
+        elif name in _TAIL or name in _FORMULA_COLUMNS:
             spec["ignored"][name] = idx            # a system column from an old file: read past, never applied
         elif name in _LEAD:
             spec["fixed"][name] = idx
@@ -628,6 +704,14 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     twin_decisions = {str(k): v for k, v in (twin_decisions or {}).items()}
 
     headers, data_rows, encoding, fmt = read_upload(raw)
+    # SLICE 12a (owner I-7 / I-8): the FORMULA ROW is an explanation, not an item. It is dropped by its
+    # marker -- wherever it sits and whatever its other cells now say -- BEFORE the discipline pre-scan,
+    # the row count and every other read, so overwriting its text does nothing, blanking it leaves a
+    # wholly blank line (already skipped) and DELETING it leaves an ordinary file. Matched on ANY cell
+    # rather than on a column index, because the index is not known until the columns are classified.
+    if headers is not None:
+        data_rows = [(rn, cs) for rn, cs in data_rows
+                     if not any((c or "").strip() == _FORMULA_ROW_MARKER for c in cs)]
     if headers is None:
         # an unreadable workbook: ONE named error, the same shape as a header problem
         attr_ids, rate_keys, attr_types, kind_cat = set(), set(), {}, {}
@@ -671,6 +755,10 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
             by_uid.setdefault(uid, []).append(r)
     # SLICE 1f: the meaning of every active item, ONCE per plan (keyed by uid inside, so a shared item is one).
     twin_idx = twin_index(active, spec_cats)
+    # SLICE 12a: the DECLARED derived cells of this discipline, resolved to the wording the refusal
+    # names. ONE read per plan, from the same predicate the exporter and the screen use. {} for a
+    # discipline whose configs declare nothing, so its rates loop is byte-identical to before.
+    derived_map = derived_rate_map(discipline, active)
     in_file_identities = {}      # identity -> [rows] over the rows whose identity is NEW or CHANGED (Y-b 2)
 
     plan = {
@@ -947,6 +1035,33 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
 
         for name, idx in spec["rates"].items():
             raw_text = cell(cells, idx)
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 12a (owner I-2 / I-3) -- A DERIVED COST IS REFUSED, BY NAME.
+            # A cell the config DECLARES derived belongs to another catalogue row: "those formula
+            # should be preserved even in our system so that if we make change to the base row the
+            # change gets reflected on all other rows." So a value that DIFFERS from what is stored is
+            # refused, naming the base row to edit instead.
+            # ⚠️ REFUSED ON A CHANGE, NOT ON BEING NON-BLANK. A derived cell is EXPORTED with its
+            # stored figure (blanking it in the file would teach the reader nothing and, worse, a
+            # faithful re-upload of a blank cell CLEARS a rate), so an untouched download/upload must
+            # stay a silent no-op -- which is exactly what K2 checks. Every OTHER cell of the row,
+            # including the row's own cost parts and its markups, is accepted as always (I-3).
+            # ══════════════════════════════════════════════════════════════════════════════════
+            derived_terms = derived_map.get((uid, name)) if uid else None
+            if derived_terms is not None:
+                typed, terr = coerce_rate(raw_text, name)
+                was = (stored or {}).get("rates", {}).get(name)
+                if typed is None or (raw_text or "").strip().lower() == _DERIVED_CELL_TEXT:
+                    # BLANK, or the word we export -- both mean UNTOUCHED, and neither is a clearing.
+                    pass
+                elif terr:
+                    row_errors.append(terr)
+                elif not _same_rate(typed, was):
+                    row_errors.append(
+                        "'%s' is a DERIVED cost -- it comes from %s. Edit that row instead; a value "
+                        "typed here is refused." % (name, derived_base_wording(derived_terms))
+                    )
+                continue
             if (raw_text or "").strip() == "":
                 if stored is not None and name in rates:
                     if not _blankish(rates[name]):

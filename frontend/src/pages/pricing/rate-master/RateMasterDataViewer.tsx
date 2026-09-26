@@ -37,6 +37,10 @@ import {
 import {
   SPEC_COPY, SPEC_CONFIRM_COPY, confirmedTag, isSpecDrivenConfig, specConfirmedInfo, specNotUnderstoodReason,
   specQuestion, splitSpecColumns,
+  // SLICE 12a: the derived-cost marking and the two formula surfaces, rendered by the SAME helpers the
+  // rate file uses on the server side (see the cross-language pin in rateMasterSpec.ts).
+  DERIVED_COPY, FORMULA_COLUMNS, FORMULA_TYPED, columnNote, derivedCountsByKey, isDerivedCell,
+  rowFormula, sideOfRateKey,
   type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
 } from "./rateMasterSpec";
 
@@ -207,6 +211,21 @@ export function RateMasterDataViewer({
     }
     return seen;
   }, [scopedItems]);
+
+  // SLICE 12a: the row-level formula text for every scoped item, and how many rows declare each rate
+  // column derived (what the formula row's count names). ONE pass, memoised on the items + config.
+  const formulaByUid = useMemo(() => {
+    const byUid = new Map(scopedItems.map((it) => [it.item_uid ?? "", it] as const));
+    const m = new Map<string, [string, string]>();
+    for (const it of scopedItems) {
+      m.set(it.item_uid ?? "", [
+        rowFormula(config, it, "supply", (u) => byUid.get(u ?? "")),
+        rowFormula(config, it, "install", (u) => byUid.get(u ?? "")),
+      ]);
+    }
+    return m;
+  }, [scopedItems, config]);
+  const derivedCounts = useMemo(() => derivedCountsByKey(config, scopedItems), [config, scopedItems]);
 
   // Kind filter chips = this category's kinds (present in its items), sorted.
   const kinds = useMemo(() => {
@@ -630,6 +649,12 @@ export function RateMasterDataViewer({
         <p className="text-[11px] text-muted-foreground" data-testid="spec-hint">{SPEC_COPY.hint}</p>
       )}
 
+      {/* SLICE 12a (owner I-2 / I-3): the one rule a user needs about a derived cost, said once beside
+          the table -- and ONLY where the category actually has one, so no other screen gains a line. */}
+      {Object.keys(derivedCounts).length > 0 && (
+        <p className="text-[11px] text-amber-800" data-testid="derived-hint">{DERIVED_COPY.hint}</p>
+      )}
+
       {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar).
           EA-2 rider 3: force the sticky header's top:0 with a scoped rule -- the Tailwind `top-0`
           utility is overridden to `top:auto` here (a global table reset from Ant Design), which
@@ -664,9 +689,46 @@ export function RateMasterDataViewer({
               <TableHead className="sticky top-0 z-20 bg-background">{hdr("unit", "unit")}</TableHead>
               <TableHead className="sticky top-0 z-20 bg-background">{hdr("source_sheet", "source sheet")}</TableHead>
               <TableHead className="sticky top-0 z-20 bg-background text-right">{hdr("source_row", "row", true)}</TableHead>
+              <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderSupply}</TableHead>
+              <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderInstall}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
+            {/* SLICE 12a (owner I-7 / I-7a): THE FORMULA ROW -- what each computed rate column is and
+                how to update it, in the first row under the header, exactly as the rate file carries it
+                (`csv_exporter.formula_row_cells`). Generated from the category's own pipelines, its
+                `rate_composition` and its `derived_rates`; an explanation, never data. */}
+            <TableRow data-testid="formula-row" className="bg-sky-50/60 align-top [&>td]:max-h-24 [&>td]:overflow-y-auto">
+              {canEdit && <TableCell className="sticky left-0 z-10 bg-sky-50/60" />}
+              {showKindCol && <TableCell />}
+              {textCols.map((d) => <TableCell key={d.id} />)}
+              {specMode && <TableCell />}
+              <TableCell className="text-[10px] uppercase tracking-wide text-sky-800">
+                {DERIVED_COPY.formulaRowLabel}
+              </TableCell>
+              {attrCols.map((d) => <TableCell key={d.id} />)}
+              {rateCols.map((k) => (
+                <TableCell
+                  key={k}
+                  // The note is scrollable rather than tall: unbounded, ONE long explanation made the
+                  // formula row ~250px and pushed the first item row off the screen. Same reasoning as
+                  // the .xlsx, where the owner asked for three standard rows and no more.
+                  className="max-w-[24rem] max-h-24 overflow-y-auto whitespace-pre-line text-left align-top text-[11px] italic text-sky-900"
+                  title={columnNote(config, k, derivedCounts[k] ?? 0)}
+                  data-testid={`formula-note-${k}`}
+                >
+                  {columnNote(config, k, derivedCounts[k] ?? 0)}
+                </TableCell>
+              ))}
+              <TableCell />
+              <TableCell />
+              <TableCell />
+              {FORMULA_COLUMNS.map((fc) => (
+                <TableCell key={fc} className="max-w-[22rem] whitespace-pre-line text-[11px] italic text-sky-900">
+                  {DERIVED_COPY.formulaRowHint}
+                </TableCell>
+              ))}
+            </TableRow>
             {filtered.map((r, i) => {
               const editing = canEdit && editingRow === r.it.name;
               return (
@@ -789,9 +851,21 @@ export function RateMasterDataViewer({
                     )}
                   </TableCell>
                 ))}
-                {rateCols.map((k) => (
-                  <TableCell key={k} className="text-right tabular-nums">
-                    {editing ? (
+                {rateCols.map((k) => {
+                  // SLICE 12a (owner I-2 / I-3): a DERIVED cost belongs to another catalogue row. It is
+                  // MARKED and NOT editable -- no input is rendered, so the value cannot be typed over;
+                  // the upload path refuses it server-side as well (`csv_importer`). Every OTHER cell of
+                  // the row, its own cost parts and its markups included, stays exactly as editable as
+                  // it was.
+                  const derived = isDerivedCell(config, r.it.item_uid, k);
+                  return (
+                  <TableCell
+                    key={k}
+                    className={cn("text-right tabular-nums", derived && "bg-amber-50 text-amber-900")}
+                    title={derived ? formulaByUid.get(r.it.item_uid ?? "")?.[sideOfRateKey(k) === "install" ? 1 : 0] : undefined}
+                    data-testid={derived ? "derived-rate-cell" : undefined}
+                  >
+                    {editing && !derived ? (
                       <Input
                         className="h-7 w-24 text-right text-xs"
                         inputMode="decimal"
@@ -801,21 +875,34 @@ export function RateMasterDataViewer({
                         aria-label={`${k} value`}
                       />
                     ) : r.it.rates?.[k] === undefined ? (
-                      ""
+                      derived ? <span className="text-[10px] italic">{DERIVED_COPY.cellTag}</span> : ""
                     ) : (
-                      r.it.rates[k]
+                      <>
+                        {r.it.rates[k]}
+                        {derived && (
+                          <span className="ml-1 text-[10px] italic">{DERIVED_COPY.cellTag}</span>
+                        )}
+                      </>
                     )}
                   </TableCell>
-                ))}
+                  );
+                })}
                 <TableCell>{r.it.unit}</TableCell>
                 <TableCell>{r.it.source_sheet}</TableCell>
                 <TableCell className="text-right tabular-nums">{r.it.source_row}</TableCell>
+                {/* SLICE 12a (owner I-6): the two READ-ONLY formula columns, on every row of every
+                    discipline -- the same text the rate file carries, rendered by the same helpers. */}
+                {FORMULA_COLUMNS.map((fc, fi) => (
+                  <TableCell key={fc} className="max-w-[22rem] whitespace-pre-line text-[11px] text-muted-foreground">
+                    {formulaByUid.get(r.it.item_uid ?? "")?.[fi] ?? FORMULA_TYPED}
+                  </TableCell>
+                ))}
               </TableRow>
               );
             })}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + textCols.length + (specMode ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3} className="text-center text-muted-foreground">
+                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + textCols.length + (specMode ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3 + FORMULA_COLUMNS.length} className="text-center text-muted-foreground">
                   No rows match.
                 </TableCell>
               </TableRow>
