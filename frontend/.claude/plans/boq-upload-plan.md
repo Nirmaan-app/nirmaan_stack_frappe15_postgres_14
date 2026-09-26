@@ -42026,3 +42026,250 @@ pre-slice-9-shaped runs with current-shape ones, so those sheets are now certifi
 ⚠️ **`BOQ-26-00140 / HVAC Lowside Works ` STILL HOLDS ITS PARTIAL RUN** and was deliberately not re-run: it is
 134 rows (~$1.3), no cert step needed it once `BOQ-26-00164` covered J3, and the partial is a pre-existing
 finding carried from slice 9 rather than something this slice created.
+
+## HVAC PRICING, SLICE 12a -- INSULATION AS A RATE CATEGORY; DERIVED COSTS DECLARED, MARKED AND PROTECTED; FORMULA EXPLANATIONS ON BOTH DISCIPLINES; HVAC v14 (2026-09-26) -- SHIPPED
+
+Owner rulings I-1..I-12 plus I-7a (added mid-slice: the formula row also carries the BoQ-rate rule as a
+note beside the markup columns). Two owner answers taken mid-slice: **24G twins for BOTH cladding values
+that name 26G** (68 rows, not 40) and **the formula row sits directly UNDER the header**, because the
+header must stay Excel row 1 -- `csv_importer.parse_csv_text` and `xlsx_io.read_xlsx` both read row 1 as
+the headers.
+
+Live as batch `rmbulk-2c59a9c9ae4d` (319 items = 95 ADP + 224 Insulation, 8 configs).
+**Electrical untouched at 1,367 items / 12 configs -- content-sha `6b01bdd9…d290d0` identical before and
+after the load.** ADP items byte-identical to v13 (asserted in the mint and by `test_y02`).
+
+### AS BUILT
+
+**I-1 -- THE CATEGORY. 224 items, ONE kind, NO pipelines.** `hvac_insulation` /
+`hvac_insulation_item`: the v3 workbook's 156 Insulation rows plus the 68 24G twins. Four ordinary
+attribute definitions (`item`, `cladding`, `thickness_mm`, `pipe_size_mm`) -- **NOT the spec reader**
+(`spec_reader.READERS` is a hardcoded one-entry map and `read_spec` RAISES for a category without one,
+and Insulation's identity is already structured columns). `pipelines: {}`, `item_kinds` DECLARED
+(load-bearing: with no pipelines there is nothing for `_config_kinds` to derive a kind from, so an
+omitted `item_kinds` yields a category whose items can never be found), and NO `helper_message` /
+`pending_label` -- which is exactly what keeps every BoQ screen byte-identical, since
+`declineReasonFor(null)` and `declineReasonFor(a config without helper_message)` return the identical
+`COMING_SOON_REASON`. Registry entry omits `holds_items`, so the category DOES appear on the Rate Master
+page.
+
+⚠️ **TWO CORRECTIONS to the recon's J1.** (a) `unit` is NOT declared as an attribute: `unit` is a LEAD
+column, so `classify_columns` would file it under `fixed` and an attribute of that name could never be
+read back -- the unit rides the item's own field (`Mts` / `SQM`) and is part of the twin identity
+anyway. (b) `pipe_size_mm` is a NUMBER and the 20 sheet rows OMIT the key rather than storing the
+sheet's text `NA`, matching how the cross-talk SQM row omits `face_w_mm`.
+
+**The cost PARTS are stored SEPARATELY and never baked** (recon C3): `cost_insulation`, `cost_adhesive`,
+`cost_cladding`, `wastage`, `cost_install_insulation`, `cost_install_cladding`, `supply_markup`,
+`install_markup`. Baking collapses the eight own-row parts owner ruling I-3 says must stay editable into
+two opaque numbers. `Total BCS Supply` / `BOQ Supply` / `Total BCS Installation` / `BOQ Installation` are
+NOT stored -- they are computed downstream, and the mint asserts the stored parts reproduce all four on
+every one of the 224 rows.
+⚠️ **An UNCLAD row stores `cost_cladding: 0` EXPLICITLY** (recon finding 12): `_from_ctx` yields an honest
+no-compute on a MISSING ctx value rather than treating it as zero, so an omitted key would refuse the row
+once 12b wires the pipelines.
+
+**I-10 -- THE 24G ROWS, 68 of them.** Owner: *"24g same rate as 26g"*, *"cc mints"*, one per 26G row.
+Confirmed with the owner that BOTH cladding values naming 26G qualify: `26G Aluminium` (40) and
+`26G Aluminium with Glass Cloth` (28). Each twin copies its source's eight rates verbatim; only column C
+differs. Insulation's cladding vocabulary is now EIGHT values.
+
+**I-2 / I-4 / I-5 -- `derived_rates`: THE DECLARATION, GENERATED, FLATTENED, DESCRIPTIVE.** A new
+top-level config key, `{item_uid: {rate_key: [ {from:{item_uid, rate_key}, multiplier, constant} ]}}` --
+a LIST of terms summed, because one ROW can read two different rows in two different columns (Insulation
+78-105 read `I` from one and `K` from another). **240 cells declared: ADP 12 + Insulation 228.**
+
+⚠️ **THE BOUNDARY IS A STEP TYPE, AND THE RECON'S RULE AS WRITTEN WOULD HAVE OVER-MARKED ELECTRICAL.**
+The recon said *"generate from the config's own `component_ref` steps"*. Measured over every pipeline of
+both live assets: **14 of Electrical's 28 pipelines DO carry a `component_ref`** (db_switchgear,
+industrial_sockets, point_wiring, popup_boxes, switches_sockets, earthing, wiring_cabling). That rule
+would have marked them and frozen much of the Electrical catalogue. The shipped rule is narrower and
+exact: a cell is derived iff a pipeline **OVERWRITES A STORED RATE KEY OF THE MATCHED ROW** with a value
+that entered through a `component_ref` (a taint analysis: `component_ref` -> `sum_components` ->
+`scale`/`roundup` target->result, plus `<name>_from_ctx`). Measured:
+
+| | pipelines | with a `component_ref` | writing a STORED rate key | declared cells |
+|---|---:|---:|---:|---:|
+| Electrical (v63) | 28 | **14** | **0** | **0** |
+| HVAC (v14) | 64 | 2 | 62 | **12** |
+
+Electrical declares nothing **by construction, not by a gate**: its component_refs build an ASSEMBLY
+total (`supply`, `install`, `bcs_supply`) and no item stores a key by any of those names. ADP's 60
+own-cost pipelines sit in `convert` blocks (the match is re-pointed, so the rows they price are governed
+by their own class's block) and carry no `component_ref`. The two 750x150x350 mixing-box `Nos` rows
+(group iii -- never matched) are declared nowhere. `config_validation.derived_rates_from_pipelines` is
+the shipped generator and `test_y04` asserts the SHIPPED ADP declaration IS what it produces.
+
+⚠️ **INSULATION'S DECLARATION CANNOT COME FROM PIPELINES AND DOES NOT -- the recon's J2 carried this
+contradiction.** With `pipelines: {}` there is nothing to read, so the mint generates Insulation's 228
+cells FROM THE WORKBOOK'S OWN FORMULAS, flattened to the ultimate base. Both generators are held to the
+SAME contract by `_validate_derived_rates` (flattened, acyclic, no `from` pointing at a cell that is
+itself derived -- owner I-4).
+  * **172 `cost_insulation` cells** -- a clad row's material cost IS its un-clad sibling's. The base is
+    the UNIQUE `cladding = "No"` row at the same item / thickness / pipe size (measured: every clad row
+    has exactly one, 0 exceptions). The sheet's own chain is 2 hops on rows 78-105 (`I78 -> I50 -> I22`);
+    flattened it is one term, multiplier 1, constant 0.
+  * **56 `cost_cladding` cells** -- the `...with Glass Cloth` rows cost the 26G aluminium computed from
+    THEIR OWN geometry PLUS the glass-cloth row's cladding cost. The cross-row half is the term; the
+    row's own geometry rides as the `constant`, because with no pipelines there is nowhere else for it
+    yet. 12b moves it into the pipeline and the constant goes.
+  * **⚠️ THE CONSTANT IS THE STORED DIFFERENCE, not the raw geometry**, so the declaration reproduces
+    the stored figure EXACTLY rather than to within a rounding step; the mint asserts it is still the
+    geometry value to 1e-5, so nothing is silently absorbed.
+
+⚠️ **WHAT THE DECLARATION DOES AND DOES NOT DO TODAY.** It is DESCRIPTIVE: it marks the cell, refuses an
+edit and explains the dependency. **It does not RECOMPUTE.** For ADP the pipeline already propagates (the
+12 cells have no stored value at all); for Insulation, with `pipelines: {}`, editing a base row does not
+yet move its dependants -- **propagation arrives with 12b's pipelines.** The dependency is recorded now so
+it cannot be lost; the owner should know the two halves land in different slices.
+
+**⚠️ THE OWNER FIXED THE PUF DEFECT HIMSELF.** The recon's B3.4 found rows 146-157 (`Tubular Puf` +
+`26G Aluminium`) holding their insulation cost as 12 TYPED duplicates with no formula link. In the FINAL
+v3 they are `=I134`…`=I145` with real 26G cladding formulas and `O = 150`. Re-measured on the final file:
+`I` copy cells **104** (was 92), typed bases **52** (was 64), depth histogram `{1: 76, 2: 28}`, 0 cycles,
+48 distinct ultimate bases, and 104/104 + 28/28 reproduce the sheet's cached value. **No owner nod is
+owed -- the sheet now states the dependency itself.**
+
+**I-6 -- THE ROW-LEVEL FORMULA COLUMNS.** `supply_formula`, `install_formula`, LAST, on EVERY row of
+EVERY discipline, read-only. A category declaring `rate_composition` shows each step's own result with
+grouped numbers; a derived cost names its base row (wording, id at the end -- I-5); anything else reads
+`typed`. Every Electrical row reads `typed`, which is I-6's own rule for a plainly typed cost.
+`rate_composition` is a NEW config key (validated) because a pipeline-less category has no other way to
+say how its parts compose -- declared in CONFIG, never in code (the HV-10 rule).
+
+**I-7 / I-7a -- THE COLUMN-LEVEL FORMULA ROW.** The first row UNDER the header, one cell per column,
+GENERATED from the category's own pipelines (Electrical, ADP), its `rate_composition` (Insulation) and
+its `derived_rates`. Marked by `FORMULA_ROW_MARKER` in its `item_uid` cell. I-7a's note --
+*"BoQ rate = cost x (1 + markup), rounded up."* -- rides each MARKUP column, so a discipline with no
+stored markup column (Electrical, whose markups live in pipeline params) never sees it. It is a NOTE:
+nothing computes from it.
+⚠️ **GROUPED BY WHAT A STEP DOES, not by which pipeline does it.** ADP's `cost_supply` is read by 62
+pipelines doing FOUR different things; one line per pipeline made the cell unreadable, and an unreadable
+explanation is the same as none. Identical `(formula, explain)` pairs collapse, naming the pipeline only
+when one does it.
+
+**I-8 -- INERT ON UPLOAD.** The two columns drop into the `ignored` bucket that has carried
+`source_sheet` / `source_row` since 1e (read past, never applied, never compared); the formula ROW is
+dropped by its MARKER, wherever it sits, BEFORE the discipline pre-scan and the row count. So blanked,
+overwritten and DELETED ENTIRELY all behave identically, and a row whose only change is in them counts as
+UNCHANGED -- `new_payload` is built from kind / brand / unit / attributes / rates / source_* only, so the
+comparison cannot see a column that never entered it. Pinned across 3 cases x 2 formats x 2 disciplines.
+
+**I-3 -- MARKED AND REFUSED, CELL BY CELL.** A declared derived cell is marked on the Rate Master screen
+(amber fill + a `derived` tag + the row's formula text as its tooltip) and renders NO input, so it cannot
+be typed over; the upload refuses a typed value NAMING the base row. **Every other cell of the row -- its
+own cost parts and its markups -- is accepted exactly as before**, asserted in the same upload.
+
+⚠️ **A DERIVED CELL IS EXPORTED EMPTY, AND THAT IS A CORRECTNESS CHOICE.** Exporting the figure made the
+.xlsx round trip refuse ITSELF: openpyxl serialises a float into at most 17 CHARACTERS, so a cladding cost
+such as `291.43125000000003` comes back as `291.43125` -- and the derived guard, comparing type-strictly
+as this module must, called an untouched cell an edit. **Measured: 0 rates in the Electrical catalogue and
+0 in HVAC v13 exceed that budget, so the limit was LATENT and only the new data reached it.** Two changes
+close it: the derived cell exports EMPTY (nothing to drift; the figure is in the formula column, which
+also names the row it comes from), and the mint stores every Insulation rate at **6 decimals** -- the
+sheet's own intended figure with the binary noise gone, asserted not to move a single derived cell or any
+of the 224 rows' M / P / Q / R. A narrow, documented tolerance (`csv_importer._same_rate`, relative 1e-9)
+covers the remaining case: a PRE-12a file still carrying the figure.
+
+**I-9 / U5 -- BOTH DISCIPLINES, and the only Electrical change is the two columns plus the new row.**
+`test_z01` rebuilds the pre-slice header from the same pieces and compares, for Electrical and HVAC.
+Electrical's actual generated notes, for four columns, are in the slice report.
+
+**I-11 / I-12 -- NOT BUILT, as ruled.** No shared named rates. The 2 mixing-box rows and the 6 typed ADP
+spigot cells stay as they are, declared nowhere.
+
+### THE WORKBOOK (I-10)
+
+68 rows appended to `Insulation` (158-225) of
+`HVAC_BOQ_BCS PRICING_ Nitesh Edits v3.xlsx`, backed up first as `…_pre_24G_20260926_145128.xlsx`.
+Each twin copies its source cell by cell; a formula reference to the SOURCE ROW is re-pointed to the twin
+row and a reference to ANOTHER row is left exactly as it is, because that is the dependency the twin
+inherits -- so `I158 = "=I22"` (the bare sibling) and `K198 = "=450*1.25*3.14*(F198+2*E198)/1000+K106"`
+(own geometry re-pointed, the glass-cloth base kept). Cladding counts are now 24G 40 / 24G+GC 28 /
+26G 40 / 26G+GC 28 / Glass Cloth 28 / No 52 / Al Foil 5 / GI Framework 3.
+⚠️ **TWO DISCLOSED SIDE EFFECTS of writing an .xlsx with openpyxl**, both harmless and both recorded:
+the 68 new rows carry FORMULAS with no cached value until Excel next opens the file and recalculates
+(the computed figures are in the report so they can be eyeballed), and openpyxl re-serialised the
+workbook, which dropped `xl/calcChain.xml` and every cached value -- and re-wrote **7 cells** in
+VAV Box / Sensors / VRF from `15950.000000000002` to `15950`. Those 7 are float re-serialisations of the
+same number, the same class the v3 read doc already recorded between V2 and v3, and the shorter form is
+the correct one. The file is 473,318 -> 379,534 bytes for that reason.
+
+### PROOFS
+
+* **J7 -- 1,153 stored ADP audit replies replayed** through the untouched pure pricer against v13 and
+  v14: `priced 943 / refused 210` both times, **0 rows whose price or refusal moved, 0 rows differing in
+  any field**, identical figure sha `cb2cd529…d214db`. (The brief said 1,151; the capture file holds
+  1,153 records.)
+* **240 declared cells reproduce their own stored figure** (`test_y03`), and the composition reproduces
+  the workbook's M / P / Q / R on all 224 Insulation rows (asserted in the mint, 0 bad).
+* **The cross-language pin is real:** the Python renderer and the TypeScript mirror produce
+  byte-identical text from the same fixture (`test_x01` + `rateMasterFormula.test.ts`), verified by
+  generating the literals from Python and running them against TypeScript.
+* **Vacuity, 8 breaks:** six went red first time; **TWO stayed GREEN and both gaps were closed** -- the
+  `component_ref` requirement was not exercised by ADP or Electrical (ADP's own-cost pipelines are in
+  `convert` blocks and Electrical's results are not stored keys), and the export-empty choice was
+  absorbed by the importer's tolerance. `test_x07` now pins the discriminator on SYNTHETIC own-cost and
+  assembly shapes and `test_z06` pins the empty export; all 8 breaks now go red.
+
+### THE 2026-09-27 ADDITIONS -- MAKING A DERIVED CELL VISIBLE, THE WORKBOOK'S ORDER, AND TRIMMED NOTES
+
+Five owner additions after he opened the seven review files. Each is recorded because each was found
+BY LOOKING AT THE ARTEFACT, not by a test.
+
+**A DERIVED CELL CARRIES THREE SIGNALS, and each one alone was found insufficient.** The owner's words
+were *"i cannot make out"*. The cause is that an EMPTY cell in a rate file already means three other
+things -- not applicable, not filled in yet, and now not editable -- so emptiness carried no signal at
+all. It now carries: a **grey fill** (`#D9D9D9`) with a thin border; the **word `derived`** in the
+cell, so it is never empty; and **sheet protection** with no password and every other cell unlocked,
+so Excel itself refuses the keystroke. All three key off the ONE predicate the upload refusal uses.
+⚠️ **The CSV can carry neither colour nor protection -- there the word carries it alone**, which is why
+the word exists rather than relying on the fill.
+⚠️ **The word must round-trip as UNTOUCHED, and so must a blank.** `csv_importer` reads
+`DERIVED_CELL_TEXT` exactly as it reads an empty cell; verified on the live catalogue that a file as
+downloaded, and the same file with the word DELETED, both upload as ZERO changes in both formats,
+while a NUMBER typed there is still refused naming the base row.
+⚠️ Sorting, filtering and inserting or deleting rows and columns are all left ALLOWED
+(`SheetProtection`'s flags are inverted -- `True` means BLOCKED), or the owner could not delete the
+formula row, add an item, or sort his own file.
+
+**THE FORMULA ROW IS THREE STANDARD ROWS TALL AND EVERY OTHER ROW IS STANDARD.** Columns are sized so
+a note fits in those three lines (bounded 10-46 characters). ⚠️ **The data rows need an EXPLICIT
+height, not merely an unset one**: the two formula columns WRAP, and a wrapped cell with no explicit
+height makes Excel auto-fit the row -- which is what made every row of the first review files three to
+eight lines tall. An explicit height clips instead. The same cap was applied to the ON-SCREEN formula
+row, which was ~250 px and pushed the first item row off the page.
+
+**ROWS AND COLUMNS FOLLOW THE SOURCE WORKBOOK.** Rows ascend by (source sheet, source row) --
+⚠️ **sheet FIRST is load-bearing**: `popup_boxes` and `wiring_cabling` each draw from TWO sheets and
+ordering on the row number alone interleaves them. Every item in both disciplines has a source row, so
+no category keeps the old order. Columns follow the sheet only where the category DECLARES an order,
+which is `rate_composition` -- so Insulation's cost parts run I J K L N O then the markups G H, and
+every category without one (ADP, all twelve Electrical) is byte-identical.
+⚠️ **BOTH ARE PRESENTATION ONLY, and that is proven, not assumed**: a file with its rows AND its
+columns fully shuffled uploads as zero changes with an **identical digest**. The importer matches
+columns by NAME and rows by `item_uid`; nothing in the plan, the digest or the twin check depends on
+order.
+
+**THE COLUMN NOTES CARRY THE PLAIN-ENGLISH EXPLANATION ONLY** (owner: *"trim electrical"*). The
+internal pipeline name and the step expression -- `pipelines.tray_boq_supply: base*factor --` -- help
+nobody maintaining a RATE; the sentence after them is the owner's own reasoning, carried forward from
+the config. A step with no explanation of its own says what the step DOES rather than showing an
+expression or a blank.
+⚠️ **THE LENGTH CAP IS PER LINE, NOT PER NOTE.** Applied to the whole note it kept only the FIRST line
+and dropped every other -- ADP's `cost_supply` carries EIGHT distinct explanations, each short, and a
+whole-note cap cut it to the DERIVED banner alone, which is exactly the HVAC damage the owner's rule 5
+forbids. Per line tames the genuinely long ones and keeps every explanation. Only ONE note truncates
+today: `lighting_mgmt_system / rate`'s first line, a 500-character inversion warning.
+
+**TWO NOTE DEFECTS FOUND BY READING THE FILES, both fixed and both now pinned.**
+  * `db_switchgear`'s `list_price` read a bare **"18 pipelines"** -- eighteen `component_ref` steps
+    carrying neither a formula nor an explain. The branch had shipped **UNPINNED** (the fixture had no
+    such step), so the fixture now carries one.
+  * `wiring_cabling`'s two gland columns read **"a TYPED rate. No pipeline reads it yet."**, which is
+    FALSE: a `component_band` names its targets inside `bands[*].target`, not in `step.target`, so the
+    reader missed them. A note whose whole job is to tell the truth about a column must not say a
+    pipeline does not read it when one does. Also pinned on both sides.
+  * And in Mode B the formula row listed EVERY category saying "no pipeline reads it yet" about
+    columns they do not even have -- fifty columns of twelve-line noise. Only the categories that
+    actually carry a column comment on it now.

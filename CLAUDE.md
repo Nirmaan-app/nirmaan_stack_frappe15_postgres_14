@@ -902,6 +902,45 @@ and ships a silently inert rule — the exact failure the closed allowlists exis
 config key must test PRESENCE before the idiom (`if key in pr and not isinstance(pr[key], list)`), which is
 what `override_when` does; the older sibling keys still carry the gap.
 
+**⚠️ A DERIVED COST IS GENERATED FROM THE CONFIG'S OWN CROSS-ROW REFERENCE, FLATTENED AT MINT,
+MARKED, REFUSED ON UPLOAD, AND CHANGED ONLY BY MINTING (owner I-2..I-8, 2026-09-26).** A rate-master
+cell whose value comes from ANOTHER catalogue row is declared in the config key `derived_rates`
+(`{item_uid: {rate_key: [{from:{item_uid, rate_key}, multiplier, constant}]}}` -- a LIST, because one
+row can read two rows in two columns). It is **DESCRIPTIVE, never authoritative**: the price still
+comes from the pipeline, so if the two disagree the PIPELINE wins and the mint is wrong -- which is
+why `config_validation.derived_rates_from_pipelines` GENERATES it and no author writes it.
+**THE BOUNDARY IS A STEP TYPE:** a cell is derived iff a pipeline OVERWRITES A STORED RATE KEY OF THE
+MATCHED ROW with a value that entered through a `component_ref`. ⚠️ **"the pipeline carries a
+`component_ref`" is NOT the rule and would over-mark badly: 14 of Electrical's 28 pipelines carry one**
+-- they build an ASSEMBLY total (`supply` / `install` / `bcs_supply`), which no item stores, so
+Electrical declares nothing BY CONSTRUCTION; and ADP's 60 own-cost pipelines sit in `convert` blocks
+whose match is re-pointed. `_validate_derived_rates` enforces FLATTENING (no `from` pointing at a cell
+that is itself declared derived) whichever generator produced the map -- a category with NO pipelines
+(`hvac_insulation`) is generated from its SOURCE WORKBOOK'S formulas and is held to the same contract.
+⚠️ **THE DECLARATION DOES NOT RECOMPUTE.** It marks the cell, refuses an edit and explains the
+dependency; propagation is the PIPELINE's, so a category whose pipelines are not built yet records the
+dependency without yet honouring it.
+⚠️ **A DERIVED CELL IS EXPORTED EMPTY, and that is correctness, not tidiness:** openpyxl serialises a
+float into at most 17 CHARACTERS, so a figure like `291.43125000000003` returns as `291.43125` and the
+type-strict guard called an untouched cell an edit. Nothing may re-export the figure; the row's
+`supply_formula` / `install_formula` carries it, and names the row it comes from. The narrow relative
+tolerance in `csv_importer._same_rate` exists ONLY for a pre-12a file that still carries it.
+**Every rate file (BOTH disciplines) carries two read-only columns `supply_formula` / `install_formula`
+and, directly UNDER THE HEADER, a FORMULA ROW** explaining each computed rate column -- generated from
+the category's own pipelines, its `rate_composition` and its `derived_rates`, plus a note on each
+markup column (`BoQ rate = cost x (1 + markup), rounded up.`). **The header MUST stay row 1** --
+`csv_importer.parse_csv_text` and `xlsx_io.read_xlsx` both read row 1 as the headers. All three are
+INERT on upload: the columns go in the `ignored` bucket and the row is dropped by
+`csv_exporter.FORMULA_ROW_MARKER`, so blanked, overwritten and DELETED behave identically.
+⚠️ **The explanation renderer is DUPLICATED ACROSS THE LANGUAGE BOUNDARY** (`csv_exporter` for the
+file, `rateMasterSpec.ts` for the screen, which cannot call an exporter for one cell) and the two are
+pinned to byte-identical output on ONE shared fixture -- `test_rate_master.FORMULA_FIXTURE` +
+`rateMasterFormula.test.ts`. Change one side without the other and a suite goes red; that pin IS the
+mechanism.
+⚠️ **A DERIVED CELL CARRIES THREE SIGNALS AND EACH ONE ALONE WAS FOUND INSUFFICIENT (owner, 2026-09-27, on the review files: "i cannot make out").** An EMPTY cell already means not-applicable, not-filled-in AND not-editable, so it signalled nothing: the cell now carries a GREY FILL with a border, the WORD `derived` (so it is never empty), and SHEET PROTECTION with no password and every other cell unlocked. **The CSV carries neither colour nor protection, so there the WORD carries it alone** -- do not remove it as redundant. The word and a blank BOTH read as UNTOUCHED on upload; a number there is still refused. Sorting, filtering and row/column insert-delete stay ALLOWED (`SheetProtection`'s flags are INVERTED -- True means blocked). The formula row is 3 standard rows tall and every DATA row carries an EXPLICIT standard height, because a wrapped cell with no explicit height makes Excel auto-fit and every row grew to three-plus lines.
+⚠️ **ROWS AND COLUMNS FOLLOW THE SOURCE WORKBOOK, AND THAT IS PRESENTATION ONLY.** Rows ascend by (source SHEET, source row) -- sheet first, because two categories draw from two sheets each; columns follow the sheet only where the category DECLARES an order (`rate_composition`), so every other category is byte-identical. A file with rows AND columns fully shuffled uploads as zero changes with an IDENTICAL digest: the importer matches columns by NAME and rows by `item_uid`.
+⚠️ **A COLUMN NOTE CARRIES THE PLAIN-ENGLISH EXPLANATION ONLY, AND ITS LENGTH CAP IS PER LINE.** The internal pipeline name and the step expression help nobody maintaining a rate. Capping the WHOLE note kept only the first line and dropped every other -- ADP's `cost_supply` carries eight short explanations and was cut to the DERIVED banner alone.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
