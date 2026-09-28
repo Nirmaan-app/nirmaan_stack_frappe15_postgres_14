@@ -193,6 +193,109 @@ export const STEP_DIVISOR_SUFFIX = "_step_divisor";
 export const CTX_PARAM_SUFFIX = "_from_ctx";
 
 /**
+ * SLICE 12b(A) -- THE ONE ctx-param binder. Every step type that can carry a `<ident>_from_ctx` param
+ * binds it through this, so the five arms can never drift apart.
+ *
+ * Returns the identifiers to merge into a formula env, plus the FIRST ctx key that was not computed.
+ * ⚠️ ABSENT MEANS AN EMPTY ENV, so a config carrying no `_from_ctx` param is byte-identical -- the same
+ * gating discipline as `_from_attr`, `_step_divisor`, `size_from` and `weight_from`.
+ *
+ * A missing ctx key is an HONEST NO-COMPUTE naming the key, never a 1: "the input was not loaded" is
+ * not "the input is one", and defaulting it would price the row as though no discount existed.
+ */
+export function bindCtxParams(
+  params: Record<string, unknown> | undefined | null,
+  ctx: Record<string, number>
+): { env: Record<string, number>; missing: string | null } {
+  const env: Record<string, number> = {};
+  for (const [pk, pv] of Object.entries(params ?? {})) {
+    if (!pk.endsWith(CTX_PARAM_SUFFIX)) continue;
+    const key = String(pv);
+    const v = ctx[key];
+    if (typeof v !== "number" || !Number.isFinite(v)) return { env, missing: key };
+    env[pk.slice(0, -CTX_PARAM_SUFFIX.length)] = v;
+  }
+  return { env, missing: null };
+}
+
+/**
+ * SLICE 12b(A) -- THE HOIST. The PRICING-INPUT PREAMBLE of a pipeline is evaluated BEFORE every
+ * other step, whatever position the config declares it in; the remaining steps keep their original
+ * relative order, and so does the preamble internally.
+ *
+ * ⚠️ THE PREAMBLE IS TWO STEP SHAPES, NOT ONE, AND MISSING THE SECOND SHIPS A BROKEN SHEET. A
+ * `rate_ref` reads one stored input; a `scale` carrying `pricing_input: true` DERIVES a multiplier
+ * from inputs already in ctx (`(1-discount)*(1+markup)`, `1-discount`, `1+markup`, `a*b`). Hoisting
+ * only the refs leaves those derivations after the consumers that read their ctx key, so every
+ * consumer refuses for a missing input and the whole category stops pricing. `rate_ref` is hoisted
+ * BY TYPE (it can never read a running value); a `scale` is hoisted only when it DECLARES itself part
+ * of the preamble, because an ordinary `scale` reads `target` -- which may be an earlier step's
+ * output -- and moving one of those WOULD change a figure.
+ *
+ * ⚠️ WHY THIS IS SEMANTICALLY FREE, AND THE ONE FACT IT RESTS ON: neither shape can observe the row.
+ * A `rate_ref` resolves a catalogue row by `kind` plus literal attributes and reads a stored rate --
+ * no ctx, no component, no fitLabel, no earlier output; all 83 shipped refs were measured to carry
+ * ZERO `@` binds. A preamble `scale` reads only `pi_*` ctx keys written by the preamble itself, and
+ * relative order inside the preamble is preserved. Position is therefore information-free for both,
+ * and hoisting cannot change a figure. The gate, not this argument, is the proof.
+ *
+ * ⚠️ WHY IT EXISTS RATHER THAN PREPENDING AT MINT TIME: prepending shifts every positional
+ * `steps[N]` index in the asset, which broke NINE tests whose subject is conduit trade sizes,
+ * back-box ladders and tray definitions -- tests that would then permanently carry an assertion
+ * about where a pricing-input step sits. The hoist lets the mint APPEND, so every pre-existing index
+ * is preserved and those nine tests never learn that this slice happened.
+ *
+ * ⚠️ IF A FUTURE `rate_ref` EVER DID CARRY AN `@` BIND it would be hoisted ABOVE the step that
+ * produces the bind, so `resolveAtRef` would return `undefined`, the ref would fail to resolve, and
+ * `runPipeline` returns `no_match` NAMING the ref -- a loud refusal, never a silent default. That is
+ * the behaviour `test_hoist_negative` pins. The honest fix at that point is to hoist only the refs
+ * whose `ref` carries no `@` value; do NOT make the hoist conditional pre-emptively, because an
+ * unexercised branch is the config-key-that-validates-but-never-executes failure one level down.
+ */
+export function isPricingInputStep(s: { step: string; pricing_input?: boolean }): boolean {
+  return s.step === "rate_ref" || s.pricing_input === true;
+}
+
+export function hoistRateRefs<T extends { step: string; pricing_input?: boolean }>(
+  steps: readonly T[]
+): T[] {
+  const pre: T[] = [];
+  const rest: T[] = [];
+  for (const s of steps) (isPricingInputStep(s) ? pre : rest).push(s);
+  return pre.length === 0 ? [...steps] : [...pre, ...rest];
+}
+
+/**
+ * SLICE 12b(A) -- the tolerance the DERIVED-MULTIPLIER arithmetic must use, and why it is not zero.
+ *
+ * ⚠️ `1 - 0.70` IS `0.30000000000000004`, NOT `0.3`. So `bcsMultiplier / (1 - discount)` on switchgear
+ * -- a category with no wastage whatsoever -- is `0.99999999999999978`, and a literal `=== 1` test
+ * reports a phantom wastage of -2.2e-14%. A ratio is only a wastage term when it is a round business
+ * number away from 1; anything within a few ulps is float noise.
+ *
+ * The NEGATIVE pin is the load-bearing one: a positive pin on cable stays green under `=== 1`, because
+ * cable's ratio really is 1.05. Only the switchgear case can see the defect.
+ */
+export const RATIO_ULP_TOLERANCE = 1e-9;
+
+/** True when a BCS/BoQ ratio carries no wastage term -- i.e. it is 1 to within float noise. */
+export function ratioIsUnity(ratio: number): boolean {
+  return Number.isFinite(ratio) && Math.abs(ratio - 1) <= RATIO_ULP_TOLERANCE;
+}
+
+/**
+ * The wastage a stored BCS multiplier implies, given its discount. 0 when the ratio is unity within
+ * tolerance. Returns null when the discount makes the ratio undefined (a 100% discount).
+ */
+export function impliedWastage(bcsMultiplier: number, discount: number): number | null {
+  const denom = 1 - discount;
+  if (!Number.isFinite(denom) || denom === 0) return null;
+  const ratio = bcsMultiplier / denom;
+  if (!Number.isFinite(ratio)) return null;
+  return ratioIsUnity(ratio) ? 0 : ratio - 1;
+}
+
+/**
  * RULING 2 (owner 2026-08-09) -- THE STEP FUNCTION, the ONE definition, shared by both sites that can
  * carry an attribute-bound multiplier (a `component_ref` rate stage and a `scale` param binding) so
  * they can never drift apart.
@@ -252,11 +355,19 @@ function absentMeansOne(selected: Record<string, string | number>, attr: string 
 /** Walk a component_ref's rate_stages: rate *= mult (x an optional attribute-bound factor), then the
  * optional per-stage roundup, in order. `mult_from_attr` folds in BEFORE that stage's rounding, so
  * `x runs then round` -- the owner's ruling. Absent `mult_from_attr` => factor 1 => byte-identical. */
+/** A rate stage whose multiplier could not be loaded from ctx -- an honest no-compute, never a 1. */
+export class StageCtxMissing extends Error {
+  constructor(public readonly key: string) {
+    super(`ctx '${key}' not computed`);
+  }
+}
+
 function stageRate(
   base: number,
   stages: import("./rateMasterTypes").RateStage[] | undefined,
   selected: Record<string, string | number>,
   notes?: string[],
+  ctx?: Record<string, number>,
 ): number {
   let r = base;
   for (const st of stages ?? []) {
@@ -268,7 +379,18 @@ function stageRate(
     if (notes && st.mult_from_attr && st.mult_step_divisor !== undefined) {
       notes.push(stepFactorNote(st.mult_from_attr, raw, st.mult_step_divisor, factor));
     }
-    r = roundByMode(r * st.mult * factor, st.round);
+    // SLICE 12b(A): the stage multiplier may come from a Pricing Input loaded into ctx. ABSENT => the
+    // literal `mult`, byte-identical. PRESENT => it REPLACES `mult` (never multiplies with it: a stage
+    // driven by an input has no business also carrying a hand-typed factor, and applying both would
+    // silently square the migration). A key that was never computed THROWS, so the caller can emit an
+    // honest no-compute naming it -- defaulting to 1 would price the row as if no discount existed.
+    let mult = st.mult;
+    if (st.mult_from_ctx !== undefined) {
+      const v = (ctx ?? {})[st.mult_from_ctx];
+      if (typeof v !== "number" || !Number.isFinite(v)) throw new StageCtxMissing(st.mult_from_ctx);
+      mult = v;
+    }
+    r = roundByMode(r * mult * factor, st.round);
   }
   return r;
 }
@@ -723,7 +845,10 @@ export function runPipeline(
   // vocabulary; a well-formed pipeline is byte-unaffected.
   let lastStepType = "";
   try {
-  for (const raw of pipeline.steps) {
+  // THE HOIST (slice 12b(A)). `rate_ref` steps run first; everything else keeps its declared order.
+  // A pipeline with no `rate_ref` gets a copy of its own list, so every pre-slice category is
+  // byte-identical. See `hoistRateRefs` for why position is information-free here.
+  for (const raw of hoistRateRefs(pipeline.steps)) {
     const stepType = (raw as { step: string }).step;
     lastStepType = stepType;
 
@@ -773,7 +898,19 @@ export function runPipeline(
         });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
-      const value = effBase * evalFormula(s.formula, { ...cond.params });
+      // SLICE 12b(A): bind any `<ident>_from_ctx` param through the ONE shared binder. ABSENT => no
+      // change at all; a key that was never computed is an honest no-compute naming it.
+      const aemCtx = bindCtxParams(cond.params, ctx);
+      if (aemCtx.missing !== null) {
+        steps.push({
+          step: stepType,
+          label: s.explain || "apply effective multiplier",
+          matchedCondition: `ctx '${aemCtx.missing}' not computed -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const value = effBase * evalFormula(s.formula, { ...cond.params, ...aemCtx.env });
       ctx[s.result] = value;
       steps.push({
         step: stepType,
@@ -1318,6 +1455,19 @@ export function runPipeline(
         params = cond.params ?? {};
       }
       for (const [k, v] of Object.entries(params)) if (typeof v === "number") env[k] = v;
+      // SLICE 12b(A): bind any `<ident>_from_ctx` param through the ONE shared binder. ABSENT => no
+      // change at all; a key that was never computed is an honest no-compute naming it.
+      const cb = bindCtxParams(params, ctx);
+      if (cb.missing !== null) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name}`,
+          matchedCondition: `ctx '${cb.missing}' not computed -- not computed`,
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      Object.assign(env, cb.env);
       const value = evalFormula(s.formula, env);
       components[s.name] = value;
       steps.push({
@@ -2068,7 +2218,20 @@ export function runPipeline(
         // RULING 2: `stageNotes` is filled ONLY by a stage carrying a step divisor, so a config without
         // one produces the identical `rate N x qty M` string it always did.
         const stageNotes: string[] = [];
-        const rate = stageRate(base, s.rate_stages, selected, stageNotes);
+        let rate: number;
+        try {
+          rate = stageRate(base, s.rate_stages, selected, stageNotes, ctx);
+        } catch (e) {
+          if (!(e instanceof StageCtxMissing)) throw e;
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            refItem: refLabel,
+            matchedCondition: `${s.name}: ctx '${e.key}' not computed -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
         const value = rate * qty;
         components[s.name] = value;
         steps.push({
@@ -2181,7 +2344,20 @@ export function runPipeline(
       }
       // Bind the chosen column under `base` (the normalized contract), plus the legacy `gland_list`
       // and the column's own name (the wiring gland formula references gland_list).
-      const value = evalFormula(s.formula, { base: bandBase, gland_list: bandBase, [chosen.target]: bandBase, ...s.params });
+      // SLICE 12b(A): bind any `<ident>_from_ctx` param through the ONE shared binder. ABSENT => no
+      // change at all; a key that was never computed is an honest no-compute naming it.
+      const bandCtx = bindCtxParams(s.params, ctx);
+      if (bandCtx.missing !== null) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name} (banded)`,
+          bandChosen: `${s.band_on} ${chosen.label} -> ${chosen.target}`,
+          matchedCondition: `ctx '${bandCtx.missing}' not computed -- not computed`,
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const value = evalFormula(s.formula, { base: bandBase, gland_list: bandBase, [chosen.target]: bandBase, ...s.params, ...bandCtx.env });
       components[s.name] = value;
       steps.push({
         step: stepType,
@@ -2190,6 +2366,78 @@ export function runPipeline(
         bandChosen: `${s.band_on} ${chosen.label} -> ${chosen.target}`,
         produced: { key: s.name, value },
         runningValues: { ...snapshot(), ...componentEntries(components) },
+      });
+    } else if (stepType === "rate_ref") {
+      // SLICE 12b(A) -- THE PRICING-INPUT READER. Loads one stored rate into `ctx`.
+      //
+      // ⚠️ IT NEVER TOUCHES `components`. That single omission is the entire reason this step exists:
+      // `component_ref` would have worked arithmetically but writes into the accumulator that
+      // `sum_components` sums, and 29 of the 40 migrated values sit in pipelines that already sum
+      // components -- so reading an input through it would have ADDED the input's value to the assembly
+      // total on the majority of them, silently, under `status: "ok"`.
+      //
+      // Resolution is `component_ref`'s modern path, minus the qty, the stages and the none_skips:
+      // resolve `@` bindings, filter by kind + every resolved attribute, refuse unless EXACTLY ONE row,
+      // then read `rates[target]`. Every refusal is an honest no-compute naming what was missing.
+      const s = raw as import("./rateMasterTypes").RateRefStep;
+      const resolved: Record<string, string | number> = {};
+      let bindMiss: string | null = null;
+      for (const [k, rawVal] of Object.entries(s.ref ?? {})) {
+        if (k === "kind" || k === "attributes") continue;
+        if (typeof rawVal === "string" && rawVal.startsWith("@")) {
+          const src = rawVal.slice(1);
+          const bound = resolveAtRef(src);
+          if (bound === undefined || bound === null || (typeof bound === "number" && !Number.isFinite(bound))) {
+            bindMiss = src;
+            break;
+          }
+          resolved[k] = bound as string | number;
+        } else {
+          resolved[k] = rawVal as string | number;
+        }
+      }
+      const refLabel = Object.values(resolved).filter((v) => v !== "" && v !== "NA").join(" ") || String(s.ref?.kind);
+      if (bindMiss !== null) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `input: ${s.result}`,
+          refItem: refLabel,
+          matchedCondition: `'${bindMiss}' not provided -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const inputRows = items.filter(
+        (it) => it.kind === s.ref?.kind && Object.entries(resolved).every(([k, v]) => it.attributes?.[k] === v)
+      );
+      if (inputRows.length !== 1) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `input: ${s.result}`,
+          refItem: refLabel,
+          matchedCondition: `ref ${s.ref?.kind}: ${inputRows.length === 0 ? "no" : inputRows.length} matching row(s) -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const inputValue = inputRows[0].rates?.[s.target];
+      if (typeof inputValue !== "number" || !Number.isFinite(inputValue)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `input: ${s.result}`,
+          refItem: refLabel,
+          matchedCondition: `${s.target} not on the referenced row -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      ctx[s.result] = inputValue;
+      steps.push({
+        step: stepType,
+        label: s.explain || `input: ${s.result}`,
+        refItem: refLabel,
+        produced: { key: s.result, value: inputValue },
+        runningValues: snapshot(),
       });
     } else if (stepType === "sum_components") {
       const s = raw as import("./rateMasterTypes").SumComponentsStep;
@@ -2223,7 +2471,21 @@ export function runPipeline(
         });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
-      const value = base * s.params.ratio;
+      // SLICE 12b(A): bind any `<ident>_from_ctx` param through the ONE shared binder. ABSENT => no
+      // change at all; a key that was never computed is an honest no-compute naming it.
+      const iarCtx = bindCtxParams(s.params as unknown as Record<string, unknown>, ctx);
+      if (iarCtx.missing !== null) {
+        steps.push({
+          step: stepType,
+          label: s.explain || "install as a share of supply",
+          matchedCondition: `ctx '${iarCtx.missing}' not computed -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      // `ratio_from_ctx` REPLACES `ratio` when present; absent, the literal is used unchanged.
+      const iarRatio = iarCtx.env.ratio !== undefined ? iarCtx.env.ratio : s.params.ratio;
+      const value = base * iarRatio;
       ctx[s.result] = value;
       steps.push({
         step: stepType,

@@ -1591,6 +1591,31 @@ def deactivate_rate_master_item(name=None):
     if not name:
         frappe.throw("name is required.", title="Missing field: name")
     doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
+    # ══════════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 12b(A), owner ruling 2026-09-28 (OPTION 1) -- ACCEPTANCE 13 ON THIS PATH TOO.
+    #
+    # ⚠️ THE CERT CAUGHT THIS, NOT THE SUITE. `refuse_if_in_use` existed and was tested, but it was
+    # wired into the CSV path ONLY -- so a Pricing Input read by 8 pricing rules could be deactivated
+    # from the grid's trash icon and the endpoint answered {"ok": true}. Acceptance 13 was half
+    # enforced: RENAME was blocked (the read-only text columns), DELETE was not.
+    #
+    # ONE DEFINITION, TWO CALL SITES: the refusal text here is the SAME predicate the upload uses, so
+    # the two can never word it differently or disagree about what "in use" means.
+    #
+    # ⚠️ SCOPED TO PRICING-INPUT KINDS, BY THE KIND SUFFIX, exactly as the rest of the slice is. The
+    # owner rejected widening it to "any item a config references": that is a behaviour change to an
+    # endpoint this slice was never scoped to touch, and it is unmeasured. An ordinary catalogue item
+    # in any other category deactivates exactly as it did before -- pinned by test, so the wider rule
+    # cannot arrive later by accident.
+    # ══════════════════════════════════════════════════════════════════════════════════════════════
+    from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+    if csv_exporter.is_pricing_input_kind(doc.kind):
+        attrs = doc.attributes if isinstance(doc.attributes, dict) else json.loads(doc.attributes or "{}")
+        input_id = (attrs or {}).get(csv_exporter.PRICING_INPUT_NAME)
+        used = csv_exporter.pricing_input_used_by(csv_exporter._load_configs(doc.discipline))
+        refusal = csv_importer.refuse_if_in_use(input_id, used, "deactivate")
+        if refusal:
+            frappe.throw(refusal, title="Pricing input in use")
     if doc.active:
         doc.active = 0
         doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED

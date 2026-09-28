@@ -635,3 +635,95 @@ export function derivedCountsByKey(
   }
   return out;
 }
+
+// ===================================================================================================
+// SLICE 12b(A) -- PRICING INPUTS. The pure half of the screen, so it is testable without the viewer.
+// ===================================================================================================
+/**
+ * An item kind ending in this suffix is a Pricing Input. Suffix-keyed, never a discipline name, so a
+ * second discipline's inputs (12c) flow through with no code change -- the HV-10 rule.
+ * ⚠️ KEEP IN STEP WITH `csv_exporter.PRICING_INPUT_KIND_SUFFIX`; a config that renders one way here and
+ * exports another is the worst of both.
+ */
+export const PRICING_INPUT_KIND_SUFFIX = "_pricing_input";
+
+/** ACCEPTANCE 4 / 9: the ONLY columns a Pricing Input carries, in this order. */
+export const PRICING_INPUT_VALUE_COLUMNS = [
+  "discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share", "amount",
+] as const;
+
+/** ACCEPTANCE 6: every value column is a percentage EXCEPT `amount`, which is rupees. */
+export const PRICING_INPUT_PERCENT_COLUMNS = PRICING_INPUT_VALUE_COLUMNS.filter((c) => c !== "amount");
+
+export const PRICING_INPUT_COLUMN_LABELS: Record<string, string> = {
+  discount: "Discount",
+  supply_markup: "Supply markup",
+  installation_markup: "Installation markup",
+  bcs_markup: "BCS markup",
+  wastage: "Wastage",
+  ratio: "BCS ratio",
+  share: "Installation share",
+  amount: "Amount",
+};
+
+/** True when this config is the discipline's Pricing Inputs category. */
+export function isPricingInputConfig(
+  config: Pick<RateCategoryConfig, "item_kinds"> | null | undefined
+): boolean {
+  const kinds = (config?.item_kinds ?? []) as string[];
+  return kinds.length > 0 && kinds.every((k) => typeof k === "string" && k.endsWith(PRICING_INPUT_KIND_SUFFIX));
+}
+
+/**
+ * 0.45 -> "45%". ACCEPTANCE 6: the STORED value is untouched; this is display only.
+ * ⚠️ MIRRORS `csv_exporter.as_percent`. The file and the screen must agree, or a pricer reading 45% on
+ * screen and 0.45 in the file has no way to know which is the number.
+ */
+export function asPercent(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  const f = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(f)) return String(value);
+  const pct = Math.round(f * 100 * 1e6) / 1e6;
+  return `${pct}%`;
+}
+
+/** The cell text for one value column: a percentage, or a rupee amount left as-is. */
+export function pricingInputCell(column: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  return (PRICING_INPUT_PERCENT_COLUMNS as readonly string[]).includes(column)
+    ? asPercent(value)
+    : String(value);
+}
+
+/**
+ * The used-by text acceptance 13 refuses a delete with, and the screen shows read-only.
+ * DERIVED from the pipelines -- a stored count would go stale the moment a rule changed.
+ */
+export function pricingInputUsedBy(
+  configs: Array<Pick<RateCategoryConfig, "category_id" | "pipelines">> | null | undefined
+): Record<string, { sites: number; categories: string[] }> {
+  const out: Record<string, { sites: number; categories: string[] }> = {};
+  for (const cfg of configs ?? []) {
+    const cid = String(cfg?.category_id ?? "");
+    for (const pid of Object.keys(cfg?.pipelines ?? {}).sort()) {
+      for (const st of (((cfg.pipelines as any)?.[pid] ?? {}).steps ?? []) as any[]) {
+        if (st?.step !== "rate_ref") continue;
+        const iid = st?.ref?.item;
+        if (typeof iid !== "string") continue;
+        const e = out[iid] ?? { sites: 0, categories: [] };
+        e.sites += 1;
+        if (!e.categories.includes(cid)) e.categories.push(cid);
+        out[iid] = e;
+      }
+    }
+  }
+  return out;
+}
+
+/** "10 sites in conduit_piping, point_wiring, wiring_cabling", or "not used". */
+export function pricingInputUsedByText(
+  entry: { sites: number; categories: string[] } | undefined
+): string {
+  if (!entry || !entry.sites) return "not used";
+  return `${entry.sites} site${entry.sites === 1 ? "" : "s"} in ${entry.categories.join(", ")}`;
+}

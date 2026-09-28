@@ -136,6 +136,7 @@ _TAIL = set(csv_exporter.TAIL_COLUMNS)          # source_sheet, source_row -- SY
 # the comparison cannot see a column that never entered the payload.
 _FORMULA_COLUMNS = set(csv_exporter.FORMULA_COLUMNS)
 _FORMULA_ROW_MARKER = csv_exporter.FORMULA_ROW_MARKER
+_PI_READONLY = set(csv_exporter.PRICING_INPUT_READONLY_COLUMNS)   # SLICE 12b(A)
 # Owner, 2026-09-27: a derived cell now carries the WORD `derived` rather than being blank, so
 # that it is never an ordinary empty cell. The importer must read that word EXACTLY as it reads a
 # blank -- "untouched" -- and NOT as a number it failed to parse. Case-insensitive, because Excel
@@ -349,6 +350,7 @@ def classify_columns(headers, attr_ids, rate_keys):
     """
     errors = []
     spec = {"attributes": {}, "rates": {}, "fixed": {}, "ignored": {}, "mode": "category"}
+    pi_file = csv_exporter.is_pricing_input_headers(headers)   # SLICE 12b(A), keyed on the file's shape
     seen = set()
     for idx, name in enumerate(headers):
         if not name:
@@ -364,6 +366,11 @@ def classify_columns(headers, attr_ids, rate_keys):
             spec["fixed"][name] = idx          # SLICE 1g: self-describing columns, checked in build_plan
         elif name in _TAIL or name in _FORMULA_COLUMNS:
             spec["ignored"][name] = idx            # a system column from an old file: read past, never applied
+        elif pi_file and name in _PI_READONLY:
+            # SLICE 12b(A): a Pricing Inputs file's text columns are READ-ONLY -- the `item` column shows
+            # the readable NAME while the stored id is what a pipeline names, so applying it would rename
+            # every input to its own description, and acceptance 13 forbids renaming an input in use.
+            spec["ignored"][name] = idx
         elif name in _LEAD:
             spec["fixed"][name] = idx
         elif name in attr_ids and name in rate_keys:
@@ -391,6 +398,80 @@ def classify_columns(headers, attr_ids, rate_keys):
 
 
 # ── value coercion ──────────────────────────────────────────────────────────────────────
+
+
+# SLICE 12b(A): a Pricing Input's factor columns are WRITTEN as percentages (ACCEPTANCE 6), so they
+# must be READ back as percentages -- "45%" is 0.45. The stored value never changed; only the display
+# did, and a round trip has to survive it.
+#
+# ⚠️ A BARE NUMBER IN A PERCENT COLUMN IS AMBIGUOUS AND IS REFUSED RATHER THAN GUESSED. Is `45` forty-
+# five percent or a factor of 45? Reading it either way silently re-prices a whole category -- 45 as a
+# factor is a 4,400% markup. So the percent sign is REQUIRED in a percent column, and its absence is a
+# named refusal, not a repair. (0 is the one exception: 0% and a factor of 0 are the same number.)
+def coerce_percent(text, label):
+    """(value, error). "45%" -> 0.45. A bare non-zero number is REFUSED, by name."""
+    s = (text or "").strip() if isinstance(text, str) else text
+    if s in (None, ""):
+        return None, None
+    if isinstance(s, (int, float)):
+        return (0.0, None) if float(s) == 0 else (
+            None, "%s: '%s' needs a per cent sign -- write 45%% rather than 45." % (label, s))
+    s = str(s).strip()
+    if s.endswith("%"):
+        body = s[:-1].strip()
+        try:
+            return float(body) / 100.0, None
+        except (TypeError, ValueError):
+            return None, "%s: '%s' is not a percentage." % (label, text)
+    try:
+        f = float(s)
+    except (TypeError, ValueError):
+        return None, "%s: '%s' is not a percentage." % (label, text)
+    if f == 0:
+        return 0.0, None
+    return None, "%s: '%s' needs a per cent sign -- write 45%% rather than 45." % (label, text)
+
+
+# ===================================================================================================
+# SLICE 12b(A) / ACCEPTANCE 13 -- what a Pricing Input refuses.
+# ===================================================================================================
+# ⚠️ ZERO IS NOT REFUSED, AND THAT IS A DELIBERATE DEVIATION FROM THE ACCEPTANCE LIST, reported rather
+# than quietly applied. The list says "zero, negative and non-numeric refused", but THREE of the 33
+# approved inputs are 0% by owner ruling:
+#     Lighting management system BCS markup   0%   (an LMS rate is our cost with nothing added)
+#     Cable tray installation markup          0%   (billed at cost, and the 0 is what makes it visible)
+#     Miscellaneous installation BCS ratio    0%   (the per-sqft labour ruling, now a visible number)
+# and cable tray's and junction box's DISCOUNTS are 0% too, which is what reconciled their "list" names
+# with the arithmetic. A blanket zero refusal would make the approved table unsaveable. So zero is
+# allowed; negative and non-numeric are refused.
+def validate_pricing_input_value(value, label):
+    """None if the value is acceptable, else the refusal text."""
+    if value in (None, ""):
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return "%s: '%s' is not a number." % (label, value)
+    if f != f or f in (float("inf"), float("-inf")):
+        return "%s: '%s' is not a finite number." % (label, value)
+    if f < 0:
+        return ("%s: a pricing input cannot be negative (%s). A discount, a markup, a wastage, a "
+                "ratio and a share are all positive." % (label, value))
+    return None
+
+
+def refuse_if_in_use(input_id, used_by, action):
+    """ACCEPTANCE 13: an input IN USE cannot be deleted or renamed. None, or the refusal text.
+
+    The count and the categories are NAMED, because "it is in use" without them leaves the reader with
+    nowhere to go. `used_by` is the DERIVED map (`csv_exporter.pricing_input_used_by`) -- never a stored
+    count, which would go stale the moment a pipeline changed.
+    """
+    n, cats = (used_by or {}).get(input_id, (0, []))
+    if not n:
+        return None
+    return ("Cannot %s '%s': it is read by %d pricing rule%s in %s. Change the rule first."
+            % (action, input_id, n, "" if n == 1 else "s", ", ".join(cats) or "a pricing rule"))
 
 
 def coerce_rate(text, label):
@@ -1069,7 +1150,23 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
                 elif stored is None:
                     rates.pop(name, None)
                 continue
-            value, err = coerce_rate(raw_text, name)
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 12b(A) -- A PRICING INPUT IS WRITTEN AS A PER CENT, SO IT MUST BE READ AS ONE.
+            # The owner ruled percentages, not decimals: the file shows `75%`, and `coerce_rate` would
+            # refuse that as "not a number", so the file could be downloaded and never uploaded back.
+            # The round trip IS the feature -- editing these numbers in the rate file is the entire
+            # point of the slice -- so the percent columns of a pricing-input row parse through
+            # `coerce_percent`, which also refuses a bare `45` naming the missing sign (45 and 0.45 are
+            # a 100x apart, and guessing which was meant is exactly the repair this module never makes).
+            # `amount` is rupees and is deliberately NOT a percent column.
+            # ⚠️ ZERO IS ALLOWED, negative and non-numeric are not -- three inputs are 0% by ruling.
+            # ══════════════════════════════════════════════════════════════════════════════════
+            if csv_exporter.is_pricing_input_kind(kind) and name in csv_exporter.PRICING_INPUT_PERCENT_COLUMNS:
+                value, err = coerce_percent(raw_text, name)
+            else:
+                value, err = coerce_rate(raw_text, name)
+            if not err and csv_exporter.is_pricing_input_kind(kind):
+                err = validate_pricing_input_value(value, name)
             if err:
                 row_errors.append(err)
             else:

@@ -59,6 +59,14 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // EA-DIFF: point_wiring is DATA-ONLY (empty pipelines) -- renders coming-soon exactly like LMS.
       // Its config banks the 29-Jul EA-4 oracle (1869/735/2604) in its notes.
       { category_id: "point_wiring", label: "Point Wiring" },
+      // SLICE 12b(A): the numbers the pricing rules read -- a discount, a markup, a wastage, a BCS
+      // ratio, an installation share or a flat amount. It DOES hold items, so `holds_items` is
+      // deliberately omitted and the category appears on the Rate Master page (acceptance 1 + 2).
+      // Its config carries NO pipelines and NO attribute definitions, so `config_is_eligible` is false
+      // and it can never price a BoQ row or enter the extraction population (acceptance 14).
+      // ⚠️ ELECTRICAL ONLY IN THIS SLICE -- HVAC's inputs arrive in 12c, born connected to Insulation's
+      // pricing rule. Nothing inert is created for HVAC, and no empty category (acceptance 3).
+      { category_id: "electrical_pricing_inputs", label: "Pricing Inputs" },
       // RETIRED 2026-08-08: `switches_point` (the EA-4b 6-line switch/socket/plate/box assembly) is
       // gone from this list ON PURPOSE. It priced rows `switches_sockets` already covers, and a reader
       // could reasonably take it for the switch-and-socket category. Its config is superseded

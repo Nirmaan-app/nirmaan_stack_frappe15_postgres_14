@@ -30,6 +30,14 @@ import {
   specConfirmedInfo,
   specQuestion,
   specVerdict,
+  asPercent,
+  pricingInputCell,
+  isPricingInputConfig,
+  pricingInputUsedBy,
+  pricingInputUsedByText,
+  PRICING_INPUT_VALUE_COLUMNS,
+  PRICING_INPUT_PERCENT_COLUMNS,
+  PRICING_INPUT_COLUMN_LABELS,
 } from "./rateMasterSpec";
 import type { AttributeDefinition } from "./rateMasterTypes";
 import { UPLOAD_COPY, type UploadChange, type UploadPlan } from "./rateMasterUpload";
@@ -232,5 +240,88 @@ describe("SLICE 1f -- the duplicate answers on the three payloads: byte-identica
     // a spec answer AND a twin answer travel together (the form may have answered both questions in turn)
     const both = saveItemPayload("RMI-1", { attributes_patch: { item_detail: "x" }, spec_decision: "accept", spec_fingerprint: "sfp", twin_decision: "confirm", twin_fingerprint: "tfp" });
     expect(Object.keys(both)).toEqual(["name", "rates_patch", "attributes_patch", "spec_decision", "spec_fingerprint", "twin_decision", "twin_fingerprint"]);
+  });
+});
+
+// =====================================================================================
+// SLICE 12b(A) -- PRICING INPUTS: the pure half of the screen.
+// =====================================================================================
+describe("SLICE 12b(A) -- Pricing Inputs on the screen", () => {
+  it("ACCEPTANCE 6 POSITIVE: a factor displays as a percentage, never a decimal", () => {
+    expect(asPercent(0.75)).toBe("75%");
+    expect(asPercent(0.45)).toBe("45%");
+    expect(asPercent(0.05)).toBe("5%");
+    expect(asPercent(0.3625)).toBe("36.25%");
+    expect(asPercent(1)).toBe("100%");
+    expect(asPercent(0)).toBe("0%");
+  });
+
+  it("ACCEPTANCE 6 NEGATIVE: an amount is rupees, NOT a percentage", () => {
+    expect(pricingInputCell("amount", 106)).toBe("106");
+    expect(pricingInputCell("discount", 0.75)).toBe("75%");
+    // the whole point: the same 106 read as a percentage would be 10600%
+    expect(pricingInputCell("amount", 106)).not.toBe("10600%");
+  });
+
+  it("a blank stays blank -- an absent input is not 0%", () => {
+    expect(pricingInputCell("discount", null)).toBe("");
+    expect(pricingInputCell("discount", undefined)).toBe("");
+    expect(asPercent("")).toBe("");
+  });
+
+  it("ACCEPTANCE 14: the category is recognised by its KIND SUFFIX, never by a discipline name", () => {
+    expect(isPricingInputConfig({ item_kinds: ["electrical_pricing_input"] } as any)).toBe(true);
+    // a future discipline flows through with no code change
+    expect(isPricingInputConfig({ item_kinds: ["hvac_pricing_input"] } as any)).toBe(true);
+    expect(isPricingInputConfig({ item_kinds: ["cable"] } as any)).toBe(false);
+    expect(isPricingInputConfig({ item_kinds: [] } as any)).toBe(false);
+    expect(isPricingInputConfig(null)).toBe(false);
+    // a MIXED kind list is not a pricing-input category
+    expect(isPricingInputConfig({ item_kinds: ["cable", "electrical_pricing_input"] } as any)).toBe(false);
+  });
+
+  it("ACCEPTANCE 13: the used-by count is DERIVED from the rules, with its categories named", () => {
+    const configs = [
+      { category_id: "conduit_piping", pipelines: { a: { steps: [
+        { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "conduit" } },
+        { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "conduit_share" } },
+      ] } } },
+      { category_id: "point_wiring", pipelines: { b: { steps: [
+        { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "conduit" } },
+      ] } } },
+    ] as any;
+    const u = pricingInputUsedBy(configs);
+    expect(u["conduit"]).toEqual({ sites: 2, categories: ["conduit_piping", "point_wiring"] });
+    expect(pricingInputUsedByText(u["conduit"])).toBe("2 sites in conduit_piping, point_wiring");
+    expect(pricingInputUsedByText(u["conduit_share"])).toBe("1 site in conduit_piping");
+  });
+
+  it("NEGATIVE: an input no rule reads reads as 'not used' -- so a delete can be allowed", () => {
+    expect(pricingInputUsedByText(undefined)).toBe("not used");
+    expect(pricingInputUsedByText({ sites: 0, categories: [] })).toBe("not used");
+  });
+
+  it("NEGATIVE: a non-rate_ref step is never counted as a use", () => {
+    const configs = [{ category_id: "x", pipelines: { p: { steps: [
+      { step: "scale", ref: { item: "conduit" } },
+      { step: "component_ref", ref: { kind: "conduit", item: "conduit" } },
+    ] } } }] as any;
+    expect(pricingInputUsedBy(configs)).toEqual({});
+  });
+
+  it("ACCEPTANCE 4 / 9: the column set is fixed, and amount is the only non-percentage", () => {
+    expect(PRICING_INPUT_VALUE_COLUMNS).toEqual([
+      "discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share", "amount",
+    ]);
+    expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("amount");
+    expect(PRICING_INPUT_PERCENT_COLUMNS).toHaveLength(7);
+    // ACCEPTANCE 7/8: every column names a kind of number, and every markup names its leg
+    for (const c of PRICING_INPUT_VALUE_COLUMNS) {
+      expect(PRICING_INPUT_COLUMN_LABELS[c]).toBeTruthy();
+      expect(PRICING_INPUT_COLUMN_LABELS[c]).not.toMatch(/factor/i);
+    }
+    expect(PRICING_INPUT_COLUMN_LABELS.supply_markup).toBe("Supply markup");
+    expect(PRICING_INPUT_COLUMN_LABELS.installation_markup).toBe("Installation markup");
+    expect(PRICING_INPUT_COLUMN_LABELS.bcs_markup).toBe("BCS markup");
   });
 });

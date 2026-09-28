@@ -314,7 +314,35 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # exactly the risk that proof exists to retire.
 # TWO WAYS (v61, owner 2026-09-10): cabletray_raceway.width_mm and .thickness_mm are dropdowns on screen and
 # free numbers to the model (`extract_as`); the ONE change over v59, cabletray only. See TestV61TwoWays.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v63.json"
+# SLICE 12b(A) (owner-authorised, 2026-09-27): v64 -- PRICING INPUTS. The Electrical asset moves for
+# the FIRST TIME in this arc: 33 Pricing Input items, a 13th category (`electrical_pricing_inputs`, no
+# pipelines and no attribute definitions so it can never price a row), and every migrated literal
+# REMOVED from the 12 pricing configs and replaced by a `rate_ref` read. Proven price-neutral: the
+# 7,244-figure replay is identical except pop-up box's 368 NEW cost figures, which the owner ruled in.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v64.json"
+
+# SLICE 12b(A): the two counts the slice MOVED, named so every assertion says WHY it is what it is.
+#
+# WARNING: both are read in TWO senses -- what the ASSET declares, and what the LIVE DB holds once the
+# asset is loaded. They are the same number by construction (the loader is wholesale), and that is the
+# point: an assertion that meant "EALL_ITEMS" in one sense and "1400" in the other would be a divergence
+# nobody could see. Retiring a count by editing the digit loses the reason; a named constant keeps it.
+EALL_ITEMS = 1400       # EALL_ITEMS -> 1400: the 33 Pricing Input items slice 12b(A) minted.
+EALL_CONFIGS = 13       # 12 -> 13: the new `electrical_pricing_inputs` category.
+# ⚠️ AND A THIRD NUMBER, WHICH IS NOT EITHER OF THE ABOVE AND MUST NOT BE CONFLATED WITH THEM.
+# The ALL-CATEGORIES rate file deliberately EXCLUDES the Pricing Inputs (acceptance 15), because a
+# discount has no brand, no unit and none of the columns every other row carries -- folding it in would
+# make that file's column space meaningless. So the catalogue holds 1400 items while the mode-B file
+# holds 1367 rows, and both numbers are correct. Naming them separately is the only way a reader can
+# tell "the catalogue grew" from "the shared file should not have".
+EALL_ITEMS_IN_ALL_FILE = 1367   # EALL_ITEMS minus the 33 Pricing Inputs, which never join that file.
+PRICING_INPUTS_CATEGORY = "electrical_pricing_inputs"   # the 13th: item-only, no pipelines, never prices a row
+# The twelve that DO price. Slice 12b(A) removed a migrated literal from every one of them, so a
+# cumulative "which categories moved" pin now names all twelve -- that IS the pin doing its job.
+EALL_PRICING_CATEGORIES = ["cabletray_raceway", "conduit_piping", "db_switchgear", "earthing",
+                           "industrial_sockets", "junction_box_raceway", "lighting_mgmt_system",
+                           "miscellaneous", "point_wiring", "popup_boxes", "switches_sockets",
+                           "wiring_cabling"]
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -350,6 +378,186 @@ def _without_formula_row(rows):
     case (I-8) and is pinned in its own right by `TestFormulaRoundTripSlice12a.test_z03`. Without this
     the helpers would read the explanation text out of a rate column and call `float()` on it."""
     return [r for r in rows if not _is_formula_row(r)]
+
+
+# =====================================================================================
+# SLICE 12b(A) -- THE TWO NORMALISERS, and why the pins needed them rather than a wider exemption.
+#
+# This slice touched ALL TWELVE pricing configs: every migrated literal was removed and replaced by a
+# `rate_ref` read of a Pricing Input. Every cumulative "every OTHER category is byte-equal to vN" pin
+# therefore went red at once.
+#
+# WARNING: THE OBVIOUS REPAIR DESTROYS THOSE PINS. Adding all twelve categories to an exemption list
+# leaves the loop iterating nothing -- a green test asserting no claim, which is worse than a deleted
+# one because it still looks like coverage. So instead the migration is NORMALISED AWAY and everything
+# else is still compared byte for byte: a change that rode along on this slice still fails, in every
+# one of those tests, exactly as before.
+#
+# What is normalised, and nothing else:
+#   * the appended PREAMBLE -- the `rate_ref` steps and the `pricing_input` scales;
+#   * on a step the migration rewrote, the param the migration replaced (`x_from_ctx` on the new side,
+#     `x` on the old) and that step's `formula`, which some of the rewrites had to change;
+#   * the 33 new Pricing Input ITEMS.
+# Step ORDER, step COUNT for every original step, every other key of every other step, every other
+# item and every golden are all still compared verbatim.
+# =====================================================================================
+_PI_KIND_SUFFIX = "_pricing_input"
+_FROM_CTX = "_from_ctx"
+
+
+def _is_preamble_step(step):
+    """A step of the pricing-input preamble: a `rate_ref`, or a `scale` that declares itself one."""
+    return step.get("step") == "rate_ref" or step.get("pricing_input") is True
+
+
+_PI_CTX_PREFIX = "pi_"
+
+
+def _is_pi_ref(key, value):
+    """True for a param that READS A PRICING INPUT.
+
+    ⚠️ `_from_ctx` DID NOT ARRIVE WITH THIS SLICE -- v63 already carried `modules_from_ctx` and
+    `conduit_from_ctx`, which read values an earlier step computed and have nothing to do with pricing
+    inputs. Keying the normaliser on the SUFFIX alone stripped those from the new side while the old side
+    kept them, so two untouched steps compared unequal and six pins went red for a reason that was purely
+    an artefact of the normaliser. The pricing-input refs are the ones whose VALUE names a `pi_*` ctx key.
+    """
+    return (isinstance(key, str) and key.endswith(_FROM_CTX)
+            and isinstance(value, str) and value.startswith(_PI_CTX_PREFIX))
+
+
+def _strip_12b_params(n, o):
+    """Normalise the migration off ONE params-bearing object (a step, a condition, a rate stage).
+
+    Mutates both dicts in place; returns True when this object was one the migration rewrote.
+
+    ⚠️ ON A REWRITTEN OBJECT THE WHOLE ARITHMETIC IS DROPPED -- `params`, `formula` and `explain`, on
+    BOTH sides -- rather than key by key. The migration did not merely substitute a value: it sometimes
+    RENAMED the param (`factor: 1.0` became `m_from_ctx`, because the owner ruled that a "factor" is not
+    a thing this system has any more), so there is no derivable old name to pair against the new one.
+    Every OTHER key of the object -- step type, target, result, name, qty, none_skips, conditions,
+    rate_stages -- is still compared byte for byte, and an object the migration did NOT touch keeps its
+    params in the comparison in full. The arithmetic itself is covered far more strongly by the two
+    replay gates (0 moved figures across 7,244) than any structural compare could manage.
+    """
+    if not isinstance(n, dict):
+        return False
+    rewritten = any(_is_pi_ref(k, v) for k, v in (n.get("params") or {}).items())
+    stage_ref = any(_is_pi_ref(k, v) for k, v in n.items())
+    # ⚠️ THE SECOND TRIGGER: RULE CHANGE 2 DELETED A LITERAL INSTEAD OF REPLACING IT. The owner ruled
+    # that for `miscellaneous` the catalogue rate IS the quote, so its two `factor: 1.0` params went away
+    # entirely and the formula became a plain `base` -- there is no `pi_*` ref on those steps to key on.
+    # The trigger is kept DELIBERATELY NARROW so it can never mask a real deletion: it fires only when
+    # the new params are EMPTY, the old params held nothing but numbers, and the step is otherwise
+    # IDENTICAL apart from its formula and its explain. A step that lost a param AND changed anything
+    # else still fails.
+    delit = False
+    if not rewritten and not stage_ref and isinstance(o, dict):
+        op = o.get("params") or {}
+        if (not (n.get("params") or {})) and op and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in op.values()):
+            rest_n = {k: v for k, v in n.items() if k not in ("params", "formula", "explain")}
+            rest_o = {k: v for k, v in o.items() if k not in ("params", "formula", "explain")}
+            delit = rest_n == rest_o
+    if not rewritten and not stage_ref and not delit:
+        return False
+    for target in (n, o if isinstance(o, dict) else None):
+        if target is None:
+            continue
+        for k in ("params", "formula", "explain"):
+            target.pop(k, None)
+        for k in [k for k, v in list(target.items()) if _is_pi_ref(k, v)]:
+            target.pop(k, None)
+    # a rate stage's literal lives directly on the stage; its new counterpart is the pi_* ref
+    if stage_ref and isinstance(o, dict):
+        for k in ("mult", "m", "ratio", "factor"):
+            o.pop(k, None)
+    return True
+
+
+def _strip_12b_step(new_step, old_step):
+    """One step, with the migration normalised off BOTH sides, INCLUDING its nested params maps.
+
+    WARNING: the substitution reaches three levels, and missing one leaves a pin comparing a
+    `*_from_ctx` key against the literal it replaced -- a red test that says nothing about the change
+    it is guarding. `conditions[].params` (the tray's floor-cutting adder) and `rate_stages[]` (the
+    conduit multiplier inside a component_ref) both carry it, not just the step's own `params`.
+    """
+    n = dict(new_step)
+    o = dict(old_step) if isinstance(old_step, dict) else {}
+    _strip_12b_params(n, o)
+    for key in ("conditions", "rate_stages"):
+        if key not in n:
+            continue
+        ns = [dict(x) if isinstance(x, dict) else x for x in (n.get(key) or [])]
+        os_ = [dict(x) if isinstance(x, dict) else x for x in (o.get(key) or [])]
+        for i, item in enumerate(ns):
+            _strip_12b_params(item, os_[i] if i < len(os_) else {})
+        n[key] = ns
+        if isinstance(o, dict) and key in o:
+            o[key] = os_
+    if isinstance(n.get("qty"), dict):
+        nq = dict(n["qty"])
+        oq = dict(o.get("qty") or {}) if isinstance(o, dict) else {}
+        if _strip_12b_params(nq, oq):
+            n["qty"] = nq
+            if isinstance(o, dict) and "qty" in o:
+                o["qty"] = oq
+    return n, o
+
+
+def _strip_12b_migration(new_cfg, old_cfg):
+    """(new, old) with slice 12b(A)'s pricing-input migration normalised away on both sides.
+
+    Everything the migration did NOT do is left untouched, so these pins keep their full force.
+    """
+    n = json.loads(json.dumps(new_cfg))
+    o = json.loads(json.dumps(old_cfg))
+    for pid, p in (n.get("pipelines") or {}).items():
+        op = (o.get("pipelines") or {}).get(pid) or {}
+        kept = [s for s in (p.get("steps") or []) if not _is_preamble_step(s)]
+        old_steps = list(op.get("steps") or [])
+        new_out, old_out = [], []
+        for i, s in enumerate(kept):
+            a, b = _strip_12b_step(s, old_steps[i] if i < len(old_steps) else {})
+            new_out.append(a)
+            old_out.append(b)
+        p["steps"] = new_out
+        if op:
+            # any step beyond the ones we normalised is compared verbatim
+            op["steps"] = old_out + old_steps[len(kept):]
+    # a pipeline the slice ADDED (popup_bcs, owner RULE CHANGE 3) has no counterpart; it is pinned
+    # on its own in TestPricingInputs, so drop it here rather than widen the category exemption.
+    for pid in [k for k in (n.get("pipelines") or {}) if k not in ((o.get("pipelines") or {}))]:
+        n["pipelines"].pop(pid)
+    return n, o
+
+
+def _pricing_input(item, rate_key="rate"):
+    """The VALUE of one Pricing Input, read from the current Electrical asset.
+
+    SLICE 12b(A). The inverted pins use this instead of a literal, and that is the whole point of the
+    inversion: a test that still carried the number would be asserting a constant the product no longer
+    holds, while the figure the pricer actually sees came from somewhere else. Reading it here means the
+    pin and the product can never disagree -- and an input EDITED to a value the ruling forbids (an LMS
+    BCS markup that is not zero, a tray install markup that is not zero) goes red.
+    """
+    with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+        asset = json.load(fh)
+    hits = [it for it in asset["items"]
+            if str(it.get("kind") or "").endswith(_PI_KIND_SUFFIX)
+            and (it.get("attributes") or {}).get("item") == item]
+    if len(hits) != 1:
+        raise AssertionError("expected exactly one Pricing Input named %r, found %d" % (item, len(hits)))
+    rates = hits[0].get("rates") or {}
+    if rate_key not in rates:
+        raise AssertionError("Pricing Input %r carries no %r rate (has %s)" % (item, rate_key, sorted(rates)))
+    return rates[rate_key]
+
+
+def _without_pricing_input_items(items):
+    """The catalogue without the 33 Pricing Input items slice 12b(A) minted."""
+    return [it for it in items if not str(it.get("kind") or "").endswith(_PI_KIND_SUFFIX)]
 
 
 def _obj(value):
@@ -1085,8 +1293,8 @@ class TestRateMaster(FrappeTestCase):
 
         r = loader.load_rate_master(payload=payload)
         # ONE batch covers items AND configs -- previously two batches from two files.
-        self.assertEqual(r["items_total"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
-        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(r["items_total"], EALL_ITEMS)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
+        self.assertEqual(r["configs_loaded"], EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         self.assertEqual(len({r["batch"]}), 1)
         self.assertTrue(r["batch"].startswith("rmbulk-"))
 
@@ -1152,10 +1360,10 @@ class TestRateMaster(FrappeTestCase):
             filters={"discipline": disc, "active": 1},
             fields=["kind", "brand", "attributes", "item_uid"],
         )
-        self.assertEqual(len(stored), 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(len(stored), EALL_ITEMS)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
         self.assertTrue(all((r["item_uid"] or "").startswith("rmi-") for r in stored),
                         "every stored row must carry the uid the asset supplied")
-        self.assertEqual(len({r["item_uid"] for r in stored}), 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(len({r["item_uid"] for r in stored}), EALL_ITEMS)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
         # and it is the SAME uid on the SAME item -- keyed by (kind, brand, attributes), the tuple
         # the backfill paired on. `brand` is load-bearing here: six lms_item pairs are identical on
         # (kind, attributes) and differ ONLY by brand, at materially different prices.
@@ -1165,7 +1373,7 @@ class TestRateMaster(FrappeTestCase):
                     loader._canonicalize_attributes(it["attributes"])): it["item_uid"]
                 for it in payload["items"]}
         got = {key(r["kind"], r["brand"], _obj(r["attributes"])): r["item_uid"] for r in stored}
-        self.assertEqual(len(want), 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(len(want), EALL_ITEMS)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
         self.assertEqual(want, got, "uid must land on the item the asset assigned it to")
 
     # ---- F-16 (2026-08-13): cable tray install moved ON-ROW ----------------------------
@@ -1228,7 +1436,14 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(match.get("step"), "match_master_row")
         self.assertEqual(match.get("params", {}).get("kind"), "cable_tray")
         self.assertEqual(install.get("target"), "install_rate")
-        self.assertEqual(install.get("formula"), "base")   # verbatim, no arithmetic on top
+        # INVERTED AT PRICING INPUTS (v64, owner 2026-09-27). The tray's INSTALLATION MARKUP became an
+        # editable input, and the owner set it to 0 -- so the formula gained a markup term whose value
+        # is zero and the figure does not move (the replay gate: 0 moved). "Verbatim" is now a claim
+        # about the INPUT, not about the formula text, and it is asserted as one: a non-zero markup
+        # here would be a deliberate, visible change rather than a silent one.
+        self.assertEqual(install.get("formula"), "base*(1+install_markup)")
+        self.assertEqual(_pricing_input("tray_install", "installation_markup"), 0.0,
+                         "the tray install markup is 0, so install is still read verbatim")
 
     def test_f16b_install_is_read_off_the_tray_row_itself_at_the_wide_end(self):
         """POSITIVE, and the ONLY coverage away from width 100.
@@ -1285,11 +1500,26 @@ class TestRateMaster(FrappeTestCase):
         pl = self._f16_tray_config(payload)["pipelines"]["tray_boq_install"]
         self.assertNotIn("per_run_factor", json.dumps(pl))
         width_install = next(s for s in pl["steps"] if s.get("name") == "width_install")
-        self.assertEqual(width_install["params"], {})
+        # INVERTED AT PRICING INPUTS (v64): the ONE param is the installation-markup input reference.
+        # The claim this test is named for is intact and still negative: NO NUMERIC param survives on
+        # this step, so a re-introduced `per_run_factor` -- or any other literal -- still fails.
+        self.assertEqual(width_install["params"], {"install_markup_from_ctx": "pi_tray_install_installation_markup"})
+        self.assertEqual([v for v in width_install["params"].values() if isinstance(v, (int, float))], [],
+                         "no NUMERIC param may survive on the width_install step")
         # the floor_cutting adder and the sum are UNTOUCHED by F-16
         cutting = next(s for s in pl["steps"] if s.get("name") == "floor_cutting")
-        self.assertEqual(cutting["conditions"][0]["params"], {"cutting_rate": 200.0, "markup": 0.45})
-        self.assertEqual(pl["steps"][-1], {"step": "sum_components", "result": "install_per_rmt"})
+        # INVERTED AT PRICING INPUTS (v64): the cutting AMOUNT and the markup are editable inputs now --
+        # a `conditions` params map carries the same substitution as a step's own params. The NEGATIVE
+        # claim is what matters and it is stated directly: no numeric literal survives here either.
+        self.assertEqual(cutting["conditions"][0]["params"],
+                         {"cutting_rate_from_ctx": "pi_tray_cutting_amount_amount",
+                          "markup_from_ctx": "pi_tray_cutting_installation_markup"})
+        self.assertEqual([v for v in cutting["conditions"][0]["params"].values()
+                          if isinstance(v, (int, float))], [], "no numeric literal may survive")
+        self.assertEqual(_pricing_input("tray_cutting_amount", "amount"), 200.0)
+        # the sum is still the last PRICING step (the appended preamble sits after it in the list)
+        self.assertEqual([s for s in pl["steps"] if not _is_preamble_step(s)][-1],
+                         {"step": "sum_components", "result": "install_per_rmt"})
 
     def test_f16e_the_tray_goldens_are_unchanged_by_the_restructure(self):
         """THE PRICES-MUST-NOT-MOVE INSTRUMENT.
@@ -1347,12 +1577,20 @@ class TestRateMaster(FrappeTestCase):
         TypeScript interpreter; the browser cert proves the numbers against the expected-after
         table, on a BARE and a LOADED assembly for each certified shell."""
         payload = self._merged_payload("Electrical")
-        steps = self._f17_db_config(payload)["pipelines"]["db_buildup_install"]["steps"]
+        # RE-ANCHORED AT PRICING INPUTS (v64): the preamble is APPENDED, so the last two steps are no
+        # longer the scale and the roundup. The pricing steps are the subsequence without the preamble;
+        # the pair claim is unchanged.
+        steps = [s for s in self._f17_db_config(payload)["pipelines"]["db_buildup_install"]["steps"]
+                 if not _is_preamble_step(s)]
         scale = steps[-2]
         self.assertEqual(scale["step"], "scale")
         self.assertEqual(scale["target"], "supply")        # the CALCULATED supply, not the shell
         self.assertEqual(scale["result"], "install")
-        self.assertEqual(scale["params"], {"m": self.F17_RATIO})
+        # INVERTED AT PRICING INPUTS (v64): the 0.20 ratio is an editable installation share now. The
+        # ruling this test states -- ONE rule for all 27, a ratio of the CALCULATED supply -- is
+        # unchanged; only the number's home moved, and the value is still asserted.
+        self.assertEqual(scale["params"], {"m_from_ctx": "pi_db_share_share"})
+        self.assertEqual(_pricing_input("db_share", "share"), self.F17_RATIO)
         self.assertEqual(scale["formula"], "base*m")
         # the rounding BEHAVIOUR of the retired step's `round_ratio: -1` is preserved exactly
         self.assertEqual(steps[-1], {"step": "roundup", "target": "install",
@@ -1845,8 +2083,8 @@ class TestRateMaster(FrappeTestCase):
         payload2 = json.loads(json.dumps(payload))
         payload2["discipline"] = dst
         r = loader.load_rate_master(payload=payload2)
-        self.assertEqual(r["items_total"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
-        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(r["items_total"], EALL_ITEMS)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
+        self.assertEqual(r["configs_loaded"], EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
 
         def rows(d):
             return frappe.get_all(
@@ -1996,8 +2234,8 @@ class TestRateMaster(FrappeTestCase):
                                 fields=["payload", "item_count", "config_count", "taken_by",
                                         "import_batch"],
                                 order_by="version desc", limit=1)[0]
-        self.assertEqual(newest["item_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
-        self.assertEqual(newest["config_count"], 12)
+        self.assertEqual(newest["item_count"], EALL_ITEMS)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
+        self.assertEqual(newest["config_count"], EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         self.assertTrue(newest["taken_by"])
         self.assertTrue(newest["import_batch"].startswith("rmbulk-"))
         # the payload is stored VERBATIM -- byte-for-byte what the export produced
@@ -2029,7 +2267,7 @@ class TestRateMaster(FrappeTestCase):
         res = rate_master.export_rate_master_asset(discipline=disc)
         self.assertEqual(res["content_type"], "application/json")
         self.assertTrue(res["filename"].endswith(".json"))
-        self.assertEqual(res["item_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(res["item_count"], EALL_ITEMS)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
         decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
         self.assertEqual(json.loads(decoded)["discipline"], disc)
         self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
@@ -2103,7 +2341,7 @@ class TestRateMaster(FrappeTestCase):
         loader.load_rate_master(payload=self._merged_payload(disc))
 
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
-        self.assertEqual(n, 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(n, EALL_ITEMS_IN_ALL_FILE)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
         # SLICE 1g (owner Z-c): `discipline` joins right after item_uid -- inverted, not deleted.
         self.assertEqual(headers[:6], ["item_uid", "discipline", "category", "kind", "brand", "unit"])
         # SLICE 1e (owner X-b): the source pair is NOT in the file any more -- inverted, not deleted.
@@ -2131,7 +2369,7 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 12a (owner I-7): the first data line is now the FORMULA ROW -- an explanation, not an
         # item. Dropped here so every claim below is about the ITEM rows, exactly as before.
         rows = [rows[0]] + _without_formula_row(rows[1:])
-        self.assertEqual(len(rows) - 1, 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(len(rows) - 1, EALL_ITEMS_IN_ALL_FILE)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
         self.assertEqual({r[1] for r in rows[1:]}, {disc})          # 1g: every row names the discipline
         cats = {r[2] for r in rows[1:]}
@@ -2206,7 +2444,7 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c) -- the same +1 as test_24n.
         # SLICE 12a: +2, the two read-only formula columns (owner I-6) -- the same +2 as test_24n.
         self.assertEqual(res_all["column_count"], 50)
-        self.assertEqual(res_all["row_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
+        self.assertEqual(res_all["row_count"], EALL_ITEMS_IN_ALL_FILE)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
         """SLICE 5 NEGATIVE -- point_wiring is kind-less and owns no rows of its own. It must yield a
@@ -2383,7 +2621,8 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(r["items_by_kind"]["db_shell"], 27)
         self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)
         self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)  # items UNCHANGED -- only the config moved
-        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(r["configs_loaded"], 12)   # ⚠️ NOT EALL_CONFIGS: this test loads the HISTORICAL v17 asset,
+        # which has twelve configs of its own. The 13th category belongs to v64 and must never be expected here.
         cfg_name = frappe.db.get_value(
             "BoQ Rate Category Config", {"discipline": disc, "category_id": "db_switchgear", "active": 1}, "name"
         )
@@ -3026,6 +3265,13 @@ class TestRateMaster(FrappeTestCase):
                 # CIRCUIT LENGTH part 1. Same discipline: green at 12 types against the
                 # unchanged validator, then interpreter + validator extended together in one commit.
                 "derive_attribute",
+                # SLICE 12b(A): the PRICING-INPUT READER, 15 -> 16. Loads one stored rate into ctx
+                # WITHOUT touching the `components` accumulator -- which is why it is not
+                # `component_ref`: that writes into the bag `sum_components` sums, so reading an input
+                # through it would ADD the input to 29 pipelines' assembly totals under status "ok".
+                # FULLY validated (the three keys it needs required, the three it must never carry
+                # refused BY NAME), not pass-through.
+                "rate_ref",
             },
         )
 
@@ -3720,13 +3966,19 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(rate_master._STEP_DIVISOR_SUFFIX, "_step_divisor")
 
     def test_70_derive_attribute_is_in_the_known_step_vocabulary(self):
-        """The vocabulary pin's server half. The frontend STEP_VOCABULARY carries the same 15 members
+        """The vocabulary pin's server half. The frontend STEP_VOCABULARY carries the same 16 members
         (pinned in ratePipelineInterpreter.test.ts); a step known to only one side is unusable.
 
         SLICE 2b took this 13 -> 15 (`map_attribute` + `catalog_fit`), extended on both sides in one
-        commit exactly as the 11 -> 12 -> 13 moves before it."""
+        commit exactly as the 11 -> 12 -> 13 moves before it.
+
+        SLICE 12b(A) takes it 15 -> 16 (`rate_ref`). ⚠️ THIS PIN EARNED ITS KEEP: the backend vocabulary
+        was extended first and the FRONTEND ONE WAS NOT, and this is the assertion that caught it. A step
+        the validator accepts but the interpreter's vocabulary does not list is exactly the
+        saves-on-one-side-does-nothing-on-the-other failure the docstring above warns about."""
         self.assertIn("derive_attribute", rate_master._KNOWN_STEP_TYPES)
-        self.assertEqual(len(rate_master._KNOWN_STEP_TYPES), 15)
+        self.assertIn("rate_ref", rate_master._KNOWN_STEP_TYPES)
+        self.assertEqual(len(rate_master._KNOWN_STEP_TYPES), 16)
 
     # ---- MINT GATE: the two carry-forward repairs ----
     #
@@ -3900,7 +4152,9 @@ class TestRateMaster(FrappeTestCase):
         tb = wcfg["pipelines"]["termination_boq"]["steps"]
         iar = [i for i, s in enumerate(tb) if s.get("step") == "install_as_ratio"]
         self.assertEqual(len(iar), 1)
-        self.assertEqual(tb[iar[0]]["params"], {"ratio": 0.25})
+        # INVERTED AT PRICING INPUTS (v64): the 25% install share is an editable input now.
+        self.assertEqual(tb[iar[0]]["params"], {"ratio_from_ctx": "pi_termination_share_share"})
+        self.assertNotIn("ratio", tb[iar[0]]["params"], "the literal 0.25 must not come back")
         # the supply runs `scale` still sits BEFORE it -- that ordering IS the inheritance
         scale_i = [i for i, s in enumerate(tb) if s.get("step") == "scale"]
         self.assertTrue(scale_i and max(scale_i) < iar[0])
@@ -5363,7 +5617,7 @@ class TestRateMaster(FrappeTestCase):
         target = self._e_uid_name(disc, self.E_TWIN_UID)
         before = self._e_state(target)
         n_before = self._active_items(disc)
-        self.assertEqual(n_before, 1367)
+        self.assertEqual(n_before, EALL_ITEMS)
         row = {"kind": "cable", "brand": "Polycab", "unit": "Mtr", "core": "3", "insulation": "ARMOURED",
                "material": "COPPER", "thickness_sqmm": "2.5", "install_base_per_mtr": "15", "list_price_per_mtr": "500"}
         text, _h = self._wiring_with(disc, [row])
@@ -5374,12 +5628,12 @@ class TestRateMaster(FrappeTestCase):
         # NEGATIVE: unanswered -> refused, nothing written
         with self.assertRaises(frappe.ValidationError):
             csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
-        self.assertEqual(self._active_items(disc), 1367); self.assertEqual(self._e_state(target), before)
+        self.assertEqual(self._active_items(disc), EALL_ITEMS); self.assertEqual(self._e_state(target), before)
         # CONFIRM
         res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={row_no: "confirm"}, twin_fingerprints={row_no: fp})
         frappe.db.commit()
         self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
-        self.assertEqual(self._active_items(disc), 1367)                                   # NO new item
+        self.assertEqual(self._active_items(disc), EALL_ITEMS)                                   # NO new item
         self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", target, "active"), 0)  # superseded, retained
         after = self._e_state(self._e_uid_name(disc, self.E_TWIN_UID))
         self.assertEqual(after["attributes"], before["attributes"])
@@ -5393,7 +5647,7 @@ class TestRateMaster(FrappeTestCase):
         frappe.db.commit()
         self.assertEqual((r2["applied"], r2["items_added"], r2["items_replaced"]), (1, 1, 0))
         self.assertEqual(r2["plan"]["counts"]["twins_declined"], 1)
-        self.assertEqual(self._active_items(disc), 1368)
+        self.assertEqual(self._active_items(disc), EALL_ITEMS + 1)   # SLICE 12b(A): the catalogue + the one row this test adds
         still = self._e_state(self._e_uid_name(disc, self.E_TWIN_UID))
         self.assertEqual(still["rates"], {"list_price_per_mtr": 500.0, "install_base_per_mtr": 15.0})   # not 600
         added = frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "active": 1, "import_batch": r2["batch"]}, fields=["brand"])
@@ -5403,7 +5657,7 @@ class TestRateMaster(FrappeTestCase):
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, spec_reader
         disc = self._loaded_disc()
         _items, _kc, cat_kinds = csv_exporter._load(disc)
-        self.assertEqual(len(cat_kinds), 12)
+        self.assertEqual(len(cat_kinds), EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13. The pricing-input category HOLDS items (33) and so has its own rate file; only the ALL-categories file excludes them.
         def zero(payload, n, label):
             p = csv_importer.build_plan(disc, payload)
             self.assertEqual(p["errors"], [], label); self.assertEqual(p["changes"], [], label)
@@ -5416,7 +5670,7 @@ class TestRateMaster(FrappeTestCase):
             text, _h2, n2 = csv_exporter.build_category_csv(disc, cat)
             zero(text, n2, cat)
         raw_b, _hb, nb = csv_exporter.build_all_categories_xlsx(disc)
-        self.assertEqual(nb, 1367); zero(raw_b, 1367, "mode B")
+        self.assertEqual(nb, EALL_ITEMS_IN_ALL_FILE); zero(raw_b, EALL_ITEMS_IN_ALL_FILE, "mode B")
         self.assertEqual(csv_importer.apply_plan(disc, raw_b)["applied"], 0)
         # an item shared by two categories under ONE uid is one item, never its own twin: no identity in
         # the index carries two uids (and switch_socket_item IS in both popup_boxes and switches_sockets)
@@ -5503,7 +5757,7 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("remove one", plan["errors"][0]["message"])
         with self.assertRaises(frappe.ValidationError):
             csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
-        self.assertEqual(self._active_items(disc), 1367)
+        self.assertEqual(self._active_items(disc), EALL_ITEMS)
 
     # ══════════════════════════════════════════════════════════════════════════════════════════
     # SLICE 1g -- SELF-DESCRIBING FILES + IDs FOR HAND-ADDED ITEMS (owner Z-a..Z-e), Electrical half:
@@ -5552,9 +5806,13 @@ class TestRateMaster(FrappeTestCase):
         text_b, hb, nb = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(hb[:3], ["item_uid", "discipline", "category"])
         rows_b = _without_formula_row(list(csv.reader(_io.StringIO(text_b.lstrip(BOM))))[1:])
-        self.assertEqual(len(rows_b), 1367)
+        self.assertEqual(len(rows_b), EALL_ITEMS_IN_ALL_FILE)
         self.assertEqual({r[1] for r in rows_b}, {disc})
-        self.assertEqual({r[2] for r in rows_b}, set(kind_cat.values()))       # the category ID, as before
+        # SLICE 12b(A): the all-categories file EXCLUDES the Pricing Inputs (acceptance 15), so its
+        # category set is every category MINUS that one. Asserted as a subtraction rather than by
+        # dropping the claim, so any OTHER category going missing from the file still fails.
+        self.assertEqual({r[2] for r in rows_b},
+                         set(kind_cat.values()) - {PRICING_INPUTS_CATEGORY})
         raw_b, hxb, _n = csv_exporter.build_all_categories_xlsx(disc)
         self.assertEqual(hxb, hb)
 
@@ -5731,18 +5989,26 @@ class TestRateMaster(FrappeTestCase):
                     sv = rates.get(col)
                     if sv is None:
                         self.assertEqual(text, "", (cat, col))
+                    elif cat == PRICING_INPUTS_CATEGORY and col in csv_exporter.PRICING_INPUT_PERCENT_COLUMNS:
+                        # SLICE 12b(A): a Pricing Input's percent column is written AS A PERCENT by owner
+                        # ruling, so `float("75%")` raises. The claim is the same one -- the file's text
+                        # and the stored value agree -- expressed in the unit the file is written in, and
+                        # it is asserted in BOTH directions so a wrong scale (75 vs 0.75, a 100x error)
+                        # cannot pass.
+                        self.assertEqual(text, csv_exporter.as_percent(sv), (cat, col))
+                        self.assertAlmostEqual(float(text.rstrip("%")) / 100.0, float(sv), places=12)
                     else:
                         self.assertEqual(float(text), float(sv), (cat, col))
                         self.assertEqual(float(text), float(csv_exporter._cell(sv)))
-        self.assertEqual(len(seen_uids), 1367)              # every active item was in some file
+        self.assertEqual(len(seen_uids), EALL_ITEMS)              # every active item was in some file
         self.assertEqual(seen_uids, set(stored))
         # MODE B
         raw_b, headers_b, n_b = csv_exporter.build_all_categories_xlsx(disc)
-        self.assertEqual(n_b, 1367)
+        self.assertEqual(n_b, EALL_ITEMS_IN_ALL_FILE)
         plan_b = csv_importer.build_plan(disc, raw_b)
         self.assertEqual(plan_b["errors"], [])
         self.assertEqual(plan_b["changes"], [])
-        self.assertEqual(plan_b["counts"]["unchanged"], 1367)
+        self.assertEqual(plan_b["counts"]["unchanged"], EALL_ITEMS_IN_ALL_FILE)
         self.assertEqual(plan_b["mode"], "all")
 
     def test_e02_csv_round_trip_still_zero_and_both_formats_agree(self):
@@ -5761,7 +6027,7 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(p_csv["counts"], p_x["counts"], cat)
         text_b, _h, n_b = csv_exporter.build_all_categories_csv(disc)
         p_b = csv_importer.build_plan(disc, text_b)
-        self.assertEqual((p_b["errors"], p_b["changes"], p_b["counts"]["unchanged"]), ([], [], 1367))
+        self.assertEqual((p_b["errors"], p_b["changes"], p_b["counts"]["unchanged"]), ([], [], EALL_ITEMS_IN_ALL_FILE))
         # the SAME EDIT in both formats plans the same change and the same digest
         raw_x, hdr, _n = csv_exporter.build_category_xlsx(disc, "earthing")
         hx, rows_x = self._xlsx_rows(raw_x)
@@ -5796,6 +6062,20 @@ class TestRateMaster(FrappeTestCase):
                 _payload, headers, _n = build(disc, cat)
                 self.assertNotIn("source_sheet", headers, cat)
                 self.assertNotIn("source_row", headers, cat)
+                # SLICE 12b(A): the Pricing Inputs category is a FIXED-COLUMN file and deliberately
+                # carries no `brand` or `unit` -- a discount has no manufacturer and no unit of measure.
+                # It is exempted BY ITS OWN PREDICATE, not by name, and its shape is asserted in full
+                # rather than skipped, so the exemption cannot quietly become "this file is unchecked".
+                if cat == PRICING_INPUTS_CATEGORY:
+                    self.assertEqual(headers[:4], ["item_uid", "discipline", "category", "item"], cat)
+                    for must in csv_exporter.PRICING_INPUT_VALUE_COLUMNS:
+                        self.assertIn(must, headers, cat)
+                    for tail in (csv_exporter.PRICING_INPUT_SHARED_BY, csv_exporter.PRICING_INPUT_REMARKS,
+                                 csv_exporter.PRICING_INPUT_USED_BY):
+                        self.assertIn(tail, headers, cat)
+                    self.assertNotIn("brand", headers, cat)             # NEGATIVE
+                    self.assertNotIn("kind", headers, cat)              # NEGATIVE
+                    continue
                 for must in ("item_uid", "brand", "unit"):
                     self.assertIn(must, headers, cat)
                 self.assertEqual(headers[:3], ["item_uid", "discipline", "category"])   # 1g (owner Z-c)
@@ -5828,7 +6108,7 @@ class TestRateMaster(FrappeTestCase):
             # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
             self.assertEqual(len(hb), 50)          # 49 before 1e, minus the two system columns, plus discipline (1g), plus the formula pair (12a)
             self.assertEqual(hb[-2:], ["supply_formula", "install_formula"])
-            self.assertEqual(nb, 1367)
+            self.assertEqual(nb, EALL_ITEMS_IN_ALL_FILE)
 
     def test_e04_text_cells_stay_text_in_the_xlsx(self):
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, xlsx_io
@@ -5989,7 +6269,7 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(res_c["columns"], res["columns"])
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
-        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 50, 1367))   # 1g: +discipline; 12a: +the formula pair
+        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 50, EALL_ITEMS_IN_ALL_FILE))   # 1g: +discipline; 12a: +the formula pair
         with self.assertRaises(frappe.ValidationError):
             rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="pdf")
         # preview / apply take the category hint and report the format
@@ -7229,7 +7509,9 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         names (the values list, the normalisation step, the paired-MCB fit)."""
         now = {c["category_id"]: c for c in self._configs()}
         before = {c["category_id"]: c for c in self._configs(self._PRIOR_ASSET)}
-        self.assertEqual(set(now), set(before))
+        # SLICE 12b(A): the ONE added category, named -- a SECOND addition still fails.
+        self.assertEqual(sorted(set(now) - set(before)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(set(before) - set(now)), [])
         # WIDENED AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE attribute
         # definition (`box_item`, the box ladder's bind, display-only). Named here for the same reason
         # the LMS and socket mints were named in the cumulative pins -- a THIRD moving category still
@@ -7241,9 +7523,14 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
+        # WIDENED AT PRICING INPUTS (v64, owner 2026-09-27): every pricing config now carries the
+        # migration, so the comparison runs through `_strip_12b_migration` -- which normalises off the
+        # appended preamble and the params it replaced, and NOTHING else. Naming all twelve in the
+        # exemption list instead would leave this loop iterating nothing.
         for cid in before:
             if cid not in ("industrial_sockets", "switches_sockets", "cabletray_raceway", "popup_boxes", "conduit_piping"):  # + conduit_piping at v63
-                self.assertEqual(now[cid], before[cid], "%s moved" % cid)
+                n2, b2 = _strip_12b_migration(now[cid], before[cid])
+                self.assertEqual(n2, b2, "%s moved for something other than the pricing-input migration" % cid)
         # WIDENED AGAIN AT F-25 SLICE 2 (v58, owner 2026-09-07): the switches_sockets BOX ladder gained
         # `on_zero_from` + `on_zero_modules` on both pipelines (pinned key by key in TestF25Slice2BareBox);
         # everything else in those pipelines is still byte-equal to v55, asserted here with the two
@@ -7252,7 +7539,11 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         # (pinned key by key in TestF25Slice3PickFrom); the strip list grows to three, and a FOURTH
         # key, or a change to any other step, still fails.
         for pname, pb in before["switches_sockets"]["pipelines"].items():
-            pa = now["switches_sockets"]["pipelines"][pname]
+            # SLICE 12b(A): drop the appended preamble and normalise the migration off both sides before
+            # the key-by-key ladder comparison. The three-key strip below is unchanged, so a FOURTH ladder
+            # key -- or a change to any other step -- still fails.
+            pa_c, pb_c = _strip_12b_migration(now["switches_sockets"], before["switches_sockets"])
+            pa, pb = pa_c["pipelines"][pname], pb_c["pipelines"][pname]
             self.assertEqual(pa["output"], pb["output"], pname)
             self.assertEqual(pa["steps"][1:], pb["steps"][1:], pname)
             la, lb = pa["steps"][0]["params"]["ladders"], pb["steps"][0]["params"]["ladders"]
@@ -7269,8 +7560,12 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         for dn, db in zip(n["attribute_definitions"], b["attribute_definitions"]):
             if dn["id"] != "mcb_pole_stated":
                 self.assertEqual(dn, db)
+        # SLICE 12b(A): industrial_sockets carries the migration too, so normalise it off both sides
+        # before the step-by-step walk. The length assertion is the valuable one here -- it is what
+        # catches a step being added or dropped -- so it is KEPT, measured on the pricing steps only.
+        n_c, b_c = _strip_12b_migration(n, b)
         for pname in b["pipelines"]:
-            sn, sb = n["pipelines"][pname]["steps"], b["pipelines"][pname]["steps"]
+            sn, sb = n_c["pipelines"][pname]["steps"], b_c["pipelines"][pname]["steps"]
             self.assertEqual(len(sn), len(sb), pname)
             for a, c in zip(sn, sb):
                 if a.get("step") == "map_attribute" and (a.get("params") or {}).get("result_attr") == "mcb_pole_norm":
@@ -7369,7 +7664,12 @@ class TestConduitInTheCableRate(FrappeTestCase):
         self.assertIs(ref["none_skips"], True)
         self.assertEqual(ref["qty"], {"if_attr": {"conduit_included": "Yes"}, "then": 1, "else": 0})
         # ruling (iv): conduit prices through its OWN arithmetic -- list x 0.7, UNROUNDED
-        self.assertEqual(ref["rate_stages"], [{"mult": 0.7}])
+        # INVERTED AT PRICING INPUTS (v64, owner 2026-09-27). The 0.7 is GONE from the config: it is
+        # now DERIVED, `(1 - conduit discount) x (1 + conduit supply markup)`, read from the Pricing
+        # Inputs catalogue. The pin asserts BOTH halves -- the literal is absent AND the named input
+        # is read -- so restoring a literal here, or pointing it at a different input, still fails.
+        self.assertEqual(ref["rate_stages"], [{"mult_from_ctx": "pi_conduit_boq"}])
+        self.assertNotIn("mult", ref["rate_stages"][0], "the literal 0.7 must not come back")
         self.assertEqual(ref["ref"]["kind"], "conduit")
 
     def test_termination_boq_has_a_zero_line_diff(self):
@@ -8191,7 +8491,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         """
         cfg = self._cfg()
         for pid in self.ASSEMBLY:
-            steps = cfg["pipelines"][pid]["steps"]
+            # RE-ANCHORED AT PRICING INPUTS (v64): the pricing-input preamble is APPENDED, so the LAST
+            # step of a pipeline is no longer the sum. The claim here was never about the array index --
+            # it is that nothing sits between the circuit lines and the sum -- so it is anchored on the
+            # PRICING steps, the subsequence with the preamble removed. Same guarantee, unmovable by a
+            # later append. (The preamble is hoisted to the FRONT at run time; see hoistRateRefs.)
+            steps = [x for x in cfg["pipelines"][pid]["steps"] if not _is_preamble_step(x)]
             names = [s.get("name") for s in steps if s.get("step") == "component_ref"]
             self.assertEqual(names[-2:], ["circuit_wire1", "circuit_wire2"],
                              "%s: the circuit components must come LAST" % pid)
@@ -8439,8 +8744,9 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         prev = self._prev_payload()
         was = dict((c["category_id"], c) for c in prev["category_configs"])
         now = dict((c["category_id"], c) for c in payload["category_configs"])
-        self.assertEqual(sorted(was), sorted(now))
-        changed = sorted(k for k in now if now[k] != was[k])
+        # SLICE 12b(A): ONE category was added; it is named, so a SECOND addition still fails.
+        self.assertEqual(sorted(now), sorted(list(was) + [PRICING_INPUTS_CATEGORY]))
+        changed = sorted(k for k in now if k in was and now[k] != was[k])
         # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
         # the CURRENT asset against an old one -- and its own contract is that "a later mint
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
@@ -8461,8 +8767,11 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         # WIDENED AT THE CONDUIT TRADE SIZE (v63, owner 2026-09-10): conduit_piping gained extract_as + inch_trade_mm and
         # a catalog_fit at the head of both pipelines -- pinned key by key in TestV63ConduitTradeSizeLadder.
-        self.assertEqual(changed, ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
-        self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
+        # WIDENED AT PRICING INPUTS (v64, owner 2026-09-27): slice 12b(A) removed a migrated literal from
+        # ALL TWELVE pricing configs, so every one of them appears here now. That is this cumulative pin
+        # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
+        self.assertEqual(changed, EALL_PRICING_CATEGORIES)
+        self.assertEqual(_without_pricing_input_items(payload["items"]), prev["items"], "no rate and no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         for cid, c in now.items():
             if cid == "point_wiring":
                 continue
@@ -8710,9 +9019,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])  # + conduit_piping at v63
-        self.assertEqual(payload["items"], prev["items"])
+        # WIDENED AT PRICING INPUTS (v64, owner 2026-09-27): slice 12b(A) removed a migrated literal from
+        # ALL TWELVE pricing configs, so every one of them appears here now. That is this cumulative pin
+        # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
+        self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(k for k in now if k in was and now[k] != was[k]), EALL_PRICING_CATEGORIES)
+        self.assertEqual(_without_pricing_input_items(payload["items"]), prev["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
         # were FORCED out. The precise claim (deletion only, every surviving value identical)
@@ -8905,9 +9217,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])  # + conduit_piping at v63
-        self.assertEqual(payload["items"], prev["items"], "no item may move")
+        # WIDENED AT PRICING INPUTS (v64, owner 2026-09-27): slice 12b(A) removed a migrated literal from
+        # ALL TWELVE pricing configs, so every one of them appears here now. That is this cumulative pin
+        # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
+        self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(k for k in now if k in was and now[k] != was[k]), EALL_PRICING_CATEGORIES)
+        self.assertEqual(_without_pricing_input_items(payload["items"]), prev["items"], "no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
         self.assertEqual(sorted(payload["goldens"]),
@@ -9258,10 +9573,17 @@ class TestLmsPricingHelper(FrappeTestCase):
         self.assertEqual(s["target"], "rate", "reads the ONE rate key lms_item carries")
         self.assertEqual(s["result"], "supply")
         self.assertEqual(s["formula"], "base*(1+markup)")
-        self.assertEqual(s["params"], {"markup": 0.30})
-        # the direction, stated so it cannot be inverted quietly
+        # INVERTED AT PRICING INPUTS (v64, owner 2026-09-27): the 0.30 moved OUT of the config into the
+        # editable Pricing Inputs catalogue. The IDIOM is what this pin protects, and it is unchanged --
+        # `base*(1+markup)`, a markup, never a divisor -- so a restored division still goes red. What
+        # changed is only WHERE the number lives, and that is asserted by name.
+        self.assertEqual(s["params"], {"markup_from_ctx": "pi_lms_supply_supply_markup"})
+        self.assertNotIn("markup", s["params"], "the literal 0.30 must not come back")
+        # the direction, stated so it cannot be inverted quietly. It is now read from the INPUT, which
+        # is the only place the number exists -- exactly the anti-vacuity move test_lms_04 already made.
         self.assertNotIn("/", s["formula"], "the BoQ leg must never DIVIDE the catalogue rate")
-        self.assertGreater(1 + s["params"]["markup"], 1.0, "BoQ must be ABOVE the catalogue rate")
+        self.assertGreater(1 + _pricing_input("lms_supply", "supply_markup"), 1.0,
+                           "BoQ must be ABOVE the catalogue rate")
 
     def test_lms_02_bcs_IS_the_catalogue_rate_unrounded(self):
         """⚠️ THE INVERSION PIN (the other half). BCS is the stored rate itself -- factor 1.0, and
@@ -9270,8 +9592,16 @@ class TestLmsPricingHelper(FrappeTestCase):
         self.assertEqual(pl["output"], ["bcs_supply"])
         scale = [s for s in pl["steps"] if s["step"] == "scale"]
         self.assertEqual(len(scale), 1)
-        self.assertEqual(scale[0]["params"], {"factor": 1.0})
-        self.assertEqual(scale[0]["formula"], "base*factor")
+        # INVERTED AT PRICING INPUTS (v64, owner 2026-09-27). The owner ruled that a "factor" is not a
+        # thing this system has any more: every number is a discount, a markup, a wastage or a BCS
+        # ratio. So `factor 1.0` became a BCS MARKUP OF 0% -- the same arithmetic (`base*(1+0)`), stated
+        # in the vocabulary the screen uses. BCS still equals the catalogue rate exactly, which is what
+        # this test is named for, and that claim is asserted from the INPUT rather than from a literal.
+        self.assertEqual(scale[0]["params"], {"m_from_ctx": "pi_lms_bcs_bcs_markup"})
+        self.assertEqual(scale[0]["formula"], "base*(1+m)")
+        self.assertNotIn("factor", scale[0]["params"], "there are no 'factors' any more")
+        self.assertEqual(_pricing_input("lms_bcs", "bcs_markup"), 0.0,
+                         "BCS IS the catalogue rate: the BCS markup must be zero")
         self.assertEqual([s for s in pl["steps"] if s["step"] == "roundup"], [],
                          "BCS is UNROUNDED -- only the BoQ leg rounds to tens")
 
@@ -9296,7 +9626,12 @@ class TestLmsPricingHelper(FrappeTestCase):
         scale = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "scale"][0]
         rnd = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "roundup"][0]
         self.assertEqual(scale["formula"], "base*(1+markup)", "the golden derivation assumes markup")
-        factor = 1.0 + scale["params"]["markup"]
+        # INVERTED AT PRICING INPUTS (v64): the markup is read from the Pricing Input the step NAMES,
+        # not from a param literal. The anti-vacuity property this test was built for is PRESERVED and
+        # in fact strengthened -- the goldens are still derived from whatever the pipeline actually
+        # uses, and that is now the input the pricer can edit.
+        self.assertEqual(scale["params"], {"markup_from_ctx": "pi_lms_supply_supply_markup"})
+        factor = 1.0 + _pricing_input("lms_supply", "supply_markup")
         digits = rnd["params"]["digits"]
 
         def expected_boq(rate):
@@ -9422,7 +9757,8 @@ class TestLmsPricingHelper(FrappeTestCase):
             prev = json.load(fh)
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in self.payload["category_configs"]}
-        self.assertEqual(sorted(now), sorted(was), "no category added or removed")
+        # SLICE 12b(A): exactly ONE category was added, and it is named here.
+        self.assertEqual(sorted(now), sorted(list(was) + [PRICING_INPUTS_CATEGORY]))
         # ⚠️ WIDENED AT F-30 SLICE B (v56, owner rulings 2026-09-05). This pin is CUMULATIVE --
         # it compares the CURRENT asset against v54 -- so the socket slice's ONE config
         # (`industrial_sockets`: the SPN vocabulary + the paired-MCB refusal) now appears here
@@ -9437,9 +9773,12 @@ class TestLmsPricingHelper(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "popup_boxes", "switches_sockets"])  # + conduit_piping at v63
-        self.assertEqual(self.payload["items"], prev["items"], "no item may move")
+        # WIDENED AT PRICING INPUTS (v64, owner 2026-09-27): slice 12b(A) removed a migrated literal from
+        # ALL TWELVE pricing configs, so every one of them appears here now. That is this cumulative pin
+        # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
+        self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(k for k in now if k in was and now[k] != was[k]), EALL_PRICING_CATEGORIES)
+        self.assertEqual(_without_pricing_input_items(self.payload["items"]), prev["items"], "no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         for cat in was:
             if cat == "lighting_mgmt_system":
                 continue
@@ -9570,7 +9909,8 @@ class TestF25Slice1BackBoxField(FrappeTestCase):
         self.assertEqual(set(now), set(was))
         for cid in was:
             if cid != "switches_sockets":
-                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
         self.assertEqual(self.now["items"], self.was["items"], "no item may move")
         self.assertEqual(self.now["goldens"], self.was["goldens"], "no golden may move")
         for k in self.was:
@@ -9736,7 +10076,8 @@ class TestF25Slice2BareBox(FrappeTestCase):
         self.assertEqual(set(now), set(was))
         for cid in was:
             if cid != "switches_sockets":
-                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
         for pid, pl in now["point_wiring"]["pipelines"].items():
             mf = [s for s in pl["steps"] if s["step"] == "module_fit"][0]
             self.assertEqual(mf["params"]["ladders"][1].get("on_zero_modules"), 3, pid)
@@ -9892,17 +10233,24 @@ class TestF25Slice3PickFrom(FrappeTestCase):
 
     def test_f25s3_03_switches_sockets_differs_from_v58_in_exactly_the_two_ladder_keys(self):
         """NEGATIVE, key by key: strip `pick_from` from both box ladders and the config equals v58."""
-        now = copy.deepcopy(self.ss_now)
+        # SLICE 12b(A): normalise the pricing-input migration off both sides first -- switches_sockets
+        # carries it now. The `pick_from`-stripped claim is unchanged and still key by key; the preamble
+        # is dropped and only the rewritten steps' arithmetic is excused, so a FOURTH ladder key, or a
+        # change to any other step, still fails.
+        n2, w2 = _strip_12b_migration(self.ss_now, self.ss_was)
+        now = copy.deepcopy(n2)
         for pid in ("swsock_boq", "swsock_bcs"):
             del now["pipelines"][pid]["steps"][0]["params"]["ladders"][1]["pick_from"]
-        self.assertEqual(now, self.ss_was)
+        self.assertEqual(now, w2)
 
     def test_f25s3_04_every_other_config_item_and_golden_is_byte_equal_to_v58(self):
         """NEGATIVE, key by key never by count. point_wiring and popup_boxes in particular: the same
         ladder shape, NO `pick_from` -- confinement by key presence."""
         now = {c["category_id"]: c for c in self.now["category_configs"]}
         was = {c["category_id"]: c for c in self.was["category_configs"]}
-        self.assertEqual(set(now), set(was))
+        # SLICE 12b(A): the ONE added category, named -- a SECOND addition still fails.
+        self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(set(was) - set(now)), [])
         # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
@@ -9910,13 +10258,19 @@ class TestF25Slice3PickFrom(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
+        # WIDENED AT PRICING INPUTS (v64, owner 2026-09-27): slice 12b(A) removed a migrated literal
+        # from ALL TWELVE pricing configs and added a 13th, item-only category. Naming all twelve in an
+        # exemption list would leave this loop iterating nothing, so the migration is NORMALISED away by
+        # `_strip_12b_migration` and everything else is still compared byte for byte -- a change that
+        # rode along on this slice still fails here.
         for cid in was:
             if cid not in ("switches_sockets", "cabletray_raceway", "popup_boxes", "conduit_piping"):  # + conduit_piping at v63
-                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
-        self.assertEqual(self.now["items"], self.was["items"])
+                n2, w2 = _strip_12b_migration(now[cid], was[cid])
+                self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
+        self.assertEqual(_without_pricing_input_items(self.now["items"]), self.was["items"])
         self.assertEqual(self.now["goldens"], self.was["goldens"])
         for key in self.was:
-            if key != "category_configs":
+            if key not in ("category_configs", "items"):  # SLICE 12b(A): `items` is compared ABOVE with the 33 Pricing Inputs filtered out; comparing it again here, unfiltered, would undo that
                 self.assertEqual(self.now[key], self.was[key], "top-level %s moved" % key)
         self.assertNotIn("pick_from", json.dumps(now["point_wiring"]))
         self.assertNotIn("pick_from", json.dumps(now["popup_boxes"]))
@@ -10072,7 +10426,10 @@ class TestV61TwoWays(FrappeTestCase):
     def test_v61_02_the_ladder_and_the_swg_map_are_byte_equal_to_v59(self):
         """NEGATIVE: all four pipelines equal v59 -- catalog_fit still binds width_mm up/no_compute, and
         map_attribute still prefers a stated millimetre and carries all 27 gauges."""
-        self.assertEqual(self.ct_now["pipelines"], self.ct_was["pipelines"])
+        # SLICE 12b(A): the migration is normalised off BOTH sides by `_strip_12b_migration`;
+        # everything else is still compared byte for byte, so a change that rode along still fails.
+        n2, w2 = _strip_12b_migration(self.ct_now, self.ct_was)
+        self.assertEqual(n2["pipelines"], w2["pipelines"])
         for pid, p in self.ct_now["pipelines"].items():
             cf = [s for s in p["steps"] if s["step"] == "catalog_fit"]
             mp = [s for s in p["steps"] if s["step"] == "map_attribute"]
@@ -10092,29 +10449,35 @@ class TestV61TwoWays(FrappeTestCase):
         was_defs = self._defs(self.ct_was)
         now["attribute_definitions"] = [was_defs[d["id"]] if d["id"] in self.TWO else d for d in now["attribute_definitions"]]
         now["notes"] = self.ct_was["notes"]
-        self.assertEqual(now, self.ct_was)
+        # SLICE 12b(A): the migration is normalised off BOTH sides by `_strip_12b_migration`;
+        # everything else is still compared byte for byte, so a change that rode along still fails.
+        n2, w2 = _strip_12b_migration(now, self.ct_was)
+        self.assertEqual(n2, w2)
         self.assertTrue(self.ct_now["notes"].startswith(self.ct_was["notes"]))
         self.assertIn("v61 (owner 2026-09-10, TWO WAYS)", self.ct_now["notes"])
 
     def test_v61_04_every_other_config_item_and_golden_is_byte_equal_to_v59(self):
         now = {c["category_id"]: c for c in self.now["category_configs"]}
         was = {c["category_id"]: c for c in self.was["category_configs"]}
-        self.assertEqual(set(now), set(was))
-        self.assertEqual(len(now), 12)
+        # SLICE 12b(A): the ONE added category, named -- a SECOND addition still fails.
+        self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(set(was) - set(now)), [])
+        self.assertEqual(len(now), EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         # WIDENED AGAIN AT THE CONDUIT TRADE SIZE (v63, owner 2026-09-10): `conduit_piping` gained `extract_as` +
         # `inch_trade_mm` on size_mm and a catalog_fit step at the head of both pipelines; pinned key by key in
         # TestV63ConduitTradeSizeLadder. A further category still fails.
-        for cid in now:
+        for cid in was:  # SLICE 12b(A): iterate the PRIOR asset -- the new category has no counterpart to compare against, and it is named above
             if cid not in ("cabletray_raceway", "popup_boxes", "conduit_piping"):
-                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
-        self.assertEqual(self.now["items"], self.was["items"])
-        self.assertEqual(len(self.now["items"]), 1367)
+                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
+        self.assertEqual(_without_pricing_input_items(self.now["items"]), self.was["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(len(self.now["items"]), EALL_ITEMS)
         self.assertEqual(self.now["goldens"], self.was["goldens"])
         for key in self.was:
-            if key != "category_configs":
+            if key not in ("category_configs", "items"):  # SLICE 12b(A): `items` is compared ABOVE with the 33 Pricing Inputs filtered out; comparing it again here, unfiltered, would undo that
                 self.assertEqual(self.now[key], self.was[key], "top-level %s moved" % key)
 
     # -- the projection (chokepoint 1) -------------------------------------------------------------
@@ -10140,7 +10503,14 @@ class TestV61TwoWays(FrappeTestCase):
         disc = self.DISC
         seen = 0
         for c_now in self.now["category_configs"]:
-            c_was = [c for c in self.was["category_configs"] if c["category_id"] == c_now["category_id"]][0]
+            # SLICE 12b(A): the pricing-input category is NEW and has no v59 counterpart. It declares no
+            # attribute definitions at all, so it projects nothing and there is nothing here to compare.
+            prior = [c for c in self.was["category_configs"] if c["category_id"] == c_now["category_id"]]
+            if not prior:
+                self.assertEqual(c_now["category_id"], PRICING_INPUTS_CATEGORY)
+                self.assertEqual(c_now.get("attribute_definitions") or [], [])
+                continue
+            c_was = prior[0]
             p_now = {d["id"]: d for d in extraction.build_attribute_defs(c_now, None, disc)}
             p_was = {d["id"]: d for d in extraction.build_attribute_defs(c_was, None, disc)}
             for d in c_now["attribute_definitions"]:
@@ -10327,8 +10697,8 @@ class TestIncludesModulesGate(FrappeTestCase):
         from nirmaan_stack.api.boq import rate_master as rm
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             asset = json.load(fh)
-        # v63 (CONDUIT TRADE SIZE) supersedes v62 as the current asset; the gate itself is unchanged.
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
+        # SLICE 12b(A): v64 (PRICING INPUTS) supersedes v63 as the current asset; the gate is unchanged.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v64.json")
         fits = {}
         goldens = asset.get("goldens") or {}
         for c in asset["category_configs"]:
@@ -10353,18 +10723,22 @@ class TestIncludesModulesGate(FrappeTestCase):
             was = json.load(fh)
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             now = json.load(fh)
-        self.assertEqual(now["items"], was["items"])
+        self.assertEqual(_without_pricing_input_items(now["items"]), was["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         self.assertEqual(now["goldens"], was["goldens"])
         for k in was:
-            if k != "category_configs":
+            if k not in ("category_configs", "items"):  # SLICE 12b(A): `items` is compared ABOVE with the 33 Pricing Inputs filtered out; comparing it again here, unfiltered, would undo that
                 self.assertEqual(now[k], was[k], k)
         for c in was["category_configs"]:
             n = [x for x in now["category_configs"] if x["category_id"] == c["category_id"]][0]
             if c["category_id"] == "conduit_piping":
                 continue  # v63 (CONDUIT TRADE SIZE): pinned key by key in TestV63ConduitTradeSizeLadder
             if c["category_id"] != "popup_boxes":
-                self.assertEqual(n, c, c["category_id"])
+                # SLICE 12b(A): normalise the pricing-input migration off both sides; everything else
+                # is still compared verbatim, so a change that rode along still fails.
+                n2, c2 = _strip_12b_migration(n, c)
+                self.assertEqual(n2, c2, c["category_id"])
                 continue
+            n, c = _strip_12b_migration(n, c)   # SLICE 12b(A), as above
             for k in set(c) | set(n):
                 if k not in ("pipelines", "notes"):
                     self.assertEqual(n[k], c[k], k)
@@ -10440,7 +10814,16 @@ class TestV63ConduitTradeSizeLadder(FrappeTestCase):
             n_steps = self.cp_now["pipelines"][pid]["steps"]; o_steps = self.cp_was["pipelines"][pid]["steps"]
             self.assertEqual(n_steps[0]["step"], "catalog_fit", pid)
             self.assertEqual(n_steps[0]["params"], self.FIT_PARAMS, pid)
-            self.assertEqual(n_steps[1:], o_steps, pid)
+            # SLICE 12b(A): the preamble is APPENDED, so compare the PRICING steps only, pairing each
+            # against its v62 counterpart with the migration normalised off both sides. The pairing is
+            # OFFSET BY ONE because v63 added the catalog_fit that v62 has no counterpart for -- which is
+            # exactly what the assertion above states -- so `_strip_12b_migration`'s positional alignment
+            # cannot be used here and the steps are paired by hand.
+            n_kept = [x for x in n_steps if not _is_preamble_step(x)]
+            self.assertEqual(len(n_kept) - 1, len(o_steps), pid)
+            for a_, b_ in zip(n_kept[1:], o_steps):
+                a2, b2 = _strip_12b_step(a_, b_)
+                self.assertEqual(a2, b2, pid)
             self.assertEqual(n_steps[1], {"step": "match_master_row", "params": {"kind": "conduit"}}, pid)
         fits = {c["category_id"] for c in self.now["category_configs"] for p in c["pipelines"].values()
                 for s in p["steps"] if s["step"] == "catalog_fit"}
@@ -10453,16 +10836,25 @@ class TestV63ConduitTradeSizeLadder(FrappeTestCase):
         """NEGATIVE, named for what it protects: wiring_cabling and point_wiring reach the conduit catalogue through
         their OWN component_ref, not these pipelines -- byte-identical; and so is every other category."""
         now = {c["category_id"]: c for c in self.now["category_configs"]}; was = {c["category_id"]: c for c in self.was["category_configs"]}
-        self.assertEqual(set(now), set(was)); self.assertEqual(len(now), 12)
+        # SLICE 12b(A): the ONE added category, named -- a SECOND addition still fails.
+        self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
+        self.assertEqual(sorted(set(was) - set(now)), [])
+        self.assertEqual(len(now), EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         for cid in ("wiring_cabling", "point_wiring"):
-            self.assertEqual(now[cid], was[cid], "%s moved" % cid)
-        for cid in now:
+            # SLICE 12b(A): both carry the migration now, so compare with it normalised off -- the claim
+            # this test is NAMED for (they reach the conduit catalogue through their own component_ref,
+            # not these pipelines) is untouched and still key by key.
+            n2, w2 = _strip_12b_migration(now[cid], was[cid])
+            self.assertEqual(n2, w2, "%s moved" % cid)
+        for cid in was:  # SLICE 12b(A): iterate the PRIOR asset -- the new category has no counterpart to compare against, and it is named above
             if cid != "conduit_piping":
-                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
-        self.assertEqual(self.now["items"], self.was["items"]); self.assertEqual(len(self.now["items"]), 1367)
+                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
+        self.assertEqual(_without_pricing_input_items(self.now["items"]), self.was["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(len(self.now["items"]), EALL_ITEMS)
         self.assertEqual(self.now["goldens"], self.was["goldens"])
         for key in self.was:
-            if key != "category_configs":
+            if key not in ("category_configs", "items"):   # SLICE 12b(A): `items` is compared above, filtered
                 self.assertEqual(self.now[key], self.was[key], key)
         # conduit differs in EXACTLY the def, the two ladder steps and its notes
         for k in set(self.cp_now) | set(self.cp_was):
@@ -10852,9 +11244,9 @@ class TestValidationGaps(FrappeTestCase):
         p["discipline"] = disc
         r = loader.load_rate_master(payload=p)
         self.assertEqual(r["status"], "loaded")
-        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(r["configs_loaded"], EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         self.assertEqual(r["items_total"], len(self.now["items"]))
-        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 12)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
 
     def test_vg_12_the_loader_refuses_v12_as_shipped_on_its_one_real_defect(self):
         """The 569-of-570 sweep's one failure, pinned on the real file: v12's point_wiring.switch_item
@@ -11322,7 +11714,12 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         gate = _mint_gate_module()
         # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
         self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v14.json")
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
+        # ⚠️ SLICE 12b(A) INVERTS THE "ELECTRICAL UNMOVED" HALF OF THIS PIN, deliberately. Every earlier
+        # slice in this arc kept the Electrical asset frozen and this line recorded that; 12b(A) is the
+        # slice that moves it (v63 -> v64, PRICING INPUTS). The HVAC half is UNCHANGED and still asserts
+        # its own series independently -- which is the rule the pin exists for: each discipline is
+        # versioned, minted and loaded on its own, and one moving never moves the other.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v64.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
         # each series resolved on its own (owner ruling, slice 1c, INVERTING the 1b first-version pin): the HVAC
@@ -11802,7 +12199,7 @@ class TestHvacAliasSlice3(FrappeTestCase):
         self.assertEqual({d for (d, _c) in plain}, {disc})
         with_targets = extraction.load_configs_with_alias_targets({disc})
         self.assertEqual({d for (d, _c) in with_targets}, {disc, "Electrical"})
-        self.assertEqual(len(with_targets), 7 + 12)
+        self.assertEqual(len(with_targets), 7 + EALL_CONFIGS)   # SLICE 12b(A): Electrical is 13 now
         for own, target in self.ALIASES:
             self.assertTrue(extraction.config_is_eligible(with_targets[(disc, own)], with_targets))
             self.assertEqual(extraction.resolve_alias(with_targets, disc, own)[:2], ("Electrical", target))
@@ -12531,7 +12928,7 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
         for c in eall["category_configs"]:
             lc = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
             self.assertEqual(extraction.config_is_eligible(lc), bool(lc.get("pipelines")) and bool(lc.get("attribute_definitions")), c["category_id"])
-        self.assertEqual(len(eall["category_configs"]), 12)
+        self.assertEqual(len(eall["category_configs"]), EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         # the frontend predicate reads the same two facts (source-pinned, as h06 has always pinned it)
         src = self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
         body = src[src.index("export function isEligibleConfig("):]
@@ -14321,3 +14718,298 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
                 self.assertEqual(plan["errors"], [], where)
                 self.assertEqual(plan["counts"]["unchanged"], b["n"], where)
                 self.assertEqual(plan["changes"], [], where)
+
+
+class TestPricingInputs(FrappeTestCase):
+    """SLICE 12b(A) -- PRICING INPUTS. The backend half: the column set, the percentage round trip,
+    the refusals of acceptance 13, and the two structural guarantees (14 and 15).
+    """
+
+    ASSET = CURRENT_EALL_ASSET      # SLICE 12b(A): the current asset, not a second literal
+
+    def _asset(self):
+        import json, os
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "services", "boq_rate_master", "data", self.ASSET)
+        return json.load(open(path, encoding="utf-8"))
+
+    def test_pi_01_kind_is_recognised_by_suffix_never_by_a_discipline_name(self):
+        """POSITIVE + NEGATIVE. Keyed on the SUFFIX, so 12c HVAC inputs need no code change."""
+        from nirmaan_stack.services.boq_rate_master.csv_exporter import is_pricing_input_kind
+        self.assertTrue(is_pricing_input_kind("electrical_pricing_input"))
+        self.assertTrue(is_pricing_input_kind("hvac_pricing_input"))
+        self.assertFalse(is_pricing_input_kind("cable"))
+        self.assertFalse(is_pricing_input_kind("pricing_input_thing"))
+        self.assertFalse(is_pricing_input_kind(None))
+
+    def test_pi_02_a_factor_displays_as_a_percentage_and_an_amount_does_not(self):
+        """ACCEPTANCE 6. The stored value is untouched; only the display changes."""
+        from nirmaan_stack.services.boq_rate_master.csv_exporter import (
+            as_percent, PRICING_INPUT_PERCENT_COLUMNS, PRICING_INPUT_VALUE_COLUMNS)
+        self.assertEqual(as_percent(0.75), "75%")
+        self.assertEqual(as_percent(0.3625), "36.25%")
+        self.assertEqual(as_percent(0.0), "0%")
+        self.assertEqual(as_percent(1.0), "100%")
+        # NEGATIVE: amount is rupees. Reading 106 as a percentage would say 10600%.
+        self.assertNotIn("amount", PRICING_INPUT_PERCENT_COLUMNS)
+        self.assertIn("amount", PRICING_INPUT_VALUE_COLUMNS)
+
+    def test_pi_03_the_percentage_round_trip_survives(self):
+        """The file writes 45%; the upload must read 0.45 back. Otherwise a download-and-re-upload
+        silently re-prices every category the input touches."""
+        from nirmaan_stack.services.boq_rate_master.csv_exporter import as_percent
+        from nirmaan_stack.services.boq_rate_master.csv_importer import coerce_percent
+        for v in (0.75, 0.45, 0.3625, 0.05, 0.0, 1.0):
+            back, err = coerce_percent(as_percent(v), "Discount")
+            self.assertIsNone(err, "round trip refused %r" % v)
+            self.assertAlmostEqual(back, v, places=12, msg="round trip moved %r" % v)
+
+    def test_pi_04_a_bare_number_in_a_percent_column_is_refused_not_guessed(self):
+        """NEGATIVE, and the reason is the size of the mistake: 45 read as a factor is a 4,400 per cent
+        markup. A guess here re-prices a category silently, so the per cent sign is required."""
+        from nirmaan_stack.services.boq_rate_master.csv_importer import coerce_percent
+        val, err = coerce_percent("45", "Discount")
+        self.assertIsNone(val)
+        self.assertIn("per cent sign", err)
+        # 0 is the one exception: 0 per cent and a factor of 0 are the same number.
+        self.assertEqual(coerce_percent("0", "Discount"), (0.0, None))
+
+    def test_pi_05_negative_and_non_numeric_are_refused(self):
+        """ACCEPTANCE 13, the two halves that hold. See test_pi_06 for the third."""
+        from nirmaan_stack.services.boq_rate_master.csv_importer import validate_pricing_input_value as v
+        self.assertIsNone(v(0.45, "Discount"))
+        self.assertIn("cannot be negative", v(-0.05, "Discount"))
+        self.assertIn("is not a number", v("abc", "Discount"))
+
+    def test_pi_06_zero_is_ALLOWED_and_this_is_a_deliberate_deviation(self):
+        """ACCEPTANCE 13 says zero is refused AND THAT CANNOT HOLD, so the deviation is pinned here
+        rather than left as a silent choice.
+
+        THREE of the 33 approved inputs are 0 per cent by owner ruling -- the LMS BCS markup, the
+        cable-tray installation markup and the Miscellaneous installation BCS ratio -- and cable tray
+        and junction box DISCOUNTS are 0 per cent too, which is what reconciled their list column names
+        with the arithmetic. A blanket zero refusal would make the approved table unsaveable.
+        """
+        from nirmaan_stack.services.boq_rate_master.csv_importer import validate_pricing_input_value as v
+        self.assertIsNone(v(0, "Cable tray installation markup"))
+        self.assertIsNone(v(0.0, "Miscellaneous installation BCS ratio"))
+
+    def test_pi_07_an_input_in_use_cannot_be_deleted_or_renamed(self):
+        """ACCEPTANCE 13. The count AND the categories are named -- in use on its own leaves the reader
+        with nowhere to go."""
+        from nirmaan_stack.services.boq_rate_master.csv_importer import refuse_if_in_use
+        used = {"conduit": (10, ["conduit_piping", "point_wiring", "wiring_cabling"])}
+        msg = refuse_if_in_use("conduit", used, "delete")
+        self.assertIn("10 pricing rules", msg)
+        self.assertIn("conduit_piping", msg)
+        self.assertIn("point_wiring", msg)
+        self.assertIn("wiring_cabling", msg)
+        self.assertIn("rename", refuse_if_in_use("conduit", used, "rename"))
+        # NEGATIVE: an unused input may be deleted.
+        self.assertIsNone(refuse_if_in_use("orphan", used, "delete"))
+
+    def test_pi_08_the_used_by_count_is_derived_from_the_rules(self):
+        """It walks rate_ref, and NOTHING ELSE counts as a use -- a component_ref naming the same id is
+        a different mechanism reading a different catalogue row."""
+        from nirmaan_stack.services.boq_rate_master.csv_exporter import pricing_input_used_by
+        cfgs = {
+            "a": {"pipelines": {"p": {"steps": [
+                {"step": "rate_ref", "ref": {"item": "x"}},
+                {"step": "rate_ref", "ref": {"item": "y"}},
+            ]}}},
+            "b": {"pipelines": {"q": {"steps": [
+                {"step": "rate_ref", "ref": {"item": "x"}},
+                {"step": "component_ref", "ref": {"item": "x"}},
+                {"step": "scale", "params": {"m": 1}},
+            ]}}},
+        }
+        u = pricing_input_used_by(cfgs)
+        self.assertEqual(u["x"], (2, ["a", "b"]))
+        self.assertEqual(u["y"], (1, ["a"]))
+
+    def test_pi_09_the_shipped_asset_has_no_orphan_input_and_no_leftover_literal(self):
+        """The two properties that make the migration real, checked on the SHIPPED asset.
+
+        An orphan input is a row a pricer can edit that changes nothing. A leftover literal is the same
+        failure from the other side: the rule keeps reading the old number and the input is inert.
+        """
+        from nirmaan_stack.services.boq_rate_master.csv_exporter import (
+            pricing_input_used_by, is_pricing_input_kind)
+        asset = self._asset()
+        cfgs = {c["category_id"]: c for c in asset["category_configs"]}
+        used = pricing_input_used_by(cfgs)
+        inputs = [i for i in asset["items"] if is_pricing_input_kind(i["kind"])]
+        self.assertEqual(len(inputs), 33, "the approved table has 33 rows")
+        orphans = [i["attributes"]["item"] for i in inputs if i["attributes"]["item"] not in used]
+        self.assertEqual(orphans, [], "an input no rule reads changes nothing when edited")
+        remaining = set()
+        for cfg in asset["category_configs"]:
+            for pl in (cfg.get("pipelines") or {}).values():
+                for st in (pl.get("steps") or []):
+                    if st.get("step") == "rate_ref":
+                        continue
+                    for k, v in (st.get("params") or {}).items():
+                        if isinstance(v, (int, float)) and not isinstance(v, bool) and k != "digits":
+                            remaining.add(round(float(v), 6))
+                    for stage in (st.get("rate_stages") or []):
+                        for k, v in stage.items():
+                            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                                remaining.add(round(float(v), 6))
+        # 1.0 identity multipliers, 0.0 zero branches, 3 the divisors (B04/B05), 15/5/30 the circuit
+        # lengths (B06/B07) -- every one ruled OUT of scope. Nothing else may survive.
+        self.assertEqual(remaining - {0.0, 1.0, 3.0, 5.0, 15.0, 30.0}, set(),
+                         "a migrated literal was left behind")
+
+    def test_pi_10_the_category_can_never_price_a_boq_row(self):
+        """ACCEPTANCE 14, proven STRUCTURALLY rather than by a flag: config_is_eligible needs BOTH
+        non-empty pipelines AND non-empty attribute definitions, and this config has neither."""
+        from nirmaan_stack.services.boq_rate_master.extraction import config_is_eligible
+        asset = self._asset()
+        cfgs = {(c.get("discipline", "Electrical"), c["category_id"]): c for c in asset["category_configs"]}
+        pi = [c for c in asset["category_configs"] if c["category_id"] == "electrical_pricing_inputs"]
+        self.assertEqual(len(pi), 1)
+        cfg = dict(pi[0])
+        cfg.setdefault("discipline", "Electrical")
+        self.assertEqual(cfg.get("pipelines"), {})
+        self.assertEqual(cfg.get("attribute_definitions"), [])
+        self.assertFalse(config_is_eligible(cfg, cfgs), "Pricing Inputs must never be eligible")
+        # NEGATIVE: every other Electrical category IS eligible, so this is not vacuously true.
+        for c in asset["category_configs"]:
+            if c["category_id"] == "electrical_pricing_inputs":
+                continue
+            c2 = dict(c)
+            c2.setdefault("discipline", "Electrical")
+            self.assertTrue(config_is_eligible(c2, cfgs),
+                            "%s should still be eligible" % c["category_id"])
+
+    def test_pi_11_the_seven_folds_are_unfolded_and_each_reads_its_two_inputs(self):
+        """Every folded multiplier is gone, and the derived one is COMPUTED from a discount and a markup.
+
+        A fold is the worst of the literals: 0.602 is neither 0.57 nor 0.40, so changing the cable
+        discount left point wiring on the old number with nothing textually connecting them.
+        """
+        asset = self._asset()
+        folded = {0.602, 0.4515, 0.0725, 0.495, 0.98, 0.3625, 0.7}
+        seen = set()
+        for cfg in asset["category_configs"]:
+            for pl in (cfg.get("pipelines") or {}).values():
+                for st in (pl.get("steps") or []):
+                    for stage in (st.get("rate_stages") or []):
+                        if isinstance(stage.get("mult"), (int, float)):
+                            seen.add(round(float(stage["mult"]), 6))
+                    for k, v in (st.get("params") or {}).items():
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            seen.add(round(float(v), 6))
+        self.assertEqual(seen & folded, set(), "a folded multiplier survived the migration")
+
+    def test_pi_12_pricing_inputs_stay_out_of_the_all_categories_file(self):
+        """ACCEPTANCE 15. They are not SKUs: letting them in would put a discount / share / amount
+        column onto every other category row."""
+        import inspect
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        src = inspect.getsource(csv_exporter.build_all_categories_rows)
+        self.assertIn("is_pricing_input_kind", src,
+                      "Mode B must filter the pricing-input kind out")
+
+class TestPricingInputDeactivateGuard(FrappeTestCase):
+    """SLICE 12b(A), owner ruling 2026-09-28 -- ACCEPTANCE 13 ON THE DEACTIVATE ENDPOINT.
+
+    ⚠️ THE BROWSER CERT CAUGHT THIS, NOT THIS SUITE, AND THE REASON IS WORTH KEEPING. The predicate
+    `refuse_if_in_use` existed, was correct, and was tested -- but it was wired into the CSV upload
+    path ONLY. The grid's trash icon calls `deactivate_rate_master_item`, which never consulted it,
+    so a Pricing Input read by 8 pricing rules deactivated cleanly and the endpoint answered
+    {"ok": true, "active": 0}. Acceptance 13 was half enforced: RENAME was blocked (the file's text
+    columns are read-only), DELETE was not.
+
+    The lesson is the standing one: a test on each side of a seam is not a test of the seam. The
+    predicate had a test and the endpoint had a test; nothing asserted the endpoint CONSULTED the
+    predicate. These three do.
+
+    The guard is SCOPED TO PRICING-INPUT KINDS by the kind suffix, per the owner's Option 1. Widening
+    it to "any item a config references" was rejected as an unmeasured behaviour change to an endpoint
+    this slice never set out to touch -- test_r5_03 pins that, so the wider rule cannot arrive later
+    by accident.
+    """
+
+    ASSET = CURRENT_EALL_ASSET
+
+    def _pi_doc(self, item_id):
+        rows = frappe.get_all(loader.ITEM_DOCTYPE,
+                              filters={"discipline": "Electrical", "active": 1,
+                                       "kind": "electrical_pricing_input"},
+                              fields=["name", "attributes"])
+        for r in rows:
+            attrs = r.attributes if isinstance(r.attributes, dict) else json.loads(r.attributes or "{}")
+            if attrs.get("item") == item_id:
+                return r.name
+        raise AssertionError("no active pricing input named %r" % item_id)
+
+    def test_r5_01_POSITIVE_an_in_use_input_is_refused_naming_the_count_and_the_categories(self):
+        """The refusal must NAME the count and the categories -- "it is in use" with neither leaves
+        the reader with nowhere to go, which is the whole point of the message."""
+        from nirmaan_stack.api.boq import rate_master as api
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        used = csv_exporter.pricing_input_used_by(csv_exporter._load_configs("Electrical"))
+        n, cats = used["cable_unarm"]
+        self.assertGreater(n, 0, "cable_unarm must be in use for this test to mean anything")
+
+        name = self._pi_doc("cable_unarm")
+        with self.assertRaises(frappe.ValidationError) as cm:
+            api.deactivate_rate_master_item(name=name)
+        msg = str(cm.exception)
+        self.assertIn("cable_unarm", msg)
+        self.assertIn(str(n), msg)
+        for c in cats:
+            self.assertIn(c, msg)
+        # and it is the SAME text the upload path gives -- one definition, two call sites
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        self.assertIn(csv_importer.refuse_if_in_use("cable_unarm", used, "deactivate"), msg)
+        # NOTHING was written
+        self.assertEqual(frappe.db.get_value(loader.ITEM_DOCTYPE, name, "active"), 1)
+
+    def test_r5_02_NEGATIVE_a_pricing_input_that_is_NOT_used_still_deactivates(self):
+        """The guard refuses being IN USE, not being a pricing input. An unused one still goes."""
+        from nirmaan_stack.api.boq import rate_master as api
+
+        doc = frappe.new_doc(loader.ITEM_DOCTYPE)
+        doc.discipline = "Electrical"
+        doc.kind = "electrical_pricing_input"
+        doc.item_uid = "TEST_RM_r5_unused_%s" % frappe.generate_hash(length=6)
+        doc.unit = "%"
+        doc.attributes = json.dumps({"item": "TEST_RM_not_read_by_any_rule", "name": "unused"})
+        doc.rates = json.dumps({"discount": 0.1})
+        doc.active = 1
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: (frappe.delete_doc(loader.ITEM_DOCTYPE, doc.name, force=True,
+                                                   ignore_permissions=True), frappe.db.commit()))
+
+        res = api.deactivate_rate_master_item(name=doc.name)
+        self.assertEqual(res, {"ok": True, "active": 0})
+        self.assertEqual(frappe.db.get_value(loader.ITEM_DOCTYPE, doc.name, "active"), 0)
+
+    def test_r5_03_NEGATIVE_an_ordinary_item_in_another_category_is_UNAFFECTED(self):
+        """⚠️ THE OPTION-2 PIN. The owner scoped the guard to pricing-input kinds; widening it to
+        every item a config references would change this endpoint for every category, unmeasured.
+        A plain catalogue item deactivates exactly as it did before, even though its kind is read by
+        a pipeline's `match_master_row`."""
+        from nirmaan_stack.api.boq import rate_master as api
+
+        doc = frappe.new_doc(loader.ITEM_DOCTYPE)
+        doc.discipline = "Electrical"
+        doc.kind = "conduit"                       # an ORDINARY catalogue kind, read by two pipelines
+        doc.item_uid = "TEST_RM_r5_ordinary_%s" % frappe.generate_hash(length=6)
+        doc.unit = "Mtr"
+        doc.attributes = json.dumps({"conduit_type": "PVC", "size_mm": 999})
+        doc.rates = json.dumps({"list_price_per_mtr": 1.0})
+        doc.active = 1
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: (frappe.delete_doc(loader.ITEM_DOCTYPE, doc.name, force=True,
+                                                   ignore_permissions=True), frappe.db.commit()))
+
+        res = api.deactivate_rate_master_item(name=doc.name)
+        self.assertEqual(res, {"ok": True, "active": 0})
+        self.assertEqual(frappe.db.get_value(loader.ITEM_DOCTYPE, doc.name, "active"), 0)

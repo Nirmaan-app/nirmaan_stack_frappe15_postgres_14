@@ -11,6 +11,8 @@
 // pin rather than a live reproduction.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { coerceAttributeForStorage } from "./RateMasterDataViewer";
 import type { AttributeDefinition } from "./rateMasterTypes";
 
@@ -64,5 +66,51 @@ describe("coerceAttributeForStorage -- the existing types are UNCHANGED", () => 
   it("NEGATIVE: an unknown / future type falls through to STRING, never a number", () => {
     expect(coerceAttributeForStorage(def("some_future_type"), "1")).toBe("1");
     expect(typeof coerceAttributeForStorage(def("some_future_type"), "1")).toBe("string");
+  });
+});
+
+// =====================================================================================
+// SLICE 12b(A) -- PRICING INPUTS on the screen. SOURCE pins, in the rateMasterFreeze /
+// pricingCalculator idiom: the component is a 1,300-line DOM tree, so what is pinned here is that
+// each acceptance item is WIRED, not how it looks. The arithmetic and the wording are pinned in
+// rateMasterSpec.test.ts against the pure helpers.
+// =====================================================================================
+describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
+  const src = readFileSync(join(__dirname, "RateMasterDataViewer.tsx"), "utf8");
+
+  it("ACCEPTANCE 6: a value cell renders through pricingInputCell, so it reads as a percentage", () => {
+    expect(src).toContain("piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]");
+  });
+
+  it("ACCEPTANCE 4: the SKU columns are ABSENT for a Pricing Input", () => {
+    // source sheet / row and the two formula columns are what "nothing borrowed from a SKU file" means
+    expect(src).toContain("{!piMode && <TableCell>{r.it.source_sheet}</TableCell>}");
+    expect(src).toContain("{!piMode && FORMULA_COLUMNS.map(");
+  });
+
+  it("ACCEPTANCE 4 + 12: the name leads the row; sharing, remarks and used-by are their own columns", () => {
+    expect(src).toContain('hdr("pi:name", "input")');
+    expect(src).toContain('hdr("pi:shared_by", "shared by")');
+    expect(src).toContain('hdr("pi:remarks", "remarks")');
+    expect(src).toContain('hdr("pi:used_by", "used by")');
+  });
+
+  it("ACCEPTANCE 13: the used-by cell is READ-ONLY -- rendered, never an input", () => {
+    const cell = src.slice(src.indexOf('data-testid="pi-used-by"'));
+    const upToClose = cell.slice(0, cell.indexOf("</TableCell>"));
+    expect(upToClose).toContain("r.it.attributes?.used_by");
+    expect(upToClose).not.toContain("<Input");
+    expect(upToClose).not.toContain("onChange");
+  });
+
+  it("the column headers use the owner's labels, so no column reads as a bare key", () => {
+    expect(src).toContain("piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k");
+  });
+
+  it("NEGATIVE: the mode is decided by the CONFIG's kind, never by a discipline name in code", () => {
+    expect(src).toContain("isPricingInputConfig(config)");
+    // no discipline is named anywhere in the pricing-input wiring
+    expect(src).not.toMatch(/piMode[^\n]*"Electrical"/);
+    expect(src).not.toContain('"electrical_pricing_inputs"');
   });
 });

@@ -156,12 +156,15 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     expect(RATE_MASTER_CONFIG_TARGETS).toEqual(
       RATE_MASTER_DISCIPLINES.flatMap((d) => d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id }))),
     );
-    // 12 Electrical + 8 HVAC (`hvac_adp` slice 1b; four vendor-quote message-only categories slice 2;
+    // 13 Electrical + 8 HVAC (`hvac_adp` slice 1b; four vendor-quote message-only categories slice 2;
     // the two ALIAS categories slice 3, 2026-09-22; `hvac_insulation` slice 12a, 2026-09-26): the
     // targets flatten EVERY registry discipline INCLUDING `holds_items: false` entries (they must be
-    // FETCHED), so slice 3 moved this by two (17 -> 19) and slice 12a by one (19 -> 20). Re-pinned
-    // under owner ruling L7 and again under I-1.
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(20);
+    // FETCHED), so slice 3 moved this by two (17 -> 19), slice 12a by one (19 -> 20) and slice 12b(A)
+    // by one (20 -> 21). Re-pinned under owner ruling L7, then I-1, then acceptance 1/2.
+    //
+    // ⚠️ SLICE 12b(A) (20 -> 21): `electrical_pricing_inputs`. It DOES hold items, so it is not a
+    // `holds_items: false` entry -- it is an ordinary fetched target that also shows on the page.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(21);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }
@@ -489,7 +492,12 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
     const electrical = RATE_MASTER_DISCIPLINES[0];
     expect(electrical.discipline).toBe("Electrical");
     expect(rateMasterPageEntry(electrical)).toBe(electrical);        // reference-identical
-    expect(electrical.categories).toHaveLength(12);                   // unchanged
+    // SLICE 12b(A) (12 -> 13): `electrical_pricing_inputs` joined Electrical. The NEGATIVE half below
+    // is the one that matters and is UNCHANGED: Electrical still has no `holds_items: false` entry, so
+    // `rateMasterPageEntry` still returns the SAME OBJECT for it (the line above) and the page shows
+    // every Electrical category including Pricing Inputs (acceptance 1 + 2).
+    expect(electrical.categories).toHaveLength(13);
+    expect(electrical.categories.map((c) => c.category_id)).toContain("electrical_pricing_inputs");
     expect(electrical.categories.some((c) => c.holds_items === false)).toBe(false);
     expect(rateMasterPageEntry(undefined)).toBeUndefined();
   });

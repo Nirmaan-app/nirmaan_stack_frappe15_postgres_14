@@ -85,6 +85,89 @@ CATEGORY_COLUMN = "category"
 # category column has always carried; the discipline is the value the system names it by.
 DISCIPLINE_COLUMN = "discipline"
 
+# ===================================================================================================
+# SLICE 12b(A) -- PRICING INPUTS. The numbers our pricing rules read, as a category of their own.
+# ===================================================================================================
+# An item kind ending in this suffix is a Pricing Input. Keyed on the SUFFIX, never on a discipline
+# name, so a second discipline's inputs (12c) flow through with no code change -- the HV-10 rule.
+PRICING_INPUT_KIND_SUFFIX = "_pricing_input"
+
+# ACCEPTANCE 4 / 9: the file carries ONLY these, in this order, and nothing borrowed from a SKU file.
+# `item` is the row's name, then one column per KIND of number, then the unit, the remark and the
+# read-only used-by count.
+PRICING_INPUT_VALUE_COLUMNS = ("discount", "supply_markup", "installation_markup", "bcs_markup",
+                               "wastage", "ratio", "share", "amount")
+# ACCEPTANCE 6: a factor is shown as a PERCENTAGE. `amount` is rupees and is NOT a percentage.
+PRICING_INPUT_PERCENT_COLUMNS = tuple(c for c in PRICING_INPUT_VALUE_COLUMNS if c != "amount")
+PRICING_INPUT_USED_BY = "used_by"
+PRICING_INPUT_SHARED_BY = "shared_by"
+PRICING_INPUT_NAME = "item"
+PRICING_INPUT_REMARKS = "remarks"
+
+
+# SLICE 12b(A) -- the columns of a Pricing Inputs file that are READ-ONLY.
+#
+# ⚠️ THE ROUND TRIP FORCED THIS, AND THE RULING BEHIND IT IS ACCEPTANCE 13. The `item` column shows the
+# input's READABLE NAME while the stored attribute holds its ID (`cable_arm`), because the id is what a
+# pipeline's `rate_ref` names -- so a faithful re-upload of an untouched file would have RENAMED every
+# input to its own description. And a rename is exactly what acceptance 13 forbids for an input in use,
+# which all 33 are. So these columns are read past and never applied, like `source_sheet` since 1e.
+# The VALUE columns are the editable ones, which is the whole point of the slice.
+PRICING_INPUT_READONLY_COLUMNS = (PRICING_INPUT_NAME, "name", PRICING_INPUT_REMARKS,
+                                  PRICING_INPUT_SHARED_BY, PRICING_INPUT_USED_BY)
+
+
+def is_pricing_input_headers(headers):
+    """True for a Pricing Inputs rate file, recognised BY ITS OWN SHAPE -- never by a category name.
+
+    The file is fixed-column, so its header row identifies it: the name column sits where every other
+    file carries `brand`, and `used_by` exists nowhere else.
+    """
+    h = list(headers or [])
+    return len(h) > 3 and h[3] == PRICING_INPUT_NAME and PRICING_INPUT_USED_BY in h
+
+
+def is_pricing_input_kind(kind):
+    """True for a Pricing Input item kind. Suffix-keyed, so no discipline is named in code."""
+    return isinstance(kind, str) and kind.endswith(PRICING_INPUT_KIND_SUFFIX)
+
+
+def pricing_input_used_by(configs):
+    """{input id: (site count, [category ids])} -- DERIVED from the configs, never stored.
+
+    A stored count goes stale the moment a pipeline changes, so it is computed by walking every
+    `rate_ref` of every pipeline of the discipline. This is the count acceptance item 13 refuses a
+    delete or a rename with.
+    """
+    out = {}
+    for cid, cfg in sorted((configs or {}).items()):
+        for pid in sorted((cfg.get("pipelines") or {})):
+            for st in ((cfg["pipelines"][pid] or {}).get("steps") or []):
+                if st.get("step") != "rate_ref":
+                    continue
+                iid = (st.get("ref") or {}).get("item")
+                if not isinstance(iid, str):
+                    continue
+                n, cats = out.get(iid, (0, []))
+                if cid not in cats:
+                    cats = cats + [cid]
+                out[iid] = (n + 1, cats)
+    return out
+
+
+def as_percent(value):
+    """0.45 -> "45%" for display. The STORED value is untouched; this is the file and the screen."""
+    if value in (None, ""):
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return value
+    # trim a trailing .0 so 45.0% reads as 45%
+    pct = f * 100.0
+    return ("%g%%" % round(pct, 6))
+
+
 FORMAT_XLSX = "xlsx"
 FORMAT_CSV = "csv"
 FORMATS = (FORMAT_XLSX, FORMAT_CSV)
@@ -316,6 +399,43 @@ def build_category_rows(discipline, category_id):
     kinds = set(cat_kinds[category_id])
     rows_in = [it for it in items if it["kind"] in kinds]
 
+    # SLICE 12b(A) -- PRICING INPUTS get a FIXED column set, not the generic attribute/rate union.
+    # ACCEPTANCE 4: only the item, its value columns, the unit, the remark and the read-only used-by
+    # count -- nothing borrowed from a SKU file. ACCEPTANCE 6: the factors read as percentages.
+    if kinds and all(is_pricing_input_kind(k) for k in kinds):
+        used = pricing_input_used_by(_load_configs(discipline))
+        value_cols = [c for c in PRICING_INPUT_VALUE_COLUMNS
+                      if any(c in (it.get("rates") or {}) for it in rows_in)]
+        headers = ([ "item_uid", DISCIPLINE_COLUMN, CATEGORY_COLUMN, PRICING_INPUT_NAME]
+                   + value_cols
+                   + ["unit", PRICING_INPUT_SHARED_BY, PRICING_INPUT_REMARKS, PRICING_INPUT_USED_BY])
+        rows = []
+        for it in sorted(rows_in, key=lambda x: str(x["attributes"].get("name") or "")):
+            a = it.get("attributes") or {}
+            r = it.get("rates") or {}
+            iid = a.get(PRICING_INPUT_NAME)
+            n, cats = used.get(iid, (0, []))
+            cells = [it["item_uid"], discipline, category_id, a.get("name")]
+            for c in value_cols:
+                v = r.get(c)
+                cells.append(as_percent(v) if c in PRICING_INPUT_PERCENT_COLUMNS else v)
+            cells += [it.get("unit"), a.get(PRICING_INPUT_SHARED_BY) or "",
+                      a.get(PRICING_INPUT_REMARKS) or "",
+                      ("%d site%s in %s" % (n, "" if n == 1 else "s", ", ".join(cats))) if n else "not used"]
+            rows.append(cells)
+        # Every value column is TEXT here (a percentage is a string), so nothing is numeric. The
+        # used-by column is READ-ONLY and is locked on every row: it is derived from the pipelines, so
+        # a typed value there could never mean anything.
+        return {"headers": headers, "rows": rows, "n": len(rows), "numeric": [],
+                "formula_row": [
+                    FORMULA_ROW_MARKER, "", "", "the number a pricer edits",
+                ] + ["percentage" if c in PRICING_INPUT_PERCENT_COLUMNS else "rupees"
+                     for c in value_cols] + [
+                    "", "which categories read it", "what it does, with an example",
+                    "derived from the pricing rules - read only",
+                ],
+                "locked": [{PRICING_INPUT_USED_BY} for _ in rows]}
+
     spec_kinds = _spec_kinds(discipline)
     if kinds and kinds <= spec_kinds:
         # SLICE 1c -- an opted-in category: text columns, rates, nothing derived. A category with no
@@ -363,6 +483,10 @@ def build_all_categories_rows(discipline):
     """MODE B -- every category in one file, format-neutral, with a `category` column and the UNION
     of every category's attribute and rate keys. Sparse by construction."""
     items, kind_cat, cat_kinds, attr_types = _load_full(discipline)
+    # SLICE 12b(A) / ACCEPTANCE 15: Pricing Inputs STAY OUT of the all-categories file. They are not
+    # SKUs, and letting them in would put a `discount` / `share` / `amount` column onto every other
+    # category's rows -- a union that is sparse by construction would become sparse and misleading.
+    items = [it for it in items if not is_pricing_input_kind(it["kind"])]
     spec_kinds = _spec_kinds(discipline)
     if spec_kinds:
         # SLICE 1c -- the union takes its attribute keys from NON-spec rows only; the two text columns

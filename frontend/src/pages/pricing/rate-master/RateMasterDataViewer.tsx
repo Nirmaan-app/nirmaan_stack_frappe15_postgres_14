@@ -42,6 +42,10 @@ import {
   DERIVED_COPY, FORMULA_COLUMNS, FORMULA_TYPED, columnNote, derivedCountsByKey, isDerivedCell,
   rowFormula, sideOfRateKey,
   type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
+  isPricingInputConfig,
+  pricingInputCell,
+  PRICING_INPUT_VALUE_COLUMNS,
+  PRICING_INPUT_COLUMN_LABELS,
 } from "./rateMasterSpec";
 
 /**
@@ -127,8 +131,8 @@ function cellText(v: unknown): string {
 }
 
 export function RateMasterDataViewer({
-  items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem, onDeactivateItem,
-  onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
+  items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem,
+  onDeactivateItem, onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -169,6 +173,12 @@ export function RateMasterDataViewer({
   // sends nothing at all.
   const [rowTwinAsk, setRowTwinAsk] = useState<{ name: string; patch: SaveItemPatch; twin: UploadTwin } | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<{ name: string; label: string } | null>(null);
+  // SLICE 12b(A), owner ruling 2026-09-28 -- THE SCREEN MUST NOT LIE ABOUT A REFUSAL.
+  // `doDeactivate` was try/finally with NO catch, so a server refusal was swallowed: the dialog
+  // closed, the row stayed, and nothing said why. That is indistinguishable from "it worked but the
+  // grid has not refetched" -- which is exactly what it looked like during the cert, when the write
+  // HAD gone through. The refusal now stays ON the dialog and the dialog stays OPEN.
+  const [deactivateErr, setDeactivateErr] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   // EA-1c change 1: SCOPE the Data tab to the selected category's items. The kinds come from the
@@ -203,14 +213,33 @@ export function RateMasterDataViewer({
   // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
   const editableAttrCols = specMode ? textCols : attrCols;
 
+  // SLICE 12b(A): is this the discipline's Pricing Inputs category? Suffix-keyed on the item kind, so
+  // no discipline is named here and 12c's HVAC inputs flow through with no change.
+  const piMode = useMemo(() => isPricingInputConfig(config), [config]);
+  // ACCEPTANCE 4 / 13: the used-by count. It is COMPUTED FROM THE PIPELINES at mint time and carried
+  // on the item, because the page fetches one category's config at a time and a cross-category count
+  // cannot be derived from that one config.
+  //
+  // ⚠️ SO IT IS RECOMPUTED ON EVERY MINT, NEVER EDITED. The one computation lives in
+  // `csv_exporter.pricing_input_used_by`, and it is what `csv_importer.refuse_if_in_use` reads to
+  // refuse a delete or a rename -- the file, the screen and the refusal cannot disagree.
+
   // Rate columns = union of rate keys across THIS CATEGORY's items, in first-seen order.
+  // ⚠️ PRICING INPUTS ARE THE ONE EXCEPTION: their columns are a FIXED, ORDERED set (acceptance 4/9),
+  // so a discount always sits where a reader expects it rather than wherever the first row happened to
+  // carry one. Only the columns actually in use are shown, so the file is not padded with empties.
   const rateCols = useMemo(() => {
+    if (piMode) {
+      return (PRICING_INPUT_VALUE_COLUMNS as readonly string[]).filter((k) =>
+        scopedItems.some((it) => (it.rates || {})[k] !== undefined && (it.rates || {})[k] !== null),
+      );
+    }
     const seen: string[] = [];
     for (const it of scopedItems) {
       for (const k of Object.keys(it.rates || {})) if (!seen.includes(k)) seen.push(k);
     }
     return seen;
-  }, [scopedItems]);
+  }, [scopedItems, piMode]);
 
   // SLICE 12a: the row-level formula text for every scoped item, and how many rows declare each rate
   // column derived (what the formula row's count names). ONE pass, memoised on the items + config.
@@ -263,6 +292,15 @@ export function RateMasterDataViewer({
       { key: "brand", get: (it: RateMasterItem) => it.brand },
       ...attrCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
       ...rateCols.map((k) => ({ key: `rate:${k}`, get: (it: RateMasterItem) => it.rates?.[k] })),
+      // SLICE 12b(A): the four Pricing-Input columns. `used_by` is READ-ONLY -- it is derived.
+      ...(piMode
+        ? [
+            { key: "pi:name", get: (it: RateMasterItem) => it.attributes?.name },
+            { key: "pi:shared_by", get: (it: RateMasterItem) => it.attributes?.shared_by },
+            { key: "pi:remarks", get: (it: RateMasterItem) => it.attributes?.remarks },
+            { key: "pi:used_by", get: (it: RateMasterItem) => it.attributes?.used_by },
+          ]
+        : []),
       { key: "unit", get: (it: RateMasterItem) => it.unit },
       { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
       { key: "source_row", get: (it: RateMasterItem) => it.source_row },
@@ -477,10 +515,16 @@ export function RateMasterDataViewer({
   };
   const doDeactivate = async () => {
     if (!onDeactivateItem || !confirmDeactivate) return;
+    setDeactivateErr(null);
     try {
       await onDeactivateItem(confirmDeactivate.name);
-    } finally {
       setConfirmDeactivate(null);
+    } catch (e) {
+      // The dialog is deliberately LEFT OPEN so the reason is attached to the action that caused it.
+      // The server's OWN words. `downloadErrorMessage` already digs them out of
+      // `_server_messages` -- ONE definition of "what did the server actually say",
+      // reused rather than re-invented.
+      setDeactivateErr(downloadErrorMessage(e));
     }
   };
 
@@ -582,6 +626,14 @@ export function RateMasterDataViewer({
           </div>
         )}
         {downloadErr && <p className="text-xs text-destructive">{downloadErr}</p>}
+        {/* ⚠️ THE REFUSAL LIVES HERE, NOT IN THE DIALOG, AND THAT WAS LEARNED THE HARD WAY. Radix's
+            AlertDialog closes itself on the action click; `preventDefault` stops that but then leaves
+            its internal state out of step with the controlled `open` prop, so the box LINGERED after a
+            SUCCESS -- certified on screen, row gone and count fallen, dialog still there. Putting the
+            message on the PAGE lets the dialog behave exactly as Radix intends and the reason still
+            survives, which is what the owner's ruling actually asked for: the screen must show the true
+            state whatever the endpoint answers. */}
+        {deactivateErr && <p className="text-xs text-destructive" role="alert" data-testid="deactivate-error">{deactivateErr}</p>}
       </div>
     );
 
@@ -677,20 +729,40 @@ export function RateMasterDataViewer({
                 <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
               ))}
               {specMode && <TableHead className="sticky top-0 z-20 bg-background">{hdr("spec", SPEC_COPY.specColumn)}</TableHead>}
-              <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>
+              {/* SLICE 12b(A): a Pricing Input's NAME leads the row -- it is what the reader is looking
+                  for, and `brand` / `source` mean nothing for a number a pricer edits. ACCEPTANCE 4. */}
+              {piMode && (
+                <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:name", "input")}</TableHead>
+              )}
+              {!piMode && <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>}
               {attrCols.map((d) => (
                 <TableHead key={d.id} className="sticky top-0 z-20 bg-background">
                   {hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
                 </TableHead>
               ))}
               {rateCols.map((k) => (
-                <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
+                <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">
+                  {hdr(`rate:${k}`, piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true)}
+                </TableHead>
               ))}
               <TableHead className="sticky top-0 z-20 bg-background">{hdr("unit", "unit")}</TableHead>
-              <TableHead className="sticky top-0 z-20 bg-background">{hdr("source_sheet", "source sheet")}</TableHead>
-              <TableHead className="sticky top-0 z-20 bg-background text-right">{hdr("source_row", "row", true)}</TableHead>
-              <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderSupply}</TableHead>
-              <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderInstall}</TableHead>
+              {/* ACCEPTANCE 12: sharing has its OWN column, never the name. ACCEPTANCE 4/13: the remark
+                  and the READ-ONLY used-by count. The SKU columns (source sheet / row, the two formula
+                  columns) are absent -- they are what "nothing borrowed from a SKU file" means. */}
+              {piMode ? (
+                <>
+                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:shared_by", "shared by")}</TableHead>
+                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:remarks", "remarks")}</TableHead>
+                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:used_by", "used by")}</TableHead>
+                </>
+              ) : (
+                <>
+                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("source_sheet", "source sheet")}</TableHead>
+                  <TableHead className="sticky top-0 z-20 bg-background text-right">{hdr("source_row", "row", true)}</TableHead>
+                  <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderSupply}</TableHead>
+                  <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderInstall}</TableHead>
+                </>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -831,7 +903,12 @@ export function RateMasterDataViewer({
                     )}
                   </TableCell>
                 )}
-                <TableCell>{r.it.brand}</TableCell>
+                {/* SLICE 12b(A): the input's NAME leads the row, where brand sits for a SKU. */}
+                {piMode ? (
+                  <TableCell className="font-medium">{String(r.it.attributes?.name ?? "")}</TableCell>
+                ) : (
+                  <TableCell>{r.it.brand}</TableCell>
+                )}
                 {attrCols.map((d) => (
                   <TableCell
                     key={d.id}
@@ -878,7 +955,10 @@ export function RateMasterDataViewer({
                       derived ? <span className="text-[10px] italic">{DERIVED_COPY.cellTag}</span> : ""
                     ) : (
                       <>
-                        {r.it.rates[k]}
+                        {/* ACCEPTANCE 6: a Pricing Input's factor reads as a PERCENTAGE. The stored
+                            value is untouched -- `pricingInputCell` mirrors the server's `as_percent`,
+                            so the screen and the rate file can never disagree about which number it is. */}
+                        {piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]}
                         {derived && (
                           <span className="ml-1 text-[10px] italic">{DERIVED_COPY.cellTag}</span>
                         )}
@@ -888,11 +968,25 @@ export function RateMasterDataViewer({
                   );
                 })}
                 <TableCell>{r.it.unit}</TableCell>
-                <TableCell>{r.it.source_sheet}</TableCell>
-                <TableCell className="text-right tabular-nums">{r.it.source_row}</TableCell>
+                {piMode && (
+                  <>
+                    <TableCell className="text-[11px] text-muted-foreground">
+                      {String(r.it.attributes?.shared_by ?? "") || "—"}
+                    </TableCell>
+                    <TableCell className="max-w-[28rem] whitespace-pre-line text-[11px] text-muted-foreground">
+                      {String(r.it.attributes?.remarks ?? "")}
+                    </TableCell>
+                    {/* READ-ONLY: derived from the pricing rules, so there is no input to type into. */}
+                    <TableCell className="whitespace-nowrap text-[11px] text-muted-foreground" data-testid="pi-used-by">
+                      {String(r.it.attributes?.used_by ?? "")}
+                    </TableCell>
+                  </>
+                )}
+                {!piMode && <TableCell>{r.it.source_sheet}</TableCell>}
+                {!piMode && <TableCell className="text-right tabular-nums">{r.it.source_row}</TableCell>}
                 {/* SLICE 12a (owner I-6): the two READ-ONLY formula columns, on every row of every
                     discipline -- the same text the rate file carries, rendered by the same helpers. */}
-                {FORMULA_COLUMNS.map((fc, fi) => (
+                {!piMode && FORMULA_COLUMNS.map((fc, fi) => (
                   <TableCell key={fc} className="max-w-[22rem] whitespace-pre-line text-[11px] text-muted-foreground">
                     {formulaByUid.get(r.it.item_uid ?? "")?.[fi] ?? FORMULA_TYPED}
                   </TableCell>
@@ -926,7 +1020,7 @@ export function RateMasterDataViewer({
       )}
 
       {/* RM-4a: deactivate confirm (freeze-and-supersede -- the row is retained inactive, never deleted). */}
-      <AlertDialog open={!!confirmDeactivate} onOpenChange={(o) => !o && setConfirmDeactivate(null)}>
+      <AlertDialog open={!!confirmDeactivate} onOpenChange={(o) => { if (!o) { setConfirmDeactivate(null); setDeactivateErr(null); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate this rate row?</AlertDialogTitle>

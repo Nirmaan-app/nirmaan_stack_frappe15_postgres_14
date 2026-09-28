@@ -26,6 +26,10 @@ import {
   runPipeline,
   moduleFitGateVerdict,
   stepFactor,
+  impliedWastage,
+  ratioIsUnity,
+  hoistRateRefs,
+  isPricingInputStep,
 } from "./ratePipelineInterpreter";
 import { STEP_VOCABULARY, blankStep, coerceForMatch } from "./rateMasterStructure";
 import { derivedQtyValue } from "./RateMasterDerivation";
@@ -1669,6 +1673,13 @@ describe("step vocabulary pin (interpreter <-> STEP_VOCABULARY <-> server _KNOWN
       // CIRCUIT LENGTH part 1. Same discipline: pinned green at 12 types against the
       // unchanged interpreter + validator, then BOTH sides extended together in one commit.
       "derive_attribute",
+      // SLICE 12b(A): the PRICING-INPUT READER, 15 -> 16.
+      //
+      // ⚠️ THE SERVER HALF OF THIS PIN CAUGHT A REAL DEFECT HERE. The backend `_KNOWN_STEP_TYPES` was
+      // extended and THIS LIST WAS NOT, so for a while `rate_ref` was a step the validator accepted and
+      // the editor's vocabulary did not know -- precisely the saves-on-one-side-does-nothing-on-the-other
+      // failure the pair exists to prevent. Extend BOTH sides in one commit, always.
+      "rate_ref",
     ]);
   });
 
@@ -3487,6 +3498,15 @@ describe("F-18 -- a non-finite number is never labelled ok", () => {
       // a rate key off a matched or referenced row, or a ctx value another step may not have written
       "apply_effective_multiplier", "scale", "roundup", "component", "component_ref",
       "component_band", "install_as_ratio", "lookup_or_ratio",
+      // SLICE 12b(A) -- THE CHOICE THIS TEST EXISTS TO FORCE, stated rather than inherited.
+      // `rate_ref` reads `rates[target]` off a SEPARATELY REFERENCED row, so the number can be absent
+      // for two different reasons: the ref resolved to no row (or to several), or the row carries no
+      // such rate key. It refuses BY NAME on each, in `component_ref`'s idiom, and writes nothing to
+      // ctx -- so it belongs on THIS side, with the other guards that copy that idiom.
+      //
+      // ⚠️ A DEFAULT OF 1 WOULD HAVE BEEN THE TEMPTING WRONG ANSWER: "the input was not loaded" is not
+      // "the input is one", and a silent 1 on a discount prices the row as though no discount existed.
+      "rate_ref",
     ];
     const READS_NO_POSSIBLY_ABSENT_NUMBER = [
       // these read the row itself, the component bag, or ATTRIBUTES (already honest no-computes)
@@ -6570,5 +6590,358 @@ describe("INCLUDES-MODULES GATE -- THE LIVE ASSET (v62): popup_boxes carries the
     expect(runPipeline("popup_boq", v61pipe, v61.items, { ...row123, has_modules: "No" }).finals).toEqual({ supply: 3060, install: 380 });
     const back = runPipeline("popup_boq", popupPipe, v62.items, { ...row123, has_modules: "Yes" });
     expect(back.finals).toEqual({ supply: 3060, install: 380 });
+  });
+});
+
+// =====================================================================================
+// SLICE 12b(A) -- PRICING INPUTS: `rate_ref`, the five ctx arms, and the ulp-tolerant
+// wastage test. Every block below has a POSITIVE and a NEGATIVE half.
+// =====================================================================================
+describe("SLICE 12b(A) -- rate_ref loads a Pricing Input into ctx", () => {
+  const INPUTS: RateMasterItem[] = [
+    { item_uid: "pi-1", discipline: "Electrical", kind: "electrical_pricing_input", unit: "factor",
+      attributes: { item: "conduit_discount" }, rates: { rate: 0.5 } },
+    { item_uid: "pi-2", discipline: "Electrical", kind: "electrical_pricing_input", unit: "factor",
+      attributes: { item: "conduit_supply_markup" }, rates: { rate: 0.4 } },
+    { item_uid: "c-1", discipline: "Electrical", kind: "conduit", unit: "Mtr",
+      attributes: { conduit_type: "PVC", size_mm: 25 }, rates: { list_price_per_mtr: 100 } },
+  ];
+  const readTwo = (extra: any[] = []): Pipeline => ({
+    output: ["supply"],
+    steps: [
+      { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "conduit_discount" },
+        target: "rate", result: "d" },
+      { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "conduit_supply_markup" },
+        target: "rate", result: "m" },
+      { step: "match_master_row", params: { kind: "conduit" } },
+      { step: "scale", target: "list_price_per_mtr", result: "supply",
+        formula: "base*(1-d)*(1+m)", params: { d_from_ctx: "d", m_from_ctx: "m" } },
+      ...extra,
+    ] as any,
+  });
+
+  it("POSITIVE: two inputs are read and multiplied -- 100 x (1-0.50) x (1+0.40) = 70", () => {
+    const r = runPipeline("p", readTwo(), INPUTS, { conduit_type: "PVC", size_mm: 25 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(70);
+  });
+
+  it("NEGATIVE (THE MIGRATION PROOF): changing an input CHANGES the result -- so the literal is gone", () => {
+    const moved = INPUTS.map((i) =>
+      i.attributes.item === "conduit_supply_markup" ? { ...i, rates: { rate: 0.6 } } : i);
+    const r = runPipeline("p", readTwo(), moved, { conduit_type: "PVC", size_mm: 25 });
+    expect(r.finals.supply).toBe(80);   // 100 x 0.5 x 1.6
+  });
+
+  it("NEGATIVE: a ref matching no row is an honest no-compute naming the kind, never a 1", () => {
+    const pl = readTwo();
+    (pl.steps[0] as any).ref = { kind: "electrical_pricing_input", item: "does_not_exist" };
+    const r = runPipeline("p", pl, INPUTS, { conduit_type: "PVC", size_mm: 25 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply).toBeUndefined();
+    expect(String(r.steps[r.steps.length - 1].matchedCondition)).toContain("no matching row");
+  });
+
+  it("NEGATIVE: a ref matching TWO rows refuses -- an input must be unique", () => {
+    const dupes = [...INPUTS, { item_uid: "pi-1b", discipline: "Electrical",
+      kind: "electrical_pricing_input", unit: "factor",
+      attributes: { item: "conduit_discount" }, rates: { rate: 0.9 } } as RateMasterItem];
+    const r = runPipeline("p", readTwo(), dupes, { conduit_type: "PVC", size_mm: 25 });
+    expect(r.status).toBe("no_match");
+    expect(String(r.steps[r.steps.length - 1].matchedCondition)).toContain("2 matching row");
+  });
+
+  it("NEGATIVE: a missing rate key on the input row refuses, naming the key", () => {
+    const bad = INPUTS.map((i) =>
+      i.attributes.item === "conduit_discount" ? { ...i, rates: {} } : i);
+    const r = runPipeline("p", readTwo(), bad, { conduit_type: "PVC", size_mm: 25 });
+    expect(r.status).toBe("no_match");
+    expect(String(r.steps[r.steps.length - 1].matchedCondition)).toContain("rate not on the referenced row");
+  });
+
+  // ⚠️ THE LOAD-BEARING TEST. `component_ref` would have worked arithmetically but writes into the
+  // `components` accumulator that `sum_components` sums -- so reading an input through it would ADD the
+  // input's value to the assembly total. 29 of the 40 migrated values sit in pipelines that already sum
+  // components. `rate_ref` must leave the sum alone.
+  it("POSITIVE: rate_ref NEVER touches `components` -- a nearby sum_components is unaffected", () => {
+    const pl: Pipeline = {
+      output: ["assembly"],
+      steps: [
+        { step: "match_master_row", params: { kind: "conduit" } },
+        { step: "component", name: "the_conduit", target: "list_price_per_mtr", formula: "base" },
+        // an input read sitting BETWEEN the component and the sum
+        { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "conduit_discount" },
+          target: "rate", result: "d" },
+        { step: "sum_components", result: "assembly" },
+      ] as any,
+    };
+    const r = runPipeline("p", pl, INPUTS, { conduit_type: "PVC", size_mm: 25 });
+    expect(r.status).toBe("ok");
+    // 100 alone. If rate_ref wrote into `components` this would be 100.5.
+    expect(r.finals.assembly).toBe(100);
+  });
+});
+
+describe("SLICE 12b(A) -- the five ctx arms", () => {
+  const PI = (item: string, rate: number): RateMasterItem => ({
+    item_uid: "pi-" + item, discipline: "Electrical", kind: "electrical_pricing_input",
+    unit: "factor", attributes: { item }, rates: { rate },
+  });
+  const ROW = (kind: string, attributes: any, rates: any): RateMasterItem =>
+    ({ item_uid: "r-" + kind, discipline: "Electrical", kind, unit: "Nos", attributes, rates });
+  const load = (item: string, result: string) =>
+    ({ step: "rate_ref", ref: { kind: "electrical_pricing_input", item }, target: "rate", result });
+
+  it("ARM `component`: a formula param binds from ctx (200 x (1-0.40) = 120)", () => {
+    const items = [PI("lug_discount", 0.4), ROW("termination", { core: 4 }, { lug_list: 200 })];
+    const pl: Pipeline = { output: ["s"], steps: [
+      load("lug_discount", "disc"),
+      { step: "match_master_row", params: { kind: "termination" } },
+      { step: "component", name: "lug", target: "lug_list", formula: "lug_list*(1-discount)",
+        params: { discount_from_ctx: "disc" } },
+      { step: "sum_components", result: "s" },
+    ] as any };
+    expect(runPipeline("p", pl, items, { core: 4 }).finals.s).toBe(120);
+  });
+
+  it("ARM `install_as_ratio`: ratio_from_ctx REPLACES the literal ratio", () => {
+    const items = [PI("term_install_share", 0.25), ROW("termination", { core: 4 }, { lug_list: 400 })];
+    const pl: Pipeline = { output: ["supply_x", "inst"], steps: [
+      load("term_install_share", "sh"),
+      { step: "match_master_row", params: { kind: "termination" } },
+      { step: "component", name: "lug", target: "lug_list", formula: "base" },
+      { step: "sum_components", result: "supply_x" },
+      { step: "install_as_ratio", result: "inst", params: { ratio: 0.99, ratio_from_ctx: "sh" } },
+    ] as any };
+    const r = runPipeline("p", pl, items, { core: 4 });
+    expect(r.finals.inst).toBe(100);           // 400 x 0.25, NOT 400 x 0.99
+  });
+
+  it("ARM `apply_effective_multiplier`: the matched condition's params bind from ctx", () => {
+    const items = [PI("cab_d", 0.57), PI("cab_m", 0.4),
+      ROW("cable", { insulation: "UNARMOURED" }, { list_price_per_mtr: 100 })];
+    const pl: Pipeline = { output: ["sup"], steps: [
+      load("cab_d", "d"), load("cab_m", "m"),
+      { step: "match_master_row", params: { kind: "cable" } },
+      { step: "apply_effective_multiplier", target: "list_price_per_mtr", result: "sup",
+        formula: "(1-discount)*(1+markup)",
+        conditions: [{ when: { insulation: "UNARMOURED" },
+          params: { discount_from_ctx: "d", markup_from_ctx: "m" } }] },
+    ] as any };
+    expect(runPipeline("p", pl, items, { insulation: "UNARMOURED" }).finals.sup).toBeCloseTo(60.2, 10);
+  });
+
+  it("ARM `rate_stages.mult_from_ctx`: the stage multiplier comes from the input", () => {
+    const items = [PI("conduit_boq_mult", 0.7),
+      ROW("conduit", { conduit_type: "PVC", size_mm: 25 }, { list_price_per_mtr: 100 })];
+    const pl: Pipeline = { output: ["s"], steps: [
+      load("conduit_boq_mult", "cm"),
+      { step: "component_ref", name: "conduit",
+        ref: { kind: "conduit", conduit_type: "PVC", size_mm: 25 }, target: "list_price_per_mtr",
+        rate_stages: [{ mult: 0.99, mult_from_ctx: "cm" }], qty: 1 },
+      { step: "sum_components", result: "s" },
+    ] as any };
+    expect(runPipeline("p", pl, items, {}).finals.s).toBe(70);   // 100 x 0.7, NOT x 0.99
+  });
+
+  it("NEGATIVE: every arm refuses with an honest no-compute when the ctx key was never computed", () => {
+    const items = [ROW("termination", { core: 4 }, { lug_list: 200 })];
+    const pl: Pipeline = { output: ["s"], steps: [
+      { step: "match_master_row", params: { kind: "termination" } },
+      { step: "component", name: "lug", target: "lug_list", formula: "lug_list*(1-discount)",
+        params: { discount_from_ctx: "never_loaded" } },
+      { step: "sum_components", result: "s" },
+    ] as any };
+    const r = runPipeline("p", pl, items, { core: 4 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.s).toBeUndefined();        // never a silent 1
+    expect(String(r.steps[r.steps.length - 1].matchedCondition)).toContain("never_loaded");
+  });
+
+  it("NEGATIVE: a stage whose ctx key is missing refuses -- it does NOT fall back to `mult`", () => {
+    const items = [ROW("conduit", { conduit_type: "PVC", size_mm: 25 }, { list_price_per_mtr: 100 })];
+    const pl: Pipeline = { output: ["s"], steps: [
+      { step: "component_ref", name: "conduit",
+        ref: { kind: "conduit", conduit_type: "PVC", size_mm: 25 }, target: "list_price_per_mtr",
+        rate_stages: [{ mult: 0.99, mult_from_ctx: "absent" }], qty: 1 },
+      { step: "sum_components", result: "s" },
+    ] as any };
+    const r = runPipeline("p", pl, items, {});
+    expect(r.status).toBe("no_match");
+    expect(r.finals.s).toBeUndefined();        // 99 would mean the literal silently won
+  });
+
+  it("ABSENT MEANS BYTE-IDENTICAL: a config with no _from_ctx param behaves exactly as before", () => {
+    const items = [ROW("termination", { core: 4 }, { lug_list: 200 })];
+    const pl: Pipeline = { output: ["s"], steps: [
+      { step: "match_master_row", params: { kind: "termination" } },
+      { step: "component", name: "lug", target: "lug_list", formula: "lug_list*(1-discount)",
+        params: { discount: 0.4 } },
+      { step: "sum_components", result: "s" },
+    ] as any };
+    expect(runPipeline("p", pl, items, { core: 4 }).finals.s).toBe(120);
+  });
+});
+
+describe("SLICE 12b(A) -- the ulp-tolerant wastage test", () => {
+  // ⚠️ THE NEGATIVE PIN IS THE LOAD-BEARING ONE. `1 - 0.70` is 0.30000000000000004, so switchgear's
+  // 0.30 / (1 - 0.70) is 0.99999999999999978 -- NOT exactly 1 -- on a category with NO wastage at all.
+  // A literal `=== 1` test invents a wastage of -2.2e-14%. A positive pin on cable would stay GREEN
+  // under `=== 1`, because cable's ratio really is 1.05, so only this case can see the defect.
+  it("NEGATIVE PIN (switchgear): 0.30 against a 70% discount reads as wastage ZERO, not float noise", () => {
+    expect(1 - 0.7).not.toBe(0.3);                       // the premise, stated
+    expect(0.3 / (1 - 0.7)).not.toBe(1);                 // and the trap
+    expect(impliedWastage(0.3, 0.7)).toBe(0);            // the guard
+  });
+
+  it("POSITIVE (cable): 0.4515 against a 57% discount reads as a 5% wastage", () => {
+    expect(impliedWastage(0.4515, 0.57)).toBeCloseTo(0.05, 12);
+  });
+
+  it("POSITIVE: an exact unity ratio reads as zero wastage", () => {
+    expect(impliedWastage(0.25, 0.75)).toBe(0);
+    expect(impliedWastage(0.5, 0.5)).toBe(0);
+  });
+
+  it("NEGATIVE: a 100% discount has no defined ratio -- null, never a 0 or a NaN", () => {
+    expect(impliedWastage(0.1, 1)).toBeNull();
+  });
+
+  it("ratioIsUnity tolerates a few ulps and nothing more", () => {
+    expect(ratioIsUnity(1)).toBe(true);
+    expect(ratioIsUnity(0.99999999999999978)).toBe(true);
+    expect(ratioIsUnity(1.05)).toBe(false);
+    expect(ratioIsUnity(1.000001)).toBe(false);          // 0.0001% IS a real wastage, not noise
+  });
+});
+
+// =====================================================================================
+// SLICE 12b(A) -- THE HOIST. The pricing-input PREAMBLE runs before every other step, whatever
+// position the config declares it in. This is what lets the mint APPEND the preamble so that every
+// original `steps[N]` index in the asset survives -- without it, nine tests whose subject is conduit
+// trade sizes, back-box ladders and tray definitions would permanently carry an assertion about
+// where a pricing-input step sits.
+//
+// The whole thing rests on ONE measured fact: all 83 shipped `rate_ref` steps carry ZERO `@` binds,
+// so not one of them can observe anything an earlier step did. The negative below pins what happens
+// if that ever stops being true.
+// =====================================================================================
+describe("SLICE 12b(A) -- the hoist", () => {
+  const PI = (item: string, rate: number): RateMasterItem => ({
+    item_uid: "pi-" + item, discipline: "Electrical", kind: "electrical_pricing_input",
+    unit: "%", attributes: { item }, rates: { rate },
+  });
+  const HOIST_ITEMS: RateMasterItem[] = [
+    PI("d", 0.5), PI("m", 0.4),
+    { item_uid: "c-1", discipline: "Electrical", kind: "conduit", unit: "Mtr",
+      attributes: { conduit_type: "PVC", size_mm: 25 }, rates: { list_price_per_mtr: 100 } },
+  ];
+  const SEL = { conduit_type: "PVC", size_mm: 25 };
+  const ref = (item: string, result: string) =>
+    ({ step: "rate_ref", ref: { kind: "electrical_pricing_input", item }, target: "rate", result });
+  const CONSUMER = { step: "scale", target: "list_price_per_mtr", result: "supply",
+    formula: "base*(1-d)*(1+m)", params: { d_from_ctx: "d", m_from_ctx: "m" } };
+  const MATCH = { step: "match_master_row", params: { kind: "conduit" } };
+
+  // THE POSITIVE the ruling asks for, stated as the shipped asset states it: the refs come LAST.
+  it("POSITIVE: a rate_ref declared AFTER its consumer still binds -- 100 x 0.5 x 1.4 = 70", () => {
+    const appended: Pipeline = { output: ["supply"],
+      steps: [MATCH, CONSUMER, ref("d", "d"), ref("m", "m")] as any };
+    const r = runPipeline("p", appended, HOIST_ITEMS, SEL);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(70);
+  });
+
+  // And it is the SAME figure either way -- which is the claim the step-6 gate makes over the whole
+  // catalogue, in unit form. A pipeline that priced differently depending on where the refs sat would
+  // make the asset's step order load-bearing again.
+  it("POSITIVE: prepended and appended declarations give the IDENTICAL figure", () => {
+    const pre: Pipeline = { output: ["supply"],
+      steps: [ref("d", "d"), ref("m", "m"), MATCH, CONSUMER] as any };
+    const post: Pipeline = { output: ["supply"],
+      steps: [MATCH, CONSUMER, ref("d", "d"), ref("m", "m")] as any };
+    expect(runPipeline("p", post, HOIST_ITEMS, SEL).finals.supply)
+      .toBe(runPipeline("p", pre, HOIST_ITEMS, SEL).finals.supply);
+  });
+
+  // A preamble `scale` DERIVES a multiplier from inputs the preamble itself read. It must hoist too:
+  // hoisting only the refs leaves it after its consumer, the consumer refuses for a missing input,
+  // and the category silently stops pricing. This is the shipped `boq_mult` shape.
+  it("POSITIVE: a `pricing_input` scale hoists with the refs -- the derived multiplier reaches its consumer", () => {
+    const pl: Pipeline = { output: ["supply"], steps: [
+      MATCH,
+      { step: "scale", target: "list_price_per_mtr", result: "supply",
+        formula: "base*mult", params: { mult_from_ctx: "boq_mult" } },
+      ref("d", "pi_d"), ref("m", "pi_m"),
+      { step: "scale", pricing_input: true, target: "pi_d", result: "boq_mult",
+        formula: "(1-base)*(1+m)", params: { m_from_ctx: "pi_m" } },
+    ] as any };
+    const r = runPipeline("p", pl, HOIST_ITEMS, SEL);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(70);          // 100 x (1-0.5) x (1+0.4)
+  });
+
+  // ⚠️ THE NARROWING, and it is the load-bearing half. Drop the flag check and EVERY `scale` hoists;
+  // an ordinary `scale` reads `target`, which is normally an earlier step's output, so it would be
+  // read before it exists. Here `doubled` is produced by the first scale and consumed by the second:
+  // hoisting the second would compute it from nothing.
+  it("NEGATIVE: an ordinary `scale` is NOT hoisted -- it still reads its predecessor's output", () => {
+    const pl: Pipeline = { output: ["supply"], steps: [
+      MATCH,
+      { step: "scale", target: "list_price_per_mtr", result: "doubled", formula: "base*2", params: {} },
+      { step: "scale", target: "doubled", result: "supply", formula: "base+1", params: {} },
+    ] as any };
+    const r = runPipeline("p", pl, HOIST_ITEMS, SEL);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(201);         // (100 x 2) + 1, i.e. declared order was honoured
+  });
+
+  // THE NEGATIVE THE RULING ASKS FOR. If a future `rate_ref` ever DID carry an `@` bind it would be
+  // hoisted ABOVE the step that produces the bind, so the bind resolves to nothing. The requirement
+  // is that this REFUSES BY NAME -- it must never fall back to a default, because a defaulted input
+  // prices the row as though no discount existed, and nothing on screen would say so.
+  it("NEGATIVE: an unresolvable ref refuses by name and never defaults to 1", () => {
+    const pl: Pipeline = { output: ["supply"], steps: [
+      MATCH, CONSUMER,
+      { step: "rate_ref", ref: { kind: "electrical_pricing_input", item: "@computed_later" },
+        target: "rate", result: "d" },
+      ref("m", "m"),
+    ] as any };
+    const r = runPipeline("p", pl, HOIST_ITEMS, SEL);
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply).toBeUndefined();   // NOT 100, and NOT 140
+    // It refuses by the UNRESOLVED BIND'S OWN NAME -- better than naming the kind, because the name
+    // is what a reader would have to go looking for. "not provided" is the honest state: the input
+    // was not loaded, which is not the same claim as "the input is one".
+    const last = r.steps[r.steps.length - 1];
+    expect(String(last.matchedCondition)).toContain("computed_later");
+    expect(String(last.matchedCondition)).toContain("not computed");
+  });
+
+  // The pure helper, on its own. A pipeline with no preamble must come back in its declared order --
+  // that is what keeps all twelve pre-slice categories byte-identical.
+  it("POSITIVE: hoistRateRefs leaves a preamble-free list in its declared order", () => {
+    const steps = [{ step: "match_master_row" }, { step: "scale" }, { step: "roundup" }];
+    expect(hoistRateRefs(steps)).toEqual(steps);
+  });
+
+  it("POSITIVE: hoistRateRefs keeps relative order WITHIN the preamble and within the rest", () => {
+    const steps = [
+      { step: "match_master_row" },
+      { step: "rate_ref", result: "first" },
+      { step: "roundup" },
+      { step: "scale", pricing_input: true, result: "derived" },
+      { step: "rate_ref", result: "second" },
+    ];
+    expect(hoistRateRefs(steps).map((s: any) => s.result ?? s.step)).toEqual([
+      "first", "derived", "second", "match_master_row", "roundup",
+    ]);
+  });
+
+  it("POSITIVE: isPricingInputStep is true for a rate_ref and for a flagged scale, false otherwise", () => {
+    expect(isPricingInputStep({ step: "rate_ref" })).toBe(true);
+    expect(isPricingInputStep({ step: "scale", pricing_input: true })).toBe(true);
+    expect(isPricingInputStep({ step: "scale" })).toBe(false);
+    expect(isPricingInputStep({ step: "component" })).toBe(false);
   });
 });

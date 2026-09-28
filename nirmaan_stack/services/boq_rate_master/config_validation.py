@@ -73,7 +73,22 @@ _KNOWN_STEP_TYPES = {
     # row's label -- module_fit's ladder half, generalised so slice 3's tray width and F-10's
     # converted thickness ride the same step. PASS-THROUGH for the same reason as map_attribute.
     "catalog_fit",
+    # SLICE 12b(A): THE PRICING-INPUT READER. Loads one stored rate off a catalogue row into ctx WITHOUT
+    # touching the `components` accumulator -- which is the whole reason it is not `component_ref`.
+    # FULLY validated below: the three keys it needs are required, and the three it must never carry are
+    # refused BY NAME, because each of them would silently change what the step means.
+    "rate_ref",
 }
+
+# SLICE 12b(A): the step types that actually BIND a `<ident>_from_ctx` param. A `_from_ctx` on any other
+# step type is refused by name -- the standing rule that the validator refuses a key the interpreter
+# cannot run on that shape rather than implementing it. Keep this in step with the interpreter's arms.
+_CTX_ARM_STEPS = {"scale", "component", "component_band", "install_as_ratio", "apply_effective_multiplier"}
+
+# The keys `rate_ref` must never carry. An input is a SCALAR, not a component: a `qty` would multiply it,
+# `rate_stages` would re-scale it, and `none_skips` would turn a missing input into a silent zero -- each
+# one changes the meaning of the step while still looking like valid config.
+_RATE_REF_FORBIDDEN = ("qty", "rate_stages", "none_skips", "formula", "conditions", "params")
 # TWO WAYS (2026-09-10): every key an attribute definition may carry. Measured against the 12 live
 # configs and every asset on disk (16 keys in use) plus the frontend `AttributeDefinition` interface;
 # `extract_as` is the seventeenth. A key absent from this set is REJECTED by `_validate_config` -- the
@@ -912,6 +927,50 @@ def _validate_config(cfg):
             st = s.get("step")
             if st not in _KNOWN_STEP_TYPES:
                 _vthrow(f"{where}: unknown step type '{st}'.")
+            # SLICE 12b(A): `pricing_input` declares a step part of the PRICING-INPUT PREAMBLE, which
+            # the interpreter HOISTS to the front of the pipeline. It exists so the mint can APPEND the
+            # preamble and leave every original steps[N] index in the asset untouched.
+            #
+            # A `rate_ref` hoists by TYPE and needs no flag. A `scale` needs the flag because it is the
+            # only other preamble shape -- and it is refused anywhere else, because an ordinary step
+            # reads a RUNNING VALUE and hoisting one would read it before it exists. That is a moved
+            # price with nothing on screen to show it, so the flag is refused BY NAME rather than
+            # quietly ignored.
+            if "pricing_input" in s:
+                if not isinstance(s["pricing_input"], bool):
+                    _vthrow(f"{where}: 'pricing_input' must be true or false.")
+                if s["pricing_input"] and st not in ("rate_ref", "scale"):
+                    _vthrow(
+                        f"{where}: 'pricing_input' is only read on a rate_ref or a scale, not on a "
+                        f"'{st}'. The preamble is hoisted ahead of every other step, and a step that "
+                        "reads a running value cannot be hoisted."
+                    )
+            # SLICE 12b(A): a `<ident>_from_ctx` param only does something on a step type that BINDS one.
+            # The standing rule is that the validator refuses a key the interpreter cannot run on that
+            # shape, by name, rather than implementing it -- a `_from_ctx` on (say) a `roundup` would
+            # save cleanly and be read by nothing, which is how a wrong price hides.
+            if st not in _CTX_ARM_STEPS:
+                for pk in (s.get("params") or {}):
+                    if isinstance(pk, str) and pk.endswith(_FROM_CTX_SUFFIX):
+                        _vthrow(
+                            f"{where}: '{pk}' is not read on a '{st}' step. A computed-value binding "
+                            f"only works on: {', '.join(sorted(_CTX_ARM_STEPS))}."
+                        )
+            # SLICE 12b(A): a rate stage may take its multiplier from ctx. It is a KEY, so a string; and
+            # it REPLACES `mult`, so a stage carrying both is refused -- letting both apply would
+            # silently square the migration, and that is not a thing a reader would notice.
+            for gi, stage in enumerate(s.get("rate_stages") or []):
+                if not isinstance(stage, dict) or "mult_from_ctx" not in stage:
+                    continue
+                mv = stage.get("mult_from_ctx")
+                if not isinstance(mv, str) or not mv.strip():
+                    _vthrow(f"{where} stage {gi}: 'mult_from_ctx' must be a non-empty computed-value key.")
+                if _is_finite_number(stage.get("mult")) and stage.get("mult") != 1.0:
+                    _vthrow(
+                        f"{where} stage {gi}: 'mult_from_ctx' REPLACES 'mult', so do not set both. "
+                        f"Remove the literal mult ({stage.get('mult')}) -- leaving it is how a migrated "
+                        "value silently keeps its old number."
+                    )
             if st == "match_master_row":
                 params = s.get("params")
                 if not isinstance(params, dict) or not isinstance(params.get("kind"), str) or not params.get("kind"):
@@ -943,6 +1002,29 @@ def _validate_config(cfg):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: scale needs a string '{key}'.")
                 _validate_params(s.get("params"), where)
+                ctx_binds.add(s["result"])
+            elif st == "rate_ref":
+                # SLICE 12b(A). Required: ref.kind, target, result. `result` joins ctx_binds so a later
+                # step's `_from_ctx` can name it.
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
+                    _vthrow(f"{where}: rate_ref needs ref.kind (a string).")
+                for key in ("target", "result"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: rate_ref needs a string '{key}'.")
+                for bad in _RATE_REF_FORBIDDEN:
+                    if bad in s:
+                        _vthrow(
+                            f"{where}: rate_ref must not carry '{bad}'. A pricing input is a single "
+                            "number, not a component: read it with rate_ref and use it in a later step."
+                        )
+                # every non-kind ref value is a literal or an "@bound" attribute; a bound one is
+                # reference-guarded exactly as component_ref's are.
+                for rk, rv in ref.items():
+                    if rk in ("kind", "attributes"):
+                        continue
+                    if isinstance(rv, str) and rv.startswith("@"):
+                        _ref(rv[1:], f"{where} rate_ref")
                 ctx_binds.add(s["result"])
             elif st == "roundup":
                 if not isinstance(s.get("target"), str) or not s.get("target"):
@@ -1032,8 +1114,20 @@ def _validate_config(cfg):
                         if not isinstance(rs, list):
                             _vthrow(f"{where}: component_ref rate_stages must be a list.")
                         for ri, stage in enumerate(rs):
-                            if not isinstance(stage, dict) or not _is_finite_number(stage.get("mult")):
-                                _vthrow(f"{where}: rate_stages[{ri}] needs a finite 'mult'.")
+                            # SLICE 12b(A): a stage takes its multiplier EITHER from a literal `mult` OR
+                            # from a Pricing Input via `mult_from_ctx` -- exactly one of the two. Before
+                            # the inputs existed only the literal was possible, so this check asked for
+                            # it unconditionally; a migrated stage has no literal BY DESIGN, because
+                            # leaving one is how a migrated value silently keeps its old number.
+                            if not isinstance(stage, dict):
+                                _vthrow(f"{where}: rate_stages[{ri}] must be an object.")
+                            has_lit = _is_finite_number(stage.get("mult"))
+                            has_ctx = isinstance(stage.get("mult_from_ctx"), str) and stage["mult_from_ctx"].strip()
+                            if not has_lit and not has_ctx:
+                                _vthrow(
+                                    f"{where}: rate_stages[{ri}] needs a finite 'mult' or a "
+                                    "'mult_from_ctx' naming a pricing input."
+                                )
                             if stage.get("round") is not None and stage.get("round") not in ("up0", "up-1"):
                                 _vthrow(f"{where}: rate_stages[{ri}].round must be 'up0' or 'up-1'.")
                             # point_wiring RUNS: an OPTIONAL attribute-bound factor folded in before this
@@ -1168,8 +1262,18 @@ def _validate_config(cfg):
                 if not isinstance(s.get("result"), str) or not s.get("result"):
                     _vthrow(f"{where}: install_as_ratio needs a string 'result'.")
                 params = s.get("params")
-                if not isinstance(params, dict) or not _is_finite_number(params.get("ratio")):
-                    _vthrow(f"{where}: install_as_ratio needs params.ratio (a finite number).")
+                # SLICE 12b(A): the ratio may come from a Pricing Input instead of a literal -- exactly
+                # one of the two, for the same reason the rate-stage check says it: a migrated step has
+                # no literal BY DESIGN, because leaving one is how the input silently does nothing.
+                if not isinstance(params, dict):
+                    _vthrow(f"{where}: install_as_ratio needs a params object.")
+                _has_lit = _is_finite_number(params.get("ratio"))
+                _has_ctx = isinstance(params.get("ratio_from_ctx"), str) and params["ratio_from_ctx"].strip()
+                if not _has_lit and not _has_ctx:
+                    _vthrow(
+                        f"{where}: install_as_ratio needs params.ratio (a finite number) or "
+                        "params.ratio_from_ctx naming a pricing input."
+                    )
                 ctx_binds.add(s["result"])
             elif st == "circuit_fit":
                 # EA-4a: sizes the conduit + counts circuits. params.wire_specs reference attribute ids
