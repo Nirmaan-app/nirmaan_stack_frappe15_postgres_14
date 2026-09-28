@@ -565,6 +565,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             "Handover_Checklist",
           )}
           canDownload
+          closeOnDownload
         />
       )}
 

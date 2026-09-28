@@ -104,6 +104,12 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    the foot of a page spills its bottom PADDING onto the next one, which then prints empty but framed.
    Measured on the HVAC O&M: the AHU block filled page 10 to the line and page 11 of 18 came out blank. */
 .hd-libbox { padding: 10px 14px 0 14px; }
+/* NOTHING may hang below the last line of a block. A block whose text ends flush with the foot of a page
+   spills its trailing whitespace -- the wrapper's bottom padding, or the last list's bottom margin -- a
+   fraction onto the next page; the following block's forced break then leaves that page EMPTY but framed.
+   Measured on the HVAC O&M: page 11 of 18 blank, and it went away with either the padding or the margin
+   removed, which is why BOTH are zeroed at the end rather than one of them tuned. */
+.hd-lib > *:last-child, .print-format .hd-lib > *:last-child { margin-bottom: 0 !important; }
 .hd-sheet-text { padding: 12px 16px; }
 .hd-sheet-text .hd-frame, .print-format .hd-sheet-text .hd-frame { border-top: 1px solid #000; }
 .hd-sheet-land { min-height: 170mm; }

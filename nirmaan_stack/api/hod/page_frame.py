@@ -33,10 +33,25 @@ import frappe
 import pdfkit
 from pypdf import PdfReader, PdfWriter
 
-# The rectangle's inset from the page edge, in mm: the same margins `hod-document.html` declares on
-# `.print-format`, so the box lands exactly where the content area starts and the logo strip ends.
+# The rectangle's inset from the page edge, in mm.
+#
+# Top and sides are `hod-document.html`'s own page margins, so the box opens where the content area does,
+# just under the logo strip.
+#
+# ⚠️ THE BOTTOM IS NOT THE PAGE MARGIN, and using the page margin was the bug. Every other handover
+# document draws its box as `.hd-sheet { height: 258mm }` sitting at the 20mm top margin, so its bottom
+# rule lands 297 - 20 - 258 = 19mm up -- 5mm SHORT of the 14mm printable edge. Filling the printable area
+# hung the O&M's box 5mm lower than the box on every page around it, and those pages are read one after
+# the other (measured on the Maersk Kolkata Electrical binder, 2026-09-28: 14.5mm against 19.3mm
+# everywhere else). The frame reproduces the SHEET, not the printable area, so the number is DERIVED from
+# the sheet rather than typed a second time.
+PAGE_HEIGHT = 297  # A4 portrait -- the page every framed document prints on
+SHEET_HEIGHT = 258  # `hod-document.html` .hd-sheet
 MARGIN_TOP = 20
-MARGIN_BOTTOM = 14
+# What `.print-format` declares as the page's bottom margin. The box stops ABOVE this, and the gap is
+# what keeps a full-height box from tipping wkhtmltopdf onto an extra page.
+PAGE_MARGIN_BOTTOM = 14
+MARGIN_BOTTOM = PAGE_HEIGHT - MARGIN_TOP - SHEET_HEIGHT  # 19
 MARGIN_SIDE = 12
 
 # The documents whose pages carry the box. Only the O&M Manual runs long enough to break across pages and

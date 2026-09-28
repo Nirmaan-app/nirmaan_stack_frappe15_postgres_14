@@ -337,13 +337,18 @@ def _dividers(sections: list, display_name: str, project_name: str, project: str
 	html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 	/* The same 20mm top margin and 14mm strip band as both print formats, so the logos land in the same
 	   place on a divider as on the page behind it. */
-	.print-format {{ margin-top: 20mm; margin-bottom: 15mm; }}
+	.print-format {{ margin-top: {page_frame.MARGIN_TOP}mm; margin-bottom: {page_frame.PAGE_MARGIN_BOTTOM}mm;
+	                 margin-left: {page_frame.MARGIN_SIDE}mm; margin-right: {page_frame.MARGIN_SIDE}mm; }}
 	/* The rule above is meant ONLY as wkhtmltopdf's page margins. But `prepare_header_footer` wraps the
 	   header page in a `.print-format` div AND gives it this same <style>, so without this cancel the
 	   20mm top margin applied INSIDE a 20mm header band and pushed the logo strip clean off it -- which
 	   is why dividers printed bare while the cover and every document were headed. Both print formats
 	   carry the identical line; a `div.*` selector is not read back as a page option. */
 	div.print-format {{ margin: 0 auto !important; }}
+	/* `margin: 0` IS LOAD-BEARING: without it the browser's default body margin of 8px (~2.1mm)
+	   inset the box a further 2mm inside the page margins, so a divider's box sat 14mm in where every
+	   other page's sits at 12mm. Both print formats zero it; this page has to as well. */
+	html, body {{ margin: 0; padding: 0; }}
 	body {{ font-family: Helvetica, Arial, sans-serif; text-align: center; }}
 	.dv {{ page-break-after: always; }}
 	.dv:last-child {{ page-break-after: auto; }}
@@ -352,8 +357,12 @@ def _dividers(sections: list, display_name: str, project_name: str, project: str
 	.logos img {{ max-height: 42px; max-width: 100%; }}
 	/* The title sits in a BORDERED BOX filling the page, like the cover (owner 2026-09-25). Fixed
 	   height, and the padding does the vertical centring -- a percentage height has nothing to resolve
-	   against here and flexbox is not reliable in wkhtmltopdf. 297 - 20 - 15 = 262mm. */
-	.box {{ border: 1px solid #000; height: 258mm; }}
+	   against here and flexbox is not reliable in wkhtmltopdf.
+	   THE SIDE MARGINS ABOVE ARE LOAD-BEARING: declared nowhere, wkhtmltopdf applied its own default and
+	   the divider's box came out 17.3mm in from each edge against 12mm on every page around it -- the box
+	   visibly jumped outward on the way from a divider into the document behind it (measured 2026-09-28).
+	   The height is `.hd-sheet`'s, so the bottom rule lands where every other document's does. */
+	.box {{ border: 1px solid #000; height: {page_frame.SHEET_HEIGHT}mm; }}
 	.in {{ padding-top: 105mm; }}
 	.no {{ font-size: 18px; color: #555; }}
 	.title {{ font-size: 30px; font-weight: 700; text-transform: uppercase; margin-top: 10px; }}

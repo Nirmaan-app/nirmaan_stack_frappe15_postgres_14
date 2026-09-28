@@ -15,6 +15,10 @@ import {
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { toast } from "@/components/ui/use-toast";
+import {
+  readBinderResume,
+  writeBinderResume,
+} from "@/utils/hodBinderResume";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { HOD_METHODS } from "./hodApi";
@@ -65,6 +69,7 @@ export function useHodBinder() {
     timerRef.current = null;
     jobIdRef.current = null;
     earlyRef.current = [];
+    writeBinderResume(null);
     setJob(null);
     setProgress(null);
   }, []);
@@ -87,6 +92,23 @@ export function useHodBinder() {
     },
     [],
   );
+
+  // Pick up a build that was still running when this screen last unmounted (see
+  // `utils/hodBinderResume`). Setting `job` is what restarts the poll below, and the
+  // poll is what delivers the PDF.
+  useEffect(() => {
+    const resumed = readBinderResume();
+    if (!resumed) return;
+    jobIdRef.current = resumed.jobId;
+    setJob({
+      hodSystem: resumed.hodSystem,
+      document: resumed.document,
+      title: resumed.title,
+    });
+    arm();
+    // Mount only: a resume point is read once, never re-read while this screen is up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handle = useCallback(
     (event: string, d: JobEvent) => {
@@ -189,6 +211,7 @@ export function useHodBinder() {
         });
         const jobId = res.message.job_id;
         jobIdRef.current = jobId;
+        writeBinderResume({ jobId, hodSystem, document, title, startedAt: Date.now() });
         arm();
         const early = earlyRef.current.filter(([, d]) => d.job_id === jobId);
         earlyRef.current = [];

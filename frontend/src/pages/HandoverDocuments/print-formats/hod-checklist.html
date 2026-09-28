@@ -31,8 +31,12 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 /* The cover is a BORDERED BOX filling the page under the logos (owner 2026-09-25), with the system
    name centred inside it. The height is fixed rather than 100%: wkhtmltopdf gives a percentage height
    nothing to resolve against, and with the letterhead now gone from this page there is no repeating
-   header eating into it. The padding does the vertical centring -- flexbox is not reliable here. */
-.hc-cover { border: 1px solid #000; height: 261mm; text-align: center; page-break-after: always; }
+   header eating into it. The padding does the vertical centring -- flexbox is not reliable here.
+   THE HEIGHT IS `.hd-sheet`'s 258mm, NOT the 263mm printable area: every handover document draws its box
+   that tall, so a cover at 261mm put its bottom rule 3mm lower than the checklist behind it and lower
+   again than every document after that (measured 16.5mm against 19.3mm, 2026-09-28). One box, one height,
+   on every page of the binder. */
+.hc-cover { border: 1px solid #000; height: 258mm; text-align: center; page-break-after: always; }
 .hc-cover-in { padding-top: 100mm; }
 .hc-cover-sys { font-size: 28px; font-weight: 700; letter-spacing: 0.5px; }
 .hc-cover-sub { font-size: 20px; font-weight: 700; margin-top: 8px; }
