@@ -39,7 +39,7 @@
  * column count for its fields (content sets the maximum, width may only reduce it). The panel
  * arranges; nothing here reads a figure.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
 import type { RateCategoryConfig } from "./rate-master/rateMasterTypes";
@@ -48,8 +48,12 @@ import {
   RateConfigFetcher,
   useConfigsByCategory,
   useRateMasterItems,
+  mergeItemsByName,
+  RateItemsFetcher,
 } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
-import { categoryLabel, makePricingSheetHelper, nonBcsPipelines, pipelineLabel } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { categoryLabel, makePricingSheetHelper, nonBcsPipelines, pipelineLabel, resolveAliasConfig } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
+import type { RateMasterItem } from "./rate-master/rateMasterTypes";
 import { RateHelperPanel } from "@/pages/boq-wizard/rate-helper/RateHelperPanel";
 import { DISPLAY_RATE_KINDS, type RateHelper, type RateHelperRowContext } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
 
@@ -62,7 +66,50 @@ import { DISPLAY_RATE_KINDS, type RateHelper, type RateHelperRowContext } from "
  */
 export const CALCULATOR_WORKBOOKS: Readonly<Record<string, string>> = {
   "/electrical-pricing": "Electrical",
+  "/hvac-pricing": "HVAC", // SLICE 2 (2026-09-22, owner P-a): the HVAC rate master exists since slice 1b
 };
+
+/**
+ * SLICE 3 (owner Q-a / Q-b, L6) -- PURE. The disciplines an alias in this config map points at, other
+ * than the calculator's own: the calculator fetches items per discipline, so an aliased category needs
+ * its TARGET discipline's items as well. Sorted, deduplicated; [] when no config aliases elsewhere.
+ */
+export function aliasTargetDisciplines(
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  ownDiscipline: string,
+): string[] {
+  const out = new Set<string>();
+  configsByCategory.forEach((cfg) => {
+    const d = cfg.alias_of?.discipline;
+    if (typeof d === "string" && d.trim() !== "" && d !== ownDiscipline) out.add(d);
+  });
+  return [...out].sort();
+}
+
+/**
+ * SLICE 3 -- PURE. The (discipline, categoryId) CONFIG targets the aliases in this map point at. The
+ * calculator fetches its OWN discipline's configs only (`RATE_MASTER_CONFIG_TARGETS` filtered), so an
+ * alias target's config would never arrive and `resolveAliasConfig` could not resolve it: each target
+ * is fetched by one more `RateConfigFetcher` (keyed by category id in the accumulate-once map, exactly
+ * where the resolver looks). Sorted, deduplicated; [] when no config aliases anywhere. The BoQ page needs
+ * none of this -- it fetches EVERY registry target of every discipline.
+ */
+export function aliasTargetConfigs(
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+): Array<{ discipline: string; categoryId: string }> {
+  const out = new Map<string, { discipline: string; categoryId: string }>();
+  configsByCategory.forEach((cfg) => {
+    const a = cfg.alias_of;
+    if (a && typeof a.discipline === "string" && a.discipline.trim() !== "" && typeof a.category_id === "string" && a.category_id.trim() !== "") {
+      out.set(`${a.discipline}\u0000${a.category_id}`, { discipline: a.discipline, categoryId: a.category_id });
+    }
+  });
+  return [...out.values()].sort((x, y) => (x.discipline + x.categoryId).localeCompare(y.discipline + y.categoryId));
+}
+
+// SLICE 6: `mergeItemsByName` and `RateItemsFetcher` moved into the shared plumbing (the BoQ page now
+// needs both); re-exported here so every existing importer of the calculator's merge keeps working.
+export { mergeItemsByName };
 
 /** PURE. The calculator discipline for a route path (first segment), or null when the page has no tab. */
 export function calculatorDisciplineForPath(pathname: string): string | null {
@@ -118,6 +165,9 @@ export function calculatorCtx(discipline: string, categoryId: string): RateHelpe
  * first render instead of appearing when the first price lands.
  */
 export function calculatorBlockLabels(config: RateCategoryConfig): string[] {
+  // SLICE 6 (T6): an ITEM-LIST category has no fixed blocks -- the panel draws one block per item the pricer
+  // adds, so no placeholder block is announced ahead (its `pipelines` are the shared per-item default).
+  if (itemListPricingSpec(config)) return [];
   return nonBcsPipelines(config).map(([id]) => pipelineLabel(config, id));
 }
 
@@ -213,7 +263,25 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
   // THE SHARED PLUMBING -- the same fetches, keys and accumulate-once map the BoQ page uses.
   const { configsByCategory, onConfigLoaded } = useConfigsByCategory();
   const { data: itemsData } = useRateMasterItems(true, discipline);
-  const items = useMemo(() => itemsData?.message?.items ?? [], [itemsData]);
+  const ownItems = useMemo(() => itemsData?.message?.items ?? [], [itemsData]);
+  // SLICE 3 (L6): an aliased category prices with its TARGET discipline's items, so every alias target
+  // discipline is fetched too (one child per discipline) and merged behind the own set, deduplicated by
+  // item name. A discipline with no alias elsewhere mounts no extra fetch and `items` IS `ownItems`.
+  const aliasDisciplines = useMemo(() => aliasTargetDisciplines(configsByCategory, discipline), [configsByCategory, discipline]);
+  const aliasConfigTargets = useMemo(() => aliasTargetConfigs(configsByCategory), [configsByCategory]);
+  const [extraItems, setExtraItems] = useState<Map<string, RateMasterItem[]>>(() => new Map());
+  const onExtraItemsLoaded = useCallback((disc: string, list: RateMasterItem[]) => {
+    setExtraItems((prev) => {
+      if (prev.get(disc) === list) return prev;
+      const next = new Map(prev);
+      next.set(disc, list);
+      return next;
+    });
+  }, []);
+  const items = useMemo(
+    () => (aliasDisciplines.length === 0 ? ownItems : mergeItemsByName(ownItems, ...aliasDisciplines.map((d) => extraItems.get(d) ?? []))),
+    [ownItems, aliasDisciplines, extraItems],
+  );
 
   const [categoryId, setCategoryId] = useState<string>("");
 
@@ -229,7 +297,9 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
   // stub cards -- owner).
   const helpers = useMemo<RateHelper[]>(() => (helper ? [helper] : []), [helper]);
   const ctx = useMemo(() => (categoryId ? calculatorCtx(discipline, categoryId) : null), [discipline, categoryId]);
-  const config = categoryId ? configsByCategory.get(categoryId) ?? null : null;
+  // SLICE 3: the layout reads (block labels, field columns) resolve an alias to its TARGET config through
+  // the ONE frontend resolution, exactly as the helper's compute does.
+  const config = categoryId ? resolveAliasConfig(configsByCategory, categoryId) : null;
   const ready = !!ctx && !!helper && !!config && items.length > 0;
 
   // CALCULATOR LAYOUT SLICE: the two numbers the panel's calculator variant needs.
@@ -249,6 +319,19 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
           categoryId={t.categoryId}
           onLoaded={onConfigLoaded}
         />
+      ))}
+      {/* SLICE 3: one CONFIG fetch per alias target (so the resolver finds the target's config), then one
+          items fetch per alias TARGET discipline (none of either for a discipline without aliases) */}
+      {aliasConfigTargets.map((t) => (
+        <RateConfigFetcher
+          key={`calc-alias-cfg-${t.discipline}-${t.categoryId}`}
+          discipline={t.discipline}
+          categoryId={t.categoryId}
+          onLoaded={onConfigLoaded}
+        />
+      ))}
+      {aliasDisciplines.map((d) => (
+        <RateItemsFetcher key={`calc-items-${d}`} discipline={d} onLoaded={onExtraItemsLoaded} />
       ))}
 
       <div className="flex flex-wrap items-center gap-3">
