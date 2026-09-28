@@ -300,6 +300,10 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     const isAllSelected = visibleItems.length > 0 && visibleItems.every(item => selectedIds.has(item.name));
 
     const visibleSelectedCount = filteredItems.filter(item => selectedIds.has(item.name)).length;
+    // Save selection writes the SEARCH-BLIND set (`selectedItems`), so its gate reads that same set.
+    // Gating it on `visibleSelectedCount` would grey out the primary action the moment a search hid
+    // the ticked rows, while there is plainly still something to save.
+    const selectedCount = selectedItems().length;
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -567,25 +571,19 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                         <Ban className="w-4 h-4 mr-2" />
                         Cancel
                     </Button>
-                    {onSaveSelection && (
-                        <Button
-                            variant="outline"
-                            onClick={handleSaveSelection}
-                            disabled={isExporting || isSaving}
-                            title="Keep these ticks without downloading anything"
-                        >
-                            {isSaving ? (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                                <Check className="w-4 h-4 mr-2" />
-                            )}
-                            Save selection
-                        </Button>
-                    )}
+                    {/* A caller that offers Save selection -- today only the handover checklist -- makes
+                        IT the primary action: saving the ticks is the review that ANSWERS the document,
+                        while the PDF is a utility beside it. So Export steps back to outline and Save
+                        takes the last slot, which is where this app puts a primary.
+                        WITHOUT that callback (the project's own TDS tab, which passes none) nothing
+                        changes at all: Export stays the red primary in the last slot, as before. */}
                     <Button
                         onClick={handleExport}
                         disabled={visibleSelectedCount === 0 || isExporting}
-                        className="bg-red-600 hover:bg-red-700 text-white"
+                        variant={onSaveSelection ? "outline" : "default"}
+                        className={cn(
+                            !onSaveSelection && "bg-red-600 hover:bg-red-700 text-white",
+                        )}
                     >
                         {isExporting ? (
                             <>
@@ -604,6 +602,25 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                             </>
                         )}
                     </Button>
+                    {onSaveSelection && (
+                        <Button
+                            onClick={handleSaveSelection}
+                            disabled={selectedCount === 0 || isExporting || isSaving}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            title={
+                                selectedCount === 0
+                                    ? "Tick at least one data sheet first"
+                                    : "Save these ticks and mark this document YES"
+                            }
+                        >
+                            {isSaving ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Check className="w-4 h-4 mr-2" />
+                            )}
+                            Save selection
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

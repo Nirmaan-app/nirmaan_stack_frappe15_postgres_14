@@ -38,6 +38,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { DocumentDialog } from "./DocumentDialog";
 import { MaterialTdsDialog } from "./MaterialTdsDialog";
 import { HodActionCell } from "./HodActionCell";
+import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 import { SHOW_BINDER_BUTTON, type HodRowPatch } from "./hodApi";
 import {
   hodChecklistPdfUrl,
@@ -184,6 +185,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   // There is no longer a "YES still owed" latch (owner 2026-09-28): EVERY save answers the document
   // YES by itself (`saveAnswersYes`), so opening a blocked document and saving applies it without one.
   const [confirmRemove, setConfirmRemove] = React.useState(false);
+  // The checklist is previewed before it is saved; the dialog carries its own Download.
+  const [showChecklist, setShowChecklist] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
   const { busyKey, download } = usePdfDownload();
 
@@ -325,7 +328,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   const openMeta = openRowData
     ? metaByKey.get(openRowData.document)
     : undefined;
-  const checklistKey = `checklist:${system.name}`;
 
   return (
     <div className="space-y-3">
@@ -382,28 +384,15 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Shown first, saved from inside the preview -- the same way a row's Preview works
+                (owner 2026-09-28). It used to download straight off the button. */}
             <Button
               variant="outline"
               size="sm"
               className="h-8"
-              disabled={busyKey === checklistKey}
-              onClick={() =>
-                download(
-                  checklistKey,
-                  hodChecklistPdfUrl(project.name, system.name),
-                  hodPdfFilename(
-                    project.project_name,
-                    system.name,
-                    "Handover_Checklist",
-                  ),
-                )
-              }
+              onClick={() => setShowChecklist(true)}
             >
-              {busyKey === checklistKey ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FileText className="mr-1 h-3.5 w-3.5" />
-              )}
+              <FileText className="mr-1 h-3.5 w-3.5" />
               Checklist PDF
             </Button>
             {SHOW_BINDER_BUTTON && (
@@ -563,6 +552,21 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           </table>
         </div>
       </div>
+
+      {showChecklist && (
+        <ReportPreviewDialog
+          open
+          onOpenChange={(o) => !o && setShowChecklist(false)}
+          pdfUrl={hodChecklistPdfUrl(project.name, system.name)}
+          title={`Handover Checklist — ${system.display_name}`}
+          fileName={hodPdfFilename(
+            project.project_name,
+            system.name,
+            "Handover_Checklist",
+          )}
+          canDownload
+        />
+      )}
 
       {openRowData && openMeta && openMeta.key === "material_tds" && (
         <MaterialTdsDialog

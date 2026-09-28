@@ -99,10 +99,11 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    repeating background all stop short on the last page, and a header rule can only give a top.
    `api/hod/page_frame.py` stamps the box onto the rendered PDF instead, and its docstring records every
    route that was measured. The cell keeps the padding that holds the text off that box. */
-.hd-libbox { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.hd-libbox th, .hd-libbox td, .print-format .hd-libbox th, .print-format .hd-libbox td {
-    border: 0 !important; padding: 10px 14px !important; vertical-align: top !important;
-}
+/* A plain DIV, not a table. It was a one-cell bordered table while the box was drawn in CSS; the box is
+   stamped now, so the table earned nothing and cost a blank page -- a cell whose text ends flush with
+   the foot of a page spills its bottom PADDING onto the next one, which then prints empty but framed.
+   Measured on the HVAC O&M: the AHU block filled page 10 to the line and page 11 of 18 came out blank. */
+.hd-libbox { padding: 10px 14px 0 14px; }
 .hd-sheet-text { padding: 12px 16px; }
 .hd-sheet-text .hd-frame, .print-format .hd-sheet-text .hd-frame { border-top: 1px solid #000; }
 .hd-sheet-land { min-height: 170mm; }
@@ -319,8 +320,14 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .hd-lib p { margin: 3px 0; }
 .hd-lib ul { margin: 3px 0 6px 0; padding-left: 18px; }
 .hd-lib img { max-width: 100%; max-height: 180mm; }
-.hd-page { page-break-after: always; }
-.hd-page:last-child { page-break-after: auto; }
+/* A break BEFORE each sheet after the first, never AFTER one. `page-break-after: always` emits a BLANK
+   page whenever the content it follows happened to end exactly at a page boundary -- measured on the
+   HVAC O&M, whose AHU block filled page 10 to the line and so produced an empty page 11 of 18. A break
+   before is a no-op when the renderer is already at the top of a fresh page, so the blank cannot occur.
+   The `+` selector, rather than `:first-child`, because these sheets are not always the first thing in
+   the body -- a dated document prints its date block above them, and a `:first-child` that failed to
+   match would put the blank page at the FRONT instead. */
+.hd-page + .hd-page { page-break-before: always; }
 .hd-pics { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .hd-pics tr { page-break-inside: avoid; }
 .hd-pics td, .print-format .hd-pics td { width: 50%; border: 1px solid #bbb; padding: 6px !important; text-align: center; vertical-align: top !important; }
@@ -526,15 +533,12 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 {# ------------------------------------------------------ 5. O&M Manual (library) #}
 {% elif ctx.key == "om_manual" %}
-    {#- The title rides in the `<thead>` so it repeats with the box's top rule -- see `.hd-libbox`. -#}
     {% for block in ctx.library %}
     <div class="hd-page">
-        <table class="hd-libbox">
-            <tr><td>
-                <div class="hd-title">{{ v(block.title) }}</div>
-                <div class="hd-lib">{{ block.html }}</div>
-            </td></tr>
-        </table>
+        <div class="hd-libbox">
+            <div class="hd-title">{{ v(block.title) }}</div>
+            <div class="hd-lib">{{ block.html }}</div>
+        </div>
     </div>
     {% else %}
     {% if not ctx.pictures %}
@@ -545,8 +549,7 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     {# Pictures uploaded for THIS project and system (not library text), two per row. #}
     {% if ctx.pictures %}
     <div class="hd-page">
-        <table class="hd-libbox">
-            <tr><td>
+        <div class="hd-libbox">
         <div class="hd-title">Operations &amp; Maintenance Manual &ndash; Pictures</div>
         <table class="hd-pics">
             {% for pair in ctx.pictures | batch(2) %}
@@ -556,8 +559,7 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
             </tr>
             {% endfor %}
         </table>
-            </td></tr>
-        </table>
+        </div>
     </div>
     {% endif %}
 

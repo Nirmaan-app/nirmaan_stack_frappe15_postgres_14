@@ -94,17 +94,81 @@ def _frame_pdf(width_pt: float, height_pt: float) -> bytes:
 	)
 
 
+def _count_images(resources, depth: int = 0) -> int:
+	"""Images reachable from these resources, following Form XObjects.
+
+	wkhtmltopdf does NOT hang its images off the page's own `/XObject` -- it wraps page content in a
+	Form XObject and puts them one level down, so counting only the top level reports zero on a page
+	that plainly shows a picture, and the picture page would then be dropped as blank. Measured.
+	"""
+	if depth > 4 or not resources:
+		return 0
+	xobjects = resources.get_object().get("/XObject") if hasattr(resources, "get_object") else resources.get("/XObject")
+	if not xobjects:
+		return 0
+	found = 0
+	for ref in xobjects.get_object().values():
+		obj = ref.get_object()
+		subtype = obj.get("/Subtype")
+		if subtype == "/Image":
+			found += 1
+		elif subtype == "/Form":
+			found += _count_images(obj.get("/Resources"), depth + 1)
+	return found
+
+
+def _marks(page) -> tuple[bool, int]:
+	"""(does this page carry text, how many images it holds) -- read cheaply, off the page's resources.
+
+	Anything that cannot be read counts AS content: a page is only ever dropped on positive evidence
+	that it holds nothing.
+	"""
+	try:
+		text = bool((page.extract_text() or "").strip())
+	except Exception:
+		return True, 0
+	try:
+		images = _count_images(page.get("/Resources"))
+	except Exception:
+		return True, 0
+	return text, images
+
+
+def drop_blank_pages(pages: list) -> list:
+	"""The pages that actually hold something.
+
+	A block whose text ends flush with the foot of a page spills its trailing whitespace a fraction onto
+	the next one, and the following block's forced break then leaves that page EMPTY -- measured on the
+	HVAC O&M, page 11 of 18. It cannot be tuned away in CSS: removing the wrapper padding or the list
+	margin only reflows the text so the block stops landing flush, which is luck, not a fix -- the next
+	manual whose text happens to end on a page boundary brings the blank straight back. Zeroing the
+	trailing margin alone, the targeted version, changed nothing at all. So the blank is removed HERE,
+	where it can be recognised for what it is.
+
+	The LOGO STRIP is on every page, header and blank alike, so "no images" cannot be the test. The test
+	is no text AND no more images than the emptiest page carries -- that baseline IS the strip. A
+	pictures sheet therefore survives without a caption on it, because it holds images the strip does
+	not. If that would empty the document, nothing is dropped.
+	"""
+	marks = [_marks(p) for p in pages]
+	baseline = min((n for _text, n in marks), default=0)
+	kept = [p for p, (text, n) in zip(pages, marks) if text or n > baseline]
+	return kept or pages
+
+
 def stamp(pdf_bytes: bytes) -> bytes:
 	"""Every page of `pdf_bytes`, with the box drawn over it.
 
-	The frame is RENDERED once per page size -- a document is almost always one size -- but it is PARSED
+	Pages holding nothing are dropped first (`drop_blank_pages`). The frame is RENDERED once per page size -- a document is almost always one size -- but it is PARSED
 	afresh for every merge, because `merge_page` mutates its argument. It goes on top: the frame page
 	carries only the rule and no background, so nothing underneath is hidden.
 	"""
 	reader = PdfReader(io.BytesIO(pdf_bytes))
 	writer = PdfWriter()
 	frames: dict = {}
-	for page in reader.pages:
+	# Before the box goes on, not after: a blank page is worse once it is framed, because the box makes
+	# it read as a page someone meant to leave empty.
+	for page in drop_blank_pages(list(reader.pages)):
 		box = page.mediabox
 		key = (round(float(box.width), 1), round(float(box.height), 1))
 		if key not in frames:
