@@ -12,6 +12,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ReportType } from "../../store/useReportStore";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import { PORemarksHoverCard } from "./PORemarksHoverCard";
+import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
 
 // Base columns, always present for PO reports
 export const basePOColumns: ColumnDef<POReportRowData>[] = [
@@ -25,9 +26,9 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
       return (
         <div className="flex items-center">
           {name}
-          <Link to={`/project-payments/${name.replaceAll("/", "&=")}`}>
+          <OrderDetailLink docName={name}>
             <Info className="text-blue-500 h-3 w-3 ml-1 mt-0.5" />
-          </Link>
+          </OrderDetailLink>
         </div>
       );
     },

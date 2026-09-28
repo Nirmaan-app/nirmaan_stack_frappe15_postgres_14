@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import SITEURL from "@/constants/siteURL";
+import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
 
 // Helper component for Invoice Count with Popover
 const InvoiceCountCell = ({ invoices, count }: { invoices: InvoiceHoverItem[]; count: number }) => {
@@ -250,9 +251,9 @@ export const poAttachmentReconcileColumns: ColumnDef<POAttachmentReconcileRowDat
                     <span>{name}</span>
                     <HoverCard>
                         <HoverCardTrigger asChild>
-                            <Link to={`/project-payments/${name.replaceAll('/', "&=")}`}>
+                            <OrderDetailLink docName={name}>
                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer" />
-                            </Link>
+                            </OrderDetailLink>
                         </HoverCardTrigger>
                         <HoverCardContent className="text-xs w-auto p-1.5">
                             View PO Details

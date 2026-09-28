@@ -577,6 +577,8 @@ export const appRoutes: RouteObject[] = [
             path: "reports",
             children: [
               { index: true, element: <ReportsContainer /> },
+              // A PO opened from a report stays under Reports (see `orderDetailPath`).
+              { path: "po/:poId", lazy: () => import("@/components/POSummary") },
             ],
           },
           // --- Project Invoices Section ---

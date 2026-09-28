@@ -81,9 +81,7 @@ import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constant
 // PROPS & TYPE DEFINITIONS
 // =================================================================================
 interface POPaymentTermsCardProps {
-  accountsPage: boolean;
   estimatesViewing: boolean;
-  summaryPage: boolean;
   PO: ProcurementOrder | null;
   poMutate: any;
   projectPaymentsMutate: any;
@@ -906,9 +904,7 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
 
 export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   PO,
-  accountsPage,
   estimatesViewing,
-  summaryPage,
   poMutate,
   projectPaymentsMutate,
   isLocked
@@ -977,7 +973,10 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
 
 
-  const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  // Read-only follows the reader and the PO, not the door: an Accountant fails the role list
+  // below anyway, so the old `accountsPage ||` only stripped Admin/PL/Procurement of the terms
+  // when they arrived from /project-payments.
+  const isReadOnly = estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
   // PMO removed from PAYMENT TERMS editing 2026-09-17 (PMO access review); still off after the
   // 2026-09-24 Request Payment restore above. GST for Billing & Notes stays editable for PMO -- it
   // is required before dispatch, which PMO still does.

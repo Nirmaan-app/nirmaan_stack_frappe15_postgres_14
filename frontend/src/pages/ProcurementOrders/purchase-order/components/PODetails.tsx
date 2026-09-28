@@ -94,12 +94,11 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
-import { MATERIAL_PROCUREMENT_PROFILES, isMaterialProcurementProfile } from "@/constants/roles";
+import { ADMIN_PROFILE, MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { PO_STATUS_TAB, PO_TABS } from "../config/poTabs.constants";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
-  summaryPage: boolean;
-  accountsPage: boolean;
   estimatesViewing: boolean;
   poPayments: ProjectPayments[] | undefined;
   togglePoPdfSheet: () => void;
@@ -120,8 +119,6 @@ interface PODetailsProps {
 
 export const PODetails: React.FC<PODetailsProps> = ({
   po,
-  summaryPage,
-  accountsPage,
   estimatesViewing,
   poPayments,
   togglePoPdfSheet,
@@ -135,7 +132,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
   onAdjustPayments,
   onCancelPO,
 }) => {
-  if (!po) return <div>No PO ID Provided</div>;
+  // A type guard, not a message: the parent holds the loader until the PO is in state, and
+  // "No PO ID Provided" was never true here -- the id existed, the document just had not landed.
+  if (!po) return null;
 
 
   const { role } = useUserData();
@@ -384,14 +383,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
       setExpectedDeliveryDate("");
       toggleDispatchPODialog();
 
-      const statusToTab: Record<string, string> = {
-        "Dispatched": "Dispatched+PO",
-        "Partially Dispatched": "Partially+Dispatched+PO",
-        "Partially Delivered": "Partially+Delivered+PO",
-        "Delivered": "Delivered+PO",
-      };
-      const tabParam = statusToTab[newStatus] || "Dispatched+PO";
-      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=${tabParam}`);
+      // One map for status -> tab (`poTabs.constants.ts`); URLSearchParams does the encoding, so
+      // the labels are never hand-written with `+` again.
+      const tab = PO_STATUS_TAB[newStatus] ?? PO_TABS.DISPATCHED_PO;
+      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?${new URLSearchParams({ tab })}`);
     } catch (error: any) {
       console.log("error while updating the status of the PO to dispatch", error?.message);
       toast({
@@ -780,14 +775,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
               {["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status || "") &&
                 !isItemLocked &&
                 !PoPaymentTermsValidationSafe &&
-                // Revise PO is gated by ROLE, not by which route the PO was opened from.
-                // `summaryPage` (project PO view) and `accountsPage` (Project Payments,
-                // /project-payments/:id) describe the ENTRY PATH, not the user -- and the role
-                // list below already excludes Accountants. Blocking on the route only meant the
-                // same Admin/PMO/Procurement user lost the button depending on where they clicked
-                // from. Both are intentionally left off:
-                //!summaryPage &&
-                //!accountsPage &&
+                // Gated by ROLE and STATUS, never by the route the PO was opened from -- the
+                // rule this button set first (2026-09) and now the rule for all of them.
                 !estimatesViewing &&
                 ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <Tooltip>
@@ -813,7 +802,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 )}
 
               {/* Adjust Payments Button */}
-              {po?.name && onAdjustPayments && !accountsPage && !estimatesViewing &&
+              {po?.name && onAdjustPayments && !estimatesViewing &&
                 ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <POAdjustmentButton poId={po.name} onClick={() => {
                     if (isVendorHoldBlocked) {
@@ -825,9 +814,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 )}
 
               {/* Revert Button */}
-              {!summaryPage &&
-                !accountsPage &&
-                !estimatesViewing &&
+              {!estimatesViewing &&
                 !isItemLocked &&
                 ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
                 !(poPayments?.length) &&
@@ -849,12 +836,12 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 )}
 
               {/* Cancel PO Button */}
+              {/* Owner, 2026-09-28: only Admin, PMO and material procurement may cancel. It used to
+                  be "everyone except Accountant / Estimates", which let a PM, Sales, HR or Design
+                  user cancel an approved PO. */}
               {onCancelPO &&
-                //!summaryPage &&
-                !accountsPage &&
                 !po?.custom &&
-                !estimatesViewing &&
-                role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
+                [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES].includes(role) &&
                 po?.status === "PO Approved" &&
                 !(poPayments?.length) && (
                   <Tooltip>
@@ -947,11 +934,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
               )}
 
               {/* Preview Button */}
-              {(po?.status !== "PO Approved" ||
-                summaryPage ||
-                accountsPage ||
-                estimatesViewing ||
-                !isMaterialProcurementProfile(role)) && (
+              {/* Preview is read-only: everyone who can open the PO can look at the PDF. It
+                  used to be hidden for a procurement profile on an Approved PO and shown on every
+                  other route, which is a rule about the door, not about the reader. */}
+              {true && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -983,8 +969,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
               {/* Delete Custom PO Button */}
               {po?.custom === "true" &&
-                !summaryPage &&
-                !accountsPage &&
                 !estimatesViewing &&
                 po?.status === "PO Approved" &&
                 !(poPayments?.length) &&
@@ -1006,8 +990,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 )}
 
               {/* Dispatch PO Button */}
-              {!accountsPage &&
-                !estimatesViewing &&
+              {!estimatesViewing &&
                 ["PO Approved", "Partially Dispatched"].includes(po?.status || "") &&
                 [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
