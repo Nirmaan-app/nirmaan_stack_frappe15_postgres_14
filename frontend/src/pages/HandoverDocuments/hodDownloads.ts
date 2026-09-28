@@ -6,17 +6,18 @@ import { useCallback, useState } from "react";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import { HOD_DOCTYPE, HOD_PRINT_CHECKLIST, HOD_PRINT_DOCUMENT } from "./hodApi";
+import { HOD_PRINT_CHECKLIST } from "./hodApi";
 
 const DOWNLOAD_PDF_ENDPOINT =
   "/api/method/frappe.utils.print_format.download_pdf";
 
+/** One handover document as a PDF — served by OUR endpoint, not Frappe's `download_pdf`.
+ *  The O&M Manual's page box has to be stamped on AFTER the render (see `api/hod/page_frame.py`), and
+ *  `download_pdf` gives nowhere to do that. Same print format, same row; a document needing no box comes
+ *  back exactly as it did before. */
 export const hodDocumentPdfUrl = (rowName: string): string =>
-  `${DOWNLOAD_PDF_ENDPOINT}?${new URLSearchParams({
-    doctype: HOD_DOCTYPE,
+  `/api/method/nirmaan_stack.api.hod.document_pdf.document_pdf?${new URLSearchParams({
     name: rowName,
-    format: HOD_PRINT_DOCUMENT,
-    no_letterhead: "1",
   })}`;
 
 /** The checklist is printed off the PROJECT; `hod_system` picks the system (read by the format). */

@@ -49,7 +49,7 @@ from frappe.utils.pdf import get_pdf
 from pypdf import PdfReader, PdfWriter
 
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
-from nirmaan_stack.api.hod import print_context
+from nirmaan_stack.api.hod import page_frame, print_context
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import as_dict
 from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
@@ -118,8 +118,9 @@ def get_job_status(job_id: str) -> dict:
 # ------------------------------------------------------------------------------------------- the plan
 
 
-def _print_step(label, doctype, name, print_format, form=None):
-	return {"label": label, "kind": "print", "args": (doctype, name, print_format, form or {})}
+def _print_step(label, doctype, name, print_format, form=None, frame=False):
+	"""`frame`: stamp the handover box on every page of the render (`page_frame`)."""
+	return {"label": label, "kind": "print", "args": (doctype, name, print_format, form or {}), "frame": frame}
 
 
 def _file_step(label, url):
@@ -145,7 +146,7 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 				return [], EMPTY_REASON[entry["library"]]
 		if key == "recommended_tools" and not checklist.parse_lines(system.tools):
 			return [], EMPTY_REASON[key]
-		return [_print_step(title, DOCTYPE, row.name, PF_DOCUMENT)], None
+		return [_print_step(title, DOCTYPE, row.name, PF_DOCUMENT, frame=page_frame.needs_frame(key))], None
 
 	src_kind = entry["source"]
 	src = sources_for(project, hod_system, row.document)
@@ -444,7 +445,8 @@ class _Job:
 
 def _render(step: dict, futures: dict) -> bytes:
 	if step["kind"] == "print":
-		return _print(*step["args"])
+		pdf = _print(*step["args"])
+		return page_frame.stamp(pdf) if step.get("frame") else pdf
 	if step["kind"] == "tds":
 		from nirmaan_stack.api.hod.tds_pack import build_pack
 

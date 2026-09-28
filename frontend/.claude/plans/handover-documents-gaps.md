@@ -171,6 +171,62 @@ completed snag), but the snags they carry go 195 -> 884 -- SNAG LIST_08.09.2026 
 and Food Box MEP Snags list 1 of 124. The rule is lifted for SNAGS ONLY: Commission still needs Submitted /
 Client Accepted and As Built still Submitted / Approved.
 
+**The O&M Manual's box is STAMPED ON THE PDF, not drawn by the renderer (owner 2026-09-28).** The box
+has to be a full-height rectangle on every page whatever that page holds -- the reference binder
+(`1. Electrical HOD.pdf`, p164-168) draws it that way, and its LAST page keeps the whole box while the
+text stops 80% down. "The border box every page, not based content" is the rule.
+
+No CSS reaches that: wkhtmltopdf paints against the content FLOW, and the flow ends where the text ends.
+Four routes were measured -- a bordered table (bottom rule on the last fragment only), `position: fixed`
+(stretches over the whole document, so pages 2..n-1 get sides and nothing else), a repeating background
+(tiles per page correctly but still stops at the text on the last page) and a page-tall spacer with a
+cancelling negative margin (wkhtmltopdf paginates for it and emits a blank extra page). A rule in the
+page header repeats, but it is confined to the top margin, and the header page is laid out at the FULL
+page width while the body is inset by the side margins -- so its rule overhangs the box's sides, which is
+what the owner saw as "top border not fully closed".
+
+`api/hod/page_frame.py` renders ONE blank page holding just the rectangle and merges it onto every page
+of the finished PDF. Three traps, all measured and all commented in the module: it goes through pdfkit
+DIRECTLY, because `frappe.utils.pdf.get_pdf` forces `margin-top: 15mm` on html with no `#header-html`
+(which put the box 15mm down, under the text) and turns a `Custom` page size into a literal
+`--page-size Custom` that wkhtmltopdf rejects; it must pass `disable-smart-shrinking`, or the box comes
+out at about 0.79 of its stated size; and the frame must be PARSED afresh for every merge, because
+`merge_page` mutates its argument -- reusing one object left page 2 correct and the last page's box two
+thirds of the width.
+
+`FRAMED` names the documents that get it (only `om_manual` today). The binder stamps through a `frame`
+flag on its print step. The row's own Preview and Download moved off Frappe's `download_pdf`, which gives
+nowhere to post-process, onto `api/hod/document_pdf.py` -- same print format, same row, and a document
+needing no box is served exactly as before. `HOD_DOCTYPE` and `HOD_PRINT_DOCUMENT` went with it.
+
+Checked after: Electrical O&M 6 pages and HVAC 8, every page carrying the full box including the last;
+Escalation Chart unchanged through the new endpoint.
+
+**Superseded the same day -- the CSS attempt that came first (kept for the reasoning):**
+**The O&M Manual's box now closes on EVERY page (owner 2026-09-28).** A manual runs to several pages
+(Electrical 6, HVAC 8) and the box is one bordered table, so wkhtmltopdf drew its top rule on page 1 and
+its bottom rule on the last page only -- every page between hung open at both ends, which is what the
+owner saw on a download.
+
+The top rule now comes from the PAGE HEADER, which repeats by definition: for `om_manual` only, the
+header's logo wrapper takes `.hd-boxtop` -- `height: 20mm; box-sizing: border-box; border-bottom` -- so
+it is boxed to the full top margin with the 14mm strip at its top and the rule lands exactly where the
+content area and the table's side borders begin. The table's own `border-top` is dropped, or page 1 would
+carry two rules a hair apart. Sides and bottom stay on the table: the sides repeat per page, and the
+bottom draws on the last fragment, where the manual actually ends.
+
+Three other routes were measured and rejected, and the reasons are in the format's own comment so nobody
+retries them: a repeating `<thead>` is drawn ON TOP OF the body text; a `position: fixed` frame does NOT
+repeat per page here -- it stretches over the whole document, giving pages 2..n-1 sides and nothing else,
+exactly like the table; and a matching rule in the page FOOTER does close pages 1..n-1, but the last
+page's content usually stops half way down, so its rule printed at the foot detached from sides that had
+already stopped. An open foot at a page break reads as "continues"; a line floating under a finished box
+reads as a bug.
+
+Checked after: Electrical / HVAC / Sprinkler O&M (6 / 8 / 3 pages) close on every page, and Do's & Don'ts,
+Escalation Chart, Inventory List and Maintenance Checklist render exactly as before -- the header change
+is gated on `ctx.key == "om_manual"`.
+
 **The binder's DIVIDER pages printed bare, while the cover and every document were headed
 (found and fixed 2026-09-25).** `_dividers` builds its own HTML and hands it to `get_pdf`, which picks
 `#header-html` out of it exactly as it does for a Print Format -- and it did: the header reached

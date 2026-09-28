@@ -30,8 +30,6 @@ export const SHOW_BINDER_BUTTON = true;
 
 export const HOD_ROWS_CHANGED_EVENT = "hod:rows_changed";
 
-export const HOD_DOCTYPE = "Project HOD Document";
-export const HOD_PRINT_DOCUMENT = "HOD Document";
 export const HOD_PRINT_CHECKLIST = "HOD Checklist";
 
 export const hodProjectKey = (projectId: string) =>

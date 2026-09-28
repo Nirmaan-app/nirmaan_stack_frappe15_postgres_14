@@ -93,14 +93,15 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 /* A TEXT sheet in a box: the Do's & Don'ts and the O&M Manual are prose, not tables, so the frame has
    to draw its OWN top rule -- there is no head table above to draw it -- and the content is padded off
    the border instead of running into it. */
-/* The O&M Manual's box is a plain bordered TABLE. NO `<thead>`: repeating the title row per page is
-   the obvious way to get the box's top rule onto every page, and wkhtmltopdf DRAWS THE REPEATED THEAD
-   ON TOP OF THE BODY TEXT -- measured, the heading printed straight through the first two lines of
-   every continuation page. So the sides print on every page and the top rule on the first; a box that
-   closes per page is not reachable here, and an overlapping heading is worse than an open top. */
+/* The O&M Manual's box is NOT drawn here. It has to be a full-height rectangle on EVERY page whatever
+   that page holds (owner 2026-09-28, matching the reference binder), and wkhtmltopdf paints against the
+   content FLOW, which ends where the text ends -- so a bordered table, a `position: fixed` frame and a
+   repeating background all stop short on the last page, and a header rule can only give a top.
+   `api/hod/page_frame.py` stamps the box onto the rendered PDF instead, and its docstring records every
+   route that was measured. The cell keeps the padding that holds the text off that box. */
 .hd-libbox { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .hd-libbox th, .hd-libbox td, .print-format .hd-libbox th, .print-format .hd-libbox td {
-    border: 1px solid #000; padding: 10px 14px !important; vertical-align: top !important;
+    border: 0 !important; padding: 10px 14px !important; vertical-align: top !important;
 }
 .hd-sheet-text { padding: 12px 16px; }
 .hd-sheet-text .hd-frame, .print-format .hd-sheet-text .hd-frame { border-top: 1px solid #000; }
