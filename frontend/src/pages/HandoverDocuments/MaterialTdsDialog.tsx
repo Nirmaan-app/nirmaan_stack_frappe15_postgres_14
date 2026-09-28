@@ -45,7 +45,10 @@ interface MaterialTdsDialogProps {
   row: HodRow;
   /** False in a read-only tab: the dialog still exports, it just does not save the ticks. */
   canEdit: boolean;
-  onSaveSelected: (selected: string[]) => Promise<void>;
+  /** Store the ticked data sheets on the row. `markYes` is TRUE for the Save-selection button -- the
+   *  review the document is answered YES on -- and FALSE for the save that rides an export, which must
+   *  not change the answer (owner 2026-09-28). */
+  onSaveSelected: (selected: string[], markYes?: boolean) => Promise<void>;
 }
 
 /** A small dialog of its own for the two states the export dialog cannot show (it needs its data up
@@ -108,14 +111,16 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
   /** The ticks decide what the handover BINDER carries, so they are stored on the row. */
   const saveSelection = async (selectedItems: any[], announce: boolean) => {
     try {
-      await onSaveSelected(selectedItems.map((i) => String(i.name)));
+      await onSaveSelected(selectedItems.map((i) => String(i.name)), announce);
       // `announce` marks the Save selection button (not the save that rides an export): the review is
-      // done, so the dialog closes behind it.
+      // done, so it ANSWERS the document YES and the dialog closes behind it.
       if (announce) {
         onOpenChange(false);
         toast({
-          title: "Selection saved",
-          description: `${selectedItems.length} data sheet${selectedItems.length === 1 ? "" : "s"} go into the handover binder. You can answer YES now.`,
+          title: selectedItems.length ? "Saved and marked YES" : "Selection saved",
+          description: selectedItems.length
+            ? `${selectedItems.length} data sheet${selectedItems.length === 1 ? "" : "s"} go into the handover binder.`
+            : "Tick the data sheets that go into the handover, then save again.",
           variant: "success",
         });
       }

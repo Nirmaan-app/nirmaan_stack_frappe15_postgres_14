@@ -69,14 +69,25 @@ export function isSaved(row: Pick<HodRow, "form_data">): boolean {
   );
 }
 
-/** Does this document have anything to save before it can be answered YES? A FORM has its entries and
- *  a FROM NIRMAAN document has its ticked records; a LIBRARY text (O&M Manual, Do's & Don'ts) holds the
- *  library's own content, edited centrally in Packages Settings, so a project adds nothing to it — it
- *  carries no Edit button and is answerable as it stands. Mirrors `checklist.needs_saving`. */
-export function needsSaving(
+/** Does this row get an editor (the Edit / View button)? Anything the project puts something into: a
+ *  form, the maintenance results, the remarks on the tools — and a From Nirmaan document, whose editor
+ *  is the record picker. A library text (O&M Manual, Do's & Don'ts) has nothing to open.
+ *  This is `index`'s `fill` flag, NOT the YES gate — see `needsSaving`. */
+export function hasEditor(
   meta: Pick<HodDocumentMeta, "kind" | "fill">,
 ): boolean {
   return Boolean(meta.fill) || meta.kind === "app";
+}
+
+/** Must this document be SAVED before it can be answered YES? Only a FROM NIRMAAN document
+ *  (owner 2026-09-28): what it hands over IS the records ticked on it, so with none ticked there is
+ *  nothing to print. A FORM prints from its own layout whether or not anyone typed in it — a blank Key
+ *  List or Attic Stock List is a real handover page, filled in by hand on site — and a library text
+ *  carries the library's own content. Mirrors `checklist.needs_saving`. */
+export function needsSaving(
+  meta: Pick<HodDocumentMeta, "kind" | "fill">,
+): boolean {
+  return meta.kind === "app";
 }
 
 export function rowEditable(row: HodRow, canEdit: boolean): boolean {

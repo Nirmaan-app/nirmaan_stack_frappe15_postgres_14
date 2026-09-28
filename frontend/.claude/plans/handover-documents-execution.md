@@ -165,13 +165,17 @@ closes up, while NA stays on the sheet with its answer.
 
 ### Screen (`frontend/src/pages/HandoverDocuments/`)
 
-- `HandoverDocumentsTab`: the system tabs, "+ Add system", **Details** (the `HodGuideDialog` guide) and **Edit
-  library** (opens Packages Settings → Handover Documents). While no HOD System exists it points there instead.
+- `HandoverDocumentsTab`: the system tabs, an **ⓘ** beside the heading (the `HodGuideDialog` guide),
+  **Header logos**, **+ Add system**, and a **"…"** menu holding **Edit library** (opens Packages Settings →
+  Handover Documents). While no HOD System exists it points there instead. Each tab's count badge turns green
+  once that system is fully answered. See the layout pass below for why the menu exists.
 - `NoHandoverDocumentsView`: the Commission-style "Not Found" card with "Create Handover Documents". It opens
   `AddSystemDialog`, which is multi-select and lists the project's own packages first.
 - `SystemChecklist`: one system's 16 rows showing:
   - the **Use** switch, S.No (closed up), the status badge, remarks and the Actions cell;
-  - header buttons **Checklist PDF**, **Download binder** and **Remove system**. Remove warns when `touched` > 0,
+  - a card header carrying the system name, its work-package chip, a progress bar with
+    `n of 16 answered YES` (plus NA / switched-off chips), and the buttons **Checklist PDF** and
+    **Download binder**. **Remove system** is in that header's **"…"** menu; it warns when `touched` > 0,
     then sends `force`.
 - `HodActionCell`: three buttons and nothing else (owner 2026-09-24 — the status menu moved to its own
   column and the signed upload was retired):
@@ -208,6 +212,35 @@ closes up, while NA stays on the sheet with its answer.
     `ContentDialog` (manual text with preview, or the two lists), `hodLibraryApi`.
   - `types`.
 - `handoverIndex.ts` is deleted: titles, kinds and order come from the API.
+
+### Layout pass (2026-09-28)
+
+The tab carried seven same-weight buttons across two header rows, and the actions that act on ONE system sat
+in an unframed row above the table, so nothing on screen said which tab a download belonged to.
+
+- **Page header** — the guide became an **ⓘ** beside the heading (it is help, not an action, and it was
+  taking a slot in the action row). **Header logos** and **+ Add system** stay as buttons — Header logos is
+  used often enough to be one (owner 2026-09-28) — and **Edit library** alone moved behind a **"…"**, which
+  is hidden entirely for anyone who cannot edit the library.
+- **System card** — the system header and its table are now ONE bordered card, so its actions read as the
+  ACTIVE tab's. The work package became a chip instead of trailing prose, and the counts became a progress
+  bar with `n of 16 answered YES` plus NA / switched-off chips.
+- **Remove system** moved into that card's **"…"**. It had been sitting directly beside the red **Download
+  binder**, which put a 16-row delete one pixel from the primary action.
+- **The status menu names what each answer does to the binder** (owner wording, 2026-09-28): `— document goes
+  into the binder` on YES, `— document skipped in the binder` on NO and NA. A blocked YES still reads
+  `— save <document> first`, which is the only warning before the click. Guide section 3 carries the same
+  three lines and spells out that "skipped" means no PAGES — the answer still prints on the checklist, which
+  is what `api/hod/binder.py` does (`build_plan` keeps YES rows only).
+
+- **One word for the off state: "Disabled".** The column is headed *Enable / Disable*, so the Actions cell
+  now reads `Disabled` (was `Switched off`), and the card chip, the switch tooltip and `DocumentDialog`'s
+  read-only note follow it. The guide's "switch **Use** off" was stale on top of that — no control has been
+  called *Use* since the column was renamed — and now names the *Enable / Disable* switch. The library
+  screens under Packages Settings still say "switched off"; they are a different screen and were left alone.
+
+Screen only: no endpoint, no payload and no status semantics changed. `StatusCell` lost its `meta` prop
+briefly when the menu was stripped to bare badges, and got it back when the wording returned.
 
 ### From Nirmaan documents
 

@@ -4,7 +4,7 @@
 export type HodDocumentKind = "form" | "template" | "app";
 /** Derived by the server from what was done on the row (never picked by hand). */
 /** The handover checklist answer, picked by hand (owner 2026-09-24). YES also decides what the binder
- *  carries; it is refused until the document has been saved. */
+ *  carries; it is refused only on a From Nirmaan document whose records are not ticked yet. */
 export type HodStatus = "YES" | "NO" | "NA";
 
 export interface HodDocumentMeta {
@@ -13,8 +13,8 @@ export interface HodDocumentMeta {
   title: string;
   kind: HodDocumentKind;
   landscape: boolean;
-  /** The document gives users something to fill in (so its row gets the Edit button, and YES is refused
-   *  until it has been saved). */
+  /** The document gives users something to fill in, so its row gets the Edit button. It does NOT gate
+   *  YES — a form prints from its own layout with nothing filled in (`hodRules.needsSaving`). */
   fill: boolean;
   library: string | null;
   source: "commission" | "tds" | "snag" | "design" | null;

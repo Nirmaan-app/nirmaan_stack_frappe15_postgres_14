@@ -7,6 +7,7 @@ import {
   BookOpenText,
   FileText,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -69,18 +70,14 @@ const STATUS_STYLE: Record<HodStatus, string> = {
 };
 const STATUSES: HodStatus[] = ["YES", "NO", "NA"];
 
-/** What "save it first" means for each kind of document -- the same three cases `checklist.is_saved`
- *  covers on the server. */
-const YES_HINT: Record<string, string> = {
-  form: "Fill the form and save it, then set it to YES.",
-  template:
-    "Open it, choose what it includes and save, then set it to YES.",
-  app: "Open the records, tick what goes into the handover and save, then set it to YES.",
-};
+/** What "save it first" means. Only a From Nirmaan document can be refused now (`needsSaving`), so
+ *  there is one case left: its records have to be ticked. */
+const YES_HINT =
+  "Open the records, tick what goes into the handover and save, then set it to YES.";
 
 /** The handover answer for one document: the current value with an edit icon, changed from a small
- *  dropdown. YES is the one that costs something -- it puts the document in the binder -- so it is
- *  refused until the document has been saved, and the refusal says what to do. */
+ *  dropdown. YES is the one that costs something -- it puts the document in the binder -- so on a From
+ *  Nirmaan document it is refused until its records are ticked, and the refusal says what to do. */
 const StatusCell: React.FC<{
   row: HodRow;
   meta: HodDocumentMeta;
@@ -106,7 +103,7 @@ const StatusCell: React.FC<{
           {!disabled && <Pencil className="h-3 w-3 opacity-70" />}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" className="min-w-[10rem]">
+      <DropdownMenuContent align="center" className="min-w-[15rem]">
         {STATUSES.map((s) => (
           <DropdownMenuItem
             key={s}
@@ -124,11 +121,9 @@ const StatusCell: React.FC<{
             <span className="text-gray-600">
               {s === "YES"
                 ? !needsSaving(meta) || isSaved(row)
-                  ? "Handed over"
-                  : `Save ${meta.title} first`
-                : s === "NO"
-                  ? "Not handed over"
-                  : "Not applicable"}
+                  ? "— document goes into the binder"
+                  : `— save ${meta.title} first`
+                : "— document skipped in the binder"}
             </span>
           </DropdownMenuItem>
         ))}
@@ -186,9 +181,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     row: HodRow;
     meta: HodDocumentMeta;
   } | null>(null);
-  // ... and the row whose YES is still owed: they went on to open it, so the moment that save lands
-  // the answer they asked for is applied with it, in the SAME write (owner 2026-09-24).
-  const [pendingYes, setPendingYes] = React.useState<string | null>(null);
+  // There is no longer a "YES still owed" latch (owner 2026-09-28): EVERY save answers the document
+  // YES by itself (`saveAnswersYes`), so opening a blocked document and saving applies it without one.
   const [confirmRemove, setConfirmRemove] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
   const { busyKey, download } = usePdfDownload();
@@ -196,11 +190,16 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   const building = job !== null;
   const buildingBinderHere = job?.hodSystem === system.name && !job.document;
   const binderTitle = `${system.display_name} — ${project.project_name}`;
-  // Owner 2026-09-23: the binder is the client's finished set, so it downloads only once every
-  // switched-on document is answered YES. Until then the button says how many
-  // are left. A document the project does not need is switched off and stops counting.
+  // Owner 2026-09-28, REPLACING the 2026-09-23 "unlocks only once every document is answered YES":
+  // a NO or NA document no longer holds the binder back. It never did anything TO the binder -- the
+  // server keeps YES rows only (`build_plan`), so a NO document already stays on the printed
+  // checklist with its answer and contributes no pages. The count is now INFORMATION, in the header
+  // line and the button's tooltip, not a gate. Switched-on rows are still required: with none there
+  // is no checklist to print.
   const remaining = counts ? counts.needed - counts.completed : 0;
-  const binderReady = !!counts && counts.needed > 0 && remaining === 0;
+  const allAnswered = !!counts && counts.needed > 0 && remaining === 0;
+  const answeredYes = counts?.completed ?? 0;
+  const binderEnabled = !!counts && counts.needed > 0;
   const touched = counts?.touched ?? 0;
 
   const patch = React.useCallback(
@@ -222,17 +221,20 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     [updateRow],
   );
 
-  const saveSelected = async (row: HodRow, selected: string[]) => {
+  const saveSelected = async (
+    row: HodRow,
+    meta: HodDocumentMeta,
+    selected: string[],
+  ) => {
     const form_data = { ...(row.form_data || {}), selected };
-    const patchBody = withPendingYes(row, form_data);
-    await patch(row, patchBody);
+    const yes = saveAnswersYes(meta, form_data);
+    await patch(row, yes ? { form_data, status: "YES" } : { form_data });
     setOpenRow(null); // the review is done -- close it, like Download selected does
     toast({
-      title: patchBody.status === "YES" ? "Saved and marked YES" : "Selection saved",
-      description:
-        patchBody.status === "YES"
-          ? `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover binder.`
-          : `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover. You can answer YES now.`,
+      title: yes ? "Saved and marked YES" : "Selection saved",
+      description: yes
+        ? `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover binder.`
+        : "Tick the records that go into the handover, then save again.",
       variant: "success",
     });
   };
@@ -260,22 +262,26 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     );
   };
 
-  /** The patch a save should carry: the form data, plus the YES that was waiting on it. The status
-   *  rides the SAME write, so the server guard judges YES against the form data being saved -- never
-   *  against what was on the row a moment ago. */
-  const withPendingYes = (
-    row: HodRow,
+  /** Does a SAVE of this data answer the document YES? (owner 2026-09-28, widening the 2026-09-24
+   *  rule from a YES that was merely OWED to every save.) Saving a document IS the review it is
+   *  answered on, so the status rides the SAME write -- the server then judges YES against the data
+   *  being saved, never against what was on the row a moment ago.
+   *
+   *  A form or a library text is always answerable, so its save always answers YES. A FROM NIRMAAN
+   *  document must have records ticked (`checklist.can_be_yes`), so a save that ticks nothing only
+   *  stores; the server would refuse the YES.
+   *
+   *  ⚠️ This overrides an explicit NA too: saving a document the project had marked "not applicable"
+   *  states that it IS being handed over. The answer stays one dropdown click away either way. */
+  const saveAnswersYes = (
+    meta: HodDocumentMeta,
     form_data: Record<string, unknown>,
-  ): HodRowPatch => {
-    const owed = pendingYes === row.name;
-    if (owed) setPendingYes(null);
-    return owed && isSaved({ form_data })
-      ? { form_data, status: "YES" }
-      : { form_data };
-  };
+  ): boolean => (needsSaving(meta) ? isSaved({ form_data }) : true);
 
-  /** The handover answer. NO and NA go straight through; YES is refused until the document has been
-   *  saved -- the server refuses it too (`checklist.can_be_yes`), this is the message that explains it. */
+  /** The handover answer. NO and NA go straight through, and so does YES on a form or a library text --
+   *  it prints from its own layout with nothing filled in (owner 2026-09-28). Only a From Nirmaan
+   *  document is refused until its records are ticked; the server refuses it too
+   *  (`checklist.can_be_yes`), this is the message that explains it. */
   const pickStatus = async (
     row: HodRow,
     meta: HodDocumentMeta,
@@ -323,205 +329,260 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">
-            {system.display_name}
-          </p>
-          <p className="text-xs text-gray-500">
-            {counts ? `${counts.completed} of ${counts.needed} answered YES` : ""}
-            {counts?.na ? ` · ${counts.na} NA` : ""}
-            {counts?.off ? ` · ${counts.off} switched off` : ""} · Work package:{" "}
-            {system.work_package}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            disabled={busyKey === checklistKey}
-            onClick={() =>
-              download(
-                checklistKey,
-                hodChecklistPdfUrl(project.name, system.name),
-                hodPdfFilename(
-                  project.project_name,
-                  system.name,
-                  "Handover_Checklist",
-                ),
-              )
-            }
-          >
-            {busyKey === checklistKey ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FileText className="mr-1 h-3.5 w-3.5" />
+      {/* One card per system: its name, how far it has got, and the actions that act on THIS
+          system -- so which tab a download belongs to is never in doubt. The destructive
+          "Remove system" moved into the "..." menu, off the primary button's elbow (owner 2026-09-28). */}
+      <div className="overflow-hidden rounded-lg border bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2.5">
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900">
+                {system.display_name}
+              </p>
+              <span
+                className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-600 ring-1 ring-gray-200"
+                title="Work package"
+              >
+                {system.work_package}
+              </span>
+            </div>
+            {counts && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <div
+                  className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200"
+                  title={`${counts.completed} of ${counts.needed} answered YES`}
+                >
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      allAnswered ? "bg-green-600" : "bg-blue-500",
+                    )}
+                    style={{
+                      width: `${counts.needed ? (counts.completed / counts.needed) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+                <span>
+                  <b className="font-semibold text-gray-900">
+                    {counts.completed}
+                  </b>{" "}
+                  of {counts.needed} answered YES
+                </span>
+                {counts.na > 0 && (
+                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                    {counts.na} NA
+                  </span>
+                )}
+                {counts.off > 0 && (
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+                    {counts.off} disabled
+                  </span>
+                )}
+              </div>
             )}
-            Checklist PDF
-          </Button>
-          {SHOW_BINDER_BUTTON && (
+          </div>
+          <div className="flex items-center gap-2">
             <Button
+              variant="outline"
               size="sm"
               className="h-8"
-              disabled={!binderReady || (building && !buildingBinderHere)}
-              title={
-                binderReady
-                  ? "Cover, checklist and every document in one PDF"
-                  : `The binder is ready once every document is answered YES — ${remaining} to go`
+              disabled={busyKey === checklistKey}
+              onClick={() =>
+                download(
+                  checklistKey,
+                  hodChecklistPdfUrl(project.name, system.name),
+                  hodPdfFilename(
+                    project.project_name,
+                    system.name,
+                    "Handover_Checklist",
+                  ),
+                )
               }
-              onClick={() => onBuild(null, binderTitle)}
             >
-              {buildingBinderHere ? (
+              {busyKey === checklistKey ? (
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               ) : (
-                <BookOpenText className="mr-1 h-3.5 w-3.5" />
+                <FileText className="mr-1 h-3.5 w-3.5" />
               )}
-              {buildingBinderHere
-                ? progress
-                  ? `Building ${progress.done}/${progress.total}`
-                  : "Starting…"
-                : binderReady
-                  ? "Download binder"
-                  : `Download binder (${remaining} to go)`}
+              Checklist PDF
             </Button>
-          )}
-          {canEdit && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 text-gray-500 hover:text-red-600"
-              onClick={() => setConfirmRemove(true)}
-            >
-              <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove system
-            </Button>
-          )}
+            {SHOW_BINDER_BUTTON && (
+              <Button
+                size="sm"
+                className="h-8"
+                disabled={!binderEnabled || (building && !buildingBinderHere)}
+                title={
+                  allAnswered
+                    ? "Cover, checklist and every document in one PDF"
+                    : answeredYes === 0
+                      ? "Cover and checklist only — no document is answered YES yet, so no pages follow"
+                      : `Cover, checklist and the ${answeredYes} document${answeredYes === 1 ? "" : "s"} answered YES — the other ${remaining} keep their answer on the checklist with no pages behind them`
+                }
+                onClick={() => onBuild(null, binderTitle)}
+              >
+                {buildingBinderHere ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <BookOpenText className="mr-1 h-3.5 w-3.5" />
+                )}
+                {buildingBinderHere
+                  ? progress
+                    ? `Building ${progress.done}/${progress.total}`
+                    : "Starting…"
+                  : "Download binder"}
+              </Button>
+            )}
+            {canEdit && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-gray-500"
+                    title={`More options for ${system.display_name}`}
+                    aria-label={`More options for ${system.display_name}`}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    className="gap-2 text-sm text-red-600 focus:text-red-600"
+                    onClick={() => setConfirmRemove(true)}
+                  >
+                    <Trash2 className="h-4 w-4" /> Remove system
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
-      </div>
-
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[980px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-600">
-              <th className="w-14 px-2 py-2 text-center">S.No</th>
-              <th className="px-2 py-2">Document</th>
-              <th className="w-24 px-2 py-2 text-center">Enable / Disable</th>
-              <th className="w-40 px-2 py-2 text-center">Checklist Status</th>
-              <th className="w-64 px-2 py-2 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ordered.map((row) => {
-              const meta = metaByKey.get(row.document);
-              if (!meta) return null;
-              const off = !!row.disabled;
-              const editable = rowEditable(row, canEdit);
-              const kind = documentChip(meta);
-              const contentBusy =
-                job?.hodSystem === system.name && job.document === row.document;
-              const rowBusy =
-                savingRow === row.name ||
-                busyKey === `doc:${row.name}` ||
-                contentBusy;
-              return (
-                <tr
-                  key={row.name}
-                  className={cn(
-                    "border-t",
-                    off && "bg-gray-50/80 text-gray-400",
-                  )}
-                >
-                  <td className="px-2 py-2 text-center">
-                    {off ? "—" : numbers.get(row.document)}
-                  </td>
-                  <td className="px-2 py-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={cn(
-                          "font-medium",
-                          off ? "text-gray-400 line-through" : "text-gray-900",
-                        )}
-                      >
-                        {meta.title}
-                      </span>
-                      <span
-                        className={cn(
-                          "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                          off ? "bg-gray-100 text-gray-400" : kind.className,
-                        )}
-                      >
-                        {kind.label}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <Switch
-                      checked={!off}
-                      disabled={!canEdit || savingRow === row.name}
-                      title={
-                        off
-                          ? "Switched off: not needed for this project"
-                          : "Needed for this project"
-                      }
-                      onCheckedChange={(on) =>
-                        patch(row, { disabled: !on }).catch(() => undefined)
-                      }
-                    />
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    {off ? (
-                      <span className="text-[11px] text-gray-400">—</span>
-                    ) : (
-                      <StatusCell
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-600">
+                <th className="w-14 px-2 py-2 text-center">S.No</th>
+                <th className="px-2 py-2">Document</th>
+                <th className="w-24 px-2 py-2 text-center">Enable / Disable</th>
+                <th className="w-40 px-2 py-2 text-center">Checklist Status</th>
+                <th className="w-64 px-2 py-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordered.map((row) => {
+                const meta = metaByKey.get(row.document);
+                if (!meta) return null;
+                const off = !!row.disabled;
+                const editable = rowEditable(row, canEdit);
+                const kind = documentChip(meta);
+                const contentBusy =
+                  job?.hodSystem === system.name && job.document === row.document;
+                const rowBusy =
+                  savingRow === row.name ||
+                  busyKey === `doc:${row.name}` ||
+                  contentBusy;
+                return (
+                  <tr
+                    key={row.name}
+                    className={cn(
+                      "border-t transition-colors",
+                      off
+                        ? "bg-gray-50/80 text-gray-400"
+                        : "hover:bg-gray-50/70",
+                    )}
+                  >
+                    <td className="px-2 py-2 text-center">
+                      {off ? "—" : numbers.get(row.document)}
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "font-medium",
+                            off ? "text-gray-400 line-through" : "text-gray-900",
+                          )}
+                        >
+                          {meta.title}
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                            off ? "bg-gray-100 text-gray-400" : kind.className,
+                          )}
+                        >
+                          {kind.label}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <Switch
+                        checked={!off}
+                        disabled={!canEdit || savingRow === row.name}
+                        title={
+                          off
+                            ? "Disabled: not needed for this project"
+                            : "Needed for this project"
+                        }
+                        onCheckedChange={(on) =>
+                          patch(row, { disabled: !on }).catch(() => undefined)
+                        }
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      {off ? (
+                        <span className="text-[11px] text-gray-400">—</span>
+                      ) : (
+                        <StatusCell
+                          row={row}
+                          meta={meta}
+                          disabled={!editable || savingRow === row.name}
+                          onPick={(status) => pickStatus(row, meta, status)}
+                        />
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <HodActionCell
                         row={row}
                         meta={meta}
-                        disabled={!editable || savingRow === row.name}
-                        onPick={(status) => pickStatus(row, meta, status)}
+                        canEdit={editable}
+                        // Disabled while any build runs (the server takes one at a time) but only THIS
+                        // row's own work spins its button.
+                        busy={
+                          rowBusy ||
+                          (meta.kind === "app" && building && !contentBusy)
+                        }
+                        working={rowBusy}
+                        onOpen={() => setOpenRow(row.name)}
+                        onDownload={() => downloadRow(row, meta)}
                       />
-                    )}
-                  </td>
-                  <td className="px-2 py-2">
-                    <HodActionCell
-                      row={row}
-                      meta={meta}
-                      canEdit={editable}
-                      // Disabled while any build runs (the server takes one at a time) but only THIS
-                      // row's own work spins its button.
-                      busy={
-                        rowBusy ||
-                        (meta.kind === "app" && building && !contentBusy)
-                      }
-                      working={rowBusy}
-                      onOpen={() => setOpenRow(row.name)}
-                      onDownload={() => downloadRow(row, meta)}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {openRowData && openMeta && openMeta.key === "material_tds" && (
         <MaterialTdsDialog
           open={!!openRow}
-          onOpenChange={(o) => {
-            if (!o) {
-              setOpenRow(null);
-              setPendingYes(null);
-            }
-          }}
+          onOpenChange={(o) => !o && setOpenRow(null)}
           projectId={project.name}
           projectName={project.project_name}
           hodSystem={system.name}
           displayName={system.display_name}
           row={openRowData}
           canEdit={rowEditable(openRowData, canEdit)}
-          onSaveSelected={async (selected) => {
-            await updateRow(openRowData.name, {
-              form_data: { ...(openRowData.form_data || {}), selected },
-            });
+          onSaveSelected={async (selected, markYes) => {
+            // An export saves the ticks too, but ONLY the Save-selection button is the review that
+            // answers the document (owner 2026-09-28) -- a download must never change the answer.
+            const form_data = { ...(openRowData.form_data || {}), selected };
+            const yes = !!markYes && saveAnswersYes(openMeta, form_data);
+            await updateRow(
+              openRowData.name,
+              yes ? { form_data, status: "YES" } : { form_data },
+            );
           }}
         />
       )}
@@ -529,12 +590,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
       {openRowData && openMeta && openMeta.key !== "material_tds" && (
         <DocumentDialog
           open={!!openRow}
-          onOpenChange={(o) => {
-            if (!o) {
-              setOpenRow(null);
-              setPendingYes(null);
-            }
-          }}
+          onOpenChange={(o) => !o && setOpenRow(null)}
           projectId={project.name}
           customerName={project.customer_name}
           hodSystem={system.name}
@@ -545,19 +601,27 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           // Answering YES is a statement, not a signature: the form stays editable.
           readOnly={!rowEditable(openRowData, canEdit)}
           onSave={async (formData) => {
-            const patchBody = withPendingYes(openRowData, formData);
-            await updateRow(openRowData.name, patchBody);
-            if (patchBody.status === "YES")
-              toast({
-                title: "Saved and marked YES",
-                description: `${openMeta.title} goes into the handover binder.`,
-                variant: "success",
-              });
+            const yes = saveAnswersYes(openMeta, formData);
+            await updateRow(
+              openRowData.name,
+              yes
+                ? { form_data: formData, status: "YES" }
+                : { form_data: formData },
+            );
+            toast({
+              title: yes ? "Saved and marked YES" : "Saved",
+              description: yes
+                ? `${openMeta.title} goes into the handover binder.`
+                : `${openMeta.title} is saved.`,
+              variant: "success",
+            });
           }}
           onDownloadSelected={(selected) =>
             downloadSelected(openRowData, openMeta, selected)
           }
-          onSaveSelected={(selected) => saveSelected(openRowData, selected)}
+          onSaveSelected={(selected) =>
+            saveSelected(openRowData, openMeta, selected)
+          }
         />
       )}
 
@@ -575,10 +639,10 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-gray-600">
                 <p>
-                  <b>{yesBlocked?.meta.title}</b> has not been saved yet, so it
-                  cannot be marked YES.
+                  <b>{yesBlocked?.meta.title}</b> has no records ticked for the
+                  handover yet, so it cannot be marked YES.
                 </p>
-                <p>{yesBlocked ? YES_HINT[yesBlocked.meta.kind] : ""}</p>
+                <p>{YES_HINT}</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -586,9 +650,9 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             <AlertDialogCancel>Close</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                // No latch needed: saving the ticks answers YES on its own (owner 2026-09-28).
                 const name = yesBlocked?.row.name ?? null;
                 setYesBlocked(null);
-                setPendingYes(name); // applied the moment that save lands
                 setOpenRow(name);
               }}
             >

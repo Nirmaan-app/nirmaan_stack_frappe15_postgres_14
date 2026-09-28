@@ -12,8 +12,9 @@ keys, in this order -- pinned by test). `no` is the S.No printed on the checklis
 switched-off rows are removed and the rest renumbered.
 
 `fill` marks a document that gives users something to fill in (a form, the maintenance results, remarks on the
-tools, certificate dates); `fill` is what the screen leads with "Fill Form" for, and saving one is
-what lets its row be answered YES (see `checklist.is_saved`).
+tools, certificate dates); `fill` is what the screen leads with "Fill Form" for, and what gives the row its
+editor. It does NOT gate the YES answer -- a form prints from its own layout whether or not anyone typed in
+it, so only a FROM NIRMAAN document has to be saved first (see `checklist.needs_saving`).
 
 Kinds:
   form      -- the project types everything (stored in `form_data`)

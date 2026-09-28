@@ -9,13 +9,27 @@
  */
 
 import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
-import { BookOpenText, Images, Info, Loader2, Plus } from "lucide-react";
+import {
+  BookOpenText,
+  Images,
+  Info,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+} from "lucide-react";
 import * as React from "react";
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { AddSystemDialog } from "./AddSystemDialog";
@@ -139,37 +153,28 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
     <div className="space-y-4">
       {added.length > 0 && (
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              Handover Documents
-            </h2>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Handover Documents
+              </h2>
+              {/* The guide is help, not an action -- it reads as one next to the heading and
+                  leaves the action row to the things that change something (owner 2026-09-28). */}
+              <button
+                type="button"
+                title="How Handover Documents work"
+                aria-label="How Handover Documents work"
+                className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                onClick={() => setShowGuide(true)}
+              >
+                <Info className="h-4 w-4" />
+              </button>
+            </div>
             <p className="text-sm text-gray-500">
               The documents handed over to the client, system by system.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-9 text-gray-600"
-              title="How Handover Documents work"
-              onClick={() => setShowGuide(true)}
-            >
-              <Info className="mr-1 h-4 w-4" /> Details
-            </Button>
-            {payload.can_edit_library && !payload.library_empty && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-9 text-gray-600"
-                asChild
-              >
-                {/* Packages Settings → Handover Documents: the library, in the app. */}
-                <Link to="/packages-settings?tab=handover-documents">
-                  <BookOpenText className="mr-1 h-4 w-4" /> Edit library
-                </Link>
-              </Button>
-            )}
+          <div className="flex items-center gap-2">
             {canEdit && (
               <Button
                 size="sm"
@@ -191,6 +196,30 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                 <Plus className="mr-1 h-4 w-4" /> Add system
               </Button>
             )}
+            {payload.can_edit_library && !payload.library_empty && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-9 w-9 p-0 text-gray-500"
+                    title="More"
+                    aria-label="More handover options"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem asChild className="gap-2 text-sm">
+                    {/* Packages Settings -> Handover Documents: the library, in the app. */}
+                    <Link to="/packages-settings?tab=handover-documents">
+                      <BookOpenText className="h-4 w-4 text-gray-500" />
+                      Edit library
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       )}
@@ -209,11 +238,20 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
           <TabsList className="h-auto flex-wrap justify-start">
             {added.map((name) => {
               const c = payload.counts[name];
+              const done = !!c && c.needed > 0 && c.completed >= c.needed;
               return (
                 <TabsTrigger key={name} value={name} className="gap-2">
                   {name}
                   {c && (
-                    <span className="rounded-full bg-gray-200 px-1.5 text-[10px] font-semibold text-gray-700">
+                    <span
+                      title={`${c.completed} of ${c.needed} answered YES`}
+                      className={cn(
+                        "rounded-full px-1.5 text-[10px] font-semibold tabular-nums",
+                        done
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-200 text-gray-700",
+                      )}
+                    >
                       {c.completed}/{c.needed}
                     </span>
                   )}

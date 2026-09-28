@@ -104,21 +104,29 @@ class TestChecklist(unittest.TestCase):
 		self.assertEqual(fields["status"]["default"], checklist.STATUS_NO)
 		self.assertFalse(fields["status"].get("read_only"))
 
-	def test_a_library_text_needs_no_saving_before_yes(self):
-		"""O&M Manual and Do's & Don'ts hold the LIBRARY's content, edited centrally in Packages
-		Settings -- a project adds nothing, so they carry no Edit and must be answerable as they
-		stand (owner 2026-09-24). A form and a From Nirmaan document still have to be saved."""
-		self.assertFalse(checklist.needs_saving("om_manual"))
-		self.assertFalse(checklist.needs_saving("dos_donts"))
-		self.assertTrue(checklist.can_be_yes("om_manual", {}))
-		self.assertTrue(checklist.can_be_yes("dos_donts", None))
-		# everything else is unchanged
-		for key in ("escalation_chart", "maintenance_checklist", "recommended_tools"):
-			self.assertTrue(checklist.needs_saving(key))
-			self.assertFalse(checklist.can_be_yes(key, {}))
-		for key in ("demo_training", "material_tds", "snag_list"):
-			self.assertTrue(checklist.needs_saving(key))
-			self.assertFalse(checklist.can_be_yes(key, {}))
+	def test_only_a_from_nirmaan_document_needs_saving_before_yes(self):
+		"""Owner 2026-09-28: a document that needs no filling must be answerable YES as it stands. A FORM
+		and a LIBRARY text both print from their OWN layout -- a blank Key List or Attic Stock List is a
+		real handover page, written in by hand -- so neither is gated. Only a FROM NIRMAAN document is:
+		what it hands over IS the records ticked on it, so with none ticked there is nothing to print."""
+		for key in ("om_manual", "dos_donts", "escalation_chart", "maintenance_checklist",
+		            "recommended_tools", "inventory_list", "attic_stock_list", "key_list",
+		            "equipment_warranty", "completion_certificate"):
+			self.assertFalse(checklist.needs_saving(key), key)
+			self.assertTrue(checklist.can_be_yes(key, {}), key)
+			self.assertTrue(checklist.can_be_yes(key, None), key)
+		for key in ("demo_training", "commissioning_report", "material_tds", "factory_test_reports",
+		            "snag_list", "as_built_drawings"):
+			self.assertTrue(checklist.needs_saving(key), key)
+			self.assertFalse(checklist.can_be_yes(key, {}), key)
+			self.assertTrue(checklist.can_be_yes(key, {"selected": ["REPORT-1"]}), key)
+
+	def test_the_fill_flag_no_longer_gates_yes(self):
+		"""`fill` still says a row gets an editor; it is NOT the YES gate (owner 2026-09-28). Every
+		fillable document that is not read from the app is answerable with an empty form."""
+		for d in index.DOCUMENTS:
+			if d.get("fill") and d["kind"] != index.FROM_APP:
+				self.assertTrue(checklist.can_be_yes(d["key"], {}), d["key"])
 
 	def test_a_retired_status_heals_to_no(self):
 		"""No backfill script (owner 2026-09-24): rows still carrying Pending / Form Filled / Completed
@@ -161,7 +169,7 @@ class TestChecklist(unittest.TestCase):
 		self.assertTrue(checklist.STATUS_NA in checklist.STATUSES)
 		# `can_be_yes` is asked ONLY for YES; on a document that needs saving it reads `is_saved`.
 		self.assertEqual(
-			checklist.can_be_yes("escalation_chart", {"x": 1}), checklist.is_saved({"x": 1})
+			checklist.can_be_yes("demo_training", {"x": 1}), checklist.is_saved({"x": 1})
 		)
 
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):

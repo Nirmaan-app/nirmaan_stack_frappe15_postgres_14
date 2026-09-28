@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 
 import { hodDocumentPdfUrl } from "./hodDownloads";
-import { needsSaving } from "./hodRules";
+import { hasEditor } from "./hodRules";
 import type { HodDocumentMeta, HodRow } from "./types";
 
 export interface HodActionCellProps {
@@ -54,7 +54,7 @@ export const HodActionCell: React.FC<HodActionCellProps> = ({
   if (row.disabled) {
     return (
       <span className="block text-center text-[11px] text-gray-400">
-        Switched off
+        Disabled
       </span>
     );
   }
@@ -85,7 +85,7 @@ export const HodActionCell: React.FC<HodActionCellProps> = ({
 
   return (
     <div className="flex items-center justify-center gap-1">
-      {needsSaving(meta) && btn(FileEdit, canEdit ? "Edit" : "View", onOpen)}
+      {hasEditor(meta) && btn(FileEdit, canEdit ? "Edit" : "View", onOpen)}
       {btn(Eye, "Preview", () => setPreview(true))}
       {btn(Download, "Download", onDownload, true)}
 

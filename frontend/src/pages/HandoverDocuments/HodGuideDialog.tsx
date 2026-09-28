@@ -120,10 +120,12 @@ export const HodGuideDialog: React.FC<{
             the same 16 documents.
           </p>
           <p>
-            A document this project does not need: switch <b>Use</b> off. It
+            A document this project does not need: turn its{" "}
+            <b>Enable / Disable</b> switch off. It
             leaves the printed checklist (the numbers close up) and the binder,
-            and can be switched back on any time. <b>Remove system</b> deletes
-            that system&apos;s 16 rows — it warns first if anything was filled.
+            and can be switched back on any time. <b>Remove system</b> — in the
+            system&apos;s <b>&hellip;</b> menu, beside <b>Download binder</b> —
+            deletes that system&apos;s 16 rows — it warns first if anything was filled.
           </p>
         </Section>
 
@@ -154,18 +156,27 @@ export const HodGuideDialog: React.FC<{
             </li>
             <li>
               <Pill className="bg-gray-100 text-gray-600">NO</Pill> not handed
-              over (where every document starts)
+              over (where every document starts) — it prints NO on the
+              checklist and the document is skipped in the binder
             </li>
             <li>
               <Pill className="bg-amber-50 text-amber-700">NA</Pill> not
-              applicable to this project
+              applicable to this project — it prints NA on the checklist and
+              the document is skipped in the binder
             </li>
           </ul>
           <p>
-            <b>YES waits until the document is saved</b> — fill the form, or
-            tick and save the records it hands over. NO and NA can be set at any
-            time. A switched-off document is not on the checklist at all, which
-            is different from NA.
+            Click the answer in that column to change it — the menu names what
+            each one does to the binder. Only YES puts pages in the binder; NO
+            and NA both leave the document out of it while keeping their answer
+            on the printed checklist.
+          </p>
+          <p>
+            <b>A form can be answered YES with nothing filled in</b> — its sheet
+            prints from its own layout, ready to be written in by hand. Only a
+            From Nirmaan document waits: tick and save the records it hands over
+            first. NO and NA can be set at any time. A disabled document is
+            not on the checklist at all, which is different from NA.
           </p>
         </Section>
 
@@ -225,13 +236,13 @@ export const HodGuideDialog: React.FC<{
           {SHOW_BINDER_BUTTON && (
           <p>
             <b>Download binder</b> — one PDF with the cover, the checklist, and
-            every switched-on document behind a divider page. It is the
-            client&apos;s finished set, so it unlocks only once{" "}
-            <b>every document is answered YES</b>; until then the button says how
-            many are still to go. Switch off what this project does not need
-            and those stop counting. The button itself counts the steps while
-            it builds, and the PDF downloads by itself — about a minute for a
-            big binder.
+            <b> every document answered YES</b> behind a divider page. It can be
+            downloaded at any point: a document left NO or NA still appears on
+            the checklist with its answer, it simply has no pages behind it, so
+            you can hand over a partial set and rebuild later. Switch off what
+            this project does not need and it leaves the checklist altogether.
+            The button counts the steps while it builds, and the PDF downloads
+            by itself — about a minute for a big binder.
           </p>
           )}
         </Section>
@@ -241,13 +252,14 @@ export const HodGuideDialog: React.FC<{
             The O&amp;M manuals, Do&apos;s &amp; Don&apos;ts, maintenance
             checks, tools and warranty equipment are kept once per system in the
             library, under <b>Packages Settings → Handover Documents</b> (the{" "}
-            <b>Edit library</b> button opens it).
+            <b>Edit library</b> item in the <b>&hellip;</b> menu at the top
+            right opens it).
           </p>
           <p>
             An edit there shows on the next download of every project handing
             that system over — so fix the wording before teams start filling.
-            The <b>Edit library</b> button only appears for the people allowed
-            to change it.
+            The <b>Edit library</b> item only appears for the people allowed to
+            change it.
           </p>
         </Section>
 

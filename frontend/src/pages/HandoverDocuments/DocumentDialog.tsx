@@ -65,10 +65,9 @@ function finalize(
 ): Record<string, unknown> {
   const out = { ...draft };
   // A library document shows its parts already ticked, from the library's own default -- so someone who
-  // agrees with it changes NOTHING and the draft never gains an `included` key. Saving then stored an
-  // empty form, which reads as "not saved" and blocks the YES answer; on a single-block manual there are
-  // no ticks at all, so it could never be saved. Writing the EFFECTIVE list records the decision that
-  // was on screen. The binder is unaffected -- `included_library` already falls back to the same default.
+  // agrees with it changes NOTHING and the draft never gains an `included` key, and the save stored an
+  // empty form. Writing the EFFECTIVE list records the decision that was on screen. The binder is
+  // unaffected -- `included_library` already falls back to the same default.
   if (ctx.included && !Array.isArray(out.included)) out.included = ctx.included;
   // The Attic Stock List is NOT compacted (owner 2026-09-25): its printed sheet must carry exactly the
   // rows the dialog showed, blanks included, because the blanks are what people write in by hand.
@@ -292,7 +291,7 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
           </DialogTitle>
           <DialogDescription>
             {displayName}
-            {row.disabled ? " — switched off, so it is read-only." : ""}
+            {row.disabled ? " — disabled, so it is read-only." : ""}
           </DialogDescription>
         </DialogHeader>
 

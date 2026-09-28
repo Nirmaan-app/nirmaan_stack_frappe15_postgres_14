@@ -6,7 +6,9 @@ import {
   compactTextMap,
   dlpEnd,
   documentChip,
+  hasEditor,
   levelLabel,
+  needsSaving,
   inventoryTotals,
   printedNumbers,
   maintenanceDate,
@@ -177,5 +179,32 @@ describe("documentChip", () => {
     expect(documentChip({ kind: "form", fill: true }).label).toBe("Form");
     expect(documentChip({ kind: "template", fill: false }).label).toBe("Library");
     expect(documentChip({ kind: "app", fill: false }).label).toBe("From Nirmaan");
+  });
+});
+
+describe("hasEditor vs needsSaving", () => {
+  // The two were ONE function until 2026-09-28 and had to be split: `hasEditor` still drives the
+  // Edit / View button (so a form must keep it), while `needsSaving` is now only the YES gate.
+  // Collapsing them again either strips the Edit button off every form or re-blocks an empty one.
+  it("gives an editor to anything the project fills, and to a From Nirmaan picker", () => {
+    expect(hasEditor({ kind: "form", fill: true })).toBe(true);
+    expect(hasEditor({ kind: "template", fill: true })).toBe(true);
+    expect(hasEditor({ kind: "app", fill: false })).toBe(true);
+    // O&M Manual / Do's & Don'ts: the library's own text, nothing to open
+    expect(hasEditor({ kind: "template", fill: false })).toBe(false);
+  });
+
+  it("gates YES on a From Nirmaan document ONLY", () => {
+    expect(needsSaving({ kind: "app", fill: false })).toBe(true);
+    // a form prints from its own layout with nothing filled in (owner 2026-09-28)
+    expect(needsSaving({ kind: "form", fill: true })).toBe(false);
+    expect(needsSaving({ kind: "template", fill: true })).toBe(false);
+    expect(needsSaving({ kind: "template", fill: false })).toBe(false);
+  });
+
+  it("disagree on a fillable document -- that disagreement IS the split", () => {
+    const fillableForm = { kind: "form" as const, fill: true };
+    expect(hasEditor(fillableForm)).toBe(true);
+    expect(needsSaving(fillableForm)).toBe(false);
   });
 });

@@ -81,7 +81,8 @@ _META_KEYS = ("completed",)
 
 
 def is_saved(form_data) -> bool:
-	"""Has someone actually done this document? -- the ONE test behind the YES gate.
+	"""Has someone actually done this document? -- the ONE test behind the YES gate, asked of the
+	documents `needs_saving` covers.
 
 	It reads the same for all three kinds, because each stores what it collects in `form_data`:
 	a FORM keeps its entries, a LIBRARY text keeps the parts it includes, a FROM NIRMAAN document
@@ -95,21 +96,29 @@ def is_saved(form_data) -> bool:
 
 
 def needs_saving(document: str) -> bool:
-	"""Does this document have anything to save before it can be called handed over?
+	"""Does this document have to be SAVED before it can be called handed over?
 
-	A FORM has its entries and a FROM NIRMAAN document has the records ticked for the handover, so both
-	do. A LIBRARY text (O&M Manual, Do's & Don'ts -- template, nothing to fill) does NOT: its content is
-	the library's, edited centrally in Packages Settings, and the project has nothing to add to it
-	(owner 2026-09-24). Requiring a save there would leave it permanently un-answerable.
+	Only a FROM NIRMAAN document does (owner 2026-09-28). What it hands over IS the records ticked on it
+	-- reports, data sheets, snag batches, drawings -- so with none ticked there is no content and no
+	pages to print.
+
+	A FORM or a LIBRARY text does NOT. Its sheet prints from its OWN layout whether or not anyone typed
+	in it -- a blank Key List or Attic Stock List is a real handover page, written in by hand on site --
+	and a library text carries the library's content, edited centrally in Packages Settings. Holding
+	either to a save left every document that needs no filling permanently un-answerable.
+
+	This is NOT "has something to fill": that is `index`'s own `fill` flag, which still decides whether a
+	row gets an editor (frontend `hodRules.hasEditor`).
 	"""
 	entry = index.get(document) or {}
-	return bool(entry.get("fill") or entry.get("kind") == index.FROM_APP)
+	return entry.get("kind") == index.FROM_APP
 
 
 def can_be_yes(document: str, form_data) -> bool:
-	"""May this row be set to YES? A document with something to save must have been saved (owner
-	2026-09-24); a library text is ready as it stands. NO and NA are always allowed -- a document nobody
-	will ever fill must still be markable NA."""
+	"""May this row be set to YES? A FROM NIRMAAN document must have its records ticked and saved
+	(`needs_saving`); a form or a library text is ready as it stands, because its sheet prints from its
+	own layout (owner 2026-09-28). NO and NA are always allowed -- a document nobody will ever fill must
+	still be markable NA."""
 	return is_saved(form_data) if needs_saving(document) else True
 
 

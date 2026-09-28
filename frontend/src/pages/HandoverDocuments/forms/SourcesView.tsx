@@ -93,10 +93,12 @@ export interface SourcesViewProps {
   meta: HodDocumentMeta;
   row: HodRow;
   canEdit: boolean;
-  /** Save the ticked records on the row and download them as one PDF. */
+  /** Save the ticked records on the row and download them as one PDF. It does NOT answer the
+   *  document -- only Save selection does (owner 2026-09-28). */
   onDownloadSelected: (selected: string[]) => Promise<void>;
-  /** Save the ticks WITHOUT downloading. Saving is the review the document is answered YES on
-   *  (owner 2026-09-24), so it must not cost a PDF. */
+  /** Save the ticks WITHOUT downloading, and ANSWER the document YES with them (owner 2026-09-28,
+   *  completing the 2026-09-24 "saving is the review"). It must not cost a PDF, and it is the
+   *  PRIMARY action here -- Download sits in the top-right corner as a utility. */
   onSaveSelected: (selected: string[]) => Promise<void>;
 }
 
@@ -220,8 +222,48 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
     </th>
   );
 
+  const tickedNames = () => available.filter((n) => current.has(n));
+  const runSave = async () => {
+    setSaving(true);
+    try {
+      await onSaveSelected(tickedNames());
+    } finally {
+      setSaving(false);
+    }
+  };
+  const runDownload = async () => {
+    setStarting(true);
+    try {
+      await onDownloadSelected(tickedNames());
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <div className="space-y-2">
+      {/* Download is a UTILITY, not the review (owner 2026-09-28), so it sits in the top-right corner
+          -- inside the body, clear of the dialog's own close button -- while Save selection, the
+          action that answers the document YES, is the primary button in the footer bar. */}
+      {selectable && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            disabled={!current.size || starting || saving}
+            title={`Download the ticked ${noun}${current.size === 1 ? "" : "s"} as one PDF. It does not change the answer.`}
+            onClick={runDownload}
+          >
+            {starting ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="mr-1 h-3.5 w-3.5" />
+            )}
+            Download selected ({current.size})
+          </Button>
+        </div>
+      )}
       <div className="max-h-[55vh] overflow-auto rounded-md border">
         <table className="w-full border-collapse">
           {meta.source === "commission" && (
@@ -474,59 +516,25 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
             {current.size} of {available.length} {noun}
             {available.length !== 1 ? "s" : ""} ticked —{" "}
             {current.size
-              ? "the ticked ones go into the download and the binder."
+              ? "saving them answers this document YES, and the binder takes the same ones."
               : "tick what belongs in the handover."}
           </span>
-          <div className="flex items-center gap-2">
-            {canEdit && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={!current.size || starting || saving}
-                title="Keep these ticks without downloading anything"
-                onClick={async () => {
-                  setSaving(true);
-                  try {
-                    await onSaveSelected(
-                      available.filter((n) => current.has(n)),
-                    );
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                {saving ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Check className="mr-1 h-3.5 w-3.5" />
-                )}
-                Save selection
-              </Button>
-            )}
+          {canEdit && (
             <Button
               size="sm"
               className="h-8"
               disabled={!current.size || starting || saving}
-              onClick={async () => {
-                setStarting(true);
-                try {
-                  await onDownloadSelected(
-                    available.filter((n) => current.has(n)),
-                  );
-                } finally {
-                  setStarting(false);
-                }
-              }}
+              title="Save these ticks and mark this document YES"
+              onClick={runSave}
             >
-              {starting ? (
+              {saving ? (
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Download className="mr-1 h-3.5 w-3.5" />
+                <Check className="mr-1 h-3.5 w-3.5" />
               )}
-              Download selected ({current.size})
+              Save selection
             </Button>
-          </div>
+          )}
         </div>
       )}
       {note}

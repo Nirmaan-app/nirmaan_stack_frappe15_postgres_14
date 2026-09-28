@@ -10,8 +10,10 @@ Handover Documents screen:
    until it is switched back on. Switching it on or off is always allowed;
 4. `status` is the handover checklist answer, YES / NO / NA, set BY HAND (owner 2026-09-24, replacing the
    derived Pending / Form Filled / Completed). The controller no longer computes it -- it GUARDS it:
-   **YES is refused on a document that has not been saved** (`checklist.can_be_yes`), so a Desk edit and
-   the Handover Documents screen are held to the same rule. NO and NA are always allowed.
+   **YES is refused on a FROM NIRMAAN document whose records have not been ticked and saved**
+   (`checklist.can_be_yes`), so a Desk edit and the Handover Documents screen are held to the same rule.
+   A form or a library text needs no save -- it prints from its own layout (owner 2026-09-28). NO and NA
+   are always allowed.
 """
 
 import json
@@ -44,8 +46,8 @@ def validate(doc, method=None):
 	doc.status = status
 	if status == checklist.STATUS_YES and not checklist.can_be_yes(doc.document, doc.form_data):
 		frappe.throw(
-			_("{0} has not been saved yet, so it cannot be marked YES. Open it, fill or tick what it "
-			  "hands over, and save -- then set it to YES.").format(index.get(doc.document)["title"])
+			_("{0} has no records ticked for the handover yet, so it cannot be marked YES. Open it, "
+			  "tick what it hands over, and save -- then set it to YES.").format(index.get(doc.document)["title"])
 		)
 
 	if doc.is_new():
