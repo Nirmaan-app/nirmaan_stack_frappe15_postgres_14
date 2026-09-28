@@ -111,8 +111,17 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     // `table-fixed` + a colgroup, both gated on piMode -- a SKU grid keeps its auto layout
     expect(src).toContain('cn(piMode && "table-fixed")');
     expect(src).toContain("{piMode ? (\n            <colgroup>");
-    // every numeric value column is narrow, and `amount` (rupees) slightly wider than a percentage
-    expect(src).toContain('style={{ width: k === "amount" ? 92 : 84 }}');
+    /**
+     * ⚠️ INVERTED (owner, 2026-09-29). The plan used to size `amount` wider than a percentage and let
+     * the `input` column take the slack; the slack column is what re-flowed the whole grid when the
+     * impact panel opened. Every width is now a named constant in ONE plan, and the table declares
+     * its own total so a narrower container scrolls instead of squeezing.
+     */
+    expect(src).not.toContain('style={{ width: k === "amount" ? 92 : 84 }}');
+    expect(src).toContain("style={{ width: PI_W.rate }}");
+    expect(src).toContain("style={{ width: PI_W.input }}");
+    expect(src).toContain("minWidth: piTableWidth");
+    expect(src).not.toContain("<col />{/* input name");
   });
 
   it("ACCEPTANCE 1: a rate header carries its DERIVED kind -- and a Pricing Input does NOT", () => {
@@ -144,8 +153,29 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     expect(upToClose).not.toContain("onChange");
   });
 
-  it("the column headers use the owner's labels, so no column reads as a bare key", () => {
-    expect(src).toContain("piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k");
+  /**
+   * ⚠️ INVERTED (owner, 2026-09-29). The header now shows the SHORT label with the full name on the
+   * hover: at 72px "Installation markup" printed over its neighbour, and shortening the words was
+   * the only thing that fixed it -- wrapping alone did not. The claim is unchanged in substance --
+   * no column reads as a bare key -- so the pin asserts the new spelling and the hover.
+   */
+  it("the column headers use the owner's labels (short on screen, full on hover)", () => {
+    expect(src).not.toContain("piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k");
+    expect(src).toContain("PRICING_INPUT_COLUMN_SHORT_LABELS[k] ?? PRICING_INPUT_COLUMN_LABELS[k] ?? k");
+    // the full name is still reachable, as the hover on the label and on the filter
+    expect(src).toContain("fullLabelFor(colKey, label)");
+  });
+
+  /**
+   * The three causes of the overlap the owner photographed, each pinned so none can come back alone:
+   * the label may not exceed its column, the filter may not take width from it, and the cell clips.
+   */
+  it("a pricing-input header cannot overlap its neighbour", () => {
+    expect(src).toContain("min-w-0");            // the label shrinks instead of overflowing
+    expect(src).toContain("line-clamp-2");       // at most two lines
+    expect(src).toContain("break-normal");       // never mid-word
+    expect(src).toContain("absolute right-0 top-0 shrink-0");  // the filter is out of the flow
+    expect(src).toContain("overflow-hidden");    // and the cell clips whatever is left
   });
 
   it("NEGATIVE: the mode is decided by the CONFIG's kind, never by a discipline name in code", () => {

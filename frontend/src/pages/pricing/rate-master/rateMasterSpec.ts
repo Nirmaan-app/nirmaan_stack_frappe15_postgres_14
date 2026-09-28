@@ -503,6 +503,9 @@ const NOTE_MAX_CHARS = 300;
 const NOTE_FALLBACK = "computed by this category's pricing rules";
 
 export const DERIVED_COPY = {
+  /** the pricing-inputs formula row, in ONE cell across the numerics -- the per-column explanations
+   *  stay in full in the rate file and on this cell's hover (owner, 2026-09-29) */
+  formulaRowPiShort: "Typed by hand. No pipeline computes these — hover for what each column means.",
   /** The cell's own mark. */
   cellTag: "derived",
   /** The one rule a user needs beside the table. */
@@ -876,6 +879,26 @@ export const PRICING_INPUT_COLUMN_LABELS: Record<string, string> = {
   wastage: "Wastage",
   ratio: "BCS ratio",
   share: "Installation share",
+  amount: "Amount",
+};
+
+/**
+ * The SHORT header label for a pricing-input rate column, with the full name kept on the hover.
+ *
+ * ⚠️ THE COLUMN IS ~70px AND THE LONG LABELS DO NOT FIT IN IT, EVEN WRAPPED. "Installation markup"
+ * wraps to "Installation" + "markup", and "Installation" alone measures 73px inside a 52px content
+ * box; a flex item will not shrink below its longest word, so it drew straight over the neighbouring
+ * header -- the owner read "SupplyInstallation" and "BCS ratioInstallation share" on his own screen.
+ * Wrapping was necessary and NOT sufficient; the words themselves had to get shorter.
+ */
+export const PRICING_INPUT_COLUMN_SHORT_LABELS: Record<string, string> = {
+  discount: "Discount",
+  supply_markup: "Supply mkup",
+  installation_markup: "Inst. markup",
+  bcs_markup: "BCS mkup",
+  wastage: "Wastage",
+  ratio: "BCS ratio",
+  share: "Inst. share",
   amount: "Amount",
 };
 

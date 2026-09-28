@@ -46,6 +46,7 @@ import {
   pricingInputCell,
   PRICING_INPUT_VALUE_COLUMNS,
   PRICING_INPUT_COLUMN_LABELS,
+  PRICING_INPUT_COLUMN_SHORT_LABELS,
   // SLICE 12b(B): the derived rate-column kind for the header (acceptance item 1).
   deriveRateColumnLabels,
   rateColumnLabel,
@@ -103,6 +104,11 @@ interface Props {
   onSaveItem?: (name: string, patch: SaveItemPatch) => Promise<SpecConfirmationReply | undefined | void>;
   onCreateItem?: (payload: CreateItemPayload) => Promise<SpecConfirmationReply | undefined | void>;
   onDeactivateItem?: (name: string) => Promise<void>;
+  /** SLICE 12b(B): {pricing-input id -> its reach}. Absent => no ITEMS column (every non-PI grid). */
+  inputReach?: Record<string, { distinctSkus: string[]; isFlatAdder: boolean }>;
+  /** opens the impact panel on that catalogue row; null closes it */
+  onOpenImpact?: (itemUid: string | null) => void;
+  openImpactUid?: string | null;
   // SLICE 5: the two download surfaces. The page owns the SDK calls and hands these down, exactly
   // as it already does for save/create/deactivate -- the viewer stays free of frappe-react-sdk.
   // `categoryId === null` means MODE B (every category in one file). SLICE 1e: `fmt` is the file format
@@ -133,9 +139,35 @@ function cellText(v: unknown): string {
   return String(v);
 }
 
+/**
+ * THE PRICING-INPUTS COLUMN PLAN, in pixels, sized from the REAL data rather than the mock:
+ * `name` runs to 50 characters, `remarks` to 255 (median 115), `used_by` to 65 and `shared_by` to 46.
+ *
+ * ⚠️ IT IS FIXED, AND THAT IS THE POINT (owner, 2026-09-29). With the `input` column taking the slack,
+ * opening the impact panel re-flowed every column and re-wrapped every row. In pixels the table cannot
+ * respond to its container at all: the panel covers part of it and the scroll bar below reaches the
+ * rest. Nothing here is a percentage, and no row may exceed FIVE lines -- which is what the 3-line
+ * remark clamp and the 2-line clamps on `shared by` / `used by` buy.
+ */
+const PI_W = {
+  actions: 64, kind: 120,
+  /** ⚠️ 420, NOT 360. The longest input name is 50 characters and wrapped to a second line at 360,
+   *  which put the tallest row at 5.6 lines -- over the owner's five-line rule. At 420 every name
+   *  fits one line and the row is name + a 2-line remark. */
+  input: 420,
+  /** ⚠️ 72, NOT 68. The header, not the data, sets this floor: the data cells hold "70%" or a dash,
+   *  but the shortened two-line labels ("Supply mkup", "Inst. markup") need 56px of content box. */
+  rate: 72,
+  unit: 90, sharedBy: 150, usedBy: 190, items: 84,
+} as const;
+
 export function RateMasterDataViewer({
   items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem,
   onDeactivateItem, onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
+  // SLICE 12b(B): the ITEMS column. The reach map is computed by the PAGE (it needs every category's
+  // config, which this component does not have), so the viewer only RENDERS it. Both absent => no
+  // column at all, which is what keeps every other category's grid byte-identical.
+  inputReach, onOpenImpact, openImpactUid,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -219,6 +251,25 @@ export function RateMasterDataViewer({
   // SLICE 12b(A): is this the discipline's Pricing Inputs category? Suffix-keyed on the item kind, so
   // no discipline is named here and 12c's HVAC inputs flow through with no change.
   const piMode = useMemo(() => isPricingInputConfig(config), [config]);
+  // SLICE 12b(B): the ITEMS column exists only on a Pricing Inputs grid, and only once the page has
+  // supplied both the reach map and the click handler -- so a caller that has not opted in sees the
+  // grid exactly as before.
+  const showImpactCol = piMode && !!onOpenImpact && !!inputReach;
+  const impactCountFor = useCallback(
+    (it: RateMasterItem) => {
+      const id = String((it.attributes ?? {}).item ?? "");
+      const r = inputReach?.[id];
+      /**
+       * ⚠️ AN ADDER COUNTS LIKE EVERY OTHER INPUT (owner ruling, 2026-09-29). This returned a DASH,
+       * on the reading that a flat adder moves no SKU's rate -- true of the rate, false of the PRICE,
+       * and the owner's rule is whose price moves. An adder moves all 450 trays, so it shows 450 and
+       * its panel lists them. The dash is kept for an input that genuinely reaches nothing, which as
+       * of v65 is none of the 35.
+       */
+      return String(r?.distinctSkus.length ?? 0);
+    },
+    [inputReach],
+  );
   // ACCEPTANCE 4 / 13: the used-by count. It is COMPUTED FROM THE PIPELINES at mint time and carried
   // on the item, because the page fetches one category's config at a time and a cross-category count
   // cannot be derived from that one config.
@@ -243,6 +294,13 @@ export function RateMasterDataViewer({
     }
     return seen;
   }, [scopedItems, piMode]);
+
+  /** the plan's total, so the table declares its own width and cannot be squeezed by its container */
+  const piTableWidth = useMemo(() => (
+    (canEdit ? PI_W.actions : 0) + (showKindCol ? PI_W.kind : 0) + PI_W.input
+    + rateCols.length * PI_W.rate + PI_W.unit + PI_W.sharedBy + PI_W.usedBy
+    + (showImpactCol ? PI_W.items : 0)
+  ), [canEdit, showKindCol, rateCols.length, showImpactCol]);
 
   // SLICE 12a: the row-level formula text for every scoped item, and how many rows declare each rate
   // column derived (what the formula row's count names). ONE pass, memoised on the items + config.
@@ -578,21 +636,51 @@ export function RateMasterDataViewer({
   // with "(install)" where the leg applies). It is deliberately NOT rendered through `tag`, whose
   // uppercase styling belongs to the spec-mode marker and would read as "LIST PRICE" -- these are
   // words, not a badge. Absent => the header is byte-identical to before.
+  /** the FULL column name, for the hover -- the header itself shows the short form */
+  /**
+   * ⚠️ THE `th` MUST CLIP, AND EVERY HEADER MUST SHARE ONE HEIGHT. `overflow: visible` is what let a
+   * too-wide label draw over its neighbour in the first place, and a per-cell height made the labels
+   * sit on different baselines. Both only in pricing-inputs mode; every other grid is untouched.
+   */
+  const piHead = piMode ? "h-12 overflow-hidden align-top py-1 px-1" : "";
+
+  const fullLabelFor = (colKey: string, shown: string) => {
+    const k = colKey.startsWith("rate:") ? colKey.slice(5) : "";
+    return (k && PRICING_INPUT_COLUMN_LABELS[k]) || shown;
+  };
+
   const hdr = (colKey: string, label: string, rightAlign = false, tag?: string, note?: string) => (
-    <div className={cn("flex items-center gap-1", rightAlign && "justify-end")}>
-      <span>{label}</span>
+    /**
+     * ⚠️ IN PRICING-INPUTS MODE THE FILTER IS TAKEN OUT OF THE FLOW AND THE LABEL IS CLAMPED.
+     * Wrapping alone did NOT work and the owner saw the result: a flex item will not shrink below its
+     * longest word, so "Installation" (73px) drew outside a 52px content box, and the filter icon --
+     * a flex SIBLING -- was pushed on top of the next column's label. Three things fix it together:
+     * the label gets the WHOLE column (`min-w-0`, clamped to two lines), the filter is positioned in
+     * the cell's own corner so it steals no width, and the `th` clips (see `piHeadClass`). The labels
+     * are shortened too, because even the full width does not hold "Installation markup".
+     */
+    <div className={cn(
+      piMode ? "relative flex items-start pr-3.5" : "flex items-center gap-1",
+      !piMode && rightAlign && "justify-end",
+    )}>
+      <span
+        className={cn(piMode && "min-w-0 text-[10px] leading-tight line-clamp-2 break-normal")}
+        title={piMode ? fullLabelFor(colKey, label) : undefined}
+      >{label}</span>
       {note ? (
         <span className="font-normal text-[10px] text-muted-foreground whitespace-nowrap">{note}</span>
       ) : null}
       {tag ? (
         <span className="rounded bg-muted px-1 text-[9px] font-normal uppercase tracking-wide text-muted-foreground">{tag}</span>
       ) : null}
-      <ColumnFilter
-        label={label}
-        values={distinctByColumn[colKey] ?? []}
-        selected={columnFilters[colKey] ?? []}
-        onChange={(next) => setColumnFilter(colKey, next)}
-      />
+      <span className={cn(piMode && "absolute right-0 top-0 shrink-0")}>
+        <ColumnFilter
+          label={fullLabelFor(colKey, label)}
+          values={distinctByColumn[colKey] ?? []}
+          selected={columnFilters[colKey] ?? []}
+          onChange={(next) => setColumnFilter(colKey, next)}
+        />
+      </span>
     </div>
   );
 
@@ -766,7 +854,8 @@ export function RateMasterDataViewer({
           z-30). The container is the scroller (max-h), so this pins the header under vertical scroll. */}
       <style>{".rm-data-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}.rm-data-hidehbar thead th{position:sticky;top:0;background:hsl(var(--background))}"}</style>
       <div ref={scrollRef} className="overflow-auto rounded border rm-data-hidehbar max-h-[calc(100vh-19rem)]">
-        <Table className={cn(piMode && "table-fixed")}>
+        <Table className={cn(piMode && "table-fixed")}
+               style={piMode ? { width: piTableWidth, minWidth: piTableWidth } : undefined}>
           {/* ══════════════════════════════════════════════════════════════════════════════════════
               SLICE 12b(B) / ACCEPTANCE ITEM 6 -- THE PRICING INPUTS COLUMN PLAN.
 
@@ -792,15 +881,19 @@ export function RateMasterDataViewer({
               ══════════════════════════════════════════════════════════════════════════════════════ */}
           {piMode ? (
             <colgroup>
-              {canEdit ? <col style={{ width: 64 }} /> : null}
-              {showKindCol ? <col style={{ width: 120 }} /> : null}
-              <col />{/* input name + its remark underneath: takes the remaining slack */}
+              {canEdit ? <col style={{ width: PI_W.actions }} /> : null}
+              {showKindCol ? <col style={{ width: PI_W.kind }} /> : null}
+              {/* ⚠️ FIXED, NOT SLACK. A width-less `input` column is what made every column re-flow
+                  when the impact panel opened; with the plan in pixels the table keeps its shape and
+                  the panel simply covers part of it, which the scroll bar below reaches. */}
+              <col style={{ width: PI_W.input }} />
               {rateCols.map((k) => (
-                <col key={`w-${k}`} style={{ width: k === "amount" ? 92 : 84 }} />
+                <col key={`w-${k}`} style={{ width: PI_W.rate }} />
               ))}
-              <col style={{ width: 92 }} />{/* unit */}
-              <col style={{ width: 150 }} />{/* shared by */}
-              <col style={{ width: 200 }} />{/* used by -- plain category names, ruling N-7 */}
+              <col style={{ width: PI_W.unit }} />{/* unit */}
+              <col style={{ width: PI_W.sharedBy }} />{/* shared by -- clamped to 2 lines */}
+              <col style={{ width: PI_W.usedBy }} />{/* used by -- plain category names, ruling N-7 */}
+              {showImpactCol ? <col style={{ width: PI_W.items }} /> : null}
             </colgroup>
           ) : null}
           <TableHeader>
@@ -810,51 +903,58 @@ export function RateMasterDataViewer({
                   z-30 so it wins over both the sticky row (z-20) and the sticky body column (z-10) and
                   never ghosts. */}
               {canEdit && <TableHead className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>}
-              {showKindCol && <TableHead className="sticky top-0 z-20 bg-background">{hdr("kind", "kind")}</TableHead>}
+              {showKindCol && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("kind", "kind")}</TableHead>}
               {/* SLICE 1c (U3): the text pair FIRST, then the spec verdict, then brand, then the derived
                   attributes each tagged "read from spec". Absent entirely for a non-spec category. */}
               {textCols.map((d) => (
-                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
+                <TableHead key={d.id} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr(`attr:${d.id}`, d.label)}</TableHead>
               ))}
-              {specMode && <TableHead className="sticky top-0 z-20 bg-background">{hdr("spec", SPEC_COPY.specColumn)}</TableHead>}
+              {specMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("spec", SPEC_COPY.specColumn)}</TableHead>}
               {/* SLICE 12b(A): a Pricing Input's NAME leads the row -- it is what the reader is looking
                   for, and `brand` / `source` mean nothing for a number a pricer edits. ACCEPTANCE 4. */}
               {piMode && (
-                <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:name", "input")}</TableHead>
+                <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input")}</TableHead>
               )}
-              {!piMode && <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>}
+              {!piMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", "brand")}</TableHead>}
               {attrCols.map((d) => (
-                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">
+                <TableHead key={d.id} className={cn("sticky top-0 z-20 bg-background", piHead)}>
                   {hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
                 </TableHead>
               ))}
               {rateCols.map((k) => (
-                <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">
+                <TableHead key={k} className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>
                   {/* SLICE 12b(B) acceptance 1: the DERIVED kind rides beside the key. A Pricing
                       Input carries its own fixed column label instead -- it is not a SKU rate. */}
-                  {hdr(`rate:${k}`, piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true,
+                  {hdr(`rate:${k}`,
+                       piMode ? (PRICING_INPUT_COLUMN_SHORT_LABELS[k] ?? PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true,
                        undefined, piMode ? undefined : rateLabelFor(k))}
                 </TableHead>
               ))}
-              <TableHead className="sticky top-0 z-20 bg-background">{hdr("unit", "unit")}</TableHead>
+              <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>
               {/* ACCEPTANCE 12: sharing has its OWN column, never the name. ACCEPTANCE 4/13: the remark
                   and the READ-ONLY used-by count. The SKU columns (source sheet / row, the two formula
                   columns) are absent -- they are what "nothing borrowed from a SKU file" means. */}
               {piMode ? (
                 <>
-                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:shared_by", "shared by")}</TableHead>
+                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:shared_by", "shared by")}</TableHead>
                   {/* ⚠️ NO `remarks` COLUMN since 12b(B): it renders under the input's NAME (acceptance
                       item 6). Its faceted filter goes with it -- a 255-character sentence was never a
                       useful facet -- and the remark is now in the SEARCH haystack, which it was not
                       before (see the `rows` memo). */}
-                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:used_by", "used by")}</TableHead>
+                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:used_by", "used by")}</TableHead>
+                  {/* SLICE 12b(B) / ACCEPTANCE 8: DISTINCT SKUs whose rate this input moves, clickable.
+                      ⚠️ NOT the `used_by` site count -- measured on v65 those correlate with nothing
+                      (`tray_supply` is 1 site / 450 SKUs; `conduit` is 10 sites / 8 SKUs). */}
+                  {showImpactCol ? (
+                    <TableHead className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>items</TableHead>
+                  ) : null}
                 </>
               ) : (
                 <>
-                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("source_sheet", "source sheet")}</TableHead>
-                  <TableHead className="sticky top-0 z-20 bg-background text-right">{hdr("source_row", "row", true)}</TableHead>
-                  <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderSupply}</TableHead>
-                  <TableHead className="sticky top-0 z-20 bg-background">{DERIVED_COPY.columnHeaderInstall}</TableHead>
+                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("source_sheet", "source sheet")}</TableHead>
+                  <TableHead className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>{hdr("source_row", "row", true)}</TableHead>
+                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderSupply}</TableHead>
+                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderInstall}</TableHead>
                 </>
               )}
             </TableRow>
@@ -873,7 +973,22 @@ export function RateMasterDataViewer({
                 {DERIVED_COPY.formulaRowLabel}
               </TableCell>
               {attrCols.map((d) => <TableCell key={d.id} />)}
-              {rateCols.map((k) => (
+              {/* ⚠️ IN PRICING-INPUTS MODE THIS IS ONE CELL ACROSS THE NUMERICS, NOT NINE NARROW COPIES.
+                  Each numeric column is ~68px wide, so the same sentence repeated under every one of
+                  them wrapped to five or six lines apiece and the formula row became a wall of prose.
+                  The FULL per-column explanation is unchanged in the rate file and stays on the hover,
+                  which is what `columnNote` is pinned to byte-for-byte across the two languages -- it
+                  is the RENDERING that is short here, never the note. */}
+              {piMode ? (
+                <TableCell
+                  colSpan={rateCols.length}
+                  className="whitespace-normal align-top text-[11px] italic leading-snug text-sky-900"
+                  title={rateCols.map((k) => `${PRICING_INPUT_COLUMN_LABELS[k] ?? k}: ${columnNote(config, k, derivedCounts[k] ?? 0)}`).join("\n\n")}
+                  data-testid="formula-note-pi"
+                >
+                  {DERIVED_COPY.formulaRowPiShort}
+                </TableCell>
+              ) : rateCols.map((k) => (
                 <TableCell
                   key={k}
                   // The note is scrollable rather than tall: unbounded, ONE long explanation made the
@@ -889,7 +1004,11 @@ export function RateMasterDataViewer({
               <TableCell />
               <TableCell />
               <TableCell />
-              {FORMULA_COLUMNS.map((fc) => (
+              {/* ⚠️ `!piMode` TO MATCH THE HEADER AND THE BODY, which both leave these out in pricing-
+                  inputs mode (the body already does, at `!piMode && FORMULA_COLUMNS.map`). Rendering
+                  them here alone put two extra cells on this row only, outside the column plan, and
+                  the formula row stood 445px tall against a 1482px table. */}
+              {!piMode && FORMULA_COLUMNS.map((fc) => (
                 <TableCell key={fc} className="max-w-[22rem] whitespace-pre-line text-[11px] italic text-sky-900">
                   {DERIVED_COPY.formulaRowHint}
                 </TableCell>
@@ -898,7 +1017,9 @@ export function RateMasterDataViewer({
             {filtered.map((r, i) => {
               const editing = canEdit && editingRow === r.it.name;
               return (
-              <TableRow key={r.it.name ?? i}>
+              /* ⚠️ COMPACT PADDING IN PRICING-INPUTS MODE ONLY -- the owner's rule is that no row
+                 exceeds five lines of text, and the default cell padding alone was over a line. */
+              <TableRow key={r.it.name ?? i} className={cn(piMode && "[&>td]:py-1.5 align-top")}>
                 {canEdit && (
                   <TableCell className="sticky left-0 z-10 bg-background text-right">
                     {editing ? (
@@ -1007,7 +1128,10 @@ export function RateMasterDataViewer({
                   <TableCell className="font-medium align-top">
                     <div>{String(r.it.attributes?.name ?? "")}</div>
                     {String(r.it.attributes?.remarks ?? "") ? (
-                      <div className="mt-0.5 whitespace-pre-line text-[11px] font-normal leading-snug text-muted-foreground">
+                      <div
+                        className="mt-0.5 line-clamp-2 text-[11px] font-normal leading-snug text-muted-foreground"
+                        title={String(r.it.attributes?.remarks ?? "")}
+                      >
                         {String(r.it.attributes?.remarks ?? "")}
                       </div>
                     ) : null}
@@ -1076,14 +1200,38 @@ export function RateMasterDataViewer({
                 <TableCell>{r.it.unit}</TableCell>
                 {piMode && (
                   <>
-                    <TableCell className="text-[11px] text-muted-foreground">
-                      {String(r.it.attributes?.shared_by ?? "") || "—"}
+                    <TableCell className="align-top text-[11px] text-muted-foreground">
+                      <span className="line-clamp-2" title={String(r.it.attributes?.shared_by ?? "")}>
+                        {String(r.it.attributes?.shared_by ?? "") || "—"}
+                      </span>
                     </TableCell>
                     {/* the remark moved under the NAME (acceptance item 6) -- no column of its own */}
                     {/* READ-ONLY: derived from the pricing rules, so there is no input to type into. */}
-                    <TableCell className="whitespace-nowrap text-[11px] text-muted-foreground" data-testid="pi-used-by">
-                      {String(r.it.attributes?.used_by ?? "")}
+                    {/* ⚠️ NEVER `whitespace-nowrap` HERE. In a fixed 190px column a 65-character list
+                        overflowed its cell and ran under the items badge -- the owner saw it. */}
+                    <TableCell className="align-top text-[11px] text-muted-foreground" data-testid="pi-used-by">
+                      <span className="line-clamp-2" title={String(r.it.attributes?.used_by ?? "")}>
+                        {String(r.it.attributes?.used_by ?? "")}
+                      </span>
                     </TableCell>
+                    {showImpactCol ? (
+                      <TableCell className="text-right">
+                        <button
+                          type="button"
+                          onClick={() => onOpenImpact?.(
+                            openImpactUid === r.it.item_uid ? null : (r.it.item_uid ?? null))}
+                          className={cn(
+                            "inline-flex h-5 min-w-[2.5rem] items-center justify-center rounded-full border px-2",
+                            "text-[11px] font-semibold tabular-nums",
+                            openImpactUid === r.it.item_uid
+                              ? "border-rose-600 bg-rose-600 text-white"
+                              : "border-input bg-background text-muted-foreground hover:text-foreground")}
+                          data-testid="pi-items-count"
+                        >
+                          {impactCountFor(r.it)}
+                        </button>
+                      </TableCell>
+                    ) : null}
                   </>
                 )}
                 {!piMode && <TableCell>{r.it.source_sheet}</TableCell>}
