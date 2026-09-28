@@ -88,11 +88,52 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     expect(src).toContain("{!piMode && FORMULA_COLUMNS.map(");
   });
 
-  it("ACCEPTANCE 4 + 12: the name leads the row; sharing, remarks and used-by are their own columns", () => {
+  // ⚠️ INVERTED at slice 12b(B), not deleted. This pin used to assert that `remarks` was its OWN
+  // column. Acceptance item 6 moved it UNDER the input's name (the owner: "the column widths are all
+  // wrong which make reading them very difficult" -- a 255-character remark was taking the width the
+  // eight percentage columns needed). The pin now asserts the NEW truth AND that the old column is
+  // gone, so a revert to a remarks column fails here rather than passing quietly.
+  it("ACCEPTANCE 4 + 12 + 6: the name leads the row and CARRIES the remark; sharing and used-by are their own columns", () => {
     expect(src).toContain('hdr("pi:name", "input")');
     expect(src).toContain('hdr("pi:shared_by", "shared by")');
-    expect(src).toContain('hdr("pi:remarks", "remarks")');
     expect(src).toContain('hdr("pi:used_by", "used by")');
+    // the remark is NO LONGER a column of its own ...
+    expect(src).not.toContain('hdr("pi:remarks"');
+    // ... and it is rendered inside the name cell instead
+    const nameCell = src.slice(src.indexOf('<TableCell className="font-medium align-top">'));
+    const upToClose = nameCell.slice(0, nameCell.indexOf("</TableCell>"));
+    expect(upToClose).toContain("r.it.attributes?.name");
+    expect(upToClose).toContain("r.it.attributes?.remarks");
+  });
+
+  // ─── SLICE 12b(B) ────────────────────────────────────────────────────────────────────────────
+  it("ACCEPTANCE 6: the Pricing Inputs grid declares a COLUMN PLAN; another category's grid does not", () => {
+    // `table-fixed` + a colgroup, both gated on piMode -- a SKU grid keeps its auto layout
+    expect(src).toContain('cn(piMode && "table-fixed")');
+    expect(src).toContain("{piMode ? (\n            <colgroup>");
+    // every numeric value column is narrow, and `amount` (rupees) slightly wider than a percentage
+    expect(src).toContain('style={{ width: k === "amount" ? 92 : 84 }}');
+  });
+
+  it("ACCEPTANCE 1: a rate header carries its DERIVED kind -- and a Pricing Input does NOT", () => {
+    // the label rides as `note`, never as `tag` (whose uppercase styling is the spec-mode marker)
+    expect(src).toContain("piMode ? undefined : rateLabelFor(k)");
+    expect(src).toContain("deriveRateColumnLabels(");
+  });
+
+  it("NEGATIVE: the label is gated on the DISCIPLINE, so an HVAC config gets none", () => {
+    // the viewer passes the config's own discipline; the deriver refuses anything outside its register
+    expect(src).toMatch(/deriveRateColumnLabels\([\s\S]{0,200}?discipline/);
+  });
+
+  it("a Pricing Input's own TEXT is searchable (it was not before 12b(B))", () => {
+    // its config declares no attribute_definitions, so attrCols is empty and the haystack held only
+    // rates + unit -- typing an input's NAME matched nothing
+    const rowsMemo = src.slice(src.indexOf("const rows = useMemo"));
+    const upTo = rowsMemo.slice(0, rowsMemo.indexOf("const filtered"));
+    expect(upTo).toContain("cellText(it.attributes?.name)");
+    expect(upTo).toContain("cellText(it.attributes?.remarks)");
+    expect(upTo).toContain("cellText(it.attributes?.used_by)");
   });
 
   it("ACCEPTANCE 13: the used-by cell is READ-ONLY -- rendered, never an input", () => {

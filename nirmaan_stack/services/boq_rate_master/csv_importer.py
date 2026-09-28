@@ -80,6 +80,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 
 import frappe
 
@@ -329,6 +330,28 @@ def _spec_owned_columns(discipline, spec_cats):
     return owned
 
 
+_LABEL_SUFFIX_RE = re.compile(r"\s*\[[^\[\]]*\]\s*$")
+
+
+def strip_header_label(header):
+    """`list_price [List price]` -> `list_price`. PURE.
+
+    SLICE 12b(B). The DERIVED rate-column kind rides in the header so a pricer reading the file knows
+    what the number is; the importer matches columns by EXACT NAME, so the suffix must come off before
+    anything is matched or every rate column would be an unplaceable-column ERROR and the whole file
+    would be refused.
+
+    ⚠️ SAFE BECAUSE NO NAME CONTAINS A BRACKET. Measured across BOTH disciplines: of 150 distinct
+    attribute ids and rate keys, not one contains `[` or `]`. So a trailing bracketed group can only be
+    a label, and stripping it can never eat part of a real name.
+
+    ⚠️ IT STRIPS ONLY A TRAILING GROUP, and the pattern forbids nested brackets, so a header that is
+    somehow all-bracket (`[x]`) strips to "" and is reported as a BLANK header rather than silently
+    matching something.
+    """
+    return _LABEL_SUFFIX_RE.sub("", str(header or "")).strip()
+
+
 def classify_columns(headers, attr_ids, rate_keys):
     """PURE. (spec, errors) -- which column index carries what.
 
@@ -350,6 +373,12 @@ def classify_columns(headers, attr_ids, rate_keys):
     """
     errors = []
     spec = {"attributes": {}, "rates": {}, "fixed": {}, "ignored": {}, "mode": "category"}
+    # SLICE 12b(B): a rate column's header now carries its DERIVED KIND -- `list_price [List price]`.
+    # The key still LEADS the cell and the suffix is stripped here, ONCE, before anything is matched, so
+    # every downstream reader (the name matching below, `is_pricing_input_headers`' positional check,
+    # `build_plan`) is byte-unchanged. A file with no labels strips to itself, so every pre-12b(B) file
+    # round-trips exactly as before.
+    headers = [strip_header_label(h) for h in headers]
     pi_file = csv_exporter.is_pricing_input_headers(headers)   # SLICE 12b(A), keyed on the file's shape
     seen = set()
     for idx, name in enumerate(headers):

@@ -38,6 +38,12 @@ import {
   PRICING_INPUT_VALUE_COLUMNS,
   PRICING_INPUT_PERCENT_COLUMNS,
   PRICING_INPUT_COLUMN_LABELS,
+  deriveRateColumnLabels,
+  rateColumnLabel,
+  RATE_LABEL_DISCIPLINES,
+  RATE_LABEL_OWNER_SET,
+  RATE_LABEL_UNSETTLED_NOTE,
+  columnNote,
 } from "./rateMasterSpec";
 import type { AttributeDefinition } from "./rateMasterTypes";
 import { UPLOAD_COPY, type UploadChange, type UploadPlan } from "./rateMasterUpload";
@@ -323,5 +329,165 @@ describe("SLICE 12b(A) -- Pricing Inputs on the screen", () => {
     expect(PRICING_INPUT_COLUMN_LABELS.supply_markup).toBe("Supply markup");
     expect(PRICING_INPUT_COLUMN_LABELS.installation_markup).toBe("Installation markup");
     expect(PRICING_INPUT_COLUMN_LABELS.bcs_markup).toBe("BCS markup");
+  });
+});
+
+// =====================================================================================================
+// SLICE 12b(B) -- THE DERIVED RATE-COLUMN LABEL.
+//
+// ⚠️ THE FIXTURE BELOW IS SHARED WITH `test_rate_master.RATE_LABEL_FIXTURE` AND THE TWO MUST AGREE
+// EXACTLY. The screen cannot call a Python exporter for one header cell, so the deriver exists twice;
+// this pin is the mechanism that stops the copies drifting. Change one side without the other and a
+// suite goes red -- that is the point. (Same contract as `FORMULA_FIXTURE` / `columnNote`.)
+// =====================================================================================================
+const RATE_LABEL_FIXTURE: any = {
+  // a LIST price: a discount reaches the column (the cable_tray / junction_box shape at v65)
+  tray: {
+    category_id: "tray", item_kinds: ["tray_item"], attribute_definitions: [], pipelines: {
+      tray_boq: {
+        output: ["supply"], steps: [
+          { step: "match_master_row", params: { kind: "tray_item" } },
+          { step: "component", name: "base", target: "list_col", params: { discount_from_ctx: "pi_d" }, formula: "base*(1-discount)" },
+          { step: "sum_components", result: "supply" },
+          { step: "scale", target: "supply", result: "supply", params: { markup_from_ctx: "pi_m" }, formula: "base*(1+markup)" },
+          { step: "rate_ref", ref: { kind: "x_pricing_input", item: "d" }, target: "discount", result: "pi_d" },
+          { step: "rate_ref", ref: { kind: "x_pricing_input", item: "m" }, target: "supply_markup", result: "pi_m" },
+        ],
+      },
+    },
+  },
+  // a BCS price: a markup but NO discount (the lms_item.rate shape -- the LMS inversion)
+  lms: {
+    category_id: "lms", item_kinds: ["lms_item"], attribute_definitions: [], pipelines: {
+      lms_boq: {
+        output: ["supply"], steps: [
+          { step: "match_master_row", params: { kind: "lms_item" } },
+          { step: "scale", target: "rate", result: "supply", params: { markup_from_ctx: "pi_m2" }, formula: "base*(1+markup)" },
+          { step: "rate_ref", ref: { kind: "x_pricing_input", item: "m2" }, target: "supply_markup", result: "pi_m2" },
+        ],
+      },
+      // ⚠️ a BCS-ONLY pipeline must NOT settle a label: it says how the COST is derived FROM the
+      // column, never what the column IS (owner ruling 2).
+      lms_bcs: {
+        output: ["bcs_supply"], steps: [
+          { step: "match_master_row", params: { kind: "lms_item" } },
+          { step: "scale", target: "rate", result: "bcs_supply", params: { bcs_ratio_from_ctx: "pi_r" }, formula: "base*bcs_ratio" },
+          { step: "rate_ref", ref: { kind: "x_pricing_input", item: "r" }, target: "ratio", result: "pi_r" },
+        ],
+      },
+    },
+  },
+  // a BoQ price: NOTHING is applied on the client-facing path (the misc_item shape)
+  misc: {
+    category_id: "misc", item_kinds: ["misc_item"], attribute_definitions: [], pipelines: {
+      misc_boq: {
+        output: ["supply", "install"], steps: [
+          { step: "match_master_row", params: { kind: "misc_item" } },
+          { step: "scale", target: "boq_supply", result: "supply", params: {}, formula: "base" },
+          { step: "scale", target: "boq_install", result: "install", params: {}, formula: "base" },
+          { step: "rate_ref", ref: { kind: "x_pricing_input", item: "r2" }, target: "ratio", result: "pi_r2" },
+        ],
+      },
+      misc_bcs: {
+        output: ["bcs_supply"], steps: [
+          { step: "match_master_row", params: { kind: "misc_item" } },
+          { step: "scale", target: "boq_supply", result: "bcs_supply", params: { bcs_ratio_from_ctx: "pi_r2" }, formula: "base*bcs_ratio" },
+          { step: "rate_ref", ref: { kind: "x_pricing_input", item: "r2" }, target: "ratio", result: "pi_r2" },
+        ],
+      },
+    },
+  },
+};
+
+describe("SLICE 12b(B) -- the derived rate-column label", () => {
+  const L = deriveRateColumnLabels(RATE_LABEL_FIXTURE, "Electrical");
+
+  it("a DISCOUNT reaching the column makes it a List price", () => {
+    expect(rateColumnLabel(L, "tray_item", "list_col")).toBe("List price");
+  });
+
+  it("a markup with NO discount makes it a BCS price -- the LMS inversion, surfaced", () => {
+    expect(rateColumnLabel(L, "lms_item", "rate")).toBe("BCS price");
+  });
+
+  it("NOTHING applied on the client-facing path makes it a BoQ price -- the rate IS the quote", () => {
+    expect(rateColumnLabel(L, "misc_item", "boq_supply")).toBe("BoQ price");
+  });
+
+  it("the (install) suffix comes from the LEG the column feeds", () => {
+    expect(rateColumnLabel(L, "misc_item", "boq_install")).toBe("BoQ price (install)");
+  });
+
+  it("NEGATIVE, owner ruling 2: a BCS-only pipeline never settles a label", () => {
+    // lms_bcs applies a RATIO to `rate`. Were that counted, `misc_item.boq_supply` -- whose ONLY
+    // operand is a bcs ratio -- would stop reading BoQ price. Here the BCS pipeline is the ONLY one.
+    const only = {
+      lms: { ...RATE_LABEL_FIXTURE.lms, pipelines: { lms_bcs: RATE_LABEL_FIXTURE.lms.pipelines.lms_bcs } },
+    };
+    expect(rateColumnLabel(deriveRateColumnLabels(only as any, "Electrical"), "lms_item", "rate")).toBeNull();
+  });
+
+  it("NEGATIVE: a column NO rule reads gets no derived label", () => {
+    expect(L["tray_item\u0000never_read"]).toBeUndefined();
+    expect(rateColumnLabel(L, "tray_item", "never_read")).toBeNull();
+  });
+
+  it("the label is NEVER taken from the column's NAME", () => {
+    // `list_col` reads List price because a DISCOUNT reaches it -- strip the discount and the SAME name
+    // reads BCS price. This is exactly the junction_box.list_price case that forced v65.
+    const noDiscount = structuredClone(RATE_LABEL_FIXTURE);
+    const base = noDiscount.tray.pipelines.tray_boq.steps[1];
+    base.params = {};
+    base.formula = "base";
+    expect(rateColumnLabel(deriveRateColumnLabels(noDiscount, "Electrical"), "tray_item", "list_col"))
+      .toBe("BCS price");
+  });
+
+  it("ACCEPTANCE 3: the label is DERIVED -- change a rule and the label follows", () => {
+    const flipped = structuredClone(RATE_LABEL_FIXTURE);
+    flipped.misc.pipelines.misc_boq.steps[1] = {
+      step: "scale", target: "boq_supply", result: "supply",
+      params: { discount_from_ctx: "pi_dd" }, formula: "base*(1-discount)",
+    };
+    flipped.misc.pipelines.misc_boq.steps.push(
+      { step: "rate_ref", ref: { kind: "x_pricing_input", item: "dd" }, target: "discount", result: "pi_dd" });
+    expect(rateColumnLabel(deriveRateColumnLabels(flipped, "Electrical"), "misc_item", "boq_supply"))
+      .toBe("List price");
+  });
+
+  it("OWNER-SET entries are consulted ONLY where the derivation is silent", () => {
+    expect(RATE_LABEL_OWNER_SET["cable_tray\u0000with_cover_list"]).toBe("List price");
+    const shadowed = deriveRateColumnLabels({
+      t: {
+        category_id: "t", item_kinds: ["cable_tray"], attribute_definitions: [], pipelines: {
+          p: {
+            output: ["supply"], steps: [
+              { step: "match_master_row", params: { kind: "cable_tray" } },
+              { step: "scale", target: "with_cover_list", result: "supply", params: { markup_from_ctx: "pi_q" }, formula: "base*(1+markup)" },
+              { step: "rate_ref", ref: { kind: "x_pricing_input", item: "q" }, target: "supply_markup", result: "pi_q" },
+            ],
+          },
+        },
+      },
+    } as any, "Electrical");
+    // the DERIVED answer wins; the owner-set List price does NOT shadow it
+    expect(rateColumnLabel(shadowed, "cable_tray", "with_cover_list")).toBe("BCS price");
+  });
+
+  it("NEGATIVE, owner ruling 2026-09-28: the label is ELECTRICAL BY RULE, not by accident", () => {
+    // The SAME configs that derive labels as Electrical derive NOTHING as HVAC. This is the pin the
+    // owner asked for: 12c gives HVAC its own pricing rules, the mechanism gate would then open, and an
+    // ungated deriver would start labelling HVAC columns nobody asked for.
+    expect(Object.keys(deriveRateColumnLabels(RATE_LABEL_FIXTURE, "Electrical")).length).toBeGreaterThan(0);
+    expect(deriveRateColumnLabels(RATE_LABEL_FIXTURE, "HVAC")).toEqual({});
+    expect(deriveRateColumnLabels(RATE_LABEL_FIXTURE, "")).toEqual({});
+    expect(RATE_LABEL_DISCIPLINES).toEqual(["Electrical"]);
+  });
+
+  it("ACCEPTANCE 2: an unsettled column's formula row says the rules do not determine it", () => {
+    const note = columnNote(RATE_LABEL_FIXTURE.tray, "never_read", 0, true);
+    expect(note.split("\n")[0]).toBe(RATE_LABEL_UNSETTLED_NOTE);
+    // ABSENT => byte-identical to before 12b(B)
+    expect(columnNote(RATE_LABEL_FIXTURE.tray, "never_read", 0)).not.toContain(RATE_LABEL_UNSETTLED_NOTE);
   });
 });

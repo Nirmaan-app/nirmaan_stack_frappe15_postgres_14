@@ -319,6 +319,20 @@ def _numeric_columns(attrs, rates, attr_types):
     return set(rates) | {a for a in attrs if attr_types.get(a) in NUMERIC_ATTR_TYPES}
 
 
+def labelled_rate_headers(labels, rates, kinds_in_file):
+    """SLICE 12b(B). `{rate_key: header cell}` for a file's rate columns -- the key, plus its DERIVED
+    kind in brackets where the file can state one unambiguously.
+
+    ⚠️ EVERYTHING THE WRITER KEYS ON A HEADER NAME MUST BE TRANSLATED WITH THIS SAME MAP.
+    `xlsx_io.write_xlsx` matches `numeric_columns`, `wrap_columns` and each row's locked-cell set
+    against the header CELL, so labelling the headers alone would silently make every rate column TEXT
+    (losing its number format) and would stop marking a derived cell as not-editable. `xlsx_io` is out
+    of this slice's scope, which is exactly why the translation is centralised here instead: one map,
+    applied to the headers and to both keyed sets at the same call site.
+    """
+    return {r: rate_header_cell(r, header_label_for_rate(labels, r, kinds_in_file)) for r in rates}
+
+
 def _lead(item, with_kind, discipline, category):
     """item_uid, discipline, category, [kind], brand, unit -- the same shape in BOTH modes since 1g."""
     lead = [item["item_uid"], discipline, category]
@@ -460,7 +474,13 @@ def build_category_rows(discipline, category_id):
     # SLICE 12a (owner I-6): the two read-only formula columns, LAST, on every row of every
     # discipline. They are TEXT, so they must stay out of `_numeric_columns` -- which they do by
     # construction: they are neither an attribute nor a rate key.
-    headers = _lead_headers(with_kind, mode_b=False) + attrs + rates + list(FORMULA_COLUMNS)
+    # SLICE 12b(B): `header_keys` stays the UNLABELLED run, because the formula row aligns by name; the
+    # labelled cells go out as `headers`. Positions are identical, so only the rate cells' TEXT differs.
+    header_keys = _lead_headers(with_kind, mode_b=False) + attrs + rates + list(FORMULA_COLUMNS)
+    labels = derive_rate_column_labels(_load_configs(discipline), discipline)
+    rate_hdr = labelled_rate_headers(labels, rates, sorted(cat_kinds.get(category_id) or []))
+    headers = (_lead_headers(with_kind, mode_b=False) + attrs
+               + [rate_hdr[r] for r in rates] + list(FORMULA_COLUMNS))
     texts, derived_by_key = formula_cells_for(cfg, rows_in)
     derived = config_validation.derived_cells(cfg)
     rows = []
@@ -471,12 +491,19 @@ def build_category_rows(discipline, category_id):
             + [_rate_cell(it, r, derived) for r in rates]
             + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
+    numeric = _numeric_columns(attrs, rates, attr_types)
     return {"headers": headers, "rows": rows, "n": len(rows),
-            "numeric": _numeric_columns(attrs, rates, attr_types),
-            "formula_row": formula_row_cells(cfg, headers, set(rates), derived_by_key),
+            # translated through the SAME map as the headers -- see `labelled_rate_headers`
+            "numeric": {rate_hdr.get(n, n) for n in numeric},
+            # A rate column whose header gained NO bracket is one the rules do not settle -- exactly
+            # what acceptance item 2 wants the formula row to say in words.
+            "formula_row": formula_row_cells(cfg, header_keys, set(rates), derived_by_key,
+                                             unsettled_rates={r for r in rates
+                                                              if rate_hdr[r] == r}),
             # one set per row: the cells a pricer must NOT type in (owner 2026-09-27 -- the .xlsx
             # fills them red, because an EMPTY cell says nothing about whether it is editable)
-            "locked": [{r for r in rates if (it["item_uid"], r) in derived} for it in rows_in]}
+            "locked": [{rate_hdr.get(r, r) for r in rates if (it["item_uid"], r) in derived}
+                       for it in rows_in]}
 
 
 def build_all_categories_rows(discipline):
@@ -501,10 +528,19 @@ def build_all_categories_rows(discipline):
     # owner 2026-09-27: within a CATEGORY, the workbook's own row order. Mode B spans every category,
     # so the category groups the file and the workbook orders each group.
     items = sorted(_source_order(items), key=lambda it: kind_cat.get(it["kind"], ""))
-    headers = _lead_headers(with_kind, mode_b=True) + attrs + rates + list(FORMULA_COLUMNS)
+    header_keys = _lead_headers(with_kind, mode_b=True) + attrs + rates + list(FORMULA_COLUMNS)
     # SLICE 12a: Mode B spans every category, so each ROW's formula text is rendered against ITS OWN
     # category's config, and the formula ROW joins the per-category notes for a shared rate column.
     configs = _load_configs(discipline)
+    # SLICE 12b(B): Mode B is EVERY kind in one file, so a shared rate key gets a label only where all
+    # of them agree (`header_label_for_rate`). Measured on v65: `list_price` across four kinds and
+    # `list_price_per_mtr` across two all derive List price, so nothing is suppressed today -- the
+    # narrowing exists so that the day two kinds disagree the header says nothing rather than the
+    # wrong thing.
+    _labels = derive_rate_column_labels(configs, discipline)
+    rate_hdr = labelled_rate_headers(_labels, rates, sorted({it["kind"] for it in items}))
+    headers = (_lead_headers(with_kind, mode_b=True) + attrs
+               + [rate_hdr[r] for r in rates] + list(FORMULA_COLUMNS))
     items_by_cat = {}
     for it in items:
         items_by_cat.setdefault(kind_cat.get(it["kind"], ""), []).append(it)
@@ -529,12 +565,14 @@ def build_all_categories_rows(discipline):
             + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
     return {"headers": headers, "rows": rows, "n": len(rows),
-            "numeric": _numeric_columns(attrs, rates, attr_types),
-            "locked": [{r for r in rates
+            # translated through the SAME map as the headers -- see `labelled_rate_headers`
+            "numeric": {rate_hdr.get(n, n) for n in _numeric_columns(attrs, rates, attr_types)},
+            "locked": [{rate_hdr.get(r, r) for r in rates
                         if (it["item_uid"], r)
                         in (derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})}
                        for it in items],
-            "formula_row": formula_row_cells_all(configs, headers, set(rates), derived_by_cat,
+            # `header_keys`, never `headers`: this row aligns by NAME (see `formula_row_cells`)
+            "formula_row": formula_row_cells_all(configs, header_keys, set(rates), derived_by_cat,
                                                  set(items_by_cat),
                                                  {c: set().union(*[set(i["rates"]) for i in its])
                                                   if its else set()
@@ -625,6 +663,329 @@ def build_all_categories_xlsx(discipline):
 # cell). The two are pinned to byte-identical output on a shared fixture -- `test_rate_master`'s
 # `FORMULA_FIXTURE` and `rateMasterSpec.test.ts`'s copy of it -- exactly as `node_is_qty_bearing` /
 # `isRowQtyBearing` and `_NUMERIC_ATTR_TYPES` / `isNumericAttributeType` already are.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12b(B) -- THE RATE-COLUMN LABEL. DERIVED FROM HOW THE RULES USE THE NUMBER.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#
+# THE RULE (owner N-6, 2026-09-28). A rate column is a supplier LIST price, our own COST (BCS), or the
+# figure we QUOTE (BoQ) -- and which one it is is settled by what the PIPELINES do to it, never by the
+# column's NAME. `junction_box.list_price` is NOT a list price because it is called one; it is one
+# because a discount is taken off it.
+#
+#     a DISCOUNT term reaches the column          -> "List price"
+#     no discount, but a markup / wastage /       -> "BCS price"   (the number is our cost)
+#        ratio / share term reaches it
+#     nothing is applied to it                    -> "BoQ price"   (the number IS the quote)
+#     no rule reads it at all                     -> None          (UNLABELLED)
+#     every client-facing result it feeds is      -> append " (install)"
+#        an install leg
+#
+# ⚠️ PROVENANCE, NOT THE CONSUMING STEP ALONE. An assembly's multiplier is applied to the SUM, so a
+# deriver that reads only the step touching the column reports "nothing applied" for every
+# db_switchgear, industrial_socket and switch/socket row -- nine columns mislabelled BoQ price. The
+# walk therefore threads (kind, rate_key) -> component -> sum -> scale -> output.
+#
+# ⚠️ ONLY THE CLIENT-FACING PATH SETTLES A LABEL (owner ruling 2, 2026-09-28). A term applied on the
+# way to a `bcs_*` output says how the COST is derived FROM a column, never what the column IS.
+# `misc_item.boq_supply` reaches `supply` UNCHANGED and `bcs_supply` via a ratio -- which is exactly
+# 12b(A)'s "the rate IS the quote". Counting that ratio relabels it BCS price and re-opens the
+# confusion rule change 1 settled. It governs the `(install)` suffix too.
+#
+# ⚠️ THIS IS WHY THE 0% DISCOUNTS HAD TO BE REAL DATA (slice 12b(B), owner option (b)).
+# `junction_box.list_price` and `lms_item.rate` were, until v65, BOTH `base * (1 + one supply markup)`
+# and nothing else -- structurally indistinguishable, yet one must read List price and the other BCS
+# price (the LMS inversion). No function reading only the rules could separate them. v65 gives cable
+# tray and junction box the 0% discount the owner ruled on 2026-09-27, so the distinguishing fact is
+# IN THE DATA and the label needs no special case. Do not re-introduce one.
+RATE_LABEL_LIST = "List price"
+RATE_LABEL_BCS = "BCS price"
+RATE_LABEL_BOQ = "BoQ price"
+RATE_LABEL_INSTALL_SUFFIX = " (install)"
+# The formula row's FIRST line for a column the rules do not settle (acceptance item 2).
+RATE_LABEL_UNSETTLED_NOTE = ("the pricing rules do not determine what kind of rate this is, so it "
+                             "carries no label.")
+
+# ⚠️ OWNER-SET, NOT DERIVED (owner ruling 1, 2026-09-28). `cable_tray.with_cover_list` is read by NO
+# step in any pipeline, so nothing can derive it -- and the owner ruled it "List price", the same as
+# its two siblings, because it is the same kind of number: what we pay for a covered tray.
+#
+# ⚠️ DO NOT INVENT A "SAME-KIND SIBLINGS" RULE TO DERIVE IT (owner, same ruling). That would guess
+# wrong the first time a category has two unrelated unread columns. An owner-set entry is a recorded
+# decision, and `test_rate_master`'s pin asserts this map holds EXACTLY the columns no rule reads --
+# so if a future rule ever does read one, the suite goes RED and the disagreement reads as a QUESTION
+# rather than silently overriding a derived label.
+#
+# ⚠️ AN OWNER-SET ENTRY NEVER SHADOWS A DERIVED LABEL: `rate_column_label` consults it only where the
+# derivation yields None. That is what keeps acceptance item 3 true -- change a rule and the label
+# follows.
+RATE_LABEL_OWNER_SET = {
+    ("cable_tray", "with_cover_list"): RATE_LABEL_LIST,
+}
+
+_BCS_KEY_PREFIX = "bcs_"
+_LABEL_DISCOUNT = "discount"
+# A derived BoQ/BCS multiplier is `(1 - discount) x (1 + markup)`, so it carries a discount.
+_LABEL_MULTIPLIER = "multiplier"
+_LABEL_COSTISH = ("markup", "wastage", "ratio", "share")
+
+
+def _is_internal_value_key(key):
+    """A value key on the INTERNAL cost side. `bcs_*` is the shipped convention across all 13 configs."""
+    return str(key).startswith(_BCS_KEY_PREFIX)
+
+
+def _pi_operand_kinds(cfg_pipeline):
+    """{ctx key -> 'discount' | 'costish'} for one pipeline's pricing-input preamble, resolved through
+    the derived-multiplier scales (a `(1-d)x(1+m)` product counts as carrying a discount)."""
+    kinds = {}
+    steps = cfg_pipeline.get("steps") or []
+    for s in steps:
+        if s.get("step") == "rate_ref":
+            kinds[s.get("result")] = (_LABEL_DISCOUNT if s.get("target") == _LABEL_DISCOUNT
+                                      else "costish")
+    for s in steps:
+        if s.get("pricing_input") is True:
+            srcs = {kinds.get(s.get("target"))}
+            for k, v in (s.get("params") or {}).items():
+                if k.endswith("_from_ctx"):
+                    srcs.add(kinds.get(v))
+            kinds[s.get("result")] = _LABEL_DISCOUNT if _LABEL_DISCOUNT in srcs else "costish"
+    return kinds
+
+
+def _step_operand_terms(step, ctx_kinds):
+    """The operand kinds THIS step applies, resolved through the pipeline's pricing-input ctx keys."""
+    out = set()
+    blobs = [step.get("params") or {}]
+    blobs += [x or {} for x in (step.get("rate_stages") or [])]
+    for c in step.get("conditions") or []:
+        blobs.append(c.get("params") or {})
+    for b in blobs:
+        for k, v in b.items():
+            if k.endswith("_from_ctx") and isinstance(v, str):
+                kind = ctx_kinds.get(v)
+                if kind:
+                    out.add(kind)
+    return out
+
+
+# ⚠️ THE DISCIPLINE OPT-IN (owner ruling, 2026-09-28). The label is ELECTRICAL BY RULE, not by accident.
+#
+# THE QUESTION THE OWNER ASKED, AND THE HONEST ANSWER THAT PROMPTED THIS: the first build gated only on
+# the MECHANISM -- "does this config set contain a `rate_ref`?" -- and HVAC produced nothing merely
+# because of how its columns happen to be read today. That is an accident waiting to expire: **12c gives
+# Insulation its pricing rules, the first HVAC `rate_ref` appears, the mechanism gate opens, and HVAC
+# starts carrying labels nobody asked for** -- wrongly, because its markups are stored ITEM COLUMNS and
+# the evidence this deriver reads would still be absent. Owner N-6: HVAC's columns "are explicit ...
+# there is no confusion", so HVAC needs none.
+#
+# So the gate is now the DISCIPLINE, declared here as DATA in ONE place. A discipline joins this register
+# only by a deliberate edit, which is the moment its own label ruling is needed -- exactly the shape the
+# repo already uses for `PROJECTED_ITEM_COLUMNS`, `spec_categories` and `PRICING_ACCESS_SET`. That is
+# how this stays compatible with the HV-10 rule: no behaviour is INFERRED from a discipline name in
+# logic; there is one explicit register, and it is the ruling written down.
+#
+# ⚠️ `discipline` IS REQUIRED, NOT OPTIONAL. A default would let a caller silently disable every label
+# by forgetting it -- a whole feature vanishing with no error. Omit it and you get a TypeError.
+RATE_LABEL_DISCIPLINES = ("Electrical",)
+
+
+def derive_rate_column_labels(configs, discipline, include_owner_set=True):
+    """{(kind, rate_key): label} for every rate column ANY rule reads. PURE -- no DB, no request ctx.
+
+    `configs` is {category_id: config}, i.e. what `_load_configs(discipline)` returns. A column absent
+    from the result is one no rule reads; `rate_column_label` turns that into the owner-set label where
+    one is recorded, else None.
+
+    ⚠️ MIRRORED in `rateMasterSpec.deriveRateColumnLabels` and pinned byte-identical on the shared
+    fixture. The screen cannot call an exporter for one header cell, so the duplication is deliberate
+    and the pin is the mechanism (the `FORMULA_FIXTURE` precedent).
+    """
+    # ⚠️ GATE 1 OF 2 -- THE DISCIPLINE, AND IT IS THE LOAD-BEARING ONE (owner ruling 2026-09-28).
+    # See `RATE_LABEL_DISCIPLINES`. This is what makes HVAC label-free BY RULE rather than by accident,
+    # and what stops 12c opening the door on its own.
+    if str(discipline or "") not in RATE_LABEL_DISCIPLINES:
+        return {}
+
+    # ⚠️ GATE 2 OF 2 -- THE VOCABULARY, kept as an INDEPENDENT second stop.
+    #
+    # This label answers "what do the PRICING-INPUT rules say this number is?" -- every one of its three
+    # verdicts is evidence about a discount / markup / ratio / share read through a `rate_ref`. A
+    # discipline that does not express its pricing that way has NO ANSWER IN THIS VOCABULARY, and the
+    # honest result is silence, not a guess. It is DEFENCE IN DEPTH, not the ruling: were the register
+    # above ever mis-set, a discipline that does not price through pricing inputs still gets nothing.
+    #
+    # HVAC is exactly that case: its markups are STORED COLUMNS on the item (`supply_markup`,
+    # `install_markup` on `hvac_adp_item`), not pricing inputs, so its configs carry ZERO `rate_ref`
+    # steps. Without this gate the `else` branch below fires and `hvac_adp_item.cost_supply` --
+    # plainly a COST -- is labelled "BoQ price", which is both wrong and a change to HVAC's files.
+    # Measured: 2 HVAC columns mislabelled before the gate, 0 after.
+    #
+    # ⚠️ NO DISCIPLINE IS NAMED HERE (the HV-10 rule). The gate is the PRESENCE OF THE MECHANISM, so a
+    # discipline that later adopts pricing inputs flows through with no code change -- and one that
+    # never does stays silent forever.
+    #
+    # ⚠️ WHEN HVAC DOES GAIN A PRICING-INPUTS CATEGORY (12c), ITS LABELS NEED THEIR OWN RULING. A
+    # stored `supply_markup` COLUMN is still not a pricing input, so the gate would open while the
+    # evidence stayed absent, and `cost_supply` would derive "BoQ price" again. Do not assume this
+    # deriver extends to HVAC for free.
+    if not any((s or {}).get("step") == "rate_ref"
+               for cfg in (configs or {}).values()
+               for pl in ((cfg or {}).get("pipelines") or {}).values()
+               for s in ((pl or {}).get("steps") or [])):
+        return {}
+
+    terms = {}      # (kind, rate_key) -> set of operand kinds on the CLIENT-FACING path
+    results = {}    # (kind, rate_key) -> set of client-facing value keys it feeds
+
+    def note(col, applied, res):
+        if not col[0] or not col[1]:
+            return
+        terms.setdefault(col, set()).update(applied)
+        if res:
+            results.setdefault(col, set()).add(res)
+
+    for cid in sorted(configs or {}):
+        cfg = configs[cid] or {}
+        for pid in sorted(cfg.get("pipelines") or {}):
+            pl = cfg["pipelines"][pid] or {}
+            steps = list(pl.get("steps") or [])
+            ctx_kinds = _pi_operand_kinds(pl)
+            # A pipeline whose every output is `bcs_*` says nothing about what a column IS.
+            client_facing = any(not _is_internal_value_key(o) for o in (pl.get("output") or []))
+            prov = {}       # value key -> set of (kind, rate_key)
+            acc = set()     # components accumulated for the next sum_components
+            driving = None  # the kind whose OWN rates this pipeline prices
+
+            def prov_add(key, cols):
+                if key:
+                    prov.setdefault(key, set()).update(cols)
+
+            # THE HOIST: the pricing-input preamble is evaluated first at run time, so read it first
+            # here too. Nothing in this walk depends on it, but keeping the orders identical is what
+            # stops the two diverging the day a preamble step gains provenance.
+            ordered = ([s for s in steps if s.get("step") == "rate_ref" or s.get("pricing_input") is True]
+                       + [s for s in steps if not (s.get("step") == "rate_ref"
+                                                   or s.get("pricing_input") is True)])
+            for s in ordered:
+                st = s.get("step")
+                if st in ("match_master_row", "catalog_fit"):
+                    driving = (s.get("params") or {}).get("kind")
+                elif st == "component_ref":
+                    cols = {((s.get("ref") or {}).get("kind"), s.get("target"))}
+                    prov_add(s.get("name"), cols)
+                    prov_add(s.get("result"), cols)
+                    acc |= cols
+                    if client_facing:           # a component feeds a SUM: the PIPELINE decides
+                        for c in cols:
+                            note(c, _step_operand_terms(s, ctx_kinds), None)
+                elif st in ("component", "component_band"):
+                    tgts = ([s.get("target")] if s.get("target")
+                            else [b.get("target") for b in (s.get("bands") or [])])
+                    cols = {(driving, t) for t in tgts if t and driving}
+                    prov_add(s.get("name"), cols)
+                    acc |= cols
+                    if client_facing:
+                        for c in cols:
+                            note(c, _step_operand_terms(s, ctx_kinds), None)
+                elif st == "sum_components":
+                    prov_add(s.get("result"), set(acc))
+                elif st in ("scale", "apply_effective_multiplier", "install_as_ratio", "roundup"):
+                    tgt = s.get("target")
+                    cols = set(prov.get(tgt) or ())
+                    # The first read of the matched row's OWN rate: a target with no provenance at all
+                    # is a stored rate key on the driving kind.
+                    #
+                    # ⚠️ `tgt not in prov` IS THE LOAD-BEARING HALF, not `not cols`. An earlier step may
+                    # have registered the key with an EMPTY provenance set -- `install_as_ratio` has no
+                    # `target`, so its `result` lands in `prov` empty -- and on the next step that reads
+                    # it (`roundup target=install_per_set`) the `not cols` test alone fires the fallback
+                    # and INVENTS `(termination, "install_per_set")` as though it were a stored column.
+                    # It is a COMPUTED value key. The phantom never reached a header (callers only ask
+                    # about keys the catalogue actually stores) but it sat in the map waiting to collide
+                    # with a real column name. Found by comparing a per-category derivation against the
+                    # whole-discipline one, not by a test.
+                    if tgt and tgt not in prov and driving:
+                        cols = {(driving, tgt)}
+                        prov_add(tgt, cols)
+                    res = s.get("result") or tgt
+                    prov_add(res, cols)
+                    if res and not _is_internal_value_key(res):
+                        applied = _step_operand_terms(s, ctx_kinds)
+                        for c in cols:
+                            note(c, applied, res)
+            # every client-facing OUTPUT the column ultimately feeds (the `(install)` evidence)
+            for out_key in pl.get("output") or []:
+                if _is_internal_value_key(out_key):
+                    continue
+                for c in prov.get(out_key) or ():
+                    note(c, set(), out_key)
+
+    labels = {}
+    for col, applied in terms.items():
+        if _LABEL_DISCOUNT in applied or _LABEL_MULTIPLIER in applied:
+            lab = RATE_LABEL_LIST
+        elif "costish" in applied:
+            lab = RATE_LABEL_BCS
+        else:
+            lab = RATE_LABEL_BOQ
+        res = {r for r in (results.get(col) or ()) if r}
+        if res and all(_INSTALL_MARKER in r for r in res):
+            lab += RATE_LABEL_INSTALL_SUFFIX
+        labels[col] = lab
+    # ⚠️ THE OWNER-SET MAP IS FOLDED IN HERE, INSIDE THE DISCIPLINE GATE -- NOT LOOKED UP LATER.
+    #
+    # It first lived in `rate_column_label`, which is called with no discipline, so an owner-set entry
+    # LEAKED PAST THE GATE: a Mode A file for ANY discipline carrying a `cable_tray` kind got
+    # `with_cover_list [List price]`, and the suite caught it on a synthetic TEST discipline. A ruling
+    # about ELECTRICAL's columns must not label another discipline's.
+    #
+    # Folded ONLY where the derivation is silent, so it still cannot shadow a derived label -- that is
+    # what keeps acceptance item 3 true. `include_owner_set=False` gives the DERIVED-ONLY map, which is
+    # what the "this map holds exactly the unread columns" pin needs to ask about.
+    if include_owner_set:
+        for col, lab in RATE_LABEL_OWNER_SET.items():
+            labels.setdefault(col, lab)
+    return labels
+
+
+def rate_column_label(labels, kind, rate_key):
+    """The label for ONE column, or None when the rules do not settle it and no owner ruling covers it.
+
+    ⚠️ The owner-set map is consulted ONLY where the derivation is silent, so it can never shadow a
+    derived label -- acceptance item 3 ("change a rule and the label follows") depends on that order.
+    """
+    # A PLAIN LOOKUP. The owner-set entries are already folded in by `derive_rate_column_labels`, behind
+    # the discipline gate -- see the note there for why they cannot be consulted here instead.
+    return labels.get((kind, rate_key))
+
+
+def header_label_for_rate(labels, rate_key, kinds_in_file):
+    """The label a FILE's header may carry for `rate_key`, given the kinds present in that file.
+
+    ⚠️ ONLY WHEN IT IS UNAMBIGUOUS. One rate key can be carried by several kinds -- `list_price` is on
+    four of them -- and a header carries ONE cell. Where two kinds in the same file disagree the header
+    carries NO label rather than one of them: a header that names the wrong kind of rate is worse than
+    a header that names none. Today every shared key agrees (measured on v65: `list_price` across four
+    kinds and `list_price_per_mtr` across two are all List price), so this narrowing is invisible --
+    which is exactly why it is pinned by a test rather than left to be discovered.
+    """
+    seen = {rate_column_label(labels, k, rate_key) for k in (kinds_in_file or ())}
+    seen = {s for s in seen if s}
+    return seen.pop() if len(seen) == 1 else None
+
+
+def rate_header_cell(rate_key, label):
+    """`list_price` -> `list_price [List price]`. The KEY is unchanged and leads the cell, so the
+    importer still matches by name after stripping the suffix (`csv_importer.strip_header_label`).
+
+    ⚠️ Square brackets, and they are load-bearing: NO attribute id or rate key in either discipline
+    contains `[` or `]` (measured -- 150 distinct keys), so the suffix can never be confused with part
+    of a name, and stripping it is unambiguous.
+    """
+    return "%s [%s]" % (rate_key, label) if label else rate_key
+
+
 FORMULA_COLUMNS = ("supply_formula", "install_formula")
 FORMULA_ROW_MARKER = "(formula row -- not an item; ignored on upload)"
 FORMULA_TYPED = "typed"
@@ -757,10 +1118,17 @@ def _composition_role(cfg, rate_key):
     return None, None, None
 
 
-def column_note(cfg, rate_key, derived_uids=()):
+def column_note(cfg, rate_key, derived_uids=(), unsettled=False):
     """The FORMULA ROW's cell for one rate column (owner I-7). PURE. Mirrored in
-    `rateMasterSpec.columnNote`."""
+    `rateMasterSpec.columnNote`.
+
+    SLICE 12b(B) / ACCEPTANCE ITEM 2: `unsettled=True` prepends ONE line saying the rules do not
+    determine what kind of rate this is -- the words that go with an absent header label. It DEFAULTS
+    FALSE, so every existing caller and both cross-language pins are byte-identical.
+    """
     lines = []
+    if unsettled:
+        lines.append(RATE_LABEL_UNSETTLED_NOTE)
     if derived_uids:
         lines.append("DERIVED on %d row(s): the value comes from another catalogue row -- see that "
                      "row's supply_formula / install_formula." % len(derived_uids))
@@ -815,9 +1183,18 @@ def _capped(text, limit=_NOTE_MAX_CHARS):
     return kept.rstrip() + " ..."
 
 
-def formula_row_cells(cfg, headers, rate_keys, derived_by_key):
+def formula_row_cells(cfg, headers, rate_keys, derived_by_key, unsettled_rates=()):
     """The FORMULA ROW aligned with `headers` (owner I-7). `item_uid` carries the marker so the
-    importer can drop the row wherever it sits; every identity / attribute cell is blank."""
+    importer can drop the row wherever it sits; every identity / attribute cell is blank.
+
+    ⚠️ `headers` MUST be the UNLABELLED key run. Since 12b(B) a rate column's header CELL carries its
+    derived kind, and this row aligns by NAME -- handed the labelled run it would match no rate key and
+    every explanation would silently become an empty cell. `build_category_rows` therefore keeps
+    `header_keys` beside `headers` for exactly this call.
+
+    `unsettled_rates` (12b(B), acceptance item 2) names the rate columns the rules do not settle;
+    ABSENT is byte-identical to before.
+    """
     cells = []
     for name in headers:
         if name == "item_uid":
@@ -826,7 +1203,8 @@ def formula_row_cells(cfg, headers, rate_keys, derived_by_key):
             cells.append("How this row's %s cost is built. Read-only: edits here are ignored."
                          % ("install" if name.startswith("install") else "supply"))
         elif name in rate_keys:
-            cells.append(column_note(cfg, name, derived_by_key.get(name) or ()))
+            cells.append(column_note(cfg, name, derived_by_key.get(name) or (),
+                                     unsettled=name in (unsettled_rates or ())))
         else:
             cells.append("")
     return cells

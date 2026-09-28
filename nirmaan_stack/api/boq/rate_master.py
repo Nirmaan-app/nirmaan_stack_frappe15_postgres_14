@@ -1131,6 +1131,35 @@ def _require_rate_admin():
     return user
 
 
+def _guard_pricing_input_values(kind, rates):
+    """SLICE 12b(B) -- THE NEGATIVE-VALUE GUARD, and it closes a live hole.
+
+    `csv_importer.validate_pricing_input_value` refuses a negative and DELIBERATELY allows zero (three
+    inputs are 0% by ruling, and v65 adds two more). Until now it had exactly ONE call site -- the CSV
+    upload -- while this file's rate writers validated with `_finite_number` alone, which rejects
+    None / bool / NaN / Inf but ACCEPTS A NEGATIVE. So `-20%` saved from the Rate Master grid and was
+    refused in the file: the same value, two answers.
+
+    ONE DEFINITION, NOW THREE CALL SITES. The refusal text is the importer's own, so the grid and the
+    file can never word it differently or disagree about what is allowed.
+
+    ⚠️ APPLIED TO BOTH WRITE PATHS (update AND create), deliberately. 12b(A)'s R5 note records the cost
+    of doing half of this: `refuse_if_in_use` was wired into the CSV path only, so a rename was blocked
+    and a DELETE was not, and the cert found it rather than the suite. A negative refused on edit but
+    accepted on create is the same shape of half-enforcement.
+
+    ⚠️ SCOPED BY THE KIND SUFFIX, like the rest of the pricing-input work. An ordinary catalogue rate is
+    free to be whatever it is; this says nothing about them.
+    """
+    from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+    if not csv_exporter.is_pricing_input_kind(kind):
+        return
+    for k, v in (rates or {}).items():
+        err = csv_importer.validate_pricing_input_value(v, k)
+        if err:
+            frappe.throw(err, title="Invalid pricing input")
+
+
 def _finite_number(value, label):
     """Parse value to a finite float (int/float/numeric-string). Rejects None/bool/NaN/Inf and
     non-numeric strings -- numeric-only param/rate values (RM-4a edits values, never types)."""
@@ -1397,6 +1426,7 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
                 rates[k] = None  # numeric-OR-NULL
             else:
                 rates[k] = _finite_number(v, f"rates.{k}")
+        _guard_pricing_input_values(doc.kind, rates_patch)
     # SLICE 1c: an item of an opted-in category (`attributes_from_spec`) takes its attributes from its
     # item_name / item_detail through the SAME reader the CSV upload uses -- no back door (S-c 3). Only
     # the two text keys may be patched; a changed text is re-read, an unchanged one leaves the stored
@@ -1496,6 +1526,7 @@ def create_rate_master_item(
     clean_rates = {}
     for k, v in rates.items():
         clean_rates[k] = None if v is None else _finite_number(v, f"rates.{k}")
+    _guard_pricing_input_values(kind, rates)   # SLICE 12b(B): negative refused, ZERO accepted
     # SLICE 1c: an opted-in category (`attributes_from_spec`) -- the caller supplies item_name /
     # item_detail and NOTHING else; the reader derives the rest (or flags the row). Same reader, same
     # flag behaviour as the CSV upload (S-c 3). Any other category: the legacy path, byte-identical.

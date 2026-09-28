@@ -5,7 +5,7 @@
 // "Aluminium" finds nothing -- the data is canonical UPPERCASE). No virtualization
 // by design -- this is an admin table, not the editor.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Trash2, Check, X, Plus, Filter, Download, Archive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,9 @@ import {
   pricingInputCell,
   PRICING_INPUT_VALUE_COLUMNS,
   PRICING_INPUT_COLUMN_LABELS,
+  // SLICE 12b(B): the derived rate-column kind for the header (acceptance item 1).
+  deriveRateColumnLabels,
+  rateColumnLabel,
 } from "./rateMasterSpec";
 
 /**
@@ -256,6 +259,39 @@ export function RateMasterDataViewer({
   }, [scopedItems, config]);
   const derivedCounts = useMemo(() => derivedCountsByKey(config, scopedItems), [config, scopedItems]);
 
+  // SLICE 12b(B) -- THE DERIVED RATE-COLUMN LABEL, for this category's headers.
+  //
+  // ⚠️ DERIVED FROM THIS ONE CONFIG, AND THAT IS PROVEN SUFFICIENT, NOT ASSUMED. The category that
+  // owns a kind is also the category that prices it, so its own pipelines carry all the evidence.
+  // MEASURED on v65: a per-category derivation agrees with the whole-discipline derivation on EVERY
+  // owned kind -- 0 differences across all 13 categories. That is what lets this header avoid fetching
+  // twelve configs. If a future category ever prices a kind it does not declare, the two would
+  // diverge and the header would go quiet (never wrong) -- the same fail-to-silence as an
+  // unlabelled column.
+  // ⚠️ The DISCIPLINE is passed, and the deriver REQUIRES it: the label is Electrical BY RULE (owner
+  // ruling 2026-09-28), so an HVAC config gets an empty map here exactly as it does in the exporter.
+  // The stored config carries its own `discipline` -- verified on v65 -- so the viewer needs no new prop.
+  const rateLabels = useMemo(
+    () => deriveRateColumnLabels(
+      config ? { [config.category_id]: config } : {},
+      String((config as unknown as { discipline?: string })?.discipline ?? ""),
+    ),
+    [config],
+  );
+  // The kinds actually present, so a rate key carried by two kinds is labelled only where they agree
+  // -- one header cell cannot say two things. Mirrors `csv_exporter.header_label_for_rate`.
+  const rateLabelFor = useCallback(
+    (rateKey: string): string | undefined => {
+      const seen = new Set<string>();
+      for (const it of scopedItems) {
+        const lab = rateColumnLabel(rateLabels, it.kind, rateKey);
+        if (lab) seen.add(lab);
+      }
+      return seen.size === 1 ? Array.from(seen)[0] : undefined;
+    },
+    [rateLabels, scopedItems],
+  );
+
   // Kind filter chips = this category's kinds (present in its items), sorted.
   const kinds = useMemo(() => {
     const set = new Set<string>();
@@ -297,7 +333,6 @@ export function RateMasterDataViewer({
         ? [
             { key: "pi:name", get: (it: RateMasterItem) => it.attributes?.name },
             { key: "pi:shared_by", get: (it: RateMasterItem) => it.attributes?.shared_by },
-            { key: "pi:remarks", get: (it: RateMasterItem) => it.attributes?.remarks },
             { key: "pi:used_by", get: (it: RateMasterItem) => it.attributes?.used_by },
           ]
         : []),
@@ -348,10 +383,20 @@ export function RateMasterDataViewer({
         cellText(it.unit),
         cellText(it.source_sheet),
         cellText(it.source_row),
+        // ⚠️ SLICE 12b(B): a Pricing Input's TEXT was never searchable. Its config declares no
+        // `attribute_definitions`, so `attrCols` is empty and this haystack held only the rates and the
+        // unit -- typing an input's own NAME into the search box matched nothing. Found while checking
+        // a claim that the search still covered the remark after its column moved under the name; it
+        // did not, and asserting it would have been wrong. Absent on every other category (these keys
+        // do not exist there), so no other grid's search changes.
+        ...(piMode
+          ? [cellText(it.attributes?.name), cellText(it.attributes?.remarks),
+             cellText(it.attributes?.shared_by), cellText(it.attributes?.used_by)]
+          : []),
       ];
       return { it, cells, haystack: cells.join("  ") };
     });
-  }, [scopedItems, specMode, textCols, attrCols, rateCols]);
+  }, [scopedItems, specMode, textCols, attrCols, rateCols, piMode]);
 
   const filtered = useMemo(() => {
     const filterEntries = Object.entries(columnFilters);
@@ -529,9 +574,16 @@ export function RateMasterDataViewer({
   };
 
   // A column header = its label + a per-column faceted filter (funnel -> search + checkbox list).
-  const hdr = (colKey: string, label: string, rightAlign = false, tag?: string) => (
+  // SLICE 12b(B): `note` is the DERIVED rate-column kind ("List price" / "BCS price" / "BoQ price",
+  // with "(install)" where the leg applies). It is deliberately NOT rendered through `tag`, whose
+  // uppercase styling belongs to the spec-mode marker and would read as "LIST PRICE" -- these are
+  // words, not a badge. Absent => the header is byte-identical to before.
+  const hdr = (colKey: string, label: string, rightAlign = false, tag?: string, note?: string) => (
     <div className={cn("flex items-center gap-1", rightAlign && "justify-end")}>
       <span>{label}</span>
+      {note ? (
+        <span className="font-normal text-[10px] text-muted-foreground whitespace-nowrap">{note}</span>
+      ) : null}
       {tag ? (
         <span className="rounded bg-muted px-1 text-[9px] font-normal uppercase tracking-wide text-muted-foreground">{tag}</span>
       ) : null}
@@ -714,7 +766,43 @@ export function RateMasterDataViewer({
           z-30). The container is the scroller (max-h), so this pins the header under vertical scroll. */}
       <style>{".rm-data-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}.rm-data-hidehbar thead th{position:sticky;top:0;background:hsl(var(--background))}"}</style>
       <div ref={scrollRef} className="overflow-auto rounded border rm-data-hidehbar max-h-[calc(100vh-19rem)]">
-        <Table>
+        <Table className={cn(piMode && "table-fixed")}>
+          {/* ══════════════════════════════════════════════════════════════════════════════════════
+              SLICE 12b(B) / ACCEPTANCE ITEM 6 -- THE PRICING INPUTS COLUMN PLAN.
+
+              The owner: "functionally correct, but the column widths are all wrong which make reading
+              them very difficult." ONE cause: this table declared NO widths at all -- no colgroup, no
+              `table-fixed`, not a width class on a single header -- so the browser's AUTO layout sized
+              every column by its CONTENT. Measured on the real 35 rows: the longest remark is 255
+              characters and the longest used-by 56, so those two took whatever they wanted and the
+              eight percentage columns were squeezed to nothing.
+
+              ⚠️ `table-fixed` + this colgroup are applied in `piMode` ONLY. Every other category's grid
+              keeps the auto layout it has always had -- a SKU grid has a different shape (a dozen
+              attribute columns of unpredictable width) and forcing a plan on it is a separate change
+              nobody asked for.
+
+              ⚠️ THE REAL TABLE IS ~14 COLUMNS, NOT THE MOCK'S 8. The mock draws five value columns;
+              the data uses all EIGHT (`discount`, `supply_markup`, `installation_markup`,
+              `bcs_markup`, `wastage`, `ratio`, `share`, `amount`), and the screen also carries `unit`
+              and the admin `actions` column the mock omits. So the mock's exact pixel proportions
+              cannot be copied -- what is copied is its INTENT: the name takes the slack, every numeric
+              column is narrow and right-aligned, and the remark wraps under the name rather than
+              stealing a column's width.
+              ══════════════════════════════════════════════════════════════════════════════════════ */}
+          {piMode ? (
+            <colgroup>
+              {canEdit ? <col style={{ width: 64 }} /> : null}
+              {showKindCol ? <col style={{ width: 120 }} /> : null}
+              <col />{/* input name + its remark underneath: takes the remaining slack */}
+              {rateCols.map((k) => (
+                <col key={`w-${k}`} style={{ width: k === "amount" ? 92 : 84 }} />
+              ))}
+              <col style={{ width: 92 }} />{/* unit */}
+              <col style={{ width: 150 }} />{/* shared by */}
+              <col style={{ width: 200 }} />{/* used by -- plain category names, ruling N-7 */}
+            </colgroup>
+          ) : null}
           <TableHeader>
             <TableRow>
               {/* EA-1c change 2: actions FIRST + sticky-left (absent entirely for non-admins).
@@ -742,7 +830,10 @@ export function RateMasterDataViewer({
               ))}
               {rateCols.map((k) => (
                 <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">
-                  {hdr(`rate:${k}`, piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true)}
+                  {/* SLICE 12b(B) acceptance 1: the DERIVED kind rides beside the key. A Pricing
+                      Input carries its own fixed column label instead -- it is not a SKU rate. */}
+                  {hdr(`rate:${k}`, piMode ? (PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true,
+                       undefined, piMode ? undefined : rateLabelFor(k))}
                 </TableHead>
               ))}
               <TableHead className="sticky top-0 z-20 bg-background">{hdr("unit", "unit")}</TableHead>
@@ -752,7 +843,10 @@ export function RateMasterDataViewer({
               {piMode ? (
                 <>
                   <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:shared_by", "shared by")}</TableHead>
-                  <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:remarks", "remarks")}</TableHead>
+                  {/* ⚠️ NO `remarks` COLUMN since 12b(B): it renders under the input's NAME (acceptance
+                      item 6). Its faceted filter goes with it -- a 255-character sentence was never a
+                      useful facet -- and the remark is now in the SEARCH haystack, which it was not
+                      before (see the `rows` memo). */}
                   <TableHead className="sticky top-0 z-20 bg-background">{hdr("pi:used_by", "used by")}</TableHead>
                 </>
               ) : (
@@ -904,8 +998,20 @@ export function RateMasterDataViewer({
                   </TableCell>
                 )}
                 {/* SLICE 12b(A): the input's NAME leads the row, where brand sits for a SKU. */}
+                {/* SLICE 12b(B) / ACCEPTANCE ITEM 6: the remark sits UNDER the name, as the mock draws
+                    it, instead of holding a column of its own. Measured: the longest remark is 255
+                    characters, so as a column it took the width the eight percentage columns needed.
+                    Under the name it wraps into the slack column and reads as what it is -- a sentence
+                    about the input above it. */}
                 {piMode ? (
-                  <TableCell className="font-medium">{String(r.it.attributes?.name ?? "")}</TableCell>
+                  <TableCell className="font-medium align-top">
+                    <div>{String(r.it.attributes?.name ?? "")}</div>
+                    {String(r.it.attributes?.remarks ?? "") ? (
+                      <div className="mt-0.5 whitespace-pre-line text-[11px] font-normal leading-snug text-muted-foreground">
+                        {String(r.it.attributes?.remarks ?? "")}
+                      </div>
+                    ) : null}
+                  </TableCell>
                 ) : (
                   <TableCell>{r.it.brand}</TableCell>
                 )}
@@ -973,9 +1079,7 @@ export function RateMasterDataViewer({
                     <TableCell className="text-[11px] text-muted-foreground">
                       {String(r.it.attributes?.shared_by ?? "") || "—"}
                     </TableCell>
-                    <TableCell className="max-w-[28rem] whitespace-pre-line text-[11px] text-muted-foreground">
-                      {String(r.it.attributes?.remarks ?? "")}
-                    </TableCell>
+                    {/* the remark moved under the NAME (acceptance item 6) -- no column of its own */}
                     {/* READ-ONLY: derived from the pricing rules, so there is no input to type into. */}
                     <TableCell className="whitespace-nowrap text-[11px] text-muted-foreground" data-testid="pi-used-by">
                       {String(r.it.attributes?.used_by ?? "")}

@@ -80,7 +80,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import csv_importer, extraction, freeze, loader
+from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, extraction, freeze, loader
 
 # The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
 BOM = "\ufeff"
@@ -319,7 +319,16 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # pipelines and no attribute definitions so it can never price a row), and every migrated literal
 # REMOVED from the 12 pricing configs and replaced by a `rate_ref` read. Proven price-neutral: the
 # 7,244-figure replay is identical except pop-up box's 368 NEW cost figures, which the owner ruled in.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v64.json"
+# SLICE 12b(B): v64 -> v65. TWO pricing inputs the owner RULED ON 2026-09-27 and 12b(A) never built --
+# a 0% discount for cable tray and one for junction box -- wired into their pipelines as `(1 - discount)`.
+# ⚠️ THE POINT IS NOT THE VALUE, IT IS THAT THE FACT IS NOW IN THE DATA. Until v65,
+# `junction_box.list_price` and `lms_item.rate` were BOTH `base * (1 + one supply markup)` and nothing
+# else -- structurally indistinguishable -- yet one must read "List price" and the other "BCS price"
+# (the LMS inversion). No rules-reading deriver could separate them, which is what stopped the slice.
+# Price-neutral by construction (`1 - 0` is a no-op) and PROVEN: 2,434 records / 7,612 figures, 0 moved
+# figures, 0 moved statuses; the only field that moved anywhere was `step_count`, +1 on exactly the
+# three wired pipelines.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v65.json"
 
 # SLICE 12b(A): the two counts the slice MOVED, named so every assertion says WHY it is what it is.
 #
@@ -327,7 +336,7 @@ CURRENT_EALL_ASSET = "rate_master_electrical_all_v64.json"
 # asset is loaded. They are the same number by construction (the loader is wholesale), and that is the
 # point: an assertion that meant "EALL_ITEMS" in one sense and "1400" in the other would be a divergence
 # nobody could see. Retiring a count by editing the digit loses the reason; a named constant keeps it.
-EALL_ITEMS = 1400       # EALL_ITEMS -> 1400: the 33 Pricing Input items slice 12b(A) minted.
+EALL_ITEMS = 1402       # 1400 -> 1402: slice 12b(B) added tray_discount + jb_discount.
 EALL_CONFIGS = 13       # 12 -> 13: the new `electrical_pricing_inputs` category.
 # ⚠️ AND A THIRD NUMBER, WHICH IS NOT EITHER OF THE ABOVE AND MUST NOT BE CONFLATED WITH THEM.
 # The ALL-CATEGORIES rate file deliberately EXCLUDES the Pricing Inputs (acceptance 15), because a
@@ -335,7 +344,7 @@ EALL_CONFIGS = 13       # 12 -> 13: the new `electrical_pricing_inputs` category
 # make that file's column space meaningless. So the catalogue holds 1400 items while the mode-B file
 # holds 1367 rows, and both numbers are correct. Naming them separately is the only way a reader can
 # tell "the catalogue grew" from "the shared file should not have".
-EALL_ITEMS_IN_ALL_FILE = 1367   # EALL_ITEMS minus the 33 Pricing Inputs, which never join that file.
+EALL_ITEMS_IN_ALL_FILE = 1367   # EALL_ITEMS minus the 35 Pricing Inputs, which never join that file.
 PRICING_INPUTS_CATEGORY = "electrical_pricing_inputs"   # the 13th: item-only, no pipelines, never prices a row
 # The twelve that DO price. Slice 12b(A) removed a migrated literal from every one of them, so a
 # cumulative "which categories moved" pin now names all twelve -- that IS the pin doing its job.
@@ -491,11 +500,25 @@ def _strip_12b_step(new_step, old_step):
             continue
         ns = [dict(x) if isinstance(x, dict) else x for x in (n.get(key) or [])]
         os_ = [dict(x) if isinstance(x, dict) else x for x in (o.get(key) or [])]
+        touched = False
         for i, item in enumerate(ns):
-            _strip_12b_params(item, os_[i] if i < len(os_) else {})
+            if _strip_12b_params(item, os_[i] if i < len(os_) else {}):
+                touched = True
         n[key] = ns
         if isinstance(o, dict) and key in o:
             o[key] = os_
+        # ⚠️ SLICE 12b(B): A STEP WHOSE *CONDITION* WAS REWRITTEN MUST DROP ITS OWN ARITHMETIC TOO.
+        # The tray `cover` component has NO top-level `params` -- its `pi_*` ref lives in
+        # `conditions[].params` -- so the step-level trigger never fired, while its own `formula` DID
+        # change (`base*factor` -> `base*factor*(1-discount)`). FIVE "byte-equal to vN" pins failed on
+        # that one string. The rule is the one this module already applies object by object: where the
+        # migration rewrote the arithmetic, the arithmetic is normalised off BOTH sides and every other
+        # key is still compared verbatim.
+        if touched:
+            for d in (n, o):
+                if isinstance(d, dict):
+                    d.pop("formula", None)
+                    d.pop("explain", None)
     if isinstance(n.get("qty"), dict):
         nq = dict(n["qty"])
         oq = dict(o.get("qty") or {}) if isinstance(o, dict) else {}
@@ -10697,8 +10720,9 @@ class TestIncludesModulesGate(FrappeTestCase):
         from nirmaan_stack.api.boq import rate_master as rm
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             asset = json.load(fh)
-        # SLICE 12b(A): v64 (PRICING INPUTS) supersedes v63 as the current asset; the gate is unchanged.
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v64.json")
+        # SLICE 12b(A): v64 (PRICING INPUTS) superseded v63; SLICE 12b(B): v65 (the two 0% discounts)
+        # supersedes v64. The include_when gate is unchanged by both -- which is what this pin says.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v65.json")
         fits = {}
         goldens = asset.get("goldens") or {}
         for c in asset["category_configs"]:
@@ -11714,12 +11738,13 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         gate = _mint_gate_module()
         # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
         self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v14.json")
-        # ⚠️ SLICE 12b(A) INVERTS THE "ELECTRICAL UNMOVED" HALF OF THIS PIN, deliberately. Every earlier
-        # slice in this arc kept the Electrical asset frozen and this line recorded that; 12b(A) is the
-        # slice that moves it (v63 -> v64, PRICING INPUTS). The HVAC half is UNCHANGED and still asserts
-        # its own series independently -- which is the rule the pin exists for: each discipline is
-        # versioned, minted and loaded on its own, and one moving never moves the other.
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v64.json")
+        # ⚠️ SLICE 12b(A) INVERTED THE "ELECTRICAL UNMOVED" HALF OF THIS PIN, deliberately (v63 -> v64,
+        # PRICING INPUTS), and SLICE 12b(B) MOVES IT AGAIN (v64 -> v65): the two 0% discounts the owner
+        # ruled on 2026-09-27 and 12b(A) never built. The HVAC half is UNCHANGED across both and still
+        # asserts its own series independently -- which is the rule the pin exists for: each discipline
+        # is versioned, minted and loaded on its own, and one moving never moves the other. That HVAC
+        # stayed at v14 through an Electrical mint IS this line doing its job.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v65.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
         # each series resolved on its own (owner ruling, slice 1c, INVERTING the 1b first-version pin): the HVAC
@@ -11789,11 +11814,16 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         self.assertEqual(attr_ids & rate_keys, set())
         self.assertEqual(rate_keys, self.RATE_KEYS)
         # NEGATIVE: the resolver is live -- a newer Electrical file, if one were listed, WOULD be surfaced
-        # (so the "unmoved" pin above can fail), and it never crosses series
-        self.assertEqual(gate.latest_in("Electrical", names + ["rate_master_electrical_all_v64.json"]),
-                         "rate_master_electrical_all_v64.json")
-        self.assertEqual(gate.latest_in("HVAC", names + ["rate_master_electrical_all_v64.json"]),
-                         CURRENT_HVAC_ASSET)
+        # (so the "unmoved" pin above can fail), and it never crosses series.
+        # ⚠️ SLICE 12b(B): the injected probe MUST name a version NEWER than the current asset. It used to
+        # be v64, which WAS newer than v63; once the real series reached v65 the same literal became
+        # OLDER than what is on disk, so the resolver would correctly return v65 and this NEGATIVE would
+        # fail while asserting nothing about the resolver. A probe that has to stay ahead of the series is
+        # the one kind of literal that cannot be replaced by CURRENT_EALL_ASSET.
+        _newer = "rate_master_electrical_all_v66.json"
+        self.assertNotIn(_newer, names, "v66 exists on disk -- move this probe ahead of the series")
+        self.assertEqual(gate.latest_in("Electrical", names + [_newer]), _newer)
+        self.assertEqual(gate.latest_in("HVAC", names + [_newer]), CURRENT_HVAC_ASSET)
         self.assertIsNone(gate.latest_in("HVAC", [n for n in names if not gate.HVAC_RE.match(n)]))
 
 
@@ -14840,7 +14870,14 @@ class TestPricingInputs(FrappeTestCase):
         cfgs = {c["category_id"]: c for c in asset["category_configs"]}
         used = pricing_input_used_by(cfgs)
         inputs = [i for i in asset["items"] if is_pricing_input_kind(i["kind"])]
-        self.assertEqual(len(inputs), 33, "the approved table has 33 rows")
+        # ⚠️ INVERTED at slice 12b(B), not edited blind: 33 -> 35. The owner ruled two 0% discounts on
+        # 2026-09-27 (cable tray, junction box) and 12b(A) never built them -- a DROPPED RULING. The two
+        # new rows are named so a THIRD addition still fails this pin rather than sliding past it.
+        self.assertEqual(len(inputs), 35, "the approved table has 35 rows (33 + tray_discount + jb_discount)")
+        self.assertEqual({(i.get("attributes") or {}).get("item") for i in inputs}
+                         & {"tray_discount", "jb_discount"},
+                         {"tray_discount", "jb_discount"},
+                         "the two 0% discounts slice 12b(B) added must be present by name")
         orphans = [i["attributes"]["item"] for i in inputs if i["attributes"]["item"] not in used]
         self.assertEqual(orphans, [], "an input no rule reads changes nothing when edited")
         remaining = set()
@@ -15013,3 +15050,380 @@ class TestPricingInputDeactivateGuard(FrappeTestCase):
         res = api.deactivate_rate_master_item(name=doc.name)
         self.assertEqual(res, {"ok": True, "active": 0})
         self.assertEqual(frappe.db.get_value(loader.ITEM_DOCTYPE, doc.name, "active"), 0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12b(B) -- THE DERIVED RATE-COLUMN LABEL, THE HEADER, THE ROUND TRIP AND THE NEGATIVE GUARD.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ RATE_LABEL_FIXTURE IS SHARED WITH `rateMasterSpec.test.ts` AND THE TWO MUST AGREE EXACTLY. The
+# deriver exists TWICE -- a React header cell cannot call a Python exporter for one string -- so this
+# pin is the mechanism that stops the copies drifting. Change one side without the other and a suite
+# goes red; that is the point. Same contract as `FORMULA_FIXTURE` / `column_note`.
+RATE_LABEL_FIXTURE = {
+    # a LIST price: a discount reaches the column (the cable_tray / junction_box shape at v65)
+    "tray": {
+        "category_id": "tray", "item_kinds": ["tray_item"], "attribute_definitions": [], "pipelines": {
+            "tray_boq": {
+                "output": ["supply"], "steps": [
+                    {"step": "match_master_row", "params": {"kind": "tray_item"}},
+                    {"step": "component", "name": "base", "target": "list_col",
+                     "params": {"discount_from_ctx": "pi_d"}, "formula": "base*(1-discount)"},
+                    {"step": "sum_components", "result": "supply"},
+                    {"step": "scale", "target": "supply", "result": "supply",
+                     "params": {"markup_from_ctx": "pi_m"}, "formula": "base*(1+markup)"},
+                    {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "d"},
+                     "target": "discount", "result": "pi_d"},
+                    {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "m"},
+                     "target": "supply_markup", "result": "pi_m"},
+                ],
+            },
+        },
+    },
+    # a BCS price: a markup but NO discount (the lms_item.rate shape -- the LMS inversion)
+    "lms": {
+        "category_id": "lms", "item_kinds": ["lms_item"], "attribute_definitions": [], "pipelines": {
+            "lms_boq": {
+                "output": ["supply"], "steps": [
+                    {"step": "match_master_row", "params": {"kind": "lms_item"}},
+                    {"step": "scale", "target": "rate", "result": "supply",
+                     "params": {"markup_from_ctx": "pi_m2"}, "formula": "base*(1+markup)"},
+                    {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "m2"},
+                     "target": "supply_markup", "result": "pi_m2"},
+                ],
+            },
+            "lms_bcs": {
+                "output": ["bcs_supply"], "steps": [
+                    {"step": "match_master_row", "params": {"kind": "lms_item"}},
+                    {"step": "scale", "target": "rate", "result": "bcs_supply",
+                     "params": {"bcs_ratio_from_ctx": "pi_r"}, "formula": "base*bcs_ratio"},
+                    {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "r"},
+                     "target": "ratio", "result": "pi_r"},
+                ],
+            },
+        },
+    },
+    # a BoQ price: NOTHING applied on the client-facing path (the misc_item shape)
+    "misc": {
+        "category_id": "misc", "item_kinds": ["misc_item"], "attribute_definitions": [], "pipelines": {
+            "misc_boq": {
+                "output": ["supply", "install"], "steps": [
+                    {"step": "match_master_row", "params": {"kind": "misc_item"}},
+                    {"step": "scale", "target": "boq_supply", "result": "supply", "params": {},
+                     "formula": "base"},
+                    {"step": "scale", "target": "boq_install", "result": "install", "params": {},
+                     "formula": "base"},
+                    {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "r2"},
+                     "target": "ratio", "result": "pi_r2"},
+                ],
+            },
+            "misc_bcs": {
+                "output": ["bcs_supply"], "steps": [
+                    {"step": "match_master_row", "params": {"kind": "misc_item"}},
+                    {"step": "scale", "target": "boq_supply", "result": "bcs_supply",
+                     "params": {"bcs_ratio_from_ctx": "pi_r2"}, "formula": "base*bcs_ratio"},
+                    {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "r2"},
+                     "target": "ratio", "result": "pi_r2"},
+                ],
+            },
+        },
+    },
+}
+
+
+class TestRateColumnLabels12bB(FrappeTestCase):
+    """The DERIVED rate-column label: how the rules USE a number, never its name (owner N-6)."""
+
+    def _L(self, discipline="Electrical", cfgs=None):
+        return csv_exporter.derive_rate_column_labels(cfgs or RATE_LABEL_FIXTURE, discipline)
+
+    def test_rl_01_a_discount_makes_it_a_list_price(self):
+        self.assertEqual(csv_exporter.rate_column_label(self._L(), "tray_item", "list_col"),
+                         "List price")
+
+    def test_rl_02_a_markup_with_no_discount_makes_it_a_bcs_price(self):
+        """The LMS inversion, surfaced on screen for the first time. `CLAUDE.md`: the factor is 1.3 in
+        both readings, so a build with the division restored looks arithmetically correct and is
+        systematically wrong. Labelling this BCS price is what tells the next reader which way round
+        it is."""
+        self.assertEqual(csv_exporter.rate_column_label(self._L(), "lms_item", "rate"), "BCS price")
+
+    def test_rl_03_nothing_applied_makes_it_a_boq_price(self):
+        """12b(A) rule change 1: for miscellaneous the rate IS the quote."""
+        self.assertEqual(csv_exporter.rate_column_label(self._L(), "misc_item", "boq_supply"),
+                         "BoQ price")
+
+    def test_rl_04_the_install_suffix_comes_from_the_leg_the_column_feeds(self):
+        self.assertEqual(csv_exporter.rate_column_label(self._L(), "misc_item", "boq_install"),
+                         "BoQ price (install)")
+
+    def test_rl_05_NEGATIVE_a_bcs_only_pipeline_never_settles_a_label(self):
+        """Owner ruling 2. A term applied on the way to a `bcs_*` output says how the COST is derived
+        FROM a column, never what the column IS. Counted, it would relabel `misc_item.boq_supply` --
+        whose only operand is a bcs ratio -- and re-open the confusion rule change 1 settled."""
+        only = {"lms": dict(RATE_LABEL_FIXTURE["lms"],
+                            pipelines={"lms_bcs": RATE_LABEL_FIXTURE["lms"]["pipelines"]["lms_bcs"]})}
+        self.assertIsNone(csv_exporter.rate_column_label(self._L(cfgs=only), "lms_item", "rate"))
+
+    def test_rl_06_NEGATIVE_a_column_no_rule_reads_gets_no_derived_label(self):
+        self.assertIsNone(csv_exporter.rate_column_label(self._L(), "tray_item", "never_read"))
+
+    def test_rl_07_NEGATIVE_the_label_is_never_taken_from_the_column_NAME(self):
+        """`list_col` reads List price because a DISCOUNT reaches it. Strip the discount and the SAME
+        name reads BCS price. This IS the `junction_box.list_price` case that forced the v65 mint."""
+        import copy as _copy
+        no_disc = _copy.deepcopy(RATE_LABEL_FIXTURE)
+        base = no_disc["tray"]["pipelines"]["tray_boq"]["steps"][1]
+        base["params"] = {}
+        base["formula"] = "base"
+        self.assertEqual(csv_exporter.rate_column_label(self._L(cfgs=no_disc), "tray_item", "list_col"),
+                         "BCS price")
+
+    def test_rl_08_ACCEPTANCE_3_change_a_rule_and_the_label_follows(self):
+        import copy as _copy
+        flipped = _copy.deepcopy(RATE_LABEL_FIXTURE)
+        flipped["misc"]["pipelines"]["misc_boq"]["steps"][1] = {
+            "step": "scale", "target": "boq_supply", "result": "supply",
+            "params": {"discount_from_ctx": "pi_dd"}, "formula": "base*(1-discount)"}
+        flipped["misc"]["pipelines"]["misc_boq"]["steps"].append(
+            {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "dd"},
+             "target": "discount", "result": "pi_dd"})
+        self.assertEqual(
+            csv_exporter.rate_column_label(self._L(cfgs=flipped), "misc_item", "boq_supply"),
+            "List price")
+
+    def test_rl_09_owner_set_is_consulted_ONLY_where_the_derivation_is_silent(self):
+        """Ruling 1: `cable_tray.with_cover_list` is read by NO step, so nothing can derive it and the
+        owner set it. It must never SHADOW a derived label -- acceptance item 3 depends on that order."""
+        self.assertEqual(csv_exporter.RATE_LABEL_OWNER_SET[("cable_tray", "with_cover_list")],
+                         "List price")
+        shadow = {"t": {"category_id": "t", "item_kinds": ["cable_tray"], "attribute_definitions": [],
+                        "pipelines": {"p": {"output": ["supply"], "steps": [
+                            {"step": "match_master_row", "params": {"kind": "cable_tray"}},
+                            {"step": "scale", "target": "with_cover_list", "result": "supply",
+                             "params": {"markup_from_ctx": "pi_q"}, "formula": "base*(1+markup)"},
+                            {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "q"},
+                             "target": "supply_markup", "result": "pi_q"}]}}}}
+        self.assertEqual(
+            csv_exporter.rate_column_label(self._L(cfgs=shadow), "cable_tray", "with_cover_list"),
+            "BCS price")
+
+    def test_rl_10_NEGATIVE_the_label_is_ELECTRICAL_BY_RULE_not_by_accident(self):
+        """Owner ruling 2026-09-28, and the pin they asked for BY NAME.
+
+        The first build gated only on the MECHANISM -- "does this config set carry a `rate_ref`?" -- so
+        HVAC produced nothing merely because of how its columns happen to be read today. That expires:
+        12c gives Insulation its pricing rules, the first HVAC `rate_ref` appears, the mechanism gate
+        opens, and HVAC starts carrying labels nobody asked for -- wrongly, since its markups are
+        stored ITEM COLUMNS and this deriver's evidence would still be absent.
+
+        So: the SAME configs that derive labels as Electrical derive NOTHING as HVAC."""
+        self.assertGreater(len(self._L("Electrical")), 0)
+        self.assertEqual(self._L("HVAC"), {})
+        self.assertEqual(self._L(""), {})
+        self.assertEqual(csv_exporter.RATE_LABEL_DISCIPLINES, ("Electrical",))
+
+    def test_rl_11_NEGATIVE_the_discipline_argument_is_REQUIRED(self):
+        """A default would let a caller silently switch every label off -- a whole feature vanishing
+        with no error anywhere. Omitting it must be loud."""
+        with self.assertRaises(TypeError):
+            csv_exporter.derive_rate_column_labels(RATE_LABEL_FIXTURE)
+
+    def test_rl_12_the_owner_set_map_holds_EXACTLY_the_columns_no_rule_reads(self):
+        """The guard that makes a future disagreement a QUESTION rather than a silent override. If a
+        rule ever starts reading `with_cover_list`, THIS goes red and someone has to decide."""
+        path = _asset_path(CURRENT_EALL_ASSET)
+        with open(path, encoding="utf-8") as fh:
+            asset = json.load(fh)
+        cfgs = {c["category_id"]: c for c in asset["category_configs"]}
+        # DERIVED-ONLY: the owner-set entries are folded into the normal result (behind the discipline
+        # gate), so asking "which columns does no rule read?" has to exclude them explicitly.
+        labels = csv_exporter.derive_rate_column_labels(cfgs, "Electrical", include_owner_set=False)
+        stored = {}
+        for it in asset["items"]:
+            if csv_exporter.is_pricing_input_kind(it["kind"]):
+                continue
+            stored.setdefault(it["kind"], set()).update((it.get("rates") or {}).keys())
+        unread = {(k, r) for k in stored for r in stored[k] if (k, r) not in labels}
+        self.assertEqual(unread, set(csv_exporter.RATE_LABEL_OWNER_SET))
+
+    def test_rl_13_every_electrical_rate_column_is_labelled_on_the_current_asset(self):
+        """ACCEPTANCE 1, on the real data: not one column reads as a bare key."""
+        path = _asset_path(CURRENT_EALL_ASSET)
+        with open(path, encoding="utf-8") as fh:
+            asset = json.load(fh)
+        cfgs = {c["category_id"]: c for c in asset["category_configs"]}
+        labels = csv_exporter.derive_rate_column_labels(cfgs, "Electrical")
+        allowed = {csv_exporter.RATE_LABEL_LIST, csv_exporter.RATE_LABEL_BCS,
+                   csv_exporter.RATE_LABEL_BOQ}
+        allowed |= {a + csv_exporter.RATE_LABEL_INSTALL_SUFFIX for a in allowed}
+        seen = 0
+        for it in asset["items"]:
+            if csv_exporter.is_pricing_input_kind(it["kind"]):
+                continue
+            for rk in (it.get("rates") or {}):
+                lab = csv_exporter.rate_column_label(labels, it["kind"], rk)
+                self.assertIsNotNone(lab, "%s.%s carries no label" % (it["kind"], rk))
+                self.assertIn(lab, allowed)
+                seen += 1
+        self.assertGreater(seen, 0)
+
+    def test_rl_14_the_three_columns_the_v65_mint_exists_for(self):
+        """Cable tray and junction box read List price BECAUSE of the 0% discounts (owner N-6), and
+        `lms_item.rate` still reads BCS price -- the pair that was structurally indistinguishable."""
+        path = _asset_path(CURRENT_EALL_ASSET)
+        with open(path, encoding="utf-8") as fh:
+            asset = json.load(fh)
+        cfgs = {c["category_id"]: c for c in asset["category_configs"]}
+        L = csv_exporter.derive_rate_column_labels(cfgs, "Electrical")
+        self.assertEqual(csv_exporter.rate_column_label(L, "junction_box", "list_price"), "List price")
+        self.assertEqual(csv_exporter.rate_column_label(L, "cable_tray", "without_cover_list"),
+                         "List price")
+        self.assertEqual(csv_exporter.rate_column_label(L, "cable_tray", "cover_only_list"),
+                         "List price")
+        self.assertEqual(csv_exporter.rate_column_label(L, "lms_item", "rate"), "BCS price")
+        # ruling 2, 2026-09-28
+        self.assertEqual(csv_exporter.rate_column_label(L, "earthing_item", "supply_base"), "BCS price")
+        self.assertEqual(csv_exporter.rate_column_label(L, "earthing_item", "install_base"),
+                         "BCS price (install)")
+
+
+class TestRateColumnLabelHeader12bB(FrappeTestCase):
+    """The header CELL, the importer strip, and the round trip."""
+
+    def test_rh_01_the_header_carries_the_label_and_the_key_still_LEADS_it(self):
+        self.assertEqual(csv_exporter.rate_header_cell("list_price", "List price"),
+                         "list_price [List price]")
+        self.assertEqual(csv_exporter.rate_header_cell("list_price", None), "list_price")
+
+    def test_rh_02_the_importer_strips_the_label_so_a_column_still_matches_by_NAME(self):
+        self.assertEqual(csv_importer.strip_header_label("list_price [List price]"), "list_price")
+        self.assertEqual(csv_importer.strip_header_label("install_base [BCS price (install)]"),
+                         "install_base")
+        # a pre-12b(B) header strips to itself -- every older file round-trips exactly as before
+        self.assertEqual(csv_importer.strip_header_label("list_price"), "list_price")
+        self.assertEqual(csv_importer.strip_header_label("  brand  "), "brand")
+        self.assertEqual(csv_importer.strip_header_label(None), "")
+
+    def test_rh_03_NEGATIVE_no_attribute_or_rate_NAME_contains_a_bracket(self):
+        """What makes the suffix strippable at all. Measured across BOTH disciplines: if any real key
+        ever contained a bracket, the strip could eat part of a name."""
+        for asset_name in (CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET):
+            with open(_asset_path(asset_name), encoding="utf-8") as fh:
+                asset = json.load(fh)
+            keys = set()
+            for it in asset["items"]:
+                keys |= set(it.get("rates") or {})
+                keys |= set(it.get("attributes") or {})
+            for c in asset["category_configs"]:
+                for d in c.get("attribute_definitions") or []:
+                    if isinstance(d, dict) and d.get("id"):
+                        keys.add(d["id"])
+            bad = sorted(k for k in keys if "[" in str(k) or "]" in str(k))
+            self.assertEqual(bad, [], "%s: a key contains a bracket" % asset_name)
+
+    def test_rh_04_MODE_B_labels_a_shared_key_ONLY_where_every_kind_agrees(self):
+        """One header cell cannot say two things. Today every shared key agrees on v65, so this
+        narrowing is invisible -- which is exactly why it is pinned rather than left to be discovered.
+        On v64 it DID fire: `list_price` had no Mode B label because junction_box disagreed."""
+        labels = {("a", "r"): "List price", ("b", "r"): "BCS price", ("c", "r"): "List price"}
+        self.assertIsNone(csv_exporter.header_label_for_rate(labels, "r", ["a", "b"]))
+        self.assertEqual(csv_exporter.header_label_for_rate(labels, "r", ["a", "c"]), "List price")
+        self.assertIsNone(csv_exporter.header_label_for_rate(labels, "r", []))
+
+    def test_rh_05_ACCEPTANCE_2_an_unsettled_column_says_so_in_the_formula_row(self):
+        note = csv_exporter.column_note(RATE_LABEL_FIXTURE["tray"], "never_read", (), unsettled=True)
+        self.assertEqual(note.splitlines()[0], csv_exporter.RATE_LABEL_UNSETTLED_NOTE)
+        # ABSENT => byte-identical to before 12b(B), which is what keeps the cross-language pin green
+        self.assertNotIn(csv_exporter.RATE_LABEL_UNSETTLED_NOTE,
+                         csv_exporter.column_note(RATE_LABEL_FIXTURE["tray"], "never_read", ()))
+
+    def test_rh_06_ACCEPTANCE_4_HVAC_gains_NO_labels_in_either_mode(self):
+        for cat in ("hvac_adp", "hvac_insulation"):
+            b = csv_exporter.build_category_rows("HVAC", cat)
+            self.assertEqual([h for h in b["headers"] if "[" in str(h)], [], cat)
+            # and every name-keyed set still aligns with the headers
+            for n in b["numeric"]:
+                self.assertIn(n, b["headers"])
+        allb = csv_exporter.build_all_categories_rows("HVAC")
+        self.assertEqual([h for h in allb["headers"] if "[" in str(h)], [])
+
+    def test_rh_07_the_labelled_header_ROUND_TRIPS_as_zero_changes(self):
+        """The 12b(A) exporter/importer defect class: a file the exporter writes must upload as no
+        change. The labels ride in the header, so this is the test that proves the strip works
+        end-to-end rather than in isolation."""
+        for cat in ("cabletray_raceway", "junction_box_raceway", "miscellaneous"):
+            text, _headers, n = csv_exporter.build_category_csv("Electrical", cat)
+            self.assertIn("[", text.split("\r\n")[0], "%s: no labelled header in the file" % cat)
+            plan = csv_importer.build_plan("Electrical", text.encode("utf-8"), category_id=cat)
+            self.assertEqual(plan.get("errors") or [], [], cat)
+            counts = plan.get("counts") or {}
+            self.assertEqual(counts.get("unchanged"), n, cat)
+            self.assertEqual(counts.get("rates_changed"), 0, cat)
+            self.assertEqual(counts.get("items_added"), 0, cat)
+
+    def test_rh_08_the_numeric_and_locked_sets_are_translated_WITH_the_headers(self):
+        """⚠️ `xlsx_io.write_xlsx` matches `numeric_columns` and each row's locked-cell set against the
+        header CELL. Labelling the headers alone would make every rate column TEXT (losing its number
+        format) and stop marking a derived cell as not-editable -- silently, in the .xlsx only."""
+        b = csv_exporter.build_category_rows("Electrical", "cabletray_raceway")
+        self.assertTrue(any("[" in str(h) for h in b["headers"]))
+        for n in b["numeric"]:
+            self.assertIn(n, b["headers"], "numeric column %r is not a header" % n)
+        for row_locked in b["locked"]:
+            for n in row_locked:
+                self.assertIn(n, b["headers"], "locked cell %r is not a header" % n)
+
+
+class TestPricingInputNegativeGuard12bB(FrappeTestCase):
+    """Owner instruction 2026-09-28: a negative saved from the grid but was refused in the file."""
+
+    def setUp(self):
+        self.name = None
+        rows = frappe.get_all("BoQ Rate Master Item",
+                              filters={"discipline": "Electrical",
+                                       "kind": "electrical_pricing_input", "active": 1},
+                              fields=["name", "attributes"], limit=500)
+        for r in rows:
+            attrs = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+            if (attrs or {}).get("item") == "tray_discount":
+                self.name = r["name"]
+                break
+        self.assertIsNotNone(self.name, "the v65 tray_discount input is not loaded")
+        self.before = frappe.db.get_value("BoQ Rate Master Item", self.name, "rates")
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        # ⚠️ `db.get_value` on a JSON field returns a PARSED DICT, and `db.set_value` needs the TEXT --
+        # handing the dict straight back raised `syntax error at or near "{"` in the cleanup, which
+        # surfaced as five ERRORS on tests whose assertions had all passed. Re-serialise.
+        val = self.before if isinstance(self.before, str) else json.dumps(self.before)
+        frappe.db.set_value("BoQ Rate Master Item", self.name, "rates", val, update_modified=False)
+        frappe.db.commit()
+
+    def test_ng_01_NEGATIVE_a_negative_pricing_input_is_REFUSED_on_the_item_path(self):
+        """Until 12b(B) `validate_pricing_input_value` had ONE call site -- the CSV upload -- while the
+        item endpoints validated with `_finite_number`, which accepts a negative. The same value got
+        two answers depending on which door it came through."""
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_master_item(name=self.name,
+                                                rates_patch=json.dumps({"discount": -0.2}))
+
+    def test_ng_02_ZERO_is_ACCEPTED(self):
+        """Three inputs are 0% BY RULING and v65 adds two more, so a blanket refusal would make the
+        owner's own approved table unsaveable (12b(A) withdrew exactly that acceptance item)."""
+        out = rate_master.update_rate_master_item(name=self.name,
+                                                 rates_patch=json.dumps({"discount": 0.0}))
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(out["item"]["rates"]["discount"], 0.0)
+
+    def test_ng_03_the_refusal_TEXT_is_the_importer_own_words(self):
+        """ONE definition, three call sites: the grid and the file can never word it differently."""
+        msg = csv_importer.validate_pricing_input_value(-0.2, "discount")
+        self.assertIn("cannot be negative", msg)
+        self.assertIsNone(csv_importer.validate_pricing_input_value(0.0, "discount"))
+
+    def test_ng_04_NEGATIVE_an_ORDINARY_catalogue_rate_is_untouched_by_the_guard(self):
+        """Scoped by the kind suffix, like the rest of the pricing-input work. This says nothing about
+        an ordinary SKU rate."""
+        self.assertIsNone(rate_master._guard_pricing_input_values("junction_box", {"list_price": -5}))

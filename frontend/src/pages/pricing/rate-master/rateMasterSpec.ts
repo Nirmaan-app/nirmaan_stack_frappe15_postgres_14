@@ -283,6 +283,215 @@ export function saveItemPayload(name: string, patch: SaveItemPatch): Record<stri
 // it always did. These helpers only say which cell is derived, from where, and how a cost is built.
 
 /** The literal a plainly typed cost shows. Mirrors `csv_exporter.FORMULA_TYPED`. */
+// ===================================================================================================
+// SLICE 12b(B) -- THE RATE-COLUMN LABEL. Mirrors `csv_exporter`'s deriver, function for function.
+//
+// ⚠️ A CROSS-LANGUAGE DUPLICATION, DELIBERATELY, ON THE `columnNote` PRECEDENT. The Rate Master header
+// must show a column's derived kind, and a React header cell cannot call a Python exporter for one
+// string. The two are pinned to IDENTICAL output on a shared fixture (`test_rate_master`'s
+// `RATE_LABEL_FIXTURE` and this file's test copy) -- change one side without the other and a suite
+// goes red. That pin IS the mechanism; do not "de-duplicate" by having one side guess.
+//
+// The rule, and every line of reasoning behind it, lives in ONE place: the long comment block above
+// `csv_exporter.derive_rate_column_labels`. Read that before touching this. In brief:
+//   a DISCOUNT term reaches it -> List price · else a markup/wastage/ratio/share -> BCS price ·
+//   else nothing -> BoQ price · no rule reads it -> null (or an owner-set entry) ·
+//   every client-facing result is an install -> " (install)".
+// ===================================================================================================
+export const RATE_LABEL_LIST = "List price";
+export const RATE_LABEL_BCS = "BCS price";
+export const RATE_LABEL_BOQ = "BoQ price";
+export const RATE_LABEL_INSTALL_SUFFIX = " (install)";
+export const RATE_LABEL_UNSETTLED_NOTE =
+  "the pricing rules do not determine what kind of rate this is, so it carries no label.";
+
+/** ⚠️ OWNER-SET, NOT DERIVED (owner ruling 1, 2026-09-28). Mirrors `csv_exporter.RATE_LABEL_OWNER_SET`.
+ * `cable_tray.with_cover_list` is read by no step, so nothing can derive it. Consulted ONLY where the
+ * derivation is silent, so it can never shadow a derived label. Keyed `kind\u0000rate_key`. */
+export const RATE_LABEL_OWNER_SET: Record<string, string> = {
+  ["cable_tray\u0000with_cover_list"]: RATE_LABEL_LIST,
+};
+
+/** ⚠️ THE DISCIPLINE OPT-IN (owner ruling 2026-09-28). Mirrors `csv_exporter.RATE_LABEL_DISCIPLINES`.
+ * The label is ELECTRICAL BY RULE, not because HVAC's columns happen to be read a certain way today:
+ * 12c gives Insulation pricing rules, and a mechanism-only gate would then start labelling HVAC columns
+ * nobody asked for. A discipline joins this register only by a deliberate edit -- the moment its own
+ * label ruling is needed. `discipline` is REQUIRED for the same reason it is in Python: a default would
+ * let a caller silently switch every label off. */
+export const RATE_LABEL_DISCIPLINES: readonly string[] = ["Electrical"];
+
+const BCS_KEY_PREFIX = "bcs_";
+const LABEL_DISCOUNT = "discount";
+const LABEL_MULTIPLIER = "multiplier";
+
+const isInternalValueKey = (key: unknown) => String(key ?? "").startsWith(BCS_KEY_PREFIX);
+const labelKey = (kind: string, rateKey: string) => `${kind}\u0000${rateKey}`;
+
+/** {ctx key -> "discount" | "costish"} for one pipeline's pricing-input preamble. */
+function piOperandKinds(pipeline: { steps?: any[] } | null | undefined): Record<string, string> {
+  const kinds: Record<string, string> = {};
+  const steps = pipeline?.steps ?? [];
+  for (const s of steps) {
+    if (s?.step === "rate_ref") kinds[s.result] = s.target === LABEL_DISCOUNT ? LABEL_DISCOUNT : "costish";
+  }
+  for (const s of steps) {
+    if (s?.pricing_input !== true) continue;
+    const srcs = new Set<string | undefined>([kinds[s.target]]);
+    for (const [k, v] of Object.entries(s.params ?? {})) {
+      if (k.endsWith("_from_ctx")) srcs.add(kinds[String(v)]);
+    }
+    kinds[s.result] = srcs.has(LABEL_DISCOUNT) ? LABEL_DISCOUNT : "costish";
+  }
+  return kinds;
+}
+
+/** The operand kinds THIS step applies, resolved through the pipeline's pricing-input ctx keys. */
+function stepOperandTerms(step: any, ctxKinds: Record<string, string>): Set<string> {
+  const out = new Set<string>();
+  const blobs: any[] = [step?.params ?? {}];
+  for (const st of step?.rate_stages ?? []) blobs.push(st ?? {});
+  for (const c of step?.conditions ?? []) blobs.push(c?.params ?? {});
+  for (const b of blobs) {
+    for (const [k, v] of Object.entries(b ?? {})) {
+      if (k.endsWith("_from_ctx") && typeof v === "string") {
+        const kind = ctxKinds[v];
+        if (kind) out.add(kind);
+      }
+    }
+  }
+  return out;
+}
+
+/** `{ "kind\0rate_key": label }` for every rate column ANY rule reads. PURE.
+ * Mirrors `csv_exporter.derive_rate_column_labels` -- see that docstring for the whole rationale. */
+export function deriveRateColumnLabels(
+  configs: Record<string, RateCategoryConfig | null | undefined> | null | undefined,
+  discipline: string,
+  includeOwnerSet = true,
+): Record<string, string> {
+  // GATE 1 OF 2 -- THE DISCIPLINE, the load-bearing one. See `RATE_LABEL_DISCIPLINES`.
+  if (!RATE_LABEL_DISCIPLINES.includes(String(discipline ?? ""))) return {};
+  const all = Object.values(configs ?? {});
+  // GATE 2 OF 2 -- THE VOCABULARY, an INDEPENDENT second stop (defence in depth, not the ruling).
+  // A discipline whose configs carry no `rate_ref`
+  // does not express its pricing through pricing inputs, so this label has no evidence to read and the
+  // honest answer is silence. Without it, HVAC's `cost_supply` -- plainly a COST -- derived
+  // "BoQ price". No discipline is named here (the HV-10 rule): the gate is the MECHANISM's presence.
+  const hasRateRef = all.some((cfg) =>
+    Object.values(cfg?.pipelines ?? {}).some((pl: any) =>
+      (pl?.steps ?? []).some((s: any) => s?.step === "rate_ref"),
+    ),
+  );
+  if (!hasRateRef) return {};
+
+  const terms = new Map<string, Set<string>>();
+  const results = new Map<string, Set<string>>();
+  const note = (kind: string | undefined, rateKey: string | undefined, applied: Set<string>, res?: string) => {
+    if (!kind || !rateKey) return;
+    const k = labelKey(kind, rateKey);
+    if (!terms.has(k)) terms.set(k, new Set());
+    for (const t of applied) terms.get(k)!.add(t);
+    if (res) {
+      if (!results.has(k)) results.set(k, new Set());
+      results.get(k)!.add(res);
+    }
+  };
+
+  for (const cid of Object.keys(configs ?? {}).sort()) {
+    const cfg = (configs ?? {})[cid];
+    for (const pid of Object.keys(cfg?.pipelines ?? {}).sort()) {
+      const pl: any = (cfg!.pipelines as any)[pid] ?? {};
+      const steps: any[] = pl.steps ?? [];
+      const ctxKinds = piOperandKinds(pl);
+      const clientFacing = (pl.output ?? []).some((o: string) => !isInternalValueKey(o));
+      const prov = new Map<string, Set<[string | undefined, string | undefined]>>();
+      const acc = new Set<[string | undefined, string | undefined]>();
+      let driving: string | undefined;
+      const provAdd = (key: string | undefined, cols: Iterable<[string | undefined, string | undefined]>) => {
+        if (!key) return;
+        if (!prov.has(key)) prov.set(key, new Set());
+        for (const c of cols) prov.get(key)!.add(c);
+      };
+      // the HOIST: the preamble runs first at run time, so read it first here too
+      const ordered = [
+        ...steps.filter((s) => s?.step === "rate_ref" || s?.pricing_input === true),
+        ...steps.filter((s) => !(s?.step === "rate_ref" || s?.pricing_input === true)),
+      ];
+      for (const s of ordered) {
+        const st = s?.step;
+        if (st === "match_master_row" || st === "catalog_fit") {
+          driving = s?.params?.kind;
+        } else if (st === "component_ref") {
+          const col: [string | undefined, string | undefined] = [s?.ref?.kind, s?.target];
+          provAdd(s?.name, [col]);
+          provAdd(s?.result, [col]);
+          acc.add(col);
+          if (clientFacing) note(col[0], col[1], stepOperandTerms(s, ctxKinds));
+        } else if (st === "component" || st === "component_band") {
+          const tgts: string[] = s?.target ? [s.target] : (s?.bands ?? []).map((b: any) => b?.target);
+          const cols = tgts.filter(Boolean).map((t) => [driving, t] as [string | undefined, string | undefined]);
+          provAdd(s?.name, cols);
+          for (const c of cols) acc.add(c);
+          if (clientFacing) for (const c of cols) note(c[0], c[1], stepOperandTerms(s, ctxKinds));
+        } else if (st === "sum_components") {
+          provAdd(s?.result, acc);
+        } else if (st === "scale" || st === "apply_effective_multiplier" || st === "install_as_ratio" || st === "roundup") {
+          const tgt: string | undefined = s?.target;
+          let cols = Array.from(prov.get(tgt ?? "") ?? []);
+          // ⚠️ `!prov.has(tgt)`, NOT `cols.length === 0` -- see the Python twin's comment. A key an
+          // earlier step registered with EMPTY provenance (`install_as_ratio`'s result) is a COMPUTED
+          // value, and the length test alone invents it as a stored column.
+          if (tgt && !prov.has(tgt) && driving) {
+            cols = [[driving, tgt]];
+            provAdd(tgt, cols);
+          }
+          const res: string | undefined = s?.result || tgt;
+          provAdd(res, cols);
+          if (res && !isInternalValueKey(res)) {
+            const applied = stepOperandTerms(s, ctxKinds);
+            for (const c of cols) note(c[0], c[1], applied, res);
+          }
+        }
+      }
+      for (const outKey of pl.output ?? []) {
+        if (isInternalValueKey(outKey)) continue;
+        for (const c of prov.get(outKey) ?? []) note(c[0], c[1], new Set(), outKey);
+      }
+    }
+  }
+
+  const out: Record<string, string> = {};
+  for (const [k, applied] of terms) {
+    let lab =
+      applied.has(LABEL_DISCOUNT) || applied.has(LABEL_MULTIPLIER)
+        ? RATE_LABEL_LIST
+        : applied.has("costish")
+          ? RATE_LABEL_BCS
+          : RATE_LABEL_BOQ;
+    const res = Array.from(results.get(k) ?? []).filter(Boolean);
+    if (res.length > 0 && res.every((r) => r.includes("install"))) lab += RATE_LABEL_INSTALL_SUFFIX;
+    out[k] = lab;
+  }
+  // ⚠️ OWNER-SET FOLDED IN HERE, INSIDE THE DISCIPLINE GATE -- not looked up in `rateColumnLabel`,
+  // which has no discipline and so LEAKED the entry onto any discipline carrying a `cable_tray` kind.
+  // Only where the derivation is silent, so it still cannot shadow a derived label.
+  if (includeOwnerSet) {
+    for (const [k, lab] of Object.entries(RATE_LABEL_OWNER_SET)) if (!(k in out)) out[k] = lab;
+  }
+  return out;
+}
+
+/** The label for ONE column, or null. The owner-set map is consulted ONLY where the derivation is
+ * silent -- that ordering is what keeps acceptance item 3 true. Mirrors `rate_column_label`. */
+export function rateColumnLabel(
+  labels: Record<string, string> | null | undefined,
+  kind: string,
+  rateKey: string,
+): string | null {
+  // A plain lookup -- the owner-set entries are folded in by `deriveRateColumnLabels`, behind the gate.
+  return (labels ?? {})[labelKey(kind, rateKey)] ?? null;
+}
+
 export const FORMULA_TYPED = "typed";
 /** The two read-only formula columns, in order. Mirrors `csv_exporter.FORMULA_COLUMNS`. */
 export const FORMULA_COLUMNS = ["supply_formula", "install_formula"] as const;
@@ -484,8 +693,12 @@ export function columnNote(
   config: RateCategoryConfig | null | undefined,
   rateKey: string,
   derivedCount = 0,
+  unsettled = false,
 ): string {
   const lines: string[] = [];
+  // SLICE 12b(B) / ACCEPTANCE ITEM 2. Mirrors `csv_exporter.column_note`'s `unsettled` arm. DEFAULTS
+  // FALSE, so every existing caller and the cross-language pin are byte-identical.
+  if (unsettled) lines.push(RATE_LABEL_UNSETTLED_NOTE);
   if (derivedCount > 0) {
     lines.push(
       `DERIVED on ${derivedCount} row(s): the value comes from another catalogue row -- see that row's ` +
