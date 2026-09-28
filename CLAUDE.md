@@ -941,6 +941,32 @@ mechanism.
 ⚠️ **ROWS AND COLUMNS FOLLOW THE SOURCE WORKBOOK, AND THAT IS PRESENTATION ONLY.** Rows ascend by (source SHEET, source row) -- sheet first, because two categories draw from two sheets each; columns follow the sheet only where the category DECLARES an order (`rate_composition`), so every other category is byte-identical. A file with rows AND columns fully shuffled uploads as zero changes with an IDENTICAL digest: the importer matches columns by NAME and rows by `item_uid`.
 ⚠️ **A COLUMN NOTE CARRIES THE PLAIN-ENGLISH EXPLANATION ONLY, AND ITS LENGTH CAP IS PER LINE.** The internal pipeline name and the step expression help nobody maintaining a rate. Capping the WHOLE note kept only the first line and dropped every other -- ADP's `cost_supply` carries eight short explanations and was cut to the DERIVED banner alone.
 
+**⚠️ A BUSINESS NUMBER LIVES IN THE PRICING INPUTS CATEGORY, AND BOTH MULTIPLIERS ARE DERIVED, NEVER
+STORED (owner-locked, 2026-09-27, Electrical v64).** A discount, a markup, a wastage, a BCS ratio or
+an installation share is a rate-master ITEM in `<discipline>_pricing_inputs` that a pipeline READS
+with a `rate_ref` step — never a literal in a config. There are no "factors": every number names what
+it is and, for a markup, which leg it is on. `BoQ multiplier = (1 − discount) × (1 + markup)` and
+`BCS multiplier = (1 − discount) × (1 + wastage)` are COMPUTED from the two editable numbers by a
+preamble `scale`; storing the product is what a **fold** was, and seven of them were unfolded because
+a pre-multiplied number cannot be edited by the person who owns either half of it.
+⚠️ **THE PREAMBLE IS APPENDED AND HOISTED, AND THAT IS NOT A STYLE CHOICE.** `rate_ref` steps are
+APPENDED so every original `steps[N]` index in the asset survives — PREPENDING them shifted the
+indices and broke nine tests whose subject was conduit trade sizes and back-box ladders, which would
+then have carried a permanent assertion about where a pricing-input step sits. The interpreter's
+`hoistRateRefs` moves the preamble to the front at run time, which is sound ONLY because every
+shipped `rate_ref` was MEASURED to carry zero `@` binds and so cannot observe any earlier step.
+⚠️ **THE PREAMBLE IS TWO STEP SHAPES AND HOISTING ONLY ONE SHIPS A SILENTLY DEAD CATEGORY:** a
+`scale` that derives a multiplier must carry `pricing_input: true` to hoist with the refs, or it lands
+after its consumers and every one of them refuses for a missing input — the category stops pricing
+with nothing on screen saying why. An ordinary `scale` reads a running value and must NEVER carry the
+flag; `_validate_config` refuses it on any other step type, by name. A ref that cannot resolve
+REFUSES naming the bind — an input that did not load is not an input of 1.
+⚠️ **ZERO IS A LEGITIMATE VALUE** (three inputs are 0% by ruling); negative and non-numeric are
+refused. A Pricing Inputs category declares no pipelines and no attribute definitions, so it is never
+eligible to price a row and never reaches extraction — and its items are kept OUT of the
+all-categories rate file. Full record incl. the two replay gates and the 48-test blast radius:
+`frontend/.claude/plans/boq-upload-plan.md` § "Build slice 12b(A)".
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

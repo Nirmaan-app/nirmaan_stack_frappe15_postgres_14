@@ -42329,3 +42329,151 @@ together with the one above; taking only one of them leaves the two gauges on di
 rows naming the glass-cloth base, so a pricer who wants to give 24G+GC its own cladding rate cannot do
 it from the rate file — they must edit the glass-cloth row, which moves 26G too. The 40 plain 24G rows
 are unaffected and can be repriced today.
+
+---
+
+## Build slice 12b(A) — PRICING INPUTS, ELECTRICAL (v64, owner-authorised 2026-09-27)
+
+**What it is.** Thirty-three business numbers — discounts, supply markups, installation markups,
+wastage, BCS ratios and installation shares — moved OUT of the twelve Electrical pricing configs and
+into a new rate-master category, `electrical_pricing_inputs`, where a pricer can edit them in the
+ordinary rate file. **No price moved.** The pipelines now READ each number through a new `rate_ref`
+step instead of carrying it as a literal.
+
+### The owner's vocabulary, which is the design
+
+Every input is a **discount**, a **markup** (naming its leg), a **wastage** or a **BCS ratio**. There
+are no "factors" any more. Percentages, not decimals. **Both multipliers are DERIVED, never stored:**
+
+```
+BoQ multiplier = (1 − discount) × (1 + markup)
+BCS multiplier = (1 − discount) × (1 + wastage)
+```
+
+plus `BCS = 1 / (1 + markup)` for `miscellaneous` alone, where the rate IS the quote. Wastage affects
+the BCS multiplier only. Sharing is recorded in its own `shared_by` column; the rate columns are
+labelled **List price** / **BCS price** / **BoQ price**, and the label is **derived from how the
+pipeline uses the number**, never typed in. Group 5 is "installation share". The conduit installation
+share collapsed to one shared input, which is why the count is 33 and not 35.
+
+### The seven folds
+
+Seven values were **pre-multiplied literals** — a single number standing for a discount and a markup
+already multiplied together. The owner ruled for the real fix: read the two inputs and multiply.
+`0.495 = (1 − 0.70) × (1 + 0.65)` is the shape. They now compute through a preamble `scale`, so the
+two business numbers are separately editable and the product is never stored.
+
+⚠️ **IEEE-754 matters here and the tolerance is not zero.** `1 − 0.70` is `0.30000000000000004`, so
+`(1 − 0.70) × (1 + 0.65)` is `0.49500000000000005`, and a stored-multiplier-vs-derived comparison on a
+category with no wastage at all reports a phantom wastage of −2.2e-14%. `RATIO_ULP_TOLERANCE = 1e-9`
+and `ratioIsUnity` exist for that. **The negative pin is the load-bearing one:** a positive pin on
+cable stays green under a literal `=== 1`, because cable's ratio really is 1.05 — only the
+**switchgear** case can see the defect, and that is the case the vacuity break fails on.
+
+### THE HOIST — and why the obvious mint was wrong
+
+The first mint **PREPENDED** each pipeline's pricing-input preamble. That shifted every positional
+`steps[N]` index in the asset and broke **nine** tests whose subject is conduit trade sizes, back-box
+ladders and tray attribute definitions — tests that would then have permanently carried an assertion
+about where a pricing-input step sits. The owner rejected that: *noise that teaches the next reader
+nothing, and it is permanent.*
+
+So the preamble is **APPENDED**, and `ratePipelineInterpreter.hoistRateRefs` moves it to the front at
+run time. **The one fact this rests on was measured, not assumed:** all **83** shipped `rate_ref`
+steps carry **zero `@` binds**, so not one of them can observe anything an earlier step did, and their
+position is information-free.
+
+⚠️ **THE PREAMBLE IS TWO STEP SHAPES, AND HOISTING ONLY ONE SHIPS A SILENTLY DEAD CATEGORY.** A
+`rate_ref` reads one stored input; a `scale` carrying `pricing_input: true` derives a multiplier from
+inputs already in ctx. Hoisting only the refs leaves those derivations *after* the consumers that read
+their ctx key, so every consumer refuses for a missing input and the whole category stops pricing with
+nothing on screen saying why. `rate_ref` hoists **by type**; a `scale` hoists **only when it declares
+itself** part of the preamble — because an ordinary `scale` reads `target`, which is normally an
+earlier step's output, and hoisting one of those really would move a figure. `_validate_config`
+refuses the flag on any other step type, by name.
+
+⚠️ **IF A FUTURE `rate_ref` EVER CARRIES AN `@` BIND** it will be hoisted above the step that produces
+the bind, the bind will not resolve, and the pipeline returns `no_match` naming the unresolved bind —
+a loud refusal, never a default. `test_hoist` pins exactly that. The honest fix at that point is to
+hoist only the refs whose `ref` carries no `@` value; **do not make the hoist conditional
+pre-emptively**, because an unexercised branch is the config-key-that-validates-but-never-executes
+failure one level down.
+
+### The two gates — the proof, and it is not the argument above
+
+| Gate | What it compares | Result |
+|---|---|---|
+| **Hoist neutrality** | v63 asset, interpreter WITHOUT the hoist vs WITH it, 2,434 records / 7,675 pipeline runs | digest `50b5c03d…` **IDENTICAL** — every figure, every refusal, every selection |
+| **The migration** | v63 (hoisted) vs v64 | **MOVED 0 · VANISHED 0 · APPEARED 368** |
+
+Baseline figures: **7,244**. The 368 appeared figures are 184 `popup_bcs` records × `bcs_supply` +
+`bcs_install` — the BCS leg the owner ruled in as RULE CHANGE 3 (pop-up boxes had no BCS leg at all).
+Every one of the 184 is `popup_bcs`; no other pipeline appeared and none vanished.
+
+⚠️ **THE STEP-8 GATE IS THE SLICE'S ONE PROMISE AND MUST BE RE-RUN AFTER ANY CHANGE TO THE MINT OR THE
+INTERPRETER.** It caught a real defect on its first run: the item-construction loop still unpacked the
+old six-tuple and wrote `rates: {"rate": <a dict>}`, moving **7,215** figures. Nothing else in the
+build would have noticed.
+
+### Literals removed
+
+Business numeric cells in the twelve pricing configs: **161 → 75**. Every one of the 75 survivors is a
+value the owner ruled OUT of scope — `1.0`×48, `0.0`×13, `3`×5, `15`/`5`×3, `30`×3. Install margins are
+out of scope by ruling.
+
+### Three rule changes the owner made along the way
+
+1. **`miscellaneous`** — the rate IS the quote, so its BoQ formula is plain `base` and its BCS is a
+   ratio (80% / 0%), not a "factor".
+2. **`lighting_mgmt_system`** — `factor 1.0` became a **BCS markup of 0%**, the same arithmetic in the
+   vocabulary the screen uses. ⚠️ The LMS inversion remains the trap root `CLAUDE.md` describes: the
+   factor is 1.3 in both readings, so a build with the division restored *looks arithmetically correct
+   and is systematically wrong (~23% under-quoted)*. `test_lms_01/02/04` now read the value from the
+   **input** rather than a literal, which strengthens the anti-vacuity property they were built for.
+3. **`popup_boxes`** gained a BCS leg at a BCS ratio of 80% — the 368 new figures.
+
+### The blast radius: 48 tests, and what was done with each
+
+Bumping `CURRENT_EALL_ASSET` to v64 re-pointed every asset-reading test at the migrated asset and took
+the suite from 2 failures to 48. They were diagnosed to root cause and handled per the owner's ruling —
+**by inversion, never deletion**:
+
+| Cause | n | Disposition |
+|---|---:|---|
+| positional `steps[N]` moved (the PREPEND) | 9 | **eliminated** by the hoist — no test edited |
+| reads a literal the migration replaced | 8 | **inverted**: assert the literal is ABSENT and the named input is READ |
+| the new 13th category | 16 | `EALL_CONFIGS`; the added category named so a SECOND addition still fails |
+| the 33 new items | 9 | `EALL_ITEMS`; `_without_pricing_input_items` on every item comparison |
+| live DB was v63 while the asset was v64 | 5 | resolved by the load — these are the delivery-path pins doing their job |
+| `git show HEAD:<asset>` on an untracked file | 1 | resolved by the commit |
+
+⚠️ **THE OBVIOUS REPAIR FOR THE "EVERY OTHER CATEGORY IS BYTE-EQUAL TO vN" PINS WOULD HAVE DESTROYED
+THEM.** This slice touched all twelve pricing configs, so adding all twelve to each exemption list
+would have left those loops **iterating nothing** — a green test asserting no claim, which is worse
+than a deleted one because it still looks like coverage. Instead `_strip_12b_migration` normalises the
+migration off **both** sides (the appended preamble; the param the migration replaced; that step's
+`formula`) and **everything else is still compared byte for byte**, so a change that rode along on
+this slice still fails in every one of those tests.
+
+⚠️ **`EALL_ITEMS` / `EALL_CONFIGS` are read in TWO senses** — what the asset declares and what the
+live DB holds once it is loaded. They are the same number by construction (the loader is wholesale),
+and that is the point: an assertion meaning 1367 in one sense and 1400 in the other would be a
+divergence nobody could see.
+
+### Zero is allowed (acceptance item 13, WITHDRAWN by the owner)
+
+The prompt asked for a zero rate to be refused. The owner withdrew it as *my wording, not a ruling*:
+three inputs are 0% **by ruling** (LMS BCS markup, cable tray installation markup, Miscellaneous
+installation BCS ratio) and cable tray's and junction box's discounts are 0% too, so a blanket refusal
+would make the owner's own approved table unsaveable. **Negative and non-numeric stay refused**;
+`validate_pricing_input_value` allows zero and `test_pi_06` is the pin.
+
+### The screen
+
+`electrical_pricing_inputs` is the only Electrical category with `eligible=False` — it declares no
+pipelines and no attribute definitions, so it can never price a row and is never fed to extraction. It
+gets its own rate file (its 33 items are real catalogue rows) but is **excluded from the
+all-categories file**, so the two column spaces do not collide. `RateMasterDataViewer` renders it in a
+fixed-column mode: `input` · the labelled value columns · `shared by` · `remarks` · `used by`, with
+`source_sheet` / `source_row` / the formula pair dropped. The **used-by** column is derived by walking
+every config's `rate_ref` steps — nothing is typed in.
