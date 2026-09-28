@@ -111,3 +111,50 @@ describe("long-option read-out: the source promises", () => {
     expect(src).toContain("value={shown}");
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 11 (owner addition, 2026-09-25) -- THE UNIT THE RATE IS QUOTED IN, on every priced
+// item and on the row total.
+// ══════════════════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ WHAT THIS CAN AND CANNOT REACH, again. There is no DOM test environment here, so the
+// rendered "per Sqft" itself is certified in the browser, not asserted. What IS assertable is
+// the SEAM that carries it -- and the one thing that actually carries risk: `FiguresRow` is
+// THE ONE renderer of the three figures and the NON-item-list surface mounts it too, which is
+// what Electrical renders. If the label were a property of the component rather than an
+// opt-in per call site, Electrical's panel would change. The owner's instruction was to STOP
+// rather than widen it, so these tests pin that it did not.
+describe("slice 11 / the unit label is opt-in per call site, which is what keeps Electrical unchanged", () => {
+  const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
+
+  it("FiguresRow takes an OPTIONAL unit and renders it beside the number", () => {
+    const start = src.indexOf("function FiguresRow");
+    const fn = src.slice(start, src.indexOf("interface RateHelperPanelProps"));
+    expect(fn).toContain("unit?: string | null");
+    expect(fn).toContain("per {label}");
+    // a blank or whitespace-only unit renders nothing -- never "per " with nothing after it
+    expect(fn).toContain('unit.trim() !== ""');
+  });
+
+  it("both ITEM-LIST surfaces pass the row's own unit: each priced item, and the row total", () => {
+    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.unit} />");
+    expect(src).toContain("<FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />");
+  });
+
+  it("⚠️ NEGATIVE: the NON-item-list surface passes NO unit, so Electrical's figures are unchanged", () => {
+    expect(src).toContain("<FiguresRow figures={g.figures} />");
+    // exactly three mounts in the file, and exactly one of them is unit-less
+    const mounts = src.match(/<FiguresRow /g) ?? [];
+    expect(mounts.length).toBe(3);
+    const unitless = src.match(/<FiguresRow (?![^>]*unit=)[^>]*\/>/g) ?? [];
+    expect(unitless.length).toBe(1);
+    expect(unitless[0]).toContain("g.figures");
+  });
+
+  it("⚠️ NEGATIVE: the label is the ROW's own unit text, never a class name the pricing invented", () => {
+    // `view.unit` is the BoQ's own spelling; the class names live in the config and must not appear here
+    for (const forbidden of ['"area"', '"length"', '"count"', "sq.m", "sqft"]) {
+      expect(src, forbidden).not.toContain(forbidden);
+    }
+  });
+});

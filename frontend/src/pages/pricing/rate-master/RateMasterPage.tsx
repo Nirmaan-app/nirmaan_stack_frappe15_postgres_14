@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ShieldCheck, ShieldOff } from "lucide-react";
 import { useUserData } from "@/hooks/useUserData";
-import { RATE_MASTER_DISCIPLINES } from "./rateMasterRegistry";
+import { RATE_MASTER_DISCIPLINES, rateMasterPageEntry } from "./rateMasterRegistry";
 import { RateMasterDataViewer } from "./RateMasterDataViewer";
 import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
@@ -30,8 +30,15 @@ import {
   type RateMasterFreezeState,
 } from "./rateMasterFreeze";
 import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
-import type { UploadPlan, UploadResult } from "./rateMasterUpload";
+import {
+  DEFAULT_RATE_FILE_FORMAT, rateFileFallbackName,
+  type RateFileFormat, type TwinDecision, type UploadPlan, type UploadResult,
+} from "./rateMasterUpload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
+import {
+  applyCsvPayload, createItemPayload, saveItemPayload,
+  type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
+} from "./rateMasterSpec";
 
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
 const CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_category_config";
@@ -59,7 +66,9 @@ const UNFREEZE_METHOD = "nirmaan_stack.api.boq.rate_master.unfreeze_rate_master"
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
   const discipline = useMemo(
-    () => RATE_MASTER_DISCIPLINES.find((d) => d.discipline === disciplineId) ?? RATE_MASTER_DISCIPLINES[0],
+    // SLICE 2 (owner ruling R1): the page reads ITEM categories only -- a message-only category
+    // (`holds_items: false`) is fetched by the pricing surfaces but never listed here.
+    () => rateMasterPageEntry(RATE_MASTER_DISCIPLINES.find((d) => d.discipline === disciplineId) ?? RATE_MASTER_DISCIPLINES[0]),
     [disciplineId]
   );
   const [categoryId, setCategoryId] = useState(discipline?.categories[0]?.category_id ?? "");
@@ -150,24 +159,23 @@ export function RateMasterPage() {
     },
     [callSaveParam, configName, mutateConfig]
   );
+  // SLICE 1d (owner ruling, the ONE permitted edit to these two wrappers): they RETURN the endpoint's
+  // reply -- so a "needs confirmation" answer with the server's best match can reach the form -- and
+  // FORWARD an optional spec_decision / spec_fingerprint. With those absent the request payload is
+  // byte-identical to before (`saveItemPayload` / `createItemPayload` are pinned by test for that).
   const onSaveItem = useCallback(
-    async (name: string, patch: { rates_patch?: Record<string, number | null>; attributes_patch?: Record<string, string | number> }) => {
-      await callSaveItem({
-        name,
-        rates_patch: patch.rates_patch ? JSON.stringify(patch.rates_patch) : undefined,
-        attributes_patch: patch.attributes_patch ? JSON.stringify(patch.attributes_patch) : undefined,
-      });
+    async (name: string, patch: SaveItemPatch): Promise<SpecConfirmationReply | undefined> => {
+      const res = await callSaveItem(saveItemPayload(name, patch));
       await mutateItems();
+      return (res as { message?: SpecConfirmationReply } | undefined)?.message;
     },
     [callSaveItem, mutateItems]
   );
   const onCreateItem = useCallback(
-    async (payload: { kind: string; brand?: string; unit?: string; attributes: Record<string, string | number>; rates: Record<string, number | null> }) => {
-      await callCreateItem({
-        discipline: disciplineId, kind: payload.kind, brand: payload.brand, unit: payload.unit,
-        attributes: JSON.stringify(payload.attributes), rates: JSON.stringify(payload.rates),
-      });
+    async (payload: CreateItemPayload): Promise<SpecConfirmationReply | undefined> => {
+      const res = await callCreateItem(createItemPayload(disciplineId, payload));
       await mutateItems();
+      return (res as { message?: SpecConfirmationReply } | undefined)?.message;
     },
     [callCreateItem, disciplineId, mutateItems]
   );
@@ -182,14 +190,17 @@ export function RateMasterPage() {
   // SLICE 5 -- the downloads. Both endpoints return the base64-in-JSON triple that
   // export_priced_workbook established, so ONE decoder serves both. `categoryId === null` is MODE B
   // (every category in one file). Nothing is mutated, so neither refetches.
+  // SLICE 1e (owner X-a): EXCEL BY DEFAULT, CSV as the second option -- `fmt` rides to the server, which
+  // builds the same columns and values either way; the server's filename wins, the fallback follows `fmt`.
   const onDownloadCsv = useCallback(
-    async (categoryId: string | null) => {
+    async (categoryId: string | null, fmt: RateFileFormat = DEFAULT_RATE_FILE_FORMAT) => {
       const res = await callExportCsv({
         discipline: disciplineId,
         category_id: categoryId ?? undefined,
+        fmt,
       });
       const payload = (res as { message: DownloadPayload }).message;
-      downloadBase64(payload, `rate_master_${categoryId ?? "all"}.csv`);
+      downloadBase64(payload, rateFileFallbackName(categoryId, fmt));
     },
     [callExportCsv, disciplineId]
   );
@@ -205,21 +216,44 @@ export function RateMasterPage() {
   // APPLY does, and its refetch is what makes the change visible immediately (the catalog is read
   // at runtime everywhere else too, so extraction values and helper dropdowns follow on their own
   // next read).
+  // SLICE 1e: the file may be .xlsx or .csv (the server detects by content). `categoryId` is the
+  // OPTIONAL hint that types a new row in a headers-only template; a file's own rows always win over
+  // it server-side. Absent, the payload is byte-identical to before.
   const onPreviewCsv = useCallback(
-    async (contentBase64: string) => {
-      const res = await callPreviewCsv({ discipline: disciplineId, content_base64: contentBase64 });
+    async (contentBase64: string, categoryId?: string | null) => {
+      const res = await callPreviewCsv({
+        discipline: disciplineId, content_base64: contentBase64,
+        ...(categoryId ? { category_id: categoryId } : {}),
+      });
       return (res as { message: UploadPlan }).message;
     },
     [callPreviewCsv, disciplineId]
   );
   const onApplyCsv = useCallback(
-    async (contentBase64: string, expectedDigest: string) => {
+    async (
+      contentBase64: string,
+      expectedDigest: string,
+      // SLICE 1d (owner ruling, the ONE permitted edit here): the user's per-row Accept / Reject answers
+      // and the fingerprints of the accepted suggestions, BOTH OPTIONAL -- absent, the payload is
+      // byte-identical to before (`applyCsvPayload` is pinned by test for that). The server re-derives
+      // every suggestion and refuses an accept whose fingerprint is not the one the preview showed.
+      decisions?: Record<number, SpecDecision>,
+      acceptedFingerprints?: Record<number, string>,
+      // SLICE 1e: the same optional category hint the preview sent (absent -> byte-identical payload).
+      categoryId?: string | null,
+      // SLICE 1f (payload channel only): the per-row Confirm / Decline answers to the duplicate warning and
+      // the confirmed targets' fingerprints, BOTH OPTIONAL -- absent, the payload is byte-identical to before
+      // (`applyCsvPayload` is pinned by test for that). The server re-derives every target and refuses a
+      // confirm whose target differs from, or has changed since, the preview.
+      twinDecisions?: Record<number, TwinDecision>,
+      twinFingerprints?: Record<number, string>,
+    ) => {
+      // `expected_digest` is the preview's fingerprint. The server re-derives the plan and REFUSES when
+      // the catalog moved underneath -- what the user confirmed is then no longer what would happen.
       const res = await callApplyCsv({
-        discipline: disciplineId,
-        content_base64: contentBase64,
-        // The preview's fingerprint. The server re-derives the plan and REFUSES when the catalog
-        // moved underneath -- what the user confirmed is then no longer what would happen.
-        expected_digest: expectedDigest,
+        ...applyCsvPayload(disciplineId, contentBase64, expectedDigest, decisions, acceptedFingerprints,
+          twinDecisions, twinFingerprints),
+        ...(categoryId ? { category_id: categoryId } : {}),
       });
       return (res as { message: UploadResult }).message;
     },

@@ -55,6 +55,22 @@ import type {
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
+// SLICE 6 (owner S1-S5, 2026-09-24): the item-list mode prices a LIST of items per row through the pure module;
+// the helper only assembles the list (the model's items overlaid with the panel's session edits) and shapes the
+// result for the panel. Every default, ladder and conversion stays in the module + config.
+import {
+  familyChoices,
+  itemFieldDefs,
+  itemListPricingSpec,
+  readNumber,
+  listSpecDefs,
+  priceItemList,
+  unitClassOf,
+  type ExtractedListItem,
+  type ItemFieldDef,
+  type ItemListPricingSpec,
+  type ItemPriceResult,
+} from "./itemListPricing";
 import type {
   AttrNote,
   ExtractedAttr,
@@ -63,6 +79,7 @@ import type {
   RateHelper,
   RateHelperRowContext,
   RateKind,
+  Suggestion,
   WorkingsAttribute,
   WorkingsGroup,
 } from "./rateHelperTypes";
@@ -94,14 +111,27 @@ export function buildExtractionByRow(
     excel_row: number;
     description?: string;
     attributes: Record<string, { value: string | number | null; confidence: number; corroborated?: boolean }>;
+    /** SLICE 6: an item-list row's stored items (slice 4's `results[i].items`); absent on every other row. */
+    items?: ExtractedListItem[];
   }>,
 ): Map<number, ExtractionRow> {
   const m = new Map<number, ExtractionRow>();
   for (const r of results ?? []) {
-    m.set(r.excel_row, { excelRow: r.excel_row, description: r.description, attributes: r.attributes });
+    const row: ExtractionRowWithItems = { excelRow: r.excel_row, description: r.description, attributes: r.attributes };
+    // carried ONLY when present, so a non-list row's map entry is byte-identical to before
+    if (Array.isArray(r.items)) row.items = r.items;
+    m.set(r.excel_row, row);
   }
   return m;
 }
+
+/** SLICE 6: an extraction row that may carry the run's ITEMS (an item-list category). The base type lives
+ * outside this slice's scope, so the items ride as an optional extension read through this alias. */
+export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[] };
+
+/** SLICE 6: a row context that may carry the BoQ row's UNIT (the page attaches it; the calculator has no row,
+ * so the unit is a pick held in the panel's session state instead). */
+export type RowContextWithUnit = RateHelperRowContext & { unit?: string | null };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
 export function isBcsPipelineId(id: string): boolean {
@@ -187,6 +217,129 @@ export function isEligibleConfig(config: RateCategoryConfig | null | undefined):
     Object.keys(config.pipelines ?? {}).length > 0 &&
     (config.attribute_definitions ?? []).length > 0
   );
+}
+
+/**
+ * SLICE 3 (2026-09-22, owner Q-a / Q-b) -- THE ONE alias resolution on the frontend, used by the helper's
+ * `resolveConfig` AND by the calculator's layout reads. A config carrying `alias_of` resolves ONE HOP to
+ * the target config when that target is in the map; otherwise (missing target, or no alias) the config
+ * itself comes back -- an alias holds no pipelines, so an unresolved alias, and a CHAIN (alias -> alias),
+ * read as NOT eligible and show the coming-soon card, never an error. No discipline or category is
+ * named here: the key is data (the HV-10 rule). PURE.
+ */
+export function resolveAliasConfig(
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  categoryId: string | null | undefined,
+): RateCategoryConfig | null {
+  const own = (categoryId && configsByCategory.get(categoryId)) || null;
+  const target = own?.alias_of;
+  if (!target || typeof target.category_id !== "string" || target.category_id.trim() === "") return own;
+  return configsByCategory.get(target.category_id) ?? own;
+}
+
+/** SLICE 3: is this config an alias (carries a usable `alias_of`)? PURE. */
+export function isAliasConfig(config: RateCategoryConfig | null | undefined): boolean {
+  const a = config?.alias_of;
+  return !!a && typeof a.category_id === "string" && a.category_id.trim() !== "";
+}
+
+/** The generic decline the helper has always given a category with no eligible config. */
+export const COMING_SOON_REASON = "Rate attributes for this category haven't been defined yet — coming soon.";
+
+/**
+ * SLICE 2 (2026-09-22, owner P-a / P-b -- J4): the NoSuggestion reason for a category with NOTHING TO
+ * PRICE. A config may declare its own message IN CONFIG (`helper_message`, e.g. "Take Vendor
+ * Quotation" on a vendor-quote category -- never a category named in code, the HV-10 rule); a config
+ * without it, and no config at all, get today's coming-soon text byte-for-byte. PURE.
+ */
+export function declineReasonFor(config: RateCategoryConfig | null | undefined): string {
+  const m = config?.helper_message;
+  return typeof m === "string" && m.trim() !== "" ? m : COMING_SOON_REASON;
+}
+
+/**
+ * SLICE 2 (J5, owner P-d), RE-RULED AT SLICE 3 (owner, 2026-09-22): does a DISCIPLINE have nothing to
+ * RUN -- at least one of its registry configs has arrived and NONE of them is an eligible config OF ITS
+ * OWN? An ALIAS config does NOT count as the discipline's own, whatever its target. For such a
+ * discipline the page shows the real pricing-sheet helper with an EMPTY extraction map BEFORE any run
+ * (the calculator's construction): vendor-quote rows keep their `helper_message`, data-only rows keep
+ * "coming soon", and an aliased row shows the helper card with the target's fields. A discipline with
+ * an eligible config of its own (Electrical) is FALSE, so its before-run panel is exactly today's; an
+ * unregistered or unresolved discipline is FALSE; a discipline none of whose configs has loaded yet is
+ * FALSE (never decide on an empty map). No discipline or category is named here. PURE.
+ */
+export function disciplineHasNothingToRun(
+  discipline: string | null | undefined,
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  targets: ReadonlyArray<{ discipline: string; categoryId: string }>,
+): boolean {
+  if (!discipline) return false;
+  const ids = targets.filter((t) => t.discipline === discipline).map((t) => t.categoryId);
+  if (!ids.some((id) => configsByCategory.has(id))) return false;
+  return !ids.some((id) => {
+    const cfg = configsByCategory.get(id);
+    return !isAliasConfig(cfg) && isEligibleConfig(cfg);
+  });
+}
+
+/**
+ * SLICE 6 (owner U5 + U6, 2026-09-24) -- PURE. Does this DISCIPLINE declare before-run cards? True when at least one
+ * fetched config of the discipline is an alias or is not eligible (a message-only vendor-quote config): those are
+ * exactly the configs the pre-run helper renders as a card of their own before any run. A discipline whose every
+ * fetched config is eligible declares none.
+ */
+export function disciplineDeclaresPreRunCards(
+  discipline: string | null | undefined,
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  targets: ReadonlyArray<{ discipline: string; categoryId: string }>,
+): boolean {
+  if (!discipline) return false;
+  return targets.some((t) => {
+    if (t.discipline !== discipline) return false;
+    const cfg = configsByCategory.get(t.categoryId);
+    return !!cfg && (isAliasConfig(cfg) || !isEligibleConfig(cfg));
+  });
+}
+
+/**
+ * SLICE 6 (owner U5 + U6, 2026-09-24) -- PURE. Does THIS ROW use the pre-run helper (the real helper over an empty
+ * extraction map) before a run? Two grounds, either suffices: the row's DISCIPLINE has nothing to run
+ * (`disciplineHasNothingToRun`, the slice-3 rule, unchanged), OR the row ITSELF has nothing to run (no config, an
+ * alias, a message-only / not-eligible config) AND its discipline declares before-run cards
+ * (`disciplineDeclaresPreRunCards`). Until ADP went eligible the first ground covered every HVAC row; once a
+ * discipline has an eligible config of its own, the second is what keeps every OTHER row on the card it had -- the
+ * vendor-quote message, the aliased helper card, and the coming-soon card of a category with no config at all. An
+ * Electrical row is unchanged on both grounds: its discipline has eligible configs and declares no before-run card,
+ * so even a row whose category has no config keeps the before-run list it always had. The discipline-level opt-in
+ * is what keeps BOTH histories intact without naming either discipline; a row with an eligible config of its own
+ * never uses the pre-run helper. No discipline or category is named here.
+ */
+export function rowUsesPreRunHelper(
+  discipline: string | null | undefined,
+  categoryId: string | null | undefined,
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  targets: ReadonlyArray<{ discipline: string; categoryId: string }>,
+): boolean {
+  if (disciplineHasNothingToRun(discipline, configsByCategory, targets)) return true;
+  const own = categoryId ? configsByCategory.get(categoryId) : undefined;
+  if (own && !isAliasConfig(own) && isEligibleConfig(own)) return false;   // the row has something to run
+  return disciplineDeclaresPreRunCards(discipline, configsByCategory, targets);
+}
+
+/**
+ * SLICE 3 (owner ruling 2026-09-22, superseding slice 2's decline-only card): the BEFORE-A-RUN helper for
+ * a discipline with nothing to run is the REAL pricing-sheet helper over an EMPTY extraction map -- the
+ * calculator's exact construction. A not-eligible / absent config still declines (`declineReasonFor`),
+ * so the vendor-quote and coming-soon cards are byte-identical to slice 2; an eligible (or aliased)
+ * category shows its fields. The page hands it to the panel ONLY (never the badge list). The shared
+ * empty map keeps the helper's identity stable across renders. PURE.
+ */
+export const EMPTY_EXTRACTION_MAP: ReadonlyMap<number, ExtractionRow> = new Map();
+export function makePreRunHelper(
+  configsByCategory: Map<string, RateCategoryConfig>,
+  items: RateMasterItem[],
+): RateHelper {
+  return makePricingSheetHelper({ configsByCategory, items, extractionByRow: EMPTY_EXTRACTION_MAP as Map<number, ExtractionRow> });
 }
 
 interface Deps {
@@ -839,7 +992,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
   /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
    * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
   function resolveConfig(category: string | null): RateCategoryConfig | null {
-    if (configsByCategory) return (category && configsByCategory.get(category)) || null;
+    // SLICE 3: an alias category resolves ONE HOP to its target's config -- the row then uses the
+    // target's pipelines, attributes and (for a wiring target) the Cable | Termination pairing, because
+    // the resolved config's id IS the target's. The Use event still records the ROW's own category (the
+    // page reads it from the row, never from this config).
+    if (configsByCategory) return resolveAliasConfig(configsByCategory, category);
     if (config && category && config.category_id === category) return config;
     return null;
   }
@@ -854,12 +1011,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // always resolves to its own eligible category by construction.
     const cfg = resolveConfig(ctx.category);
     if (!isEligibleConfig(cfg)) {
-      return {
-        kind: "none",
-        reason: "Rate attributes for this category haven't been defined yet — coming soon.",
-      };
+      // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
+      return { kind: "none", reason: declineReasonFor(cfg) };
     }
     const category = cfg!;
+    // SLICE 6: an ITEM-LIST category prices a list of items per row -- its own path, before any row-level
+    // attribute is read (the list mode has no row-level attributes: `defs` is `[]` for it).
+    const listSpec = itemListPricingSpec(category);
+    if (listSpec) {
+      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides);
+    }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
     // (Hoisted above the never-asked pass, which must not seed a derived attribute.)
@@ -1361,3 +1522,352 @@ function computeWiring(
     },
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6 (owner S1-S5, 2026-09-24) -- THE ITEM-LIST PATH. One block per item; change / add / remove; a quantity
+// per row unit per item; all or nothing; edits session-only (they live in the panel's override map, encoded
+// under ONE key, and are decoded here -- nothing is ever written to the row).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** The ONE override key the panel writes an item-list row's session edits under (a JSON `ItemListEditState`). */
+export const ITEM_LIST_OVERRIDE_KEY = "__items__";
+/** The override key holding the ROW UNIT a pricer picked where no row supplies one (the calculator). */
+export const ROW_UNIT_OVERRIDE_KEY = "__row_unit__";
+
+/** One item as the panel edits it. `base` = the index of the MODEL's item it started from (null for an item
+ * the pricer added or changed -- such an item starts BLANK, S1); `family` = a family the pricer picked (null =
+ * the model's); `attrs` = the pricer's per-attribute edits, keyed by the MODEL'S attribute id; `qty` = the
+ * quantity per row unit as typed ("1" by default). */
+export interface ItemEdit {
+  base: number | null;
+  family: string | null;
+  attrs: Record<string, string>;
+  /** SLICE 6c (owner ruling, 2026-09-24): present ONLY when the PRICER typed a quantity -- exactly like
+   * `attrs`. Absent means "not typed", so the assumed 1 stands and the panel marks it as a default. Nothing
+   * reads a quantity from the row or the model: the quantity is the pricer's, and 1 is the assumption. */
+  qty?: string;
+}
+export interface ItemListEditState {
+  items: ItemEdit[];
+}
+
+/** PURE. The edit state that means "exactly what the model returned": one untouched entry per model item. */
+export function initialItemEdits(modelCount: number): ItemListEditState {
+  const items: ItemEdit[] = [];
+  for (let i = 0; i < modelCount; i++) items.push({ base: i, family: null, attrs: {} });
+  return { items };
+}
+
+/** PURE. Decode the panel's override into an edit state; anything unreadable => the initial state. */
+export function decodeItemEdits(raw: string | undefined, modelCount: number): ItemListEditState {
+  if (raw === undefined || raw === "") return initialItemEdits(modelCount);
+  try {
+    const parsed = JSON.parse(raw) as ItemListEditState;
+    if (!parsed || !Array.isArray(parsed.items)) return initialItemEdits(modelCount);
+    return {
+      items: parsed.items.map((e) => ({
+        base: typeof e.base === "number" && e.base >= 0 && e.base < modelCount ? e.base : null,
+        family: typeof e.family === "string" && e.family !== "" ? e.family : null,
+        attrs: e.attrs && typeof e.attrs === "object" ? { ...e.attrs } : {},
+        ...(typeof e.qty === "string" ? { qty: e.qty } : {}),
+      })),
+    };
+  } catch {
+    return initialItemEdits(modelCount);
+  }
+}
+
+/** PURE. The list the module prices: each edit overlaid on the model item it started from. A changed or added
+ * item (no base) starts from ITS FAMILY ALONE -- every other attribute blank until the pricer fills it (S1). */
+export function assembleItems(edits: ItemListEditState, modelItems: ExtractedListItem[]): ExtractedListItem[] {
+  return edits.items.map((e) => {
+    const base = e.base !== null ? modelItems[e.base] : undefined;
+    const attributes: ExtractedListItem["attributes"] = {};
+    if (base && e.family === null) {
+      for (const [k, cell] of Object.entries(base.attributes ?? {})) attributes[k] = { ...cell };
+    } else if (e.family !== null) {
+      attributes.family = { value: e.family };
+    }
+    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v };
+    // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
+    // marking changes no rate anywhere.
+    return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}) };
+  });
+}
+
+/** One field of one block, as the panel renders it. */
+export interface ItemFieldView extends ItemFieldDef {
+  value: string;
+  /** The value came from a ruled default over a "None" / an absent-as-none answer (amber + "default"). */
+  defaulted: boolean;
+  /** The rule behind the default, shown under the field. */
+  rule?: string;
+  /** The pricer edited this field this session (the undo arrow). */
+  userEdited: boolean;
+  /** Something the pricing did to this field's value (a ladder hop), shown under it. */
+  note?: string;
+  /** A genuinely missing input the row needs (red border). */
+  blank: boolean;
+  /** SLICE 9 (owner A-6): what to DISPLAY for an option, where the catalogue's own word differs from the
+   * value the pricing uses. The select keeps the real value (so it still matches an option and stays
+   * editable -- see the controlled-select trap in frontend/CLAUDE.md); only the text changes. */
+  optionLabels?: Record<string, string>;
+}
+
+/** One item block, as the panel renders it. */
+export interface ItemBlockView {
+  index: number;
+  source: "model" | "user";
+  family: string | null;
+  /** The family the model returned when it differs from the family that prices (the R3 alias note). */
+  familyRaw: string | null;
+  fields: ItemFieldView[];
+  qty: string;
+  /** SLICE 6c: the quantity shown is the ASSUMED 1 -- the pricer typed nothing -- so the panel marks it amber
+   * with the same "default" tag every other assumed value carries. It is the one field that never refuses, so
+   * an unmarked 1 reads as a fact the row stated. */
+  qtyDefaulted: boolean;
+  state: "priced" | "blank";
+  reason?: string;
+  skuLine?: string;
+  working: string[];
+  figures: Partial<Record<RateKind, number>>;
+}
+
+/** The whole item-list view a suggestion carries for the panel. */
+export interface ItemListView {
+  unit: string;
+  unitClass: string | null;
+  /** The pricer may pick the row unit ONLY where no row supplies one (the calculator). */
+  unitPickable: boolean;
+  unitChoices: string[];
+  rowPriced: boolean;
+  reason?: string;
+  items: ItemBlockView[];
+  families: Array<{ family: string; units: string }>;
+  editState: ItemListEditState;
+  modelCount: number;
+}
+
+/** A suggestion that carries the item-list view (an extension read by the panel through this alias). */
+export type ItemListSuggestion = Suggestion & { itemList?: ItemListView };
+
+/** PURE. The unit choices offered where no row supplies one: the first spelling of each declared class. */
+export function unitChoicesOf(spec: ItemListPricingSpec): string[] {
+  return Object.values(spec.unit_classes).map((spellings) => spellings[0]).filter((u): u is string => typeof u === "string" && u !== "");
+}
+
+function itemBlockView(
+  spec: ItemListPricingSpec,
+  defs: ReturnType<typeof listSpecDefs>,
+  edit: ItemEdit,
+  assembled: ExtractedListItem,
+  res: ItemPriceResult,
+  unitClass: string | null,
+  items: RateMasterItem[] = [],
+): ItemBlockView {
+  const family = res.family ?? (typeof assembled.attributes.family?.value === "string" ? assembled.attributes.family.value : null);
+  // SLICE 6b (V1, X2): the block's answers as they reached the matcher (defaults applied, ladders fitted) narrow
+  // each dropdown's options exactly as they narrow the ladder's rungs
+  const answers: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(res.selection)) if (typeof v === "string" || typeof v === "number") answers[k] = v;
+  const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
+  const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
+  const hopBy = new Map(res.ladderHops.map((h) => [h.attr, h]));
+  // SLICE 9 (owner A-6): a field a config override DECIDED shows the value that priced, under the
+  // catalogue's own word for it, with the rule beneath -- a pricer must never read the variant the row
+  // happened to name beside a figure that came from a different SKU.
+  const overrideBy = new Map((res.overrides ?? []).map((o) => [o.attr, o]));
+  const fields: ItemFieldView[] = fieldDefs.map((f) => {
+    const raw = assembled.attributes[f.id]?.value;
+    const stated = raw === null || raw === undefined ? "" : String(raw);
+    const userEdited = Object.prototype.hasOwnProperty.call(edit.attrs, f.id);
+    const d = defaultedBy.get(f.skuAttr);
+    // a "None" (or an absent-as-none) answer shows the ruled default it became, marked; the pricer's own pick
+    // shows as picked
+    const defaulted = !!d && !userEdited && (stated === "None" || stated === "");
+    let value = defaulted ? d!.value : stated;
+    const hop = hopBy.get(f.skuAttr);
+    const isSizeDropdown = f.control === "dropdown" && f.skuAttr in spec.numbers;
+    let note: string | undefined;
+    if (hop && !hop.exact) note = `${hop.name} ${hop.requested} is not on the sheet -> ${hop.fitted} (next size up)`;
+    if (isSizeDropdown) {
+      // SLICE 6b (V3, X3): the field shows the size that will be PRICED -- the ladder result -- with the note naming
+      // the stated size; an exact fit shows the stocked spelling; a size above the largest keeps the refusal and
+      // shows no pick (the stated size stays on the note, never silently replaced)
+      if (hop) value = String(hop.fitted);
+      else if (value !== "" && !(f.options ?? []).includes(value)) {
+        const parsed = readNumber(value, spec.numbers[f.skuAttr]);
+        note = parsed && "value" in parsed ? `stated ${value}: ${res.reason ?? "no stocked size fits"}` : note;
+        value = "";
+      }
+    }
+    const ov = overrideBy.get(f.skuAttr);
+    let optionLabels: Record<string, string> | undefined;
+    if (ov && !userEdited) {
+      value = ov.value;
+      note = ov.rule;
+      if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
+    }
+    const name = spec.numbers[f.skuAttr]?.name ?? "\u0000";
+    const needed = res.state === "blank" && !!res.reason && (
+      res.reason.includes(name) ||
+      res.reason.includes(spec.reason_names?.[f.skuAttr] ?? "\u0000")
+    );
+    return {
+      ...f,
+      value,
+      defaulted,
+      ...(defaulted ? { rule: d!.rule } : {}),
+      userEdited,
+      ...(note ? { note } : {}),
+      ...(optionLabels ? { optionLabels } : {}),
+      blank: value === "" && needed,
+    };
+  });
+  const figures: Partial<Record<RateKind, number>> = {};
+  if (res.state === "priced") {
+    if (typeof res.figures.supply === "number") figures.supply_rate = res.figures.supply;
+    if (typeof res.figures.install === "number") figures.install_rate = res.figures.install;
+    if (typeof figures.supply_rate === "number" && typeof figures.install_rate === "number") figures.combined_rate = figures.supply_rate + figures.install_rate;
+  }
+  return {
+    index: res.index,
+    source: edit.base !== null && edit.family === null ? "model" : "user",
+    family,
+    familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
+    fields,
+    // SLICE 6d: what the field shows -- the pricer's typed value, else the count the MODEL read, else code's 1
+    qty: edit.qty ?? String(res.qty),
+    qtyDefaulted: edit.qty === undefined && res.qtyDefaulted,
+    state: res.state,
+    ...(res.reason ? { reason: res.reason } : {}),
+    ...(res.sku ? { skuLine: `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
+    working: res.working,
+    figures,
+  };
+}
+
+/**
+ * The item-list compute: the model's items (an in-run row) overlaid with the panel's session edits, priced by
+ * the pure module, shaped for the panel. A row outside the run (and the calculator) starts with NO items --
+ * "Add an item to price this row". All or nothing: `values` is filled ONLY when every item priced (S4).
+ */
+function computeItemList(
+  category: RateCategoryConfig,
+  spec: ItemListPricingSpec,
+  items: RateMasterItem[],
+  ctx: RowContextWithUnit,
+  ext: ExtractionRowWithItems | undefined,
+  inRun: boolean,
+  overrides?: Record<string, string>,
+): HelperResult {
+  const modelItems = ext?.items ?? [];
+  const edits = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
+  const assembled = assembleItems(edits, modelItems);
+  const unitChoices = unitChoicesOf(spec);
+  const unitPickable = ctx.unit === undefined || ctx.unit === null;
+  const unit = unitPickable ? (overrides?.[ROW_UNIT_OVERRIDE_KEY] ?? unitChoices[0] ?? "") : ctx.unit!;
+  const priced = priceItemList(spec, items, unit, assembled);
+  const defs = listSpecDefs(category);
+  const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
+  const blocks = edits.items.map((e, i) => {
+    const res: ItemPriceResult = priced.items[i] ?? {
+      index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
+      selection: {}, defaulted: [], ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
+    };
+    return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items);
+  });
+  const values: Record<string, number> = {};
+  if (priced.priced) {
+    if (typeof priced.supply === "number") values.supply_rate = priced.supply;
+    if (typeof priced.install === "number") values.install_rate = priced.install;
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  const n = blocks.length;
+  const basis = priced.priced
+    ? `Rate master: ${categoryLabel(category)} \u00b7 ${n} item${n === 1 ? "" : "s"}`
+    : n === 0
+      ? "Add an item to price"
+      : "Complete the missing attributes to price";
+  const derivation: string[] = [];
+  if (priced.priced) derivation.push(`Row total per 1 ${unit}: supply ${priced.supply} + install ${priced.install}`);
+  else if (priced.reason) derivation.push(priced.reason);
+  const view: ItemListView = {
+    unit, unitClass, unitPickable, unitChoices, rowPriced: priced.priced, ...(priced.reason ? { reason: priced.reason } : {}),
+    items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
+  };
+  const out: ItemListSuggestion = {
+    kind: "suggestion",
+    values,
+    ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
+    basis,
+    workings: { attributes: [], matchedRows: [], derivation, finalValues: { ...values } },
+    itemList: view,
+  };
+  return out;
+}
+
+// ── SLICE 6: the item-edit OPERATIONS (S1 / S3) -- PURE, each returns a NEW state; the panel serialises it ──
+
+export type ItemEditOp =
+  | { op: "set_attr"; index: number; id: string; value: string }
+  | { op: "undo_attr"; index: number; id: string }
+  | { op: "set_qty"; index: number; qty: string }
+  | { op: "change_family"; index: number; family: string }
+  | { op: "add"; family: string }
+  | { op: "remove"; index: number };
+
+/** PURE. Apply one panel operation. A changed or added item starts BLANK (S1): family only, no attrs, qty 1. */
+export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemListEditState {
+  const items = state.items.map((e) => ({ ...e, attrs: { ...e.attrs } }));
+  const at = (i: number) => items[i];
+  switch (op.op) {
+    case "set_attr":
+      if (!at(op.index)) return state;
+      at(op.index).attrs[op.id] = op.value;
+      return { items };
+    case "undo_attr":
+      if (!at(op.index)) return state;
+      delete at(op.index).attrs[op.id];
+      return { items };
+    case "set_qty":
+      if (!at(op.index)) return state;
+      at(op.index).qty = op.qty;
+      return { items };
+    case "change_family":
+      if (!at(op.index)) return state;
+      items[op.index] = { base: null, family: op.family, attrs: {} };
+      return { items };
+    case "add":
+      items.push({ base: null, family: op.family, attrs: {} });
+      return { items };
+    case "remove":
+      if (!at(op.index)) return state;
+      items.splice(op.index, 1);
+      return { items };
+  }
+}
+
+/** PURE. What the correction record carries for the items ON SCREEN at Use: one entry per block, its family,
+ * whether the model identified it or the pricer added it, every field's value as shown, and the quantity. */
+export function itemsOnScreen(view: ItemListView): Array<{ family: string | null; source: "model" | "user"; attributes: Record<string, string>; qty: string }> {
+  return view.items.map((b) => ({
+    family: b.family,
+    source: b.source,
+    attributes: Object.fromEntries(b.fields.map((f) => [f.id, f.value])),
+    qty: b.qty,
+  }));
+}
+
+/** PURE. The row total per row unit: every priced block's figures summed per kind -- the same three the panel
+ * shows per block, so the total can never be built from a fourth arithmetic. Only meaningful when the row
+ * priced (S4); on a blank row the panel shows the reason instead. */
+export function rowTotals(view: ItemListView): Partial<Record<RateKind, number>> {
+  const out: Partial<Record<RateKind, number>> = {};
+  for (const b of view.items) {
+    for (const [k, v] of Object.entries(b.figures)) if (typeof v === "number") out[k] = (out[k] ?? 0) + v;
+  }
+  return out;
+}
+

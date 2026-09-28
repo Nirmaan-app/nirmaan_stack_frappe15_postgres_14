@@ -9,9 +9,17 @@ import {
   headlineCounts,
   planIsNoOp,
   splitChanges,
+  TWIN_COPY,
+  TARGET_COPY,
+  uploadTargetLine,
+  rowsWithTwin,
+  twinFingerprints,
+  twinNumbers,
+  undecidedTwinRows,
   type UploadChange,
   type UploadCounts,
   type UploadPlan,
+  type UploadTwin,
 } from "./rateMasterUpload";
 
 // SLICE 6. `fileToBase64` is deliberately NOT covered here: it wraps FileReader, and this project
@@ -244,5 +252,190 @@ describe("UPLOAD_COPY", () => {
 
   it("warns about a non-UTF-8 read by NAMING the encoding the server actually used", () => {
     expect(UPLOAD_COPY.encodingWarn("cp1252")).toContain("cp1252");
+  });
+});
+
+// ── SLICE 1e -- Excel by default, CSV second; the upload accepts both; no system columns ──────────
+import {
+  DEFAULT_RATE_FILE_FORMAT,
+  FORMAT_COPY,
+  RATE_FILE_FORMATS,
+  UPLOAD_ACCEPT,
+  rateFileFallbackName,
+  showEncodingWarning,
+} from "./rateMasterUpload";
+
+describe("SLICE 1e -- the rate-file format (owner X-a)", () => {
+  it("Excel is the default and the first choice; CSV is the second, and there is no third", () => {
+    expect(DEFAULT_RATE_FILE_FORMAT).toBe("xlsx");
+    expect(RATE_FILE_FORMATS.map((f) => f.id)).toEqual(["xlsx", "csv"]);
+    expect(RATE_FILE_FORMATS[0].label).toBe("Excel");
+    expect(RATE_FILE_FORMATS[1].label).toBe("CSV");
+  });
+  it("the file picker admits BOTH formats by extension and by media type", () => {
+    const parts = UPLOAD_ACCEPT.split(",");
+    expect(parts).toContain(".xlsx");
+    expect(parts).toContain(".csv");
+    expect(parts).toContain("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(parts).toContain("text/csv");
+  });
+  it("the upload hint names both formats and the format hint explains why Excel is the default", () => {
+    expect(UPLOAD_COPY.hint).toMatch(/Excel/);
+    expect(UPLOAD_COPY.hint).toMatch(/CSV/);
+    expect(FORMAT_COPY.hint).toMatch(/1:6/);
+  });
+  it("the fallback file name follows the format and the mode", () => {
+    expect(rateFileFallbackName("hvac_adp", "xlsx")).toBe("rate_master_hvac_adp.xlsx");
+    expect(rateFileFallbackName(null, "csv")).toBe("rate_master_all.csv");
+  });
+});
+
+describe("showEncodingWarning -- the cp1252 warning is about a CSV decode, never a workbook", () => {
+  it("fires for a cp1252 csv, stays silent for a utf-8 csv and for ANY xlsx (NEGATIVE)", () => {
+    expect(showEncodingWarning({ format: "csv", encoding: "cp1252" })).toBe(true);
+    expect(showEncodingWarning({ format: "csv", encoding: "utf-8" })).toBe(false);
+    expect(showEncodingWarning({ format: "xlsx", encoding: "xlsx" })).toBe(false);
+    // a pre-1e server reply carries no `format`: the old rule stands unchanged
+    expect(showEncodingWarning({ encoding: "cp1252" } as { encoding: string; format?: "xlsx" | "csv" })).toBe(true);
+    expect(showEncodingWarning({ encoding: "utf-8" } as { encoding: string; format?: "xlsx" | "csv" })).toBe(false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1f -- SAME-MEANING DUPLICATES (owner Y-a..Y-f). Plain-English coverage:
+//   * the warning is the approved sentence, with BOTH wordings and the existing item's uid; the edit
+//     case adds the line naming the edited item, which stays as it is;
+//   * canApply is FALSE while any duplicate warning is unanswered (the server refuses too; this keeps
+//     the button honest) and TRUE once every one is confirmed or declined; a plan with no warning is
+//     unchanged (NEGATIVE: the pre-1f rule still holds for it);
+//   * twinFingerprints sends a fingerprint for a CONFIRMED row only -- never for a decline, never for a
+//     row without a warning;
+//   * the `same as existing` chip appears ONLY when the count is non-zero (like `other changes`), so an
+//     ordinary upload keeps its four numbers;
+//   * twinNumbers renders the numbers in a stable order with the em-dash for a blank.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+const twin = (over: Partial<UploadTwin> = {}): UploadTwin => ({
+  case: "new",
+  item_uid: "rmi-31fd9a7020d8",
+  name: "BRMI-26-1",
+  existing_wording: "Round Diffuser Without GI Damper / 300 MM DIA",
+  row_wording: "Round Diffuser Without GI Dampers / 300 MM DIA",
+  existing_rates: { cost_install: "250.0", cost_supply: "720.0" },
+  row_rates: { cost_install: "150.0", cost_supply: "800.0" },
+  compared: ["family", "damper", "dia_mm"],
+  fingerprint: "fp-existing",
+  decision: null,
+  ...over,
+});
+
+describe("SLICE 1f -- the duplicate warning", () => {
+  it("is the approved sentence with BOTH wordings and the existing item's uid", () => {
+    const t = twin();
+    const text = TWIN_COPY.warning(t.existing_wording, t.item_uid, t.row_wording);
+    expect(text).toBe(
+      "This means the same as an existing item: Round Diffuser Without GI Damper / 300 MM DIA (rmi-31fd9a7020d8). " +
+      "Your row says: Round Diffuser Without GI Dampers / 300 MM DIA. " +
+      "If you confirm, the existing item's rates and markups are updated to these; its wording stays as it is.",
+    );
+    // an existing item WITHOUT a uid (added by hand): no empty bracket
+    expect(TWIN_COPY.warning("A / B", "", "C / D")).toBe(
+      "This means the same as an existing item: A / B. Your row says: C / D. " +
+      "If you confirm, the existing item's rates and markups are updated to these; its wording stays as it is.",
+    );
+    // the edit case (Y-e) names the edited item and says it stays exactly as it is
+    expect(TWIN_COPY.editNote("rmi-aaaaaaaaaaaa")).toContain("rmi-aaaaaaaaaaaa");
+    expect(TWIN_COPY.editNote("rmi-aaaaaaaaaaaa")).toMatch(/exactly as it is/);
+    expect(TWIN_COPY.decided("confirm")).toMatch(/existing item/);
+    expect(TWIN_COPY.decided("decline")).toMatch(/nothing changes/);
+  });
+  it("renders both sets of numbers in a stable order, em-dash for a blank", () => {
+    expect(twinNumbers({ cost_supply: "720.0", cost_install: "250.0" })).toBe("cost_install = 250.0, cost_supply = 720.0");
+    expect(twinNumbers({ b: "", a: "1" })).toBe("a = 1, b = \u2014");
+    expect(twinNumbers({})).toBe("");
+  });
+  it("names the warning rows and the UNANSWERED ones; canApply waits for every answer", () => {
+    const p = plan({
+      changes: [
+        change({ row: 1, kind: "add", item_uid: null, major: true, twin: twin() }),
+        change({ row: 2, major: false }),
+        change({ row: 3, kind: "add", item_uid: null, major: true, twin: twin({ fingerprint: "fp3" }) }),
+      ],
+    });
+    expect(rowsWithTwin(p)).toEqual([1, 3]);
+    expect(rowsWithTwin(null)).toEqual([]);
+    expect(undecidedTwinRows(p, {})).toEqual([1, 3]);
+    expect(undecidedTwinRows(p, { 1: "confirm" })).toEqual([3]);
+    expect(undecidedTwinRows(p, { 1: "confirm", 3: "decline" })).toEqual([]);
+    expect(canApply(p)).toBe(false);                                 // unanswered -> no apply
+    expect(canApply(p, { 1: "confirm" })).toBe(false);               // one still unanswered
+    expect(canApply(p, { 1: "confirm", 3: "decline" })).toBe(true);  // every warning answered
+    expect(canApply(p, { 1: "decline", 3: "decline" })).toBe(true);  // declining all is an answer too
+    // NEGATIVE: a plan with NO warning keeps the pre-1f rule -- appliable without any decision map
+    const q = plan({ changes: [change({ row: 1 })] });
+    expect(canApply(q)).toBe(true);
+    expect(canApply(plan({ changes: [change({ row: 1 })], errors: [{ row: 1, column: "", message: "x" }] }))).toBe(false);
+  });
+  it("sends a fingerprint for a CONFIRMED warning row only", () => {
+    const p = plan({
+      changes: [
+        change({ row: 1, kind: "add", item_uid: null, twin: twin({ fingerprint: "fp1" }) }),
+        change({ row: 2 }),
+        change({ row: 3, kind: "add", item_uid: null, twin: twin({ fingerprint: "fp3" }) }),
+      ],
+    });
+    expect(twinFingerprints(p, { 1: "confirm", 2: "confirm", 3: "decline" })).toEqual({ 1: "fp1" });
+    expect(twinFingerprints(p, {})).toEqual({});
+    expect(twinFingerprints(null, { 1: "confirm" })).toEqual({});
+  });
+  it("the chip appears ONLY when the count is non-zero, after the four, before unchanged", () => {
+    const keys = (c: UploadCounts) => headlineCounts(c).map((x) => x.key);
+    expect(keys(counts())).toEqual(["rates_changed", "items_added", "unchanged", "errors"]);
+    expect(keys(counts({ twins: 0 }))).toEqual(["rates_changed", "items_added", "unchanged", "errors"]);
+    expect(keys(counts({ twins: 2 }))).toEqual(["rates_changed", "items_added", "twins", "unchanged", "errors"]);
+    const chip = headlineCounts(counts({ twins: 2 })).find((x) => x.key === "twins")!;
+    expect(chip.label).toBe(TWIN_COPY.chip);
+    expect(chip.value).toBe(2);
+    expect(chip.tone).toBe("warn");
+  });
+  it("the shown-in-full hint names the duplicate rows (the server promotes them to major)", () => {
+    expect(UPLOAD_COPY.expandedHint).toMatch(/same as an existing item/);
+    expect(UPLOAD_COPY.expandedHint).toContain("ask about or flags");   // the 1d half stays
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 1g -- SELF-DESCRIBING FILES (owner Z-c / Z-d). Plain-English coverage:
+//   * the banner is "Uploading into: <discipline> > <category label>" for a single-category target (the
+//     page's own label, since the server refuses any other category), "> all categories" for an
+//     all-categories target, and carries the page note ONLY when the file said nothing (from_page);
+//   * an unknown category id (an API caller's) falls back to the id itself;
+//   * NEGATIVE: a plan without a target (a pre-1g reply, or one refused at the header stage) renders no line.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("SLICE 1g -- the 'Uploading into' banner", () => {
+  const labels = { disciplineLabel: "HVAC", categoryId: "hvac_adp", categoryLabel: "ADP (Air Distribution Products)" };
+  it("names the page's category label for a single-category target the file stated", () => {
+    const p = plan({ target: { discipline: "HVAC", category: "hvac_adp", mode: "category", from_page: false } });
+    expect(uploadTargetLine(p, labels)).toBe("Uploading into: HVAC > ADP (Air Distribution Products)");
+  });
+  it("adds the page note ONLY when the file said nothing (owner Z-d)", () => {
+    const p = plan({ target: { discipline: "HVAC", category: "hvac_adp", mode: "category", from_page: true } });
+    expect(uploadTargetLine(p, labels)).toBe(
+      `Uploading into: HVAC > ADP (Air Distribution Products) ${TARGET_COPY.fromPage}`,
+    );
+    expect(TARGET_COPY.fromPage).toBe("(taken from the page - the file doesn't say)");
+  });
+  it("says 'all categories' for an all-categories upload", () => {
+    const p = plan({ target: { discipline: "Electrical", category: null, mode: "all", from_page: false } });
+    expect(uploadTargetLine(p, { disciplineLabel: "Electrical", categoryId: "earthing", categoryLabel: "Earthing" }))
+      .toBe("Uploading into: Electrical > all categories");
+  });
+  it("falls back to the id for a category the page has no label for; NEGATIVE: no target -> no line", () => {
+    const p = plan({ target: { discipline: "Electrical", category: "earthing", mode: "category", from_page: false } });
+    expect(uploadTargetLine(p, { disciplineLabel: "Electrical", categoryId: "cabletray_raceway", categoryLabel: "CableTray & Raceway" }))
+      .toBe("Uploading into: Electrical > earthing");
+    expect(uploadTargetLine(plan(), labels)).toBeNull();
+    expect(uploadTargetLine(null, labels)).toBeNull();
   });
 });

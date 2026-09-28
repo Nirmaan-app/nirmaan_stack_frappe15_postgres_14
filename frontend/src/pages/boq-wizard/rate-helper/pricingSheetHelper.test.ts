@@ -11,7 +11,9 @@ import PRIOR_ASSET_V59 from "../../../../../nirmaan_stack/services/boq_rate_mast
 import LIVE_ASSET_V63 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v63.json";
 import PRIOR_ASSET_V62 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
-import type { ExtractionRow, RateHelperRowContext, WorkingsAttribute } from "./rateHelperTypes";
+import type { ExtractionRow, HelperResult, RateHelperRowContext, WorkingsAttribute } from "./rateHelperTypes";
+import { RATE_MASTER_CONFIG_TARGETS, RATE_MASTER_ITEM_DISCIPLINES, mergeItemsByName } from "./rateHelperPlumbing";
+import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
 import {
   ATTR_NOTE_ORDER,
   DISPLAY_RATE_KINDS,
@@ -36,15 +38,24 @@ import {
 } from "@/pages/pricing/rate-master/rateMasterStructure";
 import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import { hasSessionEdits, overridesForRow } from "./RateHelperPanel";
+import { suggestionCountForKind } from "./rateHelperRegistry";
 import {
   applyDerivedDisplay,
   attributeOptions,
   buildExtractionByRow,
   categoryLabel,
+  COMING_SOON_REASON,
+  declineReasonFor,
+  disciplineHasNothingToRun,
+  isEligibleConfig,
+  isAliasConfig,
+  makePreRunHelper,
+  resolveAliasConfig,
   groupFigures,
   isRunForVersion,
   makePricingSheetHelper,
   nonBcsPipelines,
+  PRICING_SHEET_HELPER_ID,
   outputWord,
   pipelineLabel,
   prettifyPipelineId,
@@ -4237,11 +4248,17 @@ describe("Calculator slice 1 / THREE -- the two blanks (premise CORRECTED by the
 
 describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row and with NO row", () => {
   const FORBIDDEN = ["this row", "the row supplied", "readable in the row", "suggestion run", "Pipeline '"];
-  it("⚠️ NEGATIVE (source): none of the row-assuming phrases survive in the shipped strings of the three shared files", () => {
+  it("⚠️ NEGATIVE (source): none of the row-assuming phrases survive in the shipped strings of the three shared files -- except the ONE owner-worded quantity label (V7 / U4, 2026-09-24)", () => {
+    // slice 6b INVERSION (mechanical authority): the owner ruled the per-block quantity label reads "in one unit of
+    // this row" (U4). That string is the ONE sanctioned "this row" in the panel; it is removed before the check so
+    // every OTHER row-assuming phrase stays forbidden, and its presence is pinned exactly once.
+    const QTY_LABEL = "How many in one {view.unit} of this row";
     for (const [name, raw] of Object.entries(CALC1_SRC)) {
-      const src = stripComments(raw);
+      const src = stripComments(raw).split(QTY_LABEL).join("");
       for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
     }
+    const panel = CALC1_SRC.panel;
+    expect(panel.split(QTY_LABEL).length - 1).toBe(1);
   });
   it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
     const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });
@@ -4822,5 +4839,800 @@ describe("CONDUIT LADDER (v63) -- the asset: the ladder lives in conduit_piping 
     const c1 = conduit63({ conduit_type: "PVC", size_mm: 25 });
     if (!isSuggestion(c1)) throw new Error("expected suggestion");
     expect(c1.values).toEqual({ supply_rate: 42, install_rate: 10, combined_rate: 52 });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 2 (2026-09-22, owner P-a / P-b / P-d): a category with NOTHING TO PRICE declares its message in
+// config (`helper_message`), and a discipline with nothing to price gets its decline card BEFORE a run.
+describe("SLICE 2 / helper_message: the decline reason comes from the config, else coming soon", () => {
+  const VENDOR: RateCategoryConfig = {
+    discipline: "T", category_id: "t_vendor", attribute_definitions: [], pipelines: {},
+    helper_message: "Ask the vendor", pending_label: "Waiting",
+  };
+  const DATA_ONLY: RateCategoryConfig = {
+    discipline: "T", category_id: "t_data",
+    attribute_definitions: [{ id: "x", label: "X", type: "choice", values: ["a"] }], pipelines: {},
+  };
+  const ELIGIBLE: RateCategoryConfig = {
+    discipline: "E", category_id: "e_ok",
+    attribute_definitions: [{ id: "item", label: "Item", type: "choice", values: ["40A"] }],
+    pipelines: { boq: { output: ["supply"], steps: [
+      { step: "match_master_row", params: { kind: "e_item" } },
+      { step: "scale", target: "base", result: "supply", params: { markup: 0 }, formula: "base*(1+markup)" },
+    ] } },
+  };
+  const ITEMS: RateMasterItem[] = [{ discipline: "E", kind: "e_item", attributes: { item: "40A" }, rates: { base: 500 } }];
+  const byCat = new Map<string, RateCategoryConfig>([["t_vendor", VENDOR], ["t_data", DATA_ONLY], ["e_ok", ELIGIBLE]]);
+  const rowCtx = (category: string | null): RateHelperRowContext => ({ excelRow: 1, description: "", nodeType: "Line Item", category, discipline: null, rateKinds: ["supply_rate"] });
+
+  it("declineReasonFor: the config's helper_message when present, else the exact coming-soon text", () => {
+    expect(declineReasonFor(VENDOR)).toBe("Ask the vendor");
+    expect(declineReasonFor(DATA_ONLY)).toBe(COMING_SOON_REASON);
+    expect(declineReasonFor(null)).toBe(COMING_SOON_REASON);
+    expect(declineReasonFor(undefined)).toBe(COMING_SOON_REASON);
+    expect(declineReasonFor({ ...VENDOR, helper_message: "   " })).toBe(COMING_SOON_REASON);   // blank = absent
+    expect(COMING_SOON_REASON).toBe("Rate attributes for this category haven't been defined yet — coming soon.");
+  });
+  it("makePricingSheetHelper: a not-eligible config WITH helper_message declines with it; WITHOUT -> coming soon; no config -> coming soon", () => {
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS, extractionByRow: new Map() });
+    expect(h.compute(rowCtx("t_vendor"))).toEqual({ kind: "none", reason: "Ask the vendor" });
+    expect(h.compute(rowCtx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(h.compute(rowCtx("nope"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(h.compute(rowCtx(null))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+  });
+  it("⚠️ NEGATIVE: an ELIGIBLE config's result is unchanged -- it prices, helper_message or not", () => {
+    const map = buildExtractionByRow([{ excel_row: 1, attributes: ext({ item: "40A" }) }]);
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS, extractionByRow: map });
+    const r = h.compute(rowCtx("e_ok"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values.supply_rate).toBe(500);
+    // an eligible config that (nonsensically) also carries helper_message still prices -- the key is
+    // read ONLY on the decline branch
+    const withMsg = new Map(byCat); withMsg.set("e_ok", { ...ELIGIBLE, helper_message: "ignored" });
+    const r2 = makePricingSheetHelper({ configsByCategory: withMsg, items: ITEMS, extractionByRow: map }).compute(rowCtx("e_ok"));
+    if (!isSuggestion(r2)) throw new Error("expected suggestion");
+    expect(r2.values).toEqual(r.values);
+  });
+
+  const TARGETS = [
+    { discipline: "T", categoryId: "t_vendor" }, { discipline: "T", categoryId: "t_data" }, { discipline: "T", categoryId: "t_missing" },
+    { discipline: "E", categoryId: "e_ok" }, { discipline: "E", categoryId: "e_data" },
+  ];
+  // SLICE 3 (owner ruling 2026-09-22, superseding the slice-2 decline-only card): the rule is "nothing to
+  // RUN" -- no eligible config OF ITS OWN; an ALIAS does not count -- and the before-run helper is the real
+  // one over an empty extraction map.
+  const ALIAS_TO_E: RateCategoryConfig = { discipline: "A", category_id: "a_alias", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "E", category_id: "e_ok" } };
+  const A_OWN: RateCategoryConfig = { ...ELIGIBLE, discipline: "A", category_id: "a_own" };
+  const TARGETS3 = [...TARGETS, { discipline: "A", categoryId: "a_alias" }, { discipline: "A", categoryId: "a_own" }];
+  it("disciplineHasNothingToRun: TRUE for a discipline whose fetched configs are all not eligible; FALSE with one eligible config of its own", () => {
+    expect(disciplineHasNothingToRun("T", byCat, TARGETS3)).toBe(true);
+    expect(disciplineHasNothingToRun("E", byCat, TARGETS3)).toBe(false);
+  });
+  it("⚠️ NEGATIVE (owner ruling): a discipline whose ONLY eligible config is an ALIAS still has nothing to run; once it gains an eligible config of its OWN it stops counting -- THE FLIP, pinned", () => {
+    const withAlias = new Map(byCat); withAlias.set("a_alias", ALIAS_TO_E);
+    expect(isEligibleConfig(resolveAliasConfig(withAlias, "a_alias"))).toBe(true);   // the alias IS priceable...
+    expect(disciplineHasNothingToRun("A", withAlias, TARGETS3)).toBe(true);           // ...but it is not the discipline's OWN
+    withAlias.set("a_own", A_OWN);                                                     // slice 5 lands an own pipeline...
+    expect(disciplineHasNothingToRun("A", withAlias, TARGETS3)).toBe(false);          // ...and the discipline stops counting
+    // and Electrical-shaped disciplines are untouched by the alias rule in either direction
+    expect(disciplineHasNothingToRun("E", withAlias, TARGETS3)).toBe(false);
+  });
+  it("⚠️ NEGATIVE: FALSE for no discipline, an unregistered discipline, and a discipline none of whose configs has loaded", () => {
+    expect(disciplineHasNothingToRun(null, byCat, TARGETS3)).toBe(false);
+    expect(disciplineHasNothingToRun(undefined, byCat, TARGETS3)).toBe(false);
+    expect(disciplineHasNothingToRun("ELV", byCat, TARGETS3)).toBe(false);
+    expect(disciplineHasNothingToRun("T", new Map(), TARGETS3)).toBe(false);           // nothing arrived yet
+    // documented edge: one NOT-eligible config arrived, the eligible sibling not yet -> TRUE until it lands
+    const partial = new Map<string, RateCategoryConfig>([["e_data", DATA_ONLY]]);
+    expect(disciplineHasNothingToRun("E", partial, TARGETS3)).toBe(true);
+    partial.set("e_ok", ELIGIBLE);
+    expect(disciplineHasNothingToRun("E", partial, TARGETS3)).toBe(false);
+  });
+  it("makePreRunHelper: the real helper over an EMPTY map -- vendor / coming-soon cards byte-identical to slice 2, an eligible or aliased category shows its fields; NEVER badges", () => {
+    const withAlias = new Map(byCat); withAlias.set("a_alias", ALIAS_TO_E);
+    const d = makePreRunHelper(withAlias, ITEMS);
+    expect(d.id).toBe(PRICING_SHEET_HELPER_ID);
+    expect(d.label).toBe("Pricing sheet");
+    expect(d.compute(rowCtx("t_vendor"))).toEqual({ kind: "none", reason: "Ask the vendor" });
+    expect(d.compute(rowCtx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(d.compute(rowCtx("t_missing"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    expect(d.compute(rowCtx(null))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+    // an eligible category, and an ALIAS of one, show the fields (a Suggestion with a blank fill), no run needed
+    const own = d.compute(rowCtx("e_ok"));
+    const via = d.compute(rowCtx("a_alias"));
+    if (!isSuggestion(own) || !isSuggestion(via)) throw new Error("expected suggestions");
+    expect(via.workings.attributes.map((a) => a.id)).toEqual(own.workings.attributes.map((a) => a.id));
+    expect(via.basis).toBe(own.basis);
+    // it is panel-only: the page never puts it in the badge list (source pin below); here, the empty-map
+    // helper mints no computed value for a blank row, so the badge count stays 0 even if it were asked
+    expect(suggestionCountForKind(rowCtx("t_vendor"), "supply_rate", [d])).toBe(0);
+  });
+  it("(source) the page hands the panel `panelHelpers` (both mounts) and the badge effect keeps `helperList`; with a run, panelHelpers IS helperList; Electrical's before-run list is untouched", () => {
+    const page = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf8");
+    expect(page.match(/helpers=\{panelHelpers\}/g) ?? []).toHaveLength(2);
+    expect(page).not.toMatch(/helpers=\{helperList\}/);
+    expect(page).toContain("buildSuggestions(rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList)");
+    expect(page).toContain("if (pricingSheetHelper || !preRunHelper || !helperPanel) return helperList;");
+    // SLICE 6 (owner U6, INVERTING the slice-3 line): the pre-run rule is PER ROW -- the discipline has nothing to
+    // run OR the row's own config is not eligible on its own -- so ADP going eligible leaves every other HVAC
+    // row on the card it had. The slice-3 call is gone from the page (negative kept).
+    expect(page).toContain("rowUsesPreRunHelper(discipline, categoryId, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
+    expect(page).not.toContain("disciplineHasNothingToRun(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
+    expect(page).toContain("? buildHelperList(preRunHelper)");
+    expect(page).toContain(": helperList;");
+    expect(page).toContain("resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null");
+    expect(page).not.toContain("makeDeclineOnlyHelper");
+    // the Use event records the ROW's own category, never the resolved config's id (L5)
+    expect(page).toContain('category_id: liveCategoriesByExcelRow.get(excelRow)?.effective_category_id ?? "",');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 3 (2026-09-22, owner Q-a / Q-b): `alias_of` -- ONE frontend resolution, one hop, never an error.
+describe("SLICE 3 / alias_of: resolveAliasConfig is one hop; an aliased row prices as its target, wiring pairing included", () => {
+  const cats63 = (LIVE_ASSET_V63 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] });
+  const WIRING = cats63.category_configs.find((c) => c.category_id === "wiring_cabling")!;
+  const DATA_ONLY: RateCategoryConfig = { discipline: "T", category_id: "t_data", attribute_definitions: [{ id: "x", label: "X", type: "choice", values: ["a"] }], pipelines: {} };
+  const ALIAS: RateCategoryConfig = { discipline: "T", category_id: "t_cables", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "Electrical", category_id: "wiring_cabling" } };
+  const ALIAS_TO_DATA: RateCategoryConfig = { discipline: "T", category_id: "t_to_data", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "T", category_id: "t_data" } };
+  const ALIAS_TO_MISSING: RateCategoryConfig = { discipline: "T", category_id: "t_to_missing", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "Nowhere", category_id: "nope" } };
+  const CHAIN_A: RateCategoryConfig = { discipline: "T", category_id: "t_chain", attribute_definitions: [], pipelines: {}, alias_of: { discipline: "T", category_id: "t_cables" } };
+  const byCat = new Map<string, RateCategoryConfig>([
+    ["wiring_cabling", WIRING], ["t_data", DATA_ONLY], ["t_cables", ALIAS], ["t_to_data", ALIAS_TO_DATA],
+    ["t_to_missing", ALIAS_TO_MISSING], ["t_chain", CHAIN_A],
+  ]);
+  const ITEMS63 = cats63.items.map((i) => ({ ...i, attributes: { ...i.attributes, ...((i as unknown as { brand?: string }).brand ? { brand: (i as unknown as { brand?: string }).brand } : {}) } })) as RateMasterItem[];
+  const wctx = (category: string, excelRow = 5, description = "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable"): RateHelperRowContext =>
+    ({ excelRow, description, nodeType: "Line Item", category, discipline: null, rateKinds: ["supply_rate", "install_rate", "combined_rate"] });
+
+  it("resolveAliasConfig: target for an alias, own for a non-alias, own for a missing target, ONE hop on a chain, null for none", () => {
+    expect(resolveAliasConfig(byCat, "t_cables")).toBe(WIRING);
+    expect(resolveAliasConfig(byCat, "wiring_cabling")).toBe(WIRING);
+    expect(resolveAliasConfig(byCat, "t_data")).toBe(DATA_ONLY);
+    expect(resolveAliasConfig(byCat, "t_to_missing")).toBe(ALIAS_TO_MISSING);   // own back: not eligible
+    expect(resolveAliasConfig(byCat, "t_chain")).toBe(ALIAS);                    // one hop lands on the alias, never on WIRING
+    expect(resolveAliasConfig(byCat, "nope")).toBeNull();
+    expect(resolveAliasConfig(byCat, null)).toBeNull();
+    expect(isAliasConfig(ALIAS)).toBe(true);
+    expect(isAliasConfig(WIRING)).toBe(false);
+    expect(isAliasConfig({ ...ALIAS, alias_of: { discipline: "E", category_id: "  " } })).toBe(false);
+  });
+  it("an ALIAS is eligible exactly when its target is; an alias to a data-only / missing target, and a chain, decline coming soon -- never an error", () => {
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_cables"))).toBe(true);
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_to_data"))).toBe(false);
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_to_missing"))).toBe(false);
+    expect(isEligibleConfig(resolveAliasConfig(byCat, "t_chain"))).toBe(false);
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS63, extractionByRow: new Map() });
+    for (const cat of ["t_to_data", "t_to_missing", "t_chain"]) expect(h.compute(wctx(cat))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+  });
+  it("an aliased in-run row prices EXACTLY as the wiring row -- the Cable | Termination pairing fires because the resolved config's id IS wiring_cabling", () => {
+    const g = (WIRING.goldens as Array<{ attrs: Record<string, string | number> }>)[0];
+    const map = buildExtractionByRow([{ excel_row: 5, attributes: ext(g.attrs) }]);
+    const h = makePricingSheetHelper({ configsByCategory: byCat, items: ITEMS63, extractionByRow: map });
+    const E = h.compute(wctx("wiring_cabling"));
+    const A = h.compute(wctx("t_cables"));
+    if (!isSuggestion(E) || !isSuggestion(A)) throw new Error("expected suggestions");
+    expect(Object.keys(E.values).length).toBeGreaterThan(0);
+    expect(A.values).toEqual(E.values);
+    expect(A.headlines).toEqual(E.headlines);
+    expect(A.headlines).toHaveLength(2);                                        // Cable | Termination
+    expect(A.workings.sections?.map((s) => s.figures)).toEqual(E.workings.sections?.map((s) => s.figures));
+    expect(A.basis).toBe(E.basis);
+    // NEGATIVE: a non-alias category resolves as today (its own config) and a data-only one still declines
+    expect(h.compute(wctx("t_data"))).toEqual({ kind: "none", reason: COMING_SOON_REASON });
+  });
+  it("(source) resolveConfig reads the ONE resolution; the calculator imports the same function; no alias id is named", () => {
+    const src = readFileSync(join(__dirname, "pricingSheetHelper.ts"), "utf8");
+    expect(src).toContain("if (configsByCategory) return resolveAliasConfig(configsByCategory, category);");
+    expect((src.match(/export function resolveAliasConfig\(/g) ?? []).length).toBe(1);
+    expect(src).not.toContain('"hvac_cables"');
+    expect(src).not.toContain('"hvac_raceway"');
+    const calc = readFileSync(join(__dirname, "..", "..", "pricing", "PricingCalculator.tsx"), "utf8");
+    expect(calc).toContain("resolveAliasConfig");
+    expect(calc).not.toContain('"hvac_cables"');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6 (2026-09-24, owner S1-S5, T2-T7) -- THE ITEM-LIST PATH of the pricing-sheet helper on HVAC v8: one
+// block per item, change / add / remove, the quantity, all or nothing, edits session-only, the Use payload,
+// the pre-run rule per row.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
+import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
+import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v10.json";
+import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
+import {
+  applyItemEdit,
+  assembleItems,
+  decodeItemEdits,
+  initialItemEdits,
+  ITEM_LIST_OVERRIDE_KEY,
+  itemsOnScreen,
+  ROW_UNIT_OVERRIDE_KEY,
+  rowTotals,
+  rowUsesPreRunHelper,
+  disciplineDeclaresPreRunCards,
+  unitChoicesOf,
+  type ItemListSuggestion,
+  type ItemListEditState,
+  type ItemListView,
+} from "./pricingSheetHelper";
+import { itemListPricingSpec } from "./itemListPricing";
+
+describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or nothing, the Use payload", () => {
+  const V8 = HVAC_V8 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS8 = new Map<string, RateCategoryConfig>(V8.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS8: RateMasterItem[] = V8.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const ADP8 = CONFIGS8.get("hvac_adp")!;
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const adpCtx = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS8, items: ITEMS8, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const ACT = li({ family: "actuator", ul: "None", torque: "8 NM" });          // 9570 / 800
+  const PANEL = li({ family: "control panel", panel_ratio: "1:6" });          // 16791 / 800
+  const SPIGOT = li({ family: "spigot", dia_mm: "150" });                      // 211 / 64
+
+  it("T2: N item blocks for N items -- each priced, its family, its SKU line, its figures; the row total; Use-able values", () => {
+    const { r, v } = list(runWith([{ excel_row: 7, items: [ACT, PANEL] }]).compute(adpCtx(7, "Nos")));
+    expect(v.items).toHaveLength(2);
+    expect(v.items.map((b) => [b.source, b.family, b.state])).toEqual([["model", "actuator", "priced"], ["model", "control panel", "priced"]]);
+    expect(v.items[0].figures).toEqual({ supply_rate: 9570, install_rate: 800, combined_rate: 10370 });
+    expect(v.items[1].skuLine).toBe("Fire Damper/ ACTUATOR Control Panel / 1:6 (Nos)");
+    expect(v.rowPriced).toBe(true);
+    expect(rowTotals(v)).toEqual({ supply_rate: 26361, install_rate: 1600, combined_rate: 27961 });
+    expect(r.values).toEqual({ supply_rate: 26361, install_rate: 1600, combined_rate: 27961 });
+    expect(r.basis).toBe("Rate master: ADP (Air Distribution Products) · 2 items");
+    expect(r.producibleKinds).toEqual(["supply_rate", "install_rate", "combined_rate"]);
+    // the UL default is marked on the actuator's field with its rule (the amber tag + note)
+    const ul = v.items[0].fields.find((f) => f.id === "ul")!;
+    expect(ul).toMatchObject({ value: "no", defaulted: true, rule: "R14 / S6 UL not mentioned (or not answered) = non-UL", userEdited: false, blank: false });
+  });
+  it("T2 / S4: a refused item shows ITS reason; the row has no price and no Use-able value; the other item keeps its figures", () => {
+    const { r, v } = list(runWith([{ excel_row: 8, items: [ACT, li({ family: "control panel" })] }]).compute(adpCtx(8, "Nos")));
+    expect(v.rowPriced).toBe(false);
+    expect(v.reason).toBe("item 2 (control panel): no panel ratio stated");
+    expect(v.items[1]).toMatchObject({ state: "blank", reason: "no panel ratio stated" });
+    expect(v.items[1].fields.find((f) => f.id === "panel_ratio")).toMatchObject({ value: "", blank: true });
+    expect(v.items[0].figures.supply_rate).toBe(9570);
+    expect(r.values).toEqual({});
+    expect(r.basis).toBe("Complete the missing attributes to price");
+  });
+  it("NEGATIVE: a single-item row is one block (today's card shape: one suggestion, one headline); a NON-list category carries no itemList", () => {
+    const { r, v } = list(runWith([{ excel_row: 9, items: [SPIGOT] }]).compute(adpCtx(9, "Nos")));
+    expect(v.items).toHaveLength(1);
+    expect(r.values).toEqual({ supply_rate: 211, install_rate: 64, combined_rate: 275 });
+    expect(r.headlines).toBeUndefined();
+    const wiring = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: buildExtractionByRow([{ excel_row: 51, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) }]) }).compute(ctx(51, "XLPE cable 1C x 6 sqmm"));
+    expect((wiring as ItemListSuggestion).itemList).toBeUndefined();
+  });
+  it("T3: change item -> a BLANK item of the new family; add -> one more; remove -> one fewer; every step re-prices", () => {
+    const h = runWith([{ excel_row: 10, items: [SPIGOT] }]);
+    const c = adpCtx(10, "Nos");
+    const state0 = list(h.compute(c)).v.editState;
+    expect(state0).toEqual(initialItemEdits(1));
+    // change: the family list comes from the config -- pick "disc valve"; the block starts blank and refuses
+    const s1 = applyItemEdit(state0, { op: "change_family", index: 0, family: "disc valve" });
+    const { r: r1, v: v1 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s1) }));
+    expect(v1.items[0]).toMatchObject({ source: "user", family: "disc valve", state: "blank", reason: "no diameter stated" });
+    expect(v1.items[0].fields.map((f) => [f.id, f.value])).toEqual([["dia_mm", ""]]);
+    expect(r1.values).toEqual({});
+    // fill it: prices the disc valve
+    const s2 = applyItemEdit(s1, { op: "set_attr", index: 0, id: "dia_mm", value: "100" });
+    const { r: r2, v: v2 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s2) }));
+    expect(v2.items[0].fields[0]).toMatchObject({ value: "100", userEdited: true });
+    expect(r2.values).toEqual({ supply_rate: 551, install_rate: 176, combined_rate: 727 });
+    // add: a second item, blank, then filled
+    const s3 = applyItemEdit(applyItemEdit(s2, { op: "add", family: "spigot" }), { op: "set_attr", index: 1, id: "dia_mm", value: "150" });
+    const { r: r3, v: v3 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s3) }));
+    expect(v3.items.map((b) => [b.source, b.family, b.state])).toEqual([["user", "disc valve", "priced"], ["user", "spigot", "priced"]]);
+    expect(r3.values).toEqual({ supply_rate: 551 + 211, install_rate: 176 + 64, combined_rate: 727 + 275 });
+    // remove the first: the spigot alone
+    const s4 = applyItemEdit(s3, { op: "remove", index: 0 });
+    expect(list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s4) })).r.values).toEqual({ supply_rate: 211, install_rate: 64, combined_rate: 275 });
+    // remove the last: no items -> "Add an item to price", nothing Use-able
+    const s5 = applyItemEdit(s4, { op: "remove", index: 0 });
+    const { r: r5, v: v5 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s5) }));
+    expect(v5.items).toEqual([]);
+    expect(r5.basis).toBe("Add an item to price");
+    expect(r5.values).toEqual({});
+  });
+  it("T3: an attribute edit on a MODEL item re-prices; undo restores the model's value; the family list is the config's 25", () => {
+    const h = runWith([{ excel_row: 11, items: [li({ family: "round diffuser", damper: "None", dia_mm: "200" })] }]);
+    const c = adpCtx(11, "Nos");
+    const base = list(h.compute(c));
+    expect(base.r.values.supply_rate).toBe(986);   // without (the R1 default), 200
+    expect(base.v.families).toHaveLength(25);
+    const edited = applyItemEdit(base.v.editState, { op: "set_attr", index: 0, id: "damper", value: "with" });
+    const e = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edited) }));
+    expect(e.r.values.supply_rate).toBe(1276);
+    expect(e.v.items[0].fields.find((f) => f.id === "damper")).toMatchObject({ value: "with", userEdited: true, defaulted: false });
+    const undone = applyItemEdit(edited, { op: "undo_attr", index: 0, id: "damper" });
+    const u = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(undone) }));
+    expect(u.r.values.supply_rate).toBe(986);
+    expect(u.v.items[0].fields.find((f) => f.id === "damper")).toMatchObject({ value: "without", userEdited: false, defaulted: true });
+  });
+  it("T4: the quantity per row unit -- default 1, editable, blank refuses; the row total follows", () => {
+    const h = runWith([{ excel_row: 12, items: [ACT, PANEL] }]);
+    const c = adpCtx(12, "Nos");
+    const s = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "2" });
+    const { r, v } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
+    expect(v.items[0].qty).toBe("2");
+    expect(v.items[0].figures.supply_rate).toBe(9570 * 2);
+    expect(r.values.supply_rate).toBe(9570 * 2 + 16791);
+    const blank = applyItemEdit(s, { op: "set_qty", index: 1, qty: "" });
+    const b = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(blank) }));
+    expect(b.v.items[1]).toMatchObject({ state: "blank", reason: "quantity per row unit is blank" });
+    expect(b.r.values).toEqual({});
+  });
+  it("S3 / NEGATIVE: edits never persist -- computing again WITHOUT the override shows the model's answers; garbage in the override is ignored", () => {
+    const h = runWith([{ excel_row: 13, items: [ACT, PANEL] }]);
+    const c = adpCtx(13, "Nos");
+    const edited = applyItemEdit(list(h.compute(c)).v.editState, { op: "remove", index: 1 });
+    expect(list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edited) })).v.items).toHaveLength(1);
+    const again = list(h.compute(c));
+    expect(again.v.items).toHaveLength(2);
+    expect(again.v.editState).toEqual(initialItemEdits(2));
+    expect(decodeItemEdits("not json", 2)).toEqual(initialItemEdits(2));
+    expect(decodeItemEdits('{"items":"x"}', 2)).toEqual(initialItemEdits(2));
+    // slice 6c INVERSION (the owner's marking ruling): an edit carries `qty` ONLY when the PRICER typed a
+    // string, so a garbage qty (here the NUMBER 1) leaves the key ABSENT -- the assumed 1 stands and is marked.
+    expect(decodeItemEdits(JSON.stringify({ items: [{ base: 9, family: "", attrs: null, qty: 1 }] }), 2).items).toEqual([{ base: null, family: null, attrs: {} }]);
+    expect(decodeItemEdits(JSON.stringify({ items: [{ base: 9, family: "", attrs: null, qty: 1 }] }), 2).items[0].qty).toBeUndefined();
+  });
+  it("T5: the items ON SCREEN for the correction record -- family, source, every field as shown, the quantity", () => {
+    const h = runWith([{ excel_row: 14, items: [ACT, PANEL] }]);
+    const c = adpCtx(14, "Nos");
+    const s = applyItemEdit(applyItemEdit(list(h.compute(c)).v.editState, { op: "set_attr", index: 0, id: "torque", value: "20 NM" }), { op: "add", family: "spigot" });
+    const { v } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
+    expect(itemsOnScreen(v)).toEqual([
+      { family: "actuator", source: "model", attributes: { ul: "no", torque: "20 NM" }, qty: "1" },
+      { family: "control panel", source: "model", attributes: { panel_ratio: "1:6" }, qty: "1" },
+      { family: "spigot", source: "user", attributes: { dia_mm: "" }, qty: "1" },
+    ]);
+  });
+  it("R12 through the panel: the BoQ row's unit rides the context; no unit refuses; the calculator picks one", () => {
+    const h = runWith([{ excel_row: 15, items: [SPIGOT] }]);
+    expect(list(h.compute(adpCtx(15, "Nos"))).v).toMatchObject({ unit: "Nos", unitClass: "count", unitPickable: false, rowPriced: true });
+    const none = list(h.compute(adpCtx(15, "")));
+    expect(none.v).toMatchObject({ unit: "", unitClass: null, unitPickable: false, rowPriced: false, reason: "no unit on this row (R12)" });
+    // no unit on the context at all (the calculator): pickable, the first spelling of the first class, overridable
+    const calc = makePricingSheetHelper({ configsByCategory: CONFIGS8, items: ITEMS8, extractionByRow: new Map() });
+    const c0 = list(calc.compute(adpCtx(0, undefined)));
+    expect(c0.v).toMatchObject({ unitPickable: true, unit: "nos", unitChoices: unitChoicesOf(itemListPricingSpec(ADP8)!) });
+    expect(c0.v.items).toEqual([]);
+    expect(c0.r.basis).toBe("Add an item to price");
+    const added = applyItemEdit(c0.v.editState, { op: "add", family: "VCD" });
+    const withVariant = applyItemEdit(applyItemEdit(added, { op: "set_attr", index: 0, id: "variant", value: "GI oval" }), { op: "set_attr", index: 0, id: "face_w_mm", value: "600" });
+    const filled = applyItemEdit(withVariant, { op: "set_attr", index: 0, id: "face_h_mm", value: "600" });
+    const c1 = list(calc.compute(adpCtx(0, undefined), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(filled), [ROW_UNIT_OVERRIDE_KEY]: "sqm" }));
+    expect(c1.v.unit).toBe("sqm");
+    expect(c1.r.values).toEqual({ supply_rate: 10005, install_rate: 1920, combined_rate: 11925 });   // per sq.m: no conversion
+    const c2 = list(calc.compute(adpCtx(0, undefined), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(filled) }));
+    expect(c2.v.unit).toBe("nos");
+    expect(c2.r.values).toEqual({ supply_rate: 3602, install_rate: 692, combined_rate: 4294 });   // per number: 6900 x 0.36 = 2484 -> x1.45 = 3601.8 -> 3602; 1200 x 0.36 = 432 -> x1.6 = 691.2 -> 692
+  });
+  it("assembleItems: a model item keeps every cell; a changed item starts from its family alone; an edit overrides one cell", () => {
+    const model = [ACT];
+    const s: ItemListEditState = { items: [
+      { base: 0, family: null, attrs: { torque: "20 NM" }, qty: "1" },
+      { base: 0, family: "spigot", attrs: {}, qty: "3" },
+    ] };
+    const out = assembleItems(s, model);
+    expect(out[0].attributes.family).toEqual({ value: "actuator", confidence: 0.9 });
+    expect(out[0].attributes.torque).toEqual({ value: "20 NM" });
+    expect(out[0].attributes.ul).toEqual({ value: "None", confidence: 0.9 });
+    expect(out[1].attributes).toEqual({ family: { value: "spigot" } });
+    expect(out[1].qtyPerRowUnit).toBe("3");
+  });
+  it("the run's items ride the extraction row ONLY when present (a non-list row's map entry is byte-identical)", () => {
+    const m = buildExtractionByRow([{ excel_row: 1, attributes: ext({ a: 1 }) }, { excel_row: 2, attributes: {}, items: [SPIGOT] }]);
+    expect(m.get(1)).toEqual({ excelRow: 1, description: undefined, attributes: ext({ a: 1 }) });
+    expect(Object.keys(m.get(1)!)).toEqual(["excelRow", "description", "attributes"]);
+    expect((m.get(2) as { items?: unknown }).items).toEqual([SPIGOT]);
+  });
+});
+
+describe("SLICE 6 / U6 -- the pre-run rule is PER ROW: a row whose own config is not eligible keeps the pre-run helper", () => {
+  const V8 = HVAC_V8 as unknown as { category_configs: RateCategoryConfig[] };
+  const byCat = new Map<string, RateCategoryConfig>(V8.category_configs.map((c) => [c.category_id, c]));
+  const wiring = { ...CONFIG, category_id: "wiring_cabling" };
+  byCat.set("wiring_cabling", wiring);
+  const TARGETS = [
+    ...V8.category_configs.map((c) => ({ discipline: "HVAC", categoryId: c.category_id })),
+    { discipline: "Electrical", categoryId: "wiring_cabling" },
+  ];
+  it("HVAC has something to run now (ADP), so the rule falls to the ROW: vendor-quote, alias AND no-config rows keep the pre-run helper (HVAC declares before-run cards), an ADP row does not", () => {
+    expect(disciplineHasNothingToRun("HVAC", byCat, TARGETS)).toBe(false);
+    expect(disciplineDeclaresPreRunCards("HVAC", byCat, TARGETS)).toBe(true);        // AHU / DX / Panels / Pumps are message-only, cables an alias
+    expect(rowUsesPreRunHelper("HVAC", "hvac_ahu", byCat, TARGETS)).toBe(true);       // message-only: not eligible
+    expect(rowUsesPreRunHelper("HVAC", "hvac_cables", byCat, TARGETS)).toBe(true);    // an alias: not its own
+    expect(rowUsesPreRunHelper("HVAC", "hvac_ducting", byCat, TARGETS)).toBe(true);   // no config at all: the coming-soon card it had (U6)
+    expect(rowUsesPreRunHelper("HVAC", null, byCat, TARGETS)).toBe(true);             // not yet classified: nothing to run
+    expect(rowUsesPreRunHelper("HVAC", "hvac_adp", byCat, TARGETS)).toBe(false);      // eligible of its own (U5)
+  });
+  it("NEGATIVE: an Electrical row is unchanged (false) whatever its category -- Electrical declares no before-run card; the opt-in is load-bearing; a discipline with nothing to run is still true for every row", () => {
+    expect(disciplineDeclaresPreRunCards("Electrical", byCat, TARGETS)).toBe(false);
+    expect(rowUsesPreRunHelper("Electrical", "wiring_cabling", byCat, TARGETS)).toBe(false);
+    expect(rowUsesPreRunHelper("Electrical", "panels", byCat, TARGETS)).toBe(false);   // a category with no config: the plain before-run panel it always had
+    expect(rowUsesPreRunHelper("Electrical", null, byCat, TARGETS)).toBe(false);
+    // the opt-in is load-bearing: strip every card-declaring HVAC config and a no-config HVAC row falls to the plain panel too
+    const cardless = new Map([...byCat].filter(([id, c]) => !(id.startsWith("hvac_") && (isAliasConfig(c) || !isEligibleConfig(c)))));
+    expect(disciplineDeclaresPreRunCards("HVAC", cardless, TARGETS)).toBe(false);
+    expect(rowUsesPreRunHelper("HVAC", "hvac_ducting", cardless, TARGETS)).toBe(false);
+    expect(rowUsesPreRunHelper("HVAC", "hvac_adp", cardless, TARGETS)).toBe(false);
+    // a discipline with nothing to run: true for every row, as in slice 3
+    const noAdp = new Map(byCat); noAdp.set("hvac_adp", { ...byCat.get("hvac_adp")!, pipelines: {} });
+    expect(disciplineHasNothingToRun("HVAC", noAdp, TARGETS)).toBe(true);
+    expect(rowUsesPreRunHelper("HVAC", "hvac_adp", noAdp, TARGETS)).toBe(true);
+    expect(rowUsesPreRunHelper("HVAC", "hvac_ducting", noAdp, TARGETS)).toBe(true);
+  });
+  it("(source) the page holds EVERY registry discipline's rate-master items -- found live: an ADP pick against a catalogue the page never fetched said 'no SKU'", () => {
+    const page = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf8");
+    expect(page).toContain("RATE_MASTER_ITEM_DISCIPLINES.map((d) => (");
+    expect(page).toContain("<RateItemsFetcher key={`rmitems-${d}`} discipline={d} onLoaded={onExtraRmItemsLoaded} />");
+    expect(page).toContain("mergeItemsByName(rmItemsData?.message?.items ?? [], ...RATE_MASTER_ITEM_DISCIPLINES.map((d) => extraRmItems.get(d) ?? []))");
+    // the list is the registry's, once each, and covers every discipline a config target names
+    const disciplines = RATE_MASTER_DISCIPLINES.map((d) => d.discipline);
+    expect(RATE_MASTER_ITEM_DISCIPLINES).toEqual(Array.from(new Set(disciplines)));
+    for (const tgt of RATE_MASTER_CONFIG_TARGETS) expect(RATE_MASTER_ITEM_DISCIPLINES).toContain(tgt.discipline);
+    expect(RATE_MASTER_ITEM_DISCIPLINES.length).toBeGreaterThan(1);
+    // NEGATIVE: the merge keeps the default fetch's items first and never duplicates a name
+    const a = { name: "A", discipline: "X", kind: "k", attributes: {} } as unknown as RateMasterItem;
+    const a2 = { name: "A", discipline: "Y", kind: "k", attributes: {} } as unknown as RateMasterItem;
+    const b = { name: "B", discipline: "Y", kind: "k", attributes: {} } as unknown as RateMasterItem;
+    expect(mergeItemsByName([a], [a2, b])).toEqual([a, b]);
+  });
+  it("(source) the page attaches the row's unit to the panel context and sends both item lists on Use", () => {
+    const page = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf8");
+    expect(page).toContain('unit: row.unit ?? "" };');
+    expect(page).toContain("extractedAttributes.items = extItems.map((it) => ({");
+    expect(page).toContain("? { ...meta.correctedAttributes, items: meta.itemsOnScreen }");
+    expect(page).toContain("corrected_attributes: correctedAttributes,");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6b (2026-09-24, owner V1-V7) -- the item-list VIEW under v9: dropdown fields with the sheet's options,
+// the ladder result shown in a size field, the same family twice, the picker still offering a present family,
+// the per-block quantity's meaning, and the panel's label.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6b / the item-list view under v9 -- controls from config, options from the SKUs, the ladder result on screen", () => {
+  const V9 = HVAC_V9 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS9 = new Map<string, RateCategoryConfig>(V9.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS9: RateMasterItem[] = V9.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const adpCtx = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS9, items: ITEMS9, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const field = (v: ItemListView, i: number, id: string) => v.items[i].fields.find((f) => f.id === id)!;
+
+  it("V1 / U1: a disc valve row's Diameter is a DROPDOWN with the sheet's two sizes; a VCD's width / height / area band stay text", () => {
+    const { v } = list(runWith([{ excel_row: 10, items: [li({ family: "disc valve", dia_mm: "100" })] }]).compute(adpCtx(10, "Nos")));
+    expect(field(v, 0, "dia_mm")).toMatchObject({ control: "dropdown", options: ["100", "150"], optionSource: "catalogue", value: "100", blank: false });
+    expect(v.items[0].figures).toEqual({ supply_rate: 551, install_rate: 176, combined_rate: 727 });
+    const { v: vcd } = list(runWith([{ excel_row: 11, items: [li({ family: "VCD", variant: "GI rectangular", face_w_mm: "600", face_h_mm: "600" })] }]).compute(adpCtx(11, "Nos")));
+    expect(vcd.items[0].fields.map((f) => [f.id, f.control, f.options === undefined])).toEqual([["variant", "dropdown", false], ["face_w_mm", "text", true], ["face_h_mm", "text", true], ["area_band", "text", true]]);
+    expect(field(vcd, 0, "face_w_mm").value).toBe("600");
+  });
+  it("V3 / U2: a stated 120 shows the LADDER RESULT 150 in the field with the note naming the stated size; 150MM DIA shows the stocked 150; 160 keeps the refusal, shows no pick and keeps the stated size on the note", () => {
+    const at = (d: string) => list(runWith([{ excel_row: 12, items: [li({ family: "disc valve", dia_mm: d })] }]).compute(adpCtx(12, "Nos")));
+    const f120 = field(at("120").v, 0, "dia_mm");
+    expect(f120).toMatchObject({ value: "150", note: "diameter 120 is not on the sheet -> 150 (next size up)", blank: false });
+    expect(at("120").v.items[0].figures.combined_rate).toBe(829);
+    expect(field(at("150MM DIA").v, 0, "dia_mm")).toMatchObject({ value: "150", blank: false });
+    expect(field(at("150MM DIA").v, 0, "dia_mm").note).toBeUndefined();
+    const r160 = at("160");
+    expect(r160.v.items[0]).toMatchObject({ state: "blank", reason: "diameter 160 is above the largest size on the sheet (150)" });
+    expect(field(r160.v, 0, "dia_mm")).toMatchObject({ value: "", blank: true, note: "stated 160: diameter 160 is above the largest size on the sheet (150)" });
+    expect(r160.r.values).toEqual({});
+    // and the pricer's own pick from the dropdown prices the pick
+    const s = applyItemEdit(initialItemEdits(1), { op: "set_attr", index: 0, id: "dia_mm", value: "150" });
+    const { v } = list(runWith([{ excel_row: 12, items: [li({ family: "disc valve", dia_mm: "120" })] }]).compute(adpCtx(12, "Nos"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
+    expect(field(v, 0, "dia_mm")).toMatchObject({ value: "150", userEdited: true });
+    expect(field(v, 0, "dia_mm").note).toBeUndefined();
+  });
+  it("X2 through the view: an actuator's torque options narrow by ITS UL answer; the disc valve's options never depend on another block", () => {
+    const { v } = list(runWith([{ excel_row: 13, items: [li({ family: "actuator", ul: "yes", torque: "8 NM" }), li({ family: "disc valve", dia_mm: "100" })] }]).compute(adpCtx(13, "Nos")));
+    const yes = [...new Set(ITEMS9.filter((i) => i.attributes.family === "actuator" && String(i.attributes.ul) === "yes").map((i) => String(i.attributes.torque_nm)))].sort((a, b) => Number(a) - Number(b));
+    expect(field(v, 0, "torque").options).toEqual(yes);
+    expect(field(v, 1, "dia_mm").options).toEqual(["100", "150"]);
+  });
+  it("V6 / U3: two blocks of the SAME family with different sizes both price and sum; '+ Add item' still offers that family", () => {
+    const { r, v } = list(runWith([{ excel_row: 14, items: [li({ family: "disc valve", dia_mm: "100" }), li({ family: "disc valve", dia_mm: "150" })] }]).compute(adpCtx(14, "Nos")));
+    expect(v.items.map((b) => [b.family, b.state, b.figures.combined_rate])).toEqual([["disc valve", "priced", 727], ["disc valve", "priced", 829]]);
+    expect(r.values).toEqual({ supply_rate: 551 + 653, install_rate: 176 + 176, combined_rate: 727 + 829 });
+    expect(v.families.filter((f) => f.family === "disc valve")).toHaveLength(1);   // offered, once, while two blocks already carry it
+    // a third of the same family, added by the pricer, prices too and the total is the three
+    const s = applyItemEdit(applyItemEdit(initialItemEdits(2), { op: "add", family: "disc valve" }), { op: "set_attr", index: 2, id: "dia_mm", value: "100" });
+    const { r: r3, v: v3 } = list(runWith([{ excel_row: 14, items: [li({ family: "disc valve", dia_mm: "100" }), li({ family: "disc valve", dia_mm: "150" })] }]).compute(adpCtx(14, "Nos"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
+    expect(v3.items).toHaveLength(3);
+    expect(r3.values!.combined_rate).toBe(727 + 829 + 727);
+    // NEGATIVE: nothing keys a block by family -- an edit to block 2 leaves block 0 (same family) untouched
+    const s2 = applyItemEdit(s, { op: "set_attr", index: 2, id: "dia_mm", value: "150" });
+    const { v: v4 } = list(runWith([{ excel_row: 14, items: [li({ family: "disc valve", dia_mm: "100" }), li({ family: "disc valve", dia_mm: "150" })] }]).compute(adpCtx(14, "Nos"), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s2) }));
+    expect(v4.items.map((b) => field(v4, b.index, "dia_mm").value)).toEqual(["100", "150", "150"]);
+    expect(v4.items.map((b) => field(v4, b.index, "dia_mm").userEdited)).toEqual([false, false, true]);
+  });
+  it("V7 / U4: three blocks at 1 / 2 / 4 price to the sum of rate x quantity; NEGATIVE: the row's own quantity is not an input the helper knows -- the same context with any quantity gives the same rate", () => {
+    const base = [li({ family: "disc valve", dia_mm: "100" }), li({ family: "spigot", dia_mm: "150" }), li({ family: "butterfly damper", dia_mm: "150" })];
+    let s = initialItemEdits(3);
+    s = applyItemEdit(s, { op: "set_qty", index: 1, qty: "2" });
+    s = applyItemEdit(s, { op: "set_qty", index: 2, qty: "4" });
+    const h = runWith([{ excel_row: 15, items: base }]);
+    const ov = { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) };
+    const { r, v } = list(h.compute(adpCtx(15, "Nos"), ov));
+    const bf = v.items[2].figures;
+    expect(v.items.map((b) => b.qty)).toEqual(["1", "2", "4"]);
+    expect(r.values!.supply_rate).toBe(551 + 211 * 2 + bf.supply_rate! );
+    expect(r.values!.install_rate).toBe(176 + 64 * 2 + bf.install_rate!);
+    // the row's own quantity: not in the context type, and a stray field of any value changes nothing
+    const withQty = (q: number) => h.compute({ ...adpCtx(15, "Nos"), quantity: q } as unknown as RateHelperRowContext, ov);
+    expect(withQty(5)).toEqual(withQty(500));
+    expect(withQty(5)).toEqual(r);
+  });
+  it("(source) the panel's quantity label says what the owner said it means, and the old label is gone", () => {
+    const panel = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8");
+    expect(panel).toContain("How many in one {view.unit} of this row");
+    expect(panel).not.toContain("Qty per 1 {view.unit} of row");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6c STEP 1 (owner ruling, 2026-09-24) -- an ASSUMED per-item quantity is marked as a default. The
+// quantity stays 1 and stays the pricer's to type; nothing is read from the row or asked of the model. It is
+// the one field that never refuses -- a blank attribute stops the row, but 1 is a real number -- so an unmarked
+// 1 reads as a fact the row stated.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6c / the assumed quantity is marked as a default", () => {
+  const V9 = HVAC_V9 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS = new Map<string, RateCategoryConfig>(V9.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS: RateMasterItem[] = V9.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const ctx6c = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const DV = li({ family: "disc valve", dia_mm: "100" });          // 551 / 176 / 727
+  const SPG = li({ family: "spigot", dia_mm: "150" });             // 211 / 64 / 275
+
+  it("a model-detected block shows 1 MARKED as a default; a hand-added block does too; a CHANGED block does too", () => {
+    const h = runWith([{ excel_row: 20, items: [DV] }]);
+    const c = ctx6c(20, "Nos");
+    const { v } = list(h.compute(c));
+    expect(v.items[0]).toMatchObject({ source: "model", qty: "1", qtyDefaulted: true });
+    // + Add item -> a hand-added block, 1, marked (the owner's Y4 reading of the same rule)
+    const added = applyItemEdit(v.editState, { op: "add", family: "spigot" });
+    const { v: v2 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(added) }));
+    expect(v2.items[1]).toMatchObject({ source: "user", qty: "1", qtyDefaulted: true });
+    // Change item -> the new block is likewise an assumption
+    const changed = applyItemEdit(v.editState, { op: "change_family", index: 0, family: "spigot" });
+    const { v: v3 } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(changed) }));
+    expect(v3.items[0]).toMatchObject({ source: "user", qty: "1", qtyDefaulted: true });
+  });
+  it("NEGATIVE: a quantity the PRICER typed is theirs, not a default -- including a typed 1", () => {
+    const h = runWith([{ excel_row: 21, items: [DV] }]);
+    const c = ctx6c(21, "Nos");
+    const typed2 = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "2" });
+    expect(list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(typed2) })).v.items[0]).toMatchObject({ qty: "2", qtyDefaulted: false });
+    // a typed 1 looks the same as the assumed 1 but is NOT an assumption -- the pricer said so
+    const typed1 = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "1" });
+    expect(list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(typed1) })).v.items[0]).toMatchObject({ qty: "1", qtyDefaulted: false });
+  });
+  it("THE RATE IS UNCHANGED by the marking: an untyped quantity prices exactly as a typed 1, on one item and on three", () => {
+    const h = runWith([{ excel_row: 22, items: [DV, SPG] }]);
+    const c = ctx6c(22, "Nos");
+    const untyped = list(h.compute(c));
+    expect(untyped.r.values).toEqual({ supply_rate: 551 + 211, install_rate: 176 + 64, combined_rate: 727 + 275 });
+    const ones = applyItemEdit(applyItemEdit(untyped.v.editState, { op: "set_qty", index: 0, qty: "1" }), { op: "set_qty", index: 1, qty: "1" });
+    const typed = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(ones) }));
+    expect(typed.r.values).toEqual(untyped.r.values);
+    expect(typed.v.items.map((b) => b.figures)).toEqual(untyped.v.items.map((b) => b.figures));
+    // slice 6b's three-block arithmetic is untouched: 1 / 2 / 4 still sums rate x quantity
+    const s = applyItemEdit(applyItemEdit(untyped.v.editState, { op: "set_qty", index: 1, qty: "2" }), { op: "add", family: "butterfly damper" });
+    const s2 = applyItemEdit(applyItemEdit(s, { op: "set_attr", index: 2, id: "dia_mm", value: "150" }), { op: "set_qty", index: 2, qty: "4" });
+    const three = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s2) }));
+    const bf = three.v.items[2].figures;
+    expect(three.r.values!.supply_rate).toBe(551 + 211 * 2 + bf.supply_rate! );
+    expect(three.v.items.map((b) => b.qtyDefaulted)).toEqual([true, false, false]);
+    // and a CLEARED quantity still refuses, exactly as slice 6 built it
+    const cleared = applyItemEdit(untyped.v.editState, { op: "set_qty", index: 0, qty: "" });
+    const b = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(cleared) }));
+    expect(b.v.items[0]).toMatchObject({ state: "blank", reason: "quantity per row unit is blank", qtyDefaulted: false });
+    expect(b.r.values).toEqual({});
+  });
+  it("the edit state carries a quantity ONLY when typed, and the Use payload still reports the shown 1", () => {
+    const h = runWith([{ excel_row: 23, items: [DV] }]);
+    const c = ctx6c(23, "Nos");
+    const { v } = list(h.compute(c));
+    expect(v.editState.items[0].qty).toBeUndefined();
+    expect(initialItemEdits(2).items.every((e) => e.qty === undefined)).toBe(true);
+    expect(assembleItems(v.editState, [DV])[0].qtyPerRowUnit).toBeUndefined();   // absent => the module's 1
+    expect(itemsOnScreen(v).map((it) => it.qty)).toEqual(["1"]);
+    // a decoded state keeps a typed value and drops nothing else
+    const typed = applyItemEdit(v.editState, { op: "set_qty", index: 0, qty: "3" });
+    expect(decodeItemEdits(JSON.stringify(typed), 1).items[0].qty).toBe("3");
+    expect(decodeItemEdits(JSON.stringify(v.editState), 1).items[0].qty).toBeUndefined();
+    expect(assembleItems(typed, [DV])[0].qtyPerRowUnit).toBe("3");
+  });
+  it("(source) the panel marks the assumed quantity amber with the shared 'default' tag, and marks nothing when it is typed", () => {
+    const panel = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8");
+    expect(panel).toContain("{b.qtyDefaulted && (");
+    expect(panel).toContain('className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}');
+    // the SAME tag the attribute fields use -- one look for every assumed value
+    // THREE tag sites now, all the same look: Electrical's attribute default, the item block's field default,
+    // and the quantity's -- one appearance for every assumed value, wherever it is assumed
+    expect(panel.match(/rounded bg-amber-100 px-1 text-\[9px\] font-medium leading-none text-amber-800/g)!.length).toBe(3);
+    // NEGATIVE: Electrical's own attribute rendering is untouched -- its select / input branch and its own
+    // defaulted tone are the strings slice 2c shipped
+    expect(panel).toContain("{a.options ? (");
+    expect(panel).toContain("Filled from a ruled default -- the row text gave no positive identification");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 6d -- the VIEW under v10: a count the model read is shown as READ (no amber); "None" or absent keeps
+// the amber marking slice 6c ships; the pricer's typed value always wins; the row's own quantity never enters.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 6d / a count the model read shows as READ; an assumed 1 stays marked", () => {
+  const V10 = HVAC_V10 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS = new Map<string, RateCategoryConfig>(V10.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS: RateMasterItem[] = V10.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const QTY = "qty_per_row_unit";
+  const li6d = (attrs: Record<string, string | number | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const ctx6d = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li6d>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+
+  it("a returned count is the quantity, shown as READ (no marking), and prices rate x count", () => {
+    const { r, v } = list(runWith([{ excel_row: 30, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 })] }]).compute(ctx6d(30, "Nos")));
+    expect(v.items[0]).toMatchObject({ qty: "2", qtyDefaulted: false });
+    expect(r.values).toEqual({ supply_rate: 422, install_rate: 128, combined_rate: 550 });
+  });
+  it("'None' and absent both show 1 with the marking; a host item beside a counted one keeps its 1", () => {
+    const none = list(runWith([{ excel_row: 31, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: "None" })] }]).compute(ctx6d(31, "Nos")));
+    expect(none.v.items[0]).toMatchObject({ qty: "1", qtyDefaulted: true });
+    const absent = list(runWith([{ excel_row: 32, items: [li6d({ family: "spigot", dia_mm: "150" })] }]).compute(ctx6d(32, "Nos")));
+    expect(absent.v.items[0]).toMatchObject({ qty: "1", qtyDefaulted: true });
+    expect(none.r.values).toEqual(absent.r.values);
+    // the check run's shape: a host item at "None" beside an accessory the row counts
+    const { r, v } = list(runWith([{ excel_row: 33, items: [
+      li6d({ family: "disc valve", dia_mm: "100", [QTY]: "None" }),
+      li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 }),
+    ] }]).compute(ctx6d(33, "Nos")));
+    expect(v.items.map((b) => [b.qty, b.qtyDefaulted])).toEqual([["1", true], ["2", false]]);
+    expect(r.values).toEqual({ supply_rate: 551 + 422, install_rate: 176 + 128, combined_rate: 727 + 550 });
+  });
+  it("the PRICER's typed value wins over a read count and is never marked; undoing it returns to the read count", () => {
+    const h = runWith([{ excel_row: 34, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 })] }]);
+    const c = ctx6d(34, "Nos");
+    const typed = applyItemEdit(list(h.compute(c)).v.editState, { op: "set_qty", index: 0, qty: "5" });
+    const t = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(typed) }));
+    expect(t.v.items[0]).toMatchObject({ qty: "5", qtyDefaulted: false });
+    expect(t.r.values!.supply_rate).toBe(211 * 5);
+    // the edit state holds the typed value only; without it the model's count is what shows
+    expect(list(h.compute(c)).v.items[0]).toMatchObject({ qty: "2", qtyDefaulted: false });
+  });
+  it("NEGATIVE: the row's own quantity still never enters the rate, with or without a read count", () => {
+    const h = runWith([{ excel_row: 35, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 3 })] }]);
+    const base = h.compute(ctx6d(35, "Nos"));
+    const withQty = (q: number) => h.compute({ ...ctx6d(35, "Nos"), quantity: q } as unknown as RateHelperRowContext);
+    expect(withQty(7)).toEqual(base);
+    expect(withQty(700)).toEqual(base);
+    expect((base as ItemListSuggestion).values!.supply_rate).toBe(211 * 3);
+  });
+  it("NEGATIVE: an added block has no count to read, so it starts at 1 MARKED, exactly as before the question", () => {
+    const h = runWith([{ excel_row: 36, items: [li6d({ family: "spigot", dia_mm: "150", [QTY]: 2 })] }]);
+    const c = ctx6d(36, "Nos");
+    const added = applyItemEdit(list(h.compute(c)).v.editState, { op: "add", family: "disc valve" });
+    const { v } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(added) }));
+    expect(v.items.map((b) => [b.source, b.qty, b.qtyDefaulted])).toEqual([["model", "2", false], ["user", "1", true]]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 9 (2026-09-25, owner A-1 / A-4 / A-6) -- the item-list view under v12: ONE size box, the outer-size
+// notes, and the catalogue's own word on a field an override decided.
+//
+// These read the field the PANEL renders, not the pure module's return. The A-6 vacuity proved why: breaking
+// the line that carries the display left every test in itemListPricing.test.ts green, because those assert
+// the two SIDES of the seam (what the module returned, what the options are) and nothing asserted the value
+// ARRIVES on the field.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size notes, the overridden word", () => {
+  const V12 = HVAC_V12 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const CONFIGS12 = new Map<string, RateCategoryConfig>(V12.category_configs.map((c) => [c.category_id, c]));
+  const ITEMS12: RateMasterItem[] = V12.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const li = (attrs: Record<string, string | null>) => ({ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) });
+  const adpCtx = (excelRow: number, unit: string | null | undefined): RateHelperRowContext & { unit?: string | null } => ({
+    excelRow, description: "x", nodeType: "Line Item", category: "hvac_adp", discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"],
+    ...(unit === undefined ? {} : { unit }),
+  });
+  const runWith = (rows: Array<{ excel_row: number; items?: Array<ReturnType<typeof li>> }>) =>
+    makePricingSheetHelper({ configsByCategory: CONFIGS12, items: ITEMS12, extractionByRow: buildExtractionByRow(rows.map((r) => ({ excel_row: r.excel_row, attributes: {}, ...(r.items ? { items: r.items } : {}) }))) });
+  const list = (r: HelperResult) => {
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList;
+    if (!v) throw new Error("expected an item-list suggestion");
+    return { r, v };
+  };
+  const field = (v: ItemListView, i: number, id: string) => v.items[i].fields.find((f) => f.id === id)!;
+
+  it("A-6: the Variant field READS 'UL 555' on an overridden row, keeps a real value under it, and shows the rule", () => {
+    const { v } = list(runWith([{ excel_row: 40, items: [li({ family: "fire damper", ul: "yes", variant: "motorised" })] }]).compute(adpCtx(40, "Sq.m")));
+    const variant = field(v, 0, "variant");
+    // what a pricer READS -- the catalogue's own word for the SKU this row now prices as
+    expect(variant.optionLabels?.[variant.value]).toBe("UL 555");
+    // ... under a value the field's own options carry, so the control cannot fall back to another option
+    expect(variant.value).toBe("UL");
+    expect(variant.options).toContain("UL");
+    expect(variant.options).not.toContain("UL 555");
+    expect(variant.note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    expect(v.items[0].figures).toMatchObject({ supply_rate: 21750, install_rate: 1920 });
+  });
+
+  it("NEGATIVE (A-6): a row the override did not decide carries NO relabelling -- the field reads its own value", () => {
+    const { v } = list(runWith([{ excel_row: 41, items: [li({ family: "fire damper", ul: "no", variant: "motorised" })] }]).compute(adpCtx(41, "Sq.m")));
+    const variant = field(v, 0, "variant");
+    expect(variant.value).toBe("motorised");
+    expect(variant.optionLabels).toBeUndefined();
+    expect(variant.note).toBeUndefined();
+  });
+
+  it("A-1: a size written as ONE phrase reaches the panel as ONE box, and the row prices from it", () => {
+    const { v, r } = list(runWith([{ excel_row: 42, items: [li({ family: "mixing box / LP plenum", insulated: "with", size_mm: "600 x 600 x 350" })] }]).compute(adpCtx(42, "Nos")));
+    const ids = v.items[0].fields.map((f) => f.id);
+    expect(ids.filter((i) => i === "size_mm")).toEqual(["size_mm"]);
+    for (const gone of ["face_w_mm", "face_h_mm", "depth_mm"]) expect(ids).not.toContain(gone);
+    expect(field(v, 0, "size_mm")).toMatchObject({ label: "Size (as written)", value: "600 x 600 x 350", control: "text", blank: false });
+    expect(v.rowPriced).toBe(true);
+    expect(r.values.supply_rate).toBeGreaterThan(0);
+  });
+
+  it("A-4: the outer-size notes are on the panel -- the alternative name, the largest neck behind it, and the set-aside", () => {
+    const { v } = list(runWith([{ excel_row: 43, items: [li({ family: "square diffuser", damper: "without", size_mm: "600 x 600" })] }]).compute(adpCtx(43, "Nos")));
+    expect(v.items[0].working.join(" | ")).toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
+    expect(v.items[0].working.join(" | ")).toContain("largest neck size behind it is 450 (A-4)");
+    expect(v.items[0].figures).toMatchObject({ supply_rate: 1813, install_rate: 400 });
+    // a stated outer the catalogue does not stock is SET ASIDE and the neck prices the row, visibly
+    const { v: v2 } = list(runWith([{ excel_row: 44, items: [li({ family: "square diffuser", damper: "without", neck_mm: "300 x 300", size_mm: "450 x 450" })] }]).compute(adpCtx(44, "Nos")));
+    expect(v2.items[0].working.join(" | ")).toContain("the outer size 450x450 did not match the catalogue");
+    expect(v2.rowPriced).toBe(true);
   });
 });
