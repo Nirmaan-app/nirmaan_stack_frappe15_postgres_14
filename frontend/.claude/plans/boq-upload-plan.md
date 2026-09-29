@@ -42477,3 +42477,183 @@ all-categories file**, so the two column spaces do not collide. `RateMasterDataV
 fixed-column mode: `input` · the labelled value columns · `shared by` · `remarks` · `used by`, with
 `source_sheet` / `source_row` / the formula pair dropped. The **used-by** column is derived by walking
 every config's `rate_ref` steps — nothing is typed in.
+
+---
+
+## Build slice 12b(B) — DERIVED RATE-COLUMN LABELS + THE PRICING-INPUT IMPACT PANEL; Electrical v65 (2026-09-29) — SHIPPED
+
+Commits `09c289fd4` (labels, v65, the negative guard), `98bca5c40` (the impact panel, the owner's four
+items, the header), `<this one>` (docs). Owner cert at `:8080` and `:8000`.
+
+### What shipped
+
+**1 · A rate column's KIND is DERIVED from how the rules use it, never from its name.** `csv_exporter`
+walks each category's pipelines and labels every stored rate column **List price** / **BCS price** /
+**BoQ price**, with an `(install)` suffix where the column feeds the install leg. The walk is a
+PROVENANCE walk — `(kind, rate_key) → component → sum_components → scale/roundup → output` — because an
+assembly's multiplier lands on the SUM, not on the column. A column the rules do not settle is left
+UNLABELLED rather than guessed. Gated on the DISCIPLINE (`RATE_LABEL_DISCIPLINES = ("Electrical",)`) with
+an independent second gate on the `rate_ref` vocabulary; HVAC produces **zero** labels and its headers are
+byte-identical to before. The TypeScript mirror (`rateMasterSpec.ts`) is pinned to the Python.
+
+**2 · Electrical v65** — 1,402 items / 35 pricing inputs / 13 configs. Adds `tray_discount` and
+`jb_discount`, both **0.0**, which a ruling had specified and no build had created. Proven to move **no
+figure**: 0 moved over 2,434 records and 7,612 figures, identical price digest either side of commit 1.
+
+**3 · The impact panel** — the ITEMS column on Pricing Inputs says how many catalogue SKUs a number
+moves; clicking it opens a panel BESIDE the table listing every one of them before and after a proposed
+edit, grouped by category, each SKU's working a click away.
+
+**4 · A negative pricing-input value is refused on BOTH write paths** (the grid and the file), and **0%
+is accepted** — three inputs are 0% by ruling. One shared validator, so the paths cannot drift.
+
+### The label map, as shipped
+
+| kind · column | label | |
+|---|---|---|
+| `cable · list_price_per_mtr` | List price | derived |
+| `cable · install_base_per_mtr` | BCS price (install) | derived |
+| `termination · lug_list`, `gland_band1_list`, `gland_band2_list` | List price | derived |
+| `cable_tray · without_cover_list`, `cover_only_list` | List price | derived |
+| `cable_tray · with_cover_list` | List price | **OWNER-SET, not derived** — see the open item below |
+
+### Item 12 — the 35 inputs → five panel shapes (MEASURED, and it supersedes any rate-key reading)
+
+pair **14** · installation share **9** · BCS-only **5** · flat adder **4** · installation markup **3**.
+**Zero inputs reach no SKU.** The four adders (`tray_accessories` 106, `tray_refilling` 180,
+`tray_cutting_amount` 200, `tray_cutting` the markup on the cutting) each reach **450**.
+
+### ⚠️ THE FLAT-ADDER FINDING — a ruling the recon dropped, and why
+
+The reach walk reported **zero** for all four cable-tray adders, and the panel rendered empty. The cause:
+an ADDITIVE `component` carries no `target` and no `bands`, so a walk keyed on the target records nothing.
+**The walk was measuring what an input MULTIPLIES; the owner's rule is whose PRICE MOVES.** The fix is the
+`install_as_ratio` precedent already documented in that file — a step with no target operates on whatever
+the pipeline is holding, so the addend inherits the columns accumulated so far.
+
+Three properties are load-bearing:
+
+- **`isFlatAdder` means "this input ADDS rather than scales"**, not "reaches nothing". It was
+  `distinct.size === 0`, a symptom of the same blindness; with the adders correctly reaching 450 that test
+  is false for all four, and `tray_cutting` (which carries only an `installation_markup`) could never have
+  stayed on the adder panel — which is owner ruling Q3. A rate-key test cannot express that; the flag set
+  by the additive component can.
+- **The enabling branch is the one that ADDS something**, never a branch picked by name: the cutting
+  component binds its markup from ctx in BOTH branches and its rate in only one.
+- **One row per SKU, never one per column.** A multiplier applies to a tray's body and its cover alike; an
+  addend lands ONCE on the sum, so 900 rows would have read as double the money.
+
+The addend is evaluated by the interpreter's own exported `evalFormula` — no second evaluator was minted.
+
+### The Pricing Inputs column plan
+
+Sized from the REAL data (name max 50 chars, remarks **255**, used_by 65, shared_by 46), fixed in pixels
+so the table cannot respond to its container: `actions 64 · input 420 · rate 72 ×8 · unit 90 · shared by
+150 · used by 190 · items 84` = **1574 px**. Remark clamps to 2 lines, `used by` / `shared by` to 2, full
+text on the hover. The formula row is ONE cell across the numerics (nine 68px copies of one sentence stood
+**445 px** tall); `columnNote` is untouched, so the rate file and its cross-language byte-pin are
+unaffected — it is the RENDERING that is short.
+
+**Measured on the 35 live rows: tallest data row 4.3 lines, formula row 2.5 lines** (the rule is five).
+**Opening the panel changes nothing**: all 14 widths identical, all 35 row heights identical (max delta
+**0 px**), the table area scrolls instead.
+
+⚠️ **THE HEADER NEEDED SHORTER WORDS, NOT JUST WRAPPING.** A flex item will not shrink below its longest
+word, so "Installation" measured 73px inside a 52px content box and drew over its neighbour while the `th`
+had `overflow: visible` and the filter icon — a flex sibling — sat on top of the next label. The fix is all
+three plus **short labels with the full name on the hover**: `Discount` · `Supply mkup` · `Inst. markup` ·
+`BCS mkup` · `Wastage` · `BCS ratio` · `Inst. share` · `Amount`. The rate column is 72px because the
+HEADER sets that floor, not the data. An intermediate attempt that reserved the icon's width broke labels
+MID-WORD (`Disco|unt`), visible only in a zoomed screenshot — `break-normal` now makes that impossible.
+
+### ⚠️⚠️ THE END-TO-END PROOF — THE PANEL'S FIGURES ARE NOT ALWAYS THE PRICE THE PRODUCT QUOTES
+
+Nothing before this had shown that changing an input changes the price a pricer sees. Run on
+`BOQ-26-00232` ("BOQ- CAP BLR · V1"), sheet `Internal  office`, committed v1 — predicted in the impact
+panel, then read back from the row's own rate-helper after saving, then restored.
+
+| shape | input, change | SKU | panel base | product base | panel predicts | product quotes | agree? |
+|---|---|---|---|---|---|---|---|
+| **pair** | `conduit` discount 50% → 40% | MS · 20 | 45.5 | **45.5** | **54.6** | **54.6** | **YES, to the rupee** |
+| **installation share** | `conduit_share` 20% → 50% | MS · 20 | 13 | **10** | 32.5 | **30** | **NO** |
+| **flat adder** | `tray_accessories` 106 → 150 | Ladder·GI·2·150 | 462.7 | **511** | 506.7 (+44) | **575 (+64)** | **NO** |
+
+**The two disagreements have different causes and both are in the PANEL, not the product.**
+
+- **Installation share:** the panel computes `stored install base × share` (65 × 0.20 = 13). The pipeline
+  computes `share × the SUPPLY rate`, then rounds UP to tens: `roundup(0.20 × 45.5) = 10`. Two differences
+  at once — a different base, and a rounding the panel does not apply.
+- **Flat adder:** the panel adds the addend AFTER the multiplier; the pipeline adds it BEFORE the supply
+  markup, so the real effect is the addend × 1.45. 44 × 1.45 = 63.8 ≈ the observed +64.
+
+**A third thing the panel does not say:** changing the conduit DISCOUNT also moved that row's INSTALL rate
+10 → 20, because conduit install is a share OF supply rounded up to tens. That is correct product
+behaviour, but the panel names only the leg its own input moves, so a pricer would not expect it.
+
+**What this means, stated plainly:** the panel is exact for the PAIR shape, where its
+`stored × multiplier` is the same arithmetic the pipeline performs and no rounding intervenes. For a share
+or an adder it is INDICATIVE, not a quote. **Carried as an open item, not fixed in this slice** — the fix
+is either to run the real interpreter per SKU (which needs a row context the panel does not have) or to
+label the figures as indicative. **Owner's call.**
+
+Restore was verified on both sides: every input back to its exact stored value, and both rows back to
+their exact figures (216: 45.5 / 10 / 55.5; 250: 511 / 140 / 651).
+
+### The cert
+
+| step | result |
+|---|---|
+| T1 labelled headers · T3 HVAC zero · T4 the grid | pass |
+| **T2** download BOTH formats, re-upload unchanged | **35 rows, 35 unchanged, 0 errors, IDENTICAL digest `764e5bc3…` both formats.** The 12b(A) defect is fixed: the exporter writes `75%` and the importer reads 0.75. **Negative control:** one edited cell → `rates_changed = 1`, so the zero is real |
+| **T5** negative refused / 0% accepted, both paths | pass, same sentence from one shared validator |
+| T6 · T7 · item 11 both legs · T9(a) Cancel | pass |
+| **T8** one panel of each of the five shapes | pass — each names the leg it does NOT move; only the adder shows a condition |
+| **T9(b)** Save writes | pass at `:8000`: 0.80 → 0.85 → 0.80, **2 Version rows** |
+| **T10** counts + checksums | Electrical **1,402 / 35 / 13**, HVAC **319 / 8** — both as recorded. Content checksums stable across 3 consecutive runs |
+
+⚠️ **UI WRITES ARE IMPOSSIBLE AT `:8080`, AND THIS IS NOT STALENESS.** `index.html` sets
+`window.csrf_token` in the SAME inline script that holds `frappe.boot = {{ boot }}`; that script is a
+syntax error at `:8080`, so the token is never set, the runtime boot carries none and comes back as
+`user: "Guest"`, and every POST is refused with `CSRFTokenError` (HTTP 400). Reads are fine. **A write
+test must run at `:8000` after a build.** `site_config.json` carries no `ignore_csrf`.
+
+⚠️ **T10's checksums are this script's own definition** (content-hashed, `name` EXCLUDED because it
+regenerates on every replace-import, ordered by a TOTAL key). They are **not comparable** to the
+`91a4f4d7…` / `65cd2551…` figures recorded earlier, which came from a different field set. What settles
+"nothing moved" is the counts, the restore verification, and that nothing in this slice ever wrote to
+`BoQ Cell Pricing`.
+
+### Pins inverted — seven, none deleted
+
+Each asserts the new truth and still fails for anything else: the adder reaching no SKU (×3 — reach,
+shape, rows), the column plan's old widths, the adder's one-sentence panel, the ITEMS dash, and the header
+label spelling. One FIXTURE was reshaped: the tray pipeline held the additive component ALONE, a fixture
+built around the defect; a real adder sits after a `match_master_row` and a targeted base component.
+
+### Three defects the cert found, all on screen and none by a test
+
+1. **A PAIR moved two legs and the detail showed one**, under the list's "open a SKU to see both legs" —
+   an instruction to do what the reader had already done.
+2. **The fields under a leg were ALL the fields**, so the BCS block listed a supply markup its own formula
+   does not use.
+3. **The open SKU detail held the ROW OBJECT**, freezing its verdict while the legs below recomputed;
+   cancelling left it claiming a change its own working denied. It now holds the SKU's IDENTITY.
+
+A fourth, found while certifying the save: **a failed save rendered as `[object Object]`**, which is how
+the CSRF refusal stayed invisible. It now reads through `downloadErrorMessage`.
+
+### Open items — recorded, NOT built
+
+1. **The panel-vs-product disagreement above.** The most important of the three. Owner's call.
+2. **Remove `cable_tray.with_cover_list`.** It carries the owner-set "List price" label for now. The slice:
+   re-prove on v65 that `with_cover_list == without_cover_list + cover_only_list` on all 450 rows bit for
+   bit, **report any row that has DRIFTED before anything is deleted**, then mint the column away and prove
+   no figure moves. It is a data deletion from 450 items and belongs in a slice where it is the only change.
+3. **The residence baseline.** F2 is 12 over its baseline and F5 is 2 over, and **none of it is this
+   slice's** — the counts are identical before and after this work. F5's two files predate both merges
+   (Abhishek Kumar, 2026-09-14; Madhu Balan T, 2026-09-22) and are raw `updateDoc` calls outside
+   `useEditingLock` — a real concurrent-edit question for their authors, not a style point. Nine of the F2
+   lines are this branch's own slices 6–11, and the baseline was already stale by 3 at the commit that last
+   wrote it. **Not ratcheted**, deliberately: `--init` would adopt every one of them silently inside an
+   unrelated commit. Reconcile it in its own `chore(residence)` commit naming the files and authors, as
+   `277afb3c0` / `2105c1696` / `7d8325406` already did for earlier drift.

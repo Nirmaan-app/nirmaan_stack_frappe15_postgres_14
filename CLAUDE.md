@@ -967,6 +967,45 @@ eligible to price a row and never reaches extraction — and its items are kept 
 all-categories rate file. Full record incl. the two replay gates and the 48-test blast radius:
 `frontend/.claude/plans/boq-upload-plan.md` § "Build slice 12b(A)".
 
+**⚠️ A RATE COLUMN'S KIND IS DERIVED FROM HOW THE RULES USE IT, NEVER FROM ITS NAME; A COLUMN THE
+RULES DO NOT SETTLE IS LEFT UNLABELLED (owner-locked, 2026-09-29, Electrical v65).** `csv_exporter`
+walks each category's pipelines to decide whether a stored rate column is a **List price**, a **BCS
+price** or a **BoQ price**, and whether it carries `(install)`. ⚠️ **IT MUST BE A PROVENANCE WALK** —
+`(kind, rate_key) → component → sum_components → scale/roundup → output` — because an assembly's
+multiplier lands on the SUM, so a walk reading only the step that touches the column reports nothing
+for every assembly. A name-based guess is the failure this replaces: `install_base_per_mtr` is a BCS
+price and `lug_list` is a List price, and neither says so. **Silence is a verdict**: where the rules
+do not settle a column it is left unlabelled rather than guessed, and the formula row can say so.
+Gated on the DISCIPLINE (`RATE_LABEL_DISCIPLINES`) with an INDEPENDENT second gate on the `rate_ref`
+vocabulary — HVAC produces zero labels and its headers are byte-identical; a discipline opts in
+deliberately, never by acquiring a pipeline shape. The TypeScript mirror in `rateMasterSpec.ts` is
+pinned to the Python, like the `FORMULA_FIXTURE` pair.
+
+**⚠️ THE PRICING-INPUT IMPACT PANEL SHOWS A SKU'S OWN UNROUNDED RATE, NEVER A ROW TOTAL — AND FOR A
+SHARE OR AN ADDER IT IS INDICATIVE, NOT A QUOTE (owner-locked; measured end to end 2026-09-29).**
+Each row is that SKU's stored rate times the multiplier the input contributes, UNROUNDED, labelled
+"SKU rate"; the ROW-level figure is rounded once at the end, so the group summary carries the rounded
+row-level RANGE and the two are never presented as each other. ⚠️ **THE PANEL AND THE PRODUCT ARE
+DIFFERENT CODE AND THEY AGREE ONLY FOR THE PAIR SHAPE.** Measured on a live BoQ row against its own
+rate helper: pair agreed to the rupee (45.5 → 54.6 both sides); an INSTALLATION SHARE did not (panel
+13 → 32.5, product 10 → 30 — the panel applies the share to the stored install base where the pipeline
+applies it to the SUPPLY rate and then rounds up to tens); a FLAT ADDER did not (panel +44, product
++64 — the pipeline adds the addend BEFORE the supply markup, the panel after). The panel also names
+only the leg its own input moves, so a downstream leg can move without it saying so (a conduit
+DISCOUNT change moved that row's install rate, because install is a share of supply). **Do not quote a
+panel figure as a price for a share or an adder, and do not "fix" the product to match the panel.**
+
+**⚠️ A FLAT ADDER MOVES EVERY PRICE IN ITS PIPELINE; `isFlatAdder` MEANS "THIS INPUT ADDS RATHER THAN
+SCALES" (owner-locked).** An ADDITIVE `component` carries no `target` and no `bands`, so a reach walk
+keyed on the target records nothing and reports zero — which is measuring what an input MULTIPLIES,
+not whose PRICE MOVES. Such a step inherits the columns accumulated so far, exactly as
+`install_as_ratio` does. The flag must NOT be re-derived as "reaches no SKU": that was a symptom, it
+is false once the adders correctly reach their SKUs, and it cannot express the ruling that a markup ON
+an adder (`tray_cutting`, which carries only an `installation_markup`) shares the adder's panel and its
+condition. A flat adder is ONE row per SKU, never one per rate column — an addend lands once on the
+sum, so per-column rows read as double the money — and the enabling condition branch is the one that
+ADDS something, never one picked by name.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
