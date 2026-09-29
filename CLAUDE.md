@@ -1013,6 +1013,30 @@ condition. A flat adder is ONE row per SKU, never one per rate column — an add
 sum, so per-column rows read as double the money — and the enabling condition branch is the one that
 ADDS something, never one picked by name.
 
+**⚠️ A DELIBERATE REMOVAL FROM AN ASSET IS DECLARED, NEVER ARGUED WITH — AND THE MINT GATE NOW SEES
+ITEM RATE KEYS (owner ruling, 2026-09-29).** `scripts/mint_completeness_check.py` reports every ATOM that
+disappears between two asset versions, and a removal counts as DECLARED when the new asset SAYS SO:
+`retired_category_ids`, `retired_kinds`, and now **`retired_rate_keys`** (entries `"<kind>:<rate_key>"`,
+or `"*:<rate_key>"` across every kind; a retired KIND cascades to its whole rate space, exactly as a
+retired category cascades to everything beneath it). ⚠️ **THE GATE WAS STRUCTURALLY BLIND TO ITEM DATA
+UNTIL v66**: from an item it read only `kind:<k>`, so `cable_tray.with_cover_list` vanished from all 450
+rows while it reported *"No atoms disappeared"*. It was built for CONFIG loss after the dbu3 incident and
+item rate keys were never in scope. There is now a **`rate:<kind>:<key>`** atom — keyed by KIND, because a
+column is a property of the kind: one row missing it is data, every row missing it is a schema change —
+and a `retrate:` atom so losing a DECLARATION is itself reported. **⚠️ NEVER WEAKEN OR BYPASS THE GATE TO
+LET ONE CHANGE THROUGH** (owner: *"a gate quietly relaxed to let one change through stops guarding every
+change after it"*); declare the removal instead, and prove a new atom BOTH WAYS — undeclared must refuse,
+declared must pass — because **an atom that has never been seen to refuse is not a guard**.
+
+**⚠️ A NEGATIVE PIN AIMED AT A SPECIFIC FUTURE NAME HAS A SHELF LIFE OF ONE MINT.** `test_h07`'s "no
+Electrical asset exists at a newer version" probe was hardcoded to `v64`, went stale at v65, was re-aimed
+at **v66 precisely because v66 could not exist** — and the very next slice minted v66. Derive such a probe
+(one past the highest N on disk), never name a future version. The same rule explains why a removal must be
+normalised on the OLD side of a cross-version comparison rather than by editing the pin: a pin claiming
+*"every other item is byte-equal to v59"* is a statement about THAT mint, and must not start failing for a
+removal made three mints later that it never spoke to. `_without_pricing_input_items` /
+`_without_with_cover_list` / `_without_wcl_note` in `test_rate_master` are that idiom.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

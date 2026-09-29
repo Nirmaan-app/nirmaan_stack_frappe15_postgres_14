@@ -42726,3 +42726,203 @@ repair is a FRESH LOGIN, which is exactly what the runbook's clear-site-data fix
 
 **The rule to carry forward: do not visit `:8000` with a session you intend to keep writing from at
 `:8080`.** T9b was certified at `:8000` for this reason and is re-runnable at `:8080` after a re-login.
+
+---
+
+## Build slice — REMOVE `cable_tray.with_cover_list`; Electrical v66 (2026-09-29) — SHIPPED
+
+Its own slice, nothing else in it. Owner: *"it is dead weight. the rule by which it is derived - with
+cover = without cover + cover - is already built in the pricing logic. so this is redundant data."*
+
+### 1 · The drift proof came FIRST, before anything was minted
+
+| source | rows with all three columns | missing a column | **drifted** |
+|---|---:|---:|---:|
+| asset v65 on disk | 450 | 0 | **0** |
+| live catalogue (active `cable_tray`) | 450 | 0 | **0** |
+
+`with_cover_list == without_cover_list + cover_only_list` holds **exactly on all 450 rows**, tested as
+exact float equality AND as decimal equality so a float-representation artefact could not be mistaken
+for agreement. **No row had drifted** — a drifted row would have meant someone edited a number the
+system ignores, which is information rather than noise, and would have stopped the slice.
+
+The same proof is re-run INSIDE the mint, so the file can never be written over drifted data.
+
+### 2 · ⚠️ THE MINT GATE WAS STRUCTURALLY BLIND TO ITEM RATE KEYS, AND THIS REMOVAL WALKED THROUGH IT
+
+**Run before anything was changed, the gate said `No atoms disappeared. RESULT: PASS`** — while 450
+items were losing a column. It was not a bug in the gate so much as a boundary nobody had drawn: from
+an item the gate read exactly one thing,
+
+```python
+for it in payload.get("items") or []:
+    if it.get("kind"):
+        a[f"kind:{it['kind']}"] = "item kind"
+```
+
+Its whole atom vocabulary was config-shaped (`top:` `cat:` `cfgkey:` `attr:` `pipe:` `rule:` `extdef:`
+`syn:` `golden:` `expect:` `kind:` `retkind:` `retcat:` `excl:`) — **there was no `rate:` atom**. The
+gate was built after the `dbu3` incident, which was a CONFIG loss, and its docstring says so: *"the
+losable set is a config's ENTIRE key space"*. Item DATA was never in scope. `cable_tray` remained a
+live kind, so in the gate's terms nothing had disappeared.
+
+**Owner ruling (option 3): add the atom AND a way to declare a deliberate removal.** Option 2 — the
+atom alone — *"gets the signal but leaves no way to SAY a removal was deliberate, so the next
+legitimate one has to argue with the gate and someone eventually weakens it. Declarable is the shape
+the gate already uses."*
+
+So the gate now carries:
+
+- a **`rate:<kind>:<key>` atom**, keyed by KIND rather than by item, because a column is a property of
+  the kind — one row missing it is data, every row missing it is a schema change;
+- a **`retired_rate_keys`** declaration beside `retired_kinds` and `retired_category_ids`, taking
+  `"<kind>:<rate_key>"` or `"*:<rate_key>"` to retire a key across every kind;
+- a **cascade**: a kind added to `retired_kinds` declares its whole rate space, exactly as a category
+  added to `retired_category_ids` declares everything beneath it;
+- a **`retrate:` atom**, so LOSING a declaration is itself reported, like `retkind:` and `retcat:`.
+
+**PROVED BOTH WAYS, because a new atom that has never been seen to refuse is not a guard:**
+
+| | result |
+|---|---|
+| the SAME mint with the declaration REMOVED | `1 atom(s) disappeared: 0 DECLARED, 1 UNDECLARED` · `rate:cable_tray:with_cover_list` · **`REVIEW REQUIRED`, EXIT=1** |
+| the SAME mint with the declaration PRESENT | `1 atom(s) disappeared: 1 DECLARED, 0 UNDECLARED` · *[rate key 'cable_tray.with_cover_list' added to `retired_rate_keys`]* · **`PASS`, EXIT=0** |
+
+The gate's own T1–T5 self-test still passes, so its calibration is intact. **Nothing was relaxed:
+coverage was added, and every removal the gate guarded before it is still guarded.**
+
+### 3 · The no-op proof
+
+Nothing reads the column, so no figure can move — asserted in the mint (no `pipelines` block in any
+category names it) and MEASURED by replaying the whole catalogue through the interpreter on both
+assets:
+
+```
+v65 digest 1d2aaec5ee2b51ae5c6eb973c959d51291ce1eb88c15828de728d90210ce2dc3  (1762 records)
+v66 digest 1d2aaec5ee2b51ae5c6eb973c959d51291ce1eb88c15828de728d90210ce2dc3  (1762 records)
+IDENTICAL -- every figure, every refusal and every selection matched.
+```
+
+1,762 records · 5,939 pipeline runs · 4,964 ok · 975 no_match · 6,238 final values · 0 threw. **The
+proof is not vacuous**: `cabletray_raceway` is the most-covered category in the sweep at **1,836 ok
+figures** across all four tray pipelines (`tray_boq_supply` 458, `tray_bcs` 458, `tray_boq_install` 460,
+`tray_bcs_install` 460).
+
+### 4 · The load
+
+Pre-state proven **byte-identical to v65** before writing (the standing rule: production owns ITEMS and
+`load_rate_master(replace=True)` is WHOLESALE, so a surprise means hand-entered prices and the load must
+not run). Loaded, then post-state proven **byte-identical to v66**:
+
+| | |
+|---|---|
+| PRE-STATE differing from v65 | **0** |
+| load result | `loaded`, 1,402 items, 13 configs |
+| POST-STATE differing from v66 | **0** |
+| active `cable_tray` items | **450**, of which **0** still carry the column |
+| HVAC | **319 items / 8 configs** — untouched |
+
+### 5 · One thing the premise did not cover
+
+The brief said *"no rule reads it"* — true of RULES, and the string did appear once, as PROSE in
+`cabletray_raceway.notes`: *"The with_cover_list column remains on items as reference data only."* A
+first version of the mint guarded on the whole config blob and refused because of it. **"Nothing reads
+it" is a statement about STEPS**, so the guard was narrowed to `pipelines` and the note was corrected in
+the same mint — an owner-set label and a note describing a column that no longer exists are the same
+class of staleness this labelling system exists to avoid.
+
+The label map went with the column: `RATE_LABEL_OWNER_SET` held exactly that one entry and is now
+**empty in both languages**. The MECHANISM is deliberately kept for the next column no rule reads,
+along with its two rules — do not invent a "same-kind siblings" derivation, and an owner-set entry never
+shadows a derived label.
+
+### 6 · The test blast radius — 16 tests, and what it says about the suite's shape
+
+Changing one column and one sentence of prose broke **15 tests and 1 error**. That is not noise; it is
+the suite's deliberate **single-pin discipline** (`CURRENT_EALL_ASSET` is the one line a mint bumps,
+referenced 71 times) meeting a mint that REMOVES data rather than adding it. Every previous mint on this
+arc added; this one is the first to take something away.
+
+The failures fall into four shapes:
+
+| shape | tests | why |
+|---|---|---|
+| cross-version byte-equality (`… is byte_equal to v58 / v59 / v62`, the `NEGATIVE_no_other_category_moved` family) | 9 | they compare the CURRENT asset to a historical one, so a later removal breaks a claim they never made |
+| column-count pins on the file (`49 != 50`) | 4 | the Mode-B union legitimately has one fewer column |
+| the current-version pin | 2 | a deliberate per-mint bump |
+| a pre-existing retirement-fixture error | 1 | unrelated to this slice — see below |
+
+**The fix is the suite's own idiom, not a new one.** `_without_pricing_input_items` already normalises
+12b(A)'s added items out of historical comparisons; this slice adds `_without_with_cover_list` and
+`_without_wcl_note`, applied to the **OLD** side. A pin that says *"every other item is byte-equal to
+v59"* is a claim about THAT mint and must not start failing for a removal made three mints later that it
+never said anything about — stripping the column from the old side leaves every other byte under full
+force.
+
+⚠️ **ONE FAILURE WAS SELF-INFLICTED, AND IS WORTH RECORDING AS A PATTERN.** 12b(B) added a negative
+probe asserting that no Electrical asset exists at a version NEWER than the current one, and pointed it
+at **`v66`** — chosen precisely because v66 could not exist. One slice later it does, and the probe
+failed. **A negative pin aimed at a specific future name has a shelf life measured in slices.** The
+derived form beside it, `gate.latest_in("Electrical", names) == CURRENT_EALL_ASSET`, makes the same claim
+and cannot go stale; that is the one carrying the weight, and the hardcoded line is now commented as a
+deliberate per-mint bump.
+
+**THE RESOLUTION, RUN BY RUN — and the one shape the first analysis missed.** The repair converged over
+four runs of the 519-test module: **15 failures + 1 error → 8 + 1 → 4 → 0.**
+
+| run | left | what was fixed |
+|---|---:|---|
+| 1 | 15 F + 1 E | — (the survey above) |
+| 2 | 8 F + 1 E | `CURRENT_EALL_ASSET` bump; the four column-count pins 50 → 49; `_without_with_cover_list` on the first four historical item comparisons |
+| 3 | 4 F | `test_h07`'s probe DERIVED (one past the highest N on disk); `test_24p`'s count; `test_v61_03` through `_without_wcl_note`; the `self.payload` / `prev` pair |
+| 4 | **0** | the last four historical item comparisons, plus the config-side note |
+
+⚠️ **THE FOURTH SHAPE WAS NOT IN THE FIRST SURVEY: A CORRECTED SENTENCE OF PROSE IS ITSELF A
+CROSS-VERSION BREAK.** `test_img_07` compares v61 to v66 config by config, so correcting the stale note
+broke a pin whose subject is the `includes_modules` gate — a test that has nothing to do with cable
+trays. The item half of it was fixed by `_without_with_cover_list`; the CONFIG half needed
+`_without_wcl_note` applied to **both** sides at the comparison, which is why that helper normalises the
+new wording as well as the old. **A prose correction has the same blast radius as a data change**, and
+nothing about editing one sentence suggests it — worth remembering the next time a note is found stale.
+
+**The whole repair is normalisation on the OLD side, never a relaxed assertion.** No pin was deleted, no
+`assertEqual` became an `assertIn`, no tolerance was introduced: each one still compares every other byte
+under full force. **Technique worth keeping:** `bench run-tests --module … --test <name>` (repeatable)
+ran the four survivors in **0.2 s** against the full module's 15.5 minutes — the whole module is the
+gate, but it is not the loop to iterate in.
+
+### 7 · The cert, and ⚠️ the check that the asked-for one does not actually make
+
+De-stale ran in full and by PID. ⚠️ **`kill -TERM` did not take honcho** — the runbook's trap, live:
+escalated to `-9`, verified no live process and all three ports free, restarted bench, **waited for
+`:8000` to answer** (~150 s, `{"message":"pong"}`), then vite, then `:8080`. `:8000` was never visited by
+the browser; the two readiness `curl`s ran inside the container, so no CSRF token was minted on the
+session. **De-staleness was proven at RUNTIME** — the live in-page module reported
+`RATE_LABEL_OWNER_SET = {}` and no occurrence of the column — not by grepping a file.
+
+**The page (item 5).** `Electrical / CableTray & Raceway`, 450 items, three rate columns:
+`without_cover_list`, `cover_only_list`, `install_rate`. No `with_cover_list` header, and no "with cover"
+anywhere in the page text. The two survivors carry their DERIVED labels, so the deriver still works.
+
+**The end-to-end row (item 7).** `BOQ-26-00232` / sheet `Internal  office` / Excel row 250,
+*"150mm W x 70mm D ladder type"*: supply **511**, install **140**, combined **651** — **identical** to the
+v65 BEFORE, which was read before the load.
+
+⚠️ **BUT THAT ROW RESOLVES WITH `Cover = No`, SO IT NEVER TOUCHES THE DELETED COLUMN.** An identical
+figure there is *consistent with* the removal being harmless and proves nothing about it: the column only
+ever mattered on the with-cover path. So the panel's `Cover` was flipped to **Yes** (session-only,
+nothing written) against catalogue row `rmi-db2f524f7425` (`without_cover_list` 246, `cover_only_list`
+198; v65 stored `with_cover_list` 444):
+
+| | base the pipeline builds | × 1.45 | roundup | on screen |
+|---|---|---:|---:|---:|
+| `Cover = No` | 246 + 106 accessories = **352** | 510.4 | **511** | **511** |
+| `Cover = Yes` | 246 + **198** + 106 = **550** | 797.5 | **798** | **798** |
+
+**The with-cover base the product builds is `246 + 198 = 444` — to the rupee, exactly what the deleted
+column stored.** That is the premise of the whole slice demonstrated in the running product on a live
+BoQ row, rather than asserted in the mint. Cover was restored; row 250's cells remain `0/0/0` and the
+sheet reads "All changes saved" — **no write was made.**
+
+**The lesson generalises: a no-op proof must exercise the path the change is ON.** The obvious row was
+the one where nothing could have gone wrong.
