@@ -30,6 +30,7 @@ import {
 } from "./pricingInputImpact";
 import { PRICING_INPUT_COLUMN_LABELS } from "./rateMasterSpec";
 import { downloadErrorMessage } from "./rateMasterDownload";
+import { LEG_CLASS_LABEL, legClassOf } from "./pricingInputExact";
 
 /** The panel's fixed width (owner: "470px, not covering it"). */
 export const IMPACT_PANEL_WIDTH = 470;
@@ -63,6 +64,9 @@ interface Props {
    *  against the rate the OTHER inputs leave, and reads its own addend out of the shared ctx. */
   allInputs: RateMasterItem[];
   allReach: Record<string, InputReach>;
+  /** every category config + the whole catalogue, so the panel prices through the PRODUCT'S pipeline */
+  allConfigs: Record<string, { pipelines?: Record<string, unknown> } | undefined>;
+  allItems: RateMasterItem[];
   /** category id -> its human name, so no id reaches the screen (owner N-7) */
   categoryLabel: (id: string) => string;
   onClose: () => void;
@@ -72,7 +76,8 @@ interface Props {
 }
 
 export function PricingInputImpactPanel({
-  input, reach, itemsByUid, allInputs, allReach, categoryLabel, onClose, onSave, canEdit,
+  input, reach, itemsByUid, allInputs, allReach, allConfigs, allItems,
+  categoryLabel, onClose, onSave, canEdit,
 }: Props) {
   const stored = (input.rates ?? {}) as Record<string, number>;
   const attrs = (input.attributes ?? {}) as Record<string, unknown>;
@@ -104,9 +109,16 @@ export function PricingInputImpactPanel({
     };
   }, [reach, allInputs, allReach, input, edited]);
 
+  /** ⚠️ the figures come from the PRODUCT'S pipeline, not from a second implementation of it */
+  const exactCtx = useMemo(() => ({
+    configs: allConfigs,
+    items: allItems,
+    inputItemKey: String((input.attributes ?? {}).item ?? ""),
+  }), [allConfigs, allItems, input]);
+
   const impact = useMemo(
-    () => computeImpact(stored, edited, reach, itemsByUid, adderCtx),
-    [stored, edited, reach, itemsByUid, adderCtx],
+    () => computeImpact(stored, edited, reach, itemsByUid, adderCtx, exactCtx),
+    [stored, edited, reach, itemsByUid, adderCtx, exactCtx],
   );
 
   /** ⚠️ an adder's figures ARE one install case, so the panel says which (owner item 3) */
@@ -359,10 +371,19 @@ function SkuWorking({
   const moved = row.moved;
   const nextVals: Record<string, number> = {};
   for (const k of fields) nextVals[k] = valueOf(k);
+  /** the classes the working below already shows, so "This also moves" never repeats one */
+  const shownClasses = new Set<string>();
   const legs = workingLegs(impact.shape, row.storedRate, stored, nextVals,
     impact.shape === "flat_adder"
       ? { base: row.now - (impact.adderNow ?? 0), adderNow: impact.adderNow ?? 0, adderNext: impact.adderNext ?? 0 }
       : null);
+  for (const l of legs) {
+    if (/BCS/i.test(l.title)) shownClasses.add("bcs");
+    else if (/install/i.test(l.title)) shownClasses.add("install");
+    else shownClasses.add("supply");
+  }
+  const othersToShow = (row.otherLegs ?? []).filter((l) => !shownClasses.has(legClassOf(l.output)));
+
   return (
     <div className="flex flex-col gap-2 text-[11px]">
       <div>
@@ -414,6 +435,25 @@ function SkuWorking({
           </ul>
         </section>
       ))}
+
+      {/* ⚠️ EVERY OTHER RATE THIS INPUT MOVES, named. A conduit DISCOUNT moves the INSTALL rate too,
+          because install is a share OF supply; naming only its own leg let a pricer meet a rate that
+          had moved without being mentioned (owner ruling, gap (c)). */}
+      {/* ⚠️ a leg the working ABOVE already shows is not repeated here -- a pair names its BCS leg in
+          the verdict, so listing it again as "also moves" reads as a second, different movement. */}
+      {othersToShow.length ? (
+        <section className="rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/40"
+                 data-testid="impact-also-moves">
+          <p className="font-medium text-amber-900 dark:text-amber-100">This also moves</p>
+          <ul className="mt-1 space-y-0.5 text-amber-900 dark:text-amber-100">
+            {othersToShow.map((l) => (
+              <li key={l.output}>
+                {LEG_CLASS_LABEL[legClassOf(l.output)]} {fmt(l.now)} → {fmt(l.becomes)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* WHERE EACH NUMBER COMES FROM, naming the source and the leg it drives */}
       <section className="rounded border p-2">

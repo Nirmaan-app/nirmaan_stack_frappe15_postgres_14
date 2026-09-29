@@ -472,6 +472,8 @@ export function RateMasterPage() {
                   itemsByUid={itemsByUid}
                   allInputs={pricingInputItems}
                   allReach={inputReach}
+                  allConfigs={allConfigs as never}
+                  allItems={items}
                   categoryLabel={categoryDisplayName}
                   canEdit={isAdmin && !writesBlocked}
                   onClose={() => setImpactInputUid(null)}

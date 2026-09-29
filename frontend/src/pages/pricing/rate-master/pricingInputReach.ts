@@ -70,6 +70,12 @@ export interface InputReach {
   adder?: AdderSpec;
   /** the categories whose rules read this input at all, even where no SKU rate is scaled */
   readByCategories: string[];
+  /**
+   * The PIPELINES that read this input, so the panel can run the REAL interpreter over them rather
+   * than re-implementing what they do. Re-implementation is what made the panel disagree with the
+   * product for a share and an adder; running the pipeline cannot drift from it.
+   */
+  pipelines: Array<{ category: string; pipelineId: string }>;
 }
 
 /**
@@ -189,6 +195,7 @@ export function computePricingInputReach(
   const readBy = new Map<string, Set<string>>();
   const sawColumn = new Set<string>();
   const adders = new Map<string, AdderSpec>();
+  const pipesBy = new Map<string, Set<string>>();   // inputId -> "category|pipelineId"
 
   for (const cid of Object.keys(configs ?? {}).sort()) {
     const cfg = (configs ?? {})[cid];
@@ -214,6 +221,8 @@ export function computePricingInputReach(
       };
       const note = (ids: Set<string>, ks: readonly string[]) => {
         for (const id of ids) {
+          if (!pipesBy.has(id)) pipesBy.set(id, new Set<string>());
+          pipesBy.get(id)!.add(`${cid}|${pid}`);
           if (!readBy.has(id)) readBy.set(id, new Set<string>());
           readBy.get(id)!.add(cid);
           if (!hits.has(id)) hits.set(id, new Map<string, Set<string>>());
@@ -365,6 +374,10 @@ export function computePricingInputReach(
       isFlatAdder: adders.has(id),
       adder: adders.get(id),
       readByCategories: Array.from(readBy.get(id) ?? []).sort(),
+      pipelines: Array.from(pipesBy.get(id) ?? []).sort().map((s2) => {
+        const [category, pipelineId] = s2.split("|");
+        return { category, pipelineId };
+      }),
     };
   }
   void isInternal;

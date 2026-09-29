@@ -37,6 +37,10 @@
 import type { RateMasterItem } from "./rateMasterTypes";
 import type { InputReach, AdderSpec } from "./pricingInputReach";
 import { evalFormula } from "./ratePipelineInterpreter";
+import {
+  conditionsFor, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
+  type ExactLeg, type ExactPipelineRef,
+} from "./pricingInputExact";
 
 export type PanelShape = "pair" | "installation_share" | "installation_markup" | "bcs_only" | "flat_adder";
 
@@ -132,6 +136,14 @@ export interface SkuImpactRow {
   /** null when `now` is 0, so the panel shows a dash rather than a fabricated infinity */
   pctChange: number | null;
   moved: boolean;
+  /**
+   * ⚠️ EVERY OTHER PIPELINE OUTPUT THIS INPUT MOVES. A conduit DISCOUNT moves the INSTALL rate too,
+   * because install is a share OF supply; the panel used to name only its own leg, so a pricer met a
+   * rate that had moved without being mentioned (owner ruling, gap (c)). Empty on the approximate path.
+   */
+  otherLegs?: ExactLeg[];
+  /** true when this row's figures came from the product's own pipeline rather than the multiplier */
+  exact?: boolean;
 }
 
 export interface ImpactResult {
@@ -251,6 +263,20 @@ export function baseMultiplierByColumn(
   return out;
 }
 
+/**
+ * What the EXACT path needs: the configs to find the pipelines, the catalogue to price against, and
+ * the input's own key so the "after" catalogue can be built. Absent => the approximate multiplier path,
+ * which is what every unit test that predates this uses.
+ */
+export interface ExactContext {
+  configs: Record<string, { pipelines?: Record<string, unknown> } | undefined>;
+  items: readonly RateMasterItem[];
+  /** the pricing input's `attributes.item` key */
+  inputItemKey: string;
+  /** extra branch conditions to price under, on top of the input's own enabling branch */
+  conditions?: Record<string, unknown>;
+}
+
 /** what a flat-adder panel needs beyond the input's own values */
 export interface AdderContext {
   /** every pricing input's ctx key -> its value AS STORED */
@@ -267,6 +293,7 @@ export function computeImpact(
   reach: InputReach | null | undefined,
   itemsByUid: Map<string, RateMasterItem> | null | undefined,
   adderCtx?: AdderContext | null,
+  exactCtx?: ExactContext | null,
 ): ImpactResult {
   const shape = panelShapeOf(rates, reach);
   const leg = movedLegOf(shape);
@@ -291,6 +318,44 @@ export function computeImpact(
   const addNow = shape === "flat_adder" ? adderValue(reach?.adder, adderCtx?.ctxNow ?? {}) : null;
   const addNext = shape === "flat_adder" ? adderValue(reach?.adder, adderCtx?.ctxNext ?? {}) : null;
 
+  /**
+   * The exact figures, computed ONCE for every reached SKU. ~0.18 ms per pipeline run, so a 450-SKU
+   * before-and-after is ~166 ms -- the caller memoises this on the edited values.
+   */
+  const legWanted: "bcs" | "install" | "supply" =
+    leg === "bcs" ? "bcs" : leg === "boq_install" ? "install" : "supply";
+  const exactRows = (() => {
+    if (!exactCtx || !changed) return null;
+    const refs: ExactPipelineRef[] = [];
+    for (const { category, pipelineId } of reach?.pipelines ?? []) {
+      const pl = (exactCtx.configs?.[category]?.pipelines ?? {})[pipelineId];
+      if (pl) refs.push({ category, pipelineId, pipeline: pl as never });
+    }
+    if (!refs.length) return null;
+    const patch: Record<string, number> = {};
+    for (const k of Object.keys(next)) if (next[k] !== stored[k]) patch[k] = next[k];
+    if (!Object.keys(patch).length) return null;
+    const itemsNext = itemsWithInput(exactCtx.items, exactCtx.inputItemKey, patch);
+    /**
+     * ⚠️ THE OWN CONDITION WINS, and every OTHER conditional component is held at its neutral branch.
+     * Order matters: neutral first, then the input's own enabling branch on top, so an adder whose
+     * component also appears among the neutrals is still switched ON.
+     */
+    const conds = {
+      ...neutralConditions(refs, reach?.adder?.component),
+      ...conditionsFor(reach),
+      ...(exactCtx.conditions ?? {}),
+    };
+    const out = new Map<string, ReturnType<typeof priceSkuExact>>();
+    for (const c of reach?.columns ?? []) {
+      if (out.has(c.itemUid)) continue;
+      const sku = itemsByUid?.get(c.itemUid);
+      if (!sku) continue;
+      out.set(c.itemUid, priceSkuExact(sku, refs, exactCtx.items, itemsNext, conds));
+    }
+    return out;
+  })();
+
   const rows: SkuImpactRow[] = [];
   const seen = new Set<string>();
   for (const col of reach?.columns ?? []) {
@@ -303,6 +368,28 @@ export function computeImpact(
     if (typeof rate !== "number" || !Number.isFinite(rate)) continue;
     let now: number;
     let becomes: number;
+    /**
+     * ⚠️ THE EXACT PATH RUNS THE PRODUCT'S OWN PIPELINE (owner ruling, 2026-09-29). The multiplier
+     * arithmetic below agrees with the product only for the PAIR shape; for a share it used the wrong
+     * base and skipped a roundup, and for an adder it applied the multiplier in the wrong order. Rather
+     * than re-derive those rules here -- which is how the disagreement arose in the first place -- the
+     * figures come from `runPipeline` over the catalogue as it stands and over the catalogue with this
+     * input patched. The multiplier path below REMAINS as the fallback for callers with no configs.
+     */
+    const ex = exactRows?.get(col.itemUid);
+    if (ex && ex.legs.length) {
+      const primary = ex.legs.find((l) => legClassOf(l.output) === legWanted) ?? ex.legs[0];
+      rows.push({
+        itemUid: col.itemUid, kind: col.kind, rateKey: col.rateKey,
+        label: skuLabel(it), categories: col.categories, storedRate: rate,
+        now: primary.now, becomes: primary.becomes,
+        pctChange: primary.now === 0 ? null : ((primary.becomes - primary.now) / primary.now) * 100,
+        moved: primary.moved,
+        otherLegs: ex.legs.filter((l) => l !== primary && l.moved),
+        exact: true,
+      });
+      continue;
+    }
     if (shape === "flat_adder") {
       const base = rate * (adderCtx?.baseMultiplier.get(impactColKey(col.itemUid, col.rateKey)) ?? 1);
       now = base + (addNow?.value ?? 0);
