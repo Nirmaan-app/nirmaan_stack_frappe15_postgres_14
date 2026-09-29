@@ -11466,7 +11466,8 @@ def _electrical_active_checksum():
 
 class TestHvacAssetSlice1b(FrappeTestCase):
     """SLICE 1b -- the first HVAC asset, versioned ON ITS OWN (owner amendment 2026-09-21). Owner rulings
-    R-a..R-f (quoted in the slice prompt and in the untracked mint script `_mint_hvac_v1_tmp.py`).
+    R-a..R-f (quoted in the slice prompt and in the provenance copy of the slice-1b mint script,
+    `scripts/_instruments/hvac_v1_attrs_for.py`).
     Plain-English coverage:
 
       test_h01  the HVAC asset LOADS through the unchanged loader: 95 `hvac_adp_item` items, ONE
