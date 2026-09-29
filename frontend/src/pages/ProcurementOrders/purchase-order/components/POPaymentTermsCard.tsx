@@ -815,8 +815,8 @@ const canRequestPaymentForTerm = (term: PaymentTerm): boolean => {
 
 const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
   // PMO restored 2026-09-24 (owner): PMO raises payment requests again, reversing that part of the
-  // 2026-09-17 access review. Requesting and EDITING the terms are separate rights -- editing stays
-  // off for PMO (`isTermsReadOnly` below), so the two lists differ on purpose.
+  // 2026-09-17 access review. Since 2026-09-29 PMO also edits the terms, so this list and the
+  // card's `isReadOnly` list are the same four groups.
   const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", PMO_EXECUTIVE_PROFILE, "Nirmaan Project Lead Profile"].includes(role);
 
   // Calculate eligibility using the helper function
@@ -977,10 +977,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   // below anyway, so the old `accountsPage ||` only stripped Admin/PL/Procurement of the terms
   // when they arrived from /project-payments.
   const isReadOnly = estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
-  // PMO removed from PAYMENT TERMS editing 2026-09-17 (PMO access review); still off after the
-  // 2026-09-24 Request Payment restore above. GST for Billing & Notes stays editable for PMO -- it
-  // is required before dispatch, which PMO still does.
-  const isTermsReadOnly = isReadOnly || role === PMO_EXECUTIVE_PROFILE;
+  // PMO edits the payment terms again (owner, 2026-09-29), reversing the 2026-09-17 access review:
+  // the terms, GST for Billing & Notes and Request Payment all follow the same role list now.
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (
@@ -1160,7 +1158,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
               <h3 className="text-lg font-bold text-red-600">
                 PO Payment Terms
               </h3>
-              {!isTermsReadOnly && (
+              {!isReadOnly && (
                 <Button
                   variant="outline"
                   size="sm"

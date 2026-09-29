@@ -183,7 +183,7 @@ Procurement Exec). Estimates includes Billing Exec / Lead (`estimatesViewing`).
 | Approve PO Tabs | Y | - | Y | - | - | - | - |
 | Status Tabs | Y | Y | Y | - | Y | - | Read-only |
 | Request Payment | Y | Y | Y | - | Y | - | - |
-| Edit Payment Terms | Y | - | Y | - | Y | - | - |
+| Edit Payment Terms | Y | Y | Y | - | Y | - | - |
 | Edit GST for Billing & Notes | Y | Y | Y | - | Y | - | - |
 | Update Delivery (new DN) | Y | Y | Y | Y | Y | - | - |
 | Dispatch PO | Y | Y | Y | - | Y | - | - |
@@ -194,7 +194,7 @@ Procurement Exec). Estimates includes Billing Exec / Lead (`estimatesViewing`).
 | Revise PO | Y | Y | - | - | Y | - | - |
 | Mark Inactive | Y | Y | - | - | - | Y | - |
 
-> **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost payment-terms edit (`POPaymentTermsCard.tsx`); GST for Billing & Notes stays editable. **Request Payment was given back on 2026-09-24 (owner)** — PMO raises PO payment requests again, while editing the terms themselves stays off.
+> **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost payment-terms edit and Request Payment; GST for Billing & Notes stayed editable. **Request Payment was given back on 2026-09-24 and payment-terms edit on 2026-09-29 (owner)** — PMO now matches Procurement on the whole Payment Terms card (`POPaymentTermsCard.tsx`).
 
 > **Cancel PO (owner, 2026-09-28):** Admin, PMO and material procurement only. It used to be "everyone except Accountant / Estimates", which let a PM, Sales, HR or Design user cancel. Frontend only — `handle_cancel_po` does not check roles.
 
