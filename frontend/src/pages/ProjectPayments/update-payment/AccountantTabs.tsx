@@ -19,7 +19,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // --- Hooks & Utils ---
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
-import { getFrappeError } from "@/utils/frappeErrors";
+import { writeErrorMessage, getFrappeError, isStaleRecordError, staleGuard } from "@/utils/frappeErrors";
 import { SETTLED_STATUSES } from '@/utils/settlement';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import {
@@ -394,14 +394,19 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         if (!confirmPaidRows?.length) return;
         const rows = confirmPaidRows;
         const failed: { row: ApprovalQueueRow; reason: string }[] = [];
+        let anyStale = false;
         setMarkingProgress(0);
         for (let i = 0; i < rows.length; i++) {
             try {
                 await updateDoc(rows[i].doctype, rows[i].name, {
+                    // Refused if anyone moved this row since the queue loaded (e.g. already
+                    // reconciled to Paid) — a stale tick must not drag it back.
+                    ...staleGuard(rows[i]),
                     status: APPROVAL_STATUS.RECONCILIATION_PENDING,
                 });
             } catch (e: any) {
-                failed.push({ row: rows[i], reason: e?.message || "Please try again." });
+                if (isStaleRecordError(e)) anyStale = true;
+                failed.push({ row: rows[i], reason: await writeErrorMessage(e, "Please try again.", rows[i].doctype, rows[i].name) });
             }
             setMarkingProgress(i + 1);
         }
@@ -431,8 +436,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // Nothing written → keep the dialog open so the accountant can retry, as the row
-        // button always did.
-        if (movedCount === 0) return;
+        // button always did. Unless a row changed under us: a retry cannot succeed, so close
+        // and reload to show where those rows actually are now.
+        if (movedCount === 0 && !anyStale) return;
         setConfirmPaidRows(null);
         // ⚠️ RESET, EVEN AFTER A SINGLE ROW. Selection is keyed by row INDEX (the table
         // has no getRowId), so once moved rows drop out of the list every tick shifts

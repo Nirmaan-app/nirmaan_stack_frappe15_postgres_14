@@ -78,6 +78,8 @@ export interface ApprovalQueueRow {
   project: string;
   raised_by: string;
   creation: string;
+  /** Sent back on "Mark as Paid" so a row changed since the queue loaded is refused (`staleGuard`). */
+  modified: string;
   approved_on: string | null;
   paid_on: string | null;
   utr_ref: string;

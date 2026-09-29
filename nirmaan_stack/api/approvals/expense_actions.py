@@ -48,6 +48,9 @@ from nirmaan_stack.api.payments.bulk_actions import (
     REJECTED_STATUS,
     _authorize_ceo,
     _authorize_lead,
+    _is_stale,
+    _parse_expected_modified,
+    _stale_reason,
 )
 from nirmaan_stack.services.approval_tiers import (
     STATUS_APPROVED,
@@ -73,7 +76,9 @@ CEO_HOLD_STATUS = "CEO Hold"
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def bulk_lead_approve_expenses(expense_ids, action: str, rejection_reason: Optional[str] = None):
+def bulk_lead_approve_expenses(
+    expense_ids, action: str, rejection_reason: Optional[str] = None, expected_modified=None
+):
     """L1 bulk action on expenses currently in 'Requested'.
 
     Approve lands each row at `Approved` or `CEO Pending` depending on its own
@@ -87,11 +92,14 @@ def bulk_lead_approve_expenses(expense_ids, action: str, rejection_reason: Optio
         source_status=STATUS_REQUESTED,
         approve_date_field="approval_date",
         ceo_mode=False,
+        expected_modified=expected_modified,
     )
 
 
 @frappe.whitelist()
-def bulk_ceo_approve_expenses(expense_ids, action: str, rejection_reason: Optional[str] = None):
+def bulk_ceo_approve_expenses(
+    expense_ids, action: str, rejection_reason: Optional[str] = None, expected_modified=None
+):
     """CEO bulk action on expenses currently in 'CEO Pending'.
 
     An L2 approval always finishes the approval, so the target is flat `Approved`.
@@ -104,6 +112,7 @@ def bulk_ceo_approve_expenses(expense_ids, action: str, rejection_reason: Option
         source_status=STATUS_CEO_PENDING,
         approve_date_field="ceo_approval_date",
         ceo_mode=True,
+        expected_modified=expected_modified,
     )
 
 
@@ -142,6 +151,7 @@ def _bulk_expense_action(
     source_status: str,
     approve_date_field: str,
     ceo_mode: bool,
+    expected_modified=None,
 ):
     if isinstance(expense_ids, str):
         try:
@@ -162,6 +172,7 @@ def _bulk_expense_action(
         frappe.throw(_("Rejection reason is required."))
 
     deduped_ids = list(dict.fromkeys(expense_ids))
+    expected = _parse_expected_modified(expected_modified)
     found = _resolve_ledgers(deduped_ids)
 
     succeeded: list[str] = []
@@ -185,6 +196,7 @@ def _bulk_expense_action(
             succeeded=succeeded,
             failed=failed,
             pending_comments=pending_comments,
+            expected=expected,
         )
 
     frappe.db.commit()
@@ -215,6 +227,7 @@ def _process_expense(
     succeeded: list[str],
     failed: list[dict],
     pending_comments: list[tuple[str, str]],
+    expected: Optional[dict] = None,
 ):
     """One expense, inside its own SAVEPOINT.
 
@@ -238,18 +251,6 @@ def _process_expense(
             failed.append({"name": expense_id, "reason": "Project is on CEO Hold"})
             return
 
-    if action == "reject":
-        target_status = REJECTED_STATUS
-    elif ceo_mode:
-        # An L2 approval always finishes it -- there is no third gate to forward to.
-        target_status = STATUS_APPROVED
-    else:
-        # ⚠️ flt() FIRST: `Project Expenses.amount` is a varchar column, so an
-        # unconverted value would be banded by its characters. The explicit
-        # `TIER_L2_ABOVE_EXPENSES` equals the module default today (both 50,000);
-        # it is passed anyway so a future split lands here without a code change.
-        target_status = status_after_l1(flt(row["amount"]), TIER_L2_ABOVE_EXPENSES)
-
     savepoint = f"bulk_exp_{frappe.generate_hash(length=12)}"
     frappe.db.savepoint(savepoint)
     try:
@@ -266,6 +267,28 @@ def _process_expense(
                 "reason": f"Status is '{doc.status}', expected '{source_status}'",
             })
             return
+
+        # Edited since the approver's screen loaded it -- the amount they signed off may not
+        # be the amount on the record.
+        if _is_stale(doc, expected or {}):
+            frappe.db.rollback(save_point=savepoint)
+            failed.append({"name": expense_id, "reason": _stale_reason(doc)})
+            return
+
+        if action == "reject":
+            target_status = REJECTED_STATUS
+        elif ceo_mode:
+            # An L2 approval always finishes it -- there is no third gate to forward to.
+            target_status = STATUS_APPROVED
+        else:
+            # ⚠️ The amount is read HERE, under the lock -- not from the list query taken
+            # before it, where an edit landing in between would band the row by an amount
+            # it no longer has (a Rs 60,000 row finishing at L1 without the CEO).
+            # flt() FIRST: `Project Expenses.amount` is a varchar column, so an
+            # unconverted value would be banded by its characters. The explicit
+            # `TIER_L2_ABOVE_EXPENSES` equals the module default today (both 50,000);
+            # it is passed anyway so a future split lands here without a code change.
+            target_status = status_after_l1(flt(doc.amount), TIER_L2_ABOVE_EXPENSES)
 
         doc.status = target_status
         if action == "approve":

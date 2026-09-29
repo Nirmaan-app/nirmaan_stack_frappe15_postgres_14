@@ -298,7 +298,7 @@ def create_project_payment(
 
 
 @frappe.whitelist()
-def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
+def ceo_approve_payment(payment_id: str, approved_amount=None, expected_modified=None) -> dict:
     """
     Promotes a "CEO Pending" payment to "Approved".
     Only the hardcoded CEO user (see authorized_users.CEO_AUTHORIZED_USER) may call this.
@@ -316,9 +316,15 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
 
     ONE endpoint deliberately covers both paths so the CEO gate and the
     "must be CEO Pending" guard are defined exactly once.
+
+    ``expected_modified`` is the payment's ``modified`` as the CEO's screen loaded it. When sent,
+    a payment saved since is refused with TimestampMismatchError naming who changed it -- the
+    same rule bulk approve applies per row (``bulk_actions._is_stale``). Not sent = no check.
     """
     if frappe.session.user != CEO_AUTHORIZED_USER:
         frappe.throw(_("Only the authorised CEO user can perform this action."), frappe.PermissionError)
+
+    _lock_and_check_ceo_approvable(payment_id, expected_modified)
 
     # Whitelisted args arrive as strings; "" and None both mean "not supplied".
     wants_partial = approved_amount not in (None, "")
@@ -373,6 +379,27 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
             return {"status": "success", "message": _("Cheque payment approved and moved to Reconciliation Pending.")}
 
     return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
+
+
+def _lock_and_check_ceo_approvable(payment_id: str, expected_modified) -> None:
+    """The checks BOTH CEO paths share, taken under the payment's row lock before anything is read.
+
+    The lock comes first so the amount, status and version read here cannot change before the
+    save; the partial path's own ``FOR UPDATE`` on the same row is then a no-op in this
+    transaction. CEO Hold is checked here too: bulk approve and the partial split already
+    refuse a held project on the server, and the plain full approve was the one path that
+    relied on the screen alone.
+    """
+    from nirmaan_stack.api.payments.bulk_actions import _is_stale, _parse_expected_modified, _stale_reason
+
+    frappe.db.sql('SELECT name FROM "tabProject Payments" WHERE name = %s FOR UPDATE', payment_id)
+    pay = frappe.get_doc("Project Payments", payment_id)
+
+    if _is_stale(pay, _parse_expected_modified({payment_id: expected_modified} if expected_modified else None)):
+        frappe.throw(_stale_reason(pay), frappe.TimestampMismatchError)
+
+    if pay.project and frappe.db.get_value("Projects", pay.project, "status") == "CEO Hold":
+        frappe.throw(_("This project is on CEO Hold. Payments cannot be approved."))
 
 
 def _post_split_side_effects(result: dict) -> None:

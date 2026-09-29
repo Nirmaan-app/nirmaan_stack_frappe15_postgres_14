@@ -21,8 +21,9 @@ from typing import Callable, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import nowdate
+from frappe.utils import cstr, nowdate
 
+from nirmaan_stack.api.last_change import stale_message
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.integrations.Notifications.pr_notifications import (
     get_admin_users,
@@ -45,7 +46,9 @@ REJECTED_STATUS = "Rejected"
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def bulk_lead_approve_payments(payment_ids, action: str, rejection_reason: Optional[str] = None):
+def bulk_lead_approve_payments(
+    payment_ids, action: str, rejection_reason: Optional[str] = None, expected_modified=None
+):
     """Admin bulk action on payments currently in 'Requested'."""
     _authorize_lead()
     return _bulk_action(
@@ -53,11 +56,14 @@ def bulk_lead_approve_payments(payment_ids, action: str, rejection_reason: Optio
         action=action,
         rejection_reason=rejection_reason,
         config=_LEAD_CONFIG,
+        expected_modified=expected_modified,
     )
 
 
 @frappe.whitelist()
-def bulk_ceo_approve_payments(payment_ids, action: str, rejection_reason: Optional[str] = None):
+def bulk_ceo_approve_payments(
+    payment_ids, action: str, rejection_reason: Optional[str] = None, expected_modified=None
+):
     """CEO bulk action on payments currently in 'CEO Pending'."""
     _authorize_ceo()
     return _bulk_action(
@@ -65,6 +71,7 @@ def bulk_ceo_approve_payments(payment_ids, action: str, rejection_reason: Option
         action=action,
         rejection_reason=rejection_reason,
         config=_CEO_CONFIG,
+        expected_modified=expected_modified,
     )
 
 
@@ -221,10 +228,51 @@ def _authorize_lead():
 
 
 # ---------------------------------------------------------------------------
+# Stale-row check (shared with `api/approvals/expense_actions.py`)
+# ---------------------------------------------------------------------------
+#
+# The status re-check under the row lock stops a row being approved twice, but not a row that
+# was EDITED after the approver's screen loaded it: the approval would sign off an amount nobody
+# looked at. So the screen sends `{name: modified}` for every row it shows, and a row whose
+# `modified` no longer matches is refused on its own -- the rest of the batch still goes through.
+# Not sent (an older caller) = no check, exactly as before.
+
+def _parse_expected_modified(expected_modified) -> dict:
+    """`{name: modified}` as the caller's screen loaded them; `{}` when not sent."""
+    if not expected_modified:
+        return {}
+    if isinstance(expected_modified, str):
+        try:
+            expected_modified = json.loads(expected_modified)
+        except json.JSONDecodeError:
+            frappe.throw(_("expected_modified must be a JSON object of name -> modified."))
+    if not isinstance(expected_modified, dict):
+        frappe.throw(_("expected_modified must be a JSON object of name -> modified."))
+    return {str(name): str(modified) for name, modified in expected_modified.items() if modified}
+
+
+def _is_stale(doc, expected: dict) -> bool:
+    """Was `doc` saved since the caller loaded it? Read under the row lock, so the answer holds.
+
+    `cstr(modified)` is the same comparison Frappe's own `check_if_latest` makes, and the same
+    string the queue endpoint serialises -- so an untouched row always matches.
+    """
+    loaded = expected.get(doc.name)
+    return bool(loaded) and cstr(doc.modified) != loaded
+
+
+def _stale_reason(doc) -> str:
+    """The failure reason for a stale row: who changed it and when (`api/last_change`)."""
+    return stale_message(doc.modified_by, doc.modified)
+
+
+# ---------------------------------------------------------------------------
 # Core engine
 # ---------------------------------------------------------------------------
 
-def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config: _ModeConfig):
+def _bulk_action(
+    payment_ids, action: str, rejection_reason: str | None, config: _ModeConfig, expected_modified=None
+):
     if isinstance(payment_ids, str):
         try:
             payment_ids = json.loads(payment_ids)
@@ -244,6 +292,7 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
         frappe.throw(_("Rejection reason is required."))
 
     deduped_ids = list(dict.fromkeys(payment_ids))
+    expected = _parse_expected_modified(expected_modified)
 
     payment_rows = frappe.get_all(
         "Project Payments",
@@ -304,6 +353,7 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             succeeded=succeeded,
             failed=failed,
             pending_comments=pending_comments,
+            expected=expected,
         )
 
     # Commit BEFORE emitting notifications / writing comments (fix E7) — push
@@ -402,6 +452,7 @@ def _process_group(
     succeeded: list[str],
     failed: list[dict],
     pending_comments: list[str],
+    expected: Optional[dict] = None,
 ):
     """Process all payments belonging to one parent doc atomically.
 
@@ -460,6 +511,10 @@ def _process_group(
                 "name": pid,
                 "reason": f"Status is '{pay.status}', expected '{source_status}'",
             })
+            continue
+
+        if _is_stale(pay, expected or {}):
+            failed.append({"name": pid, "reason": _stale_reason(pay)})
             continue
 
         if pay.project:

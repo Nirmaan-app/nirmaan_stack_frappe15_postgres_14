@@ -41,12 +41,15 @@ export function useBulkPaymentActions(mode: BulkMode) {
     async (
       paymentIds: string[],
       action: BulkAction,
-      rejectionReason?: string
+      rejectionReason?: string,
+      // `{name: modified}` as the screen loaded them — the server refuses any row saved since.
+      expectedModified?: Record<string, string>
     ): Promise<BulkResult> => {
       const response: ApiEnvelope = await call({
         payment_ids: paymentIds,
         action,
         rejection_reason: rejectionReason ?? null,
+        expected_modified: expectedModified ?? null,
       });
 
       const data = response?.message?.data;

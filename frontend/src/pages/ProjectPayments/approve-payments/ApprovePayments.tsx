@@ -80,6 +80,7 @@ import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts";
+import { writeErrorMessage, isStaleRecordError, staleGuard } from "@/utils/frappeErrors";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -642,6 +643,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           if (actionType === DIALOG_ACTION_TYPES.REJECT) {
             // CEO rejection: no amount edits — flip status to Rejected.
             await updateDoc(ceoDoctype, selectedPayment.name, {
+              ...staleGuard(ceoRow),
               status: PAYMENT_STATUS.REJECTED,
             });
           } else if (!ceoIsPayment) {
@@ -650,6 +652,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             // cannot be split, so a CEO approval on one is a plain status write that
             // stamps the CEO date, mirroring what the endpoint does for a full approve.
             await updateDoc(ceoDoctype, selectedPayment.name, {
+              ...staleGuard(ceoRow),
               status: PAYMENT_STATUS.APPROVED,
               ceo_approval_date: new Date().toISOString().split("T")[0],
             });
@@ -664,6 +667,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             const response = await ceoApproveCall({
               payment_id: selectedPayment.name,
               ...(isPartial ? { approved_amount: amount } : {}),
+              // Refused if the payment was saved since this screen loaded it (same rule as bulk).
+              expected_modified: ceoRow.modified || null,
             });
             // The server composes the split message (it names the new payment), so echo it
             // rather than re-deriving a second wording that could drift from what happened.
@@ -700,6 +705,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
               : PAYMENT_STATUS.REJECTED;
 
           await updateDoc(targetDoctype, selectedPayment.name, {
+            // Refused if the row was saved since this screen loaded it — otherwise the amount
+            // below would silently write the approver's old copy over someone's edit.
+            ...staleGuard(row),
             status: newStatus,
             amount: amount,
             approval_date: new Date().toISOString().split("T")[0],
@@ -742,9 +750,20 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         console.error("Failed to update payment:", error);
         toast({
           title: "Update Failed!",
-          description: error.message || "Could not update payment.",
+          description: await writeErrorMessage(
+            error,
+            "Could not update payment.",
+            (selectedPayment as unknown as ApprovalQueueRow).doctype || DOCTYPE,
+            selectedPayment.name
+          ),
           variant: "destructive",
         });
+        // Someone else saved it first: close and reload, so the approver sees the current record.
+        if (isStaleRecordError(error)) {
+          closeDialog();
+          refetch();
+          refreshTabCounts();
+        }
       }
     },
     [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]

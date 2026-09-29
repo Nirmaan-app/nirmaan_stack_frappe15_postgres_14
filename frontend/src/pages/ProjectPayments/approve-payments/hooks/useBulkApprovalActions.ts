@@ -28,8 +28,12 @@ import {
 
 const EXPENSE_DOCTYPES = new Set(["Project Expenses", "Non Project Expenses"]);
 
-/** The minimum a row must carry to be routed. The queue row is a superset. */
-export type BulkTargetRow = Pick<ApprovalQueueRow, "name" | "doctype">;
+/** The minimum a row must carry to be routed. The queue row is a superset. `modified` is what
+ *  the screen loaded; it lets the server refuse a row someone saved since (see `bulk_actions`). */
+export type BulkTargetRow = Pick<ApprovalQueueRow, "name" | "doctype"> & { modified?: string | null };
+
+const expectedModifiedOf = (rows: BulkTargetRow[]): Record<string, string> =>
+  Object.fromEntries(rows.filter((r) => r.modified).map((r) => [r.name, r.modified as string]));
 
 export const isExpenseRow = (row: BulkTargetRow): boolean =>
   EXPENSE_DOCTYPES.has(row.doctype);
@@ -61,8 +65,10 @@ export function useBulkApprovalActions(mode: BulkMode) {
       action: BulkAction,
       rejectionReason?: string
     ): Promise<BulkResult> => {
-      const expenseIds = rows.filter(isExpenseRow).map((r) => r.name);
-      const paymentIds = rows.filter((r) => !isExpenseRow(r)).map((r) => r.name);
+      const expenseRows = rows.filter(isExpenseRow);
+      const paymentRows = rows.filter((r) => !isExpenseRow(r));
+      const expenseIds = expenseRows.map((r) => r.name);
+      const paymentIds = paymentRows.map((r) => r.name);
 
       const succeeded: string[] = [];
       const failed: BulkFailure[] = [];
@@ -80,7 +86,9 @@ export function useBulkApprovalActions(mode: BulkMode) {
        */
       if (paymentIds.length) {
         try {
-          const result = await submitPayments(paymentIds, action, rejectionReason);
+          const result = await submitPayments(
+            paymentIds, action, rejectionReason, expectedModifiedOf(paymentRows)
+          );
           succeeded.push(...result.succeeded);
           failed.push(...result.failed);
         } catch (err: any) {
@@ -95,6 +103,7 @@ export function useBulkApprovalActions(mode: BulkMode) {
             expense_ids: expenseIds,
             action,
             rejection_reason: rejectionReason ?? null,
+            expected_modified: expectedModifiedOf(expenseRows),
           });
           const data = response?.message?.data;
           if (!data) throw new Error("Bulk expense action returned no data");
