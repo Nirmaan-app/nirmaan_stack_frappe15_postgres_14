@@ -43,6 +43,7 @@ interface AssetMaster {
     asset_serial_number: string | null;
     asset_condition: string | null;
     current_assignee: string | null;
+    modified?: string;
 }
 
 interface AssetAssignment {
@@ -79,6 +80,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         name: string;
         assigneeName?: string;
         assignmentId?: string;
+        modified?: string;
     } | null>(null);
 
     // Search query for filtering assets by name, serial, or assignee
@@ -101,7 +103,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
     } = useFrappeGetDocList<AssetMaster>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'asset_name', 'asset_serial_number', 'asset_condition', 'current_assignee'],
+            fields: ['name', 'asset_name', 'asset_serial_number', 'asset_condition', 'current_assignee', 'modified'],
             filters: [['asset_category', '=', categoryId]],
             orderBy: { field: 'asset_name', order: 'asc' },
             limit: 0,
@@ -214,6 +216,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         setSelectedAsset({
             id: asset.name,
             name: asset.asset_name,
+            modified: asset.modified,
         });
         setAssignDialogOpen(true);
     };
@@ -224,6 +227,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
             name: asset.asset_name,
             assigneeName: asset.current_assignee ? assigneeMap[asset.current_assignee] : undefined,
             assignmentId: assignmentMap[asset.name],
+            modified: asset.modified,
         });
         setUnassignDialogOpen(true);
     };
@@ -411,6 +415,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                         onOpenChange={setAssignDialogOpen}
                         assetId={selectedAsset.id}
                         assetName={selectedAsset.name}
+                        assetModified={selectedAsset.modified}
                         onAssigned={handleAssetChange}
                     />
                     <UnassignAssetDialog
@@ -420,6 +425,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                         assetName={selectedAsset.name}
                         assigneeName={selectedAsset.assigneeName || ''}
                         assetManagementId={selectedAsset.assignmentId}
+                        assetModified={selectedAsset.modified}
                         onUnassigned={handleAssetChange}
                     />
                 </>

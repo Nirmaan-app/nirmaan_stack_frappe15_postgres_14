@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
+import { isStaleRecordError, staleGuard, writeErrorMessage } from '@/utils/frappeErrors';
 import { UserPlus, Calendar, CheckCircle2, Download, FileText } from 'lucide-react';
 
 import {
@@ -31,6 +32,8 @@ interface AssignAssetDialogProps {
     onOpenChange: (open: boolean) => void;
     assetId: string;
     assetName: string;
+    /** The asset's `modified` as the calling screen loaded it; guards the save against a newer change. */
+    assetModified?: string;
     onAssigned?: () => void;
 }
 
@@ -44,6 +47,7 @@ interface AssetProjectRef {
     name: string;
     project: string;
     asset_category: string;
+    modified?: string;
 }
 
 interface AssetCategoryTypeRow {
@@ -56,6 +60,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     onOpenChange,
     assetId,
     assetName,
+    assetModified,
     onAssigned,
 }) => {
     const [selectedUser, setSelectedUser] = useState<string>('');
@@ -100,7 +105,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     const { data: assetRows } = useFrappeGetDocList<AssetProjectRef>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'project', 'asset_category'],
+            fields: ['name', 'project', 'asset_category', 'modified'],
             filters: [['name', '=', assetId]],
             limit: 1,
         },
@@ -194,19 +199,22 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
         setIsSubmitting(true);
 
         try {
+            // Update Asset Master with current assignee, and — for Project assets —
+            // the project this assignment is for. City/State are read-only fetch
+            // fields, so the server derives them from the project's address.
+            // Runs FIRST and carries the version the screen showed: if someone else
+            // changed the asset meanwhile it is refused and no assignment record is left behind.
+            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
+                current_assignee: selectedUser,
+                ...(isProjectAsset ? { project: selectedProject } : {}),
+                ...staleGuard({ modified: assetModified ?? assetRow?.modified }),
+            });
+
             // Create Asset Management entry
             await createDoc(ASSET_MANAGEMENT_DOCTYPE, {
                 asset: assetId,
                 asset_assigned_to: selectedUser,
                 asset_assigned_on: assignedDate,
-            });
-
-            // Update Asset Master with current assignee, and — for Project assets —
-            // the project this assignment is for. City/State are read-only fetch
-            // fields, so the server derives them from the project's address.
-            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
-                current_assignee: selectedUser,
-                ...(isProjectAsset ? { project: selectedProject } : {}),
             });
 
             // Get the assigned user's display name
@@ -221,9 +229,15 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
             console.error('Failed to assign asset:', error);
             toast({
                 title: 'Assignment Failed',
-                description: error?.message || 'An error occurred while assigning the asset.',
+                description: await writeErrorMessage(error, 'An error occurred while assigning the asset.', ASSET_MASTER_DOCTYPE, assetId),
                 variant: 'destructive',
             });
+            if (isStaleRecordError(error)) {
+                // Show the latest state rather than retrying on top of it.
+                onOpenChange(false);
+                refreshSummaryCards();
+                onAssigned?.();
+            }
         } finally {
             setIsSubmitting(false);
         }

@@ -32,6 +32,8 @@ import {
 } from '../assets.constants';
 import { getAssetPermissions } from '../utils/permissions';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
+import { StaleConflictBanner, useStaleConflict } from '@/hooks/useStaleConflict';
+import { describeWriteError } from '@/utils/frappeErrors';
 
 interface AssetCategory {
     name: string;
@@ -107,6 +109,9 @@ export const AssetCategoriesList: React.FC = () => {
     // Only users with canManageCategories can edit
     const { canManageCategories } = getAssetPermissions(userData?.user_id, userData?.role);
 
+    // A save refused because someone else changed the category first keeps the dialog open.
+    const stale = useStaleConflict({ doctype: ASSET_CATEGORY_DOCTYPE, record: editingCategory, open: editDialogOpen });
+
     const handleEditClick = useCallback((category: AssetCategory) => {
         setEditingCategory(category);
         setEditCategoryName(category.asset_category);
@@ -120,6 +125,7 @@ export const AssetCategoriesList: React.FC = () => {
         try {
             setIsUpdating(true);
             await updateDoc(ASSET_CATEGORY_DOCTYPE, editingCategory.name, {
+                ...stale.guard(),
                 category_type: editCategoryType,
             });
             toast({
@@ -132,9 +138,13 @@ export const AssetCategoriesList: React.FC = () => {
             refetchTable();
             refreshCategoryDropdowns();
         } catch (error: any) {
+            // Someone else saved it first: stay open; an untouched type follows theirs.
+            if (await stale.handle(error, (latest) => {
+                if (editCategoryType === (editingCategory.category_type || '')) setEditCategoryType(latest.category_type || '');
+            })) return;
             toast({
                 title: 'Error',
-                description: error?.message || 'Failed to update category',
+                description: describeWriteError(error, 'Failed to update category'),
                 variant: 'destructive',
             });
         } finally {
@@ -289,6 +299,7 @@ export const AssetCategoriesList: React.FC = () => {
                             Change the type for this category. The category name cannot be modified.
                         </DialogDescription>
                     </DialogHeader>
+                    <StaleConflictBanner conflict={stale.conflict} />
                     <div className="space-y-4 py-4">
                         <div>
                             <Label htmlFor="categoryName" className="text-sm font-medium text-gray-700">
@@ -349,7 +360,7 @@ export const AssetCategoriesList: React.FC = () => {
                                 || editCategoryType === (editingCategory?.category_type || '')
                             }
                         >
-                            {isUpdating ? 'Saving...' : 'Save Changes'}
+                            {isUpdating ? 'Saving...' : stale.conflict ? 'Save again' : 'Save Changes'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

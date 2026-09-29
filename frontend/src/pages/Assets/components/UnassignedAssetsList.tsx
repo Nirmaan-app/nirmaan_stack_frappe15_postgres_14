@@ -37,6 +37,7 @@ interface AssetMaster {
     asset_value: number;
     current_assignee: string;
     creation: string;
+    modified?: string;
 }
 
 const conditionColorMap: Record<string, string> = {
@@ -92,7 +93,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
 }) => {
     const userData = useUserData();
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-    const [selectedAsset, setSelectedAsset] = useState<{ id: string; name: string } | null>(null);
+    const [selectedAsset, setSelectedAsset] = useState<{ id: string; name: string; modified?: string } | null>(null);
 
     const categoryNames = useMemo(
         () => categoryList.map((c) => c.name),
@@ -119,7 +120,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
     }>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'asset_name', 'asset_category', 'asset_condition'],
+            fields: ['name', 'asset_name', 'asset_category', 'asset_condition', 'modified'],
             filters: facetSourceFilters,
             limit: 0,
         },
@@ -168,7 +169,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
     const { canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
 
     const handleAssignClick = (asset: AssetMaster) => {
-        setSelectedAsset({ id: asset.name, name: asset.asset_name });
+        setSelectedAsset({ id: asset.name, name: asset.asset_name, modified: asset.modified });
         setAssignDialogOpen(true);
     };
 
@@ -363,6 +364,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
                     onOpenChange={setAssignDialogOpen}
                     assetId={selectedAsset.id}
                     assetName={selectedAsset.name}
+                    assetModified={selectedAsset.modified}
                     onAssigned={handleAssigned}
                 />
             )}

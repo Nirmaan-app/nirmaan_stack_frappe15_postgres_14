@@ -189,7 +189,7 @@ export default function Profile() {
   );
 
   // Fetch all asset masters (for assignment dialog - admins only)
-  const { data: assetMasterList, isLoading: assetMasterLoading } =
+  const { data: assetMasterList, isLoading: assetMasterLoading, mutate: assetMasterMutate } =
     useFrappeGetDocList(
       ASSET_MASTER_DOCTYPE,
       {
@@ -359,6 +359,9 @@ export default function Profile() {
             isOwnProfile={isOwnProfile}
             onMutate={() => {
               assetManagementMutate();
+              // Assign / unassign change the asset itself too; without this the next action on the
+              // same asset would carry an out-of-date version and be refused.
+              assetMasterMutate();
             }}
           />
         </TabsContent>

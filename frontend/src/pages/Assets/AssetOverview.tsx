@@ -78,6 +78,22 @@ import {
 } from './assets.constants';
 import { useAssetProjectOptions } from './hooks/useAssetProjectOptions';
 import { getAssetPermissions } from './utils/permissions';
+import { keepTyped, StaleConflictBanner, useStaleConflict } from '@/hooks/useStaleConflict';
+import { describeWriteError } from '@/utils/frappeErrors';
+
+/** The edit form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const editFormFrom = (asset: AssetMaster) => ({
+    asset_name: asset.asset_name || '',
+    asset_description: asset.asset_description || '',
+    asset_category: asset.asset_category || '',
+    asset_condition: asset.asset_condition || '',
+    asset_serial_number: asset.asset_serial_number || '',
+    asset_value: asset.asset_value ? String(asset.asset_value) : '',
+    project: asset.project || '',
+    asset_email: asset.asset_email || '',
+    asset_email_password: '',
+    asset_pin: '',
+});
 
 interface AssetMaster {
     name: string;
@@ -369,23 +385,25 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         mutate();
     });
 
-    // Initialize edit form when asset data loads
+    // The asset as it was when the edit dialog opened. The page reloads `asset` live on every
+    // save, so the version the form was filled from must be kept apart from it -- checking
+    // against the live one would let an out-of-date form overwrite a newer save.
+    const [editBase, setEditBase] = useState<AssetMaster | null>(null);
+    const stale = useStaleConflict({ doctype: ASSET_MASTER_DOCTYPE, record: editBase, open: editDialogOpen });
+
+    // Initialize edit form when asset data loads -- never while the dialog is open, or a live
+    // reload would silently replace what the user is typing.
     useEffect(() => {
+        if (asset && !editDialogOpen) setEditForm(editFormFrom(asset));
+    }, [asset, editDialogOpen]);
+
+    const openEditDialog = () => {
         if (asset) {
-            setEditForm({
-                asset_name: asset.asset_name || '',
-                asset_description: asset.asset_description || '',
-                asset_category: asset.asset_category || '',
-                asset_condition: asset.asset_condition || '',
-                asset_serial_number: asset.asset_serial_number || '',
-                asset_value: asset.asset_value ? String(asset.asset_value) : '',
-                project: asset.project || '',
-                asset_email: asset.asset_email || '',
-                asset_email_password: '',
-                asset_pin: '',
-            });
+            setEditBase(asset);
+            setEditForm(editFormFrom(asset));
         }
-    }, [asset]);
+        setEditDialogOpen(true);
+    };
 
     const handleEditSubmit = async () => {
         try {
@@ -417,7 +435,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 }
             }
 
-            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, updateData);
+            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, { ...updateData, ...stale.guard() });
 
             toast({
                 title: 'Asset Updated',
@@ -428,9 +446,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             setEditDialogOpen(false);
             mutate();
         } catch (err: any) {
+            // Someone else saved it first: stay open, refresh what the user did not touch.
+            if (editBase && await stale.handle(err, (latest) => setEditForm((f) => keepTyped(f, editFormFrom(editBase), editFormFrom(latest as AssetMaster))))) return;
             toast({
                 title: 'Error',
-                description: err?.message || 'Failed to update asset',
+                description: describeWriteError(err, 'Failed to update asset'),
                 variant: 'destructive',
             });
         }
@@ -617,7 +637,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setEditDialogOpen(true)}
+                            onClick={openEditDialog}
                             className="gap-2"
                         >
                             <Pencil className="h-4 w-4" />
@@ -956,6 +976,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             Update asset information.{showITCredentialsInEditDialog ? ' Leave password/PIN blank to keep unchanged.' : ''}
                         </DialogDescription>
                     </DialogHeader>
+                    <StaleConflictBanner conflict={stale.conflict} />
 
                     <div className="space-y-4 py-4">
                         {/* Asset Name */}
@@ -1161,7 +1182,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             onClick={handleEditSubmit}
                             disabled={isUpdating || !editForm.asset_name.trim() || !editForm.asset_category}
                         >
-                            {isUpdating ? 'Saving...' : 'Save Changes'}
+                            {isUpdating ? 'Saving...' : stale.conflict ? 'Save again' : 'Save Changes'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1173,6 +1194,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 onOpenChange={setAssignDialogOpen}
                 assetId={assetId}
                 assetName={asset?.asset_name || ''}
+                assetModified={asset?.modified}
                 onAssigned={handleAssignmentChange}
             />
 
@@ -1184,6 +1206,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 assetName={asset?.asset_name || ''}
                 assigneeName={assigneeUser?.full_name || asset?.current_assignee || ''}
                 assetManagementId={currentAssignment?.name}
+                assetModified={asset?.modified}
                 onUnassigned={handleAssignmentChange}
             />
 

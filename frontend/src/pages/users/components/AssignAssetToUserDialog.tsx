@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
+import { isStaleRecordError, staleGuard, writeErrorMessage } from "@/utils/frappeErrors";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Package, Calendar, FileText, Briefcase, Laptop } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ interface AssetMasterRecord {
   asset_serial_number: string;
   asset_value: number;
   current_assignee: string;
+  modified?: string;
 }
 
 interface AssetCategoryRecord {
@@ -175,17 +177,20 @@ export function AssignAssetToUserDialog({
         fileUrl = uploadedFile.file_url;
       }
 
+      // Update Asset Master with current assignee. Runs FIRST and carries the version
+      // the list showed: if someone else changed the asset meanwhile it is refused
+      // and no assignment record is left behind.
+      await updateDoc(ASSET_MASTER_DOCTYPE, selectedAsset, {
+        current_assignee: userId,
+        ...staleGuard(unassignedAssets.find((a) => a.name === selectedAsset)),
+      });
+
       // Create Asset Management entry
       await createDoc(ASSET_MANAGEMENT_DOCTYPE, {
         asset: selectedAsset,
         asset_assigned_to: userId,
         asset_assigned_on: assignedDate,
         asset_declaration_attachment: fileUrl || undefined,
-      });
-
-      // Update Asset Master with current assignee
-      await updateDoc(ASSET_MASTER_DOCTYPE, selectedAsset, {
-        current_assignee: userId,
       });
 
       const assetName = assetOptions.find((a) => a.value === selectedAsset)?.label || selectedAsset;
@@ -201,9 +206,14 @@ export function AssignAssetToUserDialog({
       console.error("Failed to assign asset:", error);
       toast({
         title: "Assignment Failed",
-        description: error?.message || "An error occurred while assigning the asset.",
+        description: await writeErrorMessage(error, "An error occurred while assigning the asset.", ASSET_MASTER_DOCTYPE, selectedAsset),
         variant: "destructive",
       });
+      if (isStaleRecordError(error)) {
+        // Show the latest state rather than retrying on top of it.
+        onOpenChange(false);
+        onAssigned?.();
+      }
     } finally {
       setIsSubmitting(false);
     }
