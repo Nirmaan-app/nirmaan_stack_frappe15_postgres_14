@@ -178,6 +178,14 @@ def _recompute_reconciled(challan: str) -> float:
 def _apply(names: list[str], challan: str) -> dict:
     """The shared write. Assumes access is checked; does NOT commit (the callers do, once)."""
     challan_row = _lock_challan(challan)
+    # Lock the DEDUCTIONS too, not just the challan. Two people paying the same deduction against
+    # two DIFFERENT challans take two different challan locks and would both see it Pending; with
+    # the rows locked the second waits, then `_load_payable` sees it Paid and refuses. Sorted, so
+    # two overlapping selections always lock in the same order and cannot deadlock.
+    frappe.db.sql(
+        f'SELECT name FROM "tab{DEDUCTION_DOCTYPE}" WHERE name IN %(names)s ORDER BY name FOR UPDATE',
+        {"names": tuple(sorted(set(names)))},
+    )
     rows = _load_payable(names)
 
     total = flt(sum(flt(row.get("tds_amount")) for row in rows), 2)
