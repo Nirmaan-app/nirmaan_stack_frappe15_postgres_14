@@ -4,6 +4,62 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-09-29: Concurrent edit — refuse a save made on an out-of-date copy
+
+**Summary:** Stops "last save wins" silent overwrites on small records without child tables. A screen
+sends the `modified` it loaded; Frappe's own `check_if_latest` (row lock) refuses the save with
+`TimestampMismatchError` if the record changed since. No schema change, no migration; sending no
+`modified` keeps the old behaviour. Branch `feature/concurrent-edit-overwrite`. Full reference:
+`.claude/context/domain/concurrent-edit.md` — **read its "Known gaps" section before testing.**
+
+### What was built
+
+- **Shared pieces (`d632131de`).** `utils/frappeErrors.ts` (`staleGuard`, `isStaleRecordError`,
+  `writeErrorMessage`), `hooks/useStaleConflict.tsx` (hook, `keepTyped`, `describeChanges`,
+  `StaleConflictBanner`), `api/last_change.py` (`get_stale_message` / `stale_message`: "<Name> changed
+  this record at <time>…", or "You already changed this record … in another tab or window").
+- **Approvals (`11fcb5b43`).** Bulk lead / CEO approve for payments and expenses take
+  `expected_modified` and refuse a changed row on its own under its row lock; the expense L1 tier is
+  read under the lock. `ceo_approve_payment` checks the version and now refuses a CEO Hold project on
+  the server. Single approve / reject and Mark as Paid send the row's version.
+- **TDS challan (`5e3b80a2f`).** `pay_tds._apply` locks the deduction rows (sorted, FOR UPDATE) after
+  the challan lock.
+- **Expenses (`3a383b07f`), inflows + invoices (`498d847d5`), assets (`26f33da70`), PR tags + Help
+  (`137a62f8a`), package settings tabs (`5781700f9`).** Edit dialogs show the banner and "Save again";
+  one-click actions toast and reload. Assign asset updates Asset Master before creating Asset
+  Management. Product category is saved before its makes. Saves that rename skip the check.
+- **Products.** The Edit Product dialog (product page, Products list, TDS Repository items tab) sends
+  the version; the Products list loads `modified` (3,537 rows before/after, DIFF 0).
+- **Table re-fetch after a refusal.** `useStaleConflict.handle` re-fetches the lists behind the
+  dialog: `useServerDataTable` lists via `RECORD_CHANGED_EVENT`, SWR entries whose key names the
+  doctype, and an `onRefresh` for the Commission tabs' custom keys. Dialogs that refill their form
+  from the record skip that while the banner shows, so the typing survives.
+
+### Known gaps (not failures of this branch — see the domain doc)
+
+- **Other viewers' tables do not update live.** The re-fetch reaches only the tab whose save was
+  refused; anyone else viewing the list stays stale until reload, because frappe-react-sdk's event
+  hooks drop other components' `list_update` handlers (`socket.off(event)` without the handler).
+  Pre-existing, app-wide, separate fix. Safe: their own save would be refused.
+- **A direct database update** (raw SQL, `set_value(..., update_modified=False)`) is invisible to
+  the check, the banner, the Version history and live page refresh. Test through the app or Desk.
+
+### Deliberately not covered
+
+- Reverted by the owner: User edit, Reminder Schedule, Expense Type, Work Milestones / Work Headers.
+- **Projects, Procurement Orders, Service Requests / Work Orders, Vendors**: the check watches only the
+  parent `modified`, so child-table records get false alarms and blind spots. They need a scoped check
+  (not built).
+
+### Testing
+
+4,539 frontend unit tests pass; rolled-back server test per covered doctype plus a mixed bulk batch and
+CEO approve; residence check adds 0 violations. Browser (two real sessions): money screens, Help, PR
+tags, Design task, Products, In-Flow table re-fetch; Commission, PMO, Critical PO, Assets, Invoices and
+Non Project Inflows are covered by the server tests only.
+
+---
+
 ## 2026-09-21: Payments queue — edit & revert, payment summary, raiser skip, in-place delete, expense approval details
 
 **Summary:** Seven owner-requested changes to the unified Payments queue and the dialogs around it, on

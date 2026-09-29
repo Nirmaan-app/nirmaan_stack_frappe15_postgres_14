@@ -168,6 +168,11 @@ computed before the lock existed. A selection exceeding the challan's remaining 
 naming the shortfall; there is **no partial payment and no splitting one deduction across two
 challans**.
 
+After the challan lock, `_apply` also locks the selected **deduction rows** (`SELECT ... FOR UPDATE`,
+sorted by name so two payers cannot deadlock). Without it, two people paying the same deduction against
+two different challans held two different challan locks and both saw it Pending. Part of the
+concurrent-edit branch — see `concurrent-edit.md`.
+
 ---
 
 ## Editing a payment that already carries a deduction

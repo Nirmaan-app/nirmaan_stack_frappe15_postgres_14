@@ -179,6 +179,13 @@ documented Payment By as Paid-only while the code had drifted.
 
 ## What was IMPROVED / CHANGED
 
+### Stale-save guard on expense dialogs and bulk approve (2026-09-29)
+The Project / Non Project expense edit, update-payment and update-invoice dialogs and the list status
+actions send the loaded `modified`; a save on an out-of-date copy is refused and the dialog shows who
+changed what ("Save again" keeps the user's typing). Bulk lead / CEO approve take `expected_modified`
+and refuse a changed row on its own; the L1 tier is read from the amount under the row lock. Four
+expense AlertDialogs now stay open on an error. Full rules: `concurrent-edit.md`.
+
 ### Payments queue: expense pencil, raiser skip, approve-dialog details (2026-09-21)
 
 Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms in `CONTEXT.md`
