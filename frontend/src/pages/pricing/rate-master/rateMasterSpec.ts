@@ -305,12 +305,17 @@ export const RATE_LABEL_INSTALL_SUFFIX = " (install)";
 export const RATE_LABEL_UNSETTLED_NOTE =
   "the pricing rules do not determine what kind of rate this is, so it carries no label.";
 
-/** ⚠️ OWNER-SET, NOT DERIVED (owner ruling 1, 2026-09-28). Mirrors `csv_exporter.RATE_LABEL_OWNER_SET`.
- * `cable_tray.with_cover_list` is read by no step, so nothing can derive it. Consulted ONLY where the
- * derivation is silent, so it can never shadow a derived label. Keyed `kind\u0000rate_key`. */
-export const RATE_LABEL_OWNER_SET: Record<string, string> = {
-  ["cable_tray\u0000with_cover_list"]: RATE_LABEL_LIST,
-};
+/**
+ * OWNER-SET LABELS -- THE MAP IS EMPTY, AND THE MECHANISM STAYS. Mirrors
+ * `csv_exporter.RATE_LABEL_OWNER_SET`. It held exactly one entry,
+ * `cable_tray.with_cover_list -> List price`, ruled on 2026-09-28 because no step read that column.
+ * **The column was REMOVED at Electrical v66** -- every one of its 450 rows derived exactly as
+ * `without_cover_list + cover_only_list`, the rule the supply formula already applies -- so the label
+ * went with it. An owner-set label for a column that does not exist is the staleness this system
+ * exists to avoid. The FACILITY is kept for the next column no rule reads; it is consulted ONLY where
+ * the derivation is silent, so it can never shadow a derived label.
+ */
+export const RATE_LABEL_OWNER_SET: Record<string, string> = {};
 
 /** ⚠️ THE DISCIPLINE OPT-IN (owner ruling 2026-09-28). Mirrors `csv_exporter.RATE_LABEL_DISCIPLINES`.
  * The label is ELECTRICAL BY RULE, not because HVAC's columns happen to be read a certain way today:

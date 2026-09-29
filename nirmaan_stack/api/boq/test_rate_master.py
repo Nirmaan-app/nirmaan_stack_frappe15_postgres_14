@@ -73,6 +73,7 @@ import collections
 import io
 import copy
 import json
+import re
 import os
 from unittest import mock
 
@@ -328,7 +329,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # Price-neutral by construction (`1 - 0` is a no-op) and PROVEN: 2,434 records / 7,612 figures, 0 moved
 # figures, 0 moved statuses; the only field that moved anywhere was `step_count`, +1 on exactly the
 # three wired pipelines.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v65.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v66.json"
 
 # SLICE 12b(A): the two counts the slice MOVED, named so every assertion says WHY it is what it is.
 #
@@ -576,6 +577,44 @@ def _pricing_input(item, rate_key="rate"):
     if rate_key not in rates:
         raise AssertionError("Pricing Input %r carries no %r rate (has %s)" % (item, rate_key, sorted(rates)))
     return rates[rate_key]
+
+
+_WCL_KIND = "cable_tray"
+_WCL_KEY = "with_cover_list"
+_WCL_STALE_NOTE = " The with_cover_list column remains on items as reference data only."
+
+
+def _without_with_cover_list(items):
+    """A historical catalogue with the v66 removal normalised away.
+
+    ⚠️ APPLIED TO THE **OLD** SIDE OF A CROSS-VERSION COMPARISON. A pin written about an EARLIER mint
+    ("every other item is byte-equal to v59") is making a claim about THAT mint, and it must not start
+    failing for a removal made three mints later that it never said anything about. Stripping the
+    column from the old side leaves every other byte of those pins under full force -- the same
+    treatment `_without_pricing_input_items` gives 12b(A)'s new items.
+    """
+    out = []
+    for it in items:
+        if it.get("kind") == _WCL_KIND and _WCL_KEY in (it.get("rates") or {}):
+            it = json.loads(json.dumps(it))
+            it["rates"].pop(_WCL_KEY)
+        out.append(it)
+    return out
+
+
+def _without_wcl_note(cfg):
+    """A config with the sentence that described the removed column normalised away, on either side."""
+    c = json.loads(json.dumps(cfg))
+    n = c.get("notes")
+    if isinstance(n, str):
+        if _WCL_STALE_NOTE in n:
+            c["notes"] = n.replace(_WCL_STALE_NOTE, "")
+        else:
+            i = n.find(" The with_cover_list column was REMOVED at v66")
+            if i >= 0:
+                j = n.find(" | ", i)
+                c["notes"] = n[:i] + (n[j:] if j >= 0 else "")
+    return c
 
 
 def _without_pricing_input_items(items):
@@ -2333,7 +2372,7 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(headers,
                          ["item_uid", "discipline", "category", "brand", "unit",
                           "material", "thickness_mm", "tray_type", "width_mm",
-                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
+                          "cover_only_list", "install_rate", "without_cover_list",
                           "supply_formula", "install_formula"])
         self.assertNotIn("source_sheet", headers)  # NEGATIVE (1e): a system column is never in the file
         self.assertNotIn("source_row", headers)
@@ -2385,7 +2424,9 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 1e: 49 -> 47, the two system columns (source_sheet, source_row) removed (owner X-b).
         # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c).
         # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
-        self.assertEqual(len(headers), 50)
+        # WITH_COVER_LIST SLICE: 50 -> 49. `cable_tray.with_cover_list` was removed at v66 -- reference
+        # data no rule read, every row deriving exactly as without_cover_list + cover_only_list.
+        self.assertEqual(len(headers), 49)
         self.assertEqual(headers[-2:], ["supply_formula", "install_formula"])
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
@@ -2466,7 +2507,8 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 1e: 49 -> 47, the two system columns removed (owner X-b) -- the same -2 as test_24n.
         # SLICE 1g: 47 -> 48, `discipline` added (owner Z-c) -- the same +1 as test_24n.
         # SLICE 12a: +2, the two read-only formula columns (owner I-6) -- the same +2 as test_24n.
-        self.assertEqual(res_all["column_count"], 50)
+        # WITH_COVER_LIST SLICE: 50 -> 49, the removed cable_tray column (v66) -- same -1 as test_24n.
+        self.assertEqual(res_all["column_count"], 49)
         self.assertEqual(res_all["row_count"], EALL_ITEMS_IN_ALL_FILE)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede); SLICE 12b(A): 1367 -> EALL_ITEMS (the 33 Pricing Inputs)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
@@ -6120,7 +6162,7 @@ class TestRateMaster(FrappeTestCase):
         _t, h_tray, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
         self.assertEqual(h_tray, ["item_uid", "discipline", "category", "brand", "unit",
                                   "material", "thickness_mm", "tray_type", "width_mm",
-                                  "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
+                                  "cover_only_list", "install_rate", "without_cover_list",
                                   "supply_formula", "install_formula"])
         # MODE B: category + kind (the file holds multi-kind categories), no system columns
         for build in (csv_exporter.build_all_categories_csv, csv_exporter.build_all_categories_xlsx):
@@ -6129,7 +6171,8 @@ class TestRateMaster(FrappeTestCase):
             self.assertNotIn("source_sheet", hb); self.assertNotIn("source_row", hb)
             self.assertNotIn("import_batch", hb)   # NEGATIVE (1g): no other system column returns
             # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
-            self.assertEqual(len(hb), 50)          # 49 before 1e, minus the two system columns, plus discipline (1g), plus the formula pair (12a)
+            # WITH_COVER_LIST SLICE: 50 -> 49, the removed cable_tray column (v66).
+            self.assertEqual(len(hb), 49)
             self.assertEqual(hb[-2:], ["supply_formula", "install_formula"])
             self.assertEqual(nb, EALL_ITEMS_IN_ALL_FILE)
 
@@ -6292,7 +6335,8 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(res_c["columns"], res["columns"])
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         # SLICE 12a: 48 -> 50, the two read-only formula columns (owner I-6).
-        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 50, EALL_ITEMS_IN_ALL_FILE))   # 1g: +discipline; 12a: +the formula pair
+        # WITH_COVER_LIST SLICE: 50 -> 49, the removed cable_tray column (v66).
+        self.assertEqual((res_all["mode"], res_all["column_count"], res_all["row_count"]), ("all", 49, EALL_ITEMS_IN_ALL_FILE))
         with self.assertRaises(frappe.ValidationError):
             rate_master.export_rate_master_csv(discipline=disc, category_id="earthing", fmt="pdf")
         # preview / apply take the category hint and report the format
@@ -8794,7 +8838,8 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # ALL TWELVE pricing configs, so every one of them appears here now. That is this cumulative pin
         # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
         self.assertEqual(changed, EALL_PRICING_CATEGORIES)
-        self.assertEqual(_without_pricing_input_items(payload["items"]), prev["items"], "no rate and no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(payload["items"]),
+                         _without_with_cover_list(prev["items"]), "no rate and no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; SLICE v66: minus the removed cable_tray.with_cover_list on the OLD side; every OTHER item must still be byte-equal
         for cid, c in now.items():
             if cid == "point_wiring":
                 continue
@@ -9047,7 +9092,8 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
         self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
         self.assertEqual(sorted(k for k in now if k in was and now[k] != was[k]), EALL_PRICING_CATEGORIES)
-        self.assertEqual(_without_pricing_input_items(payload["items"]), prev["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(payload["items"]),
+                         _without_with_cover_list(prev["items"]))  # SLICE 12b(A): minus the 33 new Pricing Input items; SLICE v66: minus the removed cable_tray.with_cover_list on the OLD side; every OTHER item must still be byte-equal
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
         # were FORCED out. The precise claim (deletion only, every surviving value identical)
@@ -9245,7 +9291,8 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
         self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
         self.assertEqual(sorted(k for k in now if k in was and now[k] != was[k]), EALL_PRICING_CATEGORIES)
-        self.assertEqual(_without_pricing_input_items(payload["items"]), prev["items"], "no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(payload["items"]),
+                         _without_with_cover_list(prev["items"]), "no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; SLICE v66: minus the removed cable_tray.with_cover_list on the OLD side; every OTHER item must still be byte-equal
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
         self.assertEqual(sorted(payload["goldens"]),
@@ -9801,7 +9848,8 @@ class TestLmsPricingHelper(FrappeTestCase):
         # DOING ITS JOB -- a THIRTEENTH moving category, or any item moving, still fails.
         self.assertEqual(sorted(set(now) - set(was)), [PRICING_INPUTS_CATEGORY])
         self.assertEqual(sorted(k for k in now if k in was and now[k] != was[k]), EALL_PRICING_CATEGORIES)
-        self.assertEqual(_without_pricing_input_items(self.payload["items"]), prev["items"], "no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(self.payload["items"]),
+                         _without_with_cover_list(prev["items"]), "no item may move")  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         for cat in was:
             if cat == "lighting_mgmt_system":
                 continue
@@ -9932,7 +9980,7 @@ class TestF25Slice1BackBoxField(FrappeTestCase):
         self.assertEqual(set(now), set(was))
         for cid in was:
             if cid != "switches_sockets":
-                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                n2, w2 = _strip_12b_migration(_without_wcl_note(now[cid]), _without_wcl_note(was[cid]))   # SLICE 12b(A), see above
                 self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
         self.assertEqual(self.now["items"], self.was["items"], "no item may move")
         self.assertEqual(self.now["goldens"], self.was["goldens"], "no golden may move")
@@ -10099,7 +10147,7 @@ class TestF25Slice2BareBox(FrappeTestCase):
         self.assertEqual(set(now), set(was))
         for cid in was:
             if cid != "switches_sockets":
-                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                n2, w2 = _strip_12b_migration(_without_wcl_note(now[cid]), _without_wcl_note(was[cid]))   # SLICE 12b(A), see above
                 self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
         for pid, pl in now["point_wiring"]["pipelines"].items():
             mf = [s for s in pl["steps"] if s["step"] == "module_fit"][0]
@@ -10288,9 +10336,10 @@ class TestF25Slice3PickFrom(FrappeTestCase):
         # rode along on this slice still fails here.
         for cid in was:
             if cid not in ("switches_sockets", "cabletray_raceway", "popup_boxes", "conduit_piping"):  # + conduit_piping at v63
-                n2, w2 = _strip_12b_migration(now[cid], was[cid])
+                n2, w2 = _strip_12b_migration(_without_wcl_note(now[cid]), _without_wcl_note(was[cid]))
                 self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
-        self.assertEqual(_without_pricing_input_items(self.now["items"]), self.was["items"])
+        self.assertEqual(_without_pricing_input_items(self.now["items"]),
+                         _without_with_cover_list(self.was["items"]))
         self.assertEqual(self.now["goldens"], self.was["goldens"])
         for key in self.was:
             if key not in ("category_configs", "items"):  # SLICE 12b(A): `items` is compared ABOVE with the 33 Pricing Inputs filtered out; comparing it again here, unfiltered, would undo that
@@ -10476,7 +10525,11 @@ class TestV61TwoWays(FrappeTestCase):
         # everything else is still compared byte for byte, so a change that rode along still fails.
         n2, w2 = _strip_12b_migration(now, self.ct_was)
         self.assertEqual(n2, w2)
-        self.assertTrue(self.ct_now["notes"].startswith(self.ct_was["notes"]))
+        # WITH_COVER_LIST SLICE: v66 REPLACED one sentence inside these notes (the column it described
+        # no longer exists), so the raw `startswith` no longer holds. Normalised off BOTH sides, the
+        # claim this line makes -- v61 only APPENDED to v59's notes -- is unchanged and still checked.
+        self.assertTrue(_without_wcl_note(self.ct_now)["notes"]
+                        .startswith(_without_wcl_note(self.ct_was)["notes"]))
         self.assertIn("v61 (owner 2026-09-10, TWO WAYS)", self.ct_now["notes"])
 
     def test_v61_04_every_other_config_item_and_golden_is_byte_equal_to_v59(self):
@@ -10494,9 +10547,10 @@ class TestV61TwoWays(FrappeTestCase):
         # TestV63ConduitTradeSizeLadder. A further category still fails.
         for cid in was:  # SLICE 12b(A): iterate the PRIOR asset -- the new category has no counterpart to compare against, and it is named above
             if cid not in ("cabletray_raceway", "popup_boxes", "conduit_piping"):
-                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                n2, w2 = _strip_12b_migration(_without_wcl_note(now[cid]), _without_wcl_note(was[cid]))   # SLICE 12b(A), see above
                 self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
-        self.assertEqual(_without_pricing_input_items(self.now["items"]), self.was["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(self.now["items"]),
+                         _without_with_cover_list(self.was["items"]))  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         self.assertEqual(len(self.now["items"]), EALL_ITEMS)
         self.assertEqual(self.now["goldens"], self.was["goldens"])
         for key in self.was:
@@ -10722,7 +10776,9 @@ class TestIncludesModulesGate(FrappeTestCase):
             asset = json.load(fh)
         # SLICE 12b(A): v64 (PRICING INPUTS) superseded v63; SLICE 12b(B): v65 (the two 0% discounts)
         # supersedes v64. The include_when gate is unchanged by both -- which is what this pin says.
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v65.json")
+        # WITH_COVER_LIST SLICE: v66 removes `cable_tray.with_cover_list`. The include_when gate is
+        # unchanged by that too -- which is what this pin says.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v66.json")
         fits = {}
         goldens = asset.get("goldens") or {}
         for c in asset["category_configs"]:
@@ -10747,7 +10803,8 @@ class TestIncludesModulesGate(FrappeTestCase):
             was = json.load(fh)
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             now = json.load(fh)
-        self.assertEqual(_without_pricing_input_items(now["items"]), was["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(now["items"]),
+                         _without_with_cover_list(was["items"]))  # SLICE 12b(A): minus the 33 new Pricing Input items; SLICE v66: minus the removed cable_tray.with_cover_list on the OLD side; every OTHER item must still be byte-equal
         self.assertEqual(now["goldens"], was["goldens"])
         for k in was:
             if k not in ("category_configs", "items"):  # SLICE 12b(A): `items` is compared ABOVE with the 33 Pricing Inputs filtered out; comparing it again here, unfiltered, would undo that
@@ -10760,6 +10817,10 @@ class TestIncludesModulesGate(FrappeTestCase):
                 # SLICE 12b(A): normalise the pricing-input migration off both sides; everything else
                 # is still compared verbatim, so a change that rode along still fails.
                 n2, c2 = _strip_12b_migration(n, c)
+                # SLICE v66: the one sentence that described the removed with_cover_list column is
+                # normalised off BOTH sides. This pin is a claim about the v61->v62 mint and must not
+                # start failing for a note corrected four mints later that it never spoke to.
+                n2, c2 = _without_wcl_note(n2), _without_wcl_note(c2)
                 self.assertEqual(n2, c2, c["category_id"])
                 continue
             n, c = _strip_12b_migration(n, c)   # SLICE 12b(A), as above
@@ -10868,13 +10929,14 @@ class TestV63ConduitTradeSizeLadder(FrappeTestCase):
             # SLICE 12b(A): both carry the migration now, so compare with it normalised off -- the claim
             # this test is NAMED for (they reach the conduit catalogue through their own component_ref,
             # not these pipelines) is untouched and still key by key.
-            n2, w2 = _strip_12b_migration(now[cid], was[cid])
+            n2, w2 = _strip_12b_migration(_without_wcl_note(now[cid]), _without_wcl_note(was[cid]))
             self.assertEqual(n2, w2, "%s moved" % cid)
         for cid in was:  # SLICE 12b(A): iterate the PRIOR asset -- the new category has no counterpart to compare against, and it is named above
             if cid != "conduit_piping":
-                n2, w2 = _strip_12b_migration(now[cid], was[cid])   # SLICE 12b(A), see above
+                n2, w2 = _strip_12b_migration(_without_wcl_note(now[cid]), _without_wcl_note(was[cid]))   # SLICE 12b(A), see above
                 self.assertEqual(n2, w2, "%s moved for something other than the pricing-input migration" % cid)
-        self.assertEqual(_without_pricing_input_items(self.now["items"]), self.was["items"])  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
+        self.assertEqual(_without_pricing_input_items(self.now["items"]),
+                         _without_with_cover_list(self.was["items"]))  # SLICE 12b(A): minus the 33 new Pricing Input items; every OTHER item must still be byte-equal
         self.assertEqual(len(self.now["items"]), EALL_ITEMS)
         self.assertEqual(self.now["goldens"], self.was["goldens"])
         for key in self.was:
@@ -11744,7 +11806,13 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # asserts its own series independently -- which is the rule the pin exists for: each discipline
         # is versioned, minted and loaded on its own, and one moving never moves the other. That HVAC
         # stayed at v14 through an Electrical mint IS this line doing its job.
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v65.json")
+        # WITH_COVER_LIST SLICE: v65 -> v66.
+        # ⚠️ AND THIS TEST IS THE STALENESS IT WARNS ABOUT. 12b(B) pointed its "no newer Electrical
+        # file exists" negative probe at v66 SPECIFICALLY because v66 could not exist -- and one slice
+        # later it does, so that probe failed. The DERIVED claims below
+        # (`gate.latest_in("Electrical", names) == CURRENT_EALL_ASSET`) cannot go stale that way and
+        # are the ones carrying the real weight; this line is a deliberate per-mint bump.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v66.json")
         data_dir = os.path.dirname(_asset_path(CURRENT_EALL_ASSET))
         names = sorted(os.listdir(data_dir))
         # each series resolved on its own (owner ruling, slice 1c, INVERTING the 1b first-version pin): the HVAC
@@ -11820,8 +11888,14 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # OLDER than what is on disk, so the resolver would correctly return v65 and this NEGATIVE would
         # fail while asserting nothing about the resolver. A probe that has to stay ahead of the series is
         # the one kind of literal that cannot be replaced by CURRENT_EALL_ASSET.
-        _newer = "rate_master_electrical_all_v66.json"
-        self.assertNotIn(_newer, names, "v66 exists on disk -- move this probe ahead of the series")
+        # WITH_COVER_LIST SLICE: ⚠️ THIS PROBE IS NOW DERIVED, because the hardcoded form has gone
+        # stale TWICE -- v64 when the series reached v65, and v66 one slice after 12b(B) pointed it
+        # there "precisely because v66 could not exist". A literal aimed at a future name has a shelf
+        # life of one mint. Taking one past the highest N on disk is correct forever.
+        _hi = max(int(m.group(1)) for m in
+                  (re.match(r"rate_master_electrical_all_v(\d+)\.json$", n) for n in names) if m)
+        _newer = "rate_master_electrical_all_v%d.json" % (_hi + 1)
+        self.assertNotIn(_newer, names)
         self.assertEqual(gate.latest_in("Electrical", names + [_newer]), _newer)
         self.assertEqual(gate.latest_in("HVAC", names + [_newer]), CURRENT_HVAC_ASSET)
         self.assertIsNone(gate.latest_in("HVAC", [n for n in names if not gate.HVAC_RE.match(n)]))
@@ -15193,10 +15267,20 @@ class TestRateColumnLabels12bB(FrappeTestCase):
             "List price")
 
     def test_rl_09_owner_set_is_consulted_ONLY_where_the_derivation_is_silent(self):
-        """Ruling 1: `cable_tray.with_cover_list` is read by NO step, so nothing can derive it and the
-        owner set it. It must never SHADOW a derived label -- acceptance item 3 depends on that order."""
-        self.assertEqual(csv_exporter.RATE_LABEL_OWNER_SET[("cable_tray", "with_cover_list")],
-                         "List price")
+        """The ORDER rule, kept; the ENTRY, inverted.
+
+        INVERTED, NOT DELETED (owner ruling, 2026-09-29). This asserted that
+        `cable_tray.with_cover_list` carried an owner-set "List price". **The COLUMN was removed at
+        v66** -- every one of its 450 rows derived exactly as `without_cover_list + cover_only_list`,
+        the rule the supply formula already applies -- so the label went with it and the map is now
+        EMPTY. A label for a column that does not exist is the staleness the whole system avoids.
+
+        What the test still proves is the thing that matters and did not change: an owner-set entry is
+        consulted ONLY where the derivation is silent, so it can never SHADOW a derived label --
+        acceptance item 3 depends on that order. The shadow case below is run against a synthetic
+        config, so it survives the column's removal."""
+        self.assertNotIn(("cable_tray", "with_cover_list"), csv_exporter.RATE_LABEL_OWNER_SET)
+        self.assertEqual(csv_exporter.RATE_LABEL_OWNER_SET, {})
         shadow = {"t": {"category_id": "t", "item_kinds": ["cable_tray"], "attribute_definitions": [],
                         "pipelines": {"p": {"output": ["supply"], "steps": [
                             {"step": "match_master_row", "params": {"kind": "cable_tray"}},
@@ -15246,6 +15330,90 @@ class TestRateColumnLabels12bB(FrappeTestCase):
             stored.setdefault(it["kind"], set()).update((it.get("rates") or {}).keys())
         unread = {(k, r) for k in stored for r in stored[k] if (k, r) not in labels}
         self.assertEqual(unread, set(csv_exporter.RATE_LABEL_OWNER_SET))
+
+    # ── the with_cover_list removal (owner slice, 2026-09-29) ───────────────────────────────────────
+
+    def test_wcl_01_the_column_is_ABSENT_from_the_asset(self):
+        """ACCEPTANCE: one fewer column. Not one of the 450 tray rows carries it, and no other kind
+        gained or lost a rate key."""
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
+            asset = json.load(fh)
+        trays = [i for i in asset["items"] if i["kind"] == "cable_tray"]
+        self.assertEqual(len(trays), 450)
+        for it in trays:
+            self.assertNotIn("with_cover_list", it.get("rates") or {})
+        self.assertEqual(
+            sorted({k for i in trays for k in (i.get("rates") or {})}),
+            ["cover_only_list", "install_rate", "without_cover_list"])
+
+    def test_wcl_02_the_removal_is_DECLARED_so_the_mint_gate_reads_it_as_deliberate(self):
+        """The gate was structurally blind to item rate keys until this slice -- it read only an item's
+        `kind`, so a column could vanish from all 450 rows and it still said "No atoms disappeared".
+        It now has a `rate:<kind>:<key>` atom AND a `retired_rate_keys` declaration; this asserts the
+        declaration is actually in the asset, because without it the gate refuses (proved both ways)."""
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
+            asset = json.load(fh)
+        self.assertIn("cable_tray:with_cover_list", asset.get("retired_rate_keys") or [])
+
+    def test_wcl_03_NEGATIVE_the_two_surviving_tray_columns_are_unchanged_and_still_labelled(self):
+        """The removal must take ONE column and nothing else. Both survivors keep their values row for
+        row against v65, and both still read `List price`."""
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
+            new = json.load(fh)
+        with open(_asset_path("rate_master_electrical_all_v65.json"), encoding="utf-8") as fh:
+            old = json.load(fh)
+        o = {i["item_uid"]: (i.get("rates") or {}) for i in old["items"] if i["kind"] == "cable_tray"}
+        n = {i["item_uid"]: (i.get("rates") or {}) for i in new["items"] if i["kind"] == "cable_tray"}
+        self.assertEqual(set(o), set(n))
+        for uid in o:
+            for key in ("without_cover_list", "cover_only_list", "install_rate"):
+                self.assertEqual(n[uid][key], o[uid][key], "%s.%s moved" % (uid, key))
+        cfgs = {c["category_id"]: c for c in new["category_configs"]}
+        labels = csv_exporter.derive_rate_column_labels(cfgs, "Electrical")
+        self.assertEqual(csv_exporter.rate_column_label(labels, "cable_tray", "without_cover_list"),
+                         "List price")
+        self.assertEqual(csv_exporter.rate_column_label(labels, "cable_tray", "cover_only_list"),
+                         "List price")
+
+    def test_wcl_04_NEGATIVE_no_other_category_moved(self):
+        """Every item that is not a cable tray is byte-identical to v65, and every OTHER kind keeps
+        exactly the rate keys it had. A removal that quietly touched a second category would pass every
+        tray-shaped assertion above."""
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
+            new = json.load(fh)
+        with open(_asset_path("rate_master_electrical_all_v65.json"), encoding="utf-8") as fh:
+            old = json.load(fh)
+        o = {i["item_uid"]: i for i in old["items"] if i["kind"] != "cable_tray"}
+        n = {i["item_uid"]: i for i in new["items"] if i["kind"] != "cable_tray"}
+        self.assertEqual(set(o), set(n))
+        for uid in o:
+            self.assertEqual(json.dumps(n[uid], sort_keys=True), json.dumps(o[uid], sort_keys=True),
+                             "%s changed" % uid)
+        keys_old = {}
+        keys_new = {}
+        for src, dst in ((old, keys_old), (new, keys_new)):
+            for i in src["items"]:
+                if i["kind"] == "cable_tray":
+                    continue
+                dst.setdefault(i["kind"], set()).update((i.get("rates") or {}).keys())
+        self.assertEqual(keys_new, keys_old)
+
+    def test_wcl_05_the_pipelines_are_untouched_apart_from_one_note_sentence(self):
+        """Nothing READ the column, so no rule may have changed. The only permitted config difference
+        is the prose that described it -- put that sentence back and the configs are byte-identical."""
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
+            new = json.load(fh)
+        with open(_asset_path("rate_master_electrical_all_v65.json"), encoding="utf-8") as fh:
+            old = json.load(fh)
+        for c in new["category_configs"]:
+            self.assertNotIn("with_cover_list", json.dumps(c.get("pipelines") or {}))
+        probe = json.loads(json.dumps(new["category_configs"]))
+        STALE = " The with_cover_list column remains on items as reference data only."
+        for c in probe:
+            if c["category_id"] == "cabletray_raceway":
+                c["notes"] = c["notes"][:c["notes"].index(" The with_cover_list column was REMOVED")]                     + STALE + c["notes"][c["notes"].index(" | 2026-07-30 owner defaults"):]
+        self.assertEqual(json.dumps(probe, sort_keys=True),
+                         json.dumps(old["category_configs"], sort_keys=True))
 
     def test_rl_13_every_electrical_rate_column_is_labelled_on_the_current_asset(self):
         """ACCEPTANCE 1, on the real data: not one column reads as a bare key."""

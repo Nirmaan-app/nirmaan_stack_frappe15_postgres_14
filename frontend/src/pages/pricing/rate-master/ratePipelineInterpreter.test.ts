@@ -381,7 +381,7 @@ describe("EA-2b corrected cable-tray config (4 pipelines, oracle goldens t1/t2/t
       ],
     },
   };
-  const TRAY_ROW: RateMasterItem = { discipline: "Electrical", kind: "cable_tray", attributes: { tray_type: "Perforated", material: "GI", thickness_mm: 1.6, width_mm: 100 }, rates: { without_cover_list: 180, cover_only_list: 117, with_cover_list: 297 } };
+  const TRAY_ROW: RateMasterItem = { discipline: "Electrical", kind: "cable_tray", attributes: { tray_type: "Perforated", material: "GI", thickness_mm: 1.6, width_mm: 100 }, rates: { without_cover_list: 180, cover_only_list: 117 } };   // with_cover_list REMOVED at v66: no step reads it, so its absence must change nothing here
   const INSTALL_ROW: RateMasterItem = { discipline: "Electrical", kind: "tray_install_rate", attributes: { width_mm: 100 }, rates: { install_rate: 30 } };
   const ITEMS = [TRAY_ROW, INSTALL_ROW];
   const sel = (o: Record<string, string | number> = {}) => ({

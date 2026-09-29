@@ -705,22 +705,26 @@ RATE_LABEL_INSTALL_SUFFIX = " (install)"
 RATE_LABEL_UNSETTLED_NOTE = ("the pricing rules do not determine what kind of rate this is, so it "
                              "carries no label.")
 
-# ⚠️ OWNER-SET, NOT DERIVED (owner ruling 1, 2026-09-28). `cable_tray.with_cover_list` is read by NO
-# step in any pipeline, so nothing can derive it -- and the owner ruled it "List price", the same as
-# its two siblings, because it is the same kind of number: what we pay for a covered tray.
+# ⚠️ OWNER-SET LABELS -- THE MAP IS EMPTY, AND THE MECHANISM STAYS. It held exactly one entry,
+# `("cable_tray", "with_cover_list") -> List price`, ruled by the owner on 2026-09-28 because no step
+# read that column and nothing could derive it. **The column itself was REMOVED at Electrical v66**
+# (it was reference data that every one of the 450 rows derived exactly as
+# `without_cover_list + cover_only_list`, the rule the supply formula already applies), so the label
+# went with it -- an owner-set label for a column that does not exist would be the staleness this
+# whole labelling system exists to avoid.
 #
-# ⚠️ DO NOT INVENT A "SAME-KIND SIBLINGS" RULE TO DERIVE IT (owner, same ruling). That would guess
-# wrong the first time a category has two unrelated unread columns. An owner-set entry is a recorded
-# decision, and `test_rate_master`'s pin asserts this map holds EXACTLY the columns no rule reads --
-# so if a future rule ever does read one, the suite goes RED and the disagreement reads as a QUESTION
-# rather than silently overriding a derived label.
+# The FACILITY is deliberately kept for the next column no rule reads:
+#
+# ⚠️ DO NOT INVENT A "SAME-KIND SIBLINGS" RULE TO DERIVE SUCH A COLUMN (owner, 2026-09-28). That would
+# guess wrong the first time a category has two unrelated unread columns. An owner-set entry is a
+# RECORDED DECISION, and `test_rate_master`'s pin asserts this map holds EXACTLY the columns no rule
+# reads -- so if a future rule ever does read one, the suite goes RED and the disagreement reads as a
+# QUESTION rather than silently overriding a derived label.
 #
 # ⚠️ AN OWNER-SET ENTRY NEVER SHADOWS A DERIVED LABEL: `rate_column_label` consults it only where the
 # derivation yields None. That is what keeps acceptance item 3 true -- change a rule and the label
 # follows.
-RATE_LABEL_OWNER_SET = {
-    ("cable_tray", "with_cover_list"): RATE_LABEL_LIST,
-}
+RATE_LABEL_OWNER_SET: dict[tuple[str, str], str] = {}
 
 _BCS_KEY_PREFIX = "bcs_"
 _LABEL_DISCOUNT = "discount"

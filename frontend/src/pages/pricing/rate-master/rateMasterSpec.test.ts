@@ -455,8 +455,15 @@ describe("SLICE 12b(B) -- the derived rate-column label", () => {
       .toBe("List price");
   });
 
+  /**
+   * INVERTED, NOT DELETED (owner ruling, 2026-09-29). This asserted the owner-set entry for
+   * `cable_tray.with_cover_list`. **That COLUMN was removed at v66** -- all 450 rows derived exactly
+   * as `without_cover_list + cover_only_list`, the rule the supply formula already applies -- so the
+   * label went with it and the map is EMPTY. The ORDER rule it also proves is unchanged and still
+   * matters, and its shadow case is synthetic, so it survives the removal.
+   */
   it("OWNER-SET entries are consulted ONLY where the derivation is silent", () => {
-    expect(RATE_LABEL_OWNER_SET["cable_tray\u0000with_cover_list"]).toBe("List price");
+    expect(Object.keys(RATE_LABEL_OWNER_SET)).toEqual([]);
     const shadowed = deriveRateColumnLabels({
       t: {
         category_id: "t", item_kinds: ["cable_tray"], attribute_definitions: [], pipelines: {
