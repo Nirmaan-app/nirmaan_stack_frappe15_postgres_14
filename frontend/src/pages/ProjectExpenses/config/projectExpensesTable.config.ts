@@ -13,6 +13,8 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "owner",
     // Drives the "Last Modified By" column on the Paid tab (who last touched the row).
     "modified_by",
+    // Sent back on every save from this list so a stale save is refused (see `staleGuard`).
+    "modified",
     "status",
     "projects",
     "type",

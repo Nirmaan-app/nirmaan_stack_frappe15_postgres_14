@@ -21,6 +21,8 @@ import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { cn } from "@/lib/utils";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 interface UpdatePaymentDetailsDialogProps {
     isOpen: boolean;
@@ -42,12 +44,23 @@ type AttachmentUpdateAction = "keep" | "replace" | "remove";
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 
 
+/** The form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const formFrom = (expense: NonProjectExpenses): PaymentFormState => ({
+    payment_date: expense.payment_date ? formatDateFns(new Date(expense.payment_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
+    payment_ref: expense.payment_ref || "",
+    invoice_date: expense.invoice_date ? formatDateFns(new Date(expense.invoice_date), "yyyy-MM-dd") : "",
+    invoice_ref: expense.invoice_ref || "",
+});
+
 export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProps> = ({
     isOpen, setIsOpen, expense, onSuccess, markAsPaid = false
 }) => {
     const { toast } = useToast();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
+
+    // A save refused because someone else saved first keeps this dialog open with what was typed.
+    const stale = useStaleConflict({ doctype: "Non Project Expenses", record: expense, open: isOpen });
 
     const [formState, setFormState] = useState<PaymentFormState>({ payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
     const [newAttachmentFile, setNewAttachmentFile] = useState<File | null>(null);
@@ -126,13 +139,10 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
     }, [upload, extractPaymentFields, toast, expense.name, expense.amount]);
 
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- a background refetch must not reset it.
+        if (stale.conflict) return;
         if (isOpen && expense) {
-            setFormState({
-                payment_date: expense.payment_date ? formatDateFns(new Date(expense.payment_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
-                payment_ref: expense.payment_ref || "",
-                invoice_date: expense.invoice_date ? formatDateFns(new Date(expense.invoice_date), "yyyy-MM-dd") : "",
-                invoice_ref: expense.invoice_ref || "",
-            });
+            setFormState(formFrom(expense));
             setExistingAttachmentUrl(expense.payment_attachment);
             setNewAttachmentFile(null);
             setNewInvoiceFile(null);
@@ -145,7 +155,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             // Start on the upload step unless the expense already has a payment receipt.
             setPaymentStage(expense.payment_attachment ? "form" : "upload");
         }
-    }, [isOpen, expense]);
+    }, [isOpen, expense, stale.conflict]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -248,12 +258,14 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                 dataToUpdate.invoice_attachment = uploadedInvoice.file_url;
             }
 
-            await updateDoc("Non Project Expenses", expense.name, dataToUpdate);
+            await updateDoc("Non Project Expenses", expense.name, { ...dataToUpdate, ...stale.guard() });
             toast({ title: "Success", description: markAsPaid ? "Expense marked Paid." : "Payment details updated.", variant: "success" });
             onSuccess?.();
             setIsOpen(false);
         } catch (error: any) {
-            toast({ title: "Error", description: error.message || "Failed to update payment details.", variant: "destructive" });
+            // Someone else saved it first: stay open with what was typed; the banner names who and what changed.
+            if (await stale.handle(error, (latest) => setFormState((f) => keepTyped(f, formFrom(expense), formFrom(latest as NonProjectExpenses))))) return;
+            toast({ title: "Error", description: describeWriteError(error, "Failed to update payment details."), variant: "destructive" });
         }
     };
 
@@ -280,6 +292,8 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                     <AlertDialogDescription>Expense ID: {expense.name}</AlertDialogDescription>
                     <Separator className="my-2" />
                 </AlertDialogHeader>
+
+                <StaleConflictBanner conflict={stale.conflict} />
 
                 {/* Expense details, so the accountant has full context before paying */}
                 <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1.5">
@@ -443,7 +457,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                     {isLoadingOverall ? <div className="flex justify-center w-full"><TailSpin color="#4f46e5" height={24} width={24} /></div> : (
                         <>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleSubmit} disabled={isSubmitDisabled}>{markAsPaid ? "Mark as Paid" : "Save Changes"}</AlertDialogAction>
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>{stale.conflict ? "Save again" : markAsPaid ? "Mark as Paid" : "Save Changes"}</AlertDialogAction>
                         </>
                     )}
                 </AlertDialogFooter>

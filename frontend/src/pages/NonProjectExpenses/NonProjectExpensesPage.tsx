@@ -63,6 +63,7 @@ import { EditNonProjectExpense } from "./components/EditNonProjectExpense";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
 import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
+import { writeErrorMessage, isStaleRecordError, staleGuard } from "@/utils/frappeErrors";
 
 const DOCTYPE = "Non Project Expenses";
 
@@ -332,6 +333,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
           : statusAction.next;
 
       await updateDoc(DOCTYPE, statusAction.expense.name, {
+        ...staleGuard(statusAction.expense),
         status: nextStatus,
         // Stamp the approval date the way Project Payments does, so an expense
         // approved by a person is dated and the dashboard's L1 counter (which
@@ -352,9 +354,14 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to update status.",
+        description: await writeErrorMessage(error, "Failed to update status.", DOCTYPE, statusAction.expense.name),
         variant: "destructive",
       });
+      // Someone else changed it first: reload so the row shows its current state.
+      if (isStaleRecordError(error)) {
+        refetch();
+        mutateCounts();
+      }
     } finally {
       setStatusAction(null);
     }

@@ -35,6 +35,8 @@ import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys"
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -73,6 +75,19 @@ const INITIAL_STATE: FormState = {
     payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "",
 };
 
+/** The form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const formFrom = (expenseToEdit: ProjectExpenses): FormState => ({
+    type: expenseToEdit.type || "",
+    vendor: expenseToEdit.vendor || OTHERS_VENDOR_VALUE,
+    description: expenseToEdit.description || "",
+    comment: expenseToEdit.comment || "",
+    amount: expenseToEdit.amount?.toString() || "",
+    payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), 'yyyy-MM-dd') : "",
+    payment_ref: expenseToEdit.payment_ref || "",
+    invoice_date: expenseToEdit.invoice_date ? formatDateFns(new Date(expenseToEdit.invoice_date), 'yyyy-MM-dd') : "",
+    invoice_ref: expenseToEdit.invoice_ref || "",
+});
+
 export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> = ({ expenseToEdit, onSuccess }) => {
     const { editProjectExpenseDialog, setEditProjectExpenseDialog } = useDialogStore();
     const { toast } = useToast();
@@ -107,25 +122,24 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
 
     const expenseTypeOptions = useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
 
+    // A save refused because someone else saved first keeps this dialog open with what was typed.
+    const staleLabels = useMemo(() => ({
+        vendor: (id: string) => vendorOptions.find(v => v.value === id)?.label ?? id,
+        type: (id: string) => expenseTypeOptions.find(o => o.value === id)?.label ?? id,
+    }), [vendorOptions, expenseTypeOptions]);
+    const stale = useStaleConflict({ doctype: DOCTYPE, record: expenseToEdit, open: editProjectExpenseDialog, labels: staleLabels });
+
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- a background refetch must not reset it.
+        if (stale.conflict) return;
         if (editProjectExpenseDialog && expenseToEdit) {
-            setFormState({
-                type: expenseToEdit.type || "",
-                vendor: expenseToEdit.vendor || OTHERS_VENDOR_VALUE,
-                description: expenseToEdit.description || "",
-                comment: expenseToEdit.comment || "",
-                amount: expenseToEdit.amount?.toString() || "",
-                payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), 'yyyy-MM-dd') : "",
-                payment_ref: expenseToEdit.payment_ref || "",
-                invoice_date: expenseToEdit.invoice_date ? formatDateFns(new Date(expenseToEdit.invoice_date), 'yyyy-MM-dd') : "",
-                invoice_ref: expenseToEdit.invoice_ref || "",
-            });
+            setFormState(formFrom(expenseToEdit));
             setNewInvoiceFile(null);
             setNewPaymentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
         }
-    }, [editProjectExpenseDialog, expenseToEdit]);
+    }, [editProjectExpenseDialog, expenseToEdit, stale.conflict]);
 
     useEffect(() => {
         const commandListElement = commandListRef.current;
@@ -197,12 +211,14 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 dataToUpdate.payment_attachment = uploaded.file_url;
             }
 
-            await updateDoc(DOCTYPE, expenseToEdit.name, dataToUpdate);
+            await updateDoc(DOCTYPE, expenseToEdit.name, { ...dataToUpdate, ...stale.guard() });
             toast({ title: "Success", description: "Expense updated successfully.", variant: "success" });
             onSuccess?.();
             handleDialogClose();
         } catch (error: any) {
-            toast({ title: "Error", description: error.message || "Failed to update expense.", variant: "destructive" });
+            // Someone else saved it first: stay open with what was typed; the banner names who and what changed.
+            if (await stale.handle(error, (latest) => setFormState((f) => keepTyped(f, formFrom(expenseToEdit), formFrom(latest as ProjectExpenses))))) return;
+            toast({ title: "Error", description: describeWriteError(error, "Failed to update expense."), variant: "destructive" });
         }
     };
 
@@ -225,6 +241,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     <AlertDialogDescription>ID: {expenseToEdit.name}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
+                    <StaleConflictBanner conflict={stale.conflict} />
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="type_edit" className="text-right">Type <sup className="text-destructive">*</sup></Label>
                         <div className="col-span-3">
@@ -345,7 +362,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 <AlertDialogFooter>
                     {isLoadingOverall ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
                         <AlertDialogCancel asChild><Button variant="outline" type="button" onClick={handleDialogClose}>Cancel</Button></AlertDialogCancel>
-                        <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>Save Changes</AlertDialogAction>
+                        <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>{stale.conflict ? "Save again" : "Save Changes"}</AlertDialogAction>
                     </>}
                 </AlertDialogFooter>
             </AlertDialogContent>

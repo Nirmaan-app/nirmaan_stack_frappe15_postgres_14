@@ -43,6 +43,8 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 interface EditExpenseFormState {
     type: string;
@@ -62,6 +64,19 @@ interface EditNonProjectExpenseProps {
     expenseToEdit: NonProjectExpensesType;
     onSuccess?: () => void; // To refetch list and close dialog (handled by parent)
 }
+
+/** The form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const formFrom = (expenseToEdit: NonProjectExpensesType): EditExpenseFormState => ({
+    type: expenseToEdit.type || "",
+    description: expenseToEdit.description || "",
+    comment: expenseToEdit.comment || "",
+    amount: expenseToEdit.amount?.toString() || "",
+    // Prefill from the saved value, otherwise leave EMPTY (no auto-today).
+    payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), "yyyy-MM-dd") : "",
+    payment_ref: expenseToEdit.payment_ref || "",
+    invoice_date: expenseToEdit.invoice_date ? formatDateFns(new Date(expenseToEdit.invoice_date), "yyyy-MM-dd") : "",
+    invoice_ref: expenseToEdit.invoice_ref || "",
+});
 
 export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ expenseToEdit, onSuccess }) => {
     const { editNonProjectExpenseDialog, setEditNonProjectExpenseDialog } = useDialogStore();
@@ -99,20 +114,15 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc(); // Changed
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
+    // A save refused because someone else saved first keeps this dialog open with what was typed.
+    const stale = useStaleConflict({ doctype: "Non Project Expenses", record: expenseToEdit, open: editNonProjectExpenseDialog });
+
     // Initialize form state when expenseToEdit or dialog visibility changes
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- a background refetch must not reset it.
+        if (stale.conflict) return;
         if (editNonProjectExpenseDialog && expenseToEdit) {
-            setFormState({
-                type: expenseToEdit.type || "",
-                description: expenseToEdit.description || "",
-                comment: expenseToEdit.comment || "",
-                amount: expenseToEdit.amount?.toString() || "",
-                // Prefill from the saved value, otherwise leave EMPTY (no auto-today).
-                payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), "yyyy-MM-dd") : "",
-                payment_ref: expenseToEdit.payment_ref || "",
-                invoice_date: expenseToEdit.invoice_date ? formatDateFns(new Date(expenseToEdit.invoice_date), "yyyy-MM-dd") : "",
-                invoice_ref: expenseToEdit.invoice_ref || "",
-            });
+            setFormState(formFrom(expenseToEdit));
             // Determine if sections should be initially open
             // Keyed on the STATUS: a Reconciliation Pending expense can already carry a payment ref
             // the bank import wrote, and that must neither open this section nor be cleared by it.
@@ -133,7 +143,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
         }
-    }, [editNonProjectExpenseDialog, expenseToEdit]);
+    }, [editNonProjectExpenseDialog, expenseToEdit, stale.conflict]);
 
 
     const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
@@ -238,15 +248,17 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         }
 
         try {
-            await updateDoc("Non Project Expenses", expenseToEdit.name, dataToUpdate);
+            await updateDoc("Non Project Expenses", expenseToEdit.name, { ...dataToUpdate, ...stale.guard() });
             toast({ title: "Success!", description: "Non-project expense updated successfully!", variant: "success" });
             onSuccess?.(); // This will refetch and close dialog (from parent)
         } catch (error: any) {
+            // Someone else saved it first: stay open with what was typed; the banner names who and what changed.
+            if (await stale.handle(error, (latest) => setFormState((f) => keepTyped(f, formFrom(expenseToEdit), formFrom(latest as NonProjectExpensesType))))) return;
             console.error("Error updating non-project expense:", error);
-            toast({ title: "Failed!", description: error.message || "Failed to update expense.", variant: "destructive" });
+            toast({ title: "Failed!", description: describeWriteError(error, "Failed to update expense."), variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid,
+        updateDoc, expenseToEdit.name, stale, formState, validateForm, toast, onSuccess, upload, isPaid,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
@@ -336,6 +348,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     <Separator className="my-3" />
                 </AlertDialogHeader>
                 <div className="space-y-3 py-1 max-h-[70vh] overflow-y-auto pr-2">
+                    <StaleConflictBanner conflict={stale.conflict} />
                     {/* Core Details: Type, Description, Amount - Similar to NewNonProjectExpense */}
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="type_edit_npe_trigger" className="text-right col-span-1">Type <sup className="text-destructive">*</sup></Label>
@@ -433,7 +446,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     ) : (
                         <>
                             <AlertDialogCancel asChild><Button variant="outline">Cancel</Button></AlertDialogCancel>
-                            <AlertDialogAction onClick={handleSubmit} disabled={isSubmitDisabled}>Save Changes</AlertDialogAction>
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>{stale.conflict ? "Save again" : "Save Changes"}</AlertDialogAction>
                         </>
                     )}
                 </AlertDialogFooter>

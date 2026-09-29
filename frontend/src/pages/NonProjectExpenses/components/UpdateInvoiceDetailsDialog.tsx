@@ -19,6 +19,8 @@ import { Separator } from "@/components/ui/separator";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 interface UpdateInvoiceDetailsDialogProps {
     isOpen: boolean;
@@ -36,12 +38,21 @@ type AttachmentUpdateAction = "keep" | "replace" | "remove";
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 
 
+/** The form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const formFrom = (expense: NonProjectExpenses): InvoiceFormState => ({
+    invoice_date: expense.invoice_date ? formatDateFns(new Date(expense.invoice_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
+    invoice_ref: expense.invoice_ref || "",
+});
+
 export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProps> = ({
     isOpen, setIsOpen, expense, onSuccess
 }) => {
     const { toast } = useToast();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
+
+    // A save refused because someone else saved first keeps this dialog open with what was typed.
+    const stale = useStaleConflict({ doctype: "Non Project Expenses", record: expense, open: isOpen });
 
     const [formState, setFormState] = useState<InvoiceFormState>({ invoice_date: "", invoice_ref: "" });
     const [newAttachmentFile, setNewAttachmentFile] = useState<File | null>(null);
@@ -50,17 +61,16 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
     const [formErrors, setFormErrors] = useState<Partial<InvoiceFormState>>({});
 
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- a background refetch must not reset it.
+        if (stale.conflict) return;
         if (isOpen && expense) {
-            setFormState({
-                invoice_date: expense.invoice_date ? formatDateFns(new Date(expense.invoice_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
-                invoice_ref: expense.invoice_ref || "",
-            });
+            setFormState(formFrom(expense));
             setExistingAttachmentUrl(expense.invoice_attachment);
             setNewAttachmentFile(null);
             setAttachmentAction(expense.invoice_attachment ? "keep" : "remove");
             setFormErrors({});
         }
-    }, [isOpen, expense]);
+    }, [isOpen, expense, stale.conflict]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -117,12 +127,14 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
             }
             // If action is "keep", invoice_attachment is not added to dataToUpdate.
 
-            await updateDoc("Non Project Expenses", expense.name, dataToUpdate);
+            await updateDoc("Non Project Expenses", expense.name, { ...dataToUpdate, ...stale.guard() });
             toast({ title: "Success", description: "Invoice details updated.", variant: "success" });
             onSuccess?.();
             setIsOpen(false);
         } catch (error: any) {
-            toast({ title: "Error", description: error.message || "Failed to update invoice details.", variant: "destructive" });
+            // Someone else saved it first: stay open with what was typed; the banner names who and what changed.
+            if (await stale.handle(error, (latest) => setFormState((f) => keepTyped(f, formFrom(expense), formFrom(latest as NonProjectExpenses))))) return;
+            toast({ title: "Error", description: describeWriteError(error, "Failed to update invoice details."), variant: "destructive" });
         }
     };
 
@@ -179,6 +191,8 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                     <AlertDialogDescription>Expense ID: {expense.name}</AlertDialogDescription>
                     <Separator className="my-2" />
                 </AlertDialogHeader>
+
+                <StaleConflictBanner conflict={stale.conflict} />
                 <div className="space-y-4 py-2">
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="invoice_date_update_id" className="text-right col-span-1">Invoice Date <sup className="text-destructive">*</sup></Label>
@@ -222,7 +236,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                     {isLoadingOverall ? <div className="flex justify-center w-full"><TailSpin color="#4f46e5" height={24} width={24} /></div> : (
                         <>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleSubmit}>Save Changes</AlertDialogAction>
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }}>{stale.conflict ? "Save again" : "Save Changes"}</AlertDialogAction>
                         </>
                     )}
                 </AlertDialogFooter>
