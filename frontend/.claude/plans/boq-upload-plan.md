@@ -42644,7 +42644,8 @@ the CSRF refusal stayed invisible. It now reads through `downloadErrorMessage`.
 
 ### Open items — recorded, NOT built
 
-1. **The panel-vs-product disagreement above.** The most important of the three. Owner's call.
+1. ~~**The panel-vs-product disagreement above.**~~ **RULED AND FIXED 2026-09-29** — see the
+   ruling section at the end of this slice.
 2. **Remove `cable_tray.with_cover_list`.** It carries the owner-set "List price" label for now. The slice:
    re-prove on v65 that `with_cover_list == without_cover_list + cover_only_list` on all 450 rows bit for
    bit, **report any row that has DRIFTED before anything is deleted**, then mint the column away and prove
@@ -42657,3 +42658,71 @@ the CSRF refusal stayed invisible. It now reads through `downloadErrorMessage`.
    wrote it. **Not ratcheted**, deliberately: `--init` would adopt every one of them silently inside an
    unrelated commit. Reconcile it in its own `chore(residence)` commit naming the files and authors, as
    `277afb3c0` / `2105c1696` / `7d8325406` already did for earlier drift.
+
+### Slice 12b(B), owner rulings 1 and 2 (2026-09-29) — the panel made EXACT, and the :8080 conclusion withdrawn
+
+#### Ruling 1 — the panel follows the pipeline; it is not relabelled indicative
+
+Owner: *"wherever there is difference, the rate master panel should follow what the pipeline actually
+does and reflect it correctly. only rounding errors if it is then we can ignore."*
+
+**The fix is not a third implementation of the pricing rules.** Re-deriving them in a second place is
+what produced the disagreement; `pricingInputExact` instead runs **`runPipeline`** — the interpreter the
+product itself prices with — once over the catalogue as it stands and once over the catalogue with the
+edited pricing input patched into it, and reports the two sets of outputs. It cannot drift from the
+product, and a change to a pipeline, an order of operations or a rounding is picked up for free.
+Measured at **0.18 ms per run**, so a 450-SKU before-and-after is ~166 ms; the caller memoises it.
+
+**Re-run on the same rows, predicted against quoted:**
+
+| shape | input, change | predicted | quoted | agree? | was |
+|---|---|---|---|---|---|
+| pair | `conduit` discount 50% → 40% | 45.5 → **54.6** | 45.5 → **54.6** | yes | already agreed |
+| installation share | `conduit_share` 20% → 50% | 10 → **30** | 10 → **30** | yes | 13 → 32.5 |
+| flat adder | `tray_accessories` 106 → 150 | 511 → **575** | 511 → **575** | yes | 462.7 → 506.7 |
+
+Gap (c) closes for nothing, because the pipeline returns every output: the SKU detail now carries a
+**"This also moves"** block — a conduit discount change shows *BoQ install rate 10 → 20* and *BCS rate
+32.5 → 39* — and a leg the working already shows is not repeated.
+
+Every input was restored and both rows verified back at **45.5 / 10 / 55.5** and **511 / 140 / 651**.
+
+⚠️ **TWO TRAPS THAT MAKE THE EXACT PATH LOOK WIRED WHILE DOING NOTHING**, both hit during the build:
+
+1. **A `no_match` is NORMAL.** An input is read by every pipeline that mentions it, and those span kinds
+   — `conduit` is read by the conduit, point-wiring and cable pipelines, and only one prices a conduit
+   SKU. Counting the others as failures marked the whole result "not ok" while every figure in it was
+   right.
+2. **The NEUTRAL branch test is "every LITERAL is zero", not "every param is a literal".** The cable-tray
+   `cover` off-branch is `{factor: 0.0, discount_from_ctx: ...}` — a zero literal BESIDE a ctx bind — so
+   the stricter test rejected it, `cover` was left unset, the pipeline never resolved, and the panel
+   **silently fell back to the approximate arithmetic on every tray.** It was caught only because the
+   on-screen figure was still the old one after a rebuild that should have changed it.
+
+Pinned: a share test asserting the SUPPLY base and the round-up to tens; an adder test asserting the
+addend lands BEFORE the markup (delta 100 × 1.45, not the bare 100); the other-legs report; and two on
+the neutral-branch predicate that would have caught the silent fallback. The approximate path remains as
+the fallback for a caller with no configs, so nothing that predates this changes.
+
+#### Ruling 2 — "UI writes are impossible at :8080" is WITHDRAWN
+
+Owner: *"disagree. we have been doing UI writes so many times via 8080."* **The owner is right, this was
+the second time the wrong conclusion was drawn in this arc, and the cause was self-inflicted.**
+
+Frappe's check is `... or not (saved_token := frappe.session.data.csrf_token) ...` — **a session that
+holds no csrf_token skips the check entirely.** Measured on this site:
+
+| session | csrf_token |
+|---|---|
+| `admins@nirmaan.app` (the one this session used) | **PRESENT, 56 chars** |
+| `deven@nirmaan.app`, `jatin@nirmaan.app`, `veeresh…`, `abdullah…` | **None** |
+
+`main.tsx` fetches the dev boot from an absolute `http://localhost:8000/...` URL **cross-origin and
+without `credentials`**, so the `:8080` boot is always a GUEST boot and never carries a token. That is
+harmless — until a token exists on the session. **Loading `:8000/frontend/...` mints one**, because that
+page renders `{{ frappe.session.csrf_token }}`; from that moment every `:8080` POST is compared against a
+token the `:8080` app cannot know. So a correctly-ordered restart does not fix it and never would: the
+repair is a FRESH LOGIN, which is exactly what the runbook's clear-site-data fix does.
+
+**The rule to carry forward: do not visit `:8000` with a session you intend to keep writing from at
+`:8080`.** T9b was certified at `:8000` for this reason and is re-runnable at `:8080` after a re-login.

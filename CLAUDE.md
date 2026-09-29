@@ -981,19 +981,26 @@ vocabulary — HVAC produces zero labels and its headers are byte-identical; a d
 deliberately, never by acquiring a pipeline shape. The TypeScript mirror in `rateMasterSpec.ts` is
 pinned to the Python, like the `FORMULA_FIXTURE` pair.
 
-**⚠️ THE PRICING-INPUT IMPACT PANEL SHOWS A SKU'S OWN UNROUNDED RATE, NEVER A ROW TOTAL — AND FOR A
-SHARE OR AN ADDER IT IS INDICATIVE, NOT A QUOTE (owner-locked; measured end to end 2026-09-29).**
-Each row is that SKU's stored rate times the multiplier the input contributes, UNROUNDED, labelled
-"SKU rate"; the ROW-level figure is rounded once at the end, so the group summary carries the rounded
-row-level RANGE and the two are never presented as each other. ⚠️ **THE PANEL AND THE PRODUCT ARE
-DIFFERENT CODE AND THEY AGREE ONLY FOR THE PAIR SHAPE.** Measured on a live BoQ row against its own
-rate helper: pair agreed to the rupee (45.5 → 54.6 both sides); an INSTALLATION SHARE did not (panel
-13 → 32.5, product 10 → 30 — the panel applies the share to the stored install base where the pipeline
-applies it to the SUPPLY rate and then rounds up to tens); a FLAT ADDER did not (panel +44, product
-+64 — the pipeline adds the addend BEFORE the supply markup, the panel after). The panel also names
-only the leg its own input moves, so a downstream leg can move without it saying so (a conduit
-DISCOUNT change moved that row's install rate, because install is a share of supply). **Do not quote a
-panel figure as a price for a share or an adder, and do not "fix" the product to match the panel.**
+**⚠️ THE PRICING-INPUT IMPACT PANEL PRICES THROUGH THE PRODUCT'S OWN PIPELINE, NEVER THROUGH A SECOND
+IMPLEMENTATION OF IT (owner-locked, 2026-09-29).** It used to price a SKU as `stored rate x the
+multiplier the input contributes`. That is the same arithmetic the pipeline performs for a PAIR input
+with no rounding in the way, so it agreed to the rupee there and looked right — and it computed
+something else for the other two shapes: an INSTALLATION SHARE read 13 -> 32.5 where the product quoted
+10 -> 30 (the pipeline applies the share to the COMPUTED SUPPLY rate, then rounds UP TO TENS), and a
+FLAT ADDER read +44 where the product quoted +64 (the addend sits in the sum the markup multiplies).
+**`pricingInputExact` runs `runPipeline` over the catalogue as it stands and over the catalogue with the
+edited input patched in**, so the panel cannot drift from the product — a change to a pipeline, an order
+of operations or a rounding is picked up for free. **Do NOT re-derive pricing rules there; that is the
+bet that already failed once.** A pure ROUNDING difference of a rupee or two is acceptable; a different
+BASE, a different ORDER or a missing ROUNDING STEP is not. **EVERY output that moves is reported, not
+only the input's own leg** — a conduit DISCOUNT moves the install rate too, because install is a share
+OF supply, and a rate that moves unmentioned is how a pricer is surprised. Two traps that make the exact
+path look wired while doing nothing: a `no_match` is NORMAL (an input is read by pipelines spanning
+several kinds, and only one prices any given SKU), and the NEUTRAL branch test is **"every LITERAL is
+zero", not "every param is a literal"** — the cable-tray `cover` off-branch is a zero beside a ctx bind,
+and the stricter test left `cover` unset, so the pipeline never resolved and the panel silently fell
+back to the approximate arithmetic on every tray. The figure shown is the SKU's own rate, never a row
+total; the rounded row-level range stays the group summary.
 
 **⚠️ A FLAT ADDER MOVES EVERY PRICE IN ITS PIPELINE; `isFlatAdder` MEANS "THIS INPUT ADDS RATHER THAN
 SCALES" (owner-locked).** An ADDITIVE `component` carries no `target` and no `bands`, so a reach walk
