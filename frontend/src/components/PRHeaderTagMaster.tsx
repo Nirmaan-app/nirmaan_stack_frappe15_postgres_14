@@ -49,6 +49,8 @@ import {
 } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
+import { describeWriteError } from "@/utils/frappeErrors";
 import * as z from "zod";
 import {
   useFrappeCreateDoc,
@@ -63,6 +65,7 @@ export interface PRTagHeader {
   pr_header: string;
   tag_package?: string;
   creation?: string;
+  modified?: string;
 }
 
 export interface ProcurementPackage {
@@ -85,7 +88,7 @@ export const PRHeaderTagMaster: React.FC = () => {
     error: prTagsError,
     mutate: prTagsMutate,
   } = useFrappeGetDocList<PRTagHeader>("PR Tag Headers", {
-    fields: ["name", "pr_header", "tag_package"],
+    fields: ["name", "pr_header", "tag_package", "modified"],
     limit: 0,
     orderBy: { field: "pr_header", order: "asc" },
   });
@@ -296,9 +299,14 @@ const CreatePRTagHeaderDialog: React.FC<PRTagHeaderDialogProps> = ({ mutate, pac
   );
 };
 
+/** The form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const tagFormFrom = (t: PRTagHeader): PRTagHeaderFormValues => ({ pr_header: t.pr_header, tag_package: t.tag_package || "" });
+
 const EditPRTagHeaderDialog: React.FC<{ tag: PRTagHeader } & PRTagHeaderDialogProps> = ({ tag, mutate, packages, existingTags }) => {
   const [open, setOpen] = useState(false);
   const { updateDoc, loading } = useFrappeUpdateDoc();
+  // A save refused because someone else changed the header first keeps the dialog open.
+  const stale = useStaleConflict({ doctype: "PR Tag Headers", record: tag, open });
 
   // Allow all packages to be selectable multiple times
   const availablePackages = packages;
@@ -319,12 +327,14 @@ const EditPRTagHeaderDialog: React.FC<{ tag: PRTagHeader } & PRTagHeaderDialogPr
     }
 
     try {
-      await updateDoc("PR Tag Headers", tag.name, values);
+      await updateDoc("PR Tag Headers", tag.name, { ...values, ...stale.guard() });
       toast({ title: "Updated", description: `PR Tag Header "${values.pr_header}" updated successfully.`, variant: "success" });
       await mutate();
       setOpen(false);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      // Someone else saved it first: stay open, refresh what the user did not touch.
+      if (await stale.handle(e, (latest) => form.reset(keepTyped(form.getValues(), tagFormFrom(tag), tagFormFrom(latest as PRTagHeader))))) return;
+      toast({ title: "Error", description: describeWriteError(e, "Could not update the PR Tag Header."), variant: "destructive" });
     }
   };
 
@@ -339,6 +349,7 @@ const EditPRTagHeaderDialog: React.FC<{ tag: PRTagHeader } & PRTagHeaderDialogPr
         <DialogHeader>
           <DialogTitle>Edit PR Tag Header</DialogTitle>
         </DialogHeader>
+        <StaleConflictBanner conflict={stale.conflict} />
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -372,7 +383,7 @@ const EditPRTagHeaderDialog: React.FC<{ tag: PRTagHeader } & PRTagHeaderDialogPr
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={loading} className="bg-slate-900 text-white">
-                {loading ? <TailSpin height={16} width={16} color="white" /> : "Save Changes"}
+                {loading ? <TailSpin height={16} width={16} color="white" /> : stale.conflict ? "Save again" : "Save Changes"}
               </Button>
             </div>
           </form>

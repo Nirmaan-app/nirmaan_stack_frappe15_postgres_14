@@ -39,7 +39,7 @@ const HelpDataTableWrapper: React.FC<{
     } = useServerDataTable<HelpRepository>({
         doctype: "Help Repository",
         columns,
-        fetchFields: ["name", "title", "description", "video_link", "creation"],
+        fetchFields: ["name", "title", "description", "video_link", "creation", "modified"],
         defaultSort: "creation desc",
         searchableFields,
         urlSyncKey: "help_repository",

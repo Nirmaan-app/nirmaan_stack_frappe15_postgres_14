@@ -16,6 +16,11 @@ import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import { helpItemSchema, HelpItemFormValues } from "../types";
 import { HelpRepository } from "@/types/NirmaanStack/HelpRepository";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
+import { describeWriteError } from "@/utils/frappeErrors";
+
+/** The form as filled from a record -- on open, and to refresh untouched fields after a conflict. */
+const helpFormFrom = (h: HelpRepository): HelpItemFormValues => ({ title: h.title, description: h.description || "", video_link: h.video_link });
 
 interface EditHelpDialogProps {
     open: boolean;
@@ -26,6 +31,8 @@ interface EditHelpDialogProps {
 
 export const EditHelpDialog: React.FC<EditHelpDialogProps> = ({ open, onOpenChange, item, onSuccess }) => {
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
+    // A save refused because someone else changed the article first keeps the dialog open.
+    const stale = useStaleConflict({ doctype: "Help Repository", record: item, open });
 
     const form = useForm<HelpItemFormValues>({
         resolver: zodResolver(helpItemSchema),
@@ -55,13 +62,16 @@ export const EditHelpDialog: React.FC<EditHelpDialogProps> = ({ open, onOpenChan
                 title: values.title,
                 description: values.description || "",
                 video_link: values.video_link,
+                ...stale.guard(),
             });
             toast({ title: "Success", description: "Help article updated", variant: "success" });
             onOpenChange(false);
             onSuccess();
         } catch (e: any) {
+            // Someone else saved it first: stay open, refresh what the user did not touch.
+            if (await stale.handle(e, (latest) => form.reset(keepTyped(form.getValues(), helpFormFrom(item), helpFormFrom(latest as HelpRepository))))) return;
             console.error("Error updating help article:", e);
-            toast({ title: "Error", description: "Failed to update help article", variant: "destructive" });
+            toast({ title: "Error", description: describeWriteError(e, "Failed to update help article"), variant: "destructive" });
         }
     };
 
@@ -71,7 +81,8 @@ export const EditHelpDialog: React.FC<EditHelpDialogProps> = ({ open, onOpenChan
                 <DialogHeader className="p-6 pb-0">
                     <DialogTitle className="text-xl font-bold">Edit Help Article</DialogTitle>
                 </DialogHeader>
-                <div className="p-6 overflow-y-auto">
+                <div className="p-6 overflow-y-auto space-y-4">
+                    <StaleConflictBanner conflict={stale.conflict} />
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                             <FormField
@@ -125,7 +136,7 @@ export const EditHelpDialog: React.FC<EditHelpDialogProps> = ({ open, onOpenChan
                                     Cancel
                                 </Button>
                                 <Button type="submit" disabled={updating} className="bg-blue-600 hover:bg-blue-700 text-white">
-                                    {updating ? "Updating..." : "Update"}
+                                    {updating ? "Updating..." : stale.conflict ? "Save again" : "Update"}
                                 </Button>
                             </DialogFooter>
                         </form>
