@@ -346,13 +346,15 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
 
   // Reset form when dialog opens with current values
   React.useEffect(() => {
+    // After a conflict the form holds the user's unsaved work -- the list refresh must not reset it.
+    if (stale.conflict) return;
     if (open) {
       form.reset({
         category_name: category.category_name,
         work_package_link: category.work_package || "",
       });
     }
-  }, [open, category, form]);
+  }, [open, category, form, stale.conflict]);
 
   const onSubmit = async (values: CategoryFormValues) => {
     const nameChanged = values.category_name !== category.category_name;
@@ -638,8 +640,10 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
   // Fill from the task as it is now each time the dialog opens, so the form and the
   // version sent with the save always belong together.
   React.useEffect(() => {
+    // After a conflict the form holds the user's unsaved work -- the list refresh must not reset it.
+    if (stale.conflict) return;
     if (open) form.reset(taskFormFrom(task));
-  }, [open, task, form]);
+  }, [open, task, form, stale.conflict]);
 
   const onSubmit = async (values: TaskFormValues) => {
     try {

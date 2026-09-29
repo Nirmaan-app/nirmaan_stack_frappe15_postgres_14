@@ -128,6 +128,8 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
 
     // Initialize state when item changes
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- the list refresh must not reset it.
+        if (stale.conflict) return;
         if (item) {
             setItemName(item.item_name || "");
             setSelectedUnit(item.unit_name || "");
@@ -136,7 +138,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
             setSelectedItemStatus(item.item_status || "");
             setSelectedTdsItem(item.linked_tds_item || "");
         }
-    }, [item, isOpen]);
+    }, [item, isOpen, stale.conflict]);
 
     // A category change can move the item to a different work package, which would
     // strand a now-invalid link. Drop it rather than let the save fail server-side.

@@ -560,13 +560,15 @@ const EditCategoryDialog: React.FC<{
   });
 
   React.useEffect(() => {
+    // After a conflict the form holds the user's unsaved work -- the list refresh must not reset it.
+    if (stale.conflict) return;
     if (open) {
       form.reset({
         category_name: category.category_name,
         is_handover_restricted: Boolean(category.is_handover_restricted),
       });
     }
-  }, [open, category]);
+  }, [open, category, stale.conflict]);
 
   const onSubmit = async (values: CategoryFormValues) => {
     const trimmedName = values.category_name.trim();
@@ -902,6 +904,8 @@ const EditTaskDialog: React.FC<{
   });
 
   React.useEffect(() => {
+    // After a conflict the form holds the user's unsaved work -- the list refresh must not reset it.
+    if (stale.conflict) return;
     if (open) {
       form.reset({
         task_name: task.task_name,
@@ -909,7 +913,7 @@ const EditTaskDialog: React.FC<{
         is_recurring: Boolean(task.is_recurring),
       });
     }
-  }, [open, task]);
+  }, [open, task, stale.conflict]);
 
   const onSubmit = async (values: TaskFormValues) => {
     try {

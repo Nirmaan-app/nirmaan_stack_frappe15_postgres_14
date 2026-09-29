@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -25,6 +25,7 @@ import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { fuzzyFilter } from '@/components/data-table/data-table-models';
 import { toast } from '@/components/ui/use-toast';
+import { RECORD_CHANGED_EVENT } from '@/hooks/useStaleConflict';
 import { isCsrfError } from '@/utils/csrfUtils';
 
 // --- Configuration ---
@@ -798,6 +799,19 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
     useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
+
+    // A save refused because someone else changed a record of this doctype (useStaleConflict):
+    // re-fetch so the table shows their change. A ref keeps one listener for the hook's life.
+    const fetchDataRef = useRef(fetchData);
+    fetchDataRef.current = fetchData;
+    useEffect(() => {
+        if (isClientSideMode) return;
+        const onRecordChanged = (e: Event) => {
+            if ((e as CustomEvent<{ doctype?: string }>).detail?.doctype === doctype) fetchDataRef.current(true);
+        };
+        window.addEventListener(RECORD_CHANGED_EVENT, onRecordChanged);
+        return () => window.removeEventListener(RECORD_CHANGED_EVENT, onRecordChanged);
+    }, [doctype, isClientSideMode]);
 
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({

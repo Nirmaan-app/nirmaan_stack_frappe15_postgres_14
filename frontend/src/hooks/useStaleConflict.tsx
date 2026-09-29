@@ -16,8 +16,24 @@
  *   ...{ ...changes, ...stale.guard() }                          // in the save payload
  *   if (await stale.handle(error, latest => setForm(f => keepTyped(f, formFrom(record), formFrom(latest))))) return;
  *   <StaleConflictBanner conflict={stale.conflict} />             // in the dialog body
+ *
+ * After a refusal the lists and pages behind the dialog still show the old values (only a
+ * SUCCESSFUL save refreshes them). `handle` therefore also asks them to re-fetch: every
+ * `useServerDataTable` list of this doctype (via `RECORD_CHANGED_EVENT`) and every SWR cache
+ * entry whose key names the doctype (the SDK's default getDoc / getDocList keys do). A list
+ * with a custom SWR key that does not name the doctype passes its own `onRefresh`.
+ * A dialog that refills its form when its record re-fetches must skip that while
+ * `stale.conflict` is set, or the refresh would wipe what the user typed.
+ *
+ * ⚠️ KNOWN GAP: this refresh reaches ONLY the tab whose save was refused (a `window` event).
+ * Anyone else just viewing the list stays stale until they reload, because frappe-react-sdk's
+ * live-event hooks drop other components' `list_update` handlers (pre-existing SDK bug, not fixed
+ * here). Still safe: their own save would be refused. Details and the other gaps (a direct DB
+ * update is invisible; child-table records are not covered):
+ * `.claude/context/domain/concurrent-edit.md` → "Known gaps".
  */
 import { AlertTriangle } from "lucide-react";
+import { useSWRConfig } from "frappe-react-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -113,6 +129,9 @@ const fetchLatest = async (doctype: string, name: string): Promise<AnyRecord | n
     }
 };
 
+/** Window event asking every `useServerDataTable` list of `detail.doctype` to re-fetch. */
+export const RECORD_CHANGED_EVENT = "nirmaan:record-changed";
+
 interface Options {
     doctype: string;
     /** The record the form was loaded from. */
@@ -121,10 +140,17 @@ interface Options {
     open: boolean;
     /** Optional readable names for id-valued fields, e.g. `{ vendor: id => vendorName }`. */
     labels?: Record<string, (v: string) => string>;
+    /** Extra refresh for a list whose SWR key does not name the doctype (e.g. commission keys). */
+    onRefresh?: () => void;
 }
 
-export const useStaleConflict = ({ doctype, record, open, labels }: Options) => {
+export const useStaleConflict = ({ doctype, record, open, labels, onRefresh }: Options) => {
     const [conflict, setConflict] = useState<StaleConflict | null>(null);
+    const { mutate } = useSWRConfig();
+
+    // Read inside `handle` only; a ref so an inline callback never re-creates it.
+    const onRefreshRef = useRef(onRefresh);
+    onRefreshRef.current = onRefresh;
 
     // Read inside `handle` only; a ref so an inline `labels` never re-creates it.
     const labelsRef = useRef(labels);
@@ -159,9 +185,13 @@ export const useStaleConflict = ({ doctype, record, open, labels }: Options) => 
                 modified: latest?.modified ?? undefined,
             });
             if (latest) onLatest?.(latest);
+            // The lists / pages behind the dialog still show the old values: re-fetch them.
+            window.dispatchEvent(new CustomEvent(RECORD_CHANGED_EVENT, { detail: { doctype } }));
+            mutate((key) => String(key ?? "").includes(doctype));   // revalidate only, data kept
+            onRefreshRef.current?.();
             return true;
         },
-        [doctype, record]
+        [doctype, record, mutate]
     );
 
     return { conflict, guard, handle };

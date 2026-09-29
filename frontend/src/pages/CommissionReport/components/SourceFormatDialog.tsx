@@ -70,12 +70,14 @@ export const SourceFormatDialog: React.FC<Props> = ({ task, mutate }) => {
 
     // Reset on open with the latest server state.
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- the list refresh must not reset it.
+        if (stale.conflict) return;
         if (open) {
             setSourceText(task.source_format || '');
             setIsActive(task.is_active !== 0);
             setValidation({ status: 'unchecked', errors: [], warnings: [] });
         }
-    }, [open, task.source_format, task.is_active]);
+    }, [open, task.source_format, task.is_active, stale.conflict]);
 
     const isDirty = useMemo(() => {
         const initialActive = task.is_active !== 0;
