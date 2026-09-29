@@ -52,6 +52,8 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { getProjectListOptions, queryKeys, getCustomerListOptions } from "@/config/queryKeys";
 import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 const DOCTYPE = "Project Invoices";
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
@@ -74,6 +76,20 @@ interface InvoiceFormState {
     customer: string;
     customer_name: string;
 }
+
+type EditableInvoiceFields = Pick<InvoiceFormState, "invoice_no" | "amount" | "amount_excl_gst" | "date" | "project_gst">;
+
+/** The editable fields as filled from a record -- on open, and to refresh untouched ones after a conflict. */
+const editableFrom = (invoice: ProjectInvoice): EditableInvoiceFields => ({
+    invoice_no: invoice.invoice_no || "",
+    amount: invoice.amount?.toString() || "",
+    amount_excl_gst:
+        invoice.amount_excl_gst !== undefined && invoice.amount_excl_gst !== null
+            ? invoice.amount_excl_gst.toString()
+            : "",
+    date: invoice.invoice_date ? formatDateFns(new Date(invoice.invoice_date), "yyyy-MM-dd") : "",
+    project_gst: invoice.project_gst || "",
+});
 
 export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }: EditProjectInvoiceDialogProps) {
     const { editProjectInvoiceDialog, setEditProjectInvoiceDialog } = useDialogStore();
@@ -98,6 +114,9 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
     const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
+    // A save refused because someone else saved first keeps this dialog open with what was typed.
+    const stale = useStaleConflict({ doctype: DOCTYPE, record: invoiceToEdit, open: editProjectInvoiceDialog });
+
     // Fetch projects and customers for display
     const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
         "Projects",
@@ -113,22 +132,17 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
 
     // Initialize form when dialog opens
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- a background refetch must not reset it.
+        if (stale.conflict) return;
         if (editProjectInvoiceDialog && invoiceToEdit) {
             const project = projects?.find(p => p.name === invoiceToEdit.project);
             const customerId = project?.customer || "";
             const customerName = customers?.find(c => c.name === customerId)?.company_name || "";
 
             setInvoiceData({
-                invoice_no: invoiceToEdit.invoice_no || "",
-                amount: invoiceToEdit.amount?.toString() || "",
-                amount_excl_gst:
-                    invoiceToEdit.amount_excl_gst !== undefined && invoiceToEdit.amount_excl_gst !== null
-                        ? invoiceToEdit.amount_excl_gst.toString()
-                        : "",
-                date: invoiceToEdit.invoice_date ? formatDateFns(new Date(invoiceToEdit.invoice_date), "yyyy-MM-dd") : "",
+                ...editableFrom(invoiceToEdit),
                 project: invoiceToEdit.project || "",
                 project_name: project?.project_name || invoiceToEdit.project || "",
-                project_gst: invoiceToEdit.project_gst || "",
                 customer: customerId,
                 customer_name: customerName || (customerId ? "Customer not found" : "No Customer"),
             });
@@ -146,7 +160,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
                 });
             }
         }
-    }, [editProjectInvoiceDialog, invoiceToEdit, projects, customers]);
+    }, [editProjectInvoiceDialog, invoiceToEdit, projects, customers, stale.conflict]);
 
     const handleDialogClose = () => {
         setEditProjectInvoiceDialog(false);
@@ -234,19 +248,21 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
                 payload.attachment = null;
             }
 
-            await updateDoc(DOCTYPE, invoiceToEdit.name, payload);
+            await updateDoc(DOCTYPE, invoiceToEdit.name, { ...payload, ...stale.guard() });
             toast({ title: "Success!", description: `Invoice ${invoiceData.invoice_no} updated.`, variant: "success" });
             await listMutate();
             handleDialogClose();
         } catch (error) {
+            // Someone else saved it first: stay open, refresh the fields the user did not touch, name who changed what.
+            if (await stale.handle(error, (latest) => setInvoiceData((f) => keepTyped(f, editableFrom(invoiceToEdit), editableFrom(latest as ProjectInvoice))))) return;
             console.error("Error updating Invoice:", error);
             toast({
                 title: "Update Failed",
-                description: error instanceof Error ? error.message : "An unexpected error occurred.",
+                description: describeWriteError(error, "An unexpected error occurred."),
                 variant: "destructive"
             });
         }
-    }, [invoiceData, newAttachmentFile, invoiceToEdit, attachmentAction, upload, updateDoc, listMutate, validateForm]);
+    }, [invoiceData, newAttachmentFile, invoiceToEdit, stale, attachmentAction, upload, updateDoc, listMutate, validateForm]);
 
     const isLoading = uploadLoading || updateDocLoading || projectsLoading || customersLoading || gstOptionsLoading;
     const isSubmitDisabled = isLoading || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.date || !invoiceData.project_gst;
@@ -295,6 +311,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
 
                 {/* Body */}
                 <div className="px-6 py-5 space-y-5 bg-white dark:bg-slate-950">
+                    <StaleConflictBanner conflict={stale.conflict} />
                     {/* Project Context Section - Read Only */}
                     <div className="space-y-3">
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -674,7 +691,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
                                 )}
                             >
                                 <Save className="w-4 h-4 mr-2" />
-                                Save Changes
+                                {stale.conflict ? "Save again" : "Save Changes"}
                             </Button>
                         </div>
                     )}

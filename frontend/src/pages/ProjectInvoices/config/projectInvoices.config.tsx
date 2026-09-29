@@ -33,7 +33,9 @@ export type LinkedInflowEntry = {
 export const DOCTYPE = "Project Invoices";
 
 export const PROJECT_INVOICE_FIELDS_TO_FETCH = [
-    "name", "invoice_no", "amount", "amount_excl_gst", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer", "project_gst"
+    "name", "invoice_no", "amount", "amount_excl_gst", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer", "project_gst",
+    // Sent back on edit so a save made from an out-of-date copy is refused (see useStaleConflict).
+    "modified"
 ];
 
 export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [

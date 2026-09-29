@@ -27,6 +27,8 @@ import { useToast } from "@/components/ui/use-toast";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import { NonProjectInflows } from "@/types/NirmaanStack/NonProjectInflows";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 import {
     DOCTYPE,
@@ -86,6 +88,9 @@ export const NonProjectInflowDialog: React.FC<NonProjectInflowDialogProps> = ({ 
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { call: extractPaymentFields } = useFrappePostCall("nirmaan_stack.api.payment_autofill.extract_payment_fields");
+
+    // Edit only: a save refused because someone else saved first keeps this dialog open with what was typed.
+    const stale = useStaleConflict({ doctype: DOCTYPE, record: inflow ?? null, open });
 
     // Keyed on the record's NAME, never the object: a parent re-render hands a fresh object for the
     // same record, and resetting on that would wipe what the user is typing.
@@ -186,7 +191,7 @@ export const NonProjectInflowDialog: React.FC<NonProjectInflowDialogProps> = ({ 
             if (receiptFile && (isEdit || !url)) url = await uploadReceipt(receiptFile);
             const doc = buildNonProjectInflowDoc(form, url);
             if (inflow) {
-                await updateDoc(DOCTYPE, inflow.name, doc);
+                await updateDoc(DOCTYPE, inflow.name, { ...doc, ...stale.guard() });
                 toast({ title: "Saved", description: "Non-project inflow updated.", variant: "success" });
             } else {
                 await createDoc(DOCTYPE, doc);
@@ -195,9 +200,16 @@ export const NonProjectInflowDialog: React.FC<NonProjectInflowDialogProps> = ({ 
             onSuccess?.();
             onOpenChange(false);
         } catch (e: any) {
-            toast({ title: "Failed", description: e?.message || "Could not save the inflow.", variant: "destructive" });
+            // Someone else saved it first: stay open, refresh what the user did not touch, name who changed what.
+            // The proof rides every save too, so an untouched proof follows the latest version.
+            if (inflow && await stale.handle(e, (latest) => {
+                const next = latest as NonProjectInflows;
+                setForm((f) => keepTyped(f, formFromRecord(inflow), formFromRecord(next)));
+                if (!receiptFile && attachmentUrl === (inflow.inflow_attachment || null)) setAttachmentUrl(next.inflow_attachment || null);
+            })) return;
+            toast({ title: "Failed", description: describeWriteError(e, "Could not save the inflow."), variant: "destructive" });
         }
-    }, [form, attachmentUrl, receiptFile, isEdit, inflow, uploadReceipt, updateDoc, createDoc, toast, onSuccess, onOpenChange]);
+    }, [form, attachmentUrl, receiptFile, isEdit, inflow, stale, uploadReceipt, updateDoc, createDoc, toast, onSuccess, onOpenChange]);
 
     const busy = createLoading || updateLoading || uploadLoading || isAutofilling;
     const needsDescription = descriptionRequired(form.inflow_type);
@@ -231,6 +243,7 @@ export const NonProjectInflowDialog: React.FC<NonProjectInflowDialogProps> = ({ 
                 </div>
 
                 <div className="px-6 py-5 space-y-5 bg-white dark:bg-slate-950 max-h-[70vh] overflow-y-auto">
+                    <StaleConflictBanner conflict={stale.conflict} />
                     {/* Inflow Type — four owner-fixed values, so buttons rather than a dropdown. */}
                     <div className="space-y-1.5">
                         <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -413,7 +426,7 @@ export const NonProjectInflowDialog: React.FC<NonProjectInflowDialogProps> = ({ 
                         className="h-10 px-5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
                         {busy && !isAutofilling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                        {isEdit ? "Save Changes" : "Record Inflow"}
+                        {stale.conflict ? "Save again" : isEdit ? "Save Changes" : "Record Inflow"}
                     </Button>
                 </div>
             </AlertDialogContent>

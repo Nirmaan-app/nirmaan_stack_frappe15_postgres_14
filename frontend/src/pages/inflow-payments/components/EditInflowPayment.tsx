@@ -57,6 +57,8 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { getProjectListOptions, queryKeys, getCustomerListOptions } from "@/config/queryKeys";
 import { formatDate as formatDateFns } from "date-fns";
+import { describeWriteError } from "@/utils/frappeErrors";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 
 interface EditInflowFormState {
     project: string;
@@ -71,6 +73,13 @@ interface EditInflowFormState {
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 type AttachmentUpdateAction = "keep" | "replace" | "remove";
 
+
+/** The editable fields as filled from a record -- on open, and to refresh untouched ones after a conflict. */
+const editableFrom = (inflow: ProjectInflowsType): Pick<EditInflowFormState, "amount" | "payment_date" | "utr"> => ({
+    amount: inflow.amount?.toString() || "",
+    payment_date: inflow.payment_date ? formatDateFns(new Date(inflow.payment_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
+    utr: inflow.utr || "",
+});
 
 interface EditInflowPaymentProps {
     inflowToEdit: ProjectInflowsType;
@@ -96,19 +105,22 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
+    // A save refused because someone else saved first keeps this dialog open with what was typed.
+    const stale = useStaleConflict({ doctype: "Project Inflows", record: inflowToEdit, open: editInflowDialog });
+
     const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", getProjectListOptions({ fields: ["name", "project_name", "customer"] }) as any, queryKeys.projects.list());
     const { data: customers, isLoading: customersLoading } = useFrappeGetDocList<Customers>("Customers", getCustomerListOptions({ fields: ["name", "company_name"] }) as any, queryKeys.customers.list());
 
     useEffect(() => {
+        // After a conflict the form holds the user's unsaved work -- a background refetch must not reset it.
+        if (stale.conflict) return;
         if (editInflowDialog && inflowToEdit) {
             setFormState({
                 project: inflowToEdit.project || "",
                 customer: inflowToEdit.customer || "",
                 project_name: "",
                 customer_name: "",
-                amount: inflowToEdit.amount?.toString() || "",
-                payment_date: inflowToEdit.payment_date ? formatDateFns(new Date(inflowToEdit.payment_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
-                utr: inflowToEdit.utr || "",
+                ...editableFrom(inflowToEdit),
             });
             setExistingAttachmentUrl(inflowToEdit.inflow_attachment);
             setAttachmentAction(inflowToEdit.inflow_attachment ? "keep" : "remove");
@@ -130,7 +142,7 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
                 toast({ title: "Warning", description: "The associated project does not have a customer linked. This inflow might be problematic.", variant: "default" });
             }
         }
-    }, [editInflowDialog, inflowToEdit, projects, customers, toast]);
+    }, [editInflowDialog, inflowToEdit, projects, customers, toast, stale.conflict]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -187,14 +199,16 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
                 dataToUpdate.inflow_attachment = null;
             }
 
-            await updateDoc("Project Inflows", inflowToEdit.name, dataToUpdate);
+            await updateDoc("Project Inflows", inflowToEdit.name, { ...dataToUpdate, ...stale.guard() });
             toast({ title: "Success!", description: "Inflow payment updated successfully!", variant: "success" });
             onSuccess?.();
         } catch (error: any) {
+            // Someone else saved it first: stay open, refresh the fields the user did not touch, name who changed what.
+            if (await stale.handle(error, (latest) => setFormState((f) => keepTyped(f, editableFrom(inflowToEdit), editableFrom(latest as ProjectInflowsType))))) return;
             console.error("Error updating inflow payment:", error);
-            toast({ title: "Failed!", description: error.message || "Failed to update payment.", variant: "destructive" });
+            toast({ title: "Failed!", description: describeWriteError(error, "Failed to update payment."), variant: "destructive" });
         }
-    }, [updateDoc, inflowToEdit.name, formState, newPaymentScreenshot, attachmentAction, upload, validateForm, toast, onSuccess]);
+    }, [updateDoc, inflowToEdit, stale, formState, newPaymentScreenshot, attachmentAction, upload, validateForm, toast, onSuccess]);
 
     const handleDialogCloseAttempt = () => {
         setFormState({ project: "", customer: "", amount: "", payment_date: "", utr: "" });
@@ -251,6 +265,7 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
 
                 {/* Body */}
                 <div className="px-6 py-5 space-y-5 bg-white dark:bg-slate-950">
+                    <StaleConflictBanner conflict={stale.conflict} />
                     {/* Project Context Section - Read Only */}
                     <div className="space-y-3">
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -539,7 +554,7 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
                                 )}
                             >
                                 <Save className="w-4 h-4 mr-2" />
-                                Save Changes
+                                {stale.conflict ? "Save again" : "Save Changes"}
                             </Button>
                         </div>
                     )}
