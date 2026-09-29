@@ -9,6 +9,7 @@ import {
     COMMISSION_TASK_MASTER_DOCTYPE 
 } from "../commission.constants";
 import { captureApiError } from '@/utils/sentry/captureApiError';
+import { isStaleRecordError } from '@/utils/frappeErrors';
 
 /**
  * Hook for creating a new commission tracker
@@ -119,6 +120,8 @@ export const useCategoryMutations = () => {
              await mutate(commissionKeys.categoryList());
             return result;
         } catch (error) {
+            // Someone else saved first: expected, and shown to the user -- not an API fault.
+            if (isStaleRecordError(error)) throw error;
             captureApiError({
                 hook: "useCategoryMutations",
                 api: "Update Category",
@@ -198,6 +201,8 @@ export const useTaskMasterMutations = () => {
             await mutate(commissionKeys.taskList());
             return result;
         } catch (error) {
+            // Someone else saved first: expected, and shown to the user -- not an API fault.
+            if (isStaleRecordError(error)) throw error;
             captureApiError({
                 hook: "useTaskMasterMutations",
                 api: "Update Task",

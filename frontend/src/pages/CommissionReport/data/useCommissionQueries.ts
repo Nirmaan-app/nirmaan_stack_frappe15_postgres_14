@@ -78,7 +78,7 @@ export const useCategoryList = (orderBy?: { field: string; order: 'asc' | 'desc'
     const response = useFrappeGetDocList<CommissionCategoryMaster>(
         COMMISSION_CATEGORY_DOCTYPE,
         { 
-            fields: ["name", "category_name", "work_package"], 
+            fields: ["name", "category_name", "work_package", "modified"], 
             limit: 0, 
             orderBy: orderBy || { field: "creation", order: "asc" } 
         },
@@ -100,7 +100,7 @@ export const useCommissionTaskList = (orderBy?: { field: string; order: 'asc' | 
     const response = useFrappeGetDocList<CommissionTaskMaster>(
         COMMISSION_TASK_MASTER_DOCTYPE,
         { 
-            fields: ["name", "task_name", "category_link", "deadline_offset", "source_format", "is_active", "report_type"],
+            fields: ["name", "task_name", "category_link", "deadline_offset", "source_format", "is_active", "report_type", "modified"],
             limit: 0,
             orderBy: orderBy || { field: "creation", order: "asc" }
         },

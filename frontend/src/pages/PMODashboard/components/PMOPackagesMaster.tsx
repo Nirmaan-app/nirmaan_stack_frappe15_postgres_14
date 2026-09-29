@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
@@ -95,7 +96,7 @@ export const PMOPackagesMaster: React.FC = () => {
     error: catError,
     mutate: mutateCategories,
   } = useFrappeGetDocList<PMOTaskCategory>("PMO Task Category", {
-    fields: ["name", "category_name", "order", "is_handover_restricted"],
+    fields: ["name", "category_name", "order", "is_handover_restricted", "modified"],
     limit: 0,
     orderBy: { field: "`order`", order: "asc" },
   });
@@ -106,7 +107,7 @@ export const PMOPackagesMaster: React.FC = () => {
     error: taskError,
     mutate: mutateTasks,
   } = useFrappeGetDocList<PMOTaskMaster>("PMO Task Master", {
-    fields: ["name", "task_name", "category_link", "order", "deadline_offset", "is_recurring"],
+    fields: ["name", "task_name", "category_link", "order", "deadline_offset", "is_recurring", "modified"],
     limit: 0,
     orderBy: { field: "`order`", order: "asc" },
   });
@@ -532,6 +533,11 @@ const CreateCategoryDialog: React.FC<{
   );
 };
 
+const categoryFormFrom = (c: any): CategoryFormValues => ({
+  category_name: c?.category_name,
+  is_handover_restricted: Boolean(c?.is_handover_restricted),
+});
+
 // --- Edit Category Dialog ---
 const EditCategoryDialog: React.FC<{
   category: PMOTaskCategory;
@@ -543,6 +549,7 @@ const EditCategoryDialog: React.FC<{
     "frappe.model.rename_doc.update_document_title"
   );
   const { updateDoc } = useFrappeUpdateDoc();
+  const stale = useStaleConflict({ doctype: "PMO Task Category", record: category as any, open });
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
@@ -591,8 +598,10 @@ const EditCategoryDialog: React.FC<{
         });
       }
 
+      // A rename moves the record, so the version check applies only to an in-place save.
       await updateDoc("PMO Task Category", trimmedName || category.name, {
         is_handover_restricted: nextRestriction ? 1 : 0,
+        ...(noNameChange ? stale.guard() : {}),
       });
       toast({
         title: "Success",
@@ -603,6 +612,7 @@ const EditCategoryDialog: React.FC<{
       await mutateTasks();
       setOpen(false);
     } catch (error: any) {
+      if (await stale.handle(error, (latest) => form.reset(keepTyped(form.getValues(), categoryFormFrom(category), categoryFormFrom(latest))))) return;
       toast({
         title: "Error",
         description: error.message,
@@ -628,6 +638,7 @@ const EditCategoryDialog: React.FC<{
             Edit Category
           </DialogTitle>
         </DialogHeader>
+        <StaleConflictBanner conflict={stale.conflict} />
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -686,6 +697,8 @@ const EditCategoryDialog: React.FC<{
               >
                 {loading ? (
                   <TailSpin height={16} width={16} color="white" />
+                ) : stale.conflict ? (
+                  "Save again"
                 ) : (
                   "Save"
                 )}
@@ -865,6 +878,12 @@ const CreateTaskDialog: React.FC<{
 };
 
 // --- Edit Task Dialog ---
+const taskFormFrom = (t: any): TaskFormValues => ({
+  task_name: t?.task_name,
+  deadline_offset: t?.deadline_offset || 0,
+  is_recurring: Boolean(t?.is_recurring),
+});
+
 const EditTaskDialog: React.FC<{
   task: PMOTaskMaster;
   categoryIsHandoverRestricted: boolean;
@@ -872,6 +891,7 @@ const EditTaskDialog: React.FC<{
 }> = ({ task, categoryIsHandoverRestricted, mutate }) => {
   const [open, setOpen] = useState(false);
   const { updateDoc, loading } = useFrappeUpdateDoc();
+  const stale = useStaleConflict({ doctype: "PMO Task Master", record: task as any, open });
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
     defaultValues: {
@@ -897,6 +917,7 @@ const EditTaskDialog: React.FC<{
         task_name: values.task_name,
         deadline_offset: values.deadline_offset || 0,
         is_recurring: values.is_recurring ? 1 : 0,
+        ...stale.guard(),
       });
       toast({
         title: "Success",
@@ -906,6 +927,7 @@ const EditTaskDialog: React.FC<{
       await mutate();
       setOpen(false);
     } catch (error: any) {
+      if (await stale.handle(error, (latest) => form.reset(keepTyped(form.getValues(), taskFormFrom(task), taskFormFrom(latest))))) return;
       toast({
         title: "Error",
         description: error.message,
@@ -931,6 +953,7 @@ const EditTaskDialog: React.FC<{
             Edit Task
           </DialogTitle>
         </DialogHeader>
+        <StaleConflictBanner conflict={stale.conflict} />
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -1012,6 +1035,8 @@ const EditTaskDialog: React.FC<{
               >
                 {loading ? (
                   <TailSpin height={16} width={16} color="white" />
+                ) : stale.conflict ? (
+                  "Save again"
                 ) : (
                   "Save"
                 )}

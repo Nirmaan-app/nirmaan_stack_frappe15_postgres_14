@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { WPSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
+import { isStaleRecordError, staleGuard, writeErrorMessage } from "@/utils/frappeErrors";
 import { Category } from "@/types/NirmaanStack/Category";
 import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { Items } from "@/types/NirmaanStack/Items";
@@ -190,6 +191,30 @@ export const ProcurementPackages: React.FC = () => {
 
       const currentCategoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name) || []
 
+      // The category's own fields first: if someone else changed it after the dialog opened
+      // this is refused before any make is added or removed.
+      if (currentCategory?.new_items !== editCategory?.new_items || currentCategory?.tax !== editCategory?.tax) {
+        await updateDoc("Category", editCategory?.name, {
+          tax: editCategory?.tax,
+          new_items: editCategory?.new_items,
+          // The version the dialog opened with (editCategory is a copy of that row).
+          ...staleGuard(editCategory),
+        });
+
+        setEditCategory({
+          category_name: "",
+          work_package: "",
+          new_items: "",
+          name: "",
+          creation: "",
+          modified: "",
+          owner: "",
+          modified_by: "",
+        })
+        await categoriesListMutate();
+      }
+
+
       if (currentCategoryMakes?.length !== defaultOptions?.length) {
 
         const toDeleteMakes = currentCategoryMakes?.filter((i) => !defaultOptions?.some((j) => j?.make === i?.make)) || [];
@@ -205,25 +230,6 @@ export const ProcurementPackages: React.FC = () => {
         );
 
         await categoryMakeListMutate();
-      }
-
-      if (currentCategory?.new_items !== editCategory?.new_items || currentCategory?.tax !== editCategory?.tax) {
-        await updateDoc("Category", editCategory?.name, {
-          tax: editCategory?.tax,
-          new_items: editCategory?.new_items,
-        });
-
-        setEditCategory({
-          category_name: "",
-          work_package: "",
-          new_items: "",
-          name: "",
-          creation: "",
-          modified: "",
-          owner: "",
-          modified_by: "",
-        })
-        await categoriesListMutate();
       }
 
       if (newCategoryMakes?.length > 0) {
@@ -254,6 +260,16 @@ export const ProcurementPackages: React.FC = () => {
       document.getElementById("editCategoryAlertDialog")?.click()
 
     } catch (error) {
+      if (isStaleRecordError(error)) {
+        toast({
+          title: "Not saved",
+          description: await writeErrorMessage(error, "", "Category", editCategory?.name || ""),
+          variant: "destructive",
+        });
+        document.getElementById("editCategoryAlertDialog")?.click()
+        await categoriesListMutate();
+        return;
+      }
       toast({
         title: "Failed",
         description: `${editCategory?.name} updation failed!`,

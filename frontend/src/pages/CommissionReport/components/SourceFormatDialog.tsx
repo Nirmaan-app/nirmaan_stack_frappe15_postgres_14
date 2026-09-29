@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { StaleConflictBanner, useStaleConflict } from '@/hooks/useStaleConflict';
 
 import { useTaskMasterMutations } from '../data/useCommissionMutations';
 import { parseTemplate } from '../report-wizard/template-parser';
@@ -62,6 +63,7 @@ export const SourceFormatDialog: React.FC<Props> = ({ task, mutate }) => {
         warnings: [],
     });
     const [saving, setSaving] = useState(false);
+    const stale = useStaleConflict({ doctype: 'Commission Report Tasks', record: task as any, open });
 
     const { updateTaskMaster } = useTaskMasterMutations();
     const { toast } = useToast();
@@ -123,6 +125,7 @@ export const SourceFormatDialog: React.FC<Props> = ({ task, mutate }) => {
             await updateTaskMaster(task.name, {
                 source_format: sourceText.trim() || null,
                 is_active: isActive ? 1 : 0,
+                ...stale.guard(),
             });
             await mutate();
             toast({
@@ -132,6 +135,12 @@ export const SourceFormatDialog: React.FC<Props> = ({ task, mutate }) => {
             });
             setOpen(false);
         } catch (e) {
+            // Someone else saved first: keep what this user changed, take theirs for the rest.
+            const handled = await stale.handle(e, (latest) => {
+                if ((sourceText || '') === (task.source_format || '')) setSourceText(latest.source_format || '');
+                if (isActive === (task.is_active !== 0)) setIsActive(latest.is_active !== 0);
+            });
+            if (handled) return;
             toast({
                 title: 'Save failed',
                 description: (e as Error).message || 'Unknown error',
@@ -171,6 +180,7 @@ export const SourceFormatDialog: React.FC<Props> = ({ task, mutate }) => {
                         for the grammar.
                     </DialogDescription>
                 </DialogHeader>
+                <StaleConflictBanner conflict={stale.conflict} />
 
                 <div className="space-y-3">
                     <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
@@ -251,7 +261,7 @@ export const SourceFormatDialog: React.FC<Props> = ({ task, mutate }) => {
                     </Button>
                     <Button onClick={handleSave} disabled={saving || !isDirty}>
                         {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                        Save
+                        {stale.conflict ? 'Save again' : 'Save'}
                     </Button>
                 </DialogFooter>
             </DialogContent>

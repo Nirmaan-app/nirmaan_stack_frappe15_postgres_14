@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
@@ -99,7 +100,7 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
     mutate: mutateCategories
   } = useFrappeGetDocList<CriticalPOCategory>(
     "Critical PO Category",
-    { fields: ["name", "category_name", "work_package"], limit: 0, orderBy: { field: "creation", order: "asc" } }
+    { fields: ["name", "category_name", "work_package", "modified"], limit: 0, orderBy: { field: "creation", order: "asc" } }
   );
 
   // 2. Fetch Items
@@ -110,7 +111,7 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
     mutate: mutateItems
   } = useFrappeGetDocList<CriticalPOItem>(
     "Critical PO Items",
-    { fields: ["name", "item_name", "sub_category", "critical_po_category", "release_timeline_offset"], limit: 0, orderBy: { field: "creation", order: "asc" } }
+    { fields: ["name", "item_name", "sub_category", "critical_po_category", "release_timeline_offset", "modified"], limit: 0, orderBy: { field: "creation", order: "asc" } }
   );
 
   // 3. Fetch Work Packages for dropdown
@@ -350,20 +351,29 @@ interface EditCategoryDialogProps {
   workPackages: WorkPackage[];
 }
 
+const categoryFormFrom = (c: any): CategoryFormValues => ({
+  category_name: c?.category_name,
+  work_package: c?.work_package || "",
+});
+
 const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutate, mutateItems, workPackages }) => {
   const [open, setOpen] = useState(false);
   const { call: renameDoc, loading: renameLoading } = useFrappePostCall(
     'frappe.model.rename_doc.update_document_title'
   );
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+  const stale = useStaleConflict({ doctype: "Critical PO Category", record: category as any, open });
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
-    defaultValues: {
-      category_name: category.category_name,
-      work_package: category.work_package || "",
-    },
+    defaultValues: categoryFormFrom(category),
   });
+
+  // Fill from the category as it is now each time the dialog opens, so the form and the
+  // version sent with the save always belong together.
+  React.useEffect(() => {
+    if (open) form.reset(categoryFormFrom(category));
+  }, [open, category, form]);
 
   const onSubmit = async (values: CategoryFormValues) => {
     const nameChanged = values.category_name !== category.category_name;
@@ -393,8 +403,10 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
       // Handle work package update (can update even without rename)
       if (packageChanged) {
         const docName = nameChanged ? values.category_name : category.name;
+        // A rename moves the record, so the version check applies only to an in-place save.
         await updateDoc("Critical PO Category", docName, {
           work_package: values.work_package || null,
+          ...(nameChanged ? {} : stale.guard()),
         });
       }
 
@@ -404,6 +416,7 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
       setOpen(false);
     } catch (error: any) {
       console.error("Failed to update Critical PO Category:", error);
+      if (await stale.handle(error, (latest) => form.reset(keepTyped(form.getValues(), categoryFormFrom(category), categoryFormFrom(latest))))) return;
       toast({ title: "Error", description: `Failed to update category: ${error.message || 'Unknown error'}`, variant: "destructive" });
     }
   };
@@ -421,6 +434,7 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
         <DialogHeader>
           <DialogTitle className="text-slate-800">Edit Category</DialogTitle>
         </DialogHeader>
+        <StaleConflictBanner conflict={stale.conflict} />
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -468,7 +482,7 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
             <div className="flex justify-end space-x-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={isLoading} className="bg-slate-900 hover:bg-slate-800">
-                {isLoading ? <TailSpin height={20} width={20} color="white" /> : "Save"}
+                {isLoading ? <TailSpin height={20} width={20} color="white" /> : stale.conflict ? "Save again" : "Save"}
               </Button>
             </div>
           </form>
@@ -576,31 +590,42 @@ interface EditItemDialogProps {
   mutate: () => Promise<any>;
 }
 
+const itemFormFrom = (i: any): ItemFormValues => ({
+  item_name: i?.item_name,
+  sub_category: i?.sub_category || "",
+  release_timeline_offset: i?.release_timeline_offset && i.release_timeline_offset >= 1
+    ? i.release_timeline_offset
+    : undefined
+});
+
 const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
   const [open, setOpen] = useState(false);
   const { updateDoc, loading } = useFrappeUpdateDoc();
+  const stale = useStaleConflict({ doctype: "Critical PO Items", record: item as any, open });
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemFormSchema),
-    defaultValues: {
-      item_name: item.item_name,
-      sub_category: item.sub_category || "",
-      release_timeline_offset: item.release_timeline_offset && item.release_timeline_offset >= 1
-        ? item.release_timeline_offset
-        : undefined
-    },
+    defaultValues: itemFormFrom(item),
   });
+
+  // Fill from the item as it is now each time the dialog opens, so the form and the
+  // version sent with the save always belong together.
+  React.useEffect(() => {
+    if (open) form.reset(itemFormFrom(item));
+  }, [open, item, form]);
 
   const onSubmit = async (values: ItemFormValues) => {
     try {
       await updateDoc("Critical PO Items", item.name, {
         item_name: values.item_name,
         sub_category: values.sub_category,
-        release_timeline_offset: values.release_timeline_offset
+        release_timeline_offset: values.release_timeline_offset,
+        ...stale.guard(),
       });
       toast({ title: "Success", description: "Item updated.", variant: "success" });
       await mutate();
       setOpen(false);
     } catch (error: any) {
+      if (await stale.handle(error, (latest) => form.reset(keepTyped(form.getValues(), itemFormFrom(item), itemFormFrom(latest))))) return;
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
@@ -623,6 +648,7 @@ const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
             Modifying the release timeline offset will recalculate PO release deadlines.
           </AlertDescription>
         </Alert>
+        <StaleConflictBanner conflict={stale.conflict} />
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -661,7 +687,7 @@ const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={loading}>
-                {loading ? <TailSpin height={20} width={20} color="white" /> : "Save"}
+                {loading ? <TailSpin height={20} width={20} color="white" /> : stale.conflict ? "Save again" : "Save"}
               </Button>
             </div>
           </form>
