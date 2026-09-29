@@ -15,6 +15,17 @@ import ReactSelect from 'react-select';
 import { CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH } from '../items.constants';
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
+import { keepTyped, StaleConflictBanner, useStaleConflict } from "@/hooks/useStaleConflict";
+
+/** The dialog's fields from an Items record. */
+const itemFormFrom = (i: any) => ({
+    item_name: i?.item_name || "",
+    unit_name: i?.unit_name || "",
+    category: i?.category || "",
+    billing_category: i?.billing_category || "",
+    item_status: i?.item_status || "",
+    linked_tds_item: i?.linked_tds_item || "",
+});
 
 interface EditItemDialogProps {
     item: ItemsType | null;
@@ -41,6 +52,8 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
 
     const { toast } = useToast();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    // A save refused because someone else changed the product first keeps the dialog open.
+    const stale = useStaleConflict({ doctype: "Items", record: item as any, open: isOpen });
 
     const { data: categoryList, isLoading: categoryLoading } = useFrappeGetDocList<CategoryType>(
         CATEGORY_DOCTYPE,
@@ -158,6 +171,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                 // through the doc lifecycle, so `Items.validate` re-checks the WP
                 // invariant server-side — this field is NOT written via set_value.
                 ...(canLinkTds ? { linked_tds_item: selectedTdsItem || null } : {}),
+                ...stale.guard(),
             });
 
             toast({
@@ -168,6 +182,28 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
             onItemUpdated();
             onOpenChange(false);
         } catch (err: any) {
+            // Someone else saved it first: stay open, keep what was typed, take theirs for the rest.
+            const handled = await stale.handle(err, (latest) => {
+                const next = keepTyped(
+                    {
+                        item_name: itemName,
+                        unit_name: selectedUnit,
+                        category: selectedCategory,
+                        billing_category: selectedBillingCategory,
+                        item_status: selectedItemStatus,
+                        linked_tds_item: selectedTdsItem,
+                    },
+                    itemFormFrom(item),
+                    itemFormFrom(latest),
+                );
+                setItemName(next.item_name);
+                setSelectedUnit(next.unit_name);
+                setSelectedCategory(next.category);
+                setSelectedBillingCategory(next.billing_category);
+                setSelectedItemStatus(next.item_status);
+                setSelectedTdsItem(next.linked_tds_item);
+            });
+            if (handled) return;
             toast({
                 title: "Failed!",
                 description: err.message || `Unable to update Product ${item.name}.`,
@@ -194,6 +230,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                 <DialogHeader>
                     <DialogTitle className="mb-2">Edit Product</DialogTitle>
                 </DialogHeader>
+                <StaleConflictBanner conflict={stale.conflict} />
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-col gap-4">
                         <div className="flex flex-col items-start">
@@ -329,7 +366,7 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                             onClick={handleSave}
                         >
                             <ListChecks className="h-4 w-4" />
-                            {updateLoading ? "Submitting..." : "Submit"}
+                            {updateLoading ? "Submitting..." : stale.conflict ? "Save again" : "Submit"}
                         </Button>
                     </div>
                 </div>

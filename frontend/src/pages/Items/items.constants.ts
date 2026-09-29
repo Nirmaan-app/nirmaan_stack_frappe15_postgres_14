@@ -15,7 +15,10 @@ export const ITEM_LIST_FIELDS_TO_FETCH: (keyof ItemsType | 'name')[] = [
     'billing_category',
     'creation',
     'item_status',
-    'linked_tds_item'
+    'linked_tds_item',
+    // The version the list loaded: the Edit Product dialog sends it so a save made after
+    // someone else changed the product is refused instead of overwriting their change.
+    'modified'
 ];
 
 /**
