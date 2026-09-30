@@ -15936,3 +15936,190 @@ class TestInsulationTypeRestored(FrappeTestCase):
         items = {i["item_uid"]: {"rates": i["rates"]} for i in self.v15["items"]}
         self.assertEqual(
             config_validation.derived_rate_updates(self.v15["category_configs"], items), {})
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c, COMMIT 1 -- AN ITEM-LIST PIPELINE MAY READ A PRICING INPUT AND BRANCH A COMPONENT
+#
+# `_PRICING_STEP_TYPES` is a CLOSED allowlist, and widening one is exactly the kind of gate relaxation
+# the standing rule warns about. It is safe here only because the two new members arrive WITH their
+# shape checks in the same change -- a member accepted but never checked is the "validates but never
+# executes" failure one level down. These tests are what say both halves landed.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestItemListMayReadAPricingInput(FrappeTestCase):
+    """SLICE 12c commit 1: the two widened steps, their shape branches, and ADP proved unmoved."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.hvac = json.load(fh)
+
+    @staticmethod
+    def _adp_cfg(asset):
+        return next(c for c in asset["category_configs"] if c["category_id"] == "hvac_adp")
+
+    @staticmethod
+    def _minimal(pricing_extra=None, steps=None):
+        """The smallest valid item-list config, so a shape test fails for its OWN reason."""
+        pr = {
+            "kind": "k_item", "unit_class_attr": "unit_class",
+            "unit_classes": {"count": ["nos"]}, "families": {"F": {"needs": [], "units": {"count": {
+                "needs": [], "pipelines": {"supply": {"output": ["supply"], "steps": steps or [
+                    {"step": "match_master_row", "params": {"kind": "k_item"}}]}}}}}},
+            "match_attrs": ["thickness_mm"], "choice_attrs": [], "ladders": [],
+            "numbers": {"thickness_mm": {"from": ["thickness_mm"], "name": "thickness",
+                                         "unit": "mm"}},
+        }
+        pr.update(pricing_extra or {})
+        fam = {"id": "family", "label": "Family", "type": "choice", "values": ["F"]}
+        return {
+            "discipline": "TESTDISC", "category_id": "c", "item_kinds": ["k_item"],
+            "pipelines": {}, "matching_mode": "item_list",
+            "attribute_definitions": [
+                copy.deepcopy(fam),
+                {"id": "thickness_mm", "label": "Thickness", "type": "number"},
+            ],
+            "list_spec": {
+                "family_attribute_id": "family",
+                # `numbers.from` must name TEXT item attributes -- the number is READ out of the
+                # stated text, so the item-side definition is text even where the row's own is a
+                # number. Getting this wrong refuses the fixture for its OWN reason and masks every
+                # step check below; that is what the specific message assertions caught.
+                "attribute_definitions": [
+                    copy.deepcopy(fam),
+                    {"id": "thickness_mm", "label": "Thickness", "type": "text"},
+                ],
+                "pricing": pr,
+            },
+        }
+
+    # ---- the widening itself ------------------------------------------------------------------
+
+    def test_c1_01_the_two_steps_are_allowed_in_an_item_list_pipeline(self):
+        self.assertIn("rate_ref", config_validation._PRICING_STEP_TYPES)
+        self.assertIn("component", config_validation._PRICING_STEP_TYPES)
+
+    def test_c1_02_a_rate_ref_and_a_conditional_component_VALIDATE(self):
+        """The positive half: the shape Insulation actually needs is accepted."""
+        cfg = self._minimal(steps=[
+            {"step": "rate_ref", "ref": {"kind": "x_pricing_input", "item": "alu_26g"},
+             "target": "rate", "result": "al26"},
+            {"step": "match_master_row", "params": {"kind": "k_item"}},
+            {"step": "component", "name": "cladding", "formula": "al*t",
+             "conditions": [{"when": {"thickness_mm": 13}, "params": {"al_from_ctx": "al26",
+                                                                     "t_from_attr": "thickness_mm"}}]},
+            {"step": "sum_components", "result": "cost"},
+        ])
+        config_validation._validate_config(cfg)          # must not raise
+
+    # ---- the shape branches: NEGATIVE, one per guard -------------------------------------------
+
+    def test_c1_03_NEGATIVE_a_rate_ref_without_ref_kind_is_refused(self):
+        cfg = self._minimal(steps=[{"step": "rate_ref", "ref": {}, "target": "rate", "result": "r"}])
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("ref.kind", str(cm.exception))
+
+    def test_c1_04_NEGATIVE_a_rate_ref_without_target_or_result_is_refused(self):
+        for missing in ("target", "result"):
+            step = {"step": "rate_ref", "ref": {"kind": "x"}, "target": "rate", "result": "r"}
+            del step[missing]
+            with self.assertRaises(Exception) as cm:
+                config_validation._validate_config(self._minimal(steps=[step]))
+            self.assertIn(missing, str(cm.exception))
+
+    def test_c1_05_NEGATIVE_a_rate_ref_carrying_a_forbidden_key_is_refused_BY_NAME(self):
+        """A pricing input is a SCALAR. `qty` would multiply it, `none_skips` would turn a missing
+        input into a silent zero -- each changes the meaning while still looking like valid config."""
+        for bad in ("qty", "none_skips", "formula", "rate_stages", "conditions", "params"):
+            step = {"step": "rate_ref", "ref": {"kind": "x"}, "target": "rate", "result": "r", bad: 1}
+            with self.assertRaises(Exception) as cm:
+                config_validation._validate_config(self._minimal(steps=[step]))
+            self.assertIn(bad, str(cm.exception))
+
+    def test_c1_06_NEGATIVE_a_component_without_name_or_formula_is_refused(self):
+        for missing in ("name", "formula"):
+            step = {"step": "component", "name": "c", "formula": "base"}
+            del step[missing]
+            with self.assertRaises(Exception) as cm:
+                config_validation._validate_config(self._minimal(steps=[step]))
+            self.assertIn(missing, str(cm.exception))
+
+    def test_c1_07_NEGATIVE_a_component_condition_branching_on_a_NON_attribute_is_refused(self):
+        """Every fact a branch keys on must be a fact of this category -- a typo would silently take
+        the no-matching-condition path and refuse every row."""
+        cfg = self._minimal(steps=[{"step": "component", "name": "c", "formula": "x",
+                                    "conditions": [{"when": {"claddingg": "No"}, "params": {"x": 1}}]}])
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("claddingg", str(cm.exception))
+
+    def test_c1_08_NEGATIVE_a_component_from_attr_naming_a_NON_attribute_is_refused(self):
+        cfg = self._minimal(steps=[{"step": "component", "name": "c", "formula": "t",
+                                    "conditions": [{"when": {"thickness_mm": 13},
+                                                    "params": {"t_from_attr": "nope_mm"}}]}])
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("nope_mm", str(cm.exception))
+
+    def test_c1_09_NEGATIVE_a_component_with_an_EMPTY_target_is_still_refused(self):
+        """`target` is optional; present-but-blank is a typo, not an omission."""
+        cfg = self._minimal(steps=[{"step": "component", "name": "c", "target": "", "formula": "base"}])
+        with self.assertRaises(Exception):
+            config_validation._validate_config(cfg)
+
+    def test_c1_10_NEGATIVE_a_step_type_still_OUTSIDE_the_set_is_refused(self):
+        """The allowlist is still closed -- widening it by two did not open it."""
+        cfg = self._minimal(steps=[{"step": "derive_attribute", "params": {
+            "result_attr": "x", "formula": "1"}}])
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("derive_attribute", str(cm.exception))
+
+    # ---- ADP unmoved ---------------------------------------------------------------------------
+
+    def test_c1_11_ADP_uses_NEITHER_new_step_so_the_widening_cannot_touch_it(self):
+        """The measured no-op: widening an allowlist cannot change a config that uses none of what was
+        added. Counts pinned so this cannot pass by ADP quietly acquiring one."""
+        used = collections.Counter()
+
+        def walk(o):
+            if isinstance(o, dict):
+                if isinstance(o.get("steps"), list):
+                    for st in o["steps"]:
+                        if isinstance(st, dict) and "step" in st:
+                            used[st["step"]] += 1
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+
+        walk(self._adp_cfg(self.hvac).get("list_spec"))
+        self.assertEqual(used["rate_ref"], 0)
+        self.assertEqual(used["component"], 0)
+        self.assertEqual(dict(used), {"match_master_row": 62, "scale": 124, "roundup": 64,
+                                      "component_ref": 2, "sum_components": 2})
+
+    def test_c1_12_every_shipped_asset_still_validates_through_the_loaders_own_gate(self):
+        """A widened allowlist must not have broken anything that validated before."""
+        import glob
+        data_dir = os.path.dirname(_asset_path(CURRENT_HVAC_ASSET))
+        checked = 0
+        for path in sorted(glob.glob(os.path.join(data_dir, "rate_master_*_v*.json"))):
+            with open(path, "r", encoding="utf-8") as fh:
+                asset = json.load(fh)
+            for c in asset.get("category_configs", []) or [asset.get("category_config")]:
+                if not c:
+                    continue
+                try:
+                    config_validation._validate_config(
+                        loader._loaded_config(copy.deepcopy(c), asset.get("discipline") or "X",
+                                              asset.get("goldens") or {}))
+                except Exception as exc:                    # a historical asset may hold a real defect
+                    if "point_wiring" in str(exc) or "switch_item" in str(exc):
+                        continue                            # the known v12 defect, recorded at 12b(A)
+                    raise AssertionError("%s: %s" % (os.path.basename(path), exc))
+            checked += 1
+        self.assertGreater(checked, 60)

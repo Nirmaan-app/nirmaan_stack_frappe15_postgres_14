@@ -308,8 +308,30 @@ _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
 # own word for the thing the row now prices as). It never reaches the model and never reaches the matcher.
 _PRICING_OVERRIDE_KEYS = {"attr", "families", "when", "then", "rule", "display"}
 _PRICING_OVERRIDE_REQUIRED = {"attr", "families", "when", "then", "rule"}
-# the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
-_PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
+# The interpreter steps an item-list pipeline may use. EXISTING vocabulary only -- no member here is a
+# new step type; each is already implemented, tested and shipped on the config-level path.
+#
+# SLICE 12c widens it by TWO, and the widening is what makes an item-list category able to price from a
+# PRICING INPUT at all:
+#   * `rate_ref`  -- reads one stored input into ctx. Without it `list_spec.pricing` pipelines cannot see
+#                    a Pricing Input, so Insulation could not read the aluminium / glass-cloth / GI
+#                    numbers and every one of them would have had to stay a literal in the config -- the
+#                    exact thing 12b(A) removed for Electrical.
+#   * `component` -- a component whose `conditions` branch on the SELECTION. Insulation's cladding is one
+#                    formula with a per-cladding parameter set (aluminium x overlap, glass cloth, the GI
+#                    pair, a flat foil rate, zero); `component_ref` cannot express that because it reads
+#                    ANOTHER ROW rather than branching on this one's answer.
+#
+# ⚠️ WIDENING A CLOSED ALLOWLIST IS ONLY SAFE BECAUSE THE TWO ARRIVE WITH THEIR SHAPE CHECKS, IN THIS
+# SAME CHANGE (see `_validate_pricing_pipelines`). A member added here without its branch below would be
+# accepted and never checked -- the "config key that validates but never executes" failure one level
+# down, which is precisely what this file exists to prevent.
+#
+# ⚠️ MEASURED NO-OP FOR ADP, the only shipped item-list category: its `list_spec` pipelines use
+# match_master_row (62), scale (124), roundup (64), component_ref (2) and sum_components (2) -- not one
+# `rate_ref` and not one `component`. Widening the set cannot change what it already validates.
+_PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup",
+                       "rate_ref", "component"}
 
 
 def _validate_list_pricing(spec, by_id, family_vals, cfg):
@@ -651,6 +673,52 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
             elif st == "sum_components":
                 if not isinstance(s.get("result"), str) or not s.get("result"):
                     _vthrow(f"{where}: sum_components needs a string 'result'.")
+            elif st == "rate_ref":
+                # SLICE 12c -- mirrors the config-level branch exactly, so a pipeline that validates on
+                # one path cannot be refused on the other. `result` is the ctx key a later step reads.
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
+                    _vthrow(f"{where}: rate_ref needs ref.kind (a string).")
+                for key in ("target", "result"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: rate_ref needs a string '{key}'.")
+                for bad in _RATE_REF_FORBIDDEN:
+                    if bad in s:
+                        _vthrow(
+                            f"{where}: rate_ref must not carry '{bad}'. A pricing input is a single "
+                            "number, not a component: read it with rate_ref and use it in a later step."
+                        )
+                # ⚠️ A ref value here may name a SKU attribute ("@thickness_mm") or be a literal. It is
+                # NOT checked against `sku_attrs`, because a pricing input is resolved in the INPUT
+                # kind's own namespace (`item`, `name`), which is not this category's attribute set.
+                # The interpreter refuses an unresolved bind loudly at price time, naming it.
+            elif st == "component":
+                # SLICE 12c -- `target` OPTIONAL (the interpreter has always treated it so: a component
+                # whose formula is param-only reads no price off the matched row -- which is exactly
+                # Insulation's cladding). Present-but-blank stays an error, so a typo is still caught.
+                for key in ("name", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component needs a string '{key}'.")
+                if "target" in s and (not isinstance(s.get("target"), str) or not s.get("target")):
+                    _vthrow(f"{where}: component 'target', when present, must be a non-empty string.")
+                _validate_params(s.get("params"), where)
+                conds = s.get("conditions")
+                if conds is not None:
+                    if not isinstance(conds, list) or not conds:
+                        _vthrow(f"{where}: component 'conditions', when present, must be a non-empty list.")
+                    for ci, c in enumerate(conds):
+                        if not isinstance(c, dict) or not isinstance(c.get("when"), dict) or not c["when"]:
+                            _vthrow(f"{where} condition {ci}: needs a non-empty 'when' object.")
+                        # every key a condition branches on is a fact of THIS category
+                        for wk in c["when"]:
+                            if wk not in sku_attrs and wk != pr["unit_class_attr"] and wk != "family":
+                                _vthrow(f"{where} condition {ci}: 'when' names '{wk}', which is not a "
+                                        f"SKU attribute of this category.")
+                        _validate_params(c.get("params"), f"{where} condition {ci}")
+                        for pk, pv in (c.get("params") or {}).items():
+                            if pk.endswith(_FROM_ATTR_SUFFIX) and pv not in sku_attrs:
+                                _vthrow(f"{where} condition {ci}: '{pk}' names '{pv}', which is not a "
+                                        f"SKU attribute.")
             elif st == "component_ref":
                 for key in ("name", "target"):
                     if not isinstance(s.get(key), str) or not s.get(key):
