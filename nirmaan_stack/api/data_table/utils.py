@@ -54,6 +54,24 @@ def _parse_filters_input(filters_input: str | list | dict | None, doctype_for_lo
 
     return parsed_list_of_lists
 
+def json_facet_array_expr(field: str) -> str:
+    """The value list of a JSON facet field: a top-level array, or the object's 'categories' array."""
+    return (
+        f"""(CASE WHEN jsonb_typeof("{field}"::jsonb) = 'array' THEN "{field}"::jsonb """
+        f"""ELSE COALESCE("{field}"::jsonb->'categories', '[]'::jsonb) END)"""
+    )
+
+def json_facet_empty_condition(field: str) -> str:
+    """SQL condition: the JSON facet field holds no values (NULL, JSON null, `[]`, `{"categories": []}`).
+
+    The facet "not set" bucket for a JSON field — `is not set` (NULL or '') misses an empty
+    list, and comparing a json column to '' raises `json = unknown` on Postgres.
+    """
+    return (
+        f"""(CASE WHEN "{field}" IS NULL THEN TRUE """
+        f"""ELSE {json_facet_array_expr(field)} IN ('[]'::jsonb, 'null'::jsonb) END)"""
+    )
+
 def _process_filters_for_query(filters_list: list, doctype: str) -> list:
     processed_filters = []
     COMMON_DATE_FIELDS = {"creation", "modified"}
@@ -85,6 +103,23 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
         # --- "Not set" facet bucket: handle the sentinel inside an `in` filter ---
         if operator == "in" and isinstance(value, list) and NOT_SET_FACET_VALUE in value:
             remaining = [v for v in value if v != NOT_SET_FACET_VALUE]
+            _sentinel_df = frappe.get_meta(original_filter_doctype).get_field(field)
+            if _sentinel_df and _sentinel_df.fieldtype == "JSON":
+                # JSON facet (e.g. Vendors.vendor_category): "not set" = an empty value list,
+                # OR'd with holding ANY of the ticked values — one query, resolved to names.
+                conditions = [json_facet_empty_condition(field)]
+                if remaining:
+                    placeholders = ", ".join(["%s"] * len(remaining))
+                    conditions.append(f"{json_facet_array_expr(field)} ?| array[{placeholders}]")
+                json_names = frappe.db.sql(
+                    f'SELECT name FROM "tab{original_filter_doctype}" WHERE {" OR ".join(conditions)}',
+                    tuple(remaining), pluck=True,
+                )
+                if json_names:
+                    processed_filters.append([original_filter_doctype, "name", "in", json_names])
+                else:
+                    processed_filters.append([original_filter_doctype, "name", "=", "NoMatchFound_NotSet_Filter"])
+                continue
             if not remaining:
                 # Only "not set" selected → simple `is not set` (NULL or '').
                 processed_filters.append([original_filter_doctype, field, "is", "not set"])
