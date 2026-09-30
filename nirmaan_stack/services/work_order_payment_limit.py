@@ -13,7 +13,9 @@ the result, and the Request Payment dialog shows it without re-deriving anything
     Total left = total incl. GST - all payments          (may go negative on an over-paid order)
 
 A request is allowed iff its amount is within the chosen part's left AND within total left, each
-with the ₹10 tolerance the request cap has always had.
+with the ₹10 tolerance the request cap has always had. So the most one part may take is its CAP,
+min(part left, total left), and `caps` says which of the two binds: the dialogs show that figure
+and that reason as given, and never combine the two themselves.
 
 Payments count exactly as `services/payment_summary` counts them: GROSS of TDS (except on a
 company-borne Work Order), at every status the request cap counts, Rejected included until deleted.
@@ -26,7 +28,7 @@ payment, which is never taxed. A GST-off Work Order has no Work Order GST, so it
 from frappe.utils import cint, flt
 
 from nirmaan_stack.services.payment_summary import is_counted, summarise
-from nirmaan_stack.services.work_order_gst import gst_is_on, work_order_gst
+from nirmaan_stack.services.work_order_gst import gst_is_on, gst_released, work_order_gst
 
 #: The request cap's rounding tolerance, in rupees.
 TOLERANCE = 10
@@ -60,21 +62,36 @@ def work_order_limit(
 
 	wo_gst = work_order_gst(total, gst_flag)
 	base_value = round(total - wo_gst, 2)
-	gst_released = round(min(flt(gst_invoiced), wo_gst), 2)
+	released = gst_released(gst_invoiced, wo_gst)
+	base_left = round(max(0.0, base_value - base_paid), 2)
+	gst_left = round(max(0.0, released - gst_paid), 2)
+	total_left = summary["left"]
 
 	summary["limit"] = {
 		"gst_on": gst_is_on(gst_flag),
 		"base_value": base_value,
 		"work_order_gst": wo_gst,
 		"gst_invoiced": round(flt(gst_invoiced), 2),
-		"gst_released": gst_released,
+		"gst_released": released,
 		"base_paid": round(base_paid, 2),
 		"gst_paid": round(gst_paid, 2),
-		"base_left": round(max(0.0, base_value - base_paid), 2),
-		"gst_left": round(max(0.0, gst_released - gst_paid), 2),
-		"total_left": summary["left"],
+		"base_left": base_left,
+		"gst_left": gst_left,
+		"total_left": total_left,
+		"caps": {"base": part_cap(base_left, total_left), "gst": part_cap(gst_left, total_left)},
 	}
 	return summary
+
+
+def part_cap(part_left, total_left) -> dict:
+	"""The most one part may take: `{"cap": min(part left, total left) floored at 0, "binds": ...}`.
+
+	`binds` is "total" when total left is the smaller figure (an old Work Order paid past its base
+	value), else "part".
+	"""
+	if flt(total_left) < flt(part_left):
+		return {"cap": round(max(0.0, flt(total_left)), 2), "binds": "total"}
+	return {"cap": round(max(0.0, flt(part_left)), 2), "binds": "part"}
 
 
 def request_refusal(limit: dict, amount, gst_payment: bool) -> dict | None:

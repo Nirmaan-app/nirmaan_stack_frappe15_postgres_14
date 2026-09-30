@@ -1,7 +1,7 @@
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { gstLeftNote, PayFor, payForCap, WorkOrderLimit } from "./paymentSummaryView";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { gstLeftNote, PayFor, WorkOrderLimit } from "./paymentSummaryView";
 
 interface PayForChoiceProps {
   limit: WorkOrderLimit;
@@ -24,9 +24,10 @@ export const PayForChoice = ({ limit, value, onChange, idPrefix = "pay-for" }: P
         ["base", "Base", limit.base_left, null],
         ["gst", "GST", limit.gst_left, gstLeftNote(limit)],
       ] as const).map(([part, label, left, note]) => {
-        // Total left can bind below a part's own left (an old WO paid past its base value).
-        const totalNote = left > 0 && payForCap(limit, part).capLabel === "total left"
-          ? `Only ${limit.total_left > 0 ? formatToIndianRupee(limit.total_left) : "₹0.00"} left in the WO total`
+        // Total left can bind below a part's own left (an old WO paid past its base value); the
+        // server says when it does.
+        const totalNote = left > 0 && limit.caps[part].binds === "total"
+          ? `Only ${formatToIndianRupeeOrZero(limit.caps[part].cap)} left in the WO total`
           : null;
         return (
           <Label key={part} htmlFor={`${idPrefix}-${part}`}
@@ -35,7 +36,7 @@ export const PayForChoice = ({ limit, value, onChange, idPrefix = "pay-for" }: P
             <span className="space-y-0.5">
               <span className="block font-medium">{label}</span>
               <span className="block text-xs text-muted-foreground tabular-nums">
-                {left > 0 ? formatToIndianRupee(left) : "₹0.00"} left
+                {formatToIndianRupeeOrZero(Math.max(0, left))} left
               </span>
               {(note || totalNote) &&
                 <span className="block text-[11px] text-amber-700 dark:text-amber-400">{note || totalNote}</span>}

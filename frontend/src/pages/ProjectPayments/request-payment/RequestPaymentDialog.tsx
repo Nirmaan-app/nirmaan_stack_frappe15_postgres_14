@@ -65,16 +65,17 @@ export default function RequestPaymentDialog(p:Props){
     open && isWO ? p.docName : null
   );
 
-  /* A GST-on Work Order pays Base or GST, never a mix (ADR-0030). Each part has its own "left",
-     read from the summary's `limit` -- the server's Work Order payment limit, never re-derived
-     here. Full / % / Due measure against the chosen part; nothing can be confirmed until the
-     limit has loaded, because there is no local figure to fall back on. */
+  /* A GST-on Work Order pays Base or GST, never a mix (ADR-0030). Each part has its own cap,
+     read from the summary's `limit.caps` -- the server's Work Order payment limit, never re-derived
+     here. Full / % / Due all measure against the chosen part's cap (story 25: after a 40,000 base
+     payment, Full (Base) offers 60,000); nothing can be confirmed until the limit has loaded,
+     because there is no local figure to fall back on. */
   const gstWO = isWO && p.gst;
   const limit = summary?.limit;
   const cap = useMemo(()=> (gstWO && limit ? payForCap(limit, payFor) : null), [gstWO, limit, payFor]);
   const gstPayment = gstWO && payFor === "gst";
 
-  const payable = gstWO ? (cap?.value ?? 0) : p.totalIncGST;
+  const payable = gstWO ? (cap?.max ?? 0) : p.totalIncGST;
 
   // ⚠️ ONE BALANCE: once the summary has loaded, "Due", the cap warning and the block's
   // "Left after this payment" all read the server's figures. They count payments gross of TDS as
@@ -171,7 +172,9 @@ export default function RequestPaymentDialog(p:Props){
                  onChange={e=>setCustom(e.target.value)} />
         </div>
 
-        {p.paid===0 && p.pending===0 && <>
+        {/* On a GST Work Order the shortcuts measure against what is left of the chosen part, so
+            they stay meaningful after earlier payments. */}
+        {(gstWO || (p.paid===0 && p.pending===0)) && <>
           <div className="flex items-center gap-2">
             <RadioGroupItem value="percentage" id="pct"/>
             <Input type="number" className="w-16 h-8"

@@ -6,14 +6,21 @@ The endpoint suite (`api/delivery_notes/test_update_invoice_data`) drives the sa
 through `update_invoice_data`; this file pins the edges that suite does not walk.
 """
 
+import json
+import os
 import unittest
 
 from nirmaan_stack.services.invoice_amounts import (
+	SPLIT_TOLERANCE,
 	missing_split,
 	parse_figure,
 	signed,
 	split_warnings,
 )
+
+#: Shared with the frontend twin's suite (`frontend/src/utils/invoiceAmounts.test.ts`).
+with open(os.path.join(os.path.dirname(__file__), "invoice_amounts_cases.json")) as _f:
+	CASES = json.load(_f)
 
 
 class TestParseFigure(unittest.TestCase):
@@ -70,6 +77,31 @@ class TestSplitWarnings(unittest.TestCase):
 
 	def test_both_warnings_can_fire_together(self):
 		self.assertEqual(len(split_warnings(2000, 1000, 180, gst_off_work_order=True)), 2)
+
+
+class TestSharedCases(unittest.TestCase):
+	"""The cases the frontend twin runs too: the same inputs must give the same answers."""
+
+	def test_the_tolerance_is_the_shared_one(self):
+		self.assertEqual(SPLIT_TOLERANCE, CASES["tolerance"])
+
+	def test_each_case(self):
+		for case in CASES["cases"]:
+			with self.subTest(case["name"]):
+				cn = case["is_credit_note"]
+				base, gst = signed(case["base"], cn), signed(case["gst"], cn)
+				self.assertEqual(base, case["stored_base"])
+				self.assertEqual(gst, case["stored_gst"])
+				self.assertEqual(missing_split(case["base"], case["gst"]), case["missing"])
+				# The Invoice Amount arrives signed like the split (the dialog signs it).
+				warnings = split_warnings(signed(case["amount"], cn), base, gst)
+				self.assertEqual(len(warnings) == 1, case["split_warns"], warnings)
+
+	def test_each_gst_off_case(self):
+		for case in CASES["gst_off_cases"]:
+			with self.subTest(case["name"]):
+				warnings = split_warnings(None, None, case["gst"], gst_off_work_order=case["gst_off_work_order"])
+				self.assertEqual(any("GST off" in w for w in warnings), case["gst_off_warns"])
 
 
 if __name__ == "__main__":

@@ -1,13 +1,54 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   INVOICE_SPLIT_TOLERANCE,
   gstOnGstOffWorkOrder,
   missingSplitLabels,
   parseFigure,
+  parseReadFigure,
   signedFigure,
   splitForEditForm,
   splitMismatch,
 } from "./invoiceAmounts";
+
+/** Shared with the server's suite (`services/test_invoice_amounts.py`): one set of cases, two twins. */
+const SHARED = JSON.parse(
+  readFileSync(resolve(__dirname, "../../../nirmaan_stack/services/invoice_amounts_cases.json"), "utf-8")
+) as {
+  tolerance: number;
+  cases: {
+    name: string; amount: string; base: string; gst: string; is_credit_note: boolean;
+    stored_base: number | null; stored_gst: number | null; missing: string[]; split_warns: boolean;
+  }[];
+  gst_off_cases: { name: string; gst: string; gst_off_work_order: boolean; gst_off_warns: boolean }[];
+};
+
+describe("parity with services/invoice_amounts.py (shared cases)", () => {
+  it("uses the server's tolerance", () => {
+    expect(INVOICE_SPLIT_TOLERANCE).toBe(SHARED.tolerance);
+  });
+
+  it.each(SHARED.cases)("$name", (c) => {
+    expect(signedFigure(c.base, c.is_credit_note)).toBe(c.stored_base);
+    expect(signedFigure(c.gst, c.is_credit_note)).toBe(c.stored_gst);
+    expect(missingSplitLabels(c.base, c.gst)).toEqual(c.missing);
+    expect(splitMismatch(c.amount, c.base, c.gst, c.is_credit_note) !== null).toBe(c.split_warns);
+  });
+
+  it.each(SHARED.gst_off_cases)("$name", (c) => {
+    expect(gstOnGstOffWorkOrder(c.gst, c.gst_off_work_order)).toBe(c.gst_off_warns);
+  });
+});
+
+describe("parseReadFigure", () => {
+  it("reads an AI / OCR figure with its currency symbol", () => {
+    expect(parseReadFigure("₹ 3,257.50")).toBe(3257.5);
+    expect(parseReadFigure(540)).toBe(540);
+    expect(parseReadFigure("n/a")).toBeNull();
+    expect(parseReadFigure(undefined)).toBeNull();
+  });
+});
 
 describe("parseFigure", () => {
   it("reads blanks and junk as null, and 0 as a figure", () => {

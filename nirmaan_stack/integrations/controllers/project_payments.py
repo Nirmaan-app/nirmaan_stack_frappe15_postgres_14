@@ -8,6 +8,7 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 
 # Imports for notification system
@@ -230,10 +231,8 @@ def _validate_work_order_limit(doc):
         return
     if flt(doc.amount) <= 0:
         return
-    from nirmaan_stack.api.payments.payment_summary import assert_within_work_order_limit
-
     sr = frappe.get_doc("Service Requests", doc.document_name)
-    assert_within_work_order_limit(sr, doc.amount, bool(cint(doc.get("is_gst_payment"))), verb="pay")
+    assert_within_work_order_limit(sr, doc.amount, bool(cint(doc.get("is_gst_payment"))), action="pay")
 
 
 def after_insert(doc, method):

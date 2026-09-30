@@ -31,13 +31,17 @@ def work_order_gst(total_amount, gst_flag):
 	return flt(total - total / (1 + GST_RATE), 2)
 
 
+def gst_released(gst_invoiced, wo_gst):
+	"""The GST that may be paid at all: min(GST Invoiced, Work Order GST)."""
+	return flt(min(flt(gst_invoiced), flt(wo_gst)), 2)
+
+
 def gst_opened_by_approval(gst_invoiced_before, invoice_gst, wo_gst):
-	"""How much approving an invoice raises min(GST Invoiced, Work Order GST).
+	"""How much approving an invoice raises `gst_released`.
 
 	Negative for a credit note (its GST is stored negative), 0 once the Work Order's own GST
 	is fully invoiced.
 	"""
 	before = flt(gst_invoiced_before)
-	cap = flt(wo_gst)
 	after = before + flt(invoice_gst)
-	return flt(min(after, cap) - min(before, cap), 2)
+	return flt(gst_released(after, wo_gst) - gst_released(before, wo_gst), 2)

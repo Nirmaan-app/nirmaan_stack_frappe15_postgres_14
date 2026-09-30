@@ -14,7 +14,7 @@ from nirmaan_stack.services.approval_tiers import (
     is_auto_approved,
     steps_cleared_by_raiser,
 )
-from nirmaan_stack.api.payments.payment_summary import assert_within_work_order_limit
+from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services import cheque_payments
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.

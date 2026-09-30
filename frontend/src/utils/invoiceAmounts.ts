@@ -22,6 +22,13 @@ export const parseFigure = (value: string | number | null | undefined): number |
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * A figure as the AI or OCR wrote it ("₹ 3,257.50"): currency symbols and spaces dropped, then
+ * read like a typed one. The one parser for the invoice screens' AI-read figures.
+ */
+export const parseReadFigure = (value: string | number | null | undefined): number | null =>
+  parseFigure(typeof value === "string" ? value.replace(/[^\d.,-]/g, "") : value);
+
 /** Labels of the split figures still blank, in form order ([] when both are filled). */
 export const missingSplitLabels = (base: string, gst: string): string[] =>
   [

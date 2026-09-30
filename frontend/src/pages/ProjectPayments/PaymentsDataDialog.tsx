@@ -6,10 +6,11 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { GstPaymentTag } from "./components/GstPaymentTag";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -36,7 +37,7 @@ export const PaymentsDataDialog = ({
   const { data: fetchedPayments } = useFrappeGetDocList<ProjectPayments>(
     "Project Payments",
     {
-      fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment"],
+      fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "is_gst_payment"],
       filters: [["document_name", "=", data?.name], ["status", "=", "Paid"]],
       limit: 0,
     },
@@ -104,7 +105,10 @@ export const PaymentsDataDialog = ({
                       <TableCell className="font-medium">
                         {formatDate(payment.payment_date || payment.creation)}
                       </TableCell>
-                      <TableCell>{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
+                      <TableCell>
+                        {formatToRoundedIndianRupee(payment?.amount)}
+                        <GstPaymentTag payment={payment} />
+                      </TableCell>
                       {payment?.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
                               <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer"

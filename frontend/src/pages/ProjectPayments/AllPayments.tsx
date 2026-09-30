@@ -59,6 +59,7 @@ import { canViewPaymentSummary } from "@/constants/roles"
 import { useToast } from "@/components/ui/use-toast"
 import { getFrappeError } from "@/utils/frappeErrors"
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
+import { GstPaymentTag } from "./components/GstPaymentTag"
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -600,7 +601,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                             {deleteRow.against_primary || deleteRow.name}
                                         </div>
                                         <div className="text-muted-foreground">
-                                            {formatToRoundedIndianRupee(deleteRow.amount)} · {deleteRow.status}
+                                            {formatToRoundedIndianRupee(deleteRow.amount)}
+                                            <GstPaymentTag payment={deleteRow} /> · {deleteRow.status}
                                             {deleteRow.vendor ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}` : ""}
                                         </div>
                                         {deleteRow.raised_by !== user_id && (
@@ -652,6 +654,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(revertRow.amount)}
+                                            <GstPaymentTag payment={revertRow} />
                                             {revertRow.vendor ? ` · ${vendorLabelMap.get(revertRow.vendor) || revertRow.vendor}` : ""}
                                         </div>
                                     </div>

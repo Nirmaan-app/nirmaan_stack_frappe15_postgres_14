@@ -23,6 +23,7 @@ from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_q
 from nirmaan_stack.api.invoices._validation import ORDER_TOTAL_LABEL, existing_invoiced_sum
 from nirmaan_stack.services import invoice_amounts
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin as _is_nirmaan_admin
+from nirmaan_stack.services.work_order_gst import gst_is_on
 
 
 @frappe.whitelist()
@@ -295,7 +296,7 @@ def update_invoice_data(
             vendor_invoice.invoice_amount,
             vendor_invoice.invoice_base_amount,
             vendor_invoice.invoice_gst_amount,
-            gst_off_work_order=doctype == "Service Requests" and doc.get("gst") == "false",
+            gst_off_work_order=doctype == "Service Requests" and not gst_is_on(doc.get("gst")),
         )
 
         action_label = "updated" if invoice_id else "created"

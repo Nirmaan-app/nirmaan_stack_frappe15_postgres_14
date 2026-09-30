@@ -291,6 +291,25 @@ class TestInvoiceSplitFigures(_InvoiceEndpointCase):
         res = self._save(self.wo_gst_on, amount=1180, base_amount=1000, gst_amount=180)
         self.assertEqual(res["warnings"], [])
 
+    def test_the_gst_flag_is_read_as_the_work_order_reads_it(self):
+        """`work_order_gst.gst_is_on`: any spelling of on is on, anything else is off."""
+        spelled_on = _raw("Service Requests", total_amount=self.TOTAL, gst=" True ")
+        spelled_off = _raw("Service Requests", total_amount=self.TOTAL, gst="False")
+        frappe.db.commit()
+        self.addCleanup(self._purge_parents, spelled_on, spelled_off)
+
+        on = self._save(spelled_on, amount=1180, base_amount=1000, gst_amount=180)
+        self.assertEqual(on["warnings"], [])
+        off = self._save(spelled_off, amount=1180, base_amount=1000, gst_amount=180)
+        self.assertEqual(len(off["warnings"]), 1)
+        self.assertIn("GST off", off["warnings"][0])
+
+    def _purge_parents(self, *parents):
+        frappe.db.rollback()
+        frappe.db.delete("Vendor Invoices", {"document_name": ("in", parents)})
+        frappe.db.delete("Service Requests", {"name": ("in", parents)})
+        frappe.db.commit()
+
     # ------------------------------------------------------------------ credit note
 
     def test_credit_note_stores_base_and_gst_negative(self):

@@ -116,6 +116,31 @@ class TestLimitRules(unittest.TestCase):
 		self.assertEqual(out["lines"]["requested"], 100)
 
 
+class TestPartCaps(unittest.TestCase):
+	"""`caps`: what each part may take, and which limit binds. The dialogs show these as given."""
+
+	def test_after_a_base_payment_base_may_take_what_is_left_of_it(self):
+		# Story 25: after a 40,000 base payment, Full (Base) offers 60,000.
+		out = work_order_limit(118000, "true", 9000, [_base("B1", 39200)], {"B1": 800})
+		self.assertEqual(out["limit"]["caps"]["base"], {"cap": 60000, "binds": "part"})
+		self.assertEqual(out["limit"]["caps"]["gst"], {"cap": 9000, "binds": "part"})
+
+	def test_total_left_binds_below_a_parts_own_left(self):
+		# An old Work Order paid 1,10,000 of base: GST left 18,000, but only 8,000 left in total.
+		out = work_order_limit(118000, "true", 18000, [_base("B1", 110000, "Paid")])
+		self.assertEqual(out["limit"]["caps"]["gst"], {"cap": 8000, "binds": "total"})
+		self.assertEqual(out["limit"]["caps"]["base"], {"cap": 0, "binds": "part"})
+
+	def test_an_over_paid_order_caps_at_zero(self):
+		out = work_order_limit(118000, "true", 18000, [_base("B1", 118500, "Paid")])
+		self.assertEqual(out["limit"]["caps"]["gst"], {"cap": 0, "binds": "total"})
+
+	def test_a_gst_off_work_order_has_no_gst_to_take(self):
+		out = work_order_limit(100000, "false", 5000, [_base("B1", 30000)])
+		self.assertEqual(out["limit"]["caps"]["gst"], {"cap": 0, "binds": "part"})
+		self.assertEqual(out["limit"]["caps"]["base"], {"cap": 70000, "binds": "part"})
+
+
 class TestRequestRefusal(unittest.TestCase):
 	def setUp(self):
 		# Base left 60,000, GST left 9,000, total left 69,000 (the worked example's step 6).

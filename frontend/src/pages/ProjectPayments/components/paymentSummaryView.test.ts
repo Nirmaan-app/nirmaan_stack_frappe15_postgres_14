@@ -84,22 +84,28 @@ const LIMIT: WorkOrderLimit = {
   base_left: 60000,
   gst_left: 9000,
   total_left: 69000,
+  caps: { base: { cap: 60000, binds: "part" }, gst: { cap: 9000, binds: "part" } },
 };
 
 describe("payForCap", () => {
-  it("measures a base request against Base left and the base value", () => {
-    expect(payForCap(LIMIT, "base")).toEqual({ value: 100000, max: 60000, capLabel: "Base left" });
+  it("offers a base request what the server says Base may take", () => {
+    // Story 25: after a 40,000 base payment, Full (Base) offers 60,000 -- not the base value.
+    expect(payForCap(LIMIT, "base")).toEqual({ max: 60000, capLabel: "Base left" });
   });
-  it("measures a GST request against GST left and the released GST", () => {
-    expect(payForCap(LIMIT, "gst")).toEqual({ value: 18000, max: 9000, capLabel: "GST left" });
+  it("offers a GST request what the server says GST may take", () => {
+    expect(payForCap(LIMIT, "gst")).toEqual({ max: 9000, capLabel: "GST left" });
   });
-  it("never offers more than total left", () => {
+  it("names total left when the server says it binds", () => {
     // An old Work Order paid 1,10,000 of base: GST left 18,000, but 8,000 in total.
-    const old = { ...LIMIT, base_paid: 110000, gst_paid: 0, base_left: 0, gst_left: 18000, total_left: 8000 };
-    expect(payForCap(old, "gst")).toEqual({ value: 18000, max: 8000, capLabel: "total left" });
+    const old: WorkOrderLimit = {
+      ...LIMIT, base_paid: 110000, gst_paid: 0, base_left: 0, gst_left: 18000, total_left: 8000,
+      caps: { base: { cap: 0, binds: "part" }, gst: { cap: 8000, binds: "total" } },
+    };
+    expect(payForCap(old, "gst")).toEqual({ max: 8000, capLabel: "total left" });
   });
-  it("never goes below zero", () => {
-    expect(payForCap({ ...LIMIT, total_left: -500 }, "base").max).toBe(0);
+  it("shows the server's figure as given, never re-deriving it from the lefts", () => {
+    const disagreeing = { ...LIMIT, base_left: 1, total_left: 1, caps: { ...LIMIT.caps } };
+    expect(payForCap(disagreeing, "base").max).toBe(60000);
   });
 });
 

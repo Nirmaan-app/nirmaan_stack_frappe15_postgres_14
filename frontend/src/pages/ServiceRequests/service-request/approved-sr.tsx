@@ -63,6 +63,7 @@ import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSum
 import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
 import { PayFor, workOrderPaymentCap } from "@/pages/ProjectPayments/components/paymentSummaryView";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { isGstOn } from "@/utils/workOrderGst";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -483,7 +484,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         }
     }
 
-    const gstWorkOrder = orderData?.gst === "true";
+    const gstWorkOrder = isGstOn(orderData);
     const paidEntryGstPayment = gstWorkOrder && paidFor === "gst";
     const paidEntryCap = useMemo(
         () => (paidEntrySummary ? workOrderPaymentCap(paidEntrySummary, paidEntryGstPayment ? "gst" : "base") : null),
@@ -637,11 +638,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         </Button>
 
                                         <RequestPaymentDialog
-                                            totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
+                                            totalIncGST={gstWorkOrder ? getTotal * 1.18 : getTotal}
                                             totalExGST={getTotal || 0}
                                             paid={grossRequested.paid}
                                             pending={grossRequested.pending}
-                                            gst={orderData?.gst === "true"}
+                                            gst={gstWorkOrder}
                                             docType="Service Requests"
                                             docName={orderData?.name || "Unknown"}
                                             project={orderData?.project || "Unknown"}
@@ -671,10 +672,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
                                                     <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
                                                 </div>
-                                                {orderData?.gst === "true" && (
+                                                {gstWorkOrder && (
                                                     <div className="flex items-center justify-between">
                                                         <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                                        <span className="">{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
+                                                        {/* The Work Order total incl. GST, as the payment limit measures it. */}
+                                                        <span className="">{paidEntrySummary ? formatToRoundedIndianRupee(paidEntrySummary.value) : "--"}</span>
                                                     </div>
                                                 )}
                                                 <div className="flex items-center justify-between">

@@ -18,6 +18,7 @@
  */
 
 import { statusAfterL1 } from "@/utils/approvalTiers";
+import { isGstPayment } from "./paymentKind";
 import { parseNumber } from "@/utils/parseNumber";
 import { safeJsonParse } from "@/utils/safeJsonParse";
 
@@ -54,18 +55,6 @@ export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean =
 		.map((entry) => (entry && typeof entry === "object" ? String((entry as { name?: unknown }).name ?? "").trim() : ""))
 		.filter(Boolean);
 	return names.length > 0 && names.every((name) => COMPANY_BORNE_CATEGORIES.has(name));
-};
-
-/**
- * Is this a GST payment — one that pays a Work Order's GST only, never base value (ADR-0030)?
- *
- * `Project Payments.is_gst_payment`, set once at creation; every older payment reads 0 (a base
- * payment). ⚠️ MIRRORS `payment_tds.is_gst_payment` ON THE SERVER, which is what refuses the tax;
- * this only keeps the forecast from promising a deduction that will never be taken.
- */
-export const isGstPayment = (payment: { is_gst_payment?: unknown } | null | undefined): boolean => {
-	const flag = payment?.is_gst_payment;
-	return flag === true || Number(flag) === 1;
 };
 
 export interface TdsForecast {

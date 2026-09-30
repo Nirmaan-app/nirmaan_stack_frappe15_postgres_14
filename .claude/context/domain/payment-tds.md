@@ -75,7 +75,7 @@ Order's GST only. **`payment_tds.is_deductible` refuses it**, and every withhold
 first — single approve from any earlier step, auto-approve at insert, bulk approve's post-commit phase,
 the cheque move's retry — so none writes a row or nets the amount. `restate_deduction_on_amount_change`
 returns early for one too. `payment_split.split_payment` copies the flag onto the leftover, which covers
-both the CEO part-approval and the Bulk Import part payment. Frontend: `tdsForecast.isGstPayment`
+both the CEO part-approval and the Bulk Import part payment. Frontend: `paymentKind.isGstPayment`
 feeds `forecastTds` / `forecastTdsTotals` (no forecast, so a GST cheque is its full amount); the
 approval queue returns `is_gst_payment` and the lists show a "GST" tag (`GstPaymentTag`).
 

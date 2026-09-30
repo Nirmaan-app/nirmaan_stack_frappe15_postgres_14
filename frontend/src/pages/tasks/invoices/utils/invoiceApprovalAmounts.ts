@@ -7,6 +7,9 @@
  * rule in `services/work_order_gst.py`); this module only words it.
  */
 
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { parseReadFigure } from "@/utils/invoiceAmounts";
+
 /** Shape returned by `get_invoice_gst_release`. */
 export interface GstRelease {
     applies: boolean;
@@ -15,16 +18,6 @@ export interface GstRelease {
     work_order_gst: number;
     opens_up: number;
 }
-
-const parseRaw = (value: string | number | null | undefined): number | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    // OCR values can carry commas / currency symbols ("3,257.00", "₹ 540").
-    const cleaned = String(value).replace(/[^\d.-]/g, "");
-    if (!cleaned) return null;
-    const n = parseFloat(cleaned);
-    return Number.isNaN(n) ? null : n;
-};
 
 /**
  * An AI-read figure: the dedicated `autofill_extracted_*` column when it holds a figure,
@@ -35,23 +28,20 @@ export const aiReadFigure = (
     dedicated: number | string | null | undefined,
     entityValue: string | undefined,
 ): number | null => {
-    const fromColumn = parseRaw(dedicated);
+    const fromColumn = parseReadFigure(dedicated);
     if (fromColumn) return fromColumn;
-    return parseRaw(entityValue);
+    return parseReadFigure(entityValue);
 };
-
-export const rupees = (n: number): string =>
-    `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** The one GST line on the approval screen, or null when it does not apply. */
 export const gstReleaseLine = (release: GstRelease | null | undefined): string | null => {
     if (!release?.applies) return null;
     const x = release.opens_up;
     if (x < 0) {
-        return `This approval takes back ${rupees(-x)} of GST that could be paid.`;
+        return `This approval takes back ${formatToIndianRupeeOrZero(-x)} of GST that could be paid.`;
     }
-    const line = `This approval opens up ${rupees(x)} of GST`;
+    const line = `This approval opens up ${formatToIndianRupeeOrZero(x)} of GST`;
     if (x > 0) return `${line}.`;
     if (release.invoice_gst <= 0) return `${line} (no GST entered on this invoice).`;
-    return `${line}: the Work Order's own GST of ${rupees(release.work_order_gst)} is already fully invoiced.`;
+    return `${line}: the Work Order's own GST of ${formatToIndianRupeeOrZero(release.work_order_gst)} is already fully invoiced.`;
 };

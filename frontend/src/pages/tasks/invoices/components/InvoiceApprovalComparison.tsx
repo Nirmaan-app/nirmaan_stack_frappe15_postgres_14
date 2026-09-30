@@ -18,7 +18,8 @@ import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToIndianRupeeOrZero, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { parseReadFigure } from "@/utils/invoiceAmounts";
 import { formatDate } from "date-fns";
 import { MappingTableView } from "@/pages/ProcurementOrders/invoices-and-dcs/components/MappingTableView";
 import { summariseSkipReasons } from "@/pages/tasks/invoices/utils/autoApproveReasons";
@@ -26,23 +27,10 @@ import {
     aiReadFigure,
     GstRelease,
     gstReleaseLine,
-    rupees,
 } from "@/pages/tasks/invoices/utils/invoiceApprovalAmounts";
 
-/**
- * Robust amount parser. The shared `parseNumber` util uses bare `parseFloat`,
- * which stops at the first non-numeric character — so "3,257.00" becomes 3.
- * Document-AI raw entity values often include commas / currency symbols, so
- * we strip everything except digits, dot, and a leading minus before parsing.
- */
-const parseAmount = (value: string | number | undefined | null): number => {
-    if (value === undefined || value === null) return 0;
-    if (typeof value === "number") return isFinite(value) ? value : 0;
-    const cleaned = String(value).replace(/[^\d.\-]/g, "");
-    if (!cleaned) return 0;
-    const n = parseFloat(cleaned);
-    return isNaN(n) ? 0 : n;
-};
+/** An AI / OCR figure ("3,257.00", "₹ 540") as a number; 0 when nothing readable. */
+const parseAmount = (value: string | number | undefined | null): number => parseReadFigure(value) ?? 0;
 
 interface Props {
     invoice: VendorInvoice;
@@ -344,12 +332,12 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
                         systemValue={
                             f.entered === undefined || f.entered === null
                                 ? null
-                                : rupees(Number(f.entered))
+                                : formatToIndianRupeeOrZero(Number(f.entered))
                         }
                         aiValue={
                             usedAutofill ? (
                                 f.ai !== null
-                                    ? rupees(f.ai)
+                                    ? formatToIndianRupeeOrZero(f.ai)
                                     : <span className="text-gray-400 italic">not extracted</span>
                             ) : (
                                 <span className="text-gray-400 italic">manual entry</span>

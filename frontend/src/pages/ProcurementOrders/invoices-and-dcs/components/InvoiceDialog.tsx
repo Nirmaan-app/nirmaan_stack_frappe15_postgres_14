@@ -41,6 +41,8 @@ import {
   splitForEditForm,
   splitMismatch,
 } from "@/utils/invoiceAmounts";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { isGstOn } from "@/utils/workOrderGst";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
   useFrappeFileUpload,
@@ -95,8 +97,16 @@ const initialInvoiceState = {
 /** Form fields the AI can pre-fill (each highlighted amber until the user edits it). */
 type AutofillField = "invoice_no" | "date" | "amount" | "base_amount" | "gst_amount";
 
-const formatRupees = (n: number) =>
-  n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Base + GST are required on a new invoice (the server refuses without them too). */
+const refuseMissingSplit = (missing: string[]): boolean => {
+  if (missing.length === 0) return false;
+  toast({
+    title: "Validation Error",
+    description: `Please enter the ${missing.join(" and the ")}.`,
+    variant: "destructive",
+  });
+  return true;
+};
 
 // --- Credit / return note sign helpers ---
 // Force an amount string negative (credit / return note). "" / non-numeric → unchanged.
@@ -255,7 +265,8 @@ export function InvoiceDialog<T extends DocumentType>({
     docName,
     isOpen && isWorkOrder && docName ? `Invoice-WO-GST-${docName}` : null
   );
-  const workOrderGstOff = isWorkOrder && workOrderForGst?.gst === "false";
+  // Read as the server reads it (`work_order_gst.gst_is_on`); nothing is said until it has loaded.
+  const workOrderGstOff = isWorkOrder && !!workOrderForGst && !isGstOn(workOrderForGst);
   // What the over-total banner calls the order (matches the server's refusal).
   const orderLabel = isWorkOrder ? "Work Order" : "PO";
 
@@ -786,15 +797,7 @@ export function InvoiceDialog<T extends DocumentType>({
       return;
     }
 
-    // Base + GST are required on a new invoice (server refuses without them too).
-    if (missingSplit.length > 0) {
-      toast({
-        title: "Validation Error",
-        description: `Please enter the ${missingSplit.join(" and the ")}.`,
-        variant: "destructive",
-      });
-      return;
-    }
+    if (refuseMissingSplit(missingSplit)) return;
 
     // Hard-block a future invoice date. Mirrors the server's
     // `_check_invoice_date_not_future`; the button is already disabled, this
@@ -859,14 +862,7 @@ export function InvoiceDialog<T extends DocumentType>({
       });
       return;
     }
-    if (missingSplit.length > 0) {
-      toast({
-        title: "Validation Error",
-        description: `Please enter the ${missingSplit.join(" and the ")}.`,
-        variant: "destructive",
-      });
-      return;
-    }
+    if (refuseMissingSplit(missingSplit)) return;
     if (isFutureInvoiceDate(invoiceData.date)) {
       toast({
         title: "Invalid Invoice Date",
@@ -1372,7 +1368,7 @@ export function InvoiceDialog<T extends DocumentType>({
                 <div className="text-xs text-amber-900 leading-snug">
                   <p className="font-medium">Base + GST does not match the amount</p>
                   <p className="mt-0.5">
-                    Base + GST = ₹{formatRupees(splitGap.splitTotal)}, ₹{formatRupees(splitGap.gap)} away
+                    Base + GST = {formatToIndianRupeeOrZero(splitGap.splitTotal)}, {formatToIndianRupeeOrZero(splitGap.gap)} away
                     from the amount. Round-off, other charges or TCS can explain a gap.
                   </p>
                   <p className="mt-0.5 italic">You can submit — check the figures against the bill.</p>

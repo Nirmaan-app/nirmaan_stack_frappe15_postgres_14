@@ -5,7 +5,6 @@ import {
 	forecastTdsTotals,
 	isCompanyBorneWorkOrder,
 	isDeductible,
-	isGstPayment,
 	withholdsOnApproval,
 } from "./tdsForecast";
 
@@ -160,16 +159,6 @@ describe("company-borne Work Orders (Miscellaneous / Transportation only)", () =
 });
 
 describe("GST payments (ADR-0030): never taxed", () => {
-	it("reads the payment kind as Frappe sends it", () => {
-		expect(isGstPayment({ is_gst_payment: 1 })).toBe(true);
-		expect(isGstPayment({ is_gst_payment: "1" })).toBe(true);
-		expect(isGstPayment({ is_gst_payment: true })).toBe(true);
-		expect(isGstPayment({ is_gst_payment: 0 })).toBe(false);
-		expect(isGstPayment({})).toBe(false);
-		expect(isGstPayment(null)).toBe(false);
-		expect(isGstPayment(undefined)).toBe(false);
-	});
-
 	it("forecasts no deduction for a GST payment — and still does for a base one", () => {
 		expect(forecastTds(SR, 38550, 2, false, true)).toBeNull();
 		expect(forecastTds(SR, 800, 2, true, true)).toBeNull();

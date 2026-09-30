@@ -9,6 +9,7 @@ import unittest
 from nirmaan_stack.services.work_order_gst import (
 	gst_is_on,
 	gst_opened_by_approval,
+	gst_released,
 	work_order_gst,
 )
 
@@ -36,6 +37,18 @@ class TestWorkOrderGst(unittest.TestCase):
 
 	def test_blank_total_has_no_gst(self):
 		self.assertEqual(work_order_gst(None, "true"), 0)
+
+
+class TestGstReleased(unittest.TestCase):
+	def test_gst_invoiced_up_to_the_work_orders_own_gst(self):
+		self.assertEqual(gst_released(9000, 18000), 9000)
+		self.assertEqual(gst_released(25000, 18000), 18000)
+
+	def test_a_gst_off_work_order_releases_nothing(self):
+		self.assertEqual(gst_released(5000, 0), 0)
+
+	def test_blank_gst_invoiced_releases_nothing(self):
+		self.assertEqual(gst_released(None, 18000), 0)
 
 
 class TestGstOpenedByApproval(unittest.TestCase):

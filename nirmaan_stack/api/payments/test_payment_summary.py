@@ -154,6 +154,11 @@ class TestPaymentSummaryEndpoint(FrappeTestCase):
 		self.assertAlmostEqual(limit["base_left"], 60000, places=2)
 		self.assertAlmostEqual(limit["gst_left"], 7000, places=2)
 		self.assertAlmostEqual(limit["total_left"], 76000, places=2)
+		# What each part may take, as the dialogs show it (story 25: Full (Base) offers 60,000).
+		self.assertEqual(limit["caps"], {
+			"base": {"cap": 60000, "binds": "part"},
+			"gst": {"cap": 7000, "binds": "part"},
+		})
 
 	def test_a_gst_off_work_order_has_no_gst_part(self):
 		sr = _raw("Service Requests", total_amount=50000, gst="false")

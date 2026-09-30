@@ -24,6 +24,8 @@ export interface SummaryPayment {
   raised_by: string | null;
   raised_by_name: string | null;
   mode_of_payment?: string | null;
+  /** 1 on a GST payment (ADR-0030). */
+  is_gst_payment?: number;
 }
 
 /**
@@ -42,9 +44,16 @@ export interface WorkOrderLimit {
   base_left: number;
   gst_left: number;
   total_left: number;
+  /** What each part may take: min(its own left, total left), and which of the two binds. */
+  caps: Record<PayFor, PartCap>;
 }
 
 export type PayFor = "base" | "gst";
+
+export interface PartCap {
+  cap: number;
+  binds: "part" | "total";
+}
 
 export interface PaymentSummary {
   document_type: "Procurement Orders" | "Service Requests";
@@ -143,17 +152,15 @@ export const barSegments = (
 };
 
 /**
- * What a request for one part of a GST-on Work Order is measured against: `value` for Full / %,
- * `max` for Due and the cap -- the part's own left, but never above total left, as the server's
- * `request_refusal` checks both. `capLabel` names whichever of the two binds.
+ * The most a request for one part of a GST-on Work Order may be -- Full, %, Due and the cap all
+ * measure against it -- and what to call it. Both come from the server's `limit.caps`
+ * (`services/work_order_payment_limit.part_cap`); this only names the figure.
  */
 export const payForCap = (limit: WorkOrderLimit, payFor: PayFor) => {
-  const partLeft = payFor === "gst" ? limit.gst_left : limit.base_left;
-  const totalBinds = limit.total_left < partLeft;
+  const { cap, binds } = limit.caps[payFor];
   return {
-    value: payFor === "gst" ? limit.gst_released : limit.base_value,
-    max: Math.max(0, totalBinds ? limit.total_left : partLeft),
-    capLabel: totalBinds ? "total left" : payFor === "gst" ? "GST left" : "Base left",
+    max: cap,
+    capLabel: binds === "total" ? "total left" : payFor === "gst" ? "GST left" : "Base left",
   };
 };
 
