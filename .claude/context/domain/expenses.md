@@ -489,12 +489,10 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: today
   only `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a rename would silently
   switch off the bank-import fallback.
-  **⚠️ NO PER-TYPE DUPLICATE RULES (owner ruling 2026-09-19).** The `duplicates.RULES` table (6
-  types, matched on person/building + overlapping dates) was REMOVED with its create-dialog
-  warning and the review dialog's "Already requested for this period" box: it keyed on the type's
-  NAME, so it blocked renaming those types, and the owner did not want static rules. The approver
-  still sees `similar.get_similar`'s same-type + same-amount count over the last 60 days. Do not
-  bring back a name-keyed rule table.
+  **⚠️ NO NAME-KEYED DUPLICATE RULES (owner ruling 2026-09-19).** The old `duplicates.RULES`
+  table (6 types keyed on the Expense Type NAME) was removed: it blocked renaming those types.
+  Do not bring back a name-keyed table. Its 2026-09-30 successor keys on the FORM's
+  `templateId` instead -- see **Staff Accommodation duplicate block** below.
   **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
   migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
   name.
@@ -538,6 +536,57 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **⚠️ COST, accepted by the owner: this destroys the only copy of the request detail** —
   `source_data` is the sole home for what was asked, so a delete-and-redo loses the original
   ask and the requester's record of it.
+- **Staff Accommodation duplicate block -- PROJECT MANAGERS REFUSED, EVERYONE ELSE WARNED
+  (owner, 2026-09-30).** Reverses, for PMs only, the 2026-08-20 "a duplicate is never refused".
+  Rule (`api/expense_requests/duplicates.py`, keyed on the form's `templateId`
+  `staff-accommodation`, never the type name): same **person** (casefolded, whitespace collapsed)
+  + **overlapping dates** (at least one shared day) on **any project**, against any request not
+  `Rejected` (a `Paid` one still counts). **Amount is not compared.** **Hotel is exempt both
+  ways** (a Hotel request is never checked, an existing Hotel request never blocks) -- a site
+  visit of 2-3 days / a week beside a PG. `To` before `From` is refused for a PM too. Two
+  surfaces ask the SAME functions so they cannot disagree:
+  - `ExpenseRequest.validate` -> `_block_duplicate_pm_request`: the server refusal, PM only by
+    ROLE PROFILE of the person saving. Runs on create, and on an edit of a `Pending Approval`
+    request ONLY when the type or the stay (`duplicates.stay_key`: form, person, dates,
+    Hotel-or-not) changed -- so an approval save, or a PM correcting the comment / amount of a
+    request that already overlaps, is never refused. An edited request is never compared with
+    itself (`exclude`).
+  - `duplicates.check_duplicate_stay` (read-only, debounced from `NewExpenseRequestDialog`):
+    returns `{blocks, matches, period_error}`; `blocks` is the server's answer (PM + overlap/bad
+    period + stay changed), the dialog only renders it -- red note + submit disabled when true,
+    amber *"You can still submit / save."* otherwise. It checks `frappe.has_permission("Expense
+    Request","read")` because the finder uses `get_all`. Each match carries its answers labelled
+    by its own form (`flatten_pairs`) for the hover card, **`payee_bank` section left out**.
+  Old rows stored with a reversed period are read the right way round (`overlaps` sorts each
+  pair). PM message: *"<EXR> (<status>, <project>) already covers <person> from .. to ... Change
+  the dates, choose Hotel for a short visit, or contact HR or your Project Lead."*
+  **Not covered:** Labour Accommodation Rent (owner still choosing any-project / same-project /
+  none) and Accommodation Deposit (no dates). The approver's `similar.get_similar` 60-day note is
+  unchanged and still covers every type.
+- **Edit is Pending-only, and now reachable from "Expense Raised By Me" (2026-09-30).** The rule
+  never changed (`update.can_edit`: owner or Admin, `Pending Approval` only;
+  `update_expense_request` refuses any other status). What changed is the BUTTON: it lived only
+  on the Pending Approval tab, which only reviewers have, so a PM / PMO / procurement requester
+  could never edit their own request. The pencil now also shows on "Raised By Me" wherever
+  `can_edit` is true. Approve / Reject never leave the pending tab (`guard_reviewer` refuses
+  self-review).
+- **A REJECTED request can be deleted -- by its requester or an Admin (owner, 2026-09-30).**
+  `api/expense_requests/delete.py`: `delete_expense_request` refuses any status but `Rejected`,
+  refuses anyone but the owner or an Admin profile, and refuses if a ledger row carries its
+  `request_id` (a rejected request never gets one; this guards the ledger). It clears the bell
+  notifications first (the same `_delete_request_notifications` the ledger path uses -- the
+  Dynamic Link would otherwise raise `LinkExistsError`), then `delete_doc` with a `Deleted
+  Document` copy kept. `can_delete` is server-computed on `get_my_expense_requests` like
+  `can_edit`; the trash icon shows on "Raised By Me" (own) and "All" (Admin). **Open:** a request
+  whose LEDGER row is later `Rejected` still reads `Approved` (the ledger->request hook carries
+  only Paid and delete), so it is not deletable here yet.
+- **Request ID hover card (2026-09-30).** `RequestHoverCard.tsx`, one component for the list's
+  Request ID cell (reads the scoped read's `detail`, which DOES include the bank section -- same
+  audience as the review dialog) and the duplicate note (bank left out). Portalled, because the
+  create dialog is scrolling + transformed and clips an in-place card.
+- ⚠️ **The flags and details come from `get_my_expense_requests`, capped at the 200 most
+  recently modified rows.** Older rows show no Edit / Delete / Approve and a header-only hover
+  card. Harmless at today's volume; fetch per visible page when it grows.
 - **A reviewer is a `Nirmaan Users.role_profile`, NEVER a Frappe Role.** The Role Profile
   `Nirmaan Admin Profile` grants `Nirmaan Project Manager` among seven others, and a Role of
   that exact name is assigned to nobody — a `frappe.get_roles()` gate would match no one and
@@ -678,6 +727,11 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
 ## Deliberate design decisions (do NOT "fix")
+
+- **The Staff Accommodation duplicate block refuses PROJECT MANAGERS ONLY** (owner, 2026-09-30).
+  Every other role -- Admin included -- gets the amber warning and may submit. Hotel stays are
+  exempt and the amount is not compared, both on purpose. Do not widen the refusal to other
+  roles, or narrow it to the same project, without a new ruling.
 
 - **No server-side lock on a Paid record, expense or payment** (owner, 2026-09-21). The owner
   corrects Paid records by hand in Desk, so the only Paid locks are the app's dialogs
