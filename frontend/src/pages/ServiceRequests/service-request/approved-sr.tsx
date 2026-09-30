@@ -413,7 +413,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             console.log("error while toggling GST", error);
             toast({
                 title: "Failed!",
-                description: "Failed to update GST status!",
+                // The server says why, e.g. GST cannot be switched off while GST payments exist.
+                description: getFrappeError(error),
                 variant: "destructive"
             });
         }
