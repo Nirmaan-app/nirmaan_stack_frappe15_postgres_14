@@ -20,6 +20,7 @@ from nirmaan_stack.services.extraction.helpers import (
     pick_entity,
 )
 from nirmaan_stack.services.extraction.validation import (
+    derive_gst,
     reconcile_amounts,
     reconcile_line_items,
     validate_date,
@@ -27,6 +28,9 @@ from nirmaan_stack.services.extraction.validation import (
 )
 
 MIN_CONFIDENCE = 0.70
+# An UNSURE GST read (validation.derive_gst) is reported below the prefill floor, so the
+# form leaves the GST field for the user and shows why.
+UNSURE_GST_CONFIDENCE = 0.40
 
 INVOICE_NO_KEYS = ("invoice_id", "invoice_number", "invoice_no")
 INVOICE_DATE_KEYS = ("invoice_date",)
@@ -38,9 +42,16 @@ AMOUNT_KEYS = ("total_amount",)
 # a distinct "Amount (Excl. GST)" field: Project Invoices, and the Vendor Invoice's
 # Invoice Base Amount (returned again as `base_amount`, ADR-0030).
 NET_AMOUNT_KEYS = ("net_amount",)
-# `total_tax_amount` (all GST on the bill) — the Vendor Invoice's Invoice GST Amount
-# (`gst_amount`), and an input to the amount reconciliation below.
-TAX_KEYS = ("total_tax_amount",)
+# GST as printed (#1336): IGST, CGST, SGST or a plain Tax line, plus a printed
+# total-tax figure. validation.derive_gst turns them into the Invoice GST Amount
+# (`gst_amount`), which also feeds the amount reconciliation below.
+TOTAL_TAX_KEY = "total_tax_amount"
+GST_COMPONENT_KEYS = {
+    "igst": "igst_amount",
+    "cgst": "cgst_amount",
+    "sgst": "sgst_amount",
+    "tax": "tax_amount",
+}
 ROUND_OFF_KEYS = ("round_off",)
 OTHER_CHARGES_KEYS = ("other_charges",)
 TCS_KEYS = ("tcs_amount",)
@@ -89,7 +100,18 @@ def extract_invoice_fields(file_url, docname=None):
     net_amount, net_amount_conf = pick_entity(entities, NET_AMOUNT_KEYS, prefer_normalized=True)
     supplier_gstin, _ = pick_entity(entities, ("supplier_gstin",))
     receiver_gstin, _ = pick_entity(entities, ("receiver_gstin",))
-    tax_amount, tax_amount_conf = pick_entity(entities, TAX_KEYS, prefer_normalized=True)
+    gst = derive_gst(
+        total_tax=pick_entity(entities, (TOTAL_TAX_KEY,), prefer_normalized=True)[0],
+        **{
+            part: pick_entity(entities, (key,), prefer_normalized=True)[0]
+            for part, key in GST_COMPONENT_KEYS.items()
+        },
+    )
+    if gst["confident"]:
+        gst_conf = 1.0
+        entities = _with_total_tax(entities, gst["gst"])
+    else:
+        gst_conf = UNSURE_GST_CONFIDENCE if gst["reason"] else 0.0
     # Validation-only picks (not returned as form fields).
     round_off, _ = pick_entity(entities, ROUND_OFF_KEYS, prefer_normalized=True)
     other_charges, _ = pick_entity(entities, OTHER_CHARGES_KEYS, prefer_normalized=True)
@@ -111,14 +133,14 @@ def extract_invoice_fields(file_url, docname=None):
 
     normalized_amount = normalize_amount(amount) if amount_conf >= MIN_CONFIDENCE else ""
     normalized_net_amount = normalize_amount(net_amount) if net_amount_conf >= MIN_CONFIDENCE else ""
-    normalized_tax_amount = normalize_amount(tax_amount) if tax_amount_conf >= MIN_CONFIDENCE else ""
+    normalized_tax_amount = normalize_amount(gst["gst"]) if gst_conf >= MIN_CONFIDENCE else ""
     validation = _build_validation(
         file_doc,
         normalized_amount,
         supplier_gstin,
         receiver_gstin,
         net=net_amount,
-        tax=tax_amount,
+        tax=gst["gst"],
         total=amount,
         invoice_date=invoice_date,
         round_off=round_off,
@@ -155,6 +177,8 @@ def extract_invoice_fields(file_url, docname=None):
         # (ADR-0030). Pre-filled beside `amount`, never summed into it.
         "base_amount": normalized_net_amount,
         "gst_amount": normalized_tax_amount,
+        # Why an unsure GST was left blank ("Only CGST found — enter the total GST").
+        "gst_note": gst["reason"],
         # Surface the raw extracted GSTINs so the frontend can persist them to
         # the Vendor Invoice on submit (auto-approve gates 6 & 7 read them).
         "supplier_gstin": (supplier_gstin or "").strip(),
@@ -165,7 +189,7 @@ def extract_invoice_fields(file_url, docname=None):
             "amount": round(amount_conf, 3),
             "net_amount": round(net_amount_conf, 3),
             "base_amount": round(net_amount_conf, 3),
-            "gst_amount": round(tax_amount_conf, 3),
+            "gst_amount": round(gst_conf, 3),
         },
         "entities": all_entities,
         "line_items": line_items,
@@ -180,6 +204,20 @@ def extract_invoice_fields(file_url, docname=None):
         "processor_id": settings.get("gemini_model"),
         "validation": validation,
     }
+
+
+def _with_total_tax(entities, gst):
+    """The entity list with `total_tax_amount` set to the confidently derived GST.
+
+    The list is persisted on the Vendor Invoice and auto-approve gate 5 reconciles
+    against its `total_tax_amount`, so a confident derivation replaces the model's own
+    read there. An unsure read leaves the model's figure as it was.
+    """
+    value = str(int(gst)) if float(gst).is_integer() else str(gst)
+    kept = [e for e in (entities or []) if (e.get("type") or "").strip() != TOTAL_TAX_KEY]
+    return kept + [
+        {"type": TOTAL_TAX_KEY, "mention_text": value, "normalized_text": value, "confidence": 1.0}
+    ]
 
 
 def _po_items_for_match(po_name):

@@ -177,6 +177,8 @@ export function InvoiceDialog<T extends DocumentType>({
   const [autofilledFields, setAutofilledFields] = useState<Set<AutofillField>>(new Set());
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [autofillConfidence, setAutofillConfidence] = useState<Record<string, number> | null>(null);
+  // Why the AI left GST blank (e.g. "Only CGST found — enter the total GST"), #1336.
+  const [gstNote, setGstNote] = useState("");
   const [autofillExtractedValues, setAutofillExtractedValues] = useState<{
     invoice_no?: string;
     invoice_date?: string;
@@ -311,6 +313,7 @@ export function InvoiceDialog<T extends DocumentType>({
       setAutofilledFields(new Set());
       setUploadedFileUrl(null);
       setAutofillConfidence(null);
+      setGstNote("");
       setAutofillExtractedValues(null);
       setAutofillAllEntities(null);
       setAutofillValidation(null);
@@ -327,6 +330,7 @@ export function InvoiceDialog<T extends DocumentType>({
     setAutofilledFields(new Set());
     setUploadedFileUrl(null);
     setAutofillConfidence(null);
+    setGstNote("");
     setAutofillExtractedValues(null);
     setAutofillAllEntities(null);
     setAutofillValidation(null);
@@ -514,6 +518,7 @@ export function InvoiceDialog<T extends DocumentType>({
         updates.gst_amount = extracted.gst_amount;
         filled.add("gst_amount");
       }
+      setGstNote(typeof extracted.gst_note === "string" ? extracted.gst_note : "");
 
       // Credit-note handling (driven by the entry button + Gemini):
       //   Add Credit  (is_credit_note = true)                  -> AMOUNT negative, QTY unchanged.
@@ -1357,6 +1362,9 @@ export function InvoiceDialog<T extends DocumentType>({
                       disabled={isLoading || isAutofilling}
                     />
                   </div>
+                  {field === "gst_amount" && gstNote && !invoiceData.gst_amount && (
+                    <p className="text-xs text-amber-700">{gstNote}</p>
+                  )}
                 </div>
               ))}
             </div>
