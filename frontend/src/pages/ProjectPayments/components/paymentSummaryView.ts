@@ -164,3 +164,16 @@ export const gstLeftNote = (limit: WorkOrderLimit): string | null => {
     ? "Opens when an invoice with GST is approved"
     : "All approved invoice GST is already requested";
 };
+
+/**
+ * The most a new payment on a Work Order may be, as the server's limit checks it: the chosen part's
+ * cap on a GST-on Work Order, otherwise what is left of its total. For the Accountant's paid entry,
+ * which records a payment straight as Paid and has no Full / % / Due shortcuts.
+ */
+export const workOrderPaymentCap = (
+  summary: Pick<PaymentSummary, "left" | "limit">,
+  payFor: PayFor
+): { max: number; capLabel: string } =>
+  summary.limit?.gst_on
+    ? payForCap(summary.limit, payFor)
+    : { max: Math.max(0, summary.left), capLabel: "balance" };

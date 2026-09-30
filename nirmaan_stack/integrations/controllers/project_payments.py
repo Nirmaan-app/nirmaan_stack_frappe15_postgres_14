@@ -2,7 +2,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, nowdate
+from frappe.utils import cint, flt, nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
@@ -204,7 +204,36 @@ def validate(doc, method):
     """
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
+        _validate_work_order_limit(doc)
     validate_hold(doc)
+
+
+def _validate_work_order_limit(doc):
+    """A new Work Order payment must fit the Work Order payment limit (ADR-0030).
+
+    This is what enforces it on the Accountant's paid entry (`approved-sr.tsx` / the payments list
+    insert straight at `Paid` through `createDoc`) and on any Desk or REST insert, whatever the
+    screen sent. Deliberately skipped:
+
+      * `work_order_limit_checked` -- `create_payment_request_for_service` has just applied the
+        same check to the unrounded amount;
+      * `split_child` -- a CEO part-approval or Bulk Import part payment inserts the leftover BEFORE
+        it trims the original, so this money is already counted once;
+      * `from_adjustment` -- PO Revision, which skips every payment hook;
+      * an amount of zero or less -- a refund only lowers what is paid out.
+
+    A Purchase Order payment is not a Work Order payment and keeps only the doctype's own check.
+    """
+    if doc.document_type != "Service Requests" or not doc.document_name:
+        return
+    if doc.flags.get("work_order_limit_checked") or doc.flags.get("split_child") or doc.flags.get("from_adjustment"):
+        return
+    if flt(doc.amount) <= 0:
+        return
+    from nirmaan_stack.api.payments.payment_summary import assert_within_work_order_limit
+
+    sr = frappe.get_doc("Service Requests", doc.document_name)
+    assert_within_work_order_limit(sr, doc.amount, bool(cint(doc.get("is_gst_payment"))), verb="pay")
 
 
 def after_insert(doc, method):

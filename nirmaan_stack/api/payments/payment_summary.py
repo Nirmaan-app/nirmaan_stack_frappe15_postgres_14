@@ -6,7 +6,8 @@
 URL: /api/method/nirmaan_stack.api.payments.payment_summary.get_payment_summary
 
 A thin loader: the arithmetic and the status rules live in `services/payment_summary.py`.
-Nothing is written.
+Nothing is written. `assert_within_work_order_limit` is the one place the Work Order payment
+limit is ENFORCED, for every path that adds a Work Order payment.
 """
 
 import frappe
@@ -15,7 +16,7 @@ from frappe import _
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.finance import get_source_document_financials
 from nirmaan_stack.services.payment_summary import LINE_ORDER, summarise
-from nirmaan_stack.services.work_order_payment_limit import work_order_limit
+from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
 ALLOWED = ("Procurement Orders", "Service Requests")
 
@@ -53,14 +54,44 @@ def _load_payments(document_type: str, document_name: str):
 def work_order_summary(sr, exclude_payment: str | None = None) -> dict:
 	"""The payment summary of a Work Order plus its payment limit (`services/work_order_payment_limit`).
 
-	Shared by `get_payment_summary` and `create_payment_request_for_service`, so the figure the
-	dialog shows and the figure the server refuses on come from one load and one calculation.
+	Shared by `get_payment_summary` and `assert_within_work_order_limit`, so the figure the dialogs
+	show and the figure the server refuses on come from one load and one calculation.
 	"""
 	payments, tds_by_payment, company_borne = _load_payments(sr.doctype, sr.name)
 	return work_order_limit(
 		sr.get("total_amount"), sr.get("gst"), sr.get("gst_invoiced"),
 		payments, tds_by_payment, company_borne, exclude_payment,
 	)
+
+
+#: How a refusal names the action: the request endpoint asks for money, every other path pays it.
+_VERBS = {"request": ("request", "requested"), "pay": ("pay", "made")}
+
+
+def assert_within_work_order_limit(sr, amount, gst_payment: bool, verb: str = "request") -> None:
+	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030).
+
+	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Two callers:
+	`create_payment_request_for_service` (`verb="request"`) and the `Project Payments` insert
+	validation (`verb="pay"`), which covers the Accountant's paid entry and any Desk / REST insert.
+	"""
+	limit = work_order_summary(sr)["limit"]
+	refusal = request_refusal(limit, amount, gst_payment)
+	if not refusal:
+		return
+	act, done = _VERBS[verb]
+	if refusal["part"] == "no_gst":
+		frappe.throw(_("This Work Order has no GST, so a GST payment cannot be {0} on it.").format(done))
+
+	left = frappe.format_value(max(refusal["left"], 0), "Currency")
+	if refusal["part"] == "base":
+		frappe.throw(_("Maximum amount you can {0} is {1} (Base left)").format(act, left))
+	if refusal["part"] == "gst":
+		reason = ""
+		if limit["gst_released"] <= 0:
+			reason = " " + _("No GST is released yet: approve an invoice carrying GST first.")
+		frappe.throw(_("Maximum amount you can {0} is {1} (GST left).").format(act, left) + reason)
+	frappe.throw(_("Maximum amount you can {0} is {1} (total left, incl. GST)").format(act, left))
 
 
 @frappe.whitelist()

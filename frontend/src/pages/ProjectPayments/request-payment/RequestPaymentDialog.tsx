@@ -16,7 +16,8 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
-import { gstLeftNote, PayFor, payForCap } from "../components/paymentSummaryView";
+import { PayFor, payForCap } from "../components/paymentSummaryView";
+import { PayForChoice } from "../components/PayForChoice";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
@@ -155,35 +156,7 @@ export default function RequestPaymentDialog(p:Props){
       {isWO && (summary || summaryLoading) &&
         <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={amount} />}
 
-      {gstWO && limit &&
-        <div className="space-y-1.5">
-          <Label className="text-sm font-medium">Pay for</Label>
-          <RadioGroup value={payFor} onValueChange={v=>setPayFor(v as PayFor)} className="grid-cols-2 gap-2">
-            {([
-              ["base", "Base", limit.base_left, null],
-              ["gst", "GST", limit.gst_left, gstLeftNote(limit)],
-            ] as const).map(([value, label, left, note]) => {
-              // Total left can bind below a part's own left (an old WO paid past its base value).
-              const totalNote = left > 0 && payForCap(limit, value).capLabel === "total left"
-                ? `Only ${limit.total_left > 0 ? formatToIndianRupee(limit.total_left) : "₹0.00"} left in the WO total`
-                : null;
-              return (
-                <Label key={value} htmlFor={`pay-for-${value}`}
-                       className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 ${payFor===value ? "border-primary bg-primary/5" : ""}`}>
-                  <RadioGroupItem value={value} id={`pay-for-${value}`} className="mt-0.5"/>
-                  <span className="space-y-0.5">
-                    <span className="block font-medium">{label}</span>
-                    <span className="block text-xs text-muted-foreground tabular-nums">
-                      {left > 0 ? formatToIndianRupee(left) : "₹0.00"} left
-                    </span>
-                    {(note || totalNote) &&
-                      <span className="block text-[11px] text-amber-700 dark:text-amber-400">{note || totalNote}</span>}
-                  </span>
-                </Label>
-              );
-            })}
-          </RadioGroup>
-        </div>}
+      {gstWO && limit && <PayForChoice limit={limit} value={payFor} onChange={setPayFor}/>}
 
       {gstWO && !limit && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}

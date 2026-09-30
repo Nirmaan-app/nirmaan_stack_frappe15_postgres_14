@@ -14,9 +14,8 @@ from nirmaan_stack.services.approval_tiers import (
     is_auto_approved,
     steps_cleared_by_raiser,
 )
-from nirmaan_stack.api.payments.payment_summary import work_order_summary
+from nirmaan_stack.api.payments.payment_summary import assert_within_work_order_limit
 from nirmaan_stack.services import cheque_payments
-from nirmaan_stack.services.work_order_payment_limit import request_refusal
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
@@ -80,30 +79,6 @@ def _assert_within_po_balance(src, amount):
         ).format(frappe.format_value(available, "Currency")))
 
 
-def _assert_within_work_order_limit(src, amount, gst_payment):
-    """A Work Order request: the Work Order payment limit (`services/work_order_payment_limit`).
-
-    Payments count GROSS of TDS here, as the Request Payment dialog and the payment summary count
-    them -- the cap this replaced counted the NET amount, so withheld tax could be requested twice.
-    """
-    limit = work_order_summary(src)["limit"]
-    refusal = request_refusal(limit, amount, gst_payment)
-    if not refusal:
-        return
-    if refusal["part"] == "no_gst":
-        frappe.throw(_("This Work Order has no GST, so a GST payment cannot be requested on it."))
-
-    left = frappe.format_value(max(refusal["left"], 0), "Currency")
-    if refusal["part"] == "base":
-        frappe.throw(_("Maximum amount you can request is {0} (Base left)").format(left))
-    if refusal["part"] == "gst":
-        reason = ""
-        if limit["gst_released"] <= 0:
-            reason = " " + _("No GST is released yet: approve an invoice carrying GST first.")
-        frappe.throw(_("Maximum amount you can request is {0} (GST left).").format(left) + reason)
-    frappe.throw(_("Maximum amount you can request is {0} (total left, incl. GST)").format(left))
-
-
 @frappe.whitelist()
 def create_payment_request_for_service(data: str) -> str:
     """
@@ -142,7 +117,7 @@ def create_payment_request_for_service(data: str) -> str:
     src = frappe.get_doc(doctype, docname)
 
     if doctype == "Service Requests":
-        _assert_within_work_order_limit(src, amount, gst_payment)
+        assert_within_work_order_limit(src, amount, gst_payment)
     else:
         _assert_within_po_balance(src, amount)
 
@@ -169,6 +144,9 @@ def create_payment_request_for_service(data: str) -> str:
         pay.ceo_approval_date = nowdate()
     else:
         _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
+    # Checked above against the amount AS REQUESTED; the insert validation must not check the
+    # rounded figure again and refuse what this endpoint just allowed.
+    pay.flags.work_order_limit_checked = True
     pay.insert()
 
     if auto_approve:

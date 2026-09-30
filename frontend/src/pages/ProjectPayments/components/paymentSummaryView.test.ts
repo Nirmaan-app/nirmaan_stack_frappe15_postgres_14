@@ -10,6 +10,7 @@ import {
   WorkOrderLimit,
   visibleLines,
   waitingPayments,
+  workOrderPaymentCap,
 } from "./paymentSummaryView";
 
 describe("valueLabel", () => {
@@ -115,5 +116,21 @@ describe("gstLeftNote", () => {
     expect(gstLeftNote({ ...LIMIT, gst_invoiced: 9000, gst_released: 9000, gst_left: 0 })).toBe(
       "All approved invoice GST is already requested"
     );
+  });
+});
+
+describe("workOrderPaymentCap", () => {
+  it("holds a GST-on Work Order payment to the chosen part, as the server does", () => {
+    const summary = { left: 69000, limit: LIMIT };
+    expect(workOrderPaymentCap(summary, "base")).toMatchObject({ max: 60000, capLabel: "Base left" });
+    expect(workOrderPaymentCap(summary, "gst")).toMatchObject({ max: 9000, capLabel: "GST left" });
+  });
+  it("holds a GST-off Work Order payment to what is left of its total, whatever part is chosen", () => {
+    const summary = { left: 12000, limit: { ...LIMIT, gst_on: false } };
+    expect(workOrderPaymentCap(summary, "base")).toEqual({ max: 12000, capLabel: "balance" });
+    expect(workOrderPaymentCap(summary, "gst")).toEqual({ max: 12000, capLabel: "balance" });
+  });
+  it("never goes below zero on an over-paid Work Order", () => {
+    expect(workOrderPaymentCap({ left: -500, limit: undefined }, "base").max).toBe(0);
   });
 });
