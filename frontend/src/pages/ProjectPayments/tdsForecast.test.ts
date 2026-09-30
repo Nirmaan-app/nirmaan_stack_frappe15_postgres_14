@@ -5,6 +5,7 @@ import {
 	forecastTdsTotals,
 	isCompanyBorneWorkOrder,
 	isDeductible,
+	isGstPayment,
 	withholdsOnApproval,
 } from "./tdsForecast";
 
@@ -154,6 +155,39 @@ describe("company-borne Work Orders (Miscellaneous / Transportation only)", () =
 			companyBorneTds: 16,
 			gross: 1600,
 			net: 1584,
+		});
+	});
+});
+
+describe("GST payments (ADR-0030): never taxed", () => {
+	it("reads the payment kind as Frappe sends it", () => {
+		expect(isGstPayment({ is_gst_payment: 1 })).toBe(true);
+		expect(isGstPayment({ is_gst_payment: "1" })).toBe(true);
+		expect(isGstPayment({ is_gst_payment: true })).toBe(true);
+		expect(isGstPayment({ is_gst_payment: 0 })).toBe(false);
+		expect(isGstPayment({})).toBe(false);
+		expect(isGstPayment(null)).toBe(false);
+		expect(isGstPayment(undefined)).toBe(false);
+	});
+
+	it("forecasts no deduction for a GST payment — and still does for a base one", () => {
+		expect(forecastTds(SR, 38550, 2, false, true)).toBeNull();
+		expect(forecastTds(SR, 800, 2, true, true)).toBeNull();
+		expect(forecastTds(SR, 38550, 2, false, false)).toEqual({ ratePct: 2, tds: 771, net: 37779 });
+		expect(isDeductible(SR, 1000, 2, true)).toBe(false);
+	});
+
+	it("leaves a GST payment out of a bulk selection's totals entirely", () => {
+		const rows = [
+			{ document_type: SR, amount: 10000, is_gst_payment: 1 },
+			{ document_type: SR, amount: 10000, is_gst_payment: 0 },
+		];
+		expect(forecastTdsTotals(rows, () => 2)).toEqual({
+			count: 1,
+			tds: 200,
+			companyBorneTds: 0,
+			gross: 10000,
+			net: 9800,
 		});
 	});
 });

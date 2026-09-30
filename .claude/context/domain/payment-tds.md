@@ -68,6 +68,19 @@ original.
 
 ---
 
+## GST payments are never taxed (ADR-0030, #1338)
+
+`Project Payments.is_gst_payment` (Check, `set_only_once`, default 0) marks a payment that pays a Work
+Order's GST only. **`payment_tds.is_deductible` refuses it**, and every withholding route asks that
+first — single approve from any earlier step, auto-approve at insert, bulk approve's post-commit phase,
+the cheque move's retry — so none writes a row or nets the amount. `restate_deduction_on_amount_change`
+returns early for one too. `payment_split.split_payment` copies the flag onto the leftover, which covers
+both the CEO part-approval and the Bulk Import part payment. Frontend: `tdsForecast.isGstPayment`
+feeds `forecastTds` / `forecastTdsTotals` (no forecast, so a GST cheque is its full amount); the
+approval queue returns `is_gst_payment` and the lists show a "GST" tag (`GstPaymentTag`).
+
+---
+
 ## Company-borne Work Orders — the payment is NOT reduced (owner ruling 2026-09-17)
 
 A Work Order whose `service_category_list` holds **only** `Miscellaneous Services` and/or

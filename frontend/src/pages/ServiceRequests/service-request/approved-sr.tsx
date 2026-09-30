@@ -2,7 +2,7 @@ import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 // import { Button } from "../ui/button";
@@ -59,6 +59,7 @@ import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/Dele
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -770,7 +771,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         const tds = tdsByPayment[payment?.name];
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
+                                                <TableCell className="font-semibold">
+                                                    {formatToRoundedIndianRupee(payment?.amount)}
+                                                    <GstPaymentTag payment={payment} />
+                                                </TableCell>
                                                 <TableCell className="font-semibold">
                                                     {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
                                                 </TableCell>

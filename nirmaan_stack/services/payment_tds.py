@@ -72,10 +72,12 @@ NOT here, and each absence is deliberate:
     `gross_amount` is kept because the rewrite destroys the original and nothing else remembers it.
   * A payment moving Approved -> Rejected leaves its deduction standing; it drops out of
     `total_tds` on its own, because that total counts Paid payments only.
+  * No tax on a GST PAYMENT, ever (ADR-0030, `is_gst_payment`): TDS is taken on base value only, so
+    a Work Order's GST is paid as its own payment and `is_deductible` refuses it.
 """
 
 import frappe
-from frappe.utils import flt, nowdate
+from frappe.utils import cint, flt, nowdate
 
 from nirmaan_stack.services import settlement
 
@@ -168,6 +170,7 @@ __all__ = [
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"is_deductible",
+	"is_gst_payment",
 	"existing_deduction",
 	"write_deduction",
 	"record_deduction",
@@ -200,14 +203,29 @@ def is_approval_from_an_earlier_step(previous_status, new_status) -> bool:
 	)
 
 
+def is_gst_payment(doc) -> bool:
+	"""Is this a GST payment -- one that pays a Work Order's GST only, never base value (ADR-0030)?
+
+	`Project Payments.is_gst_payment`, set once at creation. Every payment made before GST payments
+	existed reads 0: a base payment.
+	"""
+	return bool(cint(doc.get("is_gst_payment")))
+
+
 def is_deductible(doc) -> bool:
 	"""Is this payment one this module withholds tax from, in its CURRENT state?
 
-	Three facts, all of them about the payment itself: the parent ledger is deductible, the status
-	is `Approved`, and there is a vendor to look a rate up on. The TRANSITION is the caller's
-	concern -- `on_update` already knows whether the status just changed, and re-deriving that here
-	would need `get_doc_before_save`, which is `None` on an insert.
+	Four facts, all of them about the payment itself: it is not a GST payment, the parent ledger is
+	deductible, the status is `Approved`, and there is a vendor to look a rate up on. The
+	TRANSITION is the caller's concern -- `on_update` already knows whether the status just changed,
+	and re-deriving that here would need `get_doc_before_save`, which is `None` on an insert.
+
+	⚠️ A GST PAYMENT IS REFUSED HERE AND NOWHERE ELSE (ADR-0030): TDS is only ever taken on base
+	value. Every route that withholds -- single approve, a split's approved half, auto-approve at
+	insert, bulk approve, the cheque move's retry -- asks this question first, so none can tax one.
 	"""
+	if is_gst_payment(doc):
+		return False
 	if (doc.get("document_type") or "").strip() not in DEDUCTIBLE_PARENTS:
 		return False
 	if (doc.get("status") or "").strip() != APPROVED:
@@ -337,8 +355,14 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	RAISE can exceed what that challan holds; the edit is rejected loudly instead of leaving a
 	challan claiming to have paid out more than its face value. A reduction always fits.
 
+	⚠️ A GST PAYMENT IS NEVER RESTATED. It never carries a deduction through the app
+	(`is_deductible`); if one was planted by hand, an edit must not re-derive a tax that should not
+	exist.
+
 	Returns the deduction's name when it was looked at, or None when the payment carries none.
 	"""
+	if is_gst_payment(doc):
+		return None
 	name = existing_deduction(doc.name)
 	if not name:
 		return None
