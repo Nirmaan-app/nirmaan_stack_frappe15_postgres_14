@@ -119,6 +119,13 @@ def _fresh_parse():
     )
 
 
+#: `cashfree_sample.csv` lists its first transfer twice, same amount, same day, same bank status.
+#: Since ADR-0031 the second copy is an EXACT repeat and is not saved -- so a staged fixture batch
+#: holds one row fewer than the file, and that row was a SUCCESS for Rs 5,000.
+FIXTURE_IN_FILE_REPEATS = 1
+FIXTURE_IN_FILE_REPEAT_AMOUNT = 5000.0
+
+
 class OutflowReviewFixture(unittest.TestCase):
     """Stages a batch and plants targets for a few of its rows."""
 
@@ -461,10 +468,13 @@ class TestMatchBatch(OutflowReviewFixture):
         self.assertTrue(row["outcome_note"])
         self.assertIn(self.pay_clean, row["outcome_note"])
 
-    def test_in_file_duplicate_transfer_is_skipped_at_upload(self):
+    def test_in_file_duplicate_transfer_is_not_saved_at_upload(self):
         # The fixture repeats row 1's transfer id. Both copies would match the same payment, and
         # the second Outflow Row Match insert would violate the (transfer_id, target) unique
         # constraint and abort the whole pass with a database error.
+        #
+        # ⚠️ INVERTED BY ADR-0031: the second copy used to be staged Skipped. Same bank status, so
+        # it is an exact repeat now -- no row at all, only the batch's count.
         rows = frappe.get_all(
             ROW_DOCTYPE,
             filters={"import_batch": self.batch.name},
@@ -472,10 +482,11 @@ class TestMatchBatch(OutflowReviewFixture):
             order_by="creation asc",
         )
         repeated = [r for r in rows if r["transfer_id"].endswith("0001")]
-        self.assertEqual(len(repeated), 2)
-        self.assertEqual(repeated[0]["row_status"], "Matched")
-        self.assertEqual(repeated[1]["row_status"], "Skipped")
-        self.assertIn("earlier in the same statement", repeated[1]["skip_reason"])
+        self.assertEqual([r["row_status"] for r in repeated], ["Matched"])
+        self.assertEqual(
+            frappe.db.get_value(BATCH_DOCTYPE, self.batch.name, "repeats_not_saved"),
+            FIXTURE_IN_FILE_REPEATS,
+        )
 
     def test_batch_rollup_is_derived(self):
         batch = frappe.get_doc(BATCH_DOCTYPE, self.batch.name)
@@ -1281,7 +1292,8 @@ class TestReadEndpoints(OutflowReviewFixture):
         """v3: a `Matched` row carries NO match records -- those mean "settled" now -- so the
         assertion moved to the note, which is where the suggestion actually lives."""
         payload = get_batch_rows(self.batch.name)
-        self.assertEqual(len(payload["rows"]), len(self.parsed.rows))
+        # Every STORED row -- the fixture's in-file exact repeat is not saved (ADR-0031).
+        self.assertEqual(len(payload["rows"]), len(self.parsed.rows) - FIXTURE_IN_FILE_REPEATS)
         matched = [r for r in payload["rows"] if r["row_status"] == "Matched"]
         self.assertTrue(matched)
         self.assertTrue(all(r["outcome_note"] for r in matched))
@@ -1625,7 +1637,10 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         # is excluded from every figure this summary reports (owner ruling 2026-08-10, option B),
         # and a skipped one is now excluded from the totals on top of that. The fixture carries one
         # FAILED transfer AND several skipped ones, which is what makes this mean anything.
-        self.assertEqual(summary["total_rows"], self.parsed.success_count - skipped)
+        # ...less the fixture's in-file exact repeat, a SUCCESS that is not saved (ADR-0031).
+        self.assertEqual(
+            summary["total_rows"], self.parsed.success_count - FIXTURE_IN_FILE_REPEATS - skipped
+        )
         self.assertEqual(
             summary["failed_rows"], len(self.parsed.rows) - self.parsed.success_count
         )
@@ -1660,9 +1675,13 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         # the total under `status.SUMMARY_EXCLUDED_STATUSES` instead, because a skipped transfer is
         # money already counted somewhere else (a duplicate) or already recorded by hand. Adding
         # `skipped_value` back here would pin the double-count that ruling removed.
+        #
+        # ⚠️ SINCE ADR-0031 THE IN-FILE DUPLICATE IS NOT SAVED AT ALL, so its Rs 5,000 is in no
+        # stored row and comes off the statement's successful money here.
         self.assertAlmostEqual(
             summary["total_value"] + summary["skipped_value"],
-            float(sum(r.amount for r in self.parsed.rows if r.is_success)),
+            float(sum(r.amount for r in self.parsed.rows if r.is_success))
+            - FIXTURE_IN_FILE_REPEAT_AMOUNT,
             places=2,
         )
 
@@ -1998,7 +2017,10 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
             ROW_DOCTYPE, {"import_batch": self.batch.name, "row_status": "Skipped"}
         )
         self.assertTrue(skipped, "the fixture must contain a skipped row for this to mean anything")
-        self.assertEqual(counts["all"] + skipped, len(self.parsed.rows))
+        # Every STORED row -- the in-file exact repeat is not saved (ADR-0031).
+        self.assertEqual(
+            counts["all"] + skipped, len(self.parsed.rows) - FIXTURE_IN_FILE_REPEATS
+        )
 
     def test_no_tab_scope_will_show_a_skipped_row(self):
         """The other half of the ruling, asserted where a reader will look for it: NO TAB reaches a
@@ -3690,7 +3712,8 @@ class TestThePeriodScopedSummary(OutflowReviewFixture):
 
         covered = summary["imports"][0]
         # Every row of this batch is in scope, so the two counts agree and nothing overspills.
-        self.assertEqual(covered["row_count"], len(self.parsed.rows))
+        # (Stored rows: the in-file exact repeat is not saved, ADR-0031.)
+        self.assertEqual(covered["row_count"], len(self.parsed.rows) - FIXTURE_IN_FILE_REPEATS)
         self.assertEqual(covered["original_filename"], "test-statement.csv")
 
     def test_a_narrowed_scope_reports_the_batch_as_only_PARTLY_in_scope(self):
@@ -3711,7 +3734,7 @@ class TestThePeriodScopedSummary(OutflowReviewFixture):
         summary = get_outflow_summary(batch=self.batch.name, amount_min=biggest)
         covered = summary["imports"][0]
         self.assertLess(covered["row_count"], covered["total_rows"])
-        self.assertEqual(covered["total_rows"], len(self.parsed.rows))
+        self.assertEqual(covered["total_rows"], len(self.parsed.rows) - FIXTURE_IN_FILE_REPEATS)
 
     def test_an_undated_transfer_is_visible_in_EVERY_period(self):
         """⚠️ THE DEFECT THIS RULE EXISTS TO PREVENT, and it was live until P1 measured it.
@@ -4093,8 +4116,11 @@ class TestTheHistoryFigures(OutflowReviewFixture):
         failed = sum(1 for r in self.parsed.rows if not r.is_success)
         self.assertGreater(failed, 0, "fixture precondition: the sample has a refused transfer")
 
-        self.assertEqual(row["total_rows"], len(self.parsed.rows))
-        self.assertEqual(row["successful_rows"], len(self.parsed.rows) - failed)
+        # Stored rows only: the fixture's in-file exact repeat (a SUCCESS) is not saved, ADR-0031.
+        stored = len(self.parsed.rows) - FIXTURE_IN_FILE_REPEATS
+        self.assertEqual(row["total_rows"], stored)
+        self.assertEqual(row["successful_rows"], stored - failed)
+        self.assertEqual(row["repeats_not_saved"], FIXTURE_IN_FILE_REPEATS)
 
     def test_it_reports_the_amount_that_actually_left_the_account(self):
         row = next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
@@ -5859,12 +5885,16 @@ class TestAnICICISettleIsFoundAgainWhenItsMoneyReappears(OutflowReviewFixture):
         self.assertIn(f"recorded from batch {self.first.name}", row["outcome_note"] or "")
         self.assertEqual(self._links(self.second.name)["gst2"], {self.rec["gst"]})
 
-    def test_re_importing_the_settled_line_itself_is_skipped(self):
-        """The acceptance line's re-import: the same statement line in a new file lands Skipped --
-        caught at upload by its identity, and the match run leaves a Skipped row frozen."""
-        self.assertEqual(self.after_again["gst"]["row_status"], ROW_SKIPPED)
-        self.assertIn(self.first.name, self.after_again["gst"]["outcome_note"] or frappe.db.get_value(
-            ROW_DOCTYPE, self.after_again["gst"]["name"], "skip_reason") or "")
+    def test_re_importing_the_settled_line_itself_is_not_saved(self):
+        """The acceptance line's re-import: the same statement line in a new file is caught at
+        upload by its identity.
+
+        ⚠️ INVERTED BY ADR-0031: it used to land as a frozen Skipped row. Same bank status, so it
+        is an exact repeat now -- no row, only the batch's count."""
+        self.assertNotIn("gst", self.after_again)
+        self.assertEqual(
+            frappe.db.get_value(BATCH_DOCTYPE, self.again.name, "repeats_not_saved"), 1
+        )
 
     def test_a_second_cheque_with_the_same_narration_and_amount_is_not_skipped(self):
         row = self.after_second["chq2"]

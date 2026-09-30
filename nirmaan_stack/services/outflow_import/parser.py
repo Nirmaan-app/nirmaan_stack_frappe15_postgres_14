@@ -195,7 +195,7 @@ BANK_SUCCESS_STATUS = "SUCCESS"
 # ⚠️ THIS IS A DIFFERENT QUESTION FROM `is_success_status`, AND CONFLATING THEM COSTS MONEY IN ONE
 # DIRECTION AND CLARITY IN THE OTHER. "Did money move?" decides whether a row can SETTLE anything.
 # "Is this the final account of the transfer?" decides whether a stored row may be treated as an
-# IMPORT -- see `candidates.find_earlier_batches_for_rows`. A transfer still QUEUED is neither: it
+# IMPORT -- see `candidates.find_earlier_sightings_for_rows`. A transfer still QUEUED is neither: it
 # settles nothing today AND tomorrow's export will say something new about it, so freezing it as
 # "already imported" strands the money permanently. A FAILED transfer also settles nothing, but it
 # IS final -- a retry gets a new transfer id, so that row will never say anything else -- and it must

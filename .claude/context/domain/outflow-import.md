@@ -680,6 +680,19 @@ needs one vocabulary rather than one per writer.
     that does not exist. ⚠️ **THE ROW IS STILL STAGED** — that is the whole of what option B chose
     over option A, and the evidence that the bank rejected a transfer survives on it. What was
     removed is its effect on the numbers, never its existence.
+    - ⚠️ **AMENDED BY [ADR-0031](../../../docs/adr/0031-already-imported-lines-are-not-saved.md)
+      (2026-10-01): "still staged" now means its FIRST sighting.** A line the system already holds
+      with the **same bank status** -- from an earlier import or earlier in the same file -- is an
+      **exact repeat** and is **not saved at all**; the batch counts it in `repeats_not_saved` (read-only
+      Int, written once at staging by `upload._stage_batch`, never recomputed, because its rows do not
+      exist). A FAILED line re-appearing FAILED is such a repeat. One plan decides it for the preview
+      and the upload alike (`upload._plan_lines`, rule `duplicates.match_repeat`: exact if ANY earlier
+      sighting has the same trimmed/upper-cased status). A repeat whose bank status **changed** (e.g.
+      SUCCESS -> REVERSED) is still staged `Skipped` / System / *Already imported* (or *Repeated in
+      same file*), its reason naming both statuses, and stays Unskip-locked. `total_rows` /
+      `skipped_rows` / status stay derived from stored rows, so they exclude exact repeats. A file of
+      nothing but exact repeats is refused. The D4 terminal-status filter and the ICICI widened
+      identity are unchanged. Cashfree/ICICI only so far; Cashbook follows in #1355.
     - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.

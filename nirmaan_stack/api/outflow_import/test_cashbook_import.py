@@ -30,7 +30,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
 )
-from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_rows
+from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
 from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     row_identity,
@@ -741,7 +741,7 @@ class TestCashbookDoesNotNarrowByPeriod(FrappeTestCase):
     def test_cashfree_narrowed_by_period_would_have_missed_it(self):
         """The other half. Without this the test above would also pass if the period filter simply
         never excluded anything -- and then it would be asserting nothing at all."""
-        narrowed = find_earlier_batches_for_rows(
+        narrowed = find_earlier_sightings_for_rows(
             self.parsed.rows,
             period_from=self.parsed.period_from,
             period_to=self.parsed.period_to,
@@ -752,12 +752,13 @@ class TestCashbookDoesNotNarrowByPeriod(FrappeTestCase):
 
     def test_both_agree_once_the_period_is_not_supplied(self):
         """Same core, same answer -- the argument is the ONLY difference."""
-        wide = find_earlier_batches_for_rows(self.parsed.rows)
+        wide = find_earlier_sightings_for_rows(self.parsed.rows)
         index = cb._already_imported(self.parsed)
         for row in self.parsed.rows:
             if not row.transfer_id:
                 continue
+            sightings = wide.get(row_identity(row.transfer_id, row.amount, row.added_on_date))
             self.assertEqual(
-                wide.get(row_identity(row.transfer_id, row.amount, row.added_on_date)),
+                sightings[0].label if sightings else None,
                 find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date),
             )

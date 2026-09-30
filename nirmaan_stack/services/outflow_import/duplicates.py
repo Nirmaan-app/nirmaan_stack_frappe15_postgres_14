@@ -9,7 +9,14 @@ THE RULE IS OWNER RULING Q2, OPTION B, and it has exactly two behaviours over on
 
     every row already imported   ->  REFUSE. Nothing is written: no File, no batch, no rows.
     90% or more already imported ->  WARN in the preview. Never blocks; you can always proceed.
-    below 90%                    ->  import normally; duplicates stage and auto-skip with reasons.
+    below 90%                    ->  import normally; the exact repeats are left out, not saved.
+
+⚠️ "ALREADY IMPORTED" MEANS AN **EXACT REPEAT** SINCE ADR-0031: the same identity AND the same bank
+status as a line the system already holds (`match_repeat`). An exact repeat is never stored -- the
+import keeps only a count of them. A repeat whose bank status CHANGED is new information about the
+money, so it is not counted here: it is saved (as a skipped line naming both statuses) and so it is
+part of `new`, the lines this import will store. That is what keeps the refusal honest -- a file
+whose only new content is a status change still has something to save, and is accepted.
 
 ⚠️ 90% IS ONE CONSTANT, and the owner said so in as many words: "say a different number and it
 moves". `DUPLICATE_WARN_RATIO` is that number. Do not grow a second threshold beside it, and do not
@@ -41,7 +48,7 @@ on five fields while `Cashfree` and `Cashbook` keep the proven triple BYTE-IDENT
 load-bearing on its own.
 
 ⚠️ THERE ARE THREE READERS OF THIS KEY AND ALL THREE NOW AGREE (the gap closed at B3a).
-`upload._stage_batch` (the in-file repeat check), `candidates.find_earlier_batches_for_rows` (the
+`upload._stage_batch` (the in-file repeat check), `candidates.find_earlier_sightings_for_rows` (the
 cross-batch lookup) and `parser._duplicate_transfer_ids` (the preview warning) all pass the source
 and get the same key. Keep it that way -- the D3 notes exist because a key that differs between
 readers lets one call two rows duplicates while another calls them distinct, on the same file.
@@ -70,11 +77,15 @@ __all__ = [
     "DUPLICATE_WARN_RATIO",
     "DuplicateVerdict",
     "PriorSighting",
+    "Repeat",
     "RowIdentity",
     "assess_duplicates",
+    "bank_status_key",
     "dates_agree",
     "find_prior_sighting",
+    "find_prior_sightings",
     "index_prior_sightings",
+    "match_repeat",
     "row_identity",
     "row_identity_of",
     "WIDE_IDENTITY_SOURCES",
@@ -227,7 +238,7 @@ def dates_agree(left: "date | None", right: "date | None") -> bool:
 # a plain `dict` keyed on the whole `row_identity` triple can only answer with `==`, and `==` on the
 # date is exactly what `dates_agree` exists to refuse. Bucketing on `(transfer_id, amount)` and
 # settling the date separately is the ONLY shape that can apply the missing-date fallback, which is
-# why `candidates.find_earlier_batches_for_rows` already has this shape by hand.
+# why `candidates.find_earlier_sightings_for_rows` already has this shape by hand.
 #
 # ⚠️ THE CORPUS IS THE CALLER'S BUSINESS AND THE RULE IS NOT. Cashbook asks this of two different
 # populations -- earlier IMPORT ROWS, and expenses already BOOKED against a wallet reference -- and
@@ -247,16 +258,23 @@ class PriorSighting:
 
     `label` is deliberately opaque -- a batch id from one corpus, a ledger and record name from
     another. This module has no opinion about which; it only guarantees which one comes back.
+
+    `bank_status` is what the bank said about that earlier line, as stored (ADR-0031). Blank for a
+    corpus that has no bank status -- a booked expense -- which `match_repeat` is never asked about.
     """
 
     added_on_date: "date | None"
     label: str
+    bank_status: str = ""
 
 
 def index_prior_sightings(
-    entries: Iterable["tuple[str, Decimal, date | None, str]"],
+    entries: Iterable[tuple],
 ) -> dict[tuple[str, Decimal], tuple[PriorSighting, ...]]:
-    """Bucket `(transfer_id, amount, date, label)` entries by the two axes that compare with `==`.
+    """Bucket `(transfer_id, amount, date, label[, bank_status])` entries by the two `==` axes.
+
+    The fifth element is optional: an earlier IMPORT ROW carries the bank status it was stored with
+    (ADR-0031 needs it to tell an exact repeat from a status change); a booked expense has none.
 
     ⚠️ A BLANK `transfer_id` IS DROPPED, NOT BUCKETED. Without this every reference-less record in
     the corpus would share one bucket keyed `("", amount)`, and a new statement row that also failed
@@ -268,11 +286,15 @@ def index_prior_sightings(
     never appear here.
     """
     index: dict[tuple[str, Decimal], list[PriorSighting]] = {}
-    for transfer_id, amount, added_on_date, label in entries:
+    for transfer_id, amount, added_on_date, label, *bank_status in entries:
         if not transfer_id:
             continue
         index.setdefault((transfer_id, amount), []).append(
-            PriorSighting(added_on_date=added_on_date, label=label)
+            PriorSighting(
+                added_on_date=added_on_date,
+                label=label,
+                bank_status=bank_status[0] if bank_status else "",
+            )
         )
     return {key: tuple(sightings) for key, sightings in index.items()}
 
@@ -288,12 +310,81 @@ def find_prior_sighting(
     The date is settled by `dates_agree`, so an unreadable date on EITHER side does not break the
     match. That is the whole point of routing both Cashbook lookups through here.
     """
+    sightings = find_prior_sightings(index, transfer_id, amount, added_on_date)
+    return sightings[0].label if sightings else None
+
+
+def find_prior_sightings(
+    index: dict[tuple[str, Decimal], tuple[PriorSighting, ...]],
+    transfer_id: str,
+    amount: Decimal,
+    added_on_date: "date | None",
+) -> tuple[PriorSighting, ...]:
+    """EVERY earlier sighting of this transfer, in the index's order (earliest first).
+
+    `find_prior_sighting` is the first of these. All of them are needed to answer ADR-0031's
+    question -- does the system already hold this line WITH THIS BANK STATUS? -- because the earliest
+    sighting may carry an older status while a later one already carries this one.
+    """
     if not transfer_id:
+        return ()
+    return tuple(
+        sighting
+        for sighting in index.get((transfer_id, amount), ())
+        if dates_agree(sighting.added_on_date, added_on_date)
+    )
+
+
+# --- an exact repeat, or a status change? (ADR-0031) -------------------------------------------
+
+
+def bank_status_key(value: "str | None") -> str:
+    """A bank status as it is compared: trimmed and upper-cased.
+
+    ⚠️ THE SAME NORMALISATION AS `parser.is_terminal_status` (`.strip().upper()`), which is the filter
+    that decides which stored rows are sightings at all. It is spelled here rather than imported
+    because `parser` imports this module. Two lines that differ only in padding or case are the same
+    status, and treating them as a status change would save a row for news that is not news.
+    """
+    return (value or "").strip().upper()
+
+
+@dataclass(frozen=True)
+class Repeat:
+    """An earlier sighting of a line, and whether this line is an EXACT repeat of it.
+
+    `exact` is True when the system already holds this line with the same bank status: the line is
+    not saved, only counted. False means the bank status changed since (for example SUCCESS earlier,
+    REVERSED now): the line is saved as a skipped repeat whose reason names both statuses.
+
+    `label` names the earlier sighting to point a reader at; `earlier_status` is that sighting's
+    status, normalised by `bank_status_key`.
+    """
+
+    label: str
+    earlier_status: str
+    exact: bool
+
+
+def match_repeat(sightings: "tuple[PriorSighting, ...]", bank_status: "str | None") -> "Repeat | None":
+    """Classify a line against its earlier sightings, or `None` when there are none.
+
+    An EXACT repeat needs ANY sighting with the same bank status, not just the earliest -- the glossary
+    term is a line "the system already holds". Without that, a transfer imported SUCCESS and later
+    REVERSED would save a fresh REVERSED row on every overlapping statement after that, because the
+    earliest sighting would always still say SUCCESS. The first same-status sighting is the one named.
+
+    With no same-status sighting it is a STATUS CHANGE, named against the earliest sighting (the
+    order the index keeps, `ORDER BY creation ASC`), which is where the line was first imported.
+    """
+    if not sightings:
         return None
-    for sighting in index.get((transfer_id, amount), ()):
-        if dates_agree(sighting.added_on_date, added_on_date):
-            return sighting.label
-    return None
+    status = bank_status_key(bank_status)
+    for sighting in sightings:
+        if bank_status_key(sighting.bank_status) == status:
+            return Repeat(label=sighting.label, earlier_status=status, exact=True)
+    first = sightings[0]
+    return Repeat(label=first.label, earlier_status=bank_status_key(first.bank_status), exact=False)
 
 
 @dataclass(frozen=True)
@@ -328,6 +419,10 @@ def assess_duplicates(
 ) -> DuplicateVerdict:
     """Decide refuse / warn / proceed for a statement with `duplicates` of `total` rows seen before.
 
+    `duplicates` counts EXACT repeats only (ADR-0031) -- the lines that will not be saved -- so `new`
+    is what this import will store, status-changed repeats included, and `new == 0` is "nothing to
+    store".
+
     `earliest_batch` names the batch to point the reader at. It is optional because the message has
     to stay honest when the caller could not identify one -- a vague "already imported" beats naming
     the wrong batch.
@@ -361,7 +456,7 @@ def assess_duplicates(
             refuse=False, warn=True, earliest_batch=earliest_batch,
             message=(
                 f"Only {new} of {total} transfers in {what} are new. "
-                f"The other {duplicates} were already imported{where}."
+                f"The other {duplicates} were already imported{where} and will not be saved."
             ),
         )
 
@@ -370,6 +465,6 @@ def assess_duplicates(
         refuse=False, warn=False, earliest_batch=earliest_batch,
         message=(
             f"{duplicates} of {total} transfers were already imported{where}. "
-            f"They will be staged and skipped, not re-matched."
+            f"They will not be saved."
         ),
     )

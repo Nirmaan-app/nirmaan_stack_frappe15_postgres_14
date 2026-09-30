@@ -2598,6 +2598,32 @@ export const previewCounts = (preview: {
     };
 };
 
+/**
+ * What the confirm button promises to import (ADR-0031).
+ *
+ * ⚠️ `new_rows` IS WHAT THE UPLOAD SAVES, so once any line is already imported the button names that
+ * number, not the file's size. An already-imported line is not saved at all, and "Import 43
+ * transfers" over a file where 3 will be left out promises three rows nobody will ever see.
+ */
+export const confirmImportLabel = (preview: {
+    total_rows: number;
+    new_rows: number;
+    duplicate_rows: number;
+}): string =>
+    preview.duplicate_rows > 0
+        ? `Import the ${preview.new_rows} new ${preview.new_rows === 1 ? "transfer" : "transfers"}`
+        : `Import ${preview.total_rows} transfers`;
+
+/**
+ * How many already-imported lines an import left out, as the words shown -- or `null` for none
+ * (ADR-0031). Those lines were not saved, so this count is the only trace they leave.
+ *
+ * ⚠️ ONE WORDING FOR THE POST-UPLOAD SUMMARY AND IMPORT HISTORY, so the same number never reads
+ * two ways. `undefined` (an older server, or a Cashbook import) and 0 both show nothing.
+ */
+export const repeatsNotSavedLabel = (count: number | null | undefined): string | null =>
+    count && count > 0 ? `${count} already imported, not saved` : null;
+
 // --- what counts as decided --------------------------------------------------------------------
 
 /**

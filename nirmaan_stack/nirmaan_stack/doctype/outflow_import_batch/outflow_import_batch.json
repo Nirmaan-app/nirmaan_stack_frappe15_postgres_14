@@ -20,6 +20,7 @@
   "settled_rows",
   "skipped_rows",
   "error_rows",
+  "repeats_not_saved",
   "amounts_section",
   "gross_amount",
   "charges_amount",
@@ -97,7 +98,7 @@
    "options": "Draft\nIn Review\nPartially Settled\nCompleted"
   },
   {
-   "description": "Rows parsed from the file, including non-SUCCESS rows (which are staged and then auto-skipped, so the skip stays visible).",
+   "description": "Rows stored for this import, including non-SUCCESS rows (which are staged and then auto-skipped, so the skip stays visible). Exact repeats of lines already held are not stored and not counted here -- see repeats_not_saved (ADR-0031).",
    "fieldname": "total_rows",
    "fieldtype": "Int",
    "label": "Total Rows"
@@ -115,7 +116,7 @@
    "label": "Settled Rows"
   },
   {
-   "description": "Rows skipped -- duplicates, non-SUCCESS transfers, or a manual skip (which requires a reason).",
+   "description": "Rows skipped -- a repeat whose bank status changed, non-SUCCESS transfers, or a manual skip (which requires a reason). An exact repeat is not stored at all (ADR-0031).",
    "fieldname": "skipped_rows",
    "fieldtype": "Int",
    "label": "Skipped Rows"
@@ -125,6 +126,13 @@
    "fieldname": "error_rows",
    "fieldtype": "Int",
    "label": "Error Rows"
+  },
+  {
+   "description": "Lines of the uploaded statement that were exact repeats of lines already held -- the same transfer with the same bank status, from an earlier import or earlier in the same file -- and so were NOT saved (ADR-0031). Written once at upload and never recomputed from rows, because the rows it counts do not exist. A repeat whose bank status changed IS saved, as a skipped row, and is not counted here.",
+   "fieldname": "repeats_not_saved",
+   "fieldtype": "Int",
+   "label": "Already Imported, Not Saved",
+   "read_only": 1
   },
   {
    "fieldname": "amounts_section",
@@ -194,7 +202,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-08-06 00:00:00.000000",
+ "modified": "2026-10-01 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Batch",

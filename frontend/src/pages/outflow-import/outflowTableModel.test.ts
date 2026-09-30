@@ -60,6 +60,8 @@ import {
     settleBlockText,
     settleBlocker,
     previewCounts,
+    confirmImportLabel,
+    repeatsNotSavedLabel,
     statementCredit,
     statementDebit,
     tabCountParts,
@@ -3405,6 +3407,36 @@ describe("previewCounts", () => {
 
     it("never returns a negative successful count", () => {
         expect(previewCounts({ total_rows: 0, failed_rows: 5 }).successful).toBe(0);
+    });
+});
+
+describe("confirmImportLabel", () => {
+    it("names the file's size when nothing is already imported", () => {
+        expect(confirmImportLabel({ total_rows: 43, new_rows: 43, duplicate_rows: 0 })).toBe(
+            "Import 43 transfers"
+        );
+    });
+
+    it("names what will be saved once any line is already imported (ADR-0031)", () => {
+        // Below the 90% warning too: the left-out lines are not saved either way.
+        expect(confirmImportLabel({ total_rows: 43, new_rows: 40, duplicate_rows: 3 })).toBe(
+            "Import the 40 new transfers"
+        );
+        expect(confirmImportLabel({ total_rows: 43, new_rows: 1, duplicate_rows: 42 })).toBe(
+            "Import the 1 new transfer"
+        );
+    });
+});
+
+describe("repeatsNotSavedLabel", () => {
+    it("says how many already-imported lines were left out", () => {
+        expect(repeatsNotSavedLabel(12)).toBe("12 already imported, not saved");
+    });
+
+    it("shows nothing for none, or for a server that does not send the count", () => {
+        expect(repeatsNotSavedLabel(0)).toBeNull();
+        expect(repeatsNotSavedLabel(undefined)).toBeNull();
+        expect(repeatsNotSavedLabel(null)).toBeNull();
     });
 });
 

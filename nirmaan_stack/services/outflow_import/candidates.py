@@ -71,7 +71,8 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
 from nirmaan_stack.services.outflow_import.expense_links import linked_totals_join
 from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
-    find_prior_sighting,
+    PriorSighting,
+    find_prior_sightings,
     index_prior_sightings,
     row_identity_of,
 )
@@ -90,7 +91,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount, normalize_reference
 # ⚠️ THE BANK'S OWN VOCABULARY FOR "this transfer's story is over", bound into the duplicate lookup
-# rather than spelled a second time. See `find_earlier_batches_for_rows`. `parser` imports only
+# rather than spelled a second time. See `find_earlier_sightings_for_rows`. `parser` imports only
 # `duplicates` and `normalize`, so this direction adds no cycle.
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
@@ -111,7 +112,7 @@ __all__ = [
     # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
     # duplicate identity is `(transfer_id, amount, date)` and a list of ids can no longer express
     # the question. The old name is deliberately not kept as an alias -- see the function.
-    "find_earlier_batches_for_rows",
+    "find_earlier_sightings_for_rows",
     "prior_import_sightings",
     "amount_window_sql",
     "PAYMENT_DOCTYPE",
@@ -790,14 +791,19 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     return tuple(out)
 
 
-def find_earlier_batches_for_rows(
+def find_earlier_sightings_for_rows(
     rows: Sequence,
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
     source: str = "",
-) -> dict[RowIdentity, str]:
-    """Map each row's `RowIdentity` -> the earliest OTHER batch that already staged that transfer.
+) -> dict[RowIdentity, tuple[PriorSighting, ...]]:
+    """Map each row's `RowIdentity` -> every earlier sighting of that transfer, earliest first.
+
+    Each sighting's `label` is the OTHER batch that staged it, and its `bank_status` is what that
+    stored row says (ADR-0031). All of them are returned, not just the earliest, because whether a
+    line is an EXACT repeat depends on whether ANY of them carries its bank status --
+    `duplicates.match_repeat` decides that, and names the batch.
 
     This is the precise duplicate guard. The batch-level Added-On overlap only warns; two exports
     can carry the same transfer without their periods overlapping at all, and can carry different
@@ -888,16 +894,16 @@ def find_earlier_batches_for_rows(
     if not index:
         return {}
 
-    seen: dict[RowIdentity, str] = {}
+    seen: dict[RowIdentity, tuple[PriorSighting, ...]] = {}
     for row in rows:
         if not row.transfer_id:
             continue
         identity = row_identity_of(row, source)
         if identity in seen:
             continue
-        batch = find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date)
-        if batch:
-            seen[identity] = batch
+        sightings = find_prior_sightings(index, row.transfer_id, row.amount, row.added_on_date)
+        if sightings:
+            seen[identity] = sightings
     return seen
 
 
@@ -910,7 +916,7 @@ def prior_import_sightings(
     """Every TERMINAL stored import row for these transfer ids, as a `duplicates` sightings index.
 
     THE ONE QUERY BEHIND BOTH SOURCES' "have we imported this before?" CHECK (slice CB-DUP-2).
-    `find_earlier_batches_for_rows` (Cashfree) is a thin adapter over it, and
+    `find_earlier_sightings_for_rows` (Cashfree) is a thin adapter over it, and
     `api.outflow_import.cashbook._already_imported` calls it directly. Before this, the two were
     hand-written copies of one question -- same identity, same terminal-status clause, same
     earliest-first ordering -- which is how one gets corrected and the other does not. Both write to
@@ -919,7 +925,7 @@ def prior_import_sightings(
     ⚠️ THE PERIOD NARROWING IS THE **ONE** DIFFERENCE BETWEEN THE TWO CALLERS, AND IT IS DELIBERATE
     -- DO NOT "FINISH THE JOB" BY DEFAULTING IT ON. Cashfree passes the statement's period;
     Cashbook passes nothing and searches every batch. The narrowing is ergonomics, not safety, and
-    its whole licence is the sentence in `find_earlier_batches_for_rows`: a miss cannot cause double
+    its whole licence is the sentence in `find_earlier_sightings_for_rows`: a miss cannot cause double
     payment because the `Outflow Row Match` unique constraint is the real backstop. **That licence
     does not exist on the Cashbook path** -- a wallet row CREATES its target, so `target_name` is
     new every time and the constraint can never fire. A missed duplicate costs Cashfree a worse
@@ -978,7 +984,7 @@ def prior_import_sightings(
 
     stored = frappe.db.sql(
         f"""
-        SELECT transfer_id, amount, added_on, import_batch, creation
+        SELECT transfer_id, amount, added_on, import_batch, status_raw, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
           AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
@@ -996,6 +1002,7 @@ def prior_import_sightings(
             normalize_amount(r.get("amount")),
             _stored_date(r.get("added_on")),
             r["import_batch"],
+            r.get("status_raw") or "",
         )
         for r in stored
     )

@@ -43,6 +43,11 @@ export interface OutflowImportBatch {
     settled_rows?: number;
     skipped_rows?: number;
     error_rows?: number;
+    /**
+     * Lines the upload left out as exact repeats of lines already held (ADR-0031). Written once at
+     * upload; never counted from rows, because those lines were never saved.
+     */
+    repeats_not_saved?: number;
 
     /** Sum of the beneficiary amounts on SUCCESSFUL rows. Excludes gateway charges. */
     gross_amount?: number;
@@ -360,6 +365,11 @@ export interface OutflowImportOption {
      * amount covering 147. The server narrows the count in step; nothing is derived here.
      */
     successful_rows?: number;
+    /**
+     * Already-imported lines this import left out and did not save (ADR-0031). The only trace they
+     * leave. Optional: an older server does not send it.
+     */
+    repeats_not_saved?: number;
     /**
      * Money that actually left the account. Bank-refused transfers were never in it, and since
      * #1287 neither are money-IN lines — this is the statement's withdrawals, not its net movement.
@@ -696,7 +706,13 @@ export interface OutflowPreviewResult {
      */
     inflow_rows?: number;
     charges_amount: number;
+    /**
+     * Lines already imported -- the same transfer with the same bank status, from an earlier import
+     * or earlier in this file. They will NOT be saved (ADR-0031). A repeat whose bank status changed
+     * is not counted here: it is saved, so it is part of `new_rows`.
+     */
     duplicate_rows: number;
+    /** Lines the upload will save. */
     new_rows: number;
     duplicate_message: string;
     refused: boolean;
@@ -720,6 +736,8 @@ export interface OutflowUploadResult {
     status: string;
     total_rows: number;
     skipped_rows: number;
+    /** Already-imported lines left out and not saved (ADR-0031). Optional for an older server. */
+    repeats_not_saved?: number;
     gross_amount: number;
     charges_amount: number;
     overlaps_batch: string | null;

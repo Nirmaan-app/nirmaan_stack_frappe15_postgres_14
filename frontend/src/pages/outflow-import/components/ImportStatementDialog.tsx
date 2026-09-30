@@ -37,7 +37,9 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     describeFrappeError,
+    confirmImportLabel,
     previewCounts,
+    repeatsNotSavedLabel,
     statementCredit,
     statementDebit,
 } from "../outflowTableModel";
@@ -1091,10 +1093,11 @@ const StatementPreview = ({
                         tone="muted"
                     />
                 )}
+                {/* ADR-0031: an already-imported line is not saved at all, not staged and skipped. */}
                 {counts.duplicates > 0 && (
                     <PreviewFigure
                         label="Already imported"
-                        value={`${counts.duplicates} — will be skipped`}
+                        value={`${counts.duplicates} — will not be saved`}
                         tone="amber"
                     />
                 )}
@@ -1221,11 +1224,7 @@ const StatementPreview = ({
                         ? "Importing…"
                         : phase === "match"
                           ? "Matching…"
-                          : preview.warn
-                            ? `Import the ${preview.new_rows} new ${
-                                  preview.new_rows === 1 ? "transfer" : "transfers"
-                              }`
-                            : `Import ${preview.total_rows} transfers`}
+                          : confirmImportLabel(preview)}
                 </Button>
             )}
         </div>
@@ -1298,6 +1297,11 @@ const StagedSummary = ({
             {result.skipped_rows > 0 && (
                 <span className="text-muted-foreground">
                     {result.skipped_rows} skipped automatically
+                </span>
+            )}
+            {repeatsNotSavedLabel(result.repeats_not_saved) && (
+                <span className="text-muted-foreground">
+                    {repeatsNotSavedLabel(result.repeats_not_saved)}
                 </span>
             )}
         </div>

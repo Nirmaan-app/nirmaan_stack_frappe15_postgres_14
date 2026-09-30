@@ -53,6 +53,12 @@ XLSX_FIXTURE = (
 )
 
 
+#: The Cashfree fixture lists one transfer twice with the same bank status (its first and last lines).
+#: Since ADR-0031 that in-file EXACT repeat is counted as already imported on every upload of it,
+#: fresh or not -- so a "brand new" statement's repeat count is this, not 0.
+FIXTURE_IN_FILE_REPEATS = 1
+
+
 def _parsed_in_a_fresh_transfer_namespace():
     """Re-parse the fixture with every transfer id uniquely prefixed.
 
@@ -106,10 +112,13 @@ class TestStageBatch(unittest.TestCase):
             order_by="creation asc",
         )
 
-    def test_every_parsed_row_is_staged(self):
+    def test_every_parsed_row_is_staged_except_the_exact_repeat_which_is_counted(self):
+        """ADR-0031. The fixture's last line repeats its first -- same transfer, same bank status --
+        so it is not saved; the batch counts it instead, and `total_rows` counts only stored rows."""
         batch = self._stage()
-        self.assertEqual(len(self._rows(batch)), len(self.parsed.rows))
-        self.assertEqual(batch.total_rows, len(self.parsed.rows))
+        self.assertEqual(len(self._rows(batch)), len(self.parsed.rows) - 1)
+        self.assertEqual(batch.total_rows, len(self.parsed.rows) - 1)
+        self.assertEqual(batch.repeats_not_saved, 1)
 
     def test_batch_carries_the_period_and_the_two_money_figures(self):
         batch = self._stage()
@@ -179,23 +188,22 @@ class TestStageBatch(unittest.TestCase):
         self.assertTrue(successes)
         self.assertEqual({r["row_status"] for r in successes}, {"Pending match run"})
 
-    def test_in_file_duplicate_is_skipped_on_its_second_appearance(self):
+    def test_an_in_file_exact_repeat_stores_no_row_and_is_counted(self):
         # The same transfer listed twice in ONE statement. The cross-batch lookup cannot see it --
         # it only queries EARLIER batches -- so it needs its own guard. Left uncaught, both copies
         # later match the same payment and the second Outflow Row Match insert violates the
         # (transfer_id, target) unique constraint, aborting the whole match pass.
-        batch = self._stage()
-        rows = self._rows(batch)
-        counts: dict[str, list] = {}
-        for row in rows:
-            counts.setdefault(row["transfer_id"], []).append(row)
-        repeated = [group for group in counts.values() if len(group) > 1]
+        #
+        # ⚠️ INVERTED BY ADR-0031: the second appearance used to be staged Skipped. With the same
+        # bank status it is now not saved at all -- only the first appearance has a row.
+        tids = [r.transfer_id for r in self.parsed.rows]
+        repeated = {tid for tid in tids if tids.count(tid) > 1}
         self.assertTrue(repeated, "fixture should contain a repeated transfer id")
-        for group in repeated:
-            self.assertEqual(group[0]["row_status"], "Pending match run")
-            for later in group[1:]:
-                self.assertEqual(later["row_status"], "Skipped")
-                self.assertIn("earlier in the same statement", later["skip_reason"])
+        batch = self._stage()
+        for tid in repeated:
+            stored = [r for r in self._rows(batch) if r["transfer_id"] == tid]
+            self.assertEqual([r["row_status"] for r in stored], ["Pending match run"])
+        self.assertEqual(batch.repeats_not_saved, len(repeated))
 
     def test_long_remark_survives_the_round_trip(self):
         # varchar(140) would have thrown CharacterLengthExceededError on insert.
@@ -238,10 +246,14 @@ class TestDuplicateGuard(unittest.TestCase):
         frappe.db.commit()
         return batch
 
-    def test_re_uploading_the_same_statement_skips_every_transfer(self):
+    def test_re_uploading_the_same_statement_saves_no_transfer_and_counts_every_one(self):
         # The precise duplicate guard: transfer_id against EARLIER batches. This is what the
         # date-range overlap warning cannot do -- two exports can share a transfer without their
         # periods overlapping at all, and can share a period without sharing a transfer.
+        #
+        # ⚠️ INVERTED BY ADR-0031: every line used to be staged Skipped. Each is an exact repeat
+        # now, so none is saved. (The endpoint refuses such a file outright; `_stage_batch` is
+        # called directly here to pin what staging itself does.)
         parsed = _parsed_in_a_fresh_transfer_namespace()
         first = self._stage(parsed)
         second = self._stage(parsed)
@@ -249,22 +261,18 @@ class TestDuplicateGuard(unittest.TestCase):
         first_rows = frappe.get_all(
             ROW_DOCTYPE, filters={"import_batch": first.name}, fields=["row_status"]
         )
-        second_rows = frappe.get_all(
-            ROW_DOCTYPE,
-            filters={"import_batch": second.name},
-            fields=["row_status", "skip_reason"],
-        )
-
         self.assertTrue(any(r["row_status"] == "Pending match run" for r in first_rows))
-        self.assertEqual({r["row_status"] for r in second_rows}, {"Skipped"})
-        self.assertTrue(all(first.name in (r["skip_reason"] or "") for r in second_rows))
+        self.assertEqual(frappe.db.count(ROW_DOCTYPE, {"import_batch": second.name}), 0)
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
-    def test_a_fully_duplicate_batch_is_completed_immediately(self):
+    def test_a_fully_duplicate_batch_stores_no_rows_and_counts_none_of_them(self):
+        """⚠️ INVERTED BY ADR-0031: this was "is completed immediately", when every repeat was a
+        stored Skipped row. Now nothing is stored, so every row counter is zero."""
         parsed = _parsed_in_a_fresh_transfer_namespace()
         self._stage(parsed)
         second = self._stage(parsed)
-        # Every row terminal -> nothing left for anyone to do.
-        self.assertEqual(second.status, "Completed")
+        self.assertEqual(second.total_rows, 0)
+        self.assertEqual(second.skipped_rows, 0)
 
     def test_a_fresh_namespace_is_not_treated_as_a_duplicate(self):
         # The guard must key on the TRANSFER, not on the period or the file. Two statements
@@ -332,7 +340,7 @@ class TestDuplicateGuard(unittest.TestCase):
         # can carry different times; comparing the full timestamp would make every re-export look
         # like new work, which is the failure this half of the rule prevents.
         parsed = _parsed_in_a_fresh_transfer_namespace()
-        first = self._stage(parsed)
+        self._stage(parsed)
 
         later = replace(
             parsed,
@@ -342,11 +350,9 @@ class TestDuplicateGuard(unittest.TestCase):
             ),
         )
         second = self._stage(later)
-        self.assertEqual(self._statuses(second), {"Skipped"})
-        rows = frappe.get_all(
-            ROW_DOCTYPE, filters={"import_batch": second.name}, fields=["skip_reason"]
-        )
-        self.assertTrue(all(first.name in (r["skip_reason"] or "") for r in rows))
+        # ADR-0031: an exact repeat is not saved -- no row, one count per line.
+        self.assertEqual(self._statuses(second), set())
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
     def test_an_UNREADABLE_date_falls_back_to_id_plus_amount_and_still_skips(self):
         # ⚠️ THE SILENT-DOUBLE-IMPORT GUARD (owner ruling). The parser stages a row whose Added On
@@ -354,21 +360,16 @@ class TestDuplicateGuard(unittest.TestCase):
         # recognised on re-upload and import a SECOND time with nothing to show for it.
         parsed = _parsed_in_a_fresh_transfer_namespace()
         undated = replace(parsed, rows=tuple(replace(r, added_on=None) for r in parsed.rows))
-        first = self._stage(undated)
+        self._stage(undated)
         second = self._stage(undated)
-        self.assertEqual(self._statuses(second), {"Skipped"})
+        # ADR-0031: recognised as repeats, so nothing is saved and every line is counted.
+        self.assertEqual(self._statuses(second), set())
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
         # ...and it holds in the MIXED direction too: a dated re-upload of an undated batch.
         third = self._stage(parsed)
-        self.assertEqual(self._statuses(third), {"Skipped"})
-        self.assertTrue(
-            all(
-                first.name in (r["skip_reason"] or "")
-                for r in frappe.get_all(
-                    ROW_DOCTYPE, filters={"import_batch": third.name}, fields=["skip_reason"]
-                )
-            )
-        )
+        self.assertEqual(self._statuses(third), set())
+        self.assertEqual(third.repeats_not_saved, len(parsed.rows))
 
     def test_the_amount_comparison_is_EXACT_to_the_paisa(self):
         # No tolerance here, deliberately: `AMOUNT_TOLERANCE` is the SETTLE window and at Rs 5 two
@@ -386,7 +387,9 @@ class TestDuplicateGuard(unittest.TestCase):
         # behaviour every earlier test in this class asserts.
         parsed = _parsed_in_a_fresh_transfer_namespace()
         self._stage(parsed)
-        self.assertEqual(self._statuses(self._stage(parsed)), {"Skipped"})
+        second = self._stage(parsed)
+        self.assertEqual(self._statuses(second), set())
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
 
 def _all_queued(parsed):
@@ -465,12 +468,12 @@ class TestQueuedThenSuccessfulReimport(unittest.TestCase):
         # above rather than only in TestDuplicateGuard: the two differ in ONE axis -- what the bank
         # said about the stored row -- and reading them together is what shows the rule.
         parsed = _parsed_in_a_fresh_transfer_namespace()
-        first = self._stage(parsed)
+        self._stage(parsed)
         second = self._stage(parsed)
 
-        rows = self._rows(second)
-        self.assertEqual({r["row_status"] for r in rows}, {"Skipped"})
-        self.assertTrue(all(first.name in (r["skip_reason"] or "") for r in rows))
+        # ADR-0031: blocked means not saved at all now -- no row, and counted.
+        self.assertEqual(self._rows(second), [])
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
     def test_a_FAILED_row_still_counts_as_imported(self):
         # ⚠️ THE REGRESSION THE FIRST CUT OF THIS FIX CAUSED, and the reason the rule is TERMINAL
@@ -483,9 +486,9 @@ class TestQueuedThenSuccessfulReimport(unittest.TestCase):
         self._stage(parsed)
         second = self._stage(parsed)
 
-        failed = [r for r in self._rows(second) if r["status_raw"] == "FAILED"]
-        self.assertEqual(len(failed), 1)
-        self.assertIn("Already imported", failed[0]["skip_reason"] or "")
+        # ADR-0031: counted as an exact repeat (FAILED again), so it has no row in the re-upload.
+        self.assertEqual([r for r in self._rows(second) if r["status_raw"] == "FAILED"], [])
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
     def test_only_the_transfer_that_was_QUEUED_re_opens(self):
         # The production shape: one row in flight, the rest already through. The completed one must
@@ -508,12 +511,9 @@ class TestQueuedThenSuccessfulReimport(unittest.TestCase):
 
         by_id = {r["transfer_id"]: r for r in self._rows(today)}
         self.assertEqual(by_id[in_flight]["row_status"], "Pending match run")
-        others = [
-            r for tid, r in by_id.items()
-            if tid != in_flight and r["status_raw"] == "SUCCESS"
-        ]
-        self.assertTrue(others)
-        self.assertEqual({r["row_status"] for r in others}, {"Skipped"})
+        # ADR-0031: the genuinely-duplicate neighbours are exact repeats -- not saved, counted.
+        self.assertEqual(list(by_id), [in_flight])
+        self.assertEqual(today.repeats_not_saved, len(parsed.rows) - 1)
 
     def test_the_preview_agrees_with_the_upload(self):
         # ⚠️ THEY SHARE `_already_imported` PRECISELY SO THEY CANNOT DIVERGE, and this is what
@@ -524,7 +524,8 @@ class TestQueuedThenSuccessfulReimport(unittest.TestCase):
         self._stage(_all_queued(parsed))
 
         verdict, _ = _assess_statement(parsed, "test-statement.csv")
-        self.assertEqual(verdict.duplicates, 0)
+        # None of the queued lines counts -- only the fixture's in-file repeat (ADR-0031).
+        self.assertEqual(verdict.duplicates, FIXTURE_IN_FILE_REPEATS)
         self.assertFalse(verdict.refuse)
         self.assertFalse(verdict.warn)
 
@@ -617,6 +618,27 @@ class TestUnstrandPatch(unittest.TestCase):
         stranded = frappe.db.get_value(
             ROW_DOCTYPE, {"import_batch": today.name, "transfer_id": in_flight}, "name"
         )
+        # ⚠️ AND THE NEIGHBOUR IS BUILT BY HAND TOO (ADR-0031). A genuine repeat is no longer saved,
+        # so today's copy of the settled transfer has no row -- but a pre-ADR-0031 site holds one,
+        # Skipped "Already imported", and that is the row the patch must leave alone.
+        original = frappe.get_doc(
+            ROW_DOCTYPE,
+            frappe.db.get_value(
+                ROW_DOCTYPE, {"import_batch": yesterday.name, "transfer_id": settled_yesterday}
+            ),
+        )
+        neighbour = frappe.copy_doc(original)
+        neighbour.update(
+            {
+                "import_batch": today.name,
+                "row_status": "Skipped",
+                "skip_reason": f"Already imported in batch {yesterday.name}.",
+                "skip_origin": "System",
+                "skip_kind": "Already imported",
+                "outcome_note": None,
+            }
+        )
+        neighbour.insert(ignore_permissions=True)
         frappe.db.set_value(
             ROW_DOCTYPE,
             stranded,
@@ -744,7 +766,8 @@ class TestPreviewAndRefusal(unittest.TestCase):
         verdict, _ = _assess_statement(parsed, "aug.csv")
         self.assertFalse(verdict.refuse)
         self.assertFalse(verdict.warn)
-        self.assertEqual(verdict.duplicates, 0)
+        # Nothing from an earlier import -- only the fixture's in-file repeat (ADR-0031).
+        self.assertEqual(verdict.duplicates, FIXTURE_IN_FILE_REPEATS)
 
     def test_re_uploading_the_same_statement_is_refused_and_names_the_batch(self):
         """Owner ruling Q2: every row already imported means nothing new, so nothing is written."""
@@ -820,7 +843,8 @@ class TestPreviewAndRefusal(unittest.TestCase):
 
         verdict, _ = _assess_statement(moved, "next-year.csv")
         self.assertFalse(verdict.refuse)
-        self.assertEqual(verdict.duplicates, 0)
+        # Nothing found in the earlier batch -- only the fixture's in-file repeat (ADR-0031).
+        self.assertEqual(verdict.duplicates, FIXTURE_IN_FILE_REPEATS)
 
     def test_a_batch_with_no_recorded_period_is_still_searched(self):
         """⚠️ A batch we could not date must never be read as a batch containing nothing. The
@@ -1121,9 +1145,208 @@ class TestStageBankStatement(unittest.TestCase):
             [r for r in self._rows() if "earlier in the same statement" in (r["skip_reason"] or "")],
             [],
         )
+        # ADR-0031: and neither leg of a pair is dropped as an in-file exact repeat.
+        self.assertEqual(self.batch.repeats_not_saved, 0)
 
     def test_the_source_is_denormalised_onto_every_row(self):
         self.assertEqual({r["source"] for r in self._rows()}, {"ICICI Bank Statement"})
+
+
+class TestExactRepeatsAreNotSaved(unittest.TestCase):
+    """ADR-0031: a line the system already holds WITH THE SAME BANK STATUS is not saved, only counted.
+
+    Through `_assess_statement` (the preview's and the upload's shared decision) and `_stage_batch`
+    (what the upload writes) -- the same seam as the classes above, for the reason in the module
+    docstring. Every fixture is namespaced and purged.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.batches = []
+
+    def tearDown(self):
+        for name in self.batches:
+            frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
+            frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        frappe.db.commit()
+        super().tearDown()
+
+    def _stage(self, parsed):
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.batches.append(batch.name)
+        frappe.db.commit()
+        return batch
+
+    def _rows(self, batch):
+        return frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": batch.name},
+            fields=["name", "transfer_id", "status_raw", "row_status", "skip_reason",
+                    "skip_origin", "skip_kind"],
+            order_by="creation asc",
+        )
+
+    @staticmethod
+    def _with_status(parsed, transfer_id, status):
+        return replace(
+            parsed,
+            rows=tuple(
+                replace(r, status_raw=status) if r.transfer_id == transfer_id else r
+                for r in parsed.rows
+            ),
+        )
+
+    def _overlapping(self):
+        """Yesterday's statement, and today's: the same lines plus two new transfers."""
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        fresh = tuple(
+            replace(parsed.rows[i], transfer_id=f"NEW-{frappe.generate_hash(length=8)}")
+            for i in (0, 3)
+        )
+        return parsed, replace(parsed, rows=parsed.rows + fresh)
+
+    def test_an_overlapping_statement_stores_only_the_new_lines(self):
+        yesterday, today = self._overlapping()
+        self._stage(yesterday)
+        batch = self._stage(today)
+
+        rows = self._rows(batch)
+        self.assertEqual(
+            sorted(r["transfer_id"] for r in rows),
+            sorted(r.transfer_id for r in today.rows[-2:]),
+        )
+        self.assertEqual(batch.repeats_not_saved, len(yesterday.rows))
+        # Counters describe only the rows stored.
+        self.assertEqual(batch.total_rows, 2)
+        self.assertEqual(batch.skipped_rows, 0)
+
+    def test_the_preview_and_the_upload_agree_on_the_repeat_count(self):
+        """⚠️ The preview's `duplicate_rows` must be exactly what the upload leaves out, in-file
+        repeat included -- a preview that promised one number and an upload that did another is
+        the failure the shared decision exists to prevent."""
+        yesterday, today = self._overlapping()
+        self._stage(yesterday)
+        # One more in-file exact repeat of a NEW line, so both kinds of repeat are in the count.
+        today = replace(today, rows=today.rows + (today.rows[-1],))
+
+        verdict, _ = _assess_statement(today, "today.csv")
+        batch = self._stage(today)
+        self.assertEqual(verdict.duplicates, batch.repeats_not_saved)
+        self.assertEqual(verdict.new, batch.total_rows)
+        self.assertFalse(verdict.refuse)
+        self.assertIn("will not be saved", verdict.message)
+
+    def test_a_status_changed_repeat_is_saved_skipped_locked_and_names_both_statuses(self):
+        from nirmaan_stack.services.outflow_import.skip_origin import unskip_refusal
+
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        first = self._stage(parsed)
+        tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
+        batch = self._stage(self._with_status(parsed, tid, "REVERSED"))
+
+        rows = self._rows(batch)
+        self.assertEqual([r["transfer_id"] for r in rows], [tid])
+        row = rows[0]
+        self.assertEqual(row["row_status"], "Skipped")
+        self.assertEqual(row["skip_origin"], "System")
+        self.assertEqual(row["skip_kind"], "Already imported")
+        self.assertEqual(
+            row["skip_reason"],
+            f"Already imported in batch {first.name}, bank status changed SUCCESS → REVERSED.",
+        )
+        self.assertTrue(
+            unskip_refusal(
+                row_status=row["row_status"], skip_kind=row["skip_kind"], source="Cashfree"
+            )
+        )
+        self.assertEqual(batch.repeats_not_saved, len(parsed.rows) - 1)
+
+    def test_a_file_whose_only_new_content_is_a_status_change_is_accepted(self):
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+        tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
+
+        verdict, _ = _assess_statement(self._with_status(parsed, tid, "REVERSED"), "t.csv")
+        self.assertFalse(verdict.refuse)
+        self.assertEqual(verdict.new, 1)
+        self.assertEqual(verdict.duplicates, len(parsed.rows) - 1)
+
+    def test_a_file_of_nothing_but_exact_repeats_is_refused(self):
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        first = self._stage(parsed)
+        verdict, _ = _assess_statement(parsed, "t.csv")
+        self.assertTrue(verdict.refuse)
+        self.assertEqual(verdict.duplicates, len(parsed.rows))
+        self.assertIn(first.name, verdict.message)
+
+    def test_a_status_changed_line_already_held_is_an_exact_repeat_on_the_next_upload(self):
+        """SUCCESS, then REVERSED (saved), then REVERSED again: the system now holds a REVERSED
+        line, so the third sighting is not saved -- it is not a status change against the first."""
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+        tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
+        reversed_ = self._with_status(parsed, tid, "REVERSED")
+        self._stage(reversed_)
+
+        verdict, _ = _assess_statement(reversed_, "t.csv")
+        self.assertTrue(verdict.refuse)
+        third = self._stage(reversed_)
+        self.assertEqual(self._rows(third), [])
+
+    def test_an_in_file_status_changed_repeat_is_saved_and_names_both_statuses(self):
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        line = parsed.rows[0]
+        batch = self._stage(
+            replace(
+                parsed,
+                rows=(line, replace(line, status_raw="REVERSED", row_number=line.row_number + 1)),
+            )
+        )
+        rows = self._rows(batch)
+        self.assertEqual([r["status_raw"] for r in rows], ["SUCCESS", "REVERSED"])
+        self.assertEqual(rows[1]["skip_kind"], "Repeated in same file")
+        self.assertIn("same statement", rows[1]["skip_reason"])
+        self.assertIn("SUCCESS → REVERSED", rows[1]["skip_reason"])
+        self.assertEqual(batch.repeats_not_saved, 0)
+
+    def test_the_upload_result_reports_the_count(self):
+        from nirmaan_stack.api.outflow_import.upload import _summarize
+
+        yesterday, today = self._overlapping()
+        self._stage(yesterday)
+        batch = self._stage(today)
+        summary = _summarize(batch, today)
+        self.assertEqual(summary["repeats_not_saved"], len(yesterday.rows))
+        self.assertEqual(summary["total_rows"], 2)
+
+    def test_import_history_returns_the_count(self):
+        from nirmaan_stack.api.outflow_import.review import list_imports
+
+        yesterday, today = self._overlapping()
+        self._stage(yesterday)
+        batch = self._stage(today)
+        frappe.set_user("Administrator")
+        listed = {r["name"]: r for r in list_imports(limit=200)}
+        self.assertEqual(listed[batch.name]["repeats_not_saved"], len(yesterday.rows))
+
+    def test_an_icici_re_upload_saves_nothing_and_keeps_the_pairs_apart_first_time(self):
+        """The widened identity still keeps a tax pair and a GL transfer's two legs apart on the
+        first upload (nothing counted), and a re-upload recognises every line, both legs included."""
+        parsed = _parsed_icici_in_a_fresh_transfer_namespace()
+        first = self._stage(parsed)
+        self.assertEqual(first.repeats_not_saved, 0)
+        self.assertEqual(first.total_rows, len(parsed.rows))
+
+        verdict, _ = _assess_statement(parsed, "icici.csv")
+        self.assertTrue(verdict.refuse)
+        second = self._stage(parsed)
+        self.assertEqual(self._rows(second), [])
+        self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
 
 class TestGatewaySourcesAreUnmoved(unittest.TestCase):

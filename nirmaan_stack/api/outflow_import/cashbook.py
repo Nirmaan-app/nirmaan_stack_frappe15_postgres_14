@@ -385,7 +385,7 @@ def _already_imported(parsed) -> dict:
     """Which of these transfers a previous BATCH already holds, and which batch that was.
 
     ⚠️ ONE IMPLEMENTATION, SHARED WITH CASHFREE (slice CB-DUP-2). This used to be a hand-written
-    copy of `candidates.find_earlier_batches_for_rows` -- same identity, same terminal-status
+    copy of `candidates.find_earlier_sightings_for_rows` -- same identity, same terminal-status
     clause, both reading the ONE `Outflow Import Row` table -- and the copies had already drifted:
     this one could not apply `duplicates.dates_agree`, so an unreadable `Added On` on either side
     meant a wallet statement **imported a second time, silently**. Both now go through
