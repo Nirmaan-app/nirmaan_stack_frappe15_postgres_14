@@ -131,6 +131,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.
 
+- **Invoice amounts (base, GST, total)** — every Vendor Invoice carries three figures: the **Invoice Base Amount** (the taxable value before GST), the **Invoice GST Amount** (all GST on the bill), and the **Invoice Amount** (the grand total incl. GST, which is what *Total Amount Invoiced* sums). All three are read from the bill by extraction and confirmed by the user, on Purchase Order and Work Order invoices alike. Base + GST need not equal the total exactly — round-off, other charges and TCS sit in the gap. *Avoid*: net amount, taxable amount, invoice value.
+
 - **Vendor Invoice status** — the single field for where a Vendor Invoice sits: *Pending* → *Approved* or *Rejected*. A new invoice starts *Pending* and holds exactly one status at a time. *Rejected* never counts toward anything. **"Counts toward the invoiced total" is not one rule** — three different totals coexist, deliberately; see *Total Amount Invoiced* below before using either word.
 
 - **Total Amount Invoiced** (`amount_invoiced`, stored on Procurement Orders and Service Requests) — the money a vendor has **billed and we have accepted**: `SUM(Vendor Invoices.invoice_amount WHERE status = 'Approved')`. *Approved only* — a *Pending* bill is not yet a liability of this kind. Credit notes are **included**, because they are stored negative and net off in the sum. It is a derived cache, recomputed from source by the Vendor Invoices doc events, never incremented by a delta. Do **not** confuse it with the two neighbouring totals that answer different questions: the invoice-approval tables total *Pending + Approved* (the two disagree on real data), and `invoice_qty` counts *Pending + Approved* **quantities** with credit notes **excluded**. Harmonising them is a bug, not a cleanup.
@@ -147,11 +149,17 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 ## Work-order GST
 
-- **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No).
+- **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No). It cannot be turned **off** while the Work Order has a *GST payment* that is not deleted; turning it on is always allowed.
 
 - **GST-off Work Order** — a Work Order whose *GST flag* is off (`gst = "false"`, labelled "GST Applicable" off on the approved WO page). A new Work Order starts GST-on; approval sets it from the vendor's GST number — off when the vendor has none.
 
 - **Notional GST** — the GST a GST-off Work Order *would* have carried: 18% of its total. It is not owed, paid or invoiced anywhere — a what-if figure showing how much GST was never charged on work ordered without it. A GST-on Work Order has none (its GST is real and already inside its total). Only **Approved** Work Orders count — the same set as the Work Order side of "PO + WO Amount" — so a Work Order under amendment drops out of both until it is approved again. *Avoid*: GST payable, GST liability, missing GST.
+
+- **GST payment (on a Work Order)** — a Work Order payment that pays GST only, never base value. A payment is either a GST payment or a base payment, never a mix. No TDS is withheld from a GST payment, because TDS is only ever taken on base value. Every payment made before GST payments existed is a base payment. A GST payment is drawn from the Work Order as a whole, not from any one invoice. ([ADR-0030](docs/adr/0030-wo-gst-paid-as-its-own-payment.md).)
+
+- **GST Invoiced (of a Work Order)** — the GST a vendor has billed on a Work Order **and we have accepted**: the sum of the *Invoice GST Amount* over its **Approved** invoices only. It is the GST twin of *Total Amount Invoiced*, derived from the invoices and never kept by hand, so it falls again when an approved invoice is rejected, edited or deleted. It measures GST billed, not GST paid. *Avoid*: approved GST payment amount, GST pool.
+
+- **Work Order payment limit (GST-on)** — how much may be requested on a GST-on Work Order. **Base left** = the Work Order's base value (its total without GST) minus its base payments, counted before TDS. **GST left** = the smaller of *GST Invoiced* and the Work Order's own GST, minus its GST payments. All payments together can never go above the Work Order's total incl. GST. A payment counts toward these limits at every status, *Rejected* included, until it is deleted. The Work Order's own GST caps GST left so that base value can never be paid out as GST and escape TDS. *Avoid*: payable pool, allowed payment.
 
 ## Vendor holds
 
