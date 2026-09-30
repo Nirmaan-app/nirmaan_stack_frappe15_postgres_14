@@ -917,9 +917,16 @@ Electrical declares nothing BY CONSTRUCTION; and ADP's 60 own-cost pipelines sit
 whose match is re-pointed. `_validate_derived_rates` enforces FLATTENING (no `from` pointing at a cell
 that is itself declared derived) whichever generator produced the map -- a category with NO pipelines
 (`hvac_insulation`) is generated from its SOURCE WORKBOOK'S formulas and is held to the same contract.
-⚠️ **THE DECLARATION DOES NOT RECOMPUTE.** It marks the cell, refuses an edit and explains the
-dependency; propagation is the PIPELINE's, so a category whose pipelines are not built yet records the
-dependency without yet honouring it.
+⚠️ **A DERIVED RATE IS RECOMPUTED ON EVERY WRITE OF ITS BASE, ON EVERY WRITE PATH; A DECLARATION THAT
+IS RECORDED BUT NOT RECOMPUTED IS A DEFECT (owner R1/R5, slice 12a-FIX).** The pure rule is
+`config_validation.recompute_derived_values` / `derived_rate_updates` (chain order, loud refusal on a
+missing base or a cycle); the single write is `loader.recompute_derived_after_write`, called by the
+upload apply, the grid edit, the manual create, the twin-confirmed write and the deactivate, while the
+LOAD path verifies instead of repairing. ⚠️ **AN ABSENT DECLARED CELL IS NEVER WRITTEN**: the key
+serves two populations -- a STORED figure nothing recomputes (Insulation) and a cell the pipeline
+fetches live through a `component_ref` (ADP's 12 cross-talk cells, which store nothing). The
+discriminator is whether the cell is stored, never a category name; without it an Insulation upload
+writes ADP.
 ⚠️ **A DERIVED CELL IS EXPORTED EMPTY, and that is correctness, not tidiness:** openpyxl serialises a
 float into at most 17 CHARACTERS, so a figure like `291.43125000000003` returns as `291.43125` and the
 type-strict guard called an untouched cell an edit. Nothing may re-export the figure; the row's

@@ -42926,3 +42926,148 @@ sheet reads "All changes saved" — **no write was made.**
 
 **The lesson generalises: a no-op proof must exercise the path the change is ON.** The obvious row was
 the one where nothing could have gone wrong.
+
+
+---
+
+## Slice 12a-FIX — DERIVED RATES FOLLOW THEIR BASE ON EVERY WRITE; Insulation Type restored; HVAC v15 (2026-10-01) — SHIPPED
+
+Commits `f5b7bd9c2` (the mechanism), `e1bd1465b` (Type + v15), `<this one>` (docs).
+Owner R1 *"those formula should be preserved even in our system so that if we make change to the base
+row the change gets reflected on all other rows"* + *"we will have to fix it properly"*; R5 the
+mechanism (recalculate on save); R2 **ADP IS NOT CHANGED**; R3 restore Type, no unit check; R4 the
+current sheet is truth.
+
+### ⚠️ CORRECTION TO SLICE 12a's OWN RECORD
+
+12a's record said the declaration is *"DESCRIPTIVE… It does not RECOMPUTE"* and that **"propagation
+arrives with 12b's pipelines"**. That is what shipped, and the consequence was worse than "not yet
+done": the artefact a pricer reads **asserted the propagation had happened**. Measured live on
+2026-09-30 (`2026-09-30_RoundTrip_Test.md`): base `rmi-cc2cc7b0bbac` 143 → 150 through the Upload
+button's own path moved **one row of six**; the re-download then printed
+`insulation 143 <- derived from cost_insulation of … [rmi-cc2cc7b0bbac]` about a row that by then
+held 150. Raising a glass-cloth base by +10 left the composite's cladding at 136.59 while its formula
+claimed a rule that now gives 150.76. And the dependant could not be repaired either — the upload
+refuses a derived cell and tells the pricer to *"Edit that row instead"*, which did nothing. **228
+cells across 172 rows were frozen, unreachable, and lying.**
+
+### THE MECHANISM
+
+**Pure** (`config_validation`): `recompute_derived_values(configs, items_by_uid)` →
+`{(uid, rate_key): value}`, `value = Σ(base × multiplier + constant)`, ordered by Kahn so a dependant
+whose base is itself derived reads the base's NEW value. Raises `DerivedRateError` — never a partial
+answer — on a missing base row, a base carrying no number, or a cycle.
+`derived_rate_updates(...)` narrows that to the cells whose stored value is actually out of step.
+
+**Write** (`loader.recompute_derived_after_write`): supersede-and-re-insert, this catalogue's own
+model, so the superseded row remains the record of what the cell held before — which matters most
+here, because a number no human typed has changed. ONE implementation; `csv_importer` calls it, and
+`test_dr_11` fails if it grows a second copy.
+
+**Every write path, enumerated and covered** (acceptance 4): the upload apply
+(`csv_importer.apply_plan`, AFTER the inserts so the recompute reads the catalogue as it now is), the
+grid inline edit (`update_rate_master_item`), the manual create, the twin-confirmed write, and the
+deactivate — the last of which now REFUSES to remove a row others derive from, which is acceptance 8
+landing on a real endpoint. ⚠️ **There is no snapshot rollback path to cover: snapshots are
+write-only.** Nothing in the repo reads one back; a restore is a re-upload, which is the apply path.
+The LOAD path deliberately **verifies rather than repairs** (`loader._verify_derived_consistent`): a
+load replaces the whole catalogue from an asset that is supposed to be consistent already, so a
+disagreement there means the MINT is wrong and quietly rewriting it would hide that.
+
+**The formula text needed no change at all.** `csv_exporter.row_formula` reads the DEPENDANT'S OWN
+STORED VALUE (`rates.get(part)`), so once the stored value is recomputed the text follows — acceptance
+6 came free, and the live cert shows `insulation 150 <- derived from …`.
+
+### ⚠️ THE DEFECT PHASE 0 BOUGHT — AN INSULATION UPLOAD WROTE ADP
+
+The first Phase-0 upload reported `derived_recomputed=11` where five dependants were expected. The
+other six were **ADP's cross-talk rows**, and the recompute had written `cost_supply 1600` /
+`cost_install 500` onto all of them. They store neither in v14 — their pipeline fetches the base at
+price time through a `component_ref`, so the declaration merely DESCRIBES a link that is already live.
+
+**`derived_rates` serves two populations that need opposite treatment**, and nothing in the key says
+which is which:
+
+| population | stored? | what the declaration is | what must happen on a write |
+|---|---|---|---|
+| Insulation, 228 cells | **yes** — the mint copied a figure | a link nothing honoured | **recompute it** |
+| ADP, 12 cross-talk cells | **no** — absent entirely | a description of a live `component_ref` | **never write it** |
+
+**THE DISCRIMINATOR IS "IS THE CELL STORED", NEVER A CATEGORY NAME** (the HV-10 rule). One line in
+`derived_rate_updates` skips an absent cell; `test_dr_04` pins it and goes red without it. The six ADP
+rows were repaired from their superseded predecessors and re-verified byte-equal to v14.
+
+### THE Type COLUMN (R3)
+
+The owner's sheet has carried `Type` in column A all along — *Sheet Insulation* / *Pipe/Tubular
+Insulation* — and 12a did not carry it. **No reason was ever recorded**: the row-links check searched
+the plan doc, the rate-master domain doc and the whole codebase and found the column named nowhere
+outside the sheet. v15 = v14 + that one attribute, read row for row by each item's own source row (the
+mint refuses a row it cannot find or a blank Type), declared FIRST so the file and the viewer lead
+with it. 204 / 20, the sheet's exact split.
+
+⚠️ **Type is 1:1 with `unit` on all 224 rows and NOTHING CHECKS IT, by ruling** (*"no we dont need
+this check"*). `test_ty_03` records the fact AND pins the absence — including a negative grep that no
+module names the two values — so a later reader who wants a validator has to change the ruling, not
+the code.
+
+⚠️ **One consequence worth knowing:** `base_wording` renders a base row's attributes, so the derived
+formula text and the upload refusal now name the Type too — *"…derived from cost_insulation of
+Pipe/Tubular Insulation, Nitrile Rubber Insulation, No, 19, 19.05, Mts [rmi-…]"*. The sentence is
+otherwise word for word what it was.
+
+### PROOFS
+
+* **Phase 0, figures stated BEFORE running and matched:** base 255 → **265**, 26G and 24G 404 → **413**,
+  both Glass-Cloth composites 457 → **467**, Glass Cloth 308 → **318**; +10 on a glass-cloth base is
+  **+10 exactly** on both composites; restore **0 cell diffs**.
+* **All 228 (`test_dr_02`):** every base bumped in turn, every dependant asserted to move by
+  multiplier × delta and every unrelated cell asserted not to move — 228 cells exercised.
+* **ADP 0 figures moved**, priced through its own live item-list path against the figures measured
+  in-session before the slice (cross-talk 557 / 1044 / 2320, spigots 232 / 254, grille 5510, mixing
+  box 1310). 95 items and the `hvac_adp` config byte-identical v14 → v15.
+* **Electrical:** replay digest **`1d2aaec5…2dc3`** — identical to the figure the instruments README
+  records for the v66 slice. No frontend file changed in either commit, so the interpreter the replay
+  exercises is untouched by construction as well as by measurement.
+* **Vacuity, three ways, each restored immediately:** disabling the ADP guard reddens dr_01/dr_02/dr_04;
+  removing the apply-path call reddens dr_11; removing the deactivate call reddens dr_12.
+  ⚠️ **dr_12 was itself vacuous first time round** — it grepped the raw source and the COMMENT above the
+  call satisfied it. It now strips comment lines and requires the call form. *(Same trap as the cert
+  rule: grep the code, never the comment. It is worth noticing that the rule was already written down
+  for the browser and still caught me in a test.)*
+* **Tests 519 → 531 → 541**, all measured in-session, OK at every point.
+* **Mint gate v14 → v15: no atoms disappeared.**
+
+### PINS MOVED UNDER MECHANICAL AUTHORITY — FOUR, NONE DELETED
+
+`CURRENT_HVAC_ASSET` v14 → v15; h07's literal INVERTED to assert the new head **and** that v14 is
+still on disk as history; the directory listing gains v14 beside v15; and
+`TestInsulationCatalogueSlice12a` re-pointed to v14 **BY NAME** — the file's own idiom — so its y-pins
+keep asserting exactly slice 12a's delta and learn nothing about this slice.
+
+### THE LIVE CERT
+
+De-stale in full: killed by PID (TERM took), ports 8000/8080/9000 verified free by listeners, 36
+`__pycache__` dirs and every `.pyc` purged, `node_modules/.vite` removed, both caches cleared, bench
+restarted and **ANSWERED `/api/method/ping` after ~105 s**, vite started only then. In the browser: the
+service worker was unregistered, the tab closed entirely and a new one opened on the bare root first.
+
+⚠️ **PROOF 1 was adapted, and the reason is worth recording: this slice changed no frontend file, so
+there is no new bundle string to grep for.** The equivalent freshness proof for a backend change is
+that the served app shows what only the new code can produce — the live grid renders a **Type** column
+(20 columns, 225 rows) that cannot exist without the v15 load and the new definition. PROOF 2 was a
+runtime read: `frappe.boot` resolved and the dashboard rendered, not raw Jinja.
+
+Steps: 1 baseline (224 rows, 20 cols) · 2 Type column + three samples matching the sheet · 3 preview
+**exactly one changed row**, apply `derived_recomputed=5` · 4 **the grid shows the base at 150 and each
+dependant as `150 derived` with a tooltip reading 150** · 5 re-download, every dependant at the figure
+stated in advance · 6 grid inline edit, the Aluminium Foil dependant follows +10 · 7 glass cloth +10 →
+both composites +10 exactly · 8 a typed 999 refused with today's message · 9 restore, **0 cell diffs** ·
+10 ADP and Electrical samples unchanged, Insulation still not eligible · 11 counts HVAC 319/8,
+Electrical 1402/13.
+
+⚠️ **Steps 3 and 5–9 were driven from the shell against the SAME endpoints the buttons bind**
+(`export_rate_master_csv`, `preview_rate_master_csv`, `apply_rate_master_csv`,
+`update_rate_master_item`) because the file edits need openpyxl; steps 1, 2 and 4 were read from the
+live page, and a harmless CSRF probe confirmed the `:8080` session's write path was open before any of
+it. Stated plainly rather than implied.
