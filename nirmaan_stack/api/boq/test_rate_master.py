@@ -11400,7 +11400,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v14.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v15.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -11802,7 +11802,11 @@ class TestHvacAssetSlice1b(FrappeTestCase):
     def test_h07_hvac_series_is_v1_to_v13_electrical_unmoved_version_only_in_the_filename(self):
         gate = _mint_gate_module()
         # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v14.json")
+        # SLICE 12a-FIX INVERTS IT AGAIN (v14 -> v15, owner R3: the Type column restored). The HVAC
+        # series now holds v1..v15; v14 is history and is still on disk, asserted two lines down.
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v15.json")
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v14.json")),
+                        "v14 must stay on disk as history")
         # ⚠️ SLICE 12b(A) INVERTED THE "ELECTRICAL UNMOVED" HALF OF THIS PIN, deliberately (v63 -> v64,
         # PRICING INPUTS), and SLICE 12b(B) MOVES IT AGAIN (v64 -> v65): the two 0% discounts the owner
         # ruled on 2026-09-27 and 12b(A) never built. The HVAC half is UNCHANGED across both and still
@@ -11830,7 +11834,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                           "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json",
                           # SLICE 12a: v13 becomes history and v14 is the current asset -- and note that
                           # ALPHABETICALLY v13 and v14 both sort here, before v2.
-                          "rate_master_hvac_all_v13.json", CURRENT_HVAC_ASSET,
+                          # SLICE 12a-FIX: v14 becomes history and v15 is the current asset. Note that
+                          # ALPHABETICALLY v13, v14 and v15 all sort here, before v2.
+                          "rate_master_hvac_all_v13.json", "rate_master_hvac_all_v14.json",
+                          CURRENT_HVAC_ASSET,
                           "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
@@ -14299,7 +14306,10 @@ class TestInsulationCatalogueSlice12a(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # SLICE 12a-FIX: v14 is loaded BY NAME (it was CURRENT_HVAC_ASSET until v15) -- the file's
+        # own idiom, so the y-pins keep asserting exactly slice 12a's own delta and learn nothing
+        # about a later slice. v15 = v14 + the Type attribute is pinned by TestInsulationTypeRestored.
+        with open(_asset_path("rate_master_hvac_all_v14.json"), "r", encoding="utf-8") as fh:
             cls.v14 = json.load(fh)
         with open(_asset_path("rate_master_hvac_all_v13.json"), "r", encoding="utf-8") as fh:
             cls.v13 = json.load(fh)
@@ -15796,3 +15806,133 @@ class TestDerivedRatesRecompute(FrappeTestCase):
             )
             self.assertIn("loader.recompute_derived_after_write(", code,
                           "%s does not CALL the shared recompute" % fn)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12a-FIX -- THE Type COLUMN RESTORED (owner R3: "yes"; "no we dont need this check")
+#
+# The owner's sheet has carried a `Type` column (column A) all along -- "Sheet Insulation" /
+# "Pipe/Tubular Insulation" -- and slice 12a did not carry it into the catalogue. No reason was ever
+# recorded: the 2026-09-30 row-links check searched the plan doc, the domain doc and the whole
+# codebase and found the column named nowhere outside the sheet itself.
+#
+# v15 = v14 + that one attribute. Nothing else moves, and these tests are what say so.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestInsulationTypeRestored(FrappeTestCase):
+    """v15 = v14 + `type` on the 224 Insulation items, and NOTHING else."""
+
+    KIND = "hvac_insulation_item"
+    SHEET_TYPES = {"Sheet Insulation", "Pipe/Tubular Insulation"}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v14.json"), "r", encoding="utf-8") as fh:
+            cls.v14 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v15 = json.load(fh)
+
+    @staticmethod
+    def _cfg(asset, cat):
+        return next(c for c in asset["category_configs"] if c["category_id"] == cat)
+
+    # -- the addition -------------------------------------------------------------------------
+
+    def test_ty_01_every_insulation_item_carries_a_Type(self):
+        """ACCEPTANCE ITEM 9: 224 of 224, and only the sheet's two values."""
+        ins = [i for i in self.v15["items"] if i["kind"] == self.KIND]
+        self.assertEqual(len(ins), 224)
+        seen = collections.Counter()
+        for i in ins:
+            t = i["attributes"].get("type")
+            self.assertIn(t, self.SHEET_TYPES, "src row %s has type %r" % (i["source"]["row"], t))
+            seen[t] += 1
+        self.assertEqual(dict(seen),
+                         {"Pipe/Tubular Insulation": 204, "Sheet Insulation": 20})
+
+    def test_ty_02_the_definition_is_declared_FIRST_mirroring_the_sheet(self):
+        """The sheet has Type in column A, before Item -- so the rate file's attribute columns lead
+        with it too. The order is the definition order, which is why this is pinned here."""
+        ids = [d["id"] for d in self._cfg(self.v15, "hvac_insulation")["attribute_definitions"]]
+        self.assertEqual(ids, ["type", "item", "cladding", "thickness_mm", "pipe_size_mm"])
+        d = self._cfg(self.v15, "hvac_insulation")["attribute_definitions"][0]
+        self.assertEqual(d["type"], "choice")
+        self.assertEqual(sorted(d["values"]), sorted(self.SHEET_TYPES))
+
+    def test_ty_03_Type_is_1_to_1_with_unit_but_NOTHING_CHECKS_IT(self):
+        """⚠️ OWNER R3, VERBATIM: "no we dont need this check". So this test records the FACT and
+        pins the ABSENCE of a check -- it is measured (204 Mts / 20 SQM, no row disagreeing), and no
+        code anywhere enforces it. A later reader tempted to add a validator should change the ruling
+        first, not the code."""
+        ins = [i for i in self.v15["items"] if i["kind"] == self.KIND]
+        pairs = collections.Counter((i["attributes"]["type"], i["unit"]) for i in ins)
+        self.assertEqual(dict(pairs), {("Pipe/Tubular Insulation", "Mts"): 204,
+                                       ("Sheet Insulation", "SQM"): 20})
+        # NEGATIVE: no module mentions the sheet's Type values in code -- there is no consistency rule
+        for mod in (config_validation, loader, csv_importer, csv_exporter):
+            src = inspect.getsource(mod)
+            for v in self.SHEET_TYPES:
+                self.assertNotIn(v, src, "%s names %r -- a Type rule has crept into code" % (mod, v))
+
+    # -- and nothing else moved ---------------------------------------------------------------
+
+    def test_ty_04_ADP_is_byte_identical_v14_to_v15(self):
+        """ACCEPTANCE ITEM 10 / owner R2: ADP IS NOT CHANGED IN THIS SLICE. At all."""
+        a = sorted((i for i in self.v14["items"] if i["kind"] == "hvac_adp_item"),
+                   key=lambda x: x["item_uid"])
+        b = sorted((i for i in self.v15["items"] if i["kind"] == "hvac_adp_item"),
+                   key=lambda x: x["item_uid"])
+        self.assertEqual(len(a), 95)
+        self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+        self.assertEqual(json.dumps(self._cfg(self.v14, "hvac_adp"), sort_keys=True),
+                         json.dumps(self._cfg(self.v15, "hvac_adp"), sort_keys=True))
+
+    def test_ty_05_every_other_config_is_byte_identical(self):
+        a = [c for c in self.v14["category_configs"] if c["category_id"] != "hvac_insulation"]
+        b = [c for c in self.v15["category_configs"] if c["category_id"] != "hvac_insulation"]
+        self.assertEqual(len(a), 7)
+        self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+
+    def test_ty_06_the_Insulation_items_differ_ONLY_by_the_new_attribute(self):
+        """ACCEPTANCE ITEM 12 in asset form: no rate, unit, brand or other attribute moved, so every
+        BoQ supply and install figure is arithmetically identical to v14."""
+        a = {i["item_uid"]: i for i in self.v14["items"] if i["kind"] == self.KIND}
+        b = {i["item_uid"]: i for i in self.v15["items"] if i["kind"] == self.KIND}
+        self.assertEqual(set(a), set(b))
+        for uid in sorted(a):
+            x, y = dict(a[uid]), dict(b[uid])
+            ya = dict(y.pop("attributes"))
+            self.assertIn("type", ya)
+            ya.pop("type")
+            xa = x.pop("attributes")
+            self.assertEqual(xa, ya, uid)                       # every other attribute untouched
+            self.assertEqual(json.dumps(x, sort_keys=True),
+                             json.dumps(y, sort_keys=True), uid)  # rates / unit / brand / source
+
+    def test_ty_07_the_derived_declaration_is_unchanged(self):
+        """228 Insulation cells + 12 ADP cells, exactly as slice 12a declared them: restoring a column
+        is not an occasion to re-derive the links."""
+        for cat in ("hvac_insulation", "hvac_adp"):
+            self.assertEqual(
+                json.dumps(self._cfg(self.v14, cat).get("derived_rates"), sort_keys=True),
+                json.dumps(self._cfg(self.v15, cat).get("derived_rates"), sort_keys=True), cat)
+
+    def test_ty_08_NEGATIVE_Insulation_is_still_not_eligible(self):
+        """ACCEPTANCE ITEM 14: a fifth attribute definition does NOT switch pricing on -- eligibility
+        needs pipelines AND definitions, and `pipelines` is still empty. Every Insulation BoQ row
+        keeps its coming-soon card."""
+        cfg = self._cfg(self.v15, "hvac_insulation")
+        self.assertEqual(cfg["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(cfg, self.v15["category_configs"]))
+
+    def test_ty_09_the_asset_validates_through_the_loaders_own_gate(self):
+        for c in self.v15["category_configs"]:
+            config_validation._validate_config(
+                loader._loaded_config(copy.deepcopy(c), "HVAC", self.v15.get("goldens") or {}))
+
+    def test_ty_10_v15_is_internally_consistent_with_its_own_declarations(self):
+        """The load path REFUSES an asset whose declared cells disagree with their bases. This is the
+        positive half: v15 passes that gate, so the mint is good."""
+        items = {i["item_uid"]: {"rates": i["rates"]} for i in self.v15["items"]}
+        self.assertEqual(
+            config_validation.derived_rate_updates(self.v15["category_configs"], items), {})
