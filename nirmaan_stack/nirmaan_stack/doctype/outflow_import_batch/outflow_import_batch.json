@@ -140,13 +140,13 @@
    "label": "Amounts"
   },
   {
-   "description": "Sum of the beneficiary Amount column across SUCCESS rows that the statement called a DEBIT. EXCLUDES service charge and tax -- this is what reached beneficiaries, not what left the bank. A credit row (money IN) is NOT in this figure and a row whose direction the statement never stated is in no figure at all; before ticket #1287 both were added in, which made an ICICI passbook's Gross Outflow its withdrawals plus its deposits. The money-in total is not stored -- it rides the preview payload only.",
+   "description": "Sum of the beneficiary Amount column across SUCCESS rows that the statement called a DEBIT. EXCLUDES service charge and tax -- this is what reached beneficiaries, not what left the bank. A credit row (money IN) is NOT in this figure and a row whose direction the statement never stated is in no figure at all; before ticket #1287 both were added in, which made an ICICI passbook's Gross Outflow its withdrawals plus its deposits. The money-in total is not stored -- it rides the preview payload only. Summed over the rows this import STORED, not the whole file (#1354): an exact repeat is not stored (see repeats_not_saved), so its money stays with the earlier import that holds it.",
    "fieldname": "gross_amount",
    "fieldtype": "Currency",
    "label": "Gross Amount"
   },
   {
-   "description": "Sum of Service Charge + Service Tax across SUCCESS rows. Real money that leaves the bank and belongs to no row, which is why the batch total never equals the sum of the rows.",
+   "description": "Sum of Service Charge + Service Tax across EVERY stored row, whatever its bank status -- a charge is taken whether or not the transfer succeeded. Summed over the rows this import STORED, not the whole file (#1354), so an exact repeat's charges stay with the earlier import. Real money that leaves the bank and belongs to no settlement target, which is why what left the bank never equals the sum of what the rows settle.",
    "fieldname": "charges_amount",
    "fieldtype": "Currency",
    "label": "Charges Amount"

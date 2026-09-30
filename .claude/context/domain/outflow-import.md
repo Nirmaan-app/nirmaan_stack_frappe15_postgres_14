@@ -693,6 +693,15 @@ needs one vocabulary rather than one per writer.
       `skipped_rows` / status stay derived from stored rows, so they exclude exact repeats. A file of
       nothing but exact repeats is refused. The D4 terminal-status filter and the ICICI widened
       identity are unchanged. Cashfree/ICICI only so far; Cashbook follows in #1355.
+    - **The batch's money follows its rows (#1354).** `gross_amount` / `charges_amount` are summed
+      over the lines the plan SAVES (`upload._LinePlan.saved_money`), not the whole file, keeping each
+      total's own rule (`parser.gross_by_direction` = successful debits; `parser.charges_of` = every
+      line). So an exact repeat's money is never counted in two imports, a status-changed repeat is in
+      under its new status (REVERSED is not a successful debit, but its charges count), and
+      `list_imports`' `successful_rows` + `gross_amount` stay on one population. The PREVIEW still
+      reports the whole file (`ParseResult`'s figures) -- it says what the file contains. The upload
+      result (`_summarize`) reads the batch. An upload with no repeats stores exactly the parser's
+      figures, as before.
     - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.

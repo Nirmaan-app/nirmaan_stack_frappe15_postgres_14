@@ -145,7 +145,7 @@ from __future__ import annotations
 import csv
 import io
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -176,6 +176,7 @@ __all__ = [
     "is_success_status",
     "is_terminal_status",
     "gross_by_direction",
+    "charges_of",
 ]
 
 # The two things a passbook row can be. They are LABELS, not a sign: `RawRow.amount` stays the
@@ -449,6 +450,15 @@ def gross_by_direction(rows: Sequence[RawRow]) -> tuple[Decimal, Decimal]:
         Decimal("0"),
     )
     return outflow, inflow
+
+
+def charges_of(rows: Iterable[RawRow]) -> Decimal:
+    """Gateway charge plus tax across EVERY row, whatever its outcome -- see the module docstring.
+
+    Named so the parser's whole-file figure and the upload's stored-lines figure (#1354) are one
+    rule over two populations, never two spellings of it.
+    """
+    return sum((row.service_charge + row.service_tax for row in rows), Decimal("0"))
 
 
 # --- source adapters ---------------------------------------------------------------------------
@@ -1003,7 +1013,7 @@ def parse_statement(
     # Charges across EVERY row; the two gross figures split by DIRECTION -- see the module docstring
     # and `gross_by_direction`, which owns both rules so no caller re-spells either.
     gross, gross_inflow = gross_by_direction(rows)
-    charges = sum((row.service_charge + row.service_tax for row in rows), Decimal("0"))
+    charges = charges_of(rows)
 
     return ParseResult(
         source=source,

@@ -39,7 +39,12 @@ from nirmaan_stack.patches.v3_0.backfill_outflow_row_direction import execute as
 from nirmaan_stack.patches.v3_0.backfill_outflow_settlement_reference import (
     execute as backfill_settlement_reference,
 )
-from nirmaan_stack.services.outflow_import.parser import SUPPORTED_SOURCES, parse_statement
+from nirmaan_stack.services.outflow_import.parser import (
+    DIRECTION_DEBIT,
+    SUPPORTED_SOURCES,
+    is_success_status,
+    parse_statement,
+)
 
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
@@ -1349,6 +1354,174 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
 
+class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):
+    """#1354: an import's `gross_amount` / `charges_amount` describe the rows it STORED (ADR-0031).
+
+    The expected figures are summed from the stored rows under each total's own rule -- gross =
+    successful DEBITS, charges = every line -- so the assertion is "the batch's money equals its
+    rows' money", which is exactly what import history pairs `successful_rows` against. Every
+    fixture is namespaced and purged.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.batches = []
+
+    def tearDown(self):
+        for name in self.batches:
+            frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
+            frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        frappe.db.commit()
+        super().tearDown()
+
+    def _stage(self, parsed):
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.batches.append(batch.name)
+        frappe.db.commit()
+        return batch
+
+    def _stored_totals(self, batch):
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": batch.name},
+            fields=["amount", "status_raw", "direction", "service_charge", "service_tax"],
+        )
+        gross = sum(
+            Decimal(str(r["amount"]))
+            for r in rows
+            if is_success_status(r["status_raw"]) and r["direction"] == DIRECTION_DEBIT
+        )
+        charges = sum(
+            Decimal(str(r["service_charge"])) + Decimal(str(r["service_tax"])) for r in rows
+        )
+        return gross, charges
+
+    def assertMoneyIsTheStoredRows(self, batch):
+        gross, charges = self._stored_totals(batch)
+        self.assertEqual(Decimal(str(batch.gross_amount)), gross)
+        self.assertEqual(Decimal(str(batch.charges_amount)), charges)
+
+    @staticmethod
+    def _plus_new(parsed, indexes):
+        """`parsed` again, plus fresh copies of the lines at `indexes` -- an overlapping statement."""
+        fresh = tuple(
+            replace(parsed.rows[i], transfer_id=f"NEW-{frappe.generate_hash(length=8)}")
+            for i in indexes
+        )
+        return replace(parsed, rows=parsed.rows + fresh)
+
+    def test_a_cashfree_overlap_totals_only_the_new_lines(self):
+        yesterday = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(yesterday)
+        # Index 0 is a successful Rs 5,000 line, index 1 the FAILED Rs 22,000 one.
+        today = self._plus_new(yesterday, (0, 1))
+        batch = self._stage(today)
+
+        self.assertEqual(batch.total_rows, 2)
+        self.assertEqual(float(batch.gross_amount), 5000.0)
+        self.assertEqual(float(batch.charges_amount), 9.44)
+        self.assertMoneyIsTheStoredRows(batch)
+        # The whole file's figures are what this must NOT store any more.
+        self.assertNotEqual(float(batch.gross_amount), float(today.gross_amount))
+
+    def test_a_cashfree_in_file_repeat_is_left_out_of_the_money(self):
+        """The fixture's last line repeats its first (Rs 5,000, Rs 9.44 charges) -- not saved, so not
+        counted. The whole-file figures are Rs 57,727.50 and Rs 94.40."""
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        batch = self._stage(parsed)
+        self.assertEqual(batch.repeats_not_saved, 1)
+        self.assertEqual(float(batch.gross_amount), 52727.5)
+        self.assertEqual(float(batch.charges_amount), 84.96)
+        self.assertMoneyIsTheStoredRows(batch)
+
+    def test_a_cashfree_upload_with_no_repeats_totals_exactly_as_the_parser_does(self):
+        no_repeats = _parsed_cashfree_without_its_in_file_repeat()
+        batch = self._stage(no_repeats)
+        self.assertEqual(batch.repeats_not_saved, 0)
+        self.assertEqual(float(batch.gross_amount), float(no_repeats.gross_amount))
+        self.assertEqual(float(batch.charges_amount), float(no_repeats.charges_amount))
+
+    def test_an_icici_upload_with_no_repeats_totals_exactly_as_the_parser_does(self):
+        parsed = _parsed_icici_in_a_fresh_transfer_namespace()
+        batch = self._stage(parsed)
+        self.assertEqual(batch.repeats_not_saved, 0)
+        self.assertEqual(float(batch.gross_amount), float(parsed.gross_amount))
+        self.assertEqual(float(batch.gross_amount), 3727536.0)
+        self.assertEqual(float(batch.charges_amount), float(parsed.charges_amount))
+
+    def test_an_icici_overlap_totals_only_the_new_lines_and_keeps_credits_out_of_gross(self):
+        yesterday = _parsed_icici_in_a_fresh_transfer_namespace()
+        self._stage(yesterday)
+        debit = next(i for i, r in enumerate(yesterday.rows) if r.direction == "Debit")
+        credit = next(i for i, r in enumerate(yesterday.rows) if r.direction == "Credit")
+        today = self._plus_new(yesterday, (debit, credit))
+        batch = self._stage(today)
+
+        self.assertEqual(batch.total_rows, 2)
+        self.assertEqual(float(batch.gross_amount), float(yesterday.rows[debit].amount))
+        self.assertMoneyIsTheStoredRows(batch)
+
+    def test_a_status_changed_repeat_is_in_charges_but_not_in_gross(self):
+        """Stored REVERSED, so it is not a successful debit; its charges still count (every line)."""
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+        tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
+        changed = replace(
+            parsed,
+            rows=tuple(
+                replace(r, status_raw="REVERSED") if r.transfer_id == tid else r
+                for r in parsed.rows
+            ),
+        )
+        batch = self._stage(changed)
+
+        self.assertEqual(batch.total_rows, 1)
+        self.assertEqual(float(batch.gross_amount), 0.0)
+        self.assertEqual(float(batch.charges_amount), 9.44)
+        self.assertMoneyIsTheStoredRows(batch)
+
+    def test_the_upload_result_reports_the_stored_totals(self):
+        from nirmaan_stack.api.outflow_import.upload import _summarize
+
+        yesterday = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(yesterday)
+        today = self._plus_new(yesterday, (0,))
+        batch = self._stage(today)
+        summary = _summarize(batch, today)
+        self.assertEqual(summary["gross_amount"], 5000.0)
+        self.assertEqual(summary["charges_amount"], 9.44)
+
+    def test_import_history_pairs_the_count_and_the_gross_over_the_same_rows(self):
+        from nirmaan_stack.api.outflow_import.review import list_imports
+
+        yesterday = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(yesterday)
+        today = self._plus_new(yesterday, (0, 1, 3))
+        batch = self._stage(today)
+
+        frappe.set_user("Administrator")
+        listed = {r["name"]: r for r in list_imports(limit=200)}[batch.name]
+        # Two successful debits (Rs 5,000 + Rs 10,000) and one FAILED line.
+        self.assertEqual(listed["successful_rows"], 2)
+        self.assertEqual(float(listed["gross_amount"]), 15000.0)
+
+
+def _parsed_cashfree_without_its_in_file_repeat():
+    """The Cashfree fixture minus its last line (a repeat of its first), PARSED as a real file --
+    so its money totals are the parser's own over a file with no repeat in it. Namespaced."""
+    with open(FIXTURE, "rb") as handle:
+        lines = handle.read().splitlines(keepends=True)
+    parsed = parse_statement(b"".join(lines[:-1]), source="Cashfree")
+    prefix = frappe.generate_hash(length=10)
+    rows = tuple(replace(r, transfer_id=f"{prefix}-{r.transfer_id}") for r in parsed.rows)
+    return replace(parsed, rows=rows)
+
+
 class TestGatewaySourcesAreUnmoved(unittest.TestCase):
     """Cashfree and Cashbook stage EXACTLY as they did before slice B3.
 
@@ -2065,7 +2238,10 @@ class TestPreviewPayloadCarriesBothDirections(unittest.TestCase):
         payload = self._preview(FIXTURE, "Cashfree", "cashfree.csv")
         self.assertEqual(payload["gross_inflow_amount"], 0.0)
         self.assertEqual(payload["inflow_rows"], 0)
+        # The WHOLE file, its in-file repeat included: the preview reports what the file contains,
+        # while the stored batch totals only the lines it saves (#1354).
         self.assertEqual(payload["gross_amount"], 57727.5)
+        self.assertEqual(payload["charges_amount"], 94.4)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ ONCE -- it is consumed on read.
 
 import os
 from dataclasses import dataclass
+from decimal import Decimal
 
 import frappe
 from frappe.utils.file_manager import save_file
@@ -49,7 +50,9 @@ from nirmaan_stack.services.outflow_import.parser import (
     DIRECTION_DEBIT,
     SUPPORTED_SOURCES,
     StatementFormatError,
+    charges_of,
     describe_mapped_columns,
+    gross_by_direction,
     is_terminal_status,
     parse_statement,
 )
@@ -398,6 +401,21 @@ class _LinePlan:
     #: The earlier batch an exact repeat was first found in -- the one a message points at.
     repeat_of_batch: str | None
 
+    def saved_money(self) -> tuple[Decimal, Decimal]:
+        """`(gross_amount, charges_amount)` over the lines this plan SAVES (#1354).
+
+        ⚠️ NOT THE WHOLE FILE'S FIGURES. The parser's `gross_amount` / `charges_amount` still sum
+        every line -- that is what the file CONTAINS, and the preview shows it. What the batch
+        STORES must describe its own rows: import history prints `successful_rows` (counted from
+        those rows) beside `gross_amount`, and an exact repeat's money already sits in the earlier
+        import that holds it -- counting it again here is the same money in two imports. Each total
+        keeps its own rule (`gross_by_direction`, `charges_of`), applied to a smaller population. A
+        status-changed repeat IS saved, so it is in, under the rule for its status.
+        """
+        rows = [line.row for line in self.lines]
+        gross, _ = gross_by_direction(rows)
+        return gross, charges_of(rows)
+
 
 def _plan_lines(parsed) -> _LinePlan:
     """Decide, line by line, what an upload of this statement saves. READ-ONLY. ADR-0031.
@@ -565,6 +583,8 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     # be the two halves of one ruling disagreeing.
     no_settlement_path = not source_has_settlement_path(parsed.source)
 
+    gross, charges = plan.saved_money()
+
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
         {
@@ -574,8 +594,9 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
             "period_from": parsed.period_from,
             "period_to": parsed.period_to,
             "overlaps_batch": overlaps,
-            "gross_amount": float(parsed.gross_amount),
-            "charges_amount": float(parsed.charges_amount),
+            # The SAVED lines' money, not the file's -- see `_LinePlan.saved_money` (#1354).
+            "gross_amount": float(gross),
+            "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
             "repeats_not_saved": plan.repeats_not_saved,
             "uploaded_by": user,
@@ -710,8 +731,10 @@ def _summarize(batch, parsed):
         "total_rows": batch.total_rows,
         "skipped_rows": batch.skipped_rows,
         "repeats_not_saved": batch.repeats_not_saved,
-        "gross_amount": float(parsed.gross_amount),
-        "charges_amount": float(parsed.charges_amount),
+        # Read off the BATCH, beside the counters above, so the upload result describes the same
+        # rows it counts (#1354). The file's whole figures are the preview's to show.
+        "gross_amount": float(batch.gross_amount),
+        "charges_amount": float(batch.charges_amount),
         "overlaps_batch": batch.overlaps_batch,
         "warnings": list(parsed.warnings),
         "duplicate_transfer_ids": list(parsed.duplicate_transfer_ids),

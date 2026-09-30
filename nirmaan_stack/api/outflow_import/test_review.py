@@ -4123,8 +4123,20 @@ class TestTheHistoryFigures(OutflowReviewFixture):
         self.assertEqual(row["repeats_not_saved"], FIXTURE_IN_FILE_REPEATS)
 
     def test_it_reports_the_amount_that_actually_left_the_account(self):
+        """⚠️ THE STORED ROWS' MONEY, NOT THE FILE'S (#1354) -- the pin is inverted, not deleted.
+
+        This asserted the parser's whole-file gross until #1354. Once ADR-0031 stopped saving the
+        fixture's in-file exact repeat (its last line, a successful Rs 5,000), that figure counted
+        money no stored row carries, beside a `successful_rows` that excludes it. The whole-file
+        figure is asserted ABSENT so it cannot come back quietly.
+        """
         row = next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
-        self.assertEqual(float(row["gross_amount"]), float(self.parsed.gross_amount))
+        repeat = self.parsed.rows[-1]
+        self.assertTrue(repeat.is_success, "fixture precondition: the in-file repeat succeeded")
+        self.assertEqual(
+            float(row["gross_amount"]), float(self.parsed.gross_amount - repeat.amount)
+        )
+        self.assertNotEqual(float(row["gross_amount"]), float(self.parsed.gross_amount))
 
 
 class TestTheHistoryCountFollowsTheDirectionSplit(unittest.TestCase):
