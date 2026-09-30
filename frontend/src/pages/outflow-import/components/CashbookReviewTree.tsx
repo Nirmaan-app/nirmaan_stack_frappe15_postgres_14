@@ -8,6 +8,8 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
     CashbookPreviewGroup,
     CashbookPreviewResult,
+    DuplicateNotice,
+    duplicateNotice,
     isLoneRow,
     ledgerSections,
     typeHint,
@@ -43,6 +45,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
     const [showSkipped, setShowSkipped] = useState(false);
     const sections = ledgerSections(preview.groups);
+    const notice = duplicateNotice(preview);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -67,6 +70,8 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                     {formatToRoundedIndianRupee(preview.total_value)}
                 </p>
             </div>
+
+            {notice && <RepeatNotice notice={notice} />}
 
             {/* Said once, plainly, because it is the thing a reader most needs to know before
                 clicking: this is the last screen, and the correction happens somewhere else. */}
@@ -149,6 +154,17 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
         </div>
     );
 };
+
+/**
+ * Already-imported lines are not saved (ADR-0031). Above the tree, so it is read before the button.
+ * Styled as the Cashfree preview styles the same server verdict -- amber for a refusal or a warning,
+ * muted otherwise -- so one verdict reads the same on both sources.
+ */
+const RepeatNotice = ({ notice }: { notice: DuplicateNotice }) => (
+    <p className={notice.tone === "info" ? "text-sm text-muted-foreground" : "text-sm text-amber-700"}>
+        {notice.text}
+    </p>
+);
 
 /** One destination -- a project, or an expense type on the non-project side -- and its rows. */
 const GroupBranch = ({

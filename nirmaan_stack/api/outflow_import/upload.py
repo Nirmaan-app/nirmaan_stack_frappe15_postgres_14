@@ -39,10 +39,7 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import.bank_exclusions import should_skip
 from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
 from nirmaan_stack.services.outflow_import.duplicates import (
-    PriorSighting,
-    Repeat,
     assess_duplicates,
-    match_repeat,
     row_identity_of,
 )
 from nirmaan_stack.services.outflow_import.parser import (
@@ -53,9 +50,9 @@ from nirmaan_stack.services.outflow_import.parser import (
     charges_of,
     describe_mapped_columns,
     gross_by_direction,
-    is_terminal_status,
     parse_statement,
 )
+from nirmaan_stack.services.outflow_import.repeats import KeptLine, split_repeats
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     resolve_settlement_reference,
 )
@@ -380,23 +377,10 @@ def _assess_statement(parsed, filename: str):
 
 
 @dataclass(frozen=True)
-class _PlannedLine:
-    """A parsed line that WILL be saved, and what repeats it (if anything). ADR-0031.
-
-    `earlier` / `in_file` are set only for a repeat whose bank status CHANGED -- an exact repeat is
-    never planned for saving. They are what `derive_staged_row_outcome` needs to word the skip.
-    """
-
-    row: object
-    earlier: Repeat | None
-    in_file: Repeat | None
-
-
-@dataclass(frozen=True)
 class _LinePlan:
     """Which lines of a statement are saved, and how many exact repeats are left out."""
 
-    lines: tuple[_PlannedLine, ...]
+    lines: tuple[KeptLine, ...]
     repeats_not_saved: int
     #: The earlier batch an exact repeat was first found in -- the one a message points at.
     repeat_of_batch: str | None
@@ -431,36 +415,23 @@ def _plan_lines(parsed) -> _LinePlan:
     ⚠️ THE IN-FILE CHECK WIDENED WITH THE CROSS-BATCH ONE (slice D3), AND HAD TO. These two ask the
     same question -- "is this the same transfer?" -- about different populations, so a key that
     differed between them would let one call a pair of rows duplicates while the other called them
-    distinct, on one screen, about the same two lines. Both read `_row_identity`, and both are
-    settled by the one rule, `duplicates.match_repeat`.
+    distinct, on one screen, about the same two lines. Both read `_row_identity`.
 
-    ⚠️ ONLY A TERMINAL LINE BECOMES AN IN-FILE SIGHTING, matching the rule the CROSS-BATCH lookup
-    applies (`candidates.find_earlier_sightings_for_rows`). A row that could block a later line from
-    an earlier BATCH but not from an earlier LINE would be two answers about one file. An export is a
-    snapshot and should never list one transfer twice, so this closes the shape rather than a case
-    seen in the wild.
+    ⚠️ THE WALK ITSELF IS `repeats.split_repeats`, SHARED WITH CASHBOOK (#1355). This passes the two
+    things that stay per-source: the identity, and the PERIOD-NARROWED earlier sightings.
     """
     already_imported = _already_imported(parsed)
-    seen_in_file: dict = {}
-    lines = []
-    repeats = 0
-    repeat_of_batch = None
-    for row in parsed.rows:
-        identity = _row_identity(row, parsed.source)
-        earlier = match_repeat(already_imported.get(identity, ()), row.status_raw)
-        in_file = match_repeat(tuple(seen_in_file.get(identity, ())), row.status_raw)
-        if is_terminal_status(row.status_raw):
-            seen_in_file.setdefault(identity, []).append(
-                PriorSighting(added_on_date=None, label="", bank_status=row.status_raw)
-            )
-        if (earlier and earlier.exact) or (in_file and in_file.exact):
-            repeats += 1
-            if repeat_of_batch is None and earlier and earlier.exact:
-                repeat_of_batch = earlier.label
-            continue
-        lines.append(_PlannedLine(row=row, earlier=earlier, in_file=in_file))
+    split = split_repeats(
+        parsed.rows,
+        identity_of=lambda row: _row_identity(row, parsed.source),
+        earlier_sightings_of=lambda row: already_imported.get(
+            _row_identity(row, parsed.source), ()
+        ),
+    )
     return _LinePlan(
-        lines=tuple(lines), repeats_not_saved=repeats, repeat_of_batch=repeat_of_batch
+        lines=split.kept,
+        repeats_not_saved=split.repeats_not_saved,
+        repeat_of_batch=split.repeat_of_batch,
     )
 
 

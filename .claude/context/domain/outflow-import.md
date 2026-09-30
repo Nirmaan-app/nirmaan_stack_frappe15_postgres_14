@@ -290,7 +290,7 @@ A Cashbook spend is refused if either lookup recognises it, and they ask **diffe
 
 | Lookup | Corpus | Asks | Message |
 |---|---|---|---|
-| `cashbook._already_imported` | `Outflow Import Row`, terminal `status_raw` only | did an earlier **batch** stage this transfer? | `Already imported in {batch}` |
+| `cashbook._already_imported` | `Outflow Import Row`, terminal `status_raw` only | did an earlier **batch** stage this transfer? | same bank status: **not saved, counted** (ADR-0031); changed: `Already imported in {batch}, bank status changed X → Y` |
 | `cashbook._already_booked` | `Project Expenses` + `Non Project Expenses` | does an **expense** already exist for it? | `Already booked as {ledger} {name}` |
 
 **`_already_booked` closes a real hole.** An expense can exist for a wallet spend without this
@@ -692,7 +692,21 @@ needs one vocabulary rather than one per writer.
       same file*), its reason naming both statuses, and stays Unskip-locked. `total_rows` /
       `skipped_rows` / status stay derived from stored rows, so they exclude exact repeats. A file of
       nothing but exact repeats is refused. The D4 terminal-status filter and the ICICI widened
-      identity are unchanged. Cashfree/ICICI only so far; Cashbook follows in #1355.
+      identity are unchanged.
+    - **Cashbook follows the same rule (#1355).** The pure `services/outflow_import/cashbook.plan_statement`
+      leaves an exact repeat out of `plan.rows` BEFORE any skip test (so a top-up's copy goes too, not
+      only a spend's) and counts it in `CashbookPlan.repeats_not_saved`. **The walk has ONE owner,
+      `services/outflow_import/repeats.split_repeats`**, which `upload._plan_lines` calls too -- each
+      caller passes only its identity and its corpus of earlier sightings (Cashfree narrows by period,
+      Cashbook does not). Only a terminal line is an in-file sighting. A status-changed repeat is
+      named ahead of "did not succeed" (else SUCCESS -> REVERSED would read as an unlocked Bank refused).
+      `api/outflow_import/cashbook._assess` runs `assess_duplicates` over that plan for the preview
+      (the Cashfree keys `duplicate_rows` / `new_rows` / `refused` / `warn` / `duplicate_message`) and
+      the confirm, which **throws before `save_file`** on an all-repeats file -- Cashbook used to create
+      an empty import. `_stage` writes only planned rows, `repeats_not_saved`, and gross / charges over
+      the stored lines. The old sentences `SKIP_ALREADY_IMPORTED` / `SKIP_REPEATED_IN_FILE` are no
+      longer written but stay defined: stored rows carry them and `skip_kind_backfill` reads them.
+      Cashbook's lookup still searches every batch (no period), and "already booked" is unchanged.
     - **The batch's money follows its rows (#1354).** `gross_amount` / `charges_amount` are summed
       over the lines the plan SAVES (`upload._LinePlan.saved_money`), not the whole file, keeping each
       total's own rule (`parser.gross_by_direction` = successful debits; `parser.charges_of` = every

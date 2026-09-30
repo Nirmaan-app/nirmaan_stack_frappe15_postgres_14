@@ -52,12 +52,24 @@ export interface CashbookPreviewResult {
     warnings: string[];
     groups: CashbookPreviewGroup[];
     skipped: CashbookSkippedRow[];
+    /** ADR-0031, the Cashfree preview's keys with the same meanings: exact repeats NOT saved. */
+    duplicate_rows: number;
+    /** The lines this import will save -- a status-changed repeat included. */
+    new_rows: number;
+    duplicate_message: string;
+    /** Nothing new at all: the confirm must not be offered. */
+    refused: boolean;
+    /** 90% or more already imported: offered anyway, with the message. */
+    warn: boolean;
+    duplicate_of_batch: string | null;
 }
 
 export interface CashbookConfirmResult {
     batch: string;
     creating: number;
     skipping: number;
+    /** How many already-imported lines the import left out (ADR-0031). */
+    repeats_not_saved: number;
 }
 
 export interface CashbookStatus {
@@ -132,6 +144,35 @@ export const typeLabel = (row: CashbookPreviewRow): string => row.expense_type |
 export const typeHint = (row: CashbookPreviewRow): string => {
     if (row.is_fallback_type) return "No rule matched this remark";
     return row.matched_keyword ? `Matched “${row.matched_keyword}”` : "";
+};
+
+export interface DuplicateNotice {
+    tone: "refused" | "warn" | "info";
+    text: string;
+}
+
+/**
+ * What the preview says about lines that are already imported, or `null` when there are none
+ * (ADR-0031). Those lines will not be saved at all, and the reader has to know that before clicking.
+ *
+ * ⚠️ THE SERVER'S SENTENCE, NOT A SECOND ONE WRITTEN HERE. `duplicate_message` is the same
+ * `assess_duplicates` wording the Cashfree preview shows and names the earlier import; the count is
+ * only a fallback for a server that predates it.
+ *
+ * ⚠️ REFUSED IS NOT A LOUDER WARN. A refusal means there is nothing to save and the confirm is not
+ * offered; a warning keeps the confirm (owner ruling Q2) and only says how little is new.
+ */
+export const duplicateNotice = (preview: {
+    duplicate_rows?: number;
+    duplicate_message?: string;
+    refused?: boolean;
+    warn?: boolean;
+}): DuplicateNotice | null => {
+    const count = preview.duplicate_rows ?? 0;
+    if (count <= 0) return null;
+    const text = preview.duplicate_message || `${count} already imported — will not be saved`;
+    if (preview.refused) return { tone: "refused", text };
+    return { tone: preview.warn ? "warn" : "info", text };
 };
 
 /** "Create 115 records" -- the same verb the completion message uses. */

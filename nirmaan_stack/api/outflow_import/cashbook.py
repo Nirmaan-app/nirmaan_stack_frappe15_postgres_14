@@ -11,7 +11,8 @@ measured statement was 113 of 115 rows.
 THREE PHASES, AND NOTHING IS WRITTEN UNTIL THE THIRD
 ----------------------------------------------------
     read     `preview_cashbook_statement`   parse, plan, return the rollup.   WRITES NOTHING
-    confirm  `confirm_cashbook_import`      save the file, stage, enqueue.    batch + rows only
+    confirm  `confirm_cashbook_import`      refuse, save the file, stage,     batch + rows only
+                                            enqueue.
     write    `_cashbook_worker`             create the expenses.              one row at a time
 
 An abandoned import therefore leaves no trace at all, which is what the Cashfree preview already
@@ -68,6 +69,8 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     plan_statement,
 )
 from nirmaan_stack.services.outflow_import.duplicates import (
+    DuplicateVerdict,
+    assess_duplicates,
     find_prior_sighting,
     index_prior_sightings,
 )
@@ -78,6 +81,8 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     StatementFormatError,
+    charges_of,
+    gross_by_direction,
     parse_statement,
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
@@ -123,7 +128,7 @@ def preview_cashbook_statement():
     """
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
-    return _preview_payload(parsed, plan, filename)
+    return _preview_payload(parsed, plan, filename, _assess(parsed, plan, filename))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -139,6 +144,13 @@ def confirm_cashbook_import():
     """
     user, filename, content, parsed = _read_and_parse()
     plan = _build_plan(parsed)
+
+    # ⚠️ THE REFUSAL COMES BEFORE `save_file`, the only place it can (ADR-0031, as on the Cashfree
+    # path): `save_file` commits inside this request, so a refusal after it would leave an orphan File
+    # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL.
+    verdict = _assess(parsed, plan, filename)
+    if verdict.refuse:
+        frappe.throw(verdict.message, title="Already imported")
 
     from frappe.utils.file_manager import save_file
 
@@ -169,7 +181,12 @@ def confirm_cashbook_import():
         job_id=f"cashbook-import-{batch.name}",
         deduplicate=True,
     )
-    return {"batch": batch.name, "creating": len(plan.creating), "skipping": len(plan.skipping)}
+    return {
+        "batch": batch.name,
+        "creating": len(plan.creating),
+        "skipping": len(plan.skipping),
+        "repeats_not_saved": plan.repeats_not_saved,
+    }
 
 
 @frappe.whitelist()
@@ -519,6 +536,21 @@ def booked_elsewhere(row: str) -> str | None:
     return f"{leg.target_doctype} {leg.target_name}" if leg else None
 
 
+def _assess(parsed, plan: CashbookPlan, filename: str) -> DuplicateVerdict:
+    """Refuse / warn / proceed, counted from THE plan `_stage` writes from (ADR-0031). READ-ONLY.
+
+    The same `duplicates.assess_duplicates` the Cashfree path asks, so both sources refuse a file of
+    nothing but exact repeats and warn at the same 90%. Shared by the preview and the confirm, so
+    what the preview promised is what the confirm enforces.
+    """
+    return assess_duplicates(
+        total=len(parsed.rows),
+        duplicates=plan.repeats_not_saved,
+        earliest_batch=plan.repeat_of_batch,
+        filename=filename,
+    )
+
+
 def _statement_transfer_ids(parsed) -> list[str]:
     """The distinct, non-blank transfer ids in this statement -- the narrowing both lookups use.
 
@@ -529,7 +561,22 @@ def _statement_transfer_ids(parsed) -> list[str]:
 
 
 def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
-    """Create the batch and one row per parsed transfer, carrying the plan's decision."""
+    """Create the batch and one row per PLANNED transfer, carrying the plan's decision.
+
+    ⚠️ AN EXACT REPEAT IS NOT STAGED (ADR-0031). `plan_statement` leaves it out of `plan.rows` and
+    counts it; the batch keeps only `repeats_not_saved`, the one trace such a line leaves. Every other
+    parsed line is staged -- a status-changed repeat included, skipped with both statuses named.
+
+    ⚠️ THE MONEY TOTALS ARE THE STORED LINES', NOT THE FILE'S. The parser's figures sum every line;
+    an exact repeat's money already sits in the earlier import that holds it, so counting it here is
+    the same money in two imports. Each total keeps its own rule (`gross_by_direction` -- successful
+    debits; `charges_of` -- every line), over the smaller population. A file with no repeats gives
+    exactly the figures it gave before.
+    """
+    by_row = {row.row_number: row for row in plan.rows}
+    stored = [raw for raw in parsed.rows if raw.row_number in by_row]
+    gross, _ = gross_by_direction(stored)
+
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
         {
@@ -538,8 +585,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
             "original_filename": filename,
             "period_from": parsed.period_from,
             "period_to": parsed.period_to,
-            "gross_amount": float(parsed.gross_amount),
-            "charges_amount": float(parsed.charges_amount),
+            "gross_amount": float(gross),
+            "charges_amount": float(charges_of(stored)),
+            # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
+            "repeats_not_saved": plan.repeats_not_saved,
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",
@@ -547,10 +596,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     )
     batch.insert(ignore_permissions=True)
 
-    by_row = {row.row_number: row for row in plan.rows}
-    for raw in parsed.rows:
-        planned = by_row.get(raw.row_number)
-        creating = planned is not None and planned.action == ACTION_CREATE
+    for raw in stored:
+        planned = by_row[raw.row_number]
+        creating = planned.action == ACTION_CREATE
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(
             {
@@ -599,7 +647,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     return batch
 
 
-def _preview_payload(parsed, plan: CashbookPlan, filename: str) -> dict:
+def _preview_payload(
+    parsed, plan: CashbookPlan, filename: str, verdict: DuplicateVerdict
+) -> dict:
     groups = group_plan(plan)
     return {
         "preview": True,
@@ -611,6 +661,15 @@ def _preview_payload(parsed, plan: CashbookPlan, filename: str) -> dict:
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
         "total_value": float(plan.total_value),
+        # The Cashfree preview's duplicate keys, with the same meanings (ADR-0031): `duplicate_rows`
+        # is the exact repeats that will NOT be saved, `new_rows` what will be. `refused` means the
+        # confirm must not be offered at all; `warn` means it is offered anyway.
+        "duplicate_rows": verdict.duplicates,
+        "new_rows": verdict.new,
+        "duplicate_message": verdict.message,
+        "refused": verdict.refuse,
+        "warn": verdict.warn,
+        "duplicate_of_batch": verdict.earliest_batch,
         "warnings": list(parsed.warnings),
         "groups": [
             {

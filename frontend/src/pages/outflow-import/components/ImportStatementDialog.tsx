@@ -939,6 +939,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                     {isCashbook && cashbookBatch && (
                         <CashbookProgress
                             creating={cashbookBatch.creating}
+                            repeatsNotSaved={cashbookBatch.repeats_not_saved}
                             status={cashbookStatus}
                             running={isBusy === "match"}
                         />
@@ -971,7 +972,13 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                                 </Button>
                                 <Button
                                     onClick={handleCashbookConfirm}
-                                    disabled={working || !cashbookPreview?.creating}
+                                    // A refused file has nothing to create either; said by name so
+                                    // the button never depends on the two facts staying in step.
+                                    disabled={
+                                        working ||
+                                        !cashbookPreview?.creating ||
+                                        Boolean(cashbookPreview?.refused)
+                                    }
                                 >
                                     {isBusy === "upload" && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1351,15 +1358,19 @@ function extractServerMessage(payload: string): string | null {
  */
 const CashbookProgress = ({
     creating,
+    repeatsNotSaved,
     status,
     running,
 }: {
     creating: number;
+    repeatsNotSaved: number | undefined;
     status: CashbookStatus | null;
     running: boolean;
 }) => {
     const fraction = progressFraction(status, creating);
     const failed = (status?.failed ?? 0) > 0;
+    // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
+    const repeats = repeatsNotSavedLabel(repeatsNotSaved);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1384,6 +1395,7 @@ const CashbookProgress = ({
                     style={{ width: `${Math.round(fraction * 100)}%` }}
                 />
             </div>
+            {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
             {!running && (
                 <p className="text-xs text-muted-foreground">
                     Corrections are made in Expenses — open a record and change its project or type.

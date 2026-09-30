@@ -2619,7 +2619,8 @@ export const confirmImportLabel = (preview: {
  * (ADR-0031). Those lines were not saved, so this count is the only trace they leave.
  *
  * ⚠️ ONE WORDING FOR THE POST-UPLOAD SUMMARY AND IMPORT HISTORY, so the same number never reads
- * two ways. `undefined` (an older server, or a Cashbook import) and 0 both show nothing.
+ * two ways -- Cashbook's progress panel included. `undefined` (an older server) and 0 both show
+ * nothing.
  */
 export const repeatsNotSavedLabel = (count: number | null | undefined): string | null =>
     count && count > 0 ? `${count} already imported, not saved` : null;

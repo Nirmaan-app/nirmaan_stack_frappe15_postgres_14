@@ -47,7 +47,9 @@ from typing import Iterable, Mapping, Sequence
 
 from nirmaan_stack.services.outflow_import.duplicates import (
     PriorSighting,
+    bank_status_key,
     find_prior_sighting,
+    find_prior_sightings,
     row_identity,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -55,6 +57,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, alias_haystack
+from nirmaan_stack.services.outflow_import.repeats import KeptLine, split_repeats
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
@@ -70,6 +73,8 @@ __all__ = [
     "ACTION_CREATE",
     "ACTION_SKIP",
     "SKIP_ALREADY_BOOKED",
+    "SKIP_ALREADY_IMPORTED_STATUS_CHANGED",
+    "SKIP_REPEATED_IN_FILE_STATUS_CHANGED",
     "PlannedRow",
     "CashbookPlan",
     "PlanGroup",
@@ -95,7 +100,16 @@ ACTION_SKIP = "skip"
 SKIP_NOT_A_SPEND = "Moves money between our own balances, not a spend"
 SKIP_NOT_SUCCESSFUL = "Did not succeed at the wallet"
 SKIP_NO_AMOUNT = "No amount was debited"
+# ⚠️ NO LONGER WRITTEN (ADR-0031), KEPT BECAUSE STORED ROWS CARRY IT. An exact repeat -- same identity
+# AND same bank status -- is now left out of the plan and only counted, so nothing new reads this
+# sentence; but every Cashbook repeat staged before that does, and `skip_kind_backfill` reads a kind
+# back out of it. Same disposition as `status.SKIP_REASON_ALREADY_IMPORTED`.
 SKIP_ALREADY_IMPORTED = "Already imported in {batch}"
+# The only repeat still staged is one whose bank status CHANGED, and its reason names both statuses.
+# BUILT FROM the sentence above, so the backfill and a reader searching for it still find it by
+# construction rather than by two strings being kept alike.
+_STATUS_CHANGED = ", bank status changed {earlier} → {now}"
+SKIP_ALREADY_IMPORTED_STATUS_CHANGED = SKIP_ALREADY_IMPORTED + _STATUS_CHANGED
 # ⚠️ A DIFFERENT FACT FROM `SKIP_ALREADY_IMPORTED`, AND THE TWO MUST STAY APART. That one means an
 # earlier BATCH staged this transfer; this one means an EXPENSE already exists for it -- typically
 # keyed in by hand, outside this import entirely. Measured 2026-08-21: 17 live Non Project Expenses
@@ -105,7 +119,9 @@ SKIP_ALREADY_IMPORTED = "Already imported in {batch}"
 # label by contract, so a two-placeholder message would have to SPLIT that label back apart on a
 # separator -- and a record name containing that separator would then be silently truncated.
 SKIP_ALREADY_BOOKED = "Already booked as {record}"
+# No longer written, kept for stored rows -- see `SKIP_ALREADY_IMPORTED`.
 SKIP_REPEATED_IN_FILE = "The same transfer appears earlier in this file"
+SKIP_REPEATED_IN_FILE_STATUS_CHANGED = SKIP_REPEATED_IN_FILE + _STATUS_CHANGED
 
 
 @dataclass(frozen=True)
@@ -163,6 +179,11 @@ class PlanGroup:
 @dataclass(frozen=True)
 class CashbookPlan:
     rows: tuple[PlannedRow, ...] = ()
+    """Every row that will be STAGED. An exact repeat is not among them (ADR-0031)."""
+    repeats_not_saved: int = 0
+    """How many exact repeats were left out -- the one trace they leave, stored on the batch."""
+    repeat_of_batch: str | None = None
+    """The earlier batch the first exact repeat came from, for the refusal message to name."""
 
     @property
     def creating(self) -> tuple[PlannedRow, ...]:
@@ -199,67 +220,102 @@ def plan_statement(
     exists to refuse: one unreadable Added On on either side and a spend imported a SECOND time,
     silently. The shape changed because the rule could not be applied in the old one.
 
-    ⚠️ THE ORDER OF THE SIX SKIP TESTS IS THE MESSAGE. A failed top-up is not a spend AND did not
+    ⚠️ AN EXACT REPEAT IS NOT PLANNED AT ALL (ADR-0031), and that is decided before any skip test.
+    A line the system already holds with the same bank status -- from an earlier import, or from
+    earlier in this file -- is left out and counted in `repeats_not_saved`, whatever skip its first
+    sighting got. The walk is `repeats.split_repeats`, the SAME one the Cashfree/ICICI upload plan
+    calls; only the identity and the corpus of earlier sightings are this source's own.
+    `already_imported` must therefore carry each sighting's bank status
+    (`candidates.prior_import_sightings` does).
+
+    ⚠️ THE ORDER OF THE SKIP TESTS IS THE MESSAGE. A failed top-up is not a spend AND did not
     succeed; reporting it as "did not succeed" would send somebody looking for a failed payment
-    that never existed. Kind, then outcome, then amount, then the three "seen before" tests --
-    which are themselves ordered by how actionable their answer is: an earlier BATCH names work
-    inside this feature, an existing EXPENSE names a record outside it, and "further up this sheet"
-    names the least. A row can satisfy several; it reports the most useful one.
+    that never existed. Kind first, then a STATUS-CHANGED repeat (an earlier batch, then further up
+    this sheet), then outcome, then amount, then an existing expense.
+
+    The status change sits ABOVE the outcome on purpose -- as it does on the Cashfree path. A spend
+    imported SUCCESS and now REVERSED also "did not succeed", but that sentence is a Bank-refused
+    skip, says nothing about what changed, and is not Unskip-locked; the repeat is locked (ADR-0022
+    Amendment C). An earlier BATCH is still named ahead of an existing EXPENSE: when a previous
+    import created the expense both are true, and the batch is a screen in this feature.
     """
-    seen: dict[tuple, int] = {}
     already = dict(already_imported or {})
     booked = dict(already_booked or {})
-    planned: list[PlannedRow] = []
 
-    for raw in rows:
+    # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three places ask
+    # "is this row repeated within one file" -- here, `parser.duplicate_transfer_ids` (which feeds the
+    # preview's warning) and the Cashfree `upload._plan_lines`. All three key on `row_identity`, and
+    # the parser's own note says why: two of them disagreeing would call the same pair of rows repeated
+    # in one surface and distinct in another.
+    #
+    # ⚠️ SINCE B3 THE KEY IS SOURCE-AWARE, AND "THE EXACT TRIPLE" IS NOW A STATEMENT ABOUT CASHBOOK,
+    # NOT ABOUT EVERY SOURCE. `duplicates.WIDE_IDENTITY_SOURCES` gives a bank statement a wider key.
+    # Cashbook is not in that set, so this call is unchanged and stays correct. The invariant that
+    # matters is that every reader asks `row_identity` / `row_identity_of` with the SAME source.
+    split = split_repeats(
+        rows,
+        identity_of=lambda raw: row_identity(
+            getattr(raw, "transfer_id", "") or "", _amount(raw), _row_date(raw)
+        ),
+        earlier_sightings_of=lambda raw: find_prior_sightings(
+            already, getattr(raw, "transfer_id", "") or "", _amount(raw), _row_date(raw)
+        ),
+    )
+
+    planned: list[PlannedRow] = []
+    for line in split.kept:
+        raw = line.row
         base = dict(
             row_number=getattr(raw, "row_number", 0),
             transfer_id=getattr(raw, "transfer_id", "") or "",
-            amount=getattr(raw, "amount", Decimal("0")) or Decimal("0"),
+            amount=_amount(raw),
             remarks=(getattr(raw, "remarks", "") or "").strip(),
             beneficiary_name=(getattr(raw, "beneficiary_name", "") or "").strip(),
             spent_by=(getattr(raw, "added_by_raw", "") or "").strip(),
         )
-        skip, skip_kind = _skip_reason(raw, base["amount"], already, booked, seen)
+        skip, skip_kind = _skip_reason(line, base["amount"], booked)
         if skip:
             planned.append(PlannedRow(action=ACTION_SKIP, reason=skip, skip_kind=skip_kind, **base))
             continue
-
-        # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three
-        # places ask "is this row repeated within one file" -- here, `parser.duplicate_transfer_ids`
-        # (which feeds the preview's warning) and the Cashfree `_stage_batch` marking. All three key
-        # on `row_identity`, and the parser's own note says why: two of them disagreeing would call
-        # the same pair of rows repeated in one surface and distinct in another. Giving only this
-        # one the missing-date fallback would recreate exactly that.
-        #
-        # ⚠️ SINCE B3 THE KEY IS SOURCE-AWARE, AND "THE EXACT TRIPLE" IS NOW A STATEMENT ABOUT
-        # CASHBOOK, NOT ABOUT EVERY SOURCE. `duplicates.WIDE_IDENTITY_SOURCES` gives a bank
-        # statement a wider key (it adds direction and remarks, because a bank posts both legs of a
-        # GL move with byte-identical narration and splits GST into two same-id legs). Cashbook is
-        # not in that set, so this call is unchanged and stays correct. The invariant that matters
-        # is not "everyone uses the triple" -- it is that every reader asks `row_identity` /
-        # `row_identity_of` with the SAME source and therefore gets the SAME answer.
-        seen[row_identity(base["transfer_id"], base["amount"], _row_date(raw))] = base["row_number"]
         planned.append(PlannedRow(action=ACTION_CREATE, **base, **_placement(base["remarks"], index, expense_rules)))
 
-    return CashbookPlan(rows=tuple(planned))
+    return CashbookPlan(
+        rows=tuple(planned),
+        repeats_not_saved=split.repeats_not_saved,
+        repeat_of_batch=split.repeat_of_batch,
+    )
 
 
 def _skip_reason(
-    raw,
+    line: KeptLine,
     amount: Decimal,
-    already: Mapping[tuple, tuple[PriorSighting, ...]],
     booked: Mapping[tuple, tuple[PriorSighting, ...]],
-    seen: Mapping[tuple, int],
 ) -> tuple[str, str | None]:
     """`(reason, skip_kind)` for a row to skip, `("", None)` for a row to create.
+
+    `line.earlier` / `line.in_file` are set only for a STATUS-CHANGED repeat -- `split_repeats` has
+    already left every exact one out. See `plan_statement` for the order.
 
     Each kind is the owner-confirmed `skip_kinds.SKIP_KINDS` label for that sentence: a wallet failure is
     Bank refused, and an expense that already exists is Outflow Already Recorded (a Cashbook line is
     always money out).
     """
+    raw = line.row
     if (getattr(raw, "row_kind", "") or "").strip() != SPEND_ROW_KIND:
         return SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL
+    now = bank_status_key(getattr(raw, "status_raw", ""))
+    if line.earlier:
+        return (
+            SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
+                batch=line.earlier.label, earlier=line.earlier.earlier_status, now=now
+            ),
+            SKIP_KIND_ALREADY_IMPORTED,
+        )
+    if line.in_file:
+        return (
+            SKIP_REPEATED_IN_FILE_STATUS_CHANGED.format(earlier=line.in_file.earlier_status, now=now),
+            SKIP_KIND_REPEATED_IN_FILE,
+        )
     if not getattr(raw, "is_success", False):
         return SKIP_NOT_SUCCESSFUL, SKIP_KIND_BANK_REFUSED
     # ⚠️ ZERO IS A SKIP, NOT AN ERROR. `settle.create_expense_from_row` THROWS on an amount of zero
@@ -268,22 +324,18 @@ def _skip_reason(
     if amount <= 0:
         return SKIP_NO_AMOUNT, SKIP_KIND_NO_AMOUNT
 
-    transfer_id = getattr(raw, "transfer_id", "") or ""
-    added_on_date = _row_date(raw)
-
-    batch = find_prior_sighting(already, transfer_id, amount, added_on_date)
-    if batch:
-        return SKIP_ALREADY_IMPORTED.format(batch=batch), SKIP_KIND_ALREADY_IMPORTED
-    # ⚠️ AFTER the batch test, deliberately. When an earlier batch created the expense BOTH are
-    # true, and the batch is the answer a reader can act on -- it is a screen in this feature.
-    record = find_prior_sighting(booked, transfer_id, amount, added_on_date)
+    record = find_prior_sighting(
+        booked, getattr(raw, "transfer_id", "") or "", amount, _row_date(raw)
+    )
     if record:
         # The label already reads "<ledger> <name>" -- composed by the caller, which is the layer
         # that knows which ledger it queried.
         return SKIP_ALREADY_BOOKED.format(record=record), SKIP_KIND_OUTFLOW_RECORDED
-    if row_identity(transfer_id, amount, added_on_date) in seen:
-        return SKIP_REPEATED_IN_FILE, SKIP_KIND_REPEATED_IN_FILE
     return "", None
+
+
+def _amount(raw) -> Decimal:
+    return getattr(raw, "amount", Decimal("0")) or Decimal("0")
 
 
 def _row_date(raw):

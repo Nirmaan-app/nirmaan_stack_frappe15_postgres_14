@@ -20,6 +20,8 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import import bank_exclusions, cashbook, skip_kinds, status
+from nirmaan_stack.services.outflow_import.duplicates import Repeat
+from nirmaan_stack.services.outflow_import.repeats import KeptLine
 from nirmaan_stack.services.outflow_import.contains_guard import RecordedGroup
 from nirmaan_stack.services.outflow_import.matcher import (
     BASIS_BANK_REFERENCE,
@@ -207,8 +209,9 @@ def _cashbook_row(number=1, transfer_id="OBO1", amount="100", kind="Wallet Spend
 
 
 class TestTheCashbookPlanCarriesAKind(unittest.TestCase):
-    def _reason_and_kind(self, raw, already=None, booked=None, seen=None):
-        return cashbook._skip_reason(raw, raw.amount, already or {}, booked or {}, seen or {})
+    def _reason_and_kind(self, raw, earlier=None, in_file=None, booked=None):
+        line = KeptLine(row=raw, earlier=earlier, in_file=in_file)
+        return cashbook._skip_reason(line, raw.amount, booked or {})
 
     def test_each_skip_reason_has_its_kind(self):
         self.assertEqual(
@@ -223,6 +226,13 @@ class TestTheCashbookPlanCarriesAKind(unittest.TestCase):
             self._reason_and_kind(_cashbook_row(amount="0")),
             (cashbook.SKIP_NO_AMOUNT, SKIP_KIND_NO_AMOUNT),
         )
+
+    def test_a_status_changed_repeat_has_a_locked_repeat_kind(self):
+        """ADR-0031: the only repeat still staged. Its kind stays Unskip-locked."""
+        changed = Repeat(label="OFI-26-00007", earlier_status="SUCCESS", exact=False)
+        row = _cashbook_row(status_raw="REVERSED")
+        self.assertEqual(self._reason_and_kind(row, earlier=changed)[1], SKIP_KIND_ALREADY_IMPORTED)
+        self.assertEqual(self._reason_and_kind(row, in_file=changed)[1], SKIP_KIND_REPEATED_IN_FILE)
 
     def test_a_row_to_create_has_no_kind(self):
         self.assertEqual(self._reason_and_kind(_cashbook_row()), ("", None))
@@ -247,6 +257,16 @@ class TestTheHistoryBackfill(unittest.TestCase):
             (cashbook.SKIP_ALREADY_IMPORTED.format(batch="OFI-26-00007"), SKIP_KIND_ALREADY_IMPORTED),
             (cashbook.SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1"), SKIP_KIND_OUTFLOW_RECORDED),
             (cashbook.SKIP_REPEATED_IN_FILE, SKIP_KIND_REPEATED_IN_FILE),
+            (
+                cashbook.SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
+                    batch="OFI-26-00007", earlier="SUCCESS", now="REVERSED"
+                ),
+                SKIP_KIND_ALREADY_IMPORTED,
+            ),
+            (
+                cashbook.SKIP_REPEATED_IN_FILE_STATUS_CHANGED.format(earlier="SUCCESS", now="REVERSED"),
+                SKIP_KIND_REPEATED_IN_FILE,
+            ),
         ]
         for category, kind in SKIP_KIND_BY_EXCLUSION_CATEGORY.items():
             cases.append((status.SKIP_REASON_EXCLUDED_AT_INGEST.format(category=category), kind))
