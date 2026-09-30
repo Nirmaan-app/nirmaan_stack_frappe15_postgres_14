@@ -72,6 +72,12 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         new_po_doc.vendor_name = po_doc.vendor_name
         new_po_doc.vendor_address = po_doc.vendor_address
         new_po_doc.vendor_gst = po_doc.vendor_gst
+        # Billing GST: first PO's, else any merged PO's, else the project's
+        new_po_doc.project_gst = (
+            po_doc.project_gst
+            or next((g for g in (frappe.db.get_value("Procurement Orders", n, "project_gst") for n in all_po_names) if g), None)
+            or frappe.db.get_value("Projects", po_doc.project, "project_gst")
+        )
         # Set the items from the payload
         # new_po_doc.items = order_data
         new_po_doc.merged = "true"

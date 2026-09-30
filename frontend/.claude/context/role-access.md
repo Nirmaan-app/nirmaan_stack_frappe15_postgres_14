@@ -169,25 +169,70 @@ Roles that don't require `has_project === "true"`:
 
 ### Purchase Orders (`ProcurementOrders/`)
 
+**One PO detail page, gated by ROLE + STATUS only (2026-09-28).** Every PO detail URL renders
+`PurchaseOrder.tsx` — `/purchase-orders/:id`, `/projects/:projectId/po/:poId`, `/vendors/:vendorId/:poId`,
+the PR / DN routes, `/reports/po/:poId` and `/project-payments/:id`. The old entry-path flags
+(`summaryPage`, `accountsPage`) are gone: a button must never depend on which URL opened the page. Do not
+reintroduce a route-based prop — gate on `role` and `po.status`.
+
+"Procurement" below = `MATERIAL_PROCUREMENT_PROFILES` (Procurement Exec, Procurement Lead, Material
+Procurement Exec). Estimates includes Billing Exec / Lead (`estimatesViewing`).
+
 | Feature | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant | Estimates |
 |---------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|:---------:|
 | Approve PO Tabs | Y | - | Y | - | - | - | - |
 | Status Tabs | Y | Y | Y | - | Y | - | Read-only |
 | Request Payment | Y | Y | Y | - | Y | - | - |
-| Edit Payment Terms | Y | - | Y | - | Y | - | - |
-| Update Delivery | Y | Y | Y | Y | Y | - | - |
+| Edit Payment Terms | Y | Y | Y | - | Y | - | - |
+| Edit GST for Billing & Notes | Y | Y | Y | - | Y | - | - |
+| Update Delivery (new DN) | Y | Y | Y | Y | Y | - | - |
 | Dispatch PO | Y | Y | Y | - | Y | - | - |
 | Revert PO Status | Y | Y | Y | - | Y | - | - |
 | Delete Custom PO | Y | Y | Y | - | Y | - | - |
+| Merge POs | Y | Y | Y | - | Y | - | - |
+| Cancel PO (PO Approved, not custom, no payments) | Y | Y | - | - | Y | - | - |
+| Revise PO | Y | Y | - | - | Y | - | - |
 | Mark Inactive | Y | Y | - | - | - | Y | - |
 
-> **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost payment-terms edit (`POPaymentTermsCard.tsx`); GST for Billing & Notes stays editable. **Request Payment was given back on 2026-09-24 (owner)** — PMO raises PO payment requests again, while editing the terms themselves stays off.
+> **PMO note (2026-09-17):** PMO removed from `PO_ADMIN_ROLES` — no Approve PO / Approve Sent Back PO / Approve PO Revision tabs; the approve lists (`release-po-select.tsx`), approve views (`RenderPurchaseOrdersTab.tsx`, redirect) and `/po-revisions-approval` (`RoleRoute` in `routesConfig.tsx`) are guarded against direct-URL access. PMO also lost payment-terms edit and Request Payment; GST for Billing & Notes stayed editable. **Request Payment was given back on 2026-09-24 and payment-terms edit on 2026-09-29 (owner)** — PMO now matches Procurement on the whole Payment Terms card (`POPaymentTermsCard.tsx`).
 
-**Key files:**
-- `release-po-select.tsx:104-105,223-264`
-- `PurchaseOrder.tsx:141`
-- `PODetails.tsx:507,551,598,632,681,1069`
-- `POPaymentTermsCard.tsx:758,909`
+> **Cancel PO (owner, 2026-09-28):** Admin, PMO and material procurement only. It used to be "everyone except Accountant / Estimates", which let a PM, Sales, HR or Design user cancel. Frontend only — `handle_cancel_po` does not check roles.
+
+**Approve screens open only on an explicit tab.** `RenderPurchaseOrdersTab` renders the PR / Sent Back
+approval screens only for `?tab=Approve PO` / `?tab=Approve Sent Back PO`; any other tab, or none, opens the
+PO. (It used to default to "Approve PO", so a bare `/purchase-orders/<PO>` link opened the PR approval
+screen.) Its `React.lazy` components live at module level — created inside the component they remounted the
+whole page on every URL change.
+
+**What each role sees on the PO page** (hidden only for the roles marked):
+
+| Section | Hidden for |
+|---|---|
+| Amounts (PO amount, invoiced, paid, delivered); Rate / Tax / Amount columns | Project Manager |
+| Payment Details / Refunds; Invoices | Project Manager |
+| "View Revision" link in the revision banner | everyone except Admin, PMO, Accountant, Accountant Lead |
+| Revisions list (Revisions & Adjustments block) | everyone except Admin, PMO, Accountant, Accountant Lead, Procurement |
+| "Apply to this PO" (vendor credit) | everyone except Admin, PMO, Procurement |
+
+The PO routes have no route guard: Sales / HR / Design who open a PO link see amounts and payments.
+
+**Payment delete (trash, Payment Details)** — owner 2026-09-29, one rule in
+`TransactionDetailsCard.canDeletePayment`, same on every route:
+
+| Role | Requested | Reconciliation Pending | Rejected | CEO Pending | Approved | Paid |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| Admin | Y | Y | Y | Y | Y | - |
+| Accountant / Accountant Lead | - | - | - | - | **Y** | - |
+| PMO, Project Lead, procurement (`PROCUREMENT_PROFILES`) | Y | Y | Y | - | - | - |
+| Design, HR, Sales, Estimates, Billing, Project Manager | - | - | - | - | - | - |
+
+Accountants match "Payment need to paid" (Approved rows), where they can delete too. A PO payment has **no edit** anywhere in the app (see "Payments
+queue — edit & revert" below).
+
+**Key files:** `RenderPurchaseOrdersTab.tsx`, `PurchaseOrder.tsx`, `components/PODetails.tsx`,
+`components/POPaymentTermsCard.tsx`, `components/TransactionDetailsCard.tsx`,
+`components/PORevisionsAndAdjustments.tsx`, `POAdjustment/VendorCreditSummaryCard.tsx`,
+`PORevision/PORevisionWarning.tsx`.
 
 ---
 
