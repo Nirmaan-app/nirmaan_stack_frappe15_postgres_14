@@ -1067,6 +1067,23 @@ class TestPartialSettlementHappyPath(PartialSettlementFixture):
             "the balance waits for its own bank line, never back at Approved (#1289)",
         )
 
+    def test_a_gst_payments_leftover_keeps_the_gst_kind(self):
+        """ADR-0030: the balance of a part-paid GST payment is still a GST payment. The copy is
+        parent-blind -- this fixture's payment sits on a PO, which is all the split needs."""
+        frappe.db.set_value(PAYMENT, self.big_payment, "is_gst_payment", 1, update_modified=False)
+        frappe.db.commit()
+
+        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+
+        balance = self._balance_of(self.big_payment)[0]
+        self.assertEqual(frappe.db.get_value(PAYMENT, balance, "is_gst_payment"), 1)
+        self.assertEqual(frappe.db.get_value(PAYMENT, self.big_payment, "is_gst_payment"), 1)
+
+    def test_a_base_payments_leftover_stays_a_base_payment(self):
+        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+        balance = self._balance_of(self.big_payment)[0]
+        self.assertEqual(frappe.db.get_value(PAYMENT, balance, "is_gst_payment"), 0)
+
     def test_the_two_halves_sum_to_what_was_approved(self):
         settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
         balance = self._balance_of(self.big_payment)[0]

@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Keep `invoice_amount` on the parent Procurement Order / Service Request true.
+"""Keep `amount_invoiced` (and a Work Order's `gst_invoiced`) on the parent Procurement
+Order / Service Request true.
 
 Wired to the Vendor Invoices doctype itself (`doc_events` in hooks.py), NOT called
 by hand from the invoice endpoints. That is deliberate: there are nine ways an
@@ -34,14 +35,15 @@ _APPROVED = "Approved"
 # nothing whatever these hold.
 _SUM_INPUT_FIELDS = (
     "invoice_amount",
+    "invoice_gst_amount",   # feeds Service Requests.gst_invoiced (ADR-0030)
     "document_type",
     "document_name",
 )
 
 
 def recompute_parent_total(doc, method=None):
-    """Recompute the parent's `amount_invoiced`. Bound to after_insert / on_update /
-    after_delete.
+    """Recompute the parent's `amount_invoiced` (and, on a Work Order, `gst_invoiced`).
+    Bound to on_update / after_delete.
 
     THE RULE, stated once: the total changes only when this invoice is Approved BEFORE
     the change, AFTER it, or both.

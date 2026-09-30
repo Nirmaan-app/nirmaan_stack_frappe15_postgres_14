@@ -108,15 +108,20 @@ class TaxedWorkOrderFixture:
         self.vendors.append(name)
         return name
 
-    def service_request(self, project: str, vendor: str, total: float = 10000000) -> str:
+    def service_request(
+        self, project: str, vendor: str, total: float = 10000000, *, gst: bool = False, gst_invoiced: float = 0
+    ) -> str:
         """`total_amount` is generous on purpose: `ProjectPayments.before_insert` refuses a payment
-        above its parent's total, and a later test may add several payments to one SR."""
+        above its parent's total, and a later test may add several payments to one SR.
+
+        `gst` / `gst_invoiced` plant a GST-on Work Order and its GST Invoiced cache as given (the
+        cache is an input to the payment limit here, not the thing under test)."""
         name = self._name("SR")
         frappe.db.sql(
             """INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, status, total_amount, amount_paid, gst)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', %s, 0, 'false')""",
-            (name, U, U, project, vendor, flt(total)),
+                   docstatus, idx, project, vendor, status, total_amount, amount_paid, gst, gst_invoiced)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', %s, 0, %s, %s)""",
+            (name, U, U, project, vendor, flt(total), "true" if gst else "false", flt(gst_invoiced)),
         )
         self.service_requests.append(name)
         return name

@@ -17,6 +17,7 @@ import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
 import { useCompanyBorneTds, useVendorTdsRate } from '../../hooks/useVendorTdsRates';
 import { forecastTds } from '../../tdsForecast';
+import { isGstPayment } from '../../paymentKind';
 import { isChequePayment } from '../../paymentMode';
 import { formatDate } from '@/utils/FormatDate';
 import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
@@ -121,8 +122,9 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
      */
     const approvingAmount = isPartialApprove && split.valid ? split.approved : requestedAmount;
     const tds = useMemo(
-        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor), companyBorne),
-        [paymentData?.document_type, paymentData?.vendor, approvingAmount, rateFor, companyBorne]
+        // A GST payment is never taxed (ADR-0030), so it gets no forecast at all.
+        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor), companyBorne, isGstPayment(paymentData)),
+        [paymentData, approvingAmount, rateFor, companyBorne]
     );
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {

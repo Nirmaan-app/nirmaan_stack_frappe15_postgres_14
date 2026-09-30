@@ -187,3 +187,77 @@ def validate_date(value, to_iso, *, min_year: int = 2018) -> dict:
     if d > date.today() or d.year < min_year:
         return {"state": INVALID, "value": iso}
     return {"state": VALID, "value": iso}
+
+
+# ₹ tolerance for "CGST equals SGST" and for two reads of the same GST agreeing.
+GST_SPLIT_TOLERANCE = 1.0
+
+
+def _amount_or_none(value):
+    """A printed figure as float, or None when absent / unreadable."""
+    if is_absent(value):
+        return None
+    cleaned = re.sub(r"[^\d.\-]", "", str(value))
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def derive_gst(*, igst=None, cgst=None, sgst=None, tax=None, total_tax=None) -> dict:
+    """An invoice's GST from the components the model copied off the bill.
+
+    An Indian invoice shows GST in exactly one of three shapes (owner rule, #1336):
+    IGST alone; CGST and SGST together, each half of the GST; or a plain "Tax" line.
+    The model only reads the printed figures; the sum is done here. Any other
+    combination is not a shape a real invoice has, so the read is UNSURE.
+
+    Returns {gst, confident, shape, reason}:
+      * confident: `gst` is the derived figure, `reason` is "".
+      * unsure: `gst` is the model's printed total-tax figure (None when there is
+        none) -- the same figure every reader used before the split existed -- and
+        `reason` is a short line for the form.
+      * nothing read at all: gst None, not confident, shape "absent", reason "".
+    A component printed as 0 counts as not charged (templates print "IGST 0.00"
+    beside CGST + SGST); a bill whose every printed component is 0 has GST 0.
+    """
+    parts = {
+        "igst": _amount_or_none(igst),
+        "cgst": _amount_or_none(cgst),
+        "sgst": _amount_or_none(sgst),
+        "tax": _amount_or_none(tax),
+    }
+    printed = {k: v for k, v in parts.items() if v is not None}
+    total = _amount_or_none(total_tax)
+
+    def unsure(shape, reason):
+        return {"gst": total, "confident": False, "shape": shape, "reason": reason}
+
+    if not printed:
+        if total is None:
+            return {"gst": None, "confident": False, "shape": "absent", "reason": ""}
+        return unsure("total_only", "GST lines not read — check the GST")
+
+    charged = {k for k, v in printed.items() if abs(v) >= 0.01}
+    split = charged - {"tax"}
+    if not split:
+        gst, shape = (printed["tax"], "tax") if "tax" in charged else (0.0, "zero")
+    elif split == {"igst"}:
+        gst, shape = printed["igst"], "igst"
+    elif split == {"cgst", "sgst"}:
+        if abs(printed["cgst"] - printed["sgst"]) > GST_SPLIT_TOLERANCE:
+            return unsure("cgst_sgst_differ", "CGST and SGST differ — check the GST")
+        gst, shape = printed["cgst"] + printed["sgst"], "cgst_sgst"
+    elif split == {"cgst"}:
+        return unsure("cgst_only", "Only CGST found — enter the total GST")
+    elif split == {"sgst"}:
+        return unsure("sgst_only", "Only SGST found — enter the total GST")
+    else:
+        return unsure("mixed", "IGST and CGST/SGST both found — check the GST")
+
+    # A Tax line beside a split, or the model's own total-tax read, must repeat it.
+    for other in (printed.get("tax") if split and "tax" in charged else None, total):
+        if other is not None and abs(other - gst) > GST_SPLIT_TOLERANCE:
+            return unsure("total_disagrees", "GST lines do not match the total tax — check the GST")
+
+    return {"gst": round(gst, 2), "confident": True, "shape": shape, "reason": ""}

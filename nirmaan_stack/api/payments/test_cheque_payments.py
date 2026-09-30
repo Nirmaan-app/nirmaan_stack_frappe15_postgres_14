@@ -59,20 +59,21 @@ class TestChequePayments(FrappeTestCase):
 		frappe.set_user(U)
 
 	# -- helpers --------------------------------------------------------------------------------
-	def _plant(self, amount, status, *, cheque=True, cheque_no=None, sr=None, po=None):
+	def _plant(self, amount, status, *, cheque=True, cheque_no=None, sr=None, po=None, gst=False):
 		"""A payment already sitting at `status`, planted like the fixture plants its own."""
 		name = self.fx._name("PAY")
 		parent_dt, parent = (PO, po) if po else (SR, sr or self.sr)
 		frappe.db.sql(
 			"""INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
 				   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-				   mode_of_payment, cheque_no, cheque_date)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+				   mode_of_payment, cheque_no, cheque_date, is_gst_payment)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
 			(
 				name, U, U, self.project, self.vendor, flt(amount), status, parent_dt, parent,
 				"Cheque" if cheque else "Online",
 				(cheque_no or self._cheque_no()) if cheque else None,
 				nowdate() if cheque else None,
+				1 if gst else 0,
 			),
 		)
 		if po:
@@ -179,6 +180,32 @@ class TestChequePayments(FrappeTestCase):
 		self.assertEqual(res["tds_failed"], [])
 		self.assertEqual(self._state(cheque), (RECON, 19600.0, [400.0]))
 		self.assertEqual(self._state(online), ("Approved", 19600.0, [400.0]))
+
+	# -- a GST cheque (ADR-0030): never taxed, so it is written and moved at its full amount -------
+	def test_a_gst_cheque_is_moved_at_its_full_amount_on_single_approve(self):
+		name = self._plant(20000, "Requested", gst=True)
+		doc = frappe.get_doc(PAYMENT, name)
+		doc.update({"status": "Approved", "amount": 20000, "approval_date": nowdate()})
+		doc.save()
+		frappe.db.commit()
+		self.assertEqual(self._state(name), ("Approved", 20000.0, []))
+
+		self.assertEqual(move_cheque_payment_to_reconciliation(name), {"moved": True})
+		self.assertEqual(self._state(name), (RECON, 20000.0, []))
+
+	def test_a_ceo_approved_gst_cheque_is_moved_untaxed(self):
+		name = self._plant(60000, "CEO Pending", gst=True)
+		self._as_ceo(ceo_approve_payment, name)
+		self.assertEqual(self._state(name), (RECON, 60000.0, []))
+
+	def test_bulk_approve_moves_a_gst_cheque_untaxed_beside_a_taxed_base_one(self):
+		gst = self._plant(20000, "Requested", gst=True)
+		base = self._plant(20000, "Requested")
+		with patch.object(bulk_actions, "_emit_approve_summary"):
+			res = bulk_actions.bulk_lead_approve_payments([gst, base], "approve")["data"]
+		self.assertEqual(sorted(res["succeeded"]), sorted([gst, base]))
+		self.assertEqual(self._state(gst), (RECON, 20000.0, []))
+		self.assertEqual(self._state(base), (RECON, 19600.0, [400.0]))
 
 	def test_bulk_moves_a_po_cheque_inside_its_group_with_one_po_save(self):
 		"""A PO withholds no tax, so its cheque moves in the approval group and the group's ONE PO

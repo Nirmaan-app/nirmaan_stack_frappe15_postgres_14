@@ -61,6 +61,9 @@ export interface ServiceRequests {
 	total_amount?: string
 	/** Amount Invoiced (Approved) : Currency — derived, sum of this SR's Approved Vendor Invoices */
 	amount_invoiced?: number
+	/** GST Invoiced : Currency — derived, sum of Invoice GST Amount over this WO's Approved
+	 * Vendor Invoices, recomputed with amount_invoiced (ADR-0030). GST billed, not GST paid. */
+	gst_invoiced?: number
 	/** Amount Paid : Currency — derived, sum of this SR's Paid payments. NET of tax withheld,
 	 * because Project Payments.amount on an SR is stored net (services/payment_tds.py). */
 	amount_paid?: string
