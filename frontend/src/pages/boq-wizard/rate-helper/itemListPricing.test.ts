@@ -1782,3 +1782,114 @@ describe("slice 11 / F-3 -- a value written as an ALTERNATIVE takes the HIGHER, 
     expect(fn).not.toContain(",");          // nor a comma: a comma list is not an alternative
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c commit 3 -- THE SEAM between the two pure rules and the pricer.
+//
+// `ladderResolution.test.ts` proves the RULES; these prove they are WIRED. A test on each side of a
+// boundary is not a test of the boundary: the rules could be perfect and never called, or called on the
+// wrong axis, and both suites would stay green.
+//
+// They run against the REAL ADP spec with the two blocks added, rather than a hand-built one, so what is
+// exercised is the pipeline path a live row takes. ADP itself declares NEITHER block -- that is the
+// negative half, and it is what keeps the shipped category byte-identical.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("slice 12c: size_match and compose, wired", () => {
+  const SQ = "square diffuser";                 // neck rungs 300 / 375 / 450
+  const withBlocks = (extra: Record<string, unknown>) => ({ ...spec, ...extra });
+
+  it("NEGATIVE: the shipped ADP spec declares neither block, so nothing here can reach it", () => {
+    expect(spec.size_match).toBeUndefined();
+    expect(spec.compose).toBeUndefined();
+    // and the unmodified spec still refuses above the top rung, in its own words
+    const r = priceItemList(spec, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "900 x 900" })]);
+    expect(r.priced).toBe(false);
+    expect(r.reason).toMatch(/above the largest size on the sheet \(450\)/);
+  });
+
+  describe("size_match", () => {
+    const sm = withBlocks({ size_match: { dp: [2, 1] } });
+
+    it("resolves a differently-written size onto its rung instead of laddering past it", () => {
+      // 375.04 is 375.0 at 1 dp. It sits just ABOVE the rung, so WITHOUT the block the ladder does the
+      // only thing it can and buys the NEXT size up (450) -- a size the row never asked for. This is the
+      // real shape of D4's "19.1 -> 19.05": BELOW a rung the ladder already lands it, so the block earns
+      // its place only above one.
+      const bare = priceItemList(spec, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "375.04 x 375.04" })]);
+      const wired = priceItemList(sm, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "375.04 x 375.04" })]);
+      expect(bare.items[0].selection.neck_mm).toBe(450);
+      expect(wired.items[0].selection.neck_mm).toBe(375);
+      expect(wired.priced).toBe(true);
+      expect(wired.supply).not.toBe(bare.supply);
+    });
+
+    it("says so in the working, and an EXACT size gains no line", () => {
+      const w = priceItemList(sm, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "375.04 x 375.04" })]);
+      expect(w.items[0].working.some((l) => /375.04 is 375 on the sheet/.test(l))).toBe(true);
+      const exact = priceItemList(sm, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "375 x 375" })]);
+      expect(exact.items[0].working.some((l) => /on the sheet/.test(l))).toBe(false);
+    });
+
+    it("NEGATIVE: a size that is genuinely between rungs still ladders UP, unchanged", () => {
+      const r = priceItemList(sm, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "400 x 400" })]);
+      expect(r.items[0].selection.neck_mm).toBe(450);
+      expect(r.items[0].working.some((l) => /not on the sheet -> 450 \(next size up, R6\)/.test(l))).toBe(true);
+    });
+  });
+
+  describe("compose", () => {
+    const cp = withBlocks({ compose: { attr: "neck_mm", tolerance: 2, max_layers: 4 } });
+
+    it("a size above the top rung prices as SEVERAL layers, and the row is their sum", () => {
+      const r = priceItemList(cp, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "900 x 900" })]);
+      expect(r.priced).toBe(true);
+      expect(r.items.length).toBe(2);
+      expect(r.items.map((i) => i.selection.neck_mm)).toEqual([450, 450]);
+      expect(r.supply).toBe((r.items[0].figures.supply ?? 0) + (r.items[1].figures.supply ?? 0));
+      // the indices are renumbered, so the panel draws blocks 1..n and not two blocks both called 1
+      expect(r.items.map((i) => i.index)).toEqual([0, 1]);
+    });
+
+    it("carries the disclosure on the FIRST layer, naming the top rung, the layers and the delta", () => {
+      const r = priceItemList(cp, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "749 x 749" })]);
+      // 300 + 450 and 375 + 375 BOTH total 750, so the delta cannot settle it -- FEWEST DISTINCT SIZES
+      // does, which is why that tie-break is in the rule rather than left to the rung array's order.
+      expect(r.items.map((i) => i.selection.neck_mm)).toEqual([375, 375]);
+      expect(r.items[0].working[0]).toBe(
+        "749 is above the largest stocked size (450) -> composed as 375 + 375 = 750 (+1)",
+      );
+      expect(r.items[1].working.some((l) => /composed as/.test(l))).toBe(false);
+    });
+
+    it("layers run INNER to OUTER, and only the outer keeps the outer_only attribute", () => {
+      const oo = withBlocks({ compose: { attr: "neck_mm", tolerance: 2, max_layers: 4, outer_only: { attr: "damper", value: "None" } } });
+      const r = priceItemList(oo, items, "Nos", [ext({ family: SQ, damper: "with", neck_mm: "900 x 900" })]);
+      expect(r.items.length).toBe(2);
+      // the stripped value re-enters the ordinary path, so the selection shows the value AFTER this
+      // category's own default rule ("None" => without), not the raw token the config named
+      expect(r.items[0].selection.damper).toBe("without");  // inner layer: stripped
+      expect(r.items[1].selection.damper).toBe("with");     // outer layer: as the row stated
+    });
+
+    it("NEGATIVE: it composes ONLY the named axis -- another ladder above its top still refuses", () => {
+      const r = priceItemList(cp, items, "Nos", [ext({ family: "actuator", ul: "None", torque: "100 NM" })]);
+      expect(r.priced).toBe(false);
+      expect(r.reason).toMatch(/above the largest size on the sheet/);
+    });
+
+    it("NEGATIVE: a value no multiset reaches still refuses in the ORIGINAL words", () => {
+      const r = priceItemList(cp, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "10000 x 10000" })]);
+      expect(r.priced).toBe(false);
+      expect(r.reason).toMatch(/neck size 10000 is above the largest size on the sheet \(450\)/);
+    });
+  });
+
+  it("NEGATIVE (O3-a): the family attribute is read from the config, and ADP declares 'family'", () => {
+    expect(spec.family_attribute_id).toBe("family");
+    // a spec whose family id is WRONG must price nothing -- proving the id is really what is read,
+    // rather than the literal still being in force underneath
+    const wrong = { ...spec, family_attribute_id: "not_the_family_key" };
+    const r = priceItemList(wrong, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "375 x 375" })]);
+    expect(r.priced).toBe(false);
+  });
+});

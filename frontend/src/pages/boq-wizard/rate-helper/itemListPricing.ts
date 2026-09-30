@@ -37,6 +37,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "../../pricing/rate-master/rateMasterTypes";
+import { resolveSize, composeSize, type SizeMatchSpec, type ComposeSpec } from "./ladderResolution";
 
 // ---------------------------------------------------------------------------------------------------------
 // the config block (list_spec.pricing) -- mirrors the backend validator `_validate_list_pricing`
@@ -178,6 +179,24 @@ export interface ItemListPricingSpec {
    * config (the pricing block never names it: a count is not a SKU attribute and must never be a dropdown).
    * ABSENT => nothing is read and every item keeps code's 1, exactly as before this slice. */
   qty_attribute_id?: string;
+  /** SLICE 12c (owner O3-a): `list_spec.family_attribute_id`, filled by `itemListPricingSpec` from the
+   * config (the `qty_attribute_id` precedent -- it lives on `list_spec`, not in the pricing block).
+   * ABSENT => "family", which is what ADP declares, so ADP is byte-identical. */
+  family_attribute_id?: string;
+  /** SLICE 12c: a stated size and a catalogue rung that are the SAME size written to different
+   * precision (22.2 and 22.23; 7/8" and 22.23) resolve to the rung instead of laddering past it.
+   * ABSENT => nothing resolves and every category is byte-identical to before this slice. */
+  size_match?: SizeMatchSpec;
+  /** SLICE 12c (owner Q8): what to do when a stated value is ABOVE the top rung of one named ladder
+   * -- build it out of two or more rungs instead of refusing. ABSENT => it still refuses, exactly as
+   * before. The tolerance and the layer ceiling are config, never code. */
+  compose?: ComposeSpec & {
+    /** WHICH ladder composes. A value here is a ladder attribute id; no other axis composes. */
+    attr: string;
+    /** The attribute only the OUTERMOST layer keeps -- every inner layer takes `value` instead.
+     * Insulation's cladding wraps the outside of the stack, so the inner layers are bare. */
+    outer_only?: { attr: string; value: string | number };
+  };
   /** SLICE 6 (T7): the config's OWN `pipelines` -- the shared per-item default every unit block without
    * pipelines of its own runs. Filled by `itemListPricingSpec` from the config; never stored in the block. */
   default_pipelines?: Record<string, Pipeline>;
@@ -202,10 +221,12 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
   // SLICE 6d: the count's attribute id lives on `list_spec` beside the family's, NOT in the pricing block --
   // carried in here so the module reads ONE object (the `default_pipelines` precedent).
   const qtyAttr = (config as { list_spec?: { qty_attribute_id?: unknown } } | null | undefined)?.list_spec?.qty_attribute_id;
+  const famAttr = (config as { list_spec?: { family_attribute_id?: unknown } } | null | undefined)?.list_spec?.family_attribute_id;
   return {
     ...(spec as ItemListPricingSpec),
     default_pipelines: pipelines,
     ...(typeof qtyAttr === "string" && qtyAttr ? { qty_attribute_id: qtyAttr } : {}),
+    ...(typeof famAttr === "string" && famAttr ? { family_attribute_id: famAttr } : {}),
   };
 }
 
@@ -237,6 +258,21 @@ export interface LadderHop {
 
 export interface ItemPriceResult {
   index: number;
+  /** SLICE 12c: set INSTEAD of pricing when the stated value is above the top rung and the category
+   * declares `compose`. The item is not a refusal and not a price -- it is a request to `priceItemList`
+   * to re-price it as several layered items. Carried on the result rather than handled here because
+   * ONE item cannot return several prices, and the rungs are derived here and must not be derived
+   * twice. */
+  composeInto?: {
+    attr: string;
+    /** The stated value AS THE NUMBER READER READ IT. ⚠️ Carried rather than re-read from the extracted
+     * item, because the model's answer is TEXT in the row's own words ("749 x 749") and `Number()` of it
+     * is NaN -- the disclosure would name the size as NaN while every figure underneath was right. */
+    stated: number;
+    layers: number[];
+    delta: number;
+    top: number;
+  };
   /** The family the model returned (may be an alias or "none of these"). */
   familyRaw: string | null;
   /** The family that priced (after R3's alias). */
@@ -527,6 +563,16 @@ export function projectUnitClass(spec: ItemListPricingSpec, items: RateMasterIte
 
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2))));
 
+/**
+ * SLICE 12c (owner O3-a, "4 ok"): the attribute that says WHICH family an item is -- the catalogue's
+ * key and the model's answer are the same id, and `list_spec.family_attribute_id` is where a config
+ * declares it. It was written as the literal "family" at eight sites, which is only right for a
+ * category whose attribute happens to be called that. ABSENT => "family", so ADP is byte-identical.
+ */
+function familyAttr(spec: ItemListPricingSpec): string {
+  return spec.family_attribute_id ?? "family";
+}
+
 function reasonName(spec: ItemListPricingSpec, attr: string): string {
   return spec.reason_names?.[attr] ?? spec.numbers[attr]?.name ?? attr;
 }
@@ -549,7 +595,7 @@ function reasonFromPipeline(spec: ItemListPricingSpec, family: string, sel: Reco
   const label = last?.label ?? "";
   const cond = last?.matchedCondition ?? "";
   if (last?.step === "match_master_row" && r.status === "no_match") {
-    const keys = Object.keys(sel).filter((k) => k !== "family" && k !== spec.unit_class_attr);
+    const keys = Object.keys(sel).filter((k) => k !== familyAttr(spec) && k !== spec.unit_class_attr);
     const desc = keys.map((k) => `${shortName(spec, k)} ${String(sel[k])}`).join(", ");
     return `no SKU for this combination (${family}${desc ? ": " + desc : ""})`;
   }
@@ -594,7 +640,7 @@ function priceOneItem(
   }
 
   // (1) the family: absent = no ADP kind (R8); an alias prices as its target (R3); no SKU = blank (R18)
-  const famRaw = rawValue(item, "family");
+  const famRaw = rawValue(item, familyAttr(spec));
   out.familyRaw = famRaw === null ? null : String(famRaw);
   if (out.familyRaw === null || out.familyRaw === "None") return blank("no ADP kind could be told for this item");
   const family = spec.family_alias?.[out.familyRaw] ?? out.familyRaw;
@@ -673,7 +719,7 @@ function priceOneItem(
     // own word for what the row now prices as instead of the variant the row happened to name.
     out.overrides.push({ attr: rule.attr, value: rule.then, display: rule.display ?? rule.then, rule: rule.rule });
   }
-  const sel: Record<string, string | number> = { family };
+  const sel: Record<string, string | number> = { [familyAttr(spec)]: family };
 
   // (3) the SKU unit class: the family's own rows for the row's unit, else a declared conversion (R4 / R11 / R16),
   //     else no SKU per that unit
@@ -719,7 +765,7 @@ function priceOneItem(
   const skRule = (spec.second_key ?? []).find((r) => r.families.includes(family));
   if (skRule && skRule.key.every((k) => k in read)) {
     const famRows = projected.filter(
-      (it) => it.kind === spec.kind && it.attributes.family === family && it.attributes[spec.unit_class_attr] === target,
+      (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
     );
     const stated = skRule.key.map((k) => Number(read[k]));
     const statedText = stated.map(fmt).join("x");
@@ -797,28 +843,46 @@ function priceOneItem(
   // (5) the ladders (R6): the family's rows of the target class that carry the attribute, narrowed by the
   //     other stated keys those rows carry; exact else next up; above the largest = refuse
   const familyRows = projected.filter(
-    (it) => it.kind === spec.kind && it.attributes.family === family && it.attributes[spec.unit_class_attr] === target,
+    (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
   );
   const keysCarried = new Set<string>();
   for (const it of familyRows) for (const k of Object.keys(it.attributes)) keysCarried.add(k);
   let candidates = projected;
   for (const attr of spec.ladders) {
     if (!(attr in sel) || !needs.includes(attr)) continue;
-    const where: Record<string, string | number> = { family, [spec.unit_class_attr]: target };
+    const where: Record<string, string | number> = { [familyAttr(spec)]: family, [spec.unit_class_attr]: target };
     for (const k of Object.keys(sel)) {
-      if (k === attr || k === "family" || k === spec.unit_class_attr || spec.ladders.includes(k)) continue;
+      if (k === attr || k === familyAttr(spec) || k === spec.unit_class_attr || spec.ladders.includes(k)) continue;
       if (keysCarried.has(k)) where[k] = sel[k];
     }
     const rungs = buildModuleLadder(familyRows, { kind: spec.kind, where, size_from: { attr }, label_attr: "item_detail" });
     const name = reasonName(spec, attr);
     const want = Number(sel[attr]);
     if (!rungs.length) {
-      const desc = Object.entries(where).filter(([k]) => k !== "family" && k !== spec.unit_class_attr).map(([k, v]) => `${shortName(spec, k)} ${String(v)}`).join(", ");
+      const desc = Object.entries(where).filter(([k]) => k !== familyAttr(spec) && k !== spec.unit_class_attr).map(([k, v]) => `${shortName(spec, k)} ${String(v)}`).join(", ");
       return { ...blank(`no SKU for this combination (${family}${desc ? ": " + desc : ""})`), selection: sel };
     }
-    const fit = fitModuleLadder(rungs, want, "up");
+    // SLICE 12c: a stated value and a rung that are the SAME size written to different precision are
+    // not a miss. Resolving FIRST matters: without it, 22.2 would ladder UP to 28.58 and buy a size the
+    // row never asked for. ABSENT `size_match` => `matched` is null and the ladder decides, as before.
+    const sizes = rungs.map((r) => r.size);
+    const matched = resolveSize(want, sizes, spec.size_match);
+    if (matched && !matched.exact) {
+      // ⚠️ THE SELECTION MUST TAKE THE RUNG, NOT THE STATED VALUE. The ladder only rewrites `sel` when it
+      // moves a value UP, so a resolved value would otherwise stay as written -- and `sel` is what the SKU
+      // match is built from, so the row would look resolved on screen and match nothing underneath.
+      sel[attr] = matched.rung;
+      out.working.push(`${name} ${fmt(want)} is ${fmt(matched.rung)} on the sheet`);
+    }
+    const fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
     if (!fit) {
       const top = rungs[rungs.length - 1];
+      // SLICE 12c (owner Q8): above the top rung, build it out of rungs rather than refuse -- but only
+      // on the ONE ladder the config names, and only as two or more layers (see `composeSize`).
+      const comp = spec.compose && spec.compose.attr === attr ? composeSize(want, sizes, spec.compose) : null;
+      if (comp) {
+        return { ...out, selection: { ...sel }, composeInto: { attr, stated: want, layers: [...comp.layers].sort((a, b) => a - b), delta: comp.delta, top: top.size } };
+      }
       return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel };
     }
     out.ladderHops.push({ attr, name, requested: want, fitted: fit.modules, exact: fit.exact });
@@ -828,7 +892,7 @@ function priceOneItem(
     }
     // a SKU without the ladder attribute is not on the ladder and must not match a laddered selection
     candidates = candidates.filter(
-      (it) => !(it.kind === spec.kind && it.attributes.family === family && it.attributes[spec.unit_class_attr] === target && !(attr in it.attributes)),
+      (it) => !(it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && !(attr in it.attributes)),
     );
   }
   out.selection = { ...sel };
@@ -923,7 +987,37 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  const priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor));
+  let priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor));
+  // SLICE 12c (owner Q8/Q9): an item whose stated size is above the top rung may be BUILT out of two or
+  // more rungs. `priceOneItem` cannot do it alone -- one item cannot return several prices -- so it hands
+  // back the layers it found and the expansion happens here, where a row has always been able to hold a
+  // LIST of items. Each layer then prices through the SAME unchanged path; only the search is new.
+  if (priced.some((p) => p.composeInto)) {
+    const expanded: ItemPriceResult[] = [];
+    priced.forEach((p, i) => {
+      const c = p.composeInto;
+      if (!c) { expanded.push({ ...p, index: expanded.length }); return; }
+      const oo = spec.compose?.outer_only;
+      const src = extracted[i];
+      // INNERMOST first, so the LAST item is the outer one -- which is the layer that keeps the cladding.
+      c.layers.forEach((layer, li) => {
+        const outer = li === c.layers.length - 1;
+        const attrs: ExtractedListItem["attributes"] = { ...src.attributes, [c.attr]: { value: layer } };
+        if (oo && !outer) attrs[oo.attr] = { value: oo.value };
+        const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor);
+        if (li === 0) {
+          const total = c.layers.reduce((a, b) => a + b, 0);
+          const sign = c.delta >= 0 ? "+" : "";
+          one.working.unshift(
+            `${fmt(c.stated)} is above the largest stocked size (${fmt(c.top)})` +
+            ` -> composed as ${c.layers.map(fmt).join(" + ")} = ${fmt(total)} (${sign}${fmt(c.delta)})`,
+          );
+        }
+        expanded.push(one);
+      });
+    });
+    priced = expanded;
+  }
   const firstBlank = priced.find((p) => p.state === "blank");
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
@@ -1008,7 +1102,7 @@ export function fieldOptionsFromSkus(
     fam.units[cls] ? [cls] : (fam.convert?.[cls] ?? []).map((o) => o.to),
   );
   const famRows = projected.filter(
-    (it) => it.kind === spec.kind && it.attributes.family === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
+    (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
   );
   const carrying = famRows.filter((it) => attr in it.attributes);
   const isDropdown = (k: string) => (spec.panel_controls?.[k] ?? (spec.choice_attrs.includes(k) ? "dropdown" : "text")) === "dropdown";
