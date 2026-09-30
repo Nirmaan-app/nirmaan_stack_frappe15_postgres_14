@@ -10,7 +10,7 @@ from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field,
     split_name_in_constraints, enumerate_matching_names,
-    append_search_filter
+    append_search_filter, json_facet_empty_condition
 )
 from .token_search import tokenize
 
@@ -366,18 +366,23 @@ def get_facet_values_impl(
         # Every query branch above filters out NULL/'' values, so an unset row is
         # invisible to the normal facet. This surfaces ONE sentinel option counting
         # those rows (within the already-filtered `matching_names`), letting a user
-        # filter to "never linked". Only for text-storing, top-level (non-child,
-        # non-JSON) fields — the sentinel rewrite in utils.py handles the parent
-        # table only. The frontend supplies the human label; selecting it sends the
-        # sentinel back, which _process_filters_for_query rewrites to `is not set`.
+        # filter to "never linked". Only for text-storing or JSON top-level (non-child)
+        # fields — the sentinel rewrite in utils.py handles the parent table only. For a
+        # JSON field "blank" means an empty value list (json_facet_empty_condition). The
+        # frontend supplies the human label; selecting it sends the sentinel back, which
+        # _process_filters_for_query rewrites to `is not set` (or the JSON equivalent).
         include_blank_bucket_bool = (
             isinstance(include_blank_bucket, str) and include_blank_bucket.lower() == 'true'
         ) or include_blank_bucket is True
 
-        if include_blank_bucket_bool and field_is_text and not child_doctype and not is_json_field and matching_names:
+        if include_blank_bucket_bool and field_is_text and not child_doctype and matching_names:
+            blank_condition = (
+                json_facet_empty_condition(field) if is_json_field
+                else f"(`{field}` IS NULL OR `{field}` = '')"
+            )
             blank_sql = (
                 f"SELECT COUNT(*) FROM `tab{doctype}` "
-                f"WHERE name IN %(names)s AND (`{field}` IS NULL OR `{field}` = '')"
+                f"WHERE name IN %(names)s AND {blank_condition}"
             )
             blank_count = cint(
                 (frappe.db.sql(blank_sql, {"names": tuple(matching_names)}, as_list=True) or [[0]])[0][0]

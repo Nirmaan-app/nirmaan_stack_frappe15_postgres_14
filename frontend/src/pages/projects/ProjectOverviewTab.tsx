@@ -31,6 +31,7 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import { ProjectDriveLink } from "./components/ProjectDriveLink";
+import { CopyProjectLinkButton } from "@/components/common/CopyProjectLink";
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
@@ -310,6 +311,11 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               <p className="text-2xl">Project Details</p>
 
               <div className="flex flex-col md:flex-row items-center gap-2 w-full md:w-auto">
+                <CopyProjectLinkButton
+                  projectId={projectData.name}
+                  size="default"
+                  className="w-full md:w-auto"
+                />
                 {role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" && (
                   <Button onClick={() => navigate("add-estimates")} className="w-full md:w-auto">
                     <CirclePlus className="h-4 w-4 mr-2" /> Add Project
