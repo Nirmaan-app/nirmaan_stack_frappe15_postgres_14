@@ -182,7 +182,7 @@ export function InvoiceDialog<T extends DocumentType>({
   const [autofillValidation, setAutofillValidation] = useState<{
     applicable: boolean;
     amount?: {
-      po_total: number;
+      order_total: number;
       existing_invoiced_sum: number;
       new_amount: number;
       would_be_total: number;
@@ -256,6 +256,8 @@ export function InvoiceDialog<T extends DocumentType>({
     isOpen && isWorkOrder && docName ? `Invoice-WO-GST-${docName}` : null
   );
   const workOrderGstOff = isWorkOrder && workOrderForGst?.gst === "false";
+  // What the over-total banner calls the order (matches the server's refusal).
+  const orderLabel = isWorkOrder ? "Work Order" : "PO";
 
   // Base + GST are required on a NEW invoice only: an older invoice saved before the split
   // existed stays editable without it (the server applies the same rule).
@@ -923,27 +925,27 @@ export function InvoiceDialog<T extends DocumentType>({
 
   // Live amount overage check — recomputes against the current value in the
   // amount field, so editing the value clears or re-triggers the warning.
-  // Falls back to the autofill snapshot's PO total + existing-invoiced sum.
+  // Falls back to the autofill snapshot's order total (PO or Work Order) + existing-invoiced sum.
   const liveAmountValidation = useMemo(() => {
     if (!autofillValidation?.applicable || !autofillValidation.amount) {
       return null;
     }
-    const poTotal = autofillValidation.amount.po_total;
+    const orderTotal = autofillValidation.amount.order_total;
     // When editing, this invoice is already inside existing_invoiced_sum — subtract its
     // ORIGINAL amount so we don't double-count it (mirrors the backend's exclude_invoice_id
-    // in update_invoice_data._check_po_amount_overage).
+    // in update_invoice_data._check_invoice_amount_overage).
     const rawExisting = autofillValidation.amount.existing_invoiced_sum;
     const existing = isEditMode
       ? Math.max(0, rawExisting - (parseNumber(selectedInvoice?.invoice_amount) || 0))
       : rawExisting;
     const current = parseNumber(invoiceData.amount) || 0;
-    if (poTotal <= 0 || current <= 0) return null;
+    if (orderTotal <= 0 || current <= 0) return null;
     const wouldBeTotal = existing + current;
     // Tolerate up to ₹10 of rounding drift — must match the backend
-    // hard-block threshold in update_invoice_data._check_po_amount_overage.
-    const wouldExceed = wouldBeTotal > poTotal + 10;
+    // hard-block threshold in update_invoice_data._check_invoice_amount_overage.
+    const wouldExceed = wouldBeTotal > orderTotal + 10;
     return {
-      poTotal,
+      orderTotal,
       existing,
       current,
       wouldBeTotal,
@@ -1106,17 +1108,17 @@ export function InvoiceDialog<T extends DocumentType>({
             )}
 
 
-            {/* Hard-block banner: amount overage on PO */}
+            {/* Hard-block banner: amount overage on the PO / Work Order */}
             {liveAmountValidation?.wouldExceed && (
               <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-300 px-3 py-2">
                 <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
                 <div className="text-xs text-red-900 leading-snug">
-                  <p className="font-medium">Amount exceeds PO total — submit blocked.</p>
+                  <p className="font-medium">Amount exceeds {orderLabel} total — submit blocked.</p>
                   <p className="mt-0.5">
                     Already invoiced ₹{liveAmountValidation.existing.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                     This invoice ₹{liveAmountValidation.current.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} would push the total to
                     ₹{liveAmountValidation.wouldBeTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })},
-                    over the PO total of ₹{liveAmountValidation.poTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
+                    over the {orderLabel} total of ₹{liveAmountValidation.orderTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                   </p>
                   <p className="mt-0.5 italic">Revise the amount before submitting.</p>
                 </div>

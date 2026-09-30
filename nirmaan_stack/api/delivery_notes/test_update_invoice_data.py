@@ -6,6 +6,8 @@
     (#1336, ADR-0030), driven through `update_invoice_data` itself against the live
     site. The endpoint COMMITS, so every row it or a fixture writes is deleted in
     cleanup.
+  * `TestOrderTotalCap` -- Pending + Approved invoices on a Work Order are capped at its
+    total + Rs 10, the rule Purchase Orders already had (#1337); same endpoint, same cleanup.
 
 Run: bench --site localhost run-tests --module nirmaan_stack.api.delivery_notes.test_update_invoice_data
 """
@@ -145,11 +147,15 @@ def _raw(doctype, **fields):
     return d.name
 
 
-class TestInvoiceSplitFigures(FrappeTestCase):
+class _InvoiceEndpointCase(FrappeTestCase):
+    """One PO and two Work Orders (GST on / off), each with total `TOTAL`."""
+
+    TOTAL = 1_000_000
+
     def setUp(self):
-        self.po = _raw("Procurement Orders", total_amount=1_000_000)
-        self.wo_gst_on = _raw("Service Requests", total_amount=1_000_000, gst="true")
-        self.wo_gst_off = _raw("Service Requests", total_amount=1_000_000, gst="false")
+        self.po = _raw("Procurement Orders", total_amount=self.TOTAL)
+        self.wo_gst_on = _raw("Service Requests", total_amount=self.TOTAL, gst="true")
+        self.wo_gst_off = _raw("Service Requests", total_amount=self.TOTAL, gst="false")
         frappe.db.commit()
         self.addCleanup(self._purge)
 
@@ -185,6 +191,8 @@ class TestInvoiceSplitFigures(FrappeTestCase):
     def _count(self, parent):
         return frappe.db.count("Vendor Invoices", {"document_name": parent})
 
+
+class TestInvoiceSplitFigures(_InvoiceEndpointCase):
     # ------------------------------------------------------------------ stored
 
     def test_po_invoice_stores_base_and_gst(self):
@@ -315,6 +323,109 @@ class TestInvoiceSplitFigures(FrappeTestCase):
         self.assertEqual(flt(row.invoice_base_amount), 50000)
         self.assertEqual(flt(row.invoice_gst_amount), 9000)
 
+
+
+class TestOrderTotalCap(_InvoiceEndpointCase):
+    """Pending + Approved invoice amounts on an order may not pass its total + Rs 10."""
+
+    TOTAL = 11_800
+
+    def _invoice(self, parent, amount, invoice_id=None):
+        """Save an invoice whose base + GST add up to `amount` (so no split warning)."""
+        gst = round(amount * 18 / 118, 2)
+        return self._save(
+            parent, invoice_id=invoice_id,
+            amount=amount, base_amount=round(amount - gst, 2), gst_amount=gst,
+        )
+
+    def _ok(self, parent, amount):
+        res = self._invoice(parent, amount)
+        self.assertEqual(res["status"], 200, res)
+        return res["data"]["vendor_invoice_id"]
+
+    # ------------------------------------------------------------------ Work Order, create
+
+    def test_wo_invoice_over_total_plus_10_is_refused(self):
+        res = self._invoice(self.wo_gst_on, 11_811)
+        self.assertEqual(res["status"], 400, res)
+        self.assertIn("exceeds the Work Order total of ₹11,800.00", res["message"])
+        self.assertIn("₹11,811.00", res["message"])
+        self.assertEqual(self._count(self.wo_gst_on), 0)
+
+    def test_wo_invoice_up_to_total_plus_10_saves(self):
+        self._ok(self.wo_gst_on, 11_810)
+        self.assertEqual(self._count(self.wo_gst_on), 1)
+
+    def test_gst_off_wo_is_capped_at_its_own_total(self):
+        res = self._invoice(self.wo_gst_off, 11_811)
+        self.assertEqual(res["status"], 400, res)
+        self.assertIn("Work Order total", res["message"])
+
+    def test_pending_and_approved_invoices_both_count(self):
+        self._ok(self.wo_gst_on, 6_000)                                   # stays Pending
+        approved = self._ok(self.wo_gst_on, 5_000)
+        self.assertEqual(approve_vendor_invoice(approved, "Approved")["status"], 200)
+
+        res = self._invoice(self.wo_gst_on, 900)                          # 11,900 > 11,810
+        self.assertEqual(res["status"], 400, res)
+        self.assertIn("Already invoiced ₹11,000.00", res["message"])
+        self._ok(self.wo_gst_on, 800)                                     # 11,800 fits
+        self.assertEqual(self._count(self.wo_gst_on), 3)
+
+    def test_rejected_invoice_does_not_count(self):
+        rejected = self._ok(self.wo_gst_on, 11_800)
+        self.assertEqual(approve_vendor_invoice(rejected, "Rejected", "wrong bill")["status"], 200)
+        self._ok(self.wo_gst_on, 11_800)
+
+    def test_credit_note_is_not_capped(self):
+        self._ok(self.wo_gst_on, 11_800)
+        res = self._save(
+            self.wo_gst_on, amount=-1180, base_amount=1000, gst_amount=180, is_credit_note=1,
+        )
+        self.assertEqual(res["status"], 200, res)
+
+    def test_wo_without_a_total_is_not_capped(self):
+        frappe.db.set_value("Service Requests", self.wo_gst_on, "total_amount", 0)  # test fixture, no hooks
+        frappe.db.commit()
+        self._ok(self.wo_gst_on, 50_000)
+
+    # ------------------------------------------------------------------ Work Order, edit
+
+    def test_edit_in_place_does_not_count_the_invoice_twice(self):
+        name = self._ok(self.wo_gst_on, 11_000)
+        res = self._invoice(self.wo_gst_on, 11_800, invoice_id=name)
+        self.assertEqual(res["status"], 200, res)
+        self.assertEqual(flt(self._stored(name).invoice_amount), 11_800)
+
+    def test_edit_over_total_is_refused_and_leaves_the_invoice_alone(self):
+        self._ok(self.wo_gst_on, 6_000)
+        name = self._ok(self.wo_gst_on, 5_000)
+        res = self._invoice(self.wo_gst_on, 5_900, invoice_id=name)       # 6,000 + 5,900
+        self.assertEqual(res["status"], 400, res)
+        self.assertIn("Work Order total", res["message"])
+        self.assertIn("Already invoiced ₹6,000.00", res["message"])
+        self.assertEqual(flt(self._stored(name).invoice_amount), 5_000)
+
+    # ------------------------------------------------------------------ Purchase Order, unchanged
+
+    def test_po_invoice_over_total_is_refused_with_the_po_message(self):
+        self._ok(self.po, 5_000)
+        res = self._invoice(self.po, 6_811)
+        self.assertEqual(res["status"], 400, res)
+        self.assertEqual(
+            res["message"],
+            "Total invoiced amount would be ₹11,811.00, which exceeds the PO total of "
+            "₹11,800.00. Already invoiced ₹5,000.00. Please revise the amount before submitting.",
+        )
+        self.assertEqual(self._count(self.po), 1)
+
+    def test_po_invoice_up_to_total_plus_10_saves(self):
+        self._ok(self.po, 11_810)
+
+    def test_po_invoices_do_not_count_toward_a_work_order(self):
+        """The sum is per order: a PO and a Work Order with the same total don't share it."""
+        self._ok(self.po, 11_800)
+        self._ok(self.wo_gst_on, 11_800)
 
 if __name__ == "__main__":
     unittest.main()

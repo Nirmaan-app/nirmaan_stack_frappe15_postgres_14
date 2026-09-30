@@ -20,6 +20,7 @@ from nirmaan_stack.api.invoices._auto_approve import (
     evaluate_auto_approve_eligibility,
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+from nirmaan_stack.api.invoices._validation import ORDER_TOTAL_LABEL, existing_invoiced_sum
 from nirmaan_stack.services import invoice_amounts
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin as _is_nirmaan_admin
 
@@ -109,20 +110,19 @@ def update_invoice_data(
             if missing:
                 frappe.throw(f"Enter the {' and the '.join(missing)} from the bill.")
 
-        # Hard-block future-dated invoices. Unlike the overage check below this
-        # applies to Service Requests too, and to edits as well as creates —
-        # a future invoice date is never legitimate on either document type.
+        # Hard-block future-dated invoices, on create and edit — a future invoice
+        # date is never legitimate on either document type.
         _check_invoice_date_not_future(new_invoice_entry_data.get("date"))
 
-        # Hard-block amount overage on POs. Even if the frontend allowed a submit
-        # (older clients, manual API calls), the server rejects when the total of
-        # all Pending+Approved invoices for this PO would exceed the PO total.
-        if doctype == "Procurement Orders":
-            _check_po_amount_overage(
-                po_name=docname,
-                new_amount=new_invoice_entry_data.get("amount"),
-                exclude_invoice_id=invoice_id,
-            )
+        # Hard-block amount overage on POs and Work Orders. Even if the frontend allowed a
+        # submit (older clients, manual API calls), the server rejects when the total of
+        # all Pending+Approved invoices on the order would exceed the order's total.
+        _check_invoice_amount_overage(
+            doctype=doctype,
+            docname=docname,
+            new_amount=new_invoice_entry_data.get("amount"),
+            exclude_invoice_id=invoice_id,
+        )
 
         # --- Start Transaction ---
         frappe.db.begin()
@@ -650,15 +650,18 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
         }
 
 
-def _check_po_amount_overage(po_name: str, new_amount, exclude_invoice_id: Optional[str] = None):
+def _check_invoice_amount_overage(
+    doctype: str, docname: str, new_amount, exclude_invoice_id: Optional[str] = None
+):
     """Reject the request if (existing Pending+Approved invoices + new amount)
-    would exceed the PO's total_amount (incl. GST).
+    would exceed the order's total_amount (incl. GST) by more than ₹10.
 
+    One rule for Procurement Orders and Work Orders (Service Requests).
     Excludes the invoice being edited (so editing in place doesn't double-count).
     Raises via `frappe.throw` so the caller's outer try/except returns the error
     to the frontend with a clear, user-actionable message.
     """
-    if not po_name:
+    if not docname:
         return
     try:
         new_amount_float = float(new_amount or 0)
@@ -667,37 +670,25 @@ def _check_po_amount_overage(po_name: str, new_amount, exclude_invoice_id: Optio
     if new_amount_float <= 0:
         return  # nothing to validate
 
-    po_total = frappe.db.get_value("Procurement Orders", po_name, "total_amount")
+    order_total = frappe.db.get_value(doctype, docname, "total_amount")
     try:
-        po_total = float(po_total or 0)
+        order_total = float(order_total or 0)
     except (TypeError, ValueError):
-        po_total = 0.0
-    if po_total <= 0:
-        return  # PO total not set / zero — skip validation
+        order_total = 0.0
+    if order_total <= 0:
+        return  # order total not set / zero — skip validation
 
-    sql = """
-        SELECT COALESCE(SUM(invoice_amount), 0) AS total
-        FROM "tabVendor Invoices"
-        WHERE document_type = %(doctype)s
-          AND document_name = %(po_name)s
-          AND status IN ('Pending', 'Approved')
-    """
-    params = {"doctype": "Procurement Orders", "po_name": po_name}
-    if exclude_invoice_id:
-        sql += " AND name != %(exclude)s"
-        params["exclude"] = exclude_invoice_id
-
-    rows = frappe.db.sql(sql, params, as_dict=True)
-    existing = float(rows[0].get("total") or 0) if rows else 0.0
+    existing = existing_invoiced_sum(docname, exclude_invoice_id, doctype=doctype)
 
     would_be_total = existing + new_amount_float
     # Tolerate up to ₹10 of rounding drift (GST/freight rounding on real invoices
-    # commonly differ from PO totals by a few rupees). Tighter than this triggered
+    # commonly differ from order totals by a few rupees). Tighter than this triggered
     # spurious blocks on legitimate ₹0.10–₹5 deltas.
-    if would_be_total > po_total + 10:
+    if would_be_total > order_total + 10:
         frappe.throw(
             f"Total invoiced amount would be ₹{would_be_total:,.2f}, which exceeds "
-            f"the PO total of ₹{po_total:,.2f}. Already invoiced ₹{existing:,.2f}. "
+            f"the {ORDER_TOTAL_LABEL[doctype]} total of ₹{order_total:,.2f}. "
+            f"Already invoiced ₹{existing:,.2f}. "
             f"Please revise the amount before submitting."
         )
 
@@ -705,8 +696,7 @@ def _check_po_amount_overage(po_name: str, new_amount, exclude_invoice_id: Optio
 def _check_invoice_date_not_future(invoice_date):
     """Reject the request if the invoice is dated after today.
 
-    Applies to Procurement Orders AND Service Requests, on create AND edit —
-    deliberately broader than `_check_po_amount_overage`, which is PO-only.
+    Applies to Procurement Orders AND Service Requests, on create AND edit.
     A future invoice date is always a data-entry slip or an OCR misread; there
     is no legitimate case for it on either document type.
 

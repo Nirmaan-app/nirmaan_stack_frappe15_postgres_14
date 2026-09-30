@@ -2,6 +2,7 @@ import frappe
 
 from nirmaan_stack.api.invoices._line_match import match_invoice_lines_to_po
 from nirmaan_stack.api.invoices._validation import (
+    ORDER_TOTAL_LABEL,
     existing_invoiced_sum,
     gstin_match,
 )
@@ -222,8 +223,8 @@ def _build_validation(
     """Compute validation status for the frontend banners + auto-approve.
 
     Two kinds of check:
-      * PO cross-checks (amount overage, GSTIN vs vendor/project master) — only
-        when the file is attached to a Procurement Order.
+      * Order cross-checks — amount overage against the order total (Procurement
+        Orders and Work Orders), and GSTIN vs vendor/project master (POs only).
       * Deterministic intrinsic checks (GSTIN checksum, amount reconciliation,
         date sanity) — always, independent of the parent doctype.
     """
@@ -248,27 +249,28 @@ def _build_validation(
         "date_validity": validate_date(invoice_date, normalize_date),
     }
 
-    # Only POs have full cross-check context; SR / Project Invoices skip it.
-    if parent_doctype != "Procurement Orders" or not parent_name:
+    # POs and Work Orders carry a total the invoices are capped at; Project Invoices skip it.
+    if parent_doctype not in ORDER_TOTAL_LABEL or not parent_name:
         return result
+    is_po = parent_doctype == "Procurement Orders"
 
     try:
-        po = frappe.db.get_value(
-            "Procurement Orders",
+        order = frappe.db.get_value(
+            parent_doctype,
             parent_name,
-            ["total_amount", "project_gst", "vendor"],
+            ["total_amount", "project_gst", "vendor"] if is_po else ["total_amount"],
             as_dict=True,
         )
     except Exception:
         return result
-    if not po:
+    if not order:
         return result
 
     result["applicable"] = True
 
     # --- Amount overage check ---
-    po_total = float(po.get("total_amount") or 0)
-    existing_sum = existing_invoiced_sum(parent_name)
+    order_total = float(order.get("total_amount") or 0)
+    existing_sum = existing_invoiced_sum(parent_name, doctype=parent_doctype)
     new_amount = 0.0
     try:
         new_amount = float(extracted_amount) if extracted_amount else 0.0
@@ -276,30 +278,34 @@ def _build_validation(
         new_amount = 0.0
     would_be_total = existing_sum + new_amount
     # Tolerate up to ₹10 of rounding drift — must match the hard-block threshold
-    # in update_invoice_data._check_po_amount_overage.
-    would_exceed = po_total > 0 and would_be_total > po_total + 10
+    # in update_invoice_data._check_invoice_amount_overage.
+    would_exceed = order_total > 0 and would_be_total > order_total + 10
     result["amount"] = {
-        "po_total": round(po_total, 2),
+        "order_total": round(order_total, 2),
         "existing_invoiced_sum": round(existing_sum, 2),
         "new_amount": round(new_amount, 2),
         "would_be_total": round(would_be_total, 2),
         "would_exceed": would_exceed,
         "message": (
-            f"Total invoiced would be ₹{would_be_total:,.2f}, exceeds PO total "
-            f"₹{po_total:,.2f}. Revise the amount or upload less."
+            f"Total invoiced would be ₹{would_be_total:,.2f}, exceeds "
+            f"{ORDER_TOTAL_LABEL[parent_doctype]} total "
+            f"₹{order_total:,.2f}. Revise the amount or upload less."
             if would_exceed
             else None
         ),
     }
 
+    if not is_po:
+        return result
+
     # --- Supplier GSTIN check (extracted vs vendor's vendor_gst) ---
     vendor_gst = ""
-    if po.get("vendor"):
-        vendor_gst = (frappe.db.get_value("Vendors", po["vendor"], "vendor_gst") or "").strip()
+    if order.get("vendor"):
+        vendor_gst = (frappe.db.get_value("Vendors", order["vendor"], "vendor_gst") or "").strip()
     result["supplier_gstin"] = gstin_match(extracted_supplier_gstin, vendor_gst, "supplier")
 
     # --- Receiver GSTIN check (extracted vs PO.project_gst) ---
-    project_gst = (po.get("project_gst") or "").strip()
+    project_gst = (order.get("project_gst") or "").strip()
     result["receiver_gstin"] = gstin_match(extracted_receiver_gstin, project_gst, "receiver")
 
     return result
