@@ -23,6 +23,7 @@
   "service_request_totals_section",
   "total_amount",
   "amount_invoiced",
+  "gst_invoiced",
   "amount_paid",
   "total_tds",
   "amount_due",
@@ -169,6 +170,15 @@
   },
   {
    "default": "0",
+   "description": "Total Invoice GST Amount of this Work Order's Vendor Invoices with status Approved (ADR-0030). Recomputed from source by the invoice events, in the same pass as Amount Invoiced - do not edit. Measures GST billed, not GST paid.",
+   "fieldname": "gst_invoiced",
+   "fieldtype": "Currency",
+   "label": "GST Invoiced",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
    "description": "Total Amount minus Amount Paid - i.e. ordered value not yet paid. Maintained automatically whenever either operand changes - do not edit. NOTE: this deliberately uses Total Amount (the ordered value), NOT Amount Invoiced - unlike Procurement Orders.",
    "fieldname": "amount_due",
    "fieldtype": "Currency",
@@ -180,7 +190,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-19 15:00:22.466899",
+ "modified": "2026-09-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

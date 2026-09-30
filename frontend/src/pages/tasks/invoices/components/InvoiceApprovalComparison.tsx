@@ -12,8 +12,8 @@
  * shows a "No AI extraction" note instead of red mismatches everywhere.
  */
 import React, { useMemo } from "react";
-import { useFrappeGetDoc } from "frappe-react-sdk";
-import { AlertTriangle, CheckCircle2, XCircle, Sparkles } from "lucide-react";
+import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
+import { AlertTriangle, CheckCircle2, XCircle, Sparkles, Receipt } from "lucide-react";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -22,6 +22,12 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "date-fns";
 import { MappingTableView } from "@/pages/ProcurementOrders/invoices-and-dcs/components/MappingTableView";
 import { summariseSkipReasons } from "@/pages/tasks/invoices/utils/autoApproveReasons";
+import {
+    aiReadFigure,
+    GstRelease,
+    gstReleaseLine,
+    rupees,
+} from "@/pages/tasks/invoices/utils/invoiceApprovalAmounts";
 
 /**
  * Robust amount parser. The shared `parseNumber` util uses bare `parseFloat`,
@@ -181,6 +187,35 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
         return parseAmount(entities["total_amount"]);
     })();
 
+    // The invoice's own three figures (ADR-0030), as entered at upload, beside what the AI read.
+    // Read-only here: they are corrected by editing the invoice, never on the approval screen.
+    const invoiceFigures = [
+        {
+            label: "Base Amount",
+            entered: invoice.invoice_base_amount,
+            ai: aiReadFigure(invoice.autofill_extracted_base_amount, entities["net_amount"]),
+        },
+        {
+            label: "GST Amount",
+            entered: invoice.invoice_gst_amount,
+            ai: aiReadFigure(invoice.autofill_extracted_gst_amount, entities["total_tax_amount"]),
+        },
+        {
+            label: "Total (Incl. GST)",
+            entered: invoice.invoice_amount,
+            ai: aiTotalAmount > 0 ? aiTotalAmount : null,
+        },
+    ];
+
+    // How much GST approving this invoice opens up on a GST-on Work Order. Computed on the
+    // server; the line is null for a PO, a GST-off WO, or while loading.
+    const { data: gstReleaseData } = useFrappeGetCall<{ message: GstRelease }>(
+        "nirmaan_stack.api.invoices.gst_release.get_invoice_gst_release",
+        { invoice_id: invoice.name },
+        isSR && invoice.name ? `Approve-Compare-GST-Release-${invoice.name}` : null
+    );
+    const gstLine = gstReleaseLine(gstReleaseData?.message);
+
     // System-side values
     const systemPoId = invoice.document_name;
     const systemVendorName = vendorDisplayName || vendorDoc?.vendor_name || invoice.vendor || "";
@@ -292,6 +327,45 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
                     match={usedAutofill ? amountMatch : null}
                 />
             </div>
+
+            {/* The invoice's own figures, entered vs AI-read. Informational, no match marks. */}
+            <div className="border border-gray-200 rounded-md">
+                <div className="grid grid-cols-[1fr_1fr] gap-3 px-3 py-1.5 bg-gray-50 border-b border-gray-200 rounded-t-md">
+                    <div className="text-xs font-semibold text-gray-700">Invoice Amounts (Entered)</div>
+                    <div className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" />
+                        Invoice Amounts (AI Read)
+                    </div>
+                </div>
+                {invoiceFigures.map((f) => (
+                    <ComparisonRow
+                        key={f.label}
+                        label={f.label}
+                        systemValue={
+                            f.entered === undefined || f.entered === null
+                                ? null
+                                : rupees(Number(f.entered))
+                        }
+                        aiValue={
+                            usedAutofill ? (
+                                f.ai !== null
+                                    ? rupees(f.ai)
+                                    : <span className="text-gray-400 italic">not extracted</span>
+                            ) : (
+                                <span className="text-gray-400 italic">manual entry</span>
+                            )
+                        }
+                        match={null}
+                    />
+                ))}
+            </div>
+
+            {gstLine && (
+                <div className="flex items-start gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                    <Receipt className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>{gstLine}</span>
+                </div>
+            )}
 
             {/* Visual divider between compare-rows and informational-rows */}
             <div className="flex items-center gap-2 px-1">

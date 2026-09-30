@@ -281,6 +281,110 @@ class TestInvoiceLifecycleKeepsAmountInvoicedTrue(FrappeTestCase):
         self.assertAlmostEqual(_get("Procurement Orders", self.PO, "amount_due"), -1000)
 
 
+class TestWorkOrderGstInvoiced(FrappeTestCase):
+    """`Service Requests.gst_invoiced` = SUM(invoice_gst_amount) over its APPROVED invoices
+    (ADR-0030), recomputed from source in the same pass as `amount_invoiced`.
+
+    Driven through the real approval endpoint and real invoice saves / deletes.
+    """
+
+    def setUp(self):
+        self.SR = _raw("Service Requests", total_amount=118000, gst="true", amount_paid=0)
+        self.SR2 = _raw("Service Requests", total_amount=118000, gst="true", amount_paid=0)
+
+    def _pending(self, amount, gst, parent=None, **kw):
+        d = frappe.get_doc({
+            "doctype": "Vendor Invoices",
+            "document_type": "Service Requests",
+            "document_name": parent or self.SR,
+            "invoice_no": "T-" + frappe.generate_hash(length=8),
+            "invoice_date": nowdate(),
+            "invoice_amount": amount,
+            "invoice_base_amount": amount - gst,
+            "invoice_gst_amount": gst,
+            "status": "Pending",
+            **kw,
+        })
+        d.insert(ignore_permissions=True)
+        return d
+
+    _approve = TestInvoiceLifecycleKeepsAmountInvoicedTrue._approve
+
+    def _gst(self, sr=None):
+        return _get("Service Requests", sr or self.SR, "gst_invoiced")
+
+    def test_a_pending_invoice_never_counts(self):
+        self._pending(11800, 1800)
+        self.assertAlmostEqual(self._gst(), 0)
+
+    def test_approval_raises_it_by_the_invoice_gst(self):
+        a = self._pending(11800, 1800)
+        b = self._pending(5900, 900)
+        self._approve(a.name)
+        self.assertAlmostEqual(self._gst(), 1800)
+        self._approve(b.name)
+        self.assertAlmostEqual(self._gst(), 2700)
+        # the same pass still keeps the total true
+        self.assertAlmostEqual(_get("Service Requests", self.SR, "amount_invoiced"), 17700)
+
+    def test_rejecting_keeps_it_out(self):
+        vi = self._pending(11800, 1800)
+        self._approve(vi.name, action="Rejected", reason="test")
+        self.assertAlmostEqual(self._gst(), 0)
+
+    def test_rejecting_an_approved_invoice_lowers_it(self):
+        vi = self._pending(11800, 1800)
+        self._approve(vi.name)
+        vi.reload(); vi.status = "Rejected"; vi.rejection_reason = "t"
+        vi.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._gst(), 0)
+
+    def test_editing_only_the_gst_of_an_approved_invoice_moves_it(self):
+        """invoice_gst_amount is a watched field: an edit that leaves the total alone must
+        still recompute."""
+        vi = self._pending(11800, 1800)
+        self._approve(vi.name)
+        vi.reload(); vi.invoice_base_amount = 10800; vi.invoice_gst_amount = 1000
+        vi.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._gst(), 1000)
+
+    def test_deleting_an_approved_invoice_lowers_it(self):
+        keep = self._pending(5900, 900)
+        gone = self._pending(11800, 1800)
+        self._approve(keep.name)
+        self._approve(gone.name)
+        gone.reload(); gone.delete(ignore_permissions=True)
+        self.assertAlmostEqual(self._gst(), 900)
+
+    def test_repointing_moves_it_between_work_orders(self):
+        vi = self._pending(11800, 1800)
+        self._approve(vi.name)
+        vi.reload(); vi.document_name = self.SR2; vi.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._gst(), 0)
+        self.assertAlmostEqual(self._gst(self.SR2), 1800)
+
+    def test_a_credit_note_nets_off(self):
+        vi = self._pending(11800, 1800)
+        cn = self._pending(-1180, -180, is_credit_note=1)
+        self._approve(vi.name)
+        self._approve(cn.name)
+        self.assertAlmostEqual(self._gst(), 1620)
+
+    def test_recomputed_from_source_not_a_delta(self):
+        """A poisoned value repairs itself on the next recompute, and repeats never add up."""
+        vi = self._pending(11800, 1800)
+        self._approve(vi.name)
+        _poison("Service Requests", self.SR, "gst_invoiced")
+        for _ in range(3):
+            recompute_document_amount_invoiced("Service Requests", self.SR)
+        self.assertAlmostEqual(self._gst(), 1800)
+
+    def test_purchase_orders_have_no_such_field_and_are_untouched(self):
+        po = _raw("Procurement Orders", total_amount=1000, amount_paid=0)
+        recompute_document_amount_invoiced("Procurement Orders", po)
+        self.assertFalse(frappe.db.has_column("Procurement Orders", "gst_invoiced"))
+
+
 class TestAmountPaidKeepsAmountDueTrue(FrappeTestCase):
     """The OTHER operand: Project Payments -> `amount_paid` -> `amount_due`.
 
