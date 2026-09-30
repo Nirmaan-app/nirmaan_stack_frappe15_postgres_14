@@ -1643,11 +1643,26 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
             "active": 1,
         }).insert(ignore_permissions=True)
 
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on the upload path.
+    #
+    # ⚠️ AFTER the inserts, deliberately: the recompute must read the catalogue AS IT NOW IS, so a
+    # base row this very upload changed is the value its dependants follow. Reading before the
+    # inserts would recompute against the figure the upload just replaced -- which is the stale
+    # read this whole slice exists to remove, reintroduced one line earlier.
+    #
+    # ⚠️ IT RIDES THE SAME TRANSACTION and this function still does not commit, so a dependant can
+    # never be written without its base, and a failure here rolls the whole upload back.
+    #
+    # The PREVIEW is untouched: a dependant's move is a CONSEQUENCE of the edit, not a row the user
+    # typed, so the preview still shows only what the file changed (acceptance item 1).
+    derived_written = loader.recompute_derived_after_write(discipline, batch)
+
     version = frappe.db.get_value(exporter.SNAPSHOT_DOCTYPE, snapshot, "version")
     return {
         "applied": len(plan["changes"]),
         "items_added": added,
         "items_replaced": replaced,
+        "derived_recomputed": derived_written,
         "snapshot": snapshot,
         "snapshot_version": version,
         "batch": batch,

@@ -72,6 +72,7 @@ import base64
 import collections
 import io
 import copy
+import inspect
 import json
 import re
 import os
@@ -81,7 +82,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer, extraction, freeze, loader
+from nirmaan_stack.services.boq_rate_master import (config_validation, csv_exporter, csv_importer,
+                                                      extraction, freeze, loader)
 
 # The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
 BOM = "\ufeff"
@@ -15596,3 +15598,201 @@ class TestPricingInputNegativeGuard12bB(FrappeTestCase):
         """Scoped by the kind suffix, like the rest of the pricing-input work. This says nothing about
         an ordinary SKU rate."""
         self.assertIsNone(rate_master._guard_pricing_input_values("junction_box", {"list_price": -5}))
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12a-FIX -- DERIVED RATES ARE RECOMPUTED, NOT FROZEN
+#
+# Slice 12a recorded every Insulation row link and LOCKED the dependent cells, and nothing ever
+# recomputed them. The live round trip of 2026-09-30 measured the consequence: the base row moved
+# 143 -> 150, its five dependants did not, and the rate file went on printing
+# "insulation 143 <- derived from ... [rmi-cc2cc7b0bbac]" about a row that now held 150.
+#
+# These tests are PURE -- the arithmetic over the committed HVAC asset, with no database -- so they
+# say what the RULE does, and the live cert says what the PRODUCT does.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestDerivedRatesRecompute(FrappeTestCase):
+    """Owner R1 / R5: a base-row change reaches every dependant, on every write path."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.configs = cls.asset["category_configs"]
+        cls.items = {
+            i["item_uid"]: {"rates": dict(i["rates"]), "attributes": i["attributes"]}
+            for i in cls.asset["items"]
+        }
+        cls.cells = {}
+        for cfg in cls.configs:
+            cls.cells.update(config_validation.derived_cells(cfg))
+
+    def _fresh(self):
+        return {u: {"rates": dict(v["rates"])} for u, v in self.items.items()}
+
+    # ---- the arithmetic ----------------------------------------------------------------------
+
+    def test_dr_01_every_declared_cell_already_matches_its_declaration(self):
+        """The catalogue SHIPPED consistent -- so any move a later test sees is the edit, never drift
+        that was already there. Without this, test_dr_02 could pass vacuously."""
+        out = config_validation.derived_rate_updates(self.configs, self.items)
+        self.assertEqual(out, {}, "the asset already disagrees with its own declarations: %r" % out)
+
+    def test_dr_02_ALL_228_bump_every_base_and_every_dependant_follows(self):
+        """ACCEPTANCE ITEM 7. For EVERY declared cell: raise its base by a known delta, assert the
+        cell moves by multiplier x delta, and assert NOTHING else moves."""
+        bases = sorted({(t["from"]["item_uid"], t["from"]["rate_key"])
+                        for terms in self.cells.values() for t in terms})
+        self.assertGreaterEqual(len(bases), 1)
+        checked = 0
+        delta = 7.0
+        for b_uid, b_key in bases:
+            items = self._fresh()
+            items[b_uid]["rates"][b_key] = float(items[b_uid]["rates"][b_key]) + delta
+            moved = config_validation.derived_rate_updates(self.configs, items)
+            for (uid, key), terms in sorted(self.cells.items()):
+                mult = sum(float(t.get("multiplier", 1.0)) for t in terms
+                           if (t["from"]["item_uid"], t["from"]["rate_key"]) == (b_uid, b_key))
+                stored = self.items[uid]["rates"].get(key)
+                if not isinstance(stored, (int, float)):
+                    self.assertNotIn(key, moved.get(uid, {}),
+                                     "%s/%s is not stored and must never be written" % (uid, key))
+                    continue
+                if mult:
+                    self.assertIn(uid, moved, "%s/%s did not move for base %s/%s"
+                                  % (uid, key, b_uid, b_key))
+                    self.assertAlmostEqual(moved[uid][key] - float(stored), mult * delta, places=6)
+                    checked += 1
+                else:
+                    self.assertNotIn(key, moved.get(uid, {}),
+                                     "%s/%s moved for an unrelated base %s/%s"
+                                     % (uid, key, b_uid, b_key))
+        self.assertEqual(checked, 228,
+                         "expected all 228 STORED declared cells exercised, got %d" % checked)
+
+    def test_dr_03_the_cladding_add_keeps_its_constant(self):
+        """ACCEPTANCE ITEM 3: +10 on the glass-cloth base is +10 on the dependant -- the constant is
+        not re-applied, doubled or dropped."""
+        uid, key = "rmi-ced6bc7c4209", "cost_cladding"
+        term = self.cells[(uid, key)][0]
+        base_uid, base_key = term["from"]["item_uid"], term["from"]["rate_key"]
+        items = self._fresh()
+        items[base_uid]["rates"][base_key] = float(items[base_uid]["rates"][base_key]) + 10.0
+        moved = config_validation.derived_rate_updates(self.configs, items)
+        self.assertAlmostEqual(moved[uid][key] - float(self.items[uid]["rates"][key]), 10.0,
+                               places=6)
+
+    # ---- the guard the Phase-0 defect bought -------------------------------------------------
+
+    def test_dr_04_NEGATIVE_a_declared_cell_that_is_not_stored_is_never_written(self):
+        """THE ADP GUARD. ADP's 12 cross-talk cells store NOTHING -- their pipeline fetches the base
+        at price time through a component_ref. Writing one would turn a live link into a frozen copy
+        AND change ADP. Without this line the first Phase-0 upload wrote cost_supply / cost_install
+        onto all six cross-talk rows from an INSULATION upload."""
+        unstored = [(u, k) for (u, k) in self.cells
+                    if not isinstance(self.items[u]["rates"].get(k), (int, float))]
+        self.assertEqual(len(unstored), 12,
+                         "expected ADP's 12 unstored declared cells, got %d" % len(unstored))
+        items = self._fresh()
+        for u, k in unstored:
+            for t in self.cells[(u, k)]:
+                b = t["from"]
+                items[b["item_uid"]]["rates"][b["rate_key"]] = \
+                    float(items[b["item_uid"]]["rates"][b["rate_key"]]) * 2
+        moved = config_validation.derived_rate_updates(self.configs, items)
+        for u, k in unstored:
+            self.assertNotIn(k, moved.get(u, {}), "%s/%s was written but is not stored" % (u, k))
+
+    def test_dr_05_NEGATIVE_changing_a_non_base_value_recomputes_nothing(self):
+        """ACCEPTANCE ITEM 13. cost_adhesive and the markups are read by no declaration."""
+        for key in ("cost_adhesive", "supply_markup", "install_markup", "wastage"):
+            items = self._fresh()
+            for u in items:
+                if isinstance(items[u]["rates"].get(key), (int, float)):
+                    items[u]["rates"][key] = float(items[u]["rates"][key]) + 1.0
+            self.assertEqual(config_validation.derived_rate_updates(self.configs, items), {},
+                             "moving %s recomputed something" % key)
+
+    # ---- safety: acceptance item 8 -----------------------------------------------------------
+
+    def test_dr_06_NEGATIVE_a_missing_base_row_is_refused_loudly(self):
+        """ACCEPTANCE ITEM 8. Never silently skipped, never a guess."""
+        uid, key = sorted(self.cells)[0]
+        base = self.cells[(uid, key)][0]["from"]["item_uid"]
+        items = {u: v for u, v in self._fresh().items() if u != base}
+        with self.assertRaises(config_validation.DerivedRateError) as cm:
+            config_validation.recompute_derived_values(self.configs, items)
+        self.assertIn(base, str(cm.exception))
+
+    def test_dr_07_NEGATIVE_a_base_carrying_no_number_is_refused_loudly(self):
+        uid, key = sorted(self.cells)[0]
+        base = self.cells[(uid, key)][0]["from"]
+        items = self._fresh()
+        items[base["item_uid"]]["rates"][base["rate_key"]] = None
+        with self.assertRaises(config_validation.DerivedRateError):
+            config_validation.recompute_derived_values(self.configs, items)
+
+    def test_dr_08_NEGATIVE_a_cycle_is_refused_loudly(self):
+        """_validate_derived_rates refuses an unflattened declaration at import, so a cycle cannot
+        reach a stored config -- but the computation must refuse one it is handed directly, because
+        that validator is what a future 'let chains be chains' change would relax first."""
+        cfg = {"derived_rates": {
+            "A": {"r": [{"from": {"item_uid": "B", "rate_key": "r"}}]},
+            "B": {"r": [{"from": {"item_uid": "A", "rate_key": "r"}}]},
+        }}
+        items = {"A": {"rates": {"r": 1.0}}, "B": {"rates": {"r": 2.0}}}
+        with self.assertRaises(config_validation.DerivedRateError) as cm:
+            config_validation.recompute_derived_values([cfg], items)
+        self.assertIn("cycle", str(cm.exception).lower())
+
+    def test_dr_09_a_chain_computes_in_chain_order(self):
+        """R5's 'in chain order'. The shipped declarations are FLATTENED so every chain is one hop --
+        this proves the ordering is real rather than accidentally unnecessary, on a two-hop
+        declaration the validator would refuse but the computation must still get right."""
+        cfg = {"derived_rates": {
+            "MID": {"r": [{"from": {"item_uid": "BASE", "rate_key": "r"}, "multiplier": 2.0}]},
+            "TOP": {"r": [{"from": {"item_uid": "MID", "rate_key": "r"}, "constant": 5.0}]},
+        }}
+        items = {"BASE": {"rates": {"r": 10.0}}, "MID": {"rates": {"r": 0.0}},
+                 "TOP": {"rates": {"r": 0.0}}}
+        out = config_validation.recompute_derived_values([cfg], items)
+        self.assertEqual(out[("MID", "r")], 20.0)
+        self.assertEqual(out[("TOP", "r")], 25.0)   # 25, not 5 -- it read MID's NEW value
+
+    def test_dr_10_NEGATIVE_a_discipline_that_declares_nothing_computes_nothing(self):
+        """Every Electrical write takes this line: no declarations, no work, byte-identical."""
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            e = json.load(fh)
+        self.assertEqual(
+            config_validation.recompute_derived_values(
+                e["category_configs"],
+                {i["item_uid"]: {"rates": i["rates"]} for i in e["items"]}),
+            {})
+
+    def test_dr_11_the_write_helper_is_defined_once_and_shared(self):
+        """ONE implementation of the write. csv_importer must not carry a second copy."""
+        from nirmaan_stack.services.boq_rate_master import csv_importer, loader
+        self.assertTrue(callable(loader.recompute_derived_after_write))
+        self.assertFalse(hasattr(csv_importer, "_recompute_derived_after_write"),
+                         "csv_importer still defines its own copy of the derived write")
+        self.assertIn("loader.recompute_derived_after_write",
+                      inspect.getsource(csv_importer.apply_plan))
+
+    def test_dr_12_every_api_write_path_recomputes(self):
+        """ACCEPTANCE ITEM 4, as a source pin: each endpoint that can change an item's rates CALLS
+        the shared helper. A new write path added without one makes this red.
+
+        ⚠️ IT STRIPS COMMENTS FIRST, AND THAT IS THE WHOLE POINT. The first version of this test
+        searched the raw source and stayed GREEN when the call was deleted from
+        `deactivate_rate_master_item` -- because the comment ABOVE the call still named the
+        function. A pin that a comment can satisfy pins nothing. (Same trap as the cert rule:
+        grep the code, never the comment.)"""
+        for fn in ("update_rate_master_item", "create_rate_master_item",
+                   "deactivate_rate_master_item", "_twin_confirmed_write"):
+            code = chr(10).join(
+                line for line in inspect.getsource(getattr(rate_master, fn)).splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            self.assertIn("loader.recompute_derived_after_write(", code,
+                          "%s does not CALL the shared recompute" % fn)

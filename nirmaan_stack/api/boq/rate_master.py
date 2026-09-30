@@ -1362,9 +1362,15 @@ def _twin_confirmed_write(target_name, rates, block, spec_out=None):
     tdoc = frappe.get_doc(ITEM_DOCTYPE, target_name)
     tdoc.rates = json.dumps(csv_importer.merge_rates(_parse_json(tdoc.rates, {}) or {}, rates))
     tdoc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on this write path too.
+    # AFTER the save and BEFORE the commit, so the dependants read the value just written and ride
+    # the SAME transaction: a dependant can never be committed without its base. ONE implementation,
+    # shared with the upload path (`loader.recompute_derived_after_write`).
+    derived_recomputed = loader.recompute_derived_after_write(tdoc.discipline)
     frappe.db.commit()
     out = {
         "ok": True,
+        "derived_recomputed": derived_recomputed,
         "item": {
             "name": tdoc.name,
             "discipline": tdoc.discipline,
@@ -1478,9 +1484,15 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
     doc.rates = json.dumps(rates)
     doc.attributes = json.dumps(attributes)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on this write path too.
+    # AFTER the save and BEFORE the commit, so the dependants read the value just written and ride
+    # the SAME transaction: a dependant can never be committed without its base. ONE implementation,
+    # shared with the upload path (`loader.recompute_derived_after_write`).
+    derived_recomputed = loader.recompute_derived_after_write(doc.discipline)
     frappe.db.commit()
     out = {
         "ok": True,
+        "derived_recomputed": derived_recomputed,
         "item": {
             "name": doc.name,
             "discipline": doc.discipline,
@@ -1589,9 +1601,19 @@ def create_rate_master_item(
         }
     )
     doc.insert(ignore_permissions=True)
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on this write path too.
+    # AFTER the save and BEFORE the commit, so the dependants read the value just written and ride
+    # the SAME transaction: a dependant can never be committed without its base. ONE implementation,
+    # shared with the upload path (`loader.recompute_derived_after_write`).
+    # A NEW item carries a freshly minted uid, so no declaration can name it as a base yet -- this
+    # call is therefore a no-op today. It is here because "every write path recomputes" must be true
+    # of the PATH, not of the cases that happen to exist: the twin-confirm branch above writes an
+    # EXISTING item's rates, and a future mint could make a hand-added row somebody's base.
+    derived_recomputed = loader.recompute_derived_after_write(doc.discipline)
     frappe.db.commit()
     out = {
         "ok": True,
+        "derived_recomputed": derived_recomputed,
         "item": {
             "name": doc.name,
             "discipline": doc.discipline,
@@ -1650,6 +1672,13 @@ def deactivate_rate_master_item(name=None):
     if doc.active:
         doc.active = 0
         doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+        # SLICE 12a-FIX -- RECALCULATE ON SAVE reaches DEACTIVATION too, and here it REFUSES.
+        # ⚠️ Deactivating a row that others derive from leaves those declarations with no base, so
+        # `recompute_derived_after_write` raises `DerivedRateError` and this whole call rolls back
+        # (nothing is committed below it). That is acceptance item 8 landing on a real endpoint: a
+        # base row cannot be deleted out from under its dependants silently. The refusal names the
+        # cell and the missing base.
+        loader.recompute_derived_after_write(doc.discipline)
         frappe.db.commit()
     return {"ok": True, "active": 0}
 

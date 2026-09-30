@@ -1713,6 +1713,148 @@ def is_derived_cell(cfg, item_uid, rate_key):
     return (item_uid, rate_key) in derived_cells(cfg)
 
 
+class DerivedRateError(Exception):
+    """A declaration that cannot be computed: a missing base row, a missing base value, a cycle.
+
+    Its own class, NOT `frappe.ValidationError`, because every caller must decide deliberately how
+    loud to be -- the mint aborts, a write path refuses the write. What none of them may do is
+    continue with a stale number, which is the defect this whole mechanism exists to remove.
+    """
+
+
+def recompute_derived_values(configs, items_by_uid):
+    """SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE. PURE: no frappe, no DB, no I/O.
+
+    `{(item_uid, rate_key): value}` -- what every DECLARED derived cell of every given config
+    SHOULD hold, computed from its base row's CURRENT value:
+
+        value = sum over terms of (base row's rate_key value * multiplier + constant)
+
+    ⚠️ THIS IS THE HALF SLICE 12a DID NOT BUILD. 12a recorded the links, marked the cells and
+    refused an edit to them; nothing recomputed them, so a base-row edit moved ONE row and the
+    dependants silently kept a stale number WHILE THEIR FORMULA COLUMN NAMED THE ROW THEY NO LONGER
+    followed. The live round trip of 2026-09-30 measured exactly that: 143 -> 150 on the base,
+    five dependants unchanged, the file still reading "insulation 143 <- derived from ...".
+
+    `configs` is an iterable of config dicts (a discipline's active configs); `items_by_uid` maps
+    item_uid -> a dict carrying "rates". The caller supplies the state it is ABOUT TO WRITE, so the
+    answer describes the post-write catalogue, never the pre-write one.
+
+    ⚠️ COMPUTED IN CHAIN ORDER (Kahn), so a dependant whose base is itself derived reads the base's
+    NEW value and not its stored one. Today `_validate_derived_rates` enforces FLATTENED
+    declarations (owner I-4), so every chain is one hop and the ordering is a no-op -- it is here
+    because the ordering is what makes the rule true rather than accidentally true, and because a
+    future unflattened declaration must not quietly compute against a stale intermediate.
+
+    RAISES `DerivedRateError` -- never returns a partial answer -- when a base row is absent, when
+    the base row carries no value for the named rate key, or when the declarations form a cycle.
+    A declaration that cannot be computed is a defect in the catalogue, not a cell to skip.
+    """
+    cells = {}
+    for cfg in configs or []:
+        cells.update(derived_cells(cfg))
+    if not cells:
+        return {}
+
+    # (1) every base a declaration names must exist and carry a number.
+    for (uid, rate_key), terms in sorted(cells.items()):
+        for term in terms:
+            src = term.get("from") or {}
+            b_uid, b_key = src.get("item_uid"), src.get("rate_key")
+            base = items_by_uid.get(b_uid)
+            if base is None:
+                raise DerivedRateError(
+                    "%s/%s is derived from item %s, which is not an active item of this discipline."
+                    % (uid, rate_key, b_uid)
+                )
+            if not _is_finite_number((base.get("rates") or {}).get(b_key)):
+                raise DerivedRateError(
+                    "%s/%s is derived from %s/%s, which carries no number."
+                    % (uid, rate_key, b_uid, b_key)
+                )
+
+    # (2) chain order. An edge runs base cell -> dependent cell; only edges BETWEEN declared cells
+    #     constrain the order, because a typed base never changes while this runs.
+    deps = {c: set() for c in cells}
+    for cell, terms in cells.items():
+        for term in terms:
+            src = term["from"]
+            base_cell = (src["item_uid"], src["rate_key"])
+            if base_cell in cells:
+                deps[cell].add(base_cell)
+    order, ready = [], sorted(c for c, d in deps.items() if not d)
+    remaining = {c: set(d) for c, d in deps.items()}
+    while ready:
+        cell = ready.pop(0)
+        order.append(cell)
+        for other, d in sorted(remaining.items()):
+            if cell in d:
+                d.discard(cell)
+                if not d and other not in order and other not in ready:
+                    ready.append(other)
+        remaining.pop(cell, None)
+    if len(order) != len(cells):
+        stuck = sorted(c for c in cells if c not in order)
+        raise DerivedRateError(
+            "derived_rates contains a cycle -- these cells cannot be ordered: %s"
+            % ", ".join("%s/%s" % c for c in stuck[:6])
+        )
+
+    # (3) compute, newest value first. A computed cell feeds the next one through `computed`.
+    computed = {}
+    for cell in order:
+        total = 0.0
+        for term in cells[cell]:
+            src = term["from"]
+            base_cell = (src["item_uid"], src["rate_key"])
+            if base_cell in computed:
+                base_value = computed[base_cell]
+            else:
+                base_value = (items_by_uid[src["item_uid"]].get("rates") or {})[src["rate_key"]]
+            total += float(base_value) * float(term.get("multiplier", 1.0)) \
+                + float(term.get("constant", 0.0))
+        computed[cell] = total
+    return computed
+
+
+def derived_rate_updates(configs, items_by_uid, tolerance=1e-9):
+    """`{item_uid: {rate_key: value}}` -- ONLY the STORED derived cells whose value is out of step.
+
+    The write paths' entry point: it answers "what must I write?", so a path that changed nothing a
+    declaration reads writes nothing at all (acceptance item 13). The tolerance is the float-noise
+    guard `_same_rate` already uses on the upload comparison, for the same reason -- a 6-decimal
+    mint figure re-derived in binary is not an edit.
+
+    ⚠️⚠️ AN ABSENT CELL IS ABSENT BY DESIGN AND IS NEVER WRITTEN. `derived_rates` serves TWO
+    populations and they need opposite treatment:
+
+      * Insulation's 228 cells STORE a figure (the mint copied it) and nothing recomputed it -- those
+        are what this mechanism exists to bring back in step.
+      * ADP's 12 cross-talk cells store NOTHING AT ALL. Their pipeline fetches the base row's rate at
+        price time through a `component_ref`, so they are already live, and the declaration merely
+        DESCRIBES that. Writing a value into one would turn a live link into a frozen copy -- the
+        exact defect being removed -- and it would change ADP.
+
+    ⚠️ THIS IS NOT A THEORETICAL GUARD. Without it, the first Phase-0 upload wrote
+    `cost_supply 1600` and `cost_install 500` onto all six ADP cross-talk rows, which v14 stores with
+    markups only: 6 unintended ADP writes from an Insulation upload, reported as
+    `derived_recomputed=11` where five were expected. The rows were repaired from their superseded
+    predecessors and re-verified byte-equal to v14.
+
+    ⚠️ THE DISCRIMINATOR IS "IS IT STORED", NEVER A CATEGORY NAME (the HV-10 rule). A future category
+    whose pipeline computes a declared cell is protected by the same line, with no edit here.
+    """
+    out = {}
+    for (uid, rate_key), value in recompute_derived_values(configs, items_by_uid).items():
+        stored = (items_by_uid.get(uid, {}).get("rates") or {}).get(rate_key)
+        if not _is_finite_number(stored):
+            continue                      # absent by design -- the pipeline supplies it; never write
+        if abs(float(stored) - value) <= tolerance * max(1.0, abs(float(stored)), abs(value)):
+            continue                      # already in step
+        out.setdefault(uid, {})[rate_key] = value
+    return out
+
+
 def _validate_derived_rates(cfg):
     """The shape of `derived_rates`, plus the two invariants that make a declaration trustworthy: it
     is FLATTENED (no `from` points at a cell that is itself declared derived -- owner I-4, "flatten to
