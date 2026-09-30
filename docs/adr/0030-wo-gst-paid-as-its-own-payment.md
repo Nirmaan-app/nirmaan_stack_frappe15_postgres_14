@@ -56,7 +56,9 @@ payment amount, and nothing on a payment says how much of it is GST.
 - GST Invoiced can fall below GST already paid (an approved invoice rejected, edited or deleted).
   GST left then reads 0. Nothing already paid is undone.
 - A leftover from a CEO part-approval or a Bulk Import split inherits the GST flag.
-- Old invoices are backfilled from the saved extraction entities where present; the rest unlock no
-  GST until an Admin fills them in. "Required" is enforced at upload, not as a doctype `reqd`, so
+- Old invoices are backfilled from the saved extraction entities where present **and** each figure's
+  saved confidence is at least 0.70 — the bar the upload form uses before pre-filling (owner,
+  2026-10-01). Many low-confidence GST reads were exactly half the GST (one of CGST / SGST), and a
+  wrong GST figure would release GST never billed. The rest unlock no GST until an Admin fills them in. "Required" is enforced at upload, not as a doctype `reqd`, so
   old Pending invoices stay approvable.
 - `amount_due` on a Work Order is unchanged (`total_amount − amount_paid − total_tds`).
