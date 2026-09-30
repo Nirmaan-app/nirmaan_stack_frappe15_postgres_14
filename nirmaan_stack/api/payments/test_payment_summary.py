@@ -135,11 +135,37 @@ class TestPaymentSummaryEndpoint(FrappeTestCase):
 		self.assertEqual(out["lines"]["requested"], 3000)
 		self.assertNotIn(this, [p["name"] for p in out["payments"]])
 
-	def test_a_gst_work_order_is_measured_against_its_base_amount(self):
-		sr = _raw("Service Requests", total_amount=118000, gst="true")
+	def test_a_gst_work_order_is_measured_against_its_total_with_a_base_and_gst_limit(self):
+		"""Inverted by ADR-0030: no longer capped at its base amount. The total incl. GST is the value,
+		and the limit splits it into Base left and GST left (released by GST Invoiced)."""
+		sr = _raw("Service Requests", total_amount=118000, gst="true", gst_invoiced=9000)
+		_raw("Project Payments", document_type="Service Requests", document_name=sr,
+			 amount=40000, status="Approved", is_gst_payment=0)
+		_raw("Project Payments", document_type="Service Requests", document_name=sr,
+			 amount=2000, status="Rejected", is_gst_payment=1)
 		out = get_payment_summary("Service Requests", sr)
-		self.assertEqual(out["value_basis"], "ex_gst")
-		self.assertAlmostEqual(out["value"], 100000, places=2)
+		self.assertEqual(out["value_basis"], "incl_gst")
+		self.assertAlmostEqual(out["value"], 118000, places=2)
+		self.assertAlmostEqual(out["left"], 76000, places=2)
+		limit = out["limit"]
+		self.assertTrue(limit["gst_on"])
+		self.assertAlmostEqual(limit["base_value"], 100000, places=2)
+		self.assertAlmostEqual(limit["work_order_gst"], 18000, places=2)
+		self.assertAlmostEqual(limit["base_left"], 60000, places=2)
+		self.assertAlmostEqual(limit["gst_left"], 7000, places=2)
+		self.assertAlmostEqual(limit["total_left"], 76000, places=2)
+
+	def test_a_gst_off_work_order_has_no_gst_part(self):
+		sr = _raw("Service Requests", total_amount=50000, gst="false")
+		out = get_payment_summary("Service Requests", sr)
+		self.assertEqual(out["value_basis"], "total")
+		self.assertAlmostEqual(out["value"], 50000, places=2)
+		self.assertFalse(out["limit"]["gst_on"])
+		self.assertAlmostEqual(out["limit"]["base_left"], 50000, places=2)
+		self.assertEqual(out["limit"]["gst_left"], 0)
+
+	def test_a_purchase_order_carries_no_work_order_limit(self):
+		self.assertNotIn("limit", get_payment_summary("Procurement Orders", self._po_with_payments()))
 
 	def test_other_doctypes_are_refused(self):
 		with self.assertRaises(frappe.ValidationError):

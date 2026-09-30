@@ -26,16 +26,38 @@ export interface SummaryPayment {
   mode_of_payment?: string | null;
 }
 
+/**
+ * A Work Order's payment limit (ADR-0030), from `services/work_order_payment_limit.py`. Every figure
+ * is the server's; the dialog shows them and never re-derives one.
+ */
+export interface WorkOrderLimit {
+  gst_on: boolean;
+  base_value: number;
+  work_order_gst: number;
+  gst_invoiced: number;
+  /** min(GST Invoiced, Work Order GST): the GST that may be paid at all. */
+  gst_released: number;
+  base_paid: number;
+  gst_paid: number;
+  base_left: number;
+  gst_left: number;
+  total_left: number;
+}
+
+export type PayFor = "base" | "gst";
+
 export interface PaymentSummary {
   document_type: "Procurement Orders" | "Service Requests";
   document_name: string;
-  value_basis: "incl_gst" | "ex_gst" | "total";
+  value_basis: "incl_gst" | "total";
   line_order: SummaryLineKey[];
   value: number;
   lines: Record<SummaryLineKey, number>;
   committed: number;
   left: number;
   payments: SummaryPayment[];
+  /** Work Orders only. */
+  limit?: WorkOrderLimit;
 }
 
 /** Display order, server-independent: money that has left, money on its way, money held. */
@@ -75,7 +97,6 @@ export const orderNoun = (documentType: string) =>
 
 export const valueLabel = (summary: Pick<PaymentSummary, "document_type" | "value_basis">): string => {
   const noun = orderNoun(summary.document_type);
-  if (summary.value_basis === "ex_gst") return `${noun} base amount (ex-GST)`;
   if (summary.value_basis === "incl_gst") return `${noun} value (incl. GST)`;
   return `${noun} value`;
 };
@@ -119,4 +140,27 @@ export const barSegments = (
   const pct = (n: number) => Math.round((n / total) * 10000) / 100;
   const left = Math.max(0, total - settled - onItsWay - current);
   return { settled: pct(settled), onItsWay: pct(onItsWay), current: pct(current), left: pct(left) };
+};
+
+/**
+ * What a request for one part of a GST-on Work Order is measured against: `value` for Full / %,
+ * `max` for Due and the cap -- the part's own left, but never above total left, as the server's
+ * `request_refusal` checks both. `capLabel` names whichever of the two binds.
+ */
+export const payForCap = (limit: WorkOrderLimit, payFor: PayFor) => {
+  const partLeft = payFor === "gst" ? limit.gst_left : limit.base_left;
+  const totalBinds = limit.total_left < partLeft;
+  return {
+    value: payFor === "gst" ? limit.gst_released : limit.base_value,
+    max: Math.max(0, totalBinds ? limit.total_left : partLeft),
+    capLabel: totalBinds ? "total left" : payFor === "gst" ? "GST left" : "Base left",
+  };
+};
+
+/** Why GST left reads 0, or null while some is left. */
+export const gstLeftNote = (limit: WorkOrderLimit): string | null => {
+  if (limit.gst_left > 0) return null;
+  return limit.gst_released <= 0
+    ? "Opens when an invoice with GST is approved"
+    : "All approved invoice GST is already requested";
 };

@@ -15,29 +15,17 @@ from frappe import _
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.finance import get_source_document_financials
 from nirmaan_stack.services.payment_summary import LINE_ORDER, summarise
+from nirmaan_stack.services.work_order_payment_limit import work_order_limit
 
 ALLOWED = ("Procurement Orders", "Service Requests")
 
 
-@frappe.whitelist()
-def get_payment_summary(document_type: str, document_name: str, exclude_payment: str | None = None) -> dict:
-	if document_type not in ALLOWED:
-		frappe.throw(_("Not allowed for doctype {0}").format(document_type))
-	frappe.has_permission(document_type, "read", doc=document_name, throw=True)
-
-	src = frappe.get_doc(document_type, document_name)
-	financials = get_source_document_financials(src)
-
-	# A GST Work Order can only be requested up to its base amount (the Request Payment dialog's
-	# `baseOnly`), so that is the value its balance is measured against.
-	base_only = document_type == "Service Requests" and src.get("gst") == "true"
-	value = financials["total_without_gst"] if base_only else financials["payable_total"]
-	value_basis = "ex_gst" if base_only else ("incl_gst" if document_type == "Procurement Orders" else "total")
-
+def _load_payments(document_type: str, document_name: str):
+	"""`(payments, tds_by_payment, company_borne)` for one PO / Work Order, as the summary counts them."""
 	payments = frappe.get_all(
 		"Project Payments",
 		filters={"document_type": document_type, "document_name": document_name},
-		fields=["name", "amount", "status", "creation", "owner", "mode_of_payment"],
+		fields=["name", "amount", "status", "creation", "owner", "mode_of_payment", "is_gst_payment"],
 		order_by="creation desc",
 		limit_page_length=0,
 	)
@@ -59,8 +47,39 @@ def get_payment_summary(document_type: str, document_name: str, exclude_payment:
 			as_dict=True,
 		):
 			tds_by_payment[row.project_payment] = row.tds_amount
+	return payments, tds_by_payment, company_borne
 
-	result = summarise(value, payments, tds_by_payment, company_borne, exclude_payment)
+
+def work_order_summary(sr, exclude_payment: str | None = None) -> dict:
+	"""The payment summary of a Work Order plus its payment limit (`services/work_order_payment_limit`).
+
+	Shared by `get_payment_summary` and `create_payment_request_for_service`, so the figure the
+	dialog shows and the figure the server refuses on come from one load and one calculation.
+	"""
+	payments, tds_by_payment, company_borne = _load_payments(sr.doctype, sr.name)
+	return work_order_limit(
+		sr.get("total_amount"), sr.get("gst"), sr.get("gst_invoiced"),
+		payments, tds_by_payment, company_borne, exclude_payment,
+	)
+
+
+@frappe.whitelist()
+def get_payment_summary(document_type: str, document_name: str, exclude_payment: str | None = None) -> dict:
+	if document_type not in ALLOWED:
+		frappe.throw(_("Not allowed for doctype {0}").format(document_type))
+	frappe.has_permission(document_type, "read", doc=document_name, throw=True)
+
+	src = frappe.get_doc(document_type, document_name)
+
+	if document_type == "Service Requests":
+		# A GST-on Work Order is measured against its total incl. GST; `limit` splits what is left
+		# into Base left and GST left (ADR-0030).
+		result = work_order_summary(src, exclude_payment)
+		value_basis = "incl_gst" if result["limit"]["gst_on"] else "total"
+	else:
+		value = get_source_document_financials(src)["payable_total"]
+		result = summarise(value, *_load_payments(document_type, document_name), exclude_payment)
+		value_basis = "incl_gst"
 
 	owners = sorted({p["owner"] for p in result["payments"] if p.get("owner")})
 	names = {}

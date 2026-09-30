@@ -14,7 +14,9 @@ from nirmaan_stack.services.approval_tiers import (
     is_auto_approved,
     steps_cleared_by_raiser,
 )
+from nirmaan_stack.api.payments.payment_summary import work_order_summary
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services.work_order_payment_limit import request_refusal
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
@@ -58,6 +60,50 @@ def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
         frappe.utils.get_fullname(frappe.session.user), _("L1 and CEO approval") if ceo_cleared else _("L1 approval")))
 
 
+def _assert_within_po_balance(src, amount):
+    """A PO request: value incl. GST − Paid − open requests − Reconciliation Pending, ₹10 tolerance."""
+    from nirmaan_stack.services.finance import (
+        get_source_document_financials,
+        get_total_paid,
+        get_total_pending,
+        get_total_reconciliation_pending,
+    )
+    available = (
+        get_source_document_financials(src).get("payable_total")
+        - get_total_paid(src)
+        - get_total_pending(src)
+        - get_total_reconciliation_pending(src)
+    )
+    if amount > (available + 10):
+        frappe.throw(_(
+            "Maximum amount you can request is {0} (available balance)"
+        ).format(frappe.format_value(available, "Currency")))
+
+
+def _assert_within_work_order_limit(src, amount, gst_payment):
+    """A Work Order request: the Work Order payment limit (`services/work_order_payment_limit`).
+
+    Payments count GROSS of TDS here, as the Request Payment dialog and the payment summary count
+    them -- the cap this replaced counted the NET amount, so withheld tax could be requested twice.
+    """
+    limit = work_order_summary(src)["limit"]
+    refusal = request_refusal(limit, amount, gst_payment)
+    if not refusal:
+        return
+    if refusal["part"] == "no_gst":
+        frappe.throw(_("This Work Order has no GST, so a GST payment cannot be requested on it."))
+
+    left = frappe.format_value(max(refusal["left"], 0), "Currency")
+    if refusal["part"] == "base":
+        frappe.throw(_("Maximum amount you can request is {0} (Base left)").format(left))
+    if refusal["part"] == "gst":
+        reason = ""
+        if limit["gst_released"] <= 0:
+            reason = " " + _("No GST is released yet: approve an invoice carrying GST first.")
+        frappe.throw(_("Maximum amount you can request is {0} (GST left).").format(left) + reason)
+    frappe.throw(_("Maximum amount you can request is {0} (total left, incl. GST)").format(left))
+
+
 @frappe.whitelist()
 def create_payment_request_for_service(data: str) -> str:
     """
@@ -68,6 +114,7 @@ def create_payment_request_for_service(data: str) -> str:
             "doctype" : "Procurement Orders" | "Service Requests",
             "docname": "<PO/000/00000/25-26>",
             "amount" : 12345.67,
+            "is_gst_payment": 0 | 1,                        # Work Orders only; base when absent
             "mode_of_payment": "Online" | "Cheque",           # optional, Online when absent
             "cheque_no": "...", "cheque_date": "YYYY-MM-DD"    # required for a cheque
         }
@@ -86,28 +133,18 @@ def create_payment_request_for_service(data: str) -> str:
     if amount == 0:
         frappe.throw(_("Amount cannot be zero"))
 
+    # A Work Order payment is a base payment or a GST payment, never a mix (ADR-0030).
+    gst_payment = bool(frappe.utils.cint(payload.get("is_gst_payment")))
+    if gst_payment and doctype != "Service Requests":
+        frappe.throw(_("A GST payment can only be requested on a Work Order."))
+
     # ── fetch source document inside the txn ───────────────────────
     src = frappe.get_doc(doctype, docname)
 
-    # ── calculate financials --------------------------------------
-    from nirmaan_stack.services.finance import (
-        get_source_document_financials,        # returns grand_total, grand_total_excl_gst
-        get_total_paid,   # returns sum of approved+paid Project Payments
-        get_total_pending, # returns sum of Requested (pending) Payments
-        get_total_reconciliation_pending,
-    )
-    totals = get_source_document_financials(src)
-    paid         = get_total_paid(src)
-    pending      = get_total_pending(src)
-    available    = (
-        totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
-    )
-    print(f"paid: {paid}, pending: {pending}, available: {available}, grand: {totals}")
-
-    if amount > (available + 10):
-        frappe.throw(_(
-            "Maximum amount you can request is {0} (available balance)"
-        ).format(frappe.format_value(available, "Currency")))
+    if doctype == "Service Requests":
+        _assert_within_work_order_limit(src, amount, gst_payment)
+    else:
+        _assert_within_po_balance(src, amount)
 
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
@@ -123,6 +160,7 @@ def create_payment_request_for_service(data: str) -> str:
         "vendor"        : src.vendor,
         "amount"        : round(amount),
         "status"        : status,
+        "is_gst_payment": 1 if gst_payment else 0,
         **_mode_fields(payload),
     })
     if auto_approve:

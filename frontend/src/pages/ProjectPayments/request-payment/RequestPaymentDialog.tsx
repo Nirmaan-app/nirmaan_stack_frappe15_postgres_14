@@ -16,6 +16,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
+import { gstLeftNote, PayFor, payForCap } from "../components/paymentSummaryView";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
@@ -53,28 +54,37 @@ export default function RequestPaymentDialog(p:Props){
   const [perc,setPerc]     = useState("");
   const [warn,setWarn]     = useState("");
   const [payMode,setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
-
-  /* A GST Work Order can only be requested up to its base amount (ex-GST) --
-     every option below (Full, %, Due, the balance cap) is measured against it. */
-  const baseOnly = p.docType === "Service Requests" && p.gst;
-  const payable  = baseOnly ? p.totalExGST : p.totalIncGST;
-
-  const requested = p.paid + p.pending;
+  const [payFor,setPayFor] = useState<PayFor>("base");
 
   /* Where this WO's money already stands (owner, 2026-09-21). WO only: the PO page requests
      through its payment terms, and this dialog's PO path has no live trigger. */
   const isWO = p.docType === "Service Requests";
-  const { summary, isLoading: summaryLoading } = usePaymentSummary(
+  const { summary, isLoading: summaryLoading, error: summaryError } = usePaymentSummary(
     open && isWO ? p.docType : null,
     open && isWO ? p.docName : null
   );
+
+  /* A GST-on Work Order pays Base or GST, never a mix (ADR-0030). Each part has its own "left",
+     read from the summary's `limit` -- the server's Work Order payment limit, never re-derived
+     here. Full / % / Due measure against the chosen part; nothing can be confirmed until the
+     limit has loaded, because there is no local figure to fall back on. */
+  const gstWO = isWO && p.gst;
+  const limit = summary?.limit;
+  const cap = useMemo(()=> (gstWO && limit ? payForCap(limit, payFor) : null), [gstWO, limit, payFor]);
+  const gstPayment = gstWO && payFor === "gst";
+
+  const payable = gstWO ? (cap?.value ?? 0) : p.totalIncGST;
+
   // ⚠️ ONE BALANCE: once the summary has loaded, "Due", the cap warning and the block's
-  // "Left after this payment" all read the SAME figure. It counts payments gross of TDS as this
-  // dialog always has, and also counts a Rejected payment not yet deleted -- which the server's
-  // cap already counts, so a request the server would refuse is now refused here first. Until
-  // it loads (or if it fails) the local figure stands, exactly as before.
+  // "Left after this payment" all read the server's figures. They count payments gross of TDS as
+  // this dialog always has, and also count a Rejected payment not yet deleted -- as the server's
+  // cap does, so a request the server would refuse is refused here first. On a GST-off WO or a PO,
+  // until the summary loads (or if it fails) the local figure stands, exactly as before.
   const localMax = payable - p.paid - p.pending;
-  const max = useMemo(()=> (isWO && summary ? summary.left : localMax), [isWO, summary, localMax]);
+  const max = useMemo(
+    ()=> (gstWO ? (cap?.max ?? 0) : isWO && summary ? summary.left : localMax),
+    [gstWO, cap?.max, isWO, summary, localMax]
+  );
   const amount = useMemo(()=>{
     switch(mode){
       case "full"   : return payable;
@@ -86,10 +96,12 @@ export default function RequestPaymentDialog(p:Props){
   },[mode,custom,perc,max,payable,p]);
 
   useMemo(()=>{
-    if(amount>max+1e-6)
-      setWarn(`Request exceeds ${baseOnly ? "base (ex-GST) " : ""}balance ${formatToIndianRupee(max)}`);
+    if(cap && amount>max+1e-6)
+      setWarn(`Request exceeds ${cap.capLabel} ${formatToIndianRupee(max)}`);
+    else if(!gstWO && amount>max+1e-6)
+      setWarn(`Request exceeds balance ${formatToIndianRupee(max)}`);
     else setWarn("");
-  },[amount,max,baseOnly]);
+  },[amount,max,cap,gstWO]);
 
   /* A cheque is written for the figure AFTER TDS, so the dialog says what that is. Fetched only
      while a cheque is being requested: the dialog is mounted on every PO / WO page. */
@@ -100,9 +112,9 @@ export default function RequestPaymentDialog(p:Props){
   );
   const { rateFor, companyBorneFor, isLoading: tdsLoading } = useVendorTdsRates(tdsRows);
   const companyBorne = companyBorneFor(p.docName);
-  const tds = forecastTds(p.docType, amount, rateFor(p.vendor), companyBorne);
+  const tds = forecastTds(p.docType, amount, rateFor(p.vendor), companyBorne, gstPayment);
 
-  const { trigger, isMutating, error } = useRequestPayment();
+  const { trigger, isMutating } = useRequestPayment();
 
   const submit = async ()=>{
     if (isCEOHold) {
@@ -110,8 +122,11 @@ export default function RequestPaymentDialog(p:Props){
       return;
     }
     try{
-      await trigger({doctype:p.docType, docname:p.docName, amount, ...paymentModeArgs(payMode)});
-      toggle(); setCustom(""); setPerc(""); setPayMode(EMPTY_PAYMENT_MODE);
+      await trigger({
+        doctype:p.docType, docname:p.docName, amount, ...paymentModeArgs(payMode),
+        ...(isWO ? { is_gst_payment: gstPayment ? 1 : 0 } : {}),
+      });
+      toggle(); setCustom(""); setPerc(""); setPayMode(EMPTY_PAYMENT_MODE); setPayFor("base");
       toast({title:"Success",description:"Payment request created",variant:"success"});
       p.onSuccess?.();
     }catch(e:any){
@@ -140,12 +155,38 @@ export default function RequestPaymentDialog(p:Props){
       {isWO && (summary || summaryLoading) &&
         <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={amount} />}
 
-      {baseOnly && !summary && !summaryLoading &&
-        <p className="text-xs text-muted-foreground text-center -mt-2">
-          {requested > 0
-            ? <>GST Work Order — base amount (ex-GST) {formatToIndianRupee(p.totalExGST)}, already requested {formatToIndianRupee(requested)}, balance {formatToIndianRupee(Math.max(max, 0))}</>
-            : <>GST Work Order — payment can be requested only up to the base amount (ex-GST) {formatToIndianRupee(p.totalExGST)}</>}
-        </p>}
+      {gstWO && limit &&
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium">Pay for</Label>
+          <RadioGroup value={payFor} onValueChange={v=>setPayFor(v as PayFor)} className="grid-cols-2 gap-2">
+            {([
+              ["base", "Base", limit.base_left, null],
+              ["gst", "GST", limit.gst_left, gstLeftNote(limit)],
+            ] as const).map(([value, label, left, note]) => {
+              // Total left can bind below a part's own left (an old WO paid past its base value).
+              const totalNote = left > 0 && payForCap(limit, value).capLabel === "total left"
+                ? `Only ${limit.total_left > 0 ? formatToIndianRupee(limit.total_left) : "₹0.00"} left in the WO total`
+                : null;
+              return (
+                <Label key={value} htmlFor={`pay-for-${value}`}
+                       className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 ${payFor===value ? "border-primary bg-primary/5" : ""}`}>
+                  <RadioGroupItem value={value} id={`pay-for-${value}`} className="mt-0.5"/>
+                  <span className="space-y-0.5">
+                    <span className="block font-medium">{label}</span>
+                    <span className="block text-xs text-muted-foreground tabular-nums">
+                      {left > 0 ? formatToIndianRupee(left) : "₹0.00"} left
+                    </span>
+                    {(note || totalNote) &&
+                      <span className="block text-[11px] text-amber-700 dark:text-amber-400">{note || totalNote}</span>}
+                  </span>
+                </Label>
+              );
+            })}
+          </RadioGroup>
+        </div>}
+
+      {gstWO && !limit && !summaryLoading && summaryError &&
+        <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}
 
       <RadioGroup value={mode} onValueChange={v=>setMode(v as any)} className="space-y-3">
 
@@ -166,7 +207,7 @@ export default function RequestPaymentDialog(p:Props){
             <Label htmlFor="pct">% of Amount</Label>
           </div>
 
-          {p.gst && !baseOnly &&
+          {p.gst && !isWO &&
             <div className="flex items-center gap-2">
               <RadioGroupItem value="exGST" id="exgst"/>
               <Label htmlFor="exgst">Total (ex-GST)</Label>
@@ -174,13 +215,13 @@ export default function RequestPaymentDialog(p:Props){
 
           <div className="flex items-center gap-2">
             <RadioGroupItem value="full" id="full"/>
-            <Label htmlFor="full">Full Amount{baseOnly && " (ex-GST)"}</Label>
+            <Label htmlFor="full">Full Amount{gstWO && (payFor === "gst" ? " (GST)" : " (Base)")}</Label>
           </div>
         </>}
 
-        {/* On a GST Work Order already requested past its base amount the balance is
-            negative -- hide "Due" so it can't turn into an accidental refund request. */}
-        {p.paid>0 && (!baseOnly || max>0) &&
+        {/* On a GST Work Order with nothing left of the chosen part, hide "Due" -- there is
+            nothing to request. */}
+        {p.paid>0 && (!gstWO || max>0) &&
           <div className="flex items-center gap-2">
             <RadioGroupItem value="due" id="due"/>
             <Label htmlFor="due">Due {formatToIndianRupee(max)}</Label>
@@ -207,15 +248,10 @@ export default function RequestPaymentDialog(p:Props){
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode)}
+                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode) || (gstWO && !cap)}
                       onClick={submit}>Confirm</Button>
             </>}
       </div>
-
-      {baseOnly &&
-        <p className="mt-1 border-t pt-2 text-[11px] text-amber-600 text-center">
-          To settle the GST amount of {formatToIndianRupee(p.totalIncGST - p.totalExGST)}, please contact the Accountant.
-        </p>}
     </AlertDialogContent>
   </AlertDialog>);
 }
