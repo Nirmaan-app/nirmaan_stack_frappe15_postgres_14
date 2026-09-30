@@ -1,13 +1,27 @@
-"""Unit tests for build_line_mapping_rows — the verified-mapping → child-row
-converter. Pure (stubbed PO doc); no DB.
+"""Tests for the invoice create / edit endpoint.
 
-Run: env/bin/python -m unittest nirmaan_stack.api.delivery_notes.test_update_invoice_data
+  * `TestBuildLineMappingRows` -- the verified-mapping -> child-row converter. Pure
+    (stubbed PO doc); no DB.
+  * `TestInvoiceSplitFigures` -- the Invoice Base Amount / Invoice GST Amount split
+    (#1336, ADR-0030), driven through `update_invoice_data` itself against the live
+    site. The endpoint COMMITS, so every row it or a fixture writes is deleted in
+    cleanup.
+
+Run: bench --site localhost run-tests --module nirmaan_stack.api.delivery_notes.test_update_invoice_data
 """
 
 import json
 import unittest
 
-from nirmaan_stack.api.delivery_notes.update_invoice_data import build_line_mapping_rows
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt, nowdate
+
+from nirmaan_stack.api.delivery_notes.update_invoice_data import (
+    build_line_mapping_rows,
+    update_invoice_data,
+)
+from nirmaan_stack.api.invoices.approve_vendor_invoice import approve_vendor_invoice
 
 
 class _Row(dict):
@@ -120,6 +134,186 @@ class TestBuildLineMappingRows(unittest.TestCase):
         # Non-dict entries are skipped.
         rows = build_line_mapping_rows(json.dumps({"mappings": ["junk", {"description": "ok", "status": "unmatched"}]}), PO())
         self.assertEqual(len(rows), 1)
+
+
+def _raw(doctype, **fields):
+    """A parent row with only the fields the endpoint reads, skipping hooks/validation."""
+    d = frappe.new_doc(doctype)
+    d.update(fields)
+    d.name = "TEST-SPLIT-" + frappe.generate_hash(length=10)
+    d.db_insert()
+    return d.name
+
+
+class TestInvoiceSplitFigures(FrappeTestCase):
+    def setUp(self):
+        self.po = _raw("Procurement Orders", total_amount=1_000_000)
+        self.wo_gst_on = _raw("Service Requests", total_amount=1_000_000, gst="true")
+        self.wo_gst_off = _raw("Service Requests", total_amount=1_000_000, gst="false")
+        frappe.db.commit()
+        self.addCleanup(self._purge)
+
+    def _purge(self):
+        frappe.db.rollback()
+        parents = (self.po, self.wo_gst_on, self.wo_gst_off)
+        frappe.db.delete("Vendor Invoices", {"document_name": ("in", parents)})
+        frappe.db.delete("Procurement Orders", {"name": self.po})
+        frappe.db.delete("Service Requests", {"name": ("in", parents[1:])})
+        frappe.db.commit()
+
+    def _save(self, parent, invoice_id=None, **invoice):
+        extra = invoice.pop("_extra", None) or {}
+        data = {"invoice_no": "T-" + frappe.generate_hash(length=8), "date": nowdate()}
+        data.update(invoice)
+        return update_invoice_data(
+            docname=parent,
+            invoice_data=json.dumps(data),
+            isSR=parent != self.po,
+            invoice_id=invoice_id,
+            **extra,
+        )
+
+    def _stored(self, name):
+        return frappe.db.get_value(
+            "Vendor Invoices",
+            name,
+            ["invoice_amount", "invoice_base_amount", "invoice_gst_amount",
+             "autofill_extracted_base_amount", "autofill_extracted_gst_amount"],
+            as_dict=True,
+        )
+
+    def _count(self, parent):
+        return frappe.db.count("Vendor Invoices", {"document_name": parent})
+
+    # ------------------------------------------------------------------ stored
+
+    def test_po_invoice_stores_base_and_gst(self):
+        res = self._save(self.po, amount=59000, base_amount=50000, gst_amount=9000)
+        self.assertEqual(res["status"], 200, res)
+        row = self._stored(res["data"]["vendor_invoice_id"])
+        self.assertEqual(flt(row.invoice_amount), 59000)
+        self.assertEqual(flt(row.invoice_base_amount), 50000)
+        self.assertEqual(flt(row.invoice_gst_amount), 9000)
+        self.assertEqual(res["warnings"], [])
+
+    def test_wo_invoice_stores_base_and_gst(self):
+        res = self._save(self.wo_gst_on, amount=1180, base_amount="1,000", gst_amount="180")
+        self.assertEqual(res["status"], 200, res)
+        row = self._stored(res["data"]["vendor_invoice_id"])
+        self.assertEqual(flt(row.invoice_base_amount), 1000)
+        self.assertEqual(flt(row.invoice_gst_amount), 180)
+
+    def test_zero_gst_is_accepted(self):
+        res = self._save(self.wo_gst_off, amount=1000, base_amount=1000, gst_amount=0)
+        self.assertEqual(res["status"], 200, res)
+        self.assertEqual(flt(self._stored(res["data"]["vendor_invoice_id"]).invoice_gst_amount), 0)
+
+    def test_ai_read_split_is_kept_beside_the_confirmed_figures(self):
+        res = self._save(
+            self.po, amount=59000, base_amount=50000, gst_amount=9000,
+            _extra={
+                "autofill_used": True,
+                "autofill_extracted_base_amount": "49000",
+                "autofill_extracted_gst_amount": "8820",
+            },
+        )
+        self.assertEqual(res["status"], 200, res)
+        row = self._stored(res["data"]["vendor_invoice_id"])
+        self.assertEqual(flt(row.invoice_base_amount), 50000)       # what the user confirmed
+        self.assertEqual(flt(row.autofill_extracted_base_amount), 49000)  # what the AI read
+        self.assertEqual(flt(row.autofill_extracted_gst_amount), 8820)
+
+    # ------------------------------------------------------------------ required on create
+
+    def test_create_without_base_is_refused(self):
+        res = self._save(self.po, amount=59000, gst_amount=9000)
+        self.assertEqual(res["status"], 400)
+        self.assertIn("Invoice Base Amount", res["message"])
+        self.assertEqual(self._count(self.po), 0)
+
+    def test_create_with_blank_gst_is_refused(self):
+        res = self._save(self.wo_gst_on, amount=1180, base_amount=1000, gst_amount="")
+        self.assertEqual(res["status"], 400)
+        self.assertIn("Invoice GST Amount", res["message"])
+        self.assertNotIn("Invoice Base Amount", res["message"])
+        self.assertEqual(self._count(self.wo_gst_on), 0)
+
+    def test_split_is_not_reqd_so_an_old_invoice_stays_approvable(self):
+        """Required at upload only. An invoice saved before the split existed carries none,
+        and must still pass the document layer and the approve endpoint."""
+        meta = frappe.get_meta("Vendor Invoices")
+        for field in ("invoice_base_amount", "invoice_gst_amount"):
+            self.assertFalse(meta.get_field(field).reqd, field)
+        old = frappe.get_doc({
+            "doctype": "Vendor Invoices",
+            "document_type": "Service Requests",
+            "document_name": self.wo_gst_on,
+            "invoice_no": "OLD-" + frappe.generate_hash(length=6),
+            "invoice_date": nowdate(),
+            "invoice_amount": 1180,
+            "status": "Pending",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        res = approve_vendor_invoice(old.name, "Approved")
+        self.assertEqual(res["status"], 200, res)
+        self.assertEqual(frappe.db.get_value("Vendor Invoices", old.name, "status"), "Approved")
+
+    # ------------------------------------------------------------------ warnings
+
+    def test_split_more_than_5_off_the_total_warns_but_saves(self):
+        res = self._save(self.po, amount=59000, base_amount=50000, gst_amount=8990)  # gap 10
+        self.assertEqual(res["status"], 200, res)
+        self.assertEqual(len(res["warnings"]), 1)
+        self.assertIn("away from the Invoice Amount", res["warnings"][0])
+        self.assertEqual(self._count(self.po), 1)
+
+    def test_split_within_5_of_the_total_is_silent(self):
+        res = self._save(self.po, amount=59004, base_amount=50000, gst_amount=9000)  # round-off 4
+        self.assertEqual(res["status"], 200, res)
+        self.assertEqual(res["warnings"], [])
+
+    def test_gst_on_a_gst_off_work_order_warns_but_saves(self):
+        res = self._save(self.wo_gst_off, amount=1180, base_amount=1000, gst_amount=180)
+        self.assertEqual(res["status"], 200, res)
+        self.assertEqual(len(res["warnings"]), 1)
+        self.assertIn("GST off", res["warnings"][0])
+        self.assertEqual(self._count(self.wo_gst_off), 1)
+
+    def test_gst_on_a_gst_on_work_order_is_silent(self):
+        res = self._save(self.wo_gst_on, amount=1180, base_amount=1000, gst_amount=180)
+        self.assertEqual(res["warnings"], [])
+
+    # ------------------------------------------------------------------ credit note
+
+    def test_credit_note_stores_base_and_gst_negative(self):
+        res = self._save(
+            self.po, amount=-1180, base_amount=1000, gst_amount=180, is_credit_note=1,
+        )
+        self.assertEqual(res["status"], 200, res)
+        row = self._stored(res["data"]["vendor_invoice_id"])
+        self.assertEqual(flt(row.invoice_amount), -1180)
+        self.assertEqual(flt(row.invoice_base_amount), -1000)
+        self.assertEqual(flt(row.invoice_gst_amount), -180)
+        self.assertEqual(res["warnings"], [])
+
+    # ------------------------------------------------------------------ edit
+
+    def test_edit_changes_base_and_gst(self):
+        name = self._save(self.po, amount=59000, base_amount=50000, gst_amount=9000)["data"]["vendor_invoice_id"]
+        res = self._save(self.po, invoice_id=name, amount=59000, base_amount=50001, gst_amount=8999)
+        self.assertEqual(res["status"], 200, res)
+        row = self._stored(name)
+        self.assertEqual(flt(row.invoice_base_amount), 50001)
+        self.assertEqual(flt(row.invoice_gst_amount), 8999)
+
+    def test_edit_without_the_split_keys_leaves_them_untouched(self):
+        """An older client edits only number/date/amount; the stored split must survive."""
+        name = self._save(self.po, amount=59000, base_amount=50000, gst_amount=9000)["data"]["vendor_invoice_id"]
+        res = self._save(self.po, invoice_id=name, amount=59000)
+        self.assertEqual(res["status"], 200, res)
+        row = self._stored(name)
+        self.assertEqual(flt(row.invoice_base_amount), 50000)
+        self.assertEqual(flt(row.invoice_gst_amount), 9000)
 
 
 if __name__ == "__main__":

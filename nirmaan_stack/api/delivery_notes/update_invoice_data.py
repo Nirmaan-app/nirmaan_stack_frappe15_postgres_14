@@ -20,6 +20,7 @@ from nirmaan_stack.api.invoices._auto_approve import (
     evaluate_auto_approve_eligibility,
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+from nirmaan_stack.services import invoice_amounts
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin as _is_nirmaan_admin
 
 
@@ -42,6 +43,8 @@ def update_invoice_data(
     autofill_line_match_json: str = None,
     autofill_source_file_url: str = None,
     rebuild_line_mappings: bool = False,
+    autofill_extracted_base_amount: str = None,
+    autofill_extracted_gst_amount: str = None,
 ):
     """
     Creates or updates an invoice entry for a document (PO or SR).
@@ -52,7 +55,10 @@ def update_invoice_data(
 
     Args:
         docname (str): The name of the Procurement Order or Service Request document.
-        invoice_data (str): JSON string containing the invoice details (invoice_no, amount, date).
+        invoice_data (str): JSON string containing the invoice details (invoice_no, amount, date,
+            base_amount, gst_amount). `base_amount` / `gst_amount` are the Invoice Base Amount and
+            Invoice GST Amount (ADR-0030): REQUIRED on create; on edit they are written only when
+            the keys are present, so an older client's edit leaves the stored split alone.
         invoice_attachment (str, optional): URL of the uploaded invoice attachment. Defaults to None.
         isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
         invoice_id (str, optional): The name of the existing Vendor Invoice to update.
@@ -65,9 +71,12 @@ def update_invoice_data(
         autofill_extracted_amount (str, optional): Original total amount value AI extracted.
         autofill_all_entities_json (str, optional): JSON array of every entity the extractor returned
             ({type, value, confidence}). Used by the recon UI to surface the full AI extraction.
+        autofill_extracted_base_amount / autofill_extracted_gst_amount (str, optional): the base and
+            GST figures the AI read, kept beside the confirmed ones for the approval screen.
 
     Returns:
-        dict: Success response with invoice details or error message.
+        dict: Success response with invoice details or error message. A success carries
+        `warnings` (a list of strings): soft checks on the figures that did NOT block the save.
     """
     doctype = "Service Requests" if isSR else "Procurement Orders"
 
@@ -83,6 +92,22 @@ def update_invoice_data(
             frappe.throw(f"Invalid JSON format provided for invoice_data: {invoice_data}")
         except ValueError as ve:
             frappe.throw(str(ve))
+
+        # Invoice Base Amount + Invoice GST Amount are required on upload (PO and WO alike).
+        # Enforced here, not as a doctype `reqd`, so an older invoice without them stays
+        # approvable. An edit writes them only when the client sent the keys.
+        is_credit_note = bool(new_invoice_entry_data.get("is_credit_note"))
+        split = {
+            field: invoice_amounts.signed(new_invoice_entry_data.get(key), is_credit_note)
+            for key, field in (("base_amount", "invoice_base_amount"), ("gst_amount", "invoice_gst_amount"))
+            if key in new_invoice_entry_data or not invoice_id
+        }
+        if not invoice_id:
+            missing = invoice_amounts.missing_split(
+                new_invoice_entry_data.get("base_amount"), new_invoice_entry_data.get("gst_amount")
+            )
+            if missing:
+                frappe.throw(f"Enter the {' and the '.join(missing)} from the bill.")
 
         # Hard-block future-dated invoices. Unlike the overage check below this
         # applies to Service Requests too, and to edits as well as creates —
@@ -142,6 +167,7 @@ def update_invoice_data(
                     "invoice_date": new_invoice_entry_data.get("date"),
                     "invoice_amount": new_invoice_entry_data.get("amount"),
                     "is_credit_note": 1 if new_invoice_entry_data.get("is_credit_note") else 0,
+                    **split,
                 })
 
                 # If a new attachment was provided, update it
@@ -198,6 +224,7 @@ def update_invoice_data(
                 vendor_invoice = create_vendor_invoice(
                     parent_doc=doc,
                     invoice_data=new_invoice_entry_data,
+                    split=split,
                     attachment_id=attachment_id,
                     autofill_used=autofill_used,
                     autofill_processor_id=resolved_processor_id,
@@ -210,6 +237,8 @@ def update_invoice_data(
                     autofill_all_entities_json=autofill_all_entities_json,
                     autofill_line_items_json=autofill_line_items_json,
                     autofill_line_match_json=autofill_line_match_json,
+                    autofill_extracted_base_amount=autofill_extracted_base_amount,
+                    autofill_extracted_gst_amount=autofill_extracted_gst_amount,
                 )
 
                 # Auto-approve evaluation. Fires inline on fresh inserts (never
@@ -260,10 +289,20 @@ def update_invoice_data(
         # --- Commit Transaction ---
         frappe.db.commit()
 
+        # Soft checks on the figures AS STORED (an edit that sent no split is judged on
+        # the split already on the invoice). Reported, never blocking.
+        warnings = invoice_amounts.split_warnings(
+            vendor_invoice.invoice_amount,
+            vendor_invoice.invoice_base_amount,
+            vendor_invoice.invoice_gst_amount,
+            gst_off_work_order=doctype == "Service Requests" and doc.get("gst") == "false",
+        )
+
         action_label = "updated" if invoice_id else "created"
         return {
             "status": 200,
             "message": f"Successfully {action_label} invoice {vendor_invoice.name} for {docname}",
+            "warnings": warnings,
             "data": {
                 "vendor_invoice_id": vendor_invoice.name,
                 "invoice_no": new_invoice_entry_data.get("invoice_no"),
@@ -383,6 +422,7 @@ def create_vendor_invoice(
     parent_doc: Document,
     invoice_data: dict,
     attachment_id: Optional[str],
+    split: Optional[dict] = None,
     autofill_used: bool = False,
     autofill_processor_id: Optional[str] = None,
     autofill_confidence_json: Optional[str] = None,
@@ -394,6 +434,8 @@ def create_vendor_invoice(
     autofill_all_entities_json: Optional[str] = None,
     autofill_line_items_json: Optional[str] = None,
     autofill_line_match_json: Optional[str] = None,
+    autofill_extracted_base_amount: Optional[str] = None,
+    autofill_extracted_gst_amount: Optional[str] = None,
 ) -> Document:
     """
     Creates a new Vendor Invoices document.
@@ -402,6 +444,7 @@ def create_vendor_invoice(
         parent_doc: The parent PO or SR document
         invoice_data: Dict with invoice_no, amount, date
         attachment_id: Nirmaan Attachments document name (optional)
+        split: {invoice_base_amount, invoice_gst_amount}, already signed for a credit note
         autofill_used: Whether this invoice was prefilled via document autofill
         autofill_processor_id: Extractor model id (gemini_model) used for extraction
         autofill_confidence_json: JSON string of per-field confidence scores
@@ -449,12 +492,15 @@ def create_vendor_invoice(
         "autofill_extracted_invoice_no": autofill_extracted_invoice_no if autofill_used else None,
         "autofill_extracted_invoice_date": autofill_extracted_invoice_date if autofill_used else None,
         "autofill_extracted_amount": autofill_extracted_amount if autofill_used else None,
+        "autofill_extracted_base_amount": autofill_extracted_base_amount if autofill_used else None,
+        "autofill_extracted_gst_amount": autofill_extracted_gst_amount if autofill_used else None,
         "autofill_extracted_supplier_gstin": autofill_extracted_supplier_gstin if autofill_used else None,
         "autofill_extracted_receiver_gstin": autofill_extracted_receiver_gstin if autofill_used else None,
         "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
         "autofill_line_items_json": autofill_line_items_json if autofill_used else None,
         "autofill_line_match_json": autofill_line_match_json if autofill_used else None,
         "line_mappings": line_mapping_rows,
+        **(split or {}),
     })
     invoice.insert(ignore_permissions=True)
 

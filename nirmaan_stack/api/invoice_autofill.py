@@ -34,9 +34,11 @@ INVOICE_DATE_KEYS = ("invoice_date",)
 # tax-inclusive total. If the model misses total_amount, leave it blank.
 AMOUNT_KEYS = ("total_amount",)
 # `net_amount` (pre-tax subtotal) — surfaced separately for forms that have
-# a distinct "Amount (Excl. GST)" field (currently Project Invoices).
+# a distinct "Amount (Excl. GST)" field: Project Invoices, and the Vendor Invoice's
+# Invoice Base Amount (returned again as `base_amount`, ADR-0030).
 NET_AMOUNT_KEYS = ("net_amount",)
-# Validation-only entities — used to reconcile amounts, never populated into the form.
+# `total_tax_amount` (all GST on the bill) — the Vendor Invoice's Invoice GST Amount
+# (`gst_amount`), and an input to the amount reconciliation below.
 TAX_KEYS = ("total_tax_amount",)
 ROUND_OFF_KEYS = ("round_off",)
 OTHER_CHARGES_KEYS = ("other_charges",)
@@ -45,7 +47,7 @@ TCS_KEYS = ("tcs_amount",)
 
 @frappe.whitelist()
 def extract_invoice_fields(file_url, docname=None):
-    """Extract invoice number, date, total amount and line items from an invoice.
+    """Extract invoice number, date, total, base + GST amounts and line items.
 
     Called from the Add Invoice dialog when the user picks a file in Auto-fill
     mode. Extracted values populate the form; a deterministic validation layer
@@ -86,8 +88,8 @@ def extract_invoice_fields(file_url, docname=None):
     net_amount, net_amount_conf = pick_entity(entities, NET_AMOUNT_KEYS, prefer_normalized=True)
     supplier_gstin, _ = pick_entity(entities, ("supplier_gstin",))
     receiver_gstin, _ = pick_entity(entities, ("receiver_gstin",))
+    tax_amount, tax_amount_conf = pick_entity(entities, TAX_KEYS, prefer_normalized=True)
     # Validation-only picks (not returned as form fields).
-    tax_amount, _ = pick_entity(entities, TAX_KEYS, prefer_normalized=True)
     round_off, _ = pick_entity(entities, ROUND_OFF_KEYS, prefer_normalized=True)
     other_charges, _ = pick_entity(entities, OTHER_CHARGES_KEYS, prefer_normalized=True)
     tcs_amount, _ = pick_entity(entities, TCS_KEYS, prefer_normalized=True)
@@ -108,6 +110,7 @@ def extract_invoice_fields(file_url, docname=None):
 
     normalized_amount = normalize_amount(amount) if amount_conf >= MIN_CONFIDENCE else ""
     normalized_net_amount = normalize_amount(net_amount) if net_amount_conf >= MIN_CONFIDENCE else ""
+    normalized_tax_amount = normalize_amount(tax_amount) if tax_amount_conf >= MIN_CONFIDENCE else ""
     validation = _build_validation(
         file_doc,
         normalized_amount,
@@ -147,6 +150,10 @@ def extract_invoice_fields(file_url, docname=None):
         "invoice_date": normalize_date(invoice_date) if invoice_date_conf >= MIN_CONFIDENCE else "",
         "amount": normalized_amount,
         "net_amount": normalized_net_amount,
+        # Invoice Base Amount / Invoice GST Amount for the Vendor Invoice form
+        # (ADR-0030). Pre-filled beside `amount`, never summed into it.
+        "base_amount": normalized_net_amount,
+        "gst_amount": normalized_tax_amount,
         # Surface the raw extracted GSTINs so the frontend can persist them to
         # the Vendor Invoice on submit (auto-approve gates 6 & 7 read them).
         "supplier_gstin": (supplier_gstin or "").strip(),
@@ -156,6 +163,8 @@ def extract_invoice_fields(file_url, docname=None):
             "invoice_date": round(invoice_date_conf, 3),
             "amount": round(amount_conf, 3),
             "net_amount": round(net_amount_conf, 3),
+            "base_amount": round(net_amount_conf, 3),
+            "gst_amount": round(tax_amount_conf, 3),
         },
         "entities": all_entities,
         "line_items": line_items,
