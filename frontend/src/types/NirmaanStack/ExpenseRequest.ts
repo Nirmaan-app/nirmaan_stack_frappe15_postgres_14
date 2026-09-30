@@ -38,6 +38,9 @@ export interface ExpenseRequest {
   /** Whether THIS caller may edit THIS row — server-computed, and DISJOINT from
    *  `can_review`. Never re-derive it. */
   can_edit?: boolean;
+  /** Whether THIS caller may delete THIS row -- Rejected only, requester or Admin.
+   *  Server-computed (`delete.can_delete`). Never re-derive it. */
+  can_delete?: boolean;
   /** The format answers, labelled. Built by the SAME walk that writes the ledger
    *  description, so the approval screen and the expense cannot describe it differently. */
   detail?: { label: string; value: string }[];

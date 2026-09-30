@@ -44,6 +44,7 @@ import type {
 
 import NewExpenseRequestDialog from "./components/NewExpenseRequestDialog";
 import ReviewActionDialog, { ReviewAction } from "./components/ReviewActionDialog";
+import DeleteRequestDialog from "./components/DeleteRequestDialog";
 import { getExpenseRequestColumns } from "./config/expenseRequestsColumns";
 import {
     DEFAULT_EXR_FIELDS_TO_FETCH, EXR_DATE_COLUMNS, EXR_RAISED_BY_ME, EXR_SEARCHABLE_FIELDS,
@@ -148,6 +149,22 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
     }, [scopedByName]);
     const canEdit = useCallback((name: string) => editable.has(name), [editable]);
 
+    // Server-computed -- see `delete.can_delete`: Rejected rows only, requester or Admin.
+    const deletable = useMemo(() => {
+        const s = new Set<string>();
+        scopedByName.forEach((r, name) => { if (r.can_delete) s.add(name); });
+        return s;
+    }, [scopedByName]);
+    const canDelete = useCallback((name: string) => deletable.has(name), [deletable]);
+    const [deleting, setDeleting] = useState<ExpenseRequest | null>(null);
+
+    // The request's answers, labelled by its own form -- the same `detail` the approval
+    // dialog renders -- for the Request ID hover card.
+    const getDetail = useCallback(
+        (name: string) => scopedByName.get(name)?.detail,
+        [scopedByName]
+    );
+
     // MERGED, not either-or. The TABLE row carries no `source_data` (the dialog would open with
     // every format answer blank and save that), while the ENRICHED row carries no
     // `projects_name` -- that label is injected by the data-table layer, and the dialog needs it
@@ -191,12 +208,13 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
 
     const columnsDefinition = useMemo(
         () => getExpenseRequestColumns({
-            statusTab, getUserName, getCategory, canReview, canEdit,
+            statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail,
             onApprove: (r) => setReview({ action: "approve", request: r }),
             onReject: (r) => setReview({ action: "reject", request: r }),
             onEdit: openEdit,
+            onDelete: setDeleting,
         }),
-        [statusTab, getUserName, getCategory, canReview, canEdit, openEdit]
+        [statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, openEdit]
     );
 
     const {
@@ -273,6 +291,11 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
                 enriched={review.request ? scopedByName.get(review.request.name) ?? null : null}
                 getUserName={getUserName}
                 onOpenChange={(o) => !o && setReview({ action: null, request: null })}
+                onDone={refreshAll}
+            />
+            <DeleteRequestDialog
+                request={deleting}
+                onOpenChange={(o) => !o && setDeleting(null)}
                 onDone={refreshAll}
             />
         </div>
