@@ -228,6 +228,15 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                 <p className="text-sm font-medium text-blue-600">
                   {formatToIndianRupee(orderData?.amount_invoiced || 0)}
                 </p>
+                {/* GST Invoiced (ADR-0030): GST on the approved invoices, not GST paid. */}
+                {(gstEnabled || !!orderData?.gst_invoiced) && (
+                  <p className="text-[11px] text-gray-500">
+                    GST Invoiced{" "}
+                    <span className="font-medium text-gray-700 tabular-nums">
+                      {formatToIndianRupee(orderData?.gst_invoiced || 0)}
+                    </span>
+                  </p>
+                )}
               </div>
 
               {/* Amount Paid — gross: what left the order, tax included */}

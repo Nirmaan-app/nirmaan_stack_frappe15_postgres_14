@@ -40,7 +40,6 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { usePOValidation } from "@/hooks/usePOValidation";
-import { useStateSyncedWithParams } from "@/hooks/useSearchParamsManager";
 import { useUserData } from "@/hooks/useUserData";
 import { PODetails } from "@/pages/ProcurementOrders/purchase-order/components/PODetails";
 import { POPdf } from "./components/POPdf";
@@ -88,6 +87,7 @@ import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
@@ -108,17 +108,9 @@ import {
   type MergeIncompatibility,
 } from "./merge";
 
-interface PurchaseOrderProps {
-  summaryPage?: boolean;
-  accountsPage?: boolean;
-}
 
-export const PurchaseOrder = ({
-  summaryPage = false,
-  accountsPage = false,
-}: PurchaseOrderProps) => {
-  const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
 
+export const PurchaseOrder = () => {
   const userData = useUserData();
   // Billing Executive mirrors Estimates Executive's view-only PO treatment (minus pricing).
   const estimatesViewing = useMemo(
@@ -136,8 +128,10 @@ export const PurchaseOrder = ({
 
   const navigate = useNavigate();
   const params = useParams();
-  const id = summaryPage ? params.poId : params.id;
-  // console.log("ID",id,params)
+  // Every route that reaches this page names the PO either `:poId` (the project / vendor / PR
+  // summary routes) or `:id` (the PO list and /project-payments). Read both, so the ENTRY PATH no
+  // longer has to be announced through a prop -- passing the wrong one rendered "No PO ID Provided".
+  const id = params.poId ?? params.id;
 
   if (!id) return <div>No PO ID Provided</div>;
 
@@ -652,10 +646,21 @@ export const PurchaseOrder = ({
     [usersList]
   );
 
+  // Merge carries no role list of its own: it leaned on `!summaryPage && !accountsPage`, which kept
+  // it to the PO LIST -- a door a Project Manager, a Sales user or a Service Procurement Exec cannot
+  // open. Once the entry-path flags went, merge fell to anyone who can reach a PO from a project
+  // page. It is a material-procurement action that rewrites POs, so it takes the same list as
+  // Dispatch, Revert and Delete Custom PO.
+  const canMergePO = [
+    ...MATERIAL_PROCUREMENT_PROFILES,
+    "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Project Lead Profile",
+  ].includes(userData?.role || "");
+
   const MERGEPOVALIDATIONS = useMemo(
     () =>
-      !summaryPage &&
-      !accountsPage &&
+      canMergePO &&
       PO?.custom != "true" &&
       !estimatesViewing &&
       !isAccountant &&
@@ -663,7 +668,7 @@ export const PurchaseOrder = ({
       PO?.merged !== "true" &&
       !((poPayments || [])?.length > 0) &&
       mergeablePOs.length > 0,
-    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
+    [PO, mergeablePOs, poPayments, canMergePO, estimatesViewing, isAccountant]
   );
 
   const mergeConditions = useMemo(() => [
@@ -674,18 +679,6 @@ export const PurchaseOrder = ({
     { label: "Not Locked", met: !isItemLocked },
     { label: "Matches Found", met: mergeablePOs.length > 0, detail: `${mergeablePOs.length}` },
   ], [PO, poPayments, isItemLocked, mergeablePOs]);
-
-  const CANCELPOVALIDATION = useMemo(
-    () =>
-      !summaryPage &&
-      !accountsPage &&
-      !PO?.custom &&
-      !estimatesViewing &&
-      !isAccountant &&
-      ["PO Approved"].includes(PO?.status) &&
-      !((poPayments || []).length > 0),
-    [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
-  );
 
   const totalInvoiceAmount = useMemo(
     () =>
@@ -754,41 +747,10 @@ export const PurchaseOrder = ({
         }
       />
     );
-  if (
-    !summaryPage &&
-    !accountsPage &&
-    tab === "Approved PO" &&
-    !estimatesViewing &&
-    !["PO Approved"].includes(PO?.status || "")
-  )
-    return (
-      <div className="flex items-center justify-center h-[90vh]">
-        <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-800">Heads Up!</h2>
-          <p className="text-gray-600 text-lg">
-            Hey there, the Purchase Order:{" "}
-            <span className="font-medium text-gray-900">{PO?.name}</span> is no
-            longer available in <span className="italic">PO Approved</span>{" "}
-            state. The current state is{" "}
-            <span className="font-semibold text-blue-600">{PO?.status}</span>{" "}
-            And the last modification was done by{" "}
-            <span className="font-medium text-gray-900">
-              {PO?.modified_by === "Administrator"
-                ? "Administrator"
-                : getUserName(PO?.modified_by)}
-            </span>
-            !
-          </p>
-          <button
-            className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => { invalidateSidebarCounts(); navigate("/purchase-orders?tab=Approved%20PO"); }}
-          >
-            Go Back
-          </button>
-        </div>
-      </div>
-    );
-
+  // The doc has arrived but `PO` is local state filled by an effect, which runs AFTER this render.
+  // Without this the page paints one frame with `PO === null`, and PODetails renders its empty
+  // state -- a flash of "No PO ID Provided" on a PO that is loading perfectly well.
+  if (!PO) return <LoadingFallback />;
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
@@ -1017,8 +979,7 @@ export const PurchaseOrder = ({
       <PODetails
         po={PO}
         toggleRequestPaymentDialog={toggleRequestPaymentDialog}
-        summaryPage={summaryPage}
-        accountsPage={accountsPage}
+
         estimatesViewing={estimatesViewing}
         poPayments={poPayments}
         togglePoPdfSheet={togglePoPdfSheet}
@@ -1058,9 +1019,8 @@ export const PurchaseOrder = ({
               <AccordionContent>
                 <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
                   <TransactionDetailsCard
-                    accountsPage={accountsPage}
                     estimatesViewing={estimatesViewing}
-                    summaryPage={summaryPage}
+
                     PO={PO}
                     getTotal={PO?.total_amount}
                     amountPaid={PO?.amount_paid}
@@ -1070,9 +1030,8 @@ export const PurchaseOrder = ({
                   />
 
                   <POPaymentTermsCard
-                    accountsPage={accountsPage}
                     estimatesViewing={estimatesViewing}
-                    summaryPage={summaryPage}
+                
                     PO={PO}
                     getTotal={PO?.total_amount}
                     poMutate={poMutate}
@@ -1349,19 +1308,10 @@ export const PurchaseOrder = ({
           </div>
         </CardContent>
       </Card>
-      {/* Cancel PO Button */}
+      {/* The Cancel PO BUTTON lives in PODetails' action row; this block keeps only its dialog.
+          Both used to render, so the PO list door showed Cancel twice. */}
       <div className="flex items-center justify-end">
         <div className="flex gap-2 items-center justify-end">
-          {CANCELPOVALIDATION && (
-            <Button
-              onClick={toggleCancelPODialog}
-              variant={"outline"}
-              className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
-            >
-              <X className="w-4 h-4" />
-              Cancel PO
-            </Button>
-          )}
 
           <AlertDialog
             open={cancelPODialog}

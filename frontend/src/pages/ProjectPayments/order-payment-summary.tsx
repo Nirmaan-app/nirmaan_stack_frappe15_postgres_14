@@ -1656,7 +1656,7 @@ const OrderPaymentSummary = () => {
     const isPO = poId?.split("/")[0] === "PO";
 
   if (isPO) {
-    return <Suspense fallback={null}><PurchaseOrder accountsPage={true} /></Suspense>
+    return <Suspense fallback={null}><PurchaseOrder /></Suspense>
   } else {
     return <Suspense fallback={null}><ApprovedSR accountsPage={true} /></Suspense>
   }

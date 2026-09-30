@@ -40,6 +40,7 @@ import {
   getTenderingStaticFilters,
 } from "@/pages/projects/config/projectTable.config";
 import { canManageTendering } from "./tenderingAuth";
+import { CopyProjectLinkMenuItem } from "@/components/common/CopyProjectLink";
 import {
   useDeleteTenderingProject,
   useMarkTenderingProjectLost,
@@ -176,6 +177,7 @@ const TenderingRowActions: React.FC<{
               Edit
             </DropdownMenuItem>
           )}
+          <CopyProjectLinkMenuItem projectId={project.name} />
           {!isLost && (
             <DropdownMenuItem
               className="text-rose-700 focus:text-rose-800"

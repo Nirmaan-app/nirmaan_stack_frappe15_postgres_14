@@ -18,6 +18,7 @@
  */
 
 import { statusAfterL1 } from "@/utils/approvalTiers";
+import { isGstPayment } from "./paymentKind";
 import { parseNumber } from "@/utils/parseNumber";
 import { safeJsonParse } from "@/utils/safeJsonParse";
 
@@ -80,16 +81,18 @@ const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 
 /**
  * Is this payment one that will be deducted from at all?
  *
- * Three facts, and each maps to a `null` return from the server's own path: a non-SR parent is
- * outside `DEDUCTIBLE_PARENTS`, a blank or zero vendor rate makes `vendor_rate` answer `None`, and
- * a non-positive amount has nothing to withhold from (a refund is a real, common document here).
+ * Four facts, and each maps to a `null` return from the server's own path: a GST payment is
+ * refused by `payment_tds.is_deductible`, a non-SR parent is outside `DEDUCTIBLE_PARENTS`, a blank
+ * or zero vendor rate makes `vendor_rate` answer `None`, and a non-positive amount has nothing to
+ * withhold from (a refund is a real, common document here).
  */
 export const isDeductible = (
 	documentType: string | undefined | null,
 	amount: number,
-	ratePct: number
+	ratePct: number,
+	gstPayment = false
 ): boolean =>
-	(documentType || "").trim() === TDS_PARENT_DOCTYPE && amount > 0 && ratePct > 0;
+	!gstPayment && (documentType || "").trim() === TDS_PARENT_DOCTYPE && amount > 0 && ratePct > 0;
 
 /**
  * The forecast for ONE payment, or `null` when nothing will be withheld.
@@ -109,11 +112,13 @@ export const forecastTds = (
 	amount: number | string | undefined | null,
 	ratePct: number | string | undefined | null,
 	/** The Work Order is company-borne (`isCompanyBorneWorkOrder`): the payment is not reduced. */
-	companyBorne = false
+	companyBorne = false,
+	/** A GST payment (`isGstPayment`): never taxed, so there is no forecast at all. */
+	gstPayment = false
 ): TdsForecast | null => {
 	const gross = parseNumber(amount);
 	const rate = parseNumber(ratePct);
-	if (!isDeductible(documentType, gross, rate)) return null;
+	if (!isDeductible(documentType, gross, rate, gstPayment)) return null;
 
 	const tds = round2((gross * rate) / 100);
 	// The server refuses a deduction that swallows the whole payment, and so does this: a net of
@@ -156,7 +161,9 @@ export interface TdsTotals {
  * Roll a bulk selection up. Payments that are not deducted from contribute NOTHING — not even to
  * `gross` — so the three figures always describe the same subset and can be read as one sentence.
  */
-export const forecastTdsTotals = <T extends { document_type?: string; amount?: number | string }>(
+export const forecastTdsTotals = <
+	T extends { document_type?: string; amount?: number | string; is_gst_payment?: unknown },
+>(
 	rows: ReadonlyArray<T>,
 	// Generic in the row so a caller can look the rate up from any field it holds (`vendor`,
 	// today) without this module needing to know the shape of a payment.
@@ -170,7 +177,7 @@ export const forecastTdsTotals = <T extends { document_type?: string; amount?: n
 	let net = 0;
 	for (const row of rows) {
 		const borne = companyBorneFor(row);
-		const f = forecastTds(row.document_type, row.amount, rateFor(row), borne);
+		const f = forecastTds(row.document_type, row.amount, rateFor(row), borne, isGstPayment(row));
 		if (!f) continue;
 		count += 1;
 		tds = round2(tds + f.tds);

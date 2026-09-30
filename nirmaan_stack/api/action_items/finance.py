@@ -14,6 +14,17 @@ def format_rupee(val):
     except:
         return ""
 
+# Payments and both expense ledgers are settled in ONE queue since the unified-approvals merge:
+# /project-payments "Payment need to paid" (tab VALUE "New Payments" = status Approved, the same
+# filter as below). The search params pre-filter that table to the clicked record; the key prefix
+# is AccountantTabs' urlSyncKey (`acct_pay_` + tab, lower_snake).
+def settle_queue_link(record_name):
+    return "/project-payments?" + urllib.parse.urlencode({
+        "tab": "New Payments",
+        "acct_pay_new_payments_searchBy": "name",
+        "acct_pay_new_payments_q": record_name,
+    }, quote_via=urllib.parse.quote)
+
 @frappe.whitelist()
 def get_pending_finance_items():
     expenses = []
@@ -35,7 +46,7 @@ def get_pending_finance_items():
             "subtitle": e.get("vendor_name") or e.vendor,
             "amount": e.amount,
             "amount_str": format_rupee(e.amount),
-            "linkTo": "/expense/project",
+            "linkTo": settle_queue_link(e.name),
             "project": e.get("project_name") or e.projects,
         })
 
@@ -54,7 +65,7 @@ def get_pending_finance_items():
             "subtitle": e.description,
             "amount": e.amount,
             "amount_str": format_rupee(e.amount),
-            "linkTo": "/expense/non-project",
+            "linkTo": settle_queue_link(e.name),
             "project": "Non-Project",
         })
 
@@ -73,7 +84,7 @@ def get_pending_finance_items():
             "subtitle": p.get("vendor_name") or p.vendor,
             "amount": p.amount,
             "amount_str": format_rupee(p.amount),
-            "linkTo": f"/project-payments/{urllib.parse.quote(p.name)}",
+            "linkTo": settle_queue_link(p.name),
             "project": p.get("project_name") or p.project,
         })
 

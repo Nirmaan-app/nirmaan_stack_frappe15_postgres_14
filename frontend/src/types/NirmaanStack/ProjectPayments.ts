@@ -26,6 +26,11 @@ export interface ProjectPayments{
 	voucher_attachment?: string
 	/**	Amount : Data	*/
 	amount: number
+	/**
+	 * GST Payment : Check (set once, at creation) — 1 on a payment that pays a Work Order's GST only
+	 * (ADR-0030). Never taxed. Every older payment reads 0: a base payment.
+	 */
+	is_gst_payment?: 0 | 1
 	/**	Mode of Payment : Select - Online / Cheque (set once, at the request). Blank reads as Online. */
 	mode_of_payment?: "Online" | "Cheque" | ""
 	/**	Cheque No : Data — a cheque only; one cheque may cover several payments, so it is not unique */

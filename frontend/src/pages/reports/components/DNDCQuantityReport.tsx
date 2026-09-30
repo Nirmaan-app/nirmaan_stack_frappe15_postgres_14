@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Link } from "react-router-dom";
+import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
 import {
   ChevronRight,
   ChevronDown,
@@ -844,13 +844,13 @@ function DNDCQuantityReportContent({
                       )}
                     </TableCell>
                     <TableCell className="py-2 px-3 font-medium">
-                      <Link
-                        to={`/project-payments/${po.poNumber.replace(/\//g, "&=")}`}
+                      <OrderDetailLink
+                        docName={po.poNumber}
                         className="text-blue-600 hover:underline text-xs font-mono"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {po.poNumber}
-                      </Link>
+                      </OrderDetailLink>
                     </TableCell>
                     <TableCell className="py-2 px-3 text-sm text-muted-foreground">
                       {po.vendorName}

@@ -31,6 +31,7 @@ import frappe
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.payments.project_payments import ceo_approve_payment
+from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.payment_split import split_and_approve, split_payment, unsplit_payment
 
@@ -692,6 +693,69 @@ class TestSplitOnServiceRequests(PaymentSplitFixture):
         self.assertEqual(rem.document_type, "Service Requests")
         # The PO in this fixture is a bystander and must not have grown a row.
         self.assertEqual(len(self._terms()), 1)
+
+
+class TestACeoSplitKeepsThePaymentKind(unittest.TestCase):
+    """ADR-0030: the leftover of a CEO part-approval is a GST payment when the original was one,
+    and neither part is ever taxed. A taxed vendor (2%), so a missing check WOULD write a row."""
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self.fx = TaxedWorkOrderFixture.attach(self)
+        self.project = self.fx.project()
+        self.vendor = self.fx.vendor(2.0)
+        self.sr = self.fx.service_request(self.project, self.vendor)
+
+    def _plant(self, amount, *, gst):
+        name = self.fx._name("PAY")
+        frappe.db.sql(
+            """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
+                   docstatus, idx, project, vendor, amount, status, document_type, document_name,
+                   approval_date, is_gst_payment)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, 'CEO Pending',
+                       'Service Requests', %s, %s, %s)""",
+            (name, "Administrator", "Administrator", self.project, self.vendor, float(amount),
+             self.sr, nowdate(), 1 if gst else 0),
+        )
+        self.fx.payments.append(name)
+        frappe.db.commit()
+        return name
+
+    def _approve(self, name, amount=None):
+        frappe.set_user(CEO_AUTHORIZED_USER)
+        try:
+            ceo_approve_payment(name, amount)
+            frappe.db.commit()
+        finally:
+            frappe.set_user("Administrator")
+
+    def _row(self, name):
+        row = frappe.db.get_value(
+            PAYMENT, name, ["amount", "status", "is_gst_payment"], as_dict=True
+        )
+        taxed = frappe.db.count("Payment TDS Deduction", {"project_payment": name})
+        return row.status, flt(row.amount), row.is_gst_payment, taxed
+
+    def test_a_gst_payments_leftover_is_a_gst_payment_and_neither_part_is_taxed(self):
+        original = self._plant(50000, gst=True)
+        self._approve(original, 30000)
+
+        leftover = frappe.get_all(PAYMENT, filters={"split_from": original}, pluck="name")
+        self.assertEqual(len(leftover), 1)
+        self.assertEqual(self._row(original), ("Approved", 30000.0, 1, 0))
+        self.assertEqual(self._row(leftover[0]), ("CEO Pending", 20000.0, 1, 0))
+
+        # And the leftover's own approval later withholds nothing either.
+        self._approve(leftover[0])
+        self.assertEqual(self._row(leftover[0]), ("Approved", 20000.0, 1, 0))
+
+    def test_a_base_payments_leftover_stays_a_base_payment_and_is_taxed_as_before(self):
+        original = self._plant(50000, gst=False)
+        self._approve(original, 30000)
+
+        leftover = frappe.get_all(PAYMENT, filters={"split_from": original}, pluck="name")
+        self.assertEqual(self._row(original), ("Approved", 29400.0, 0, 1))
+        self.assertEqual(self._row(leftover[0]), ("CEO Pending", 20000.0, 0, 0))
 
 
 class TestEndpoint(PaymentSplitFixture):

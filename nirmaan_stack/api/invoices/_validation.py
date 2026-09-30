@@ -52,20 +52,25 @@ def gstin_match(extracted, expected, role):
     }
 
 
-def existing_invoiced_sum(po_name, exclude_invoice_id=None):
-    """Sum invoice_amount of Pending+Approved Vendor Invoices for a PO.
+# What the refusal calls each order whose Pending + Approved invoices are capped at its total.
+ORDER_TOTAL_LABEL = {"Procurement Orders": "PO", "Service Requests": "Work Order"}
+
+
+def existing_invoiced_sum(docname, exclude_invoice_id=None, doctype="Procurement Orders"):
+    """Sum invoice_amount of Pending+Approved Vendor Invoices on one order
+    (a Procurement Order, or a Work Order when `doctype` is "Service Requests").
 
     Optional `exclude_invoice_id` lets callers omit a specific invoice (e.g.
-    when re-checking against an invoice that was just inserted).
+    the invoice being edited, or one that was just inserted).
     """
     sql = """
         SELECT COALESCE(SUM(invoice_amount), 0) AS total
         FROM "tabVendor Invoices"
         WHERE document_type = %(doctype)s
-          AND document_name = %(po_name)s
+          AND document_name = %(docname)s
           AND status IN ('Pending', 'Approved')
     """
-    params = {"doctype": "Procurement Orders", "po_name": po_name}
+    params = {"doctype": doctype, "docname": docname}
     if exclude_invoice_id:
         sql += " AND name != %(exclude)s"
         params["exclude"] = exclude_invoice_id

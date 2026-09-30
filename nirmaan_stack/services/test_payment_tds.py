@@ -111,15 +111,16 @@ class TestPaymentTDS(FrappeTestCase):
 		super().tearDown()
 
 	# -- helpers ---------------------------------------------------------------------------
-	def _pay(self, amount, status="Approved", parent_dt=SR, parent=None, vendor=None):
+	def _pay(self, amount, status="Approved", parent_dt=SR, parent=None, vendor=None, gst=False):
 		name = f"{P}PAY-{frappe.generate_hash(length=8)}"
 		frappe.db.sql(
 			f"""INSERT INTO "tab{PAYMENT}" (name, creation, modified, modified_by, owner,
-					docstatus, idx, project, vendor, amount, status, document_type, document_name)
-				VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s)""",
+					docstatus, idx, project, vendor, amount, status, document_type, document_name,
+					is_gst_payment)
+				VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s)""",
 			(
 				name, U, U, self.project, vendor or self.vendor2, amount, status,
-				parent_dt, parent or (self.sr if parent_dt == SR else self.po),
+				parent_dt, parent or (self.sr if parent_dt == SR else self.po), 1 if gst else 0,
 			),
 		)
 		frappe.db.commit()
@@ -597,3 +598,81 @@ class TestPaymentTDS(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value(SR, self.sr_misc, "total_tds"), 16.0)
 		total = frappe.db.get_value(SR, self.sr_misc, "total_amount")
 		self.assertEqual(frappe.db.get_value(SR, self.sr_misc, "amount_due"), total - 800)
+
+	# -- GST payments (ADR-0030): never taxed, on any path ----------------------------------
+	def test_a_gst_payment_is_never_deductible(self):
+		"""The one decision point every trigger shares. A base payment beside it still is."""
+		self.assertFalse(payment_tds.is_deductible(self._pay(4000, gst=True)))
+		self.assertTrue(payment_tds.is_deductible(self._pay(4000)))
+
+	def test_approving_a_gst_payment_from_every_earlier_step_withholds_nothing(self):
+		"""Requested, CEO Pending and Rejected, each through a real save: no row, full amount."""
+		for previous in ("Requested", "CEO Pending", "Rejected"):
+			with self.subTest(previous=previous):
+				doc = self._pay(4000, status=previous, gst=True)
+				doc.status = "Approved"
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
+				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
+				self.assertFalse(frappe.db.get_value(PAYMENT, doc.name, "payment_tds"))
+
+	def test_a_gst_payment_created_already_approved_withholds_nothing(self):
+		"""Auto-approve at insert (`after_insert`). Notification fan-outs patched out, as above."""
+		from unittest.mock import patch
+
+		from nirmaan_stack.integrations.controllers import project_payments as controller
+
+		doc = self._pay(4000, status="Approved", gst=True)
+		with patch.object(controller, "_notify_accountants_payment_ready"), patch.object(
+			controller, "_notify_admins_auto_approved"
+		):
+			controller.after_insert(doc, "after_insert")
+		frappe.db.commit()
+
+		self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
+
+	def test_editing_a_gst_payments_amount_creates_no_deduction(self):
+		doc = self._pay(4000, status="CEO Pending", gst=True)
+		doc.status = "Approved"
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		doc = frappe.get_doc(PAYMENT, doc.name)
+		doc.amount = 5000
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 5000)
+
+	def test_a_gst_payment_is_never_restated(self):
+		"""A GST payment carrying a deduction cannot arise through the app; if one ever does (a
+		hand-planted row), an amount edit must not restate a tax that should never have existed."""
+		doc = self._pay(10000, gst=True)
+		row = frappe.get_doc(
+			TDS_DOCTYPE, payment_tds.write_deduction(doc, tds_amount=200, tds_percentage=2)
+		)
+		before = (row.gross_amount, row.tds_amount)
+
+		doc = frappe.get_doc(PAYMENT, doc.name)
+		doc.amount = 4900
+		doc.save(ignore_permissions=True)
+
+		row.reload()
+		self.assertEqual((row.gross_amount, row.tds_amount), before)
+
+	def test_the_payment_kind_is_set_only_at_creation(self):
+		"""Base -> GST after creation would let a taxed payment's twin escape TDS, and GST -> base
+		would tax money that is not base value. Frappe's `set_only_once` refuses both."""
+		for start, flipped in ((False, 1), (True, 0)):
+			with self.subTest(start=start):
+				doc = self._pay(4000, status="Requested", gst=start)
+				doc.is_gst_payment = flipped
+				with self.assertRaises(frappe.CannotChangeConstantError):
+					doc.save(ignore_permissions=True)
+				frappe.db.rollback()
+				self.assertEqual(
+					frappe.db.get_value(PAYMENT, doc.name, "is_gst_payment"), 1 if start else 0
+				)

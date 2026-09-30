@@ -2,7 +2,7 @@ import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 // import { Button } from "../ui/button";
@@ -41,7 +41,6 @@ import { formatDate } from "@/utils/FormatDate";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
@@ -59,6 +58,12 @@ import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/Dele
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
+import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
+import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
+import { PayFor, workOrderPaymentCap } from "@/pages/ProjectPayments/components/paymentSummaryView";
+import { getFrappeError } from "@/utils/frappeErrors";
+import { isGstOn } from "@/utils/workOrderGst";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -124,8 +129,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         setEditSrTermsDialog((prevState) => !prevState)
     }, []);
 
-    const [warning, setWarning] = useState("");
-
     const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
 
     const { call } = useFrappePostCall('frappe.client.set_value')
@@ -135,6 +138,18 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const toggleNewPaymentDialog = useCallback(() => {
         setNewPaymentDialog((prevState) => !prevState);
     }, []);
+
+    // The Work Order payment limit (ADR-0030), read from the server only while the paid entry is
+    // open: the figures Request Payment shows, and the ones the insert validation
+    // (`controllers/project_payments._validate_work_order_limit`) refuses on whatever this sends.
+    // A GST-on Work Order is paid as Base or as GST, never a mix.
+    const [paidFor, setPaidFor] = useState<PayFor>("base");
+    const {
+        summary: paidEntrySummary,
+        isLoading: paidEntrySummaryLoading,
+        error: paidEntrySummaryError,
+        mutate: paidEntrySummaryMutate,
+    } = usePaymentSummary(newPaymentDialog ? "Service Requests" : null, newPaymentDialog ? id : null);
 
     // ⚠️ NO `tds` FIELD, AND THAT IS DELIBERATE. SR tax withheld is recorded ONCE, at approval, by
     // `services/payment_tds.py` -- it writes a `Payment TDS Deduction` row and nets
@@ -399,7 +414,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             console.log("error while toggling GST", error);
             toast({
                 title: "Failed!",
-                description: "Failed to update GST status!",
+                // The server says why, e.g. GST cannot be switched off while GST payments exist.
+                description: getFrappeError(error),
                 variant: "destructive"
             });
         }
@@ -416,7 +432,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 utr: newPayment?.utr,
                 amount: parseNumber(newPayment?.amount),
                 payment_date: newPayment?.payment_date,
-                status: "Paid"
+                status: "Paid",
+                is_gst_payment: paidEntryGstPayment ? 1 : 0,
             })
 
             if (paymentScreenshot) {
@@ -437,7 +454,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 });
             }
 
-            await projectPaymentsMutate()
+            await Promise.all([projectPaymentsMutate(), paidEntrySummaryMutate()])
 
             toggleNewPaymentDialog()
 
@@ -446,6 +463,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 description: "Payment added successfully!",
                 variant: "success",
             });
+
+            setPaidFor("base")
 
             setNewPayment({
                 amount: "",
@@ -459,36 +478,22 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             console.log("error", error)
             toast({
                 title: "Failed!",
-                description: "Failed to add Payment!",
+                description: getFrappeError(error),
                 variant: "destructive",
             });
         }
     }
 
-    const validateAmount = useCallback(
-        debounce((amount: string) => {
-
-            const compareAmount = orderData?.gst === "true"
-                ? (getTotal * 1.18 - getAmountPaid)
-                : (getTotal - getAmountPaid);
-
-            if (parseNumber(amount) > compareAmount) {
-                setWarning(
-                    `Entered amount exceeds the total ${getAmountPaid ? "remaining" : ""} amount 
-            ${orderData?.gst === "true" ? "including" : "excluding"
-                    } GST: ${formatToRoundedIndianRupee(compareAmount)}`
-                );
-            } else {
-                setWarning("");
-            }
-        }, 300), [orderData, getTotal, getAmountPaid])
-
-    // Handle input change
-    const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        const amount = e.target.value;
-        setNewPayment({ ...newPayment, amount });
-        validateAmount(amount);
-    }, [validateAmount]);
+    const gstWorkOrder = isGstOn(orderData);
+    const paidEntryGstPayment = gstWorkOrder && paidFor === "gst";
+    const paidEntryCap = useMemo(
+        () => (paidEntrySummary ? workOrderPaymentCap(paidEntrySummary, paidEntryGstPayment ? "gst" : "base") : null),
+        [paidEntrySummary, paidEntryGstPayment]
+    );
+    const warning = useMemo(() => {
+        if (!paidEntryCap || parseNumber(newPayment.amount) <= paidEntryCap.max + 1e-6) return "";
+        return `Entered amount exceeds ${paidEntryCap.capLabel} ${formatToIndianRupee(paidEntryCap.max)}`;
+    }, [paidEntryCap, newPayment.amount]);
 
     // const handleDeletePayment = async () => {
     //     try {
@@ -633,11 +638,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         </Button>
 
                                         <RequestPaymentDialog
-                                            totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
+                                            totalIncGST={gstWorkOrder ? getTotal * 1.18 : getTotal}
                                             totalExGST={getTotal || 0}
                                             paid={grossRequested.paid}
                                             pending={grossRequested.pending}
-                                            gst={orderData?.gst === "true"}
+                                            gst={gstWorkOrder}
                                             docType="Service Requests"
                                             docName={orderData?.name || "Unknown"}
                                             project={orderData?.project || "Unknown"}
@@ -649,7 +654,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 {accountsPage && (
                                     <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                                         <AlertDialogTrigger
-                                            onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
+                                            onClick={() => { setPaidFor("base"); setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] }) }}
                                         >
                                             <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
                                         </AlertDialogTrigger>
@@ -667,16 +672,33 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <Label className=" text-red-700">PO Amt excl. Tax:</Label>
                                                     <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
                                                 </div>
-                                                {orderData?.gst === "true" && (
+                                                {gstWorkOrder && (
                                                     <div className="flex items-center justify-between">
                                                         <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                                        <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
+                                                        {/* The Work Order total incl. GST, as the payment limit measures it. */}
+                                                        <span className="">{paidEntrySummary ? formatToRoundedIndianRupee(paidEntrySummary.value) : "--"}</span>
                                                     </div>
                                                 )}
                                                 <div className="flex items-center justify-between">
                                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
                                                     <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
                                                 </div>
+                                                {paidEntryCap && !gstWorkOrder && (
+                                                    <div className="flex items-center justify-between">
+                                                        <Label className=" text-red-700">Left to Pay:</Label>
+                                                        <span className="tabular-nums">{formatToIndianRupee(paidEntryCap.max)}</span>
+                                                    </div>
+                                                )}
+
+                                                {gstWorkOrder && paidEntrySummary?.limit && (
+                                                    <div className="pt-2">
+                                                        <PayForChoice limit={paidEntrySummary.limit} value={paidFor} onChange={setPaidFor} idPrefix="paid-for" />
+                                                    </div>
+                                                )}
+                                                {paidEntrySummaryLoading && <p className="text-xs text-muted-foreground">Loading this Work Order's payment limit...</p>}
+                                                {!paidEntrySummary && !paidEntrySummaryLoading && paidEntrySummaryError && (
+                                                    <p className="text-xs text-red-600">Couldn't load this Work Order's payment limit. Close and try again.</p>
+                                                )}
 
                                                 <div className="flex flex-col gap-4 pt-4">
                                                     <div className="flex gap-4 w-full">
@@ -686,7 +708,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                 type="number"
                                                                 placeholder="Enter Amount"
                                                                 value={newPayment.amount}
-                                                                onChange={(e) => handleAmountChange(e)}
+                                                                onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
                                                             />
                                                             {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
                                                         </div>
@@ -731,7 +753,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                             </AlertDialogCancel>
                                                             <Button
                                                                 onClick={AddPayment}
-                                                                disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || isPMUser}
+                                                                disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || !paidEntryCap || isPMUser}
                                                                 className="flex-1">Add Payment
                                                             </Button>
                                                         </>
@@ -770,7 +792,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         const tds = tdsByPayment[payment?.name];
                                         return (
                                             <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
+                                                <TableCell className="font-semibold">
+                                                    {formatToRoundedIndianRupee(payment?.amount)}
+                                                    <GstPaymentTag payment={payment} />
+                                                </TableCell>
                                                 <TableCell className="font-semibold">
                                                     {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
                                                 </TableCell>

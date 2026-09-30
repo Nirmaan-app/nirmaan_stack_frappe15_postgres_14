@@ -8,12 +8,13 @@ Pure functions — no Frappe site needed. Run inside the bench venv:
 """
 import unittest
 
-from nirmaan_stack.services.extraction.gemini import _schema, _INVOICE_FIELDS
+from nirmaan_stack.services.extraction.gemini import _INVOICE_FIELDS, _INVOICE_PROMPT, _NUMERIC, _schema
 from nirmaan_stack.services.extraction.helpers import normalize_amount, normalize_date
 from nirmaan_stack.services.extraction.validation import (
     ABSENT,
     INVALID,
     VALID,
+    derive_gst,
     reconcile_amounts,
     reconcile_line_items,
     validate_date,
@@ -195,6 +196,95 @@ class TestNoFabricationSchema(unittest.TestCase):
         self.assertNotIn("required", schema)
         for field, prop in schema["properties"].items():
             self.assertTrue(prop.get("nullable"), msg=field)
+
+
+class TestDeriveGst(unittest.TestCase):
+    """GST is IGST, or CGST + SGST, or a plain Tax line (#1336) -- summed in code."""
+
+    def assertConfident(self, out, gst, shape):
+        self.assertEqual((out["gst"], out["confident"], out["shape"], out["reason"]), (gst, True, shape, ""))
+
+    def assertUnsure(self, out, shape, gst=None):
+        self.assertFalse(out["confident"])
+        self.assertEqual(out["shape"], shape)
+        self.assertEqual(out["gst"], gst)
+        self.assertTrue(out["reason"])
+
+    # --- the three shapes ---
+    def test_igst_alone(self):
+        self.assertConfident(derive_gst(igst=9000), 9000, "igst")
+
+    def test_cgst_plus_sgst(self):
+        self.assertConfident(derive_gst(cgst="4500", sgst="4500"), 9000, "cgst_sgst")
+
+    def test_cgst_sgst_within_a_rupee_still_sum(self):
+        self.assertConfident(derive_gst(cgst=4500.5, sgst=4500), 9000.5, "cgst_sgst")
+
+    def test_plain_tax_line(self):
+        self.assertConfident(derive_gst(tax=1800), 1800, "tax")
+
+    def test_zero_components_beside_a_split_are_ignored(self):
+        """Templates print 'IGST 0.00' next to CGST + SGST -- that is not a mix."""
+        self.assertConfident(derive_gst(igst=0, cgst=900, sgst=900), 1800, "cgst_sgst")
+
+    def test_all_zero_is_gst_zero(self):
+        self.assertConfident(derive_gst(cgst=0, sgst=0), 0.0, "zero")
+        self.assertConfident(derive_gst(tax=0), 0.0, "zero")
+
+    def test_a_matching_printed_total_keeps_it_confident(self):
+        self.assertConfident(derive_gst(cgst=900, sgst=900, total_tax=1800), 1800, "cgst_sgst")
+        self.assertConfident(derive_gst(cgst=900, sgst=900, tax=1800), 1800, "cgst_sgst")
+
+    def test_credit_note_figures_keep_their_sign(self):
+        self.assertConfident(derive_gst(cgst=-900, sgst=-900), -1800, "cgst_sgst")
+
+    def test_printed_figures_with_commas(self):
+        self.assertConfident(derive_gst(igst="1,23,456.78"), 123456.78, "igst")
+
+    # --- unsure ---
+    def test_cgst_without_sgst_is_the_half_gst_misread(self):
+        out = derive_gst(cgst=900)
+        self.assertUnsure(out, "cgst_only")
+        self.assertIn("Only CGST", out["reason"])
+
+    def test_sgst_without_cgst(self):
+        self.assertUnsure(derive_gst(sgst=900, igst=0), "sgst_only")
+
+    def test_half_gst_falls_back_to_the_printed_total_still_unsure(self):
+        self.assertUnsure(derive_gst(cgst=900, total_tax=1800), "cgst_only", gst=1800)
+
+    def test_cgst_and_sgst_differ(self):
+        self.assertUnsure(derive_gst(cgst=900, sgst=450), "cgst_sgst_differ")
+
+    def test_igst_mixed_with_cgst_sgst(self):
+        self.assertUnsure(derive_gst(igst=1800, cgst=900, sgst=900), "mixed")
+        self.assertUnsure(derive_gst(igst=1800, cgst=900), "mixed")
+
+    def test_only_the_model_total_is_a_fallback_not_a_read(self):
+        self.assertUnsure(derive_gst(total_tax=9000), "total_only", gst=9000)
+
+    def test_components_disagreeing_with_a_printed_total(self):
+        self.assertUnsure(derive_gst(igst=900, total_tax=1800), "total_disagrees", gst=1800)
+        self.assertUnsure(derive_gst(cgst=900, sgst=900, tax=900), "total_disagrees")
+
+    def test_nothing_read_is_absent_with_no_reason(self):
+        out = derive_gst(igst="null", cgst="", total_tax=None)
+        self.assertEqual(out, {"gst": None, "confident": False, "shape": "absent", "reason": ""})
+
+
+class TestGstComponentsInTheSchema(unittest.TestCase):
+    """The model reads each GST line as printed; it is never asked to compute the total."""
+
+    def test_components_are_numeric_extraction_fields(self):
+        for f in ("igst_amount", "cgst_amount", "sgst_amount", "tax_amount", "total_tax_amount"):
+            self.assertIn(f, _INVOICE_FIELDS)
+            self.assertIn(f, _NUMERIC)
+
+    def test_prompt_names_the_three_shapes_and_forbids_arithmetic(self):
+        for phrase in ("IGST alone", "CGST and SGST together", "plain 'Tax' line",
+                       "Never add, halve or double", "Do not work it out"):
+            self.assertIn(phrase, _INVOICE_PROMPT)
+        self.assertNotIn("total_tax_amount = total GST", _INVOICE_PROMPT)
 
 
 class TestNormalizeAmount(unittest.TestCase):

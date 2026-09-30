@@ -183,7 +183,10 @@ def _payments_select():
             COALESCE(p."cheque_no", '')::text AS cheque_no,
             p."cheque_date"                 AS cheque_date,
             -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
-            COALESCE(p."on_hold", 0)        AS on_hold
+            COALESCE(p."on_hold", 0)        AS on_hold,
+            -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
+            -- and the TDS forecast skips it. ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
+            COALESCE(p."is_gst_payment", 0) AS is_gst_payment
         FROM "tabProject Payments" p
         {linked_join}
     """.format(
@@ -255,7 +258,9 @@ def _expense_select(table, source, project_col):
             ''::text                        AS cheque_no,
             NULL::date                      AS cheque_date,
             -- Only a PO / WO payment can be held.
-            0                               AS on_hold
+            0                               AS on_hold,
+            -- Only a Work Order payment can be a GST payment.
+            0                               AS is_gst_payment
         FROM "{table}" e
         {linked_join}
     """

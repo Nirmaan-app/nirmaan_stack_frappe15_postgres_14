@@ -30,6 +30,39 @@ import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
+import {
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROCUREMENT_PROFILES,
+  PROJECT_LEAD_PROFILE,
+} from "@/constants/roles";
+
+/** Roles that may delete a payment that has not been approved yet. */
+const PAYMENT_DELETE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...PROCUREMENT_PROFILES,
+];
+
+/** Accountants delete only Approved payments -- the same as on "Payment need to paid". */
+const ACCOUNTANT_PROFILES: readonly string[] = [
+  "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
+];
+
+/**
+ * Who may delete a PO payment (owner, 2026-09-29). Paid: nobody. Admin: every other status.
+ * Accountants: Approved only. Admin, PMO, Project Lead and procurement: Requested,
+ * Reconciliation Pending and Rejected. Design, HR, Sales, Estimates and Billing: never.
+ */
+const canDeletePayment = (status: string | undefined, role: string): boolean => {
+  if (status === "Paid") return false;
+  if (role === ADMIN_PROFILE) return true;
+  if (ACCOUNTANT_PROFILES.includes(role)) return status === "Approved";
+  if (status === "Approved" || status === "CEO Pending") return false;
+  return PAYMENT_DELETE_PROFILES.includes(role);
+};
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -49,9 +82,7 @@ import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vend
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
-  accountsPage: boolean
   estimatesViewing: boolean
-  summaryPage: boolean
   PO: ProcurementOrder | null
   poPayments?: ProjectPayments[]
   poPaymentsMutate: any
@@ -65,7 +96,7 @@ interface TransactionDetailsCardProps {
 }
 
 export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
-  accountsPage, estimatesViewing, summaryPage, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate
+  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate
 }) => {
 
   const { role } = useUserData();
@@ -374,13 +405,9 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : ("--")}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
-                      {/* Approved: Admin only (owner, 18 Sep) — as on the SR page. Paid: never.
-                          A REJECTED payment: Admin also gets the trash in the summary view — the PO
-                          opened from a project or PR page (owner, 2026-09-21). */}
-                      {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") && !estimatesViewing &&
-                        (!summaryPage || (payment?.status === "Rejected" && role === "Nirmaan Admin Profile")) &&
-                        role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
-                        (payment?.status !== "CEO Pending" || role === "Nirmaan Admin Profile") &&
+                      {/* The row's status and the reader's role decide (`canDeletePayment`), the same on
+                          every route that opens the PO. */}
+                      {canDeletePayment(payment?.status, role) &&
                         <Button
                           variant="ghost"
                           size="icon"

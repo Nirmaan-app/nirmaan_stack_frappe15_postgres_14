@@ -34,6 +34,15 @@ import {
   isFutureInvoiceDate,
   toLocalDateString,
 } from "@/utils/invoiceDate";
+import {
+  gstOnGstOffWorkOrder,
+  missingSplitLabels,
+  signedFigure,
+  splitForEditForm,
+  splitMismatch,
+} from "@/utils/invoiceAmounts";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { isGstOn } from "@/utils/workOrderGst";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
   useFrappeFileUpload,
@@ -78,8 +87,25 @@ interface DuplicateCheckResult {
 const initialInvoiceState = {
   invoice_no: "",
   amount: "",
+  // Invoice Base Amount / Invoice GST Amount (ADR-0030) -- required on create.
+  base_amount: "",
+  gst_amount: "",
   date: "",
   is_credit_note: false,
+};
+
+/** Form fields the AI can pre-fill (each highlighted amber until the user edits it). */
+type AutofillField = "invoice_no" | "date" | "amount" | "base_amount" | "gst_amount";
+
+/** Base + GST are required on a new invoice (the server refuses without them too). */
+const refuseMissingSplit = (missing: string[]): boolean => {
+  if (missing.length === 0) return false;
+  toast({
+    title: "Validation Error",
+    description: `Please enter the ${missing.join(" and the ")}.`,
+    variant: "destructive",
+  });
+  return true;
 };
 
 // --- Credit / return note sign helpers ---
@@ -148,13 +174,17 @@ export function InvoiceDialog<T extends DocumentType>({
   // Autofill state
   const [stage, setStage] = useState<"upload" | "review" | "form">("upload");
   const [isAutofilling, setIsAutofilling] = useState(false);
-  const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount">>(new Set());
+  const [autofilledFields, setAutofilledFields] = useState<Set<AutofillField>>(new Set());
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [autofillConfidence, setAutofillConfidence] = useState<Record<string, number> | null>(null);
+  // Why the AI left GST blank (e.g. "Only CGST found — enter the total GST"), #1336.
+  const [gstNote, setGstNote] = useState("");
   const [autofillExtractedValues, setAutofillExtractedValues] = useState<{
     invoice_no?: string;
     invoice_date?: string;
     amount?: string;
+    base_amount?: string;
+    gst_amount?: string;
     supplier_gstin?: string;
     receiver_gstin?: string;
   } | null>(null);
@@ -164,7 +194,7 @@ export function InvoiceDialog<T extends DocumentType>({
   const [autofillValidation, setAutofillValidation] = useState<{
     applicable: boolean;
     amount?: {
-      po_total: number;
+      order_total: number;
       existing_invoiced_sum: number;
       new_amount: number;
       would_be_total: number;
@@ -230,13 +260,38 @@ export function InvoiceDialog<T extends DocumentType>({
     canEditMapping ? `Invoice-Edit-PO-${docName}` : null
   );
 
+  // A Work Order's GST flag, for the "bill shows GST on a GST-off Work Order" warning.
+  const isWorkOrder = docType === "Service Requests";
+  const { data: workOrderForGst } = useFrappeGetDoc<{ gst?: string }>(
+    "Service Requests",
+    docName,
+    isOpen && isWorkOrder && docName ? `Invoice-WO-GST-${docName}` : null
+  );
+  // Read as the server reads it (`work_order_gst.gst_is_on`); nothing is said until it has loaded.
+  const workOrderGstOff = isWorkOrder && !!workOrderForGst && !isGstOn(workOrderForGst);
+  // What the over-total banner calls the order (matches the server's refusal).
+  const orderLabel = isWorkOrder ? "Work Order" : "PO";
+
+  // Base + GST are required on a NEW invoice only: an older invoice saved before the split
+  // existed stays editable without it (the server applies the same rule).
+  const missingSplit = useMemo(
+    () => (isEditMode ? [] : missingSplitLabels(invoiceData.base_amount, invoiceData.gst_amount)),
+    [isEditMode, invoiceData.base_amount, invoiceData.gst_amount]
+  );
+
   // Reset form when dialog closes or Populate when editing
   useEffect(() => {
     if (isOpen) {
       if (selectedInvoice) {
+        const split = splitForEditForm(
+          selectedInvoice.invoice_base_amount,
+          selectedInvoice.invoice_gst_amount
+        );
         setInvoiceData({
           invoice_no: selectedInvoice.invoice_no || "",
           amount: String(selectedInvoice.invoice_amount || ""),
+          base_amount: split.base,
+          gst_amount: split.gst,
           date: selectedInvoice.invoice_date || "",
           is_credit_note: !!selectedInvoice.is_credit_note,
         });
@@ -258,6 +313,7 @@ export function InvoiceDialog<T extends DocumentType>({
       setAutofilledFields(new Set());
       setUploadedFileUrl(null);
       setAutofillConfidence(null);
+      setGstNote("");
       setAutofillExtractedValues(null);
       setAutofillAllEntities(null);
       setAutofillValidation(null);
@@ -274,6 +330,7 @@ export function InvoiceDialog<T extends DocumentType>({
     setAutofilledFields(new Set());
     setUploadedFileUrl(null);
     setAutofillConfidence(null);
+    setGstNote("");
     setAutofillExtractedValues(null);
     setAutofillAllEntities(null);
     setAutofillValidation(null);
@@ -437,7 +494,7 @@ export function InvoiceDialog<T extends DocumentType>({
       // when we decide which toast to show. Previously this logic ran inside a
       // `setInvoiceData(updater)` callback which executes asynchronously during
       // React reconciliation — so the toast check always saw an empty Set.
-      const filled = new Set<"invoice_no" | "date" | "amount">();
+      const filled = new Set<AutofillField>();
       const updates: Partial<typeof initialInvoiceState> = {};
 
       if (extracted.invoice_no) {
@@ -452,14 +509,26 @@ export function InvoiceDialog<T extends DocumentType>({
         updates.amount = extracted.amount;
         filled.add("amount");
       }
+      // Base (taxable value) and GST from the bill. "0" is a real read (no GST on the bill).
+      if (extracted.base_amount) {
+        updates.base_amount = extracted.base_amount;
+        filled.add("base_amount");
+      }
+      if (extracted.gst_amount) {
+        updates.gst_amount = extracted.gst_amount;
+        filled.add("gst_amount");
+      }
+      setGstNote(typeof extracted.gst_note === "string" ? extracted.gst_note : "");
 
       // Credit-note handling (driven by the entry button + Gemini):
       //   Add Credit  (is_credit_note = true)                  -> AMOUNT negative, QTY unchanged.
       //   Add Invoice (is_credit_note = false) + Gemini credit -> AMOUNT negative AND QTY negative
       //                                                            (a return note that reduces qty).
       const creditNote = !!extracted.credit_note_detected;
-      if ((invoiceData.is_credit_note || creditNote) && updates.amount) {
-        updates.amount = forceNegativeAmount(updates.amount);
+      if (invoiceData.is_credit_note || creditNote) {
+        if (updates.amount) updates.amount = forceNegativeAmount(updates.amount);
+        if (updates.base_amount) updates.base_amount = forceNegativeAmount(updates.base_amount);
+        if (updates.gst_amount) updates.gst_amount = forceNegativeAmount(updates.gst_amount);
       }
 
       setInvoiceData((prev) => ({ ...prev, ...updates }));
@@ -475,6 +544,8 @@ export function InvoiceDialog<T extends DocumentType>({
         invoice_no: extracted.invoice_no || "",
         invoice_date: extracted.invoice_date || "",
         amount: extracted.amount || "",
+        base_amount: extracted.base_amount || "",
+        gst_amount: extracted.gst_amount || "",
         supplier_gstin: extracted.supplier_gstin || "",
         receiver_gstin: extracted.receiver_gstin || "",
       });
@@ -548,7 +619,7 @@ export function InvoiceDialog<T extends DocumentType>({
     }
   }, [isEditMode, canReExtract, runAutofillExtraction]);
 
-  const clearAutofillFlag = useCallback((field: "invoice_no" | "date" | "amount") => {
+  const clearAutofillFlag = useCallback((field: AutofillField) => {
     setAutofilledFields((prev) => {
       if (!prev.has(field)) return prev;
       const next = new Set(prev);
@@ -581,6 +652,9 @@ export function InvoiceDialog<T extends DocumentType>({
       const invoicePayloadForApi = {
         invoice_no: invoiceData.invoice_no.trim(),
         amount: invoiceData.is_credit_note ? -Math.abs(parsedAmount || 0) : parsedAmount,
+        // Signed like the amount (the server re-signs a credit note too). Blank -> null.
+        base_amount: signedFigure(invoiceData.base_amount, invoiceData.is_credit_note),
+        gst_amount: signedFigure(invoiceData.gst_amount, invoiceData.is_credit_note),
         date: invoiceData.date,
         is_credit_note: invoiceData.is_credit_note ? 1 : 0,
         updated_by: userData?.user_id,
@@ -611,6 +685,10 @@ export function InvoiceDialog<T extends DocumentType>({
           autofillUsed ? (autofillExtractedValues?.invoice_date || null) : null,
         autofill_extracted_amount:
           autofillUsed ? (autofillExtractedValues?.amount || null) : null,
+        autofill_extracted_base_amount:
+          autofillUsed ? (autofillExtractedValues?.base_amount || null) : null,
+        autofill_extracted_gst_amount:
+          autofillUsed ? (autofillExtractedValues?.gst_amount || null) : null,
         autofill_extracted_supplier_gstin:
           autofillUsed ? (autofillExtractedValues?.supplier_gstin || null) : null,
         autofill_extracted_receiver_gstin:
@@ -645,6 +723,15 @@ export function InvoiceDialog<T extends DocumentType>({
             `Invoice ${isEditMode ? "updated" : "added"} for ${docName}.`,
           variant: "success",
         });
+        // Soft checks the server ran on the saved figures (never blocking).
+        const serverWarnings: string[] = response.message.warnings || [];
+        if (serverWarnings.length > 0) {
+          toast({
+            title: "Saved -- please check the amounts",
+            description: serverWarnings.join(" "),
+            variant: "default",
+          });
+        }
         await docMutate();
         await globalMutate((key) =>
           typeof key === "string" && (
@@ -715,6 +802,8 @@ export function InvoiceDialog<T extends DocumentType>({
       return;
     }
 
+    if (refuseMissingSplit(missingSplit)) return;
+
     // Hard-block a future invoice date. Mirrors the server's
     // `_check_invoice_date_not_future`; the button is already disabled, this
     // guards the keyboard / programmatic path.
@@ -757,7 +846,7 @@ export function InvoiceDialog<T extends DocumentType>({
 
     // Proceed with submission
     submitInvoice();
-  }, [invoiceData, duplicateCheckResult, docType, submitInvoice, isEditMode, selectedAttachment]);
+  }, [invoiceData, duplicateCheckResult, docType, submitInvoice, isEditMode, selectedAttachment, missingSplit]);
 
   const handleConfirmDuplicate = useCallback(() => {
     setShowDuplicateConfirmDialog(false);
@@ -778,6 +867,7 @@ export function InvoiceDialog<T extends DocumentType>({
       });
       return;
     }
+    if (refuseMissingSplit(missingSplit)) return;
     if (isFutureInvoiceDate(invoiceData.date)) {
       toast({
         title: "Invalid Invoice Date",
@@ -805,7 +895,7 @@ export function InvoiceDialog<T extends DocumentType>({
       return;
     }
     setStage("review");
-  }, [invoiceData, duplicateCheckResult, docType, isEditMode, selectedAttachment]);
+  }, [invoiceData, duplicateCheckResult, docType, isEditMode, selectedAttachment, missingSplit]);
 
   const isLoading = uploadLoading || updateInvoiceApiCallLoading;
 
@@ -836,33 +926,42 @@ export function InvoiceDialog<T extends DocumentType>({
 
   // Live amount overage check — recomputes against the current value in the
   // amount field, so editing the value clears or re-triggers the warning.
-  // Falls back to the autofill snapshot's PO total + existing-invoiced sum.
+  // Falls back to the autofill snapshot's order total (PO or Work Order) + existing-invoiced sum.
   const liveAmountValidation = useMemo(() => {
     if (!autofillValidation?.applicable || !autofillValidation.amount) {
       return null;
     }
-    const poTotal = autofillValidation.amount.po_total;
+    const orderTotal = autofillValidation.amount.order_total;
     // When editing, this invoice is already inside existing_invoiced_sum — subtract its
     // ORIGINAL amount so we don't double-count it (mirrors the backend's exclude_invoice_id
-    // in update_invoice_data._check_po_amount_overage).
+    // in update_invoice_data._check_invoice_amount_overage).
     const rawExisting = autofillValidation.amount.existing_invoiced_sum;
     const existing = isEditMode
       ? Math.max(0, rawExisting - (parseNumber(selectedInvoice?.invoice_amount) || 0))
       : rawExisting;
     const current = parseNumber(invoiceData.amount) || 0;
-    if (poTotal <= 0 || current <= 0) return null;
+    if (orderTotal <= 0 || current <= 0) return null;
     const wouldBeTotal = existing + current;
     // Tolerate up to ₹10 of rounding drift — must match the backend
-    // hard-block threshold in update_invoice_data._check_po_amount_overage.
-    const wouldExceed = wouldBeTotal > poTotal + 10;
+    // hard-block threshold in update_invoice_data._check_invoice_amount_overage.
+    const wouldExceed = wouldBeTotal > orderTotal + 10;
     return {
-      poTotal,
+      orderTotal,
       existing,
       current,
       wouldBeTotal,
       wouldExceed,
     };
   }, [autofillValidation, invoiceData.amount, isEditMode, selectedInvoice]);
+
+  // Soft checks on the three figures -- warn, never block (the server returns the same two).
+  const splitGap = splitMismatch(
+    invoiceData.amount,
+    invoiceData.base_amount,
+    invoiceData.gst_amount,
+    invoiceData.is_credit_note
+  );
+  const gstShownOnGstOffWorkOrder = gstOnGstOffWorkOrder(invoiceData.gst_amount, workOrderGstOff);
 
   // Block on a GSTIN mismatch on BOTH create and edit. In edit these only carry a value
   // after the attachment is replaced (a fresh extraction), so an edit that doesn't touch
@@ -1010,17 +1109,17 @@ export function InvoiceDialog<T extends DocumentType>({
             )}
 
 
-            {/* Hard-block banner: amount overage on PO */}
+            {/* Hard-block banner: amount overage on the PO / Work Order */}
             {liveAmountValidation?.wouldExceed && (
               <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-300 px-3 py-2">
                 <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
                 <div className="text-xs text-red-900 leading-snug">
-                  <p className="font-medium">Amount exceeds PO total — submit blocked.</p>
+                  <p className="font-medium">Amount exceeds {orderLabel} total — submit blocked.</p>
                   <p className="mt-0.5">
                     Already invoiced ₹{liveAmountValidation.existing.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                     This invoice ₹{liveAmountValidation.current.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} would push the total to
                     ₹{liveAmountValidation.wouldBeTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })},
-                    over the PO total of ₹{liveAmountValidation.poTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
+                    over the {orderLabel} total of ₹{liveAmountValidation.orderTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                   </p>
                   <p className="mt-0.5 italic">Revise the amount before submitting.</p>
                 </div>
@@ -1226,6 +1325,80 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             </div>
 
+            {/* Invoice Base Amount + Invoice GST Amount (ADR-0030) */}
+            <div className="grid grid-cols-2 gap-4">
+              {([
+                ["base_amount", "Base Amount (excl. GST)"],
+                ["gst_amount", "GST Amount"],
+              ] as const).map(([field, label]) => (
+                <div key={field} className="space-y-1.5">
+                  <Label
+                    htmlFor={`invoice_${field}`}
+                    className="text-sm font-medium flex items-center gap-1"
+                  >
+                    {label}
+                    {!isEditMode && <span className="text-red-500">*</span>}
+                  </Label>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      id={`invoice_${field}`}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      value={invoiceData[field]}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (/^-?\d*\.?\d*$/.test(value)) {
+                          clearAutofillFlag(field);
+                          setInvoiceData((prev) => ({ ...prev, [field]: value }));
+                        }
+                      }}
+                      className={cn(
+                        "pl-10",
+                        autofilledFields.has(field) &&
+                          "bg-amber-50 border-amber-300 focus-visible:ring-amber-400"
+                      )}
+                      disabled={isLoading || isAutofilling}
+                    />
+                  </div>
+                  {field === "gst_amount" && gstNote && !invoiceData.gst_amount && (
+                    <p className="text-xs text-amber-700">{gstNote}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Soft-warn: base + GST more than ₹5 away from the total. Submit stays enabled. */}
+            {splitGap && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Base + GST does not match the amount</p>
+                  <p className="mt-0.5">
+                    Base + GST = {formatToIndianRupeeOrZero(splitGap.splitTotal)}, {formatToIndianRupeeOrZero(splitGap.gap)} away
+                    from the amount. Round-off, other charges or TCS can explain a gap.
+                  </p>
+                  <p className="mt-0.5 italic">You can submit — check the figures against the bill.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Soft-warn: the bill shows GST, but this Work Order has GST off. */}
+            {gstShownOnGstOffWorkOrder && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">GST on a GST-off Work Order</p>
+                  <p className="mt-0.5">
+                    This bill shows GST, but the Work Order has GST off. Check whether the vendor
+                    should be charging GST.
+                  </p>
+                  <p className="mt-0.5 italic">You can submit.</p>
+                </div>
+              </div>
+            )}
+
             {/* Credit Note — read-only indicator, shown ONLY when editing an invoice that
                 actually IS a credit note. Hidden for normal invoices (no noise) and in add
                 mode the "Add Invoice" / "Add Credit" entry button already decides it. */}
@@ -1339,6 +1512,7 @@ export function InvoiceDialog<T extends DocumentType>({
                     !invoiceData.date ||
                     !invoiceData.invoice_no.trim() ||
                     !invoiceData.amount ||
+                    missingSplit.length > 0 ||
                     (!isEditMode && !selectedAttachment) ||
                     isLoading ||
                     isAutofilling ||

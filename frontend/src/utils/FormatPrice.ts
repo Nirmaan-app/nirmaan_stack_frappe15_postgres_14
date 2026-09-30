@@ -16,6 +16,10 @@ function formatToIndianRupee(price: number | string | undefined) {
 }
 
 
+/** `formatToIndianRupee`, but a zero reads "₹0.00" rather than "--": for a figure that is really 0. */
+export const formatToIndianRupeeOrZero = (price: number | string | undefined) =>
+  parseNumber(price) ? formatToIndianRupee(price) : "₹0.00";
+
 export const formatToRoundedIndianRupee = (price: number | string | undefined) => {
   // Ensure the price is a number before formatting
   const amount = parseNumber(price);

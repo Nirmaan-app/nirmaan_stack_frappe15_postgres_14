@@ -42,6 +42,7 @@ export const SNAG_PRINT_PARAM = {
   batches: "batches",
   search: "search",
   searchField: "search_field",
+  mode: "mode",
 } as const;
 
 /**
@@ -57,3 +58,6 @@ export const DEFAULT_PRINTED_STATUSES = [
   "Completed",
   "Not Applicable",
 ] as const;
+
+/** The one status the Download All dialog's checkbox can drop. */
+export const NOT_APPLICABLE_STATUS = "Not Applicable";

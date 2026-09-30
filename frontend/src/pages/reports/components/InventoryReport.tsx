@@ -18,7 +18,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Info, FileText } from "lucide-react";
-import { Link } from "react-router-dom";
+import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -287,12 +287,12 @@ function SummaryTable({ projectId }: { projectId: string }) {
         if (!pos.length) return <span className="text-muted-foreground text-xs">---</span>;
         if (pos.length === 1) {
           return (
-            <Link
-              to={`/project-payments/${pos[0].po.split("/").join("&=")}`}
+            <OrderDetailLink
+              docName={pos[0].po}
               className="text-blue-600 hover:underline text-xs font-mono"
             >
               {pos[0].po}
-            </Link>
+            </OrderDetailLink>
           );
         }
         return (
@@ -308,12 +308,12 @@ function SummaryTable({ projectId }: { projectId: string }) {
                 <ul className="list-none p-2 space-y-1">
                   {pos.map((poEntry) => (
                     <li key={poEntry.po} className="text-xs">
-                      <Link
-                        to={`/project-payments/${poEntry.po.split("/").join("&=")}`}
+                      <OrderDetailLink
+                        docName={poEntry.po}
                         className="text-blue-600 hover:underline font-mono"
                       >
                         {poEntry.po}
-                      </Link>
+                      </OrderDetailLink>
                     </li>
                   ))}
                 </ul>
