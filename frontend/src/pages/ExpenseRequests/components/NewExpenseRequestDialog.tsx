@@ -42,6 +42,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatDate } from "@/utils/FormatDate";
 import type {
     ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
 } from "@/types/NirmaanStack/ExpenseRequest";
@@ -52,6 +53,7 @@ import {
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
+import RequestHoverCard from "./RequestHoverCard";
 
 /** One option per expense type.
  *
@@ -107,6 +109,20 @@ const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
     recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
 };
+
+/** `duplicates.check_duplicate_stay` -- `blocks` is decided by the server, never here. */
+interface DuplicateStayResponse {
+    blocks: boolean;
+    /** "Rent Period To is before Rent Period From", or "" -- a PM is blocked on it too. */
+    period_error: string;
+    matches: {
+        name: string; status: string; projects: string | null; person: string;
+        period_from: string; period_to: string;
+        type: string; amount: number; owner_name: string; creation: string;
+        /** The match's answers, labelled by its own form -- bank details left out. */
+        detail: { label: string; value: string }[];
+    }[];
+}
 
 const INVOICE_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
 
@@ -249,6 +265,44 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setForm((f) => (f.projects === projectId ? f : { ...f, projects: projectId, vendor: "" }));
     }, []);
 
+    // DUPLICATE STAY -- asked of the server WHILE the form is filled, on create and on edit.
+    // `duplicates.check_duplicate_stay` asks the same questions as the server's own refusal
+    // (`ExpenseRequest.validate`), so the two cannot disagree: `blocks` is true only for a
+    // Project Manager, and on an edit only when the stay itself changed (an edited request is
+    // never compared with itself). Everyone else gets an amber note. No field names here: the
+    // answers go in the same envelope submit sends, and the server returns nothing for a form
+    // it does not check. Debounced so typing is not a call.
+    const dupSourceData = useMemo(
+        () => (parsedFormat
+            ? JSON.stringify({
+                templateId: parsedFormat.templateId,
+                templateVersion: parsedFormat.templateVersion,
+                responses: toResponses(answers),
+            })
+            : ""),
+        [parsedFormat, answers]
+    );
+    const [dupQuery, setDupQuery] = useState("");
+    useEffect(() => {
+        const t = setTimeout(() => setDupQuery(dupSourceData), 500);
+        return () => clearTimeout(t);
+    }, [dupSourceData]);
+    const { data: dupRes } = useFrappeGetCall<{ message: DuplicateStayResponse }>(
+        "nirmaan_stack.api.expense_requests.duplicates.check_duplicate_stay",
+        {
+            expense_type: form.expense_type, source_data: dupQuery,
+            ...(isEdit ? { exclude: editing!.name } : {}),
+        },
+        dupQuery && form.expense_type
+            ? `exr_dup_${form.expense_type}_${editing?.name ?? ""}_${dupQuery}` : null
+    );
+    // Only trust an answer about what is on screen NOW -- a stale one would warn (or block)
+    // over dates the requester has already changed.
+    const dup = dupQuery === dupSourceData ? dupRes?.message : undefined;
+    const dupMatches = dup?.matches ?? [];
+    const dupPeriodError = dup?.period_error ?? "";
+    const dupBlocks = !!dup?.blocks;
+
     const amountValue = parseNumber(form.amount);
     const missingFormatAnswers = useMemo(
         () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
@@ -273,6 +327,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         !formatPending &&
         missingFormatAnswers.length === 0 &&
         standardComplete &&
+        !dupBlocks &&
         !submitting;
 
     const close = useCallback(() => {
@@ -638,6 +693,33 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         />
                     </div>
                 </div>
+
+                {(dupMatches.length > 0 || !!dupPeriodError) && (
+                    <div className={dupBlocks
+                        ? "rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                        : "rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"}>
+                        {dupPeriodError && <p>{dupPeriodError}</p>}
+                        {dupMatches.map((m) => (
+                            <p key={m.name}>
+                                {m.person} already has{" "}
+                                <RequestHoverCard info={{
+                                    name: m.name, status: m.status, type: m.type, projects: m.projects,
+                                    amount: m.amount, raisedBy: m.owner_name, creation: m.creation,
+                                    detail: m.detail,
+                                }}>
+                                    <span className="font-medium">{m.name}</span>
+                                </RequestHoverCard>{" "}
+                                ({m.status}{m.projects ? `, ${m.projects}` : ""}) covering{" "}
+                                {formatDate(m.period_from)} to {formatDate(m.period_to)}.
+                            </p>
+                        ))}
+                        <p className="mt-1 font-medium">
+                            {dupBlocks
+                                ? "This request will be refused. Change the dates, choose Hotel for a short visit, or contact HR or your Project Lead."
+                                : isEdit ? "You can still save." : "You can still submit."}
+                        </p>
+                    </div>
+                )}
 
                 <Separator />
                 <AlertDialogFooter className="gap-2">

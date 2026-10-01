@@ -9,9 +9,12 @@
 //                               name on every row; "Raised By Me" is not -- it spans every
 //                               status, so without this its rows carry no status at all.
 //   Reviewed By              -> hidden on "Pending Approval" (nothing to show yet)
-//   Actions                  -> only on "Pending Approval", and only for a reviewer. It
-//                               stays off "Raised By Me" -- those are the viewer's OWN
-//                               requests, and `access.guard_reviewer` refuses self-review.
+//   Actions                  -> "Pending Approval": edit / approve / reject.
+//                               "Raised By Me": EDIT on the viewer's own Pending Approval
+//                               rows (`update.can_edit`), DELETE on their rejected ones.
+//                               "All": DELETE on rejected rows the viewer may delete
+//                               (`delete.can_delete`). Approve / reject never leave the
+//                               pending tab -- `access.guard_reviewer` refuses self-review.
 //   Description              -> hidden on "Pending Approval". A type WITH a format hides the
 //                               description field entirely (its fields are the description),
 //                               so the column read "--" on every such row -- a column of
@@ -20,8 +23,9 @@
 import { ColumnDef } from "@tanstack/react-table";
 
 import { EXR_RAISED_BY_ME } from "./expenseRequestsTable.config";
-import { Check, Pencil, X } from "lucide-react";
+import { Check, Pencil, Trash2, X } from "lucide-react";
 
+import RequestHoverCard from "../components/RequestHoverCard";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
 import { Button } from "@/components/ui/button";
@@ -51,17 +55,25 @@ interface Args {
     /** Server-computed per row, and DISJOINT from `canReview` by design: a reviewer who could
      *  also edit could rewrite an amount and then approve it. Never re-derive either. */
     canEdit: (name: string) => boolean;
+    /** Server-computed per row -- Rejected only, requester or Admin. Never re-derive it. */
+    canDelete: (name: string) => boolean;
+    /** The row's answers labelled by its form, from the scoped read -- undefined for a row
+     *  that read did not return; the hover card then shows its header alone. */
+    getDetail: (name: string) => { label: string; value: string }[] | undefined;
     onApprove: (r: ExpenseRequest) => void;
     onReject: (r: ExpenseRequest) => void;
     onEdit: (r: ExpenseRequest) => void;
+    onDelete: (r: ExpenseRequest) => void;
 }
 
 export const getExpenseRequestColumns = ({
-    statusTab, getUserName, getCategory, canReview, canEdit, onApprove, onReject, onEdit,
+    statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail,
+    onApprove, onReject, onEdit, onDelete,
 }: Args): ColumnDef<ExpenseRequest>[] => {
     const showStatus = statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
     const showReview = statusTab !== "Pending Approval";
-    const showActions = statusTab === "Pending Approval";
+    const isPendingTab = statusTab === "Pending Approval";
+    const showActions = isPendingTab || statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
     const showComment = statusTab !== "Pending Approval";
 
     const columns: ColumnDef<ExpenseRequest>[] = [
@@ -71,7 +83,19 @@ export const getExpenseRequestColumns = ({
             header: ({ column }) => <DataTableColumnHeader column={column} title="Request ID" />,
             cell: ({ row }) => (
                 <div>
-                    <div className="font-medium">{row.original.name}</div>
+                    <div className="font-medium">
+                        <RequestHoverCard info={{
+                            name: row.original.name, status: row.original.status,
+                            type: row.original.type,
+                            projects: row.original.projects_name || row.original.projects,
+                            amount: row.original.amount,
+                            raisedBy: getUserName(row.original.owner),
+                            creation: row.original.creation,
+                            detail: getDetail(row.original.name),
+                        }}>
+                            {row.original.name}
+                        </RequestHoverCard>
+                    </div>
                     <div className="text-[11px] text-muted-foreground">
                         {getCategory(row.original.type)}
                     </div>
@@ -237,9 +261,15 @@ export const getExpenseRequestColumns = ({
             // HR on a Project Manager's request, and not the requester's own). Hiding the
             // buttons is convenience only -- the endpoint refuses regardless.
             cell: ({ row }) => {
-                const mayReview = canReview(row.original.name);
-                const mayEdit = canEdit(row.original.name);
-                if (!mayReview && !mayEdit) {
+                // Review: the pending tab only (never "Raised By Me" -- self-review is refused).
+                // Edit: the pending tab AND "Raised By Me", so a requester without the pending
+                // tab can still correct their own request; `can_edit` is true only while it is
+                // Pending Approval. Delete: rejected rows only.
+                const mayReview = isPendingTab && canReview(row.original.name);
+                const mayEdit = (isPendingTab || statusTab === EXR_RAISED_BY_ME)
+                    && canEdit(row.original.name);
+                const mayDelete = canDelete(row.original.name);
+                if (!mayReview && !mayEdit && !mayDelete) {
                     return <span className="text-xs text-muted-foreground">--</span>;
                 }
                 // Icon-only. The tooltip and `aria-label` carry the meaning -- an icon
@@ -285,6 +315,18 @@ export const getExpenseRequestColumns = ({
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Reject</TooltipContent>
+                            </Tooltip>}
+                            {mayDelete && <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        size="icon" variant="ghost" aria-label="Delete request"
+                                        className="h-7 w-7 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                        onClick={() => onDelete(row.original)}
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
                             </Tooltip>}
                         </div>
                     </TooltipProvider>

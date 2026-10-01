@@ -23,6 +23,7 @@ from nirmaan_stack.api.expense_requests.convert import (
 	target_status,
 )
 from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
+from nirmaan_stack.api.expense_requests.delete import can_delete
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
@@ -100,6 +101,7 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# Must say what `access.guard_reviewer` says, or the button appears on a row the
 		# endpoint then refuses.
 		r["can_edit"] = can_edit(r, user)
+		r["can_delete"] = can_delete(r, user, admin=profile == ADMIN_PROFILE)
 		r["can_review"] = profile == ADMIN_PROFILE or (
 			r["owner"] != user
 			and (profile == r["reviewer_role"]
