@@ -73,7 +73,22 @@ _KNOWN_STEP_TYPES = {
     # row's label -- module_fit's ladder half, generalised so slice 3's tray width and F-10's
     # converted thickness ride the same step. PASS-THROUGH for the same reason as map_attribute.
     "catalog_fit",
+    # SLICE 12b(A): THE PRICING-INPUT READER. Loads one stored rate off a catalogue row into ctx WITHOUT
+    # touching the `components` accumulator -- which is the whole reason it is not `component_ref`.
+    # FULLY validated below: the three keys it needs are required, and the three it must never carry are
+    # refused BY NAME, because each of them would silently change what the step means.
+    "rate_ref",
 }
+
+# SLICE 12b(A): the step types that actually BIND a `<ident>_from_ctx` param. A `_from_ctx` on any other
+# step type is refused by name -- the standing rule that the validator refuses a key the interpreter
+# cannot run on that shape rather than implementing it. Keep this in step with the interpreter's arms.
+_CTX_ARM_STEPS = {"scale", "component", "component_band", "install_as_ratio", "apply_effective_multiplier"}
+
+# The keys `rate_ref` must never carry. An input is a SCALAR, not a component: a `qty` would multiply it,
+# `rate_stages` would re-scale it, and `none_skips` would turn a missing input into a silent zero -- each
+# one changes the meaning of the step while still looking like valid config.
+_RATE_REF_FORBIDDEN = ("qty", "rate_stages", "none_skips", "formula", "conditions", "params")
 # TWO WAYS (2026-09-10): every key an attribute definition may carry. Measured against the 12 live
 # configs and every asset on disk (16 keys in use) plus the frontend `AttributeDefinition` interface;
 # `extract_as` is the seventeenth. A key absent from this set is REJECTED by `_validate_config` -- the
@@ -153,6 +168,15 @@ _KNOWN_CONFIG_KEYS = {
     # "None" on an allow_none item attribute means NOT MENTIONED (code applies the owner's default
     # later, W-c); an absent value means COULD NOT TELL (the row is not priced, W-b).
     "list_spec",
+    # SLICE 12a (2026-09-26, owner I-2 / I-4 / I-6): `derived_rates` records, per (item_uid, rate_key),
+    # that a cost comes from ANOTHER catalogue row -- GENERATED at mint from the config's own
+    # `component_ref` steps (or, for a category with no pipelines, from the source workbook's own
+    # formulas), FLATTENED to the ultimate base, and changed only by minting. `rate_composition`
+    # declares how a category's stored cost PARTS make up its supply / install cost, so the rate
+    # file's and the screen's row-level formula columns can show each step's own result. BOTH are
+    # structurally validated below; ABSENT from a config means byte-identical to before slice 12a,
+    # which is every Electrical category and every HVAC category but ADP and Insulation.
+    "derived_rates", "rate_composition",
 }
 
 _LIST_MODE = "item_list"
@@ -757,6 +781,8 @@ def _validate_config(cfg):
         _vthrow(f"Unknown top-level config key(s): {', '.join(sorted(unknown))}.")
     _validate_alias_of(cfg)  # SLICE 3: shape of the alias key; a no-op for every config without it
     _validate_list_spec(cfg)  # SLICE 4: the item-list mode's per-item schema; a no-op for every other config
+    _validate_derived_rates(cfg)      # SLICE 12a: the derived-cost declaration; a no-op without the key
+    _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")
@@ -901,6 +927,50 @@ def _validate_config(cfg):
             st = s.get("step")
             if st not in _KNOWN_STEP_TYPES:
                 _vthrow(f"{where}: unknown step type '{st}'.")
+            # SLICE 12b(A): `pricing_input` declares a step part of the PRICING-INPUT PREAMBLE, which
+            # the interpreter HOISTS to the front of the pipeline. It exists so the mint can APPEND the
+            # preamble and leave every original steps[N] index in the asset untouched.
+            #
+            # A `rate_ref` hoists by TYPE and needs no flag. A `scale` needs the flag because it is the
+            # only other preamble shape -- and it is refused anywhere else, because an ordinary step
+            # reads a RUNNING VALUE and hoisting one would read it before it exists. That is a moved
+            # price with nothing on screen to show it, so the flag is refused BY NAME rather than
+            # quietly ignored.
+            if "pricing_input" in s:
+                if not isinstance(s["pricing_input"], bool):
+                    _vthrow(f"{where}: 'pricing_input' must be true or false.")
+                if s["pricing_input"] and st not in ("rate_ref", "scale"):
+                    _vthrow(
+                        f"{where}: 'pricing_input' is only read on a rate_ref or a scale, not on a "
+                        f"'{st}'. The preamble is hoisted ahead of every other step, and a step that "
+                        "reads a running value cannot be hoisted."
+                    )
+            # SLICE 12b(A): a `<ident>_from_ctx` param only does something on a step type that BINDS one.
+            # The standing rule is that the validator refuses a key the interpreter cannot run on that
+            # shape, by name, rather than implementing it -- a `_from_ctx` on (say) a `roundup` would
+            # save cleanly and be read by nothing, which is how a wrong price hides.
+            if st not in _CTX_ARM_STEPS:
+                for pk in (s.get("params") or {}):
+                    if isinstance(pk, str) and pk.endswith(_FROM_CTX_SUFFIX):
+                        _vthrow(
+                            f"{where}: '{pk}' is not read on a '{st}' step. A computed-value binding "
+                            f"only works on: {', '.join(sorted(_CTX_ARM_STEPS))}."
+                        )
+            # SLICE 12b(A): a rate stage may take its multiplier from ctx. It is a KEY, so a string; and
+            # it REPLACES `mult`, so a stage carrying both is refused -- letting both apply would
+            # silently square the migration, and that is not a thing a reader would notice.
+            for gi, stage in enumerate(s.get("rate_stages") or []):
+                if not isinstance(stage, dict) or "mult_from_ctx" not in stage:
+                    continue
+                mv = stage.get("mult_from_ctx")
+                if not isinstance(mv, str) or not mv.strip():
+                    _vthrow(f"{where} stage {gi}: 'mult_from_ctx' must be a non-empty computed-value key.")
+                if _is_finite_number(stage.get("mult")) and stage.get("mult") != 1.0:
+                    _vthrow(
+                        f"{where} stage {gi}: 'mult_from_ctx' REPLACES 'mult', so do not set both. "
+                        f"Remove the literal mult ({stage.get('mult')}) -- leaving it is how a migrated "
+                        "value silently keeps its old number."
+                    )
             if st == "match_master_row":
                 params = s.get("params")
                 if not isinstance(params, dict) or not isinstance(params.get("kind"), str) or not params.get("kind"):
@@ -932,6 +1002,29 @@ def _validate_config(cfg):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: scale needs a string '{key}'.")
                 _validate_params(s.get("params"), where)
+                ctx_binds.add(s["result"])
+            elif st == "rate_ref":
+                # SLICE 12b(A). Required: ref.kind, target, result. `result` joins ctx_binds so a later
+                # step's `_from_ctx` can name it.
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
+                    _vthrow(f"{where}: rate_ref needs ref.kind (a string).")
+                for key in ("target", "result"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: rate_ref needs a string '{key}'.")
+                for bad in _RATE_REF_FORBIDDEN:
+                    if bad in s:
+                        _vthrow(
+                            f"{where}: rate_ref must not carry '{bad}'. A pricing input is a single "
+                            "number, not a component: read it with rate_ref and use it in a later step."
+                        )
+                # every non-kind ref value is a literal or an "@bound" attribute; a bound one is
+                # reference-guarded exactly as component_ref's are.
+                for rk, rv in ref.items():
+                    if rk in ("kind", "attributes"):
+                        continue
+                    if isinstance(rv, str) and rv.startswith("@"):
+                        _ref(rv[1:], f"{where} rate_ref")
                 ctx_binds.add(s["result"])
             elif st == "roundup":
                 if not isinstance(s.get("target"), str) or not s.get("target"):
@@ -1021,8 +1114,20 @@ def _validate_config(cfg):
                         if not isinstance(rs, list):
                             _vthrow(f"{where}: component_ref rate_stages must be a list.")
                         for ri, stage in enumerate(rs):
-                            if not isinstance(stage, dict) or not _is_finite_number(stage.get("mult")):
-                                _vthrow(f"{where}: rate_stages[{ri}] needs a finite 'mult'.")
+                            # SLICE 12b(A): a stage takes its multiplier EITHER from a literal `mult` OR
+                            # from a Pricing Input via `mult_from_ctx` -- exactly one of the two. Before
+                            # the inputs existed only the literal was possible, so this check asked for
+                            # it unconditionally; a migrated stage has no literal BY DESIGN, because
+                            # leaving one is how a migrated value silently keeps its old number.
+                            if not isinstance(stage, dict):
+                                _vthrow(f"{where}: rate_stages[{ri}] must be an object.")
+                            has_lit = _is_finite_number(stage.get("mult"))
+                            has_ctx = isinstance(stage.get("mult_from_ctx"), str) and stage["mult_from_ctx"].strip()
+                            if not has_lit and not has_ctx:
+                                _vthrow(
+                                    f"{where}: rate_stages[{ri}] needs a finite 'mult' or a "
+                                    "'mult_from_ctx' naming a pricing input."
+                                )
                             if stage.get("round") is not None and stage.get("round") not in ("up0", "up-1"):
                                 _vthrow(f"{where}: rate_stages[{ri}].round must be 'up0' or 'up-1'.")
                             # point_wiring RUNS: an OPTIONAL attribute-bound factor folded in before this
@@ -1157,8 +1262,18 @@ def _validate_config(cfg):
                 if not isinstance(s.get("result"), str) or not s.get("result"):
                     _vthrow(f"{where}: install_as_ratio needs a string 'result'.")
                 params = s.get("params")
-                if not isinstance(params, dict) or not _is_finite_number(params.get("ratio")):
-                    _vthrow(f"{where}: install_as_ratio needs params.ratio (a finite number).")
+                # SLICE 12b(A): the ratio may come from a Pricing Input instead of a literal -- exactly
+                # one of the two, for the same reason the rate-stage check says it: a migrated step has
+                # no literal BY DESIGN, because leaving one is how the input silently does nothing.
+                if not isinstance(params, dict):
+                    _vthrow(f"{where}: install_as_ratio needs a params object.")
+                _has_lit = _is_finite_number(params.get("ratio"))
+                _has_ctx = isinstance(params.get("ratio_from_ctx"), str) and params["ratio_from_ctx"].strip()
+                if not _has_lit and not _has_ctx:
+                    _vthrow(
+                        f"{where}: install_as_ratio needs params.ratio (a finite number) or "
+                        "params.ratio_from_ctx naming a pricing input."
+                    )
                 ctx_binds.add(s["result"])
             elif st == "circuit_fit":
                 # EA-4a: sizes the conduit + counts circuits. params.wire_specs reference attribute ids
@@ -1531,3 +1646,461 @@ def _validate_config(cfg):
                         _vthrow(f"goldens[{gi}] expect['{epid}']['{ek}'] must be a finite number.")
 
     return referenced
+
+
+# -- SLICE 12a: DERIVED COSTS -- declared, GENERATED AT MINT, never hand-authored -----------------
+# Owner ruling I-2 (2026-09-26): "those formula should be preserved even in our system so that if we
+# make change to the base row the change gets reflected on all other rows. any tab which has this
+# prpety must ensure it."
+#
+# A DERIVED cost cell is one whose value comes from ANOTHER CATALOGUE ROW. `derived_rates` records
+# that, per (item_uid, rate_key), as a LIST of terms summed:  base_value * multiplier + constant.
+# A LIST, not a single base, because one cell can read two rows and one ROW can read two rows in two
+# different columns (Insulation rows 78-105 read `I` from one row and `K` from another).
+#
+# THE DECLARATION IS DESCRIPTIVE, NEVER AUTHORITATIVE. The price still comes from the pipeline, as it
+# always did; `derived_rates` exists so the rate file, the Rate Master screen and the upload refusal
+# can tell the truth about it. If the two ever disagree the PIPELINE wins and the mint is wrong --
+# which is exactly why the mint GENERATES it (`derived_rates_from_pipelines`) instead of an author
+# writing it by hand.
+#
+# THE BOUNDARY IS A STEP TYPE, NOT A JUDGEMENT, AND THAT IS THE WHOLE POINT. A cell is derived only
+# when a pipeline OVERWRITES A STORED RATE KEY OF THE MATCHED ROW with a value that entered through a
+# `component_ref` (which reads a rate key off a DIFFERENT row). Measured over every pipeline of every
+# config in both live assets at c4e45891:
+#   * HVAC: 64 pipelines; 62 write a stored rate key; exactly 2 of those carry a `component_ref`
+#     (cross-talk / count) -> 12 declared cells. The other 60 scale the MATCHED ROW'S OWN cost by a
+#     unit conversion and MUST stay editable; they carry no `component_ref`, so they cannot be
+#     declared. That is the 60-pipeline trap, closed structurally rather than by care.
+#   * Electrical: 28 pipelines; 14 of them DO carry a `component_ref` -- and NOT ONE writes a
+#     `result` that is a stored rate key. Its component_refs build an ASSEMBLY total (`supply`,
+#     `install`, `bcs_supply`), and no item stores a key by any of those names. So no rule of any
+#     strictness can declare an Electrical cell, and Electrical's rates are unchanged by
+#     construction, not by a gate someone could later remove.
+#
+# A category with NO pipelines (slice 12a's `hvac_insulation`) cannot be generated from pipelines at
+# all -- there is nothing to read. Its declaration is generated at mint FROM THE SOURCE WORKBOOK'S
+# OWN FORMULAS, and the invariants below (flattened, acyclic, no `from` pointing at a derived cell)
+# are enforced HERE, so both generators are held to exactly the same contract.
+DERIVED_RATES_KEY = "derived_rates"
+RATE_COMPOSITION_KEY = "rate_composition"
+_DERIVED_TERM_KEYS = {"from", "multiplier", "constant"}
+_DERIVED_FROM_KEYS = {"item_uid", "rate_key"}
+# The step types whose value flows target -> result (or in place, when there is no result).
+_FLOW_STEPS = ("scale", "roundup", "rounddown", "round", "apply_effective_multiplier",
+               "install_as_ratio")
+_CTX_PARAM_SUFFIX = "_from_ctx"
+
+
+def derived_cells(cfg):
+    """{(item_uid, rate_key): [term, ...]} for a config. {} when the config declares nothing -- which
+    is every config that shipped before slice 12a, so every reader degrades to today's behaviour."""
+    out = {}
+    dr = (cfg or {}).get(DERIVED_RATES_KEY) or {}
+    if not isinstance(dr, dict):
+        return out
+    for uid, keys in dr.items():
+        if not isinstance(keys, dict):
+            continue
+        for rate_key, terms in keys.items():
+            if isinstance(terms, list) and terms:
+                out[(uid, rate_key)] = terms
+    return out
+
+
+def is_derived_cell(cfg, item_uid, rate_key):
+    """Is this (item, rate key) DECLARED derived? PURE, and the ONE predicate every reader keys on."""
+    return (item_uid, rate_key) in derived_cells(cfg)
+
+
+class DerivedRateError(Exception):
+    """A declaration that cannot be computed: a missing base row, a missing base value, a cycle.
+
+    Its own class, NOT `frappe.ValidationError`, because every caller must decide deliberately how
+    loud to be -- the mint aborts, a write path refuses the write. What none of them may do is
+    continue with a stale number, which is the defect this whole mechanism exists to remove.
+    """
+
+
+def recompute_derived_values(configs, items_by_uid):
+    """SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE. PURE: no frappe, no DB, no I/O.
+
+    `{(item_uid, rate_key): value}` -- what every DECLARED derived cell of every given config
+    SHOULD hold, computed from its base row's CURRENT value:
+
+        value = sum over terms of (base row's rate_key value * multiplier + constant)
+
+    ⚠️ THIS IS THE HALF SLICE 12a DID NOT BUILD. 12a recorded the links, marked the cells and
+    refused an edit to them; nothing recomputed them, so a base-row edit moved ONE row and the
+    dependants silently kept a stale number WHILE THEIR FORMULA COLUMN NAMED THE ROW THEY NO LONGER
+    followed. The live round trip of 2026-09-30 measured exactly that: 143 -> 150 on the base,
+    five dependants unchanged, the file still reading "insulation 143 <- derived from ...".
+
+    `configs` is an iterable of config dicts (a discipline's active configs); `items_by_uid` maps
+    item_uid -> a dict carrying "rates". The caller supplies the state it is ABOUT TO WRITE, so the
+    answer describes the post-write catalogue, never the pre-write one.
+
+    ⚠️ COMPUTED IN CHAIN ORDER (Kahn), so a dependant whose base is itself derived reads the base's
+    NEW value and not its stored one. Today `_validate_derived_rates` enforces FLATTENED
+    declarations (owner I-4), so every chain is one hop and the ordering is a no-op -- it is here
+    because the ordering is what makes the rule true rather than accidentally true, and because a
+    future unflattened declaration must not quietly compute against a stale intermediate.
+
+    RAISES `DerivedRateError` -- never returns a partial answer -- when a base row is absent, when
+    the base row carries no value for the named rate key, or when the declarations form a cycle.
+    A declaration that cannot be computed is a defect in the catalogue, not a cell to skip.
+    """
+    cells = {}
+    for cfg in configs or []:
+        cells.update(derived_cells(cfg))
+    if not cells:
+        return {}
+
+    # (1) every base a declaration names must exist and carry a number.
+    for (uid, rate_key), terms in sorted(cells.items()):
+        for term in terms:
+            src = term.get("from") or {}
+            b_uid, b_key = src.get("item_uid"), src.get("rate_key")
+            base = items_by_uid.get(b_uid)
+            if base is None:
+                raise DerivedRateError(
+                    "%s/%s is derived from item %s, which is not an active item of this discipline."
+                    % (uid, rate_key, b_uid)
+                )
+            if not _is_finite_number((base.get("rates") or {}).get(b_key)):
+                raise DerivedRateError(
+                    "%s/%s is derived from %s/%s, which carries no number."
+                    % (uid, rate_key, b_uid, b_key)
+                )
+
+    # (2) chain order. An edge runs base cell -> dependent cell; only edges BETWEEN declared cells
+    #     constrain the order, because a typed base never changes while this runs.
+    deps = {c: set() for c in cells}
+    for cell, terms in cells.items():
+        for term in terms:
+            src = term["from"]
+            base_cell = (src["item_uid"], src["rate_key"])
+            if base_cell in cells:
+                deps[cell].add(base_cell)
+    order, ready = [], sorted(c for c, d in deps.items() if not d)
+    remaining = {c: set(d) for c, d in deps.items()}
+    while ready:
+        cell = ready.pop(0)
+        order.append(cell)
+        for other, d in sorted(remaining.items()):
+            if cell in d:
+                d.discard(cell)
+                if not d and other not in order and other not in ready:
+                    ready.append(other)
+        remaining.pop(cell, None)
+    if len(order) != len(cells):
+        stuck = sorted(c for c in cells if c not in order)
+        raise DerivedRateError(
+            "derived_rates contains a cycle -- these cells cannot be ordered: %s"
+            % ", ".join("%s/%s" % c for c in stuck[:6])
+        )
+
+    # (3) compute, newest value first. A computed cell feeds the next one through `computed`.
+    computed = {}
+    for cell in order:
+        total = 0.0
+        for term in cells[cell]:
+            src = term["from"]
+            base_cell = (src["item_uid"], src["rate_key"])
+            if base_cell in computed:
+                base_value = computed[base_cell]
+            else:
+                base_value = (items_by_uid[src["item_uid"]].get("rates") or {})[src["rate_key"]]
+            total += float(base_value) * float(term.get("multiplier", 1.0)) \
+                + float(term.get("constant", 0.0))
+        computed[cell] = total
+    return computed
+
+
+def derived_rate_updates(configs, items_by_uid, tolerance=1e-9):
+    """`{item_uid: {rate_key: value}}` -- ONLY the STORED derived cells whose value is out of step.
+
+    The write paths' entry point: it answers "what must I write?", so a path that changed nothing a
+    declaration reads writes nothing at all (acceptance item 13). The tolerance is the float-noise
+    guard `_same_rate` already uses on the upload comparison, for the same reason -- a 6-decimal
+    mint figure re-derived in binary is not an edit.
+
+    ⚠️⚠️ AN ABSENT CELL IS ABSENT BY DESIGN AND IS NEVER WRITTEN. `derived_rates` serves TWO
+    populations and they need opposite treatment:
+
+      * Insulation's 228 cells STORE a figure (the mint copied it) and nothing recomputed it -- those
+        are what this mechanism exists to bring back in step.
+      * ADP's 12 cross-talk cells store NOTHING AT ALL. Their pipeline fetches the base row's rate at
+        price time through a `component_ref`, so they are already live, and the declaration merely
+        DESCRIBES that. Writing a value into one would turn a live link into a frozen copy -- the
+        exact defect being removed -- and it would change ADP.
+
+    ⚠️ THIS IS NOT A THEORETICAL GUARD. Without it, the first Phase-0 upload wrote
+    `cost_supply 1600` and `cost_install 500` onto all six ADP cross-talk rows, which v14 stores with
+    markups only: 6 unintended ADP writes from an Insulation upload, reported as
+    `derived_recomputed=11` where five were expected. The rows were repaired from their superseded
+    predecessors and re-verified byte-equal to v14.
+
+    ⚠️ THE DISCRIMINATOR IS "IS IT STORED", NEVER A CATEGORY NAME (the HV-10 rule). A future category
+    whose pipeline computes a declared cell is protected by the same line, with no edit here.
+    """
+    out = {}
+    for (uid, rate_key), value in recompute_derived_values(configs, items_by_uid).items():
+        stored = (items_by_uid.get(uid, {}).get("rates") or {}).get(rate_key)
+        if not _is_finite_number(stored):
+            continue                      # absent by design -- the pipeline supplies it; never write
+        if abs(float(stored) - value) <= tolerance * max(1.0, abs(float(stored)), abs(value)):
+            continue                      # already in step
+        out.setdefault(uid, {})[rate_key] = value
+    return out
+
+
+def _validate_derived_rates(cfg):
+    """The shape of `derived_rates`, plus the two invariants that make a declaration trustworthy: it
+    is FLATTENED (no `from` points at a cell that is itself declared derived -- owner I-4, "flatten to
+    the base") and therefore ACYCLIC. ABSENT => nothing to check, byte-identical to before."""
+    if DERIVED_RATES_KEY not in cfg:
+        return
+    dr = cfg.get(DERIVED_RATES_KEY)
+    if not isinstance(dr, dict):
+        _vthrow("derived_rates must be an object of item_uid -> rate_key -> [terms].")
+    declared = set()
+    for uid, keys in dr.items():
+        if not isinstance(uid, str) or not uid.strip():
+            _vthrow("derived_rates: every key must be a non-empty item_uid.")
+        if not isinstance(keys, dict) or not keys:
+            _vthrow("derived_rates['%s'] must be a non-empty object of rate_key -> [terms]." % uid)
+        for rate_key, terms in keys.items():
+            if not isinstance(rate_key, str) or not rate_key.strip():
+                _vthrow("derived_rates['%s']: every rate key must be a non-empty string." % uid)
+            if not isinstance(terms, list) or not terms:
+                _vthrow("derived_rates['%s']['%s'] must be a non-empty list of terms."
+                        % (uid, rate_key))
+            declared.add((uid, rate_key))
+            for ti, term in enumerate(terms):
+                where = "derived_rates['%s']['%s'][%d]" % (uid, rate_key, ti)
+                if not isinstance(term, dict):
+                    _vthrow("%s must be an object." % where)
+                unknown = set(term.keys()) - _DERIVED_TERM_KEYS
+                if unknown:
+                    _vthrow("%s: unknown key(s) %s. Known: %s."
+                            % (where, ", ".join(sorted(unknown)),
+                               ", ".join(sorted(_DERIVED_TERM_KEYS))))
+                src = term.get("from")
+                if not isinstance(src, dict):
+                    _vthrow("%s needs a `from` object naming the base row." % where)
+                unknown_from = set(src.keys()) - _DERIVED_FROM_KEYS
+                if unknown_from:
+                    _vthrow("%s.from: unknown key(s) %s."
+                            % (where, ", ".join(sorted(unknown_from))))
+                for k in sorted(_DERIVED_FROM_KEYS):
+                    v = src.get(k)
+                    if not isinstance(v, str) or not v.strip():
+                        _vthrow("%s.from needs a non-empty %s." % (where, k))
+                if (src["item_uid"], src["rate_key"]) == (uid, rate_key):
+                    _vthrow("%s points at itself -- a cell cannot be derived from itself." % where)
+                if not _is_finite_number(term.get("multiplier", 1.0)):
+                    _vthrow("%s.multiplier must be a finite number." % where)
+                if not _is_finite_number(term.get("constant", 0.0)):
+                    _vthrow("%s.constant must be a finite number." % where)
+    # FLATTENED, therefore ACYCLIC: no base may itself be a declared derived cell (owner I-4).
+    for uid, keys in dr.items():
+        for rate_key, terms in keys.items():
+            for term in terms:
+                src = term["from"]
+                if (src["item_uid"], src["rate_key"]) in declared:
+                    _vthrow(
+                        "derived_rates['%s']['%s'] is derived from %s/%s, which is ITSELF declared "
+                        "derived. A declaration must be FLATTENED to the ultimate base (owner I-4)."
+                        % (uid, rate_key, src["item_uid"], src["rate_key"])
+                    )
+
+
+def _validate_rate_composition(cfg):
+    """`rate_composition` -- how a category's STORED cost PARTS make up its supply / install cost, so
+    the row-level formula columns can show each step's own result (owner I-6). Declared in CONFIG,
+    never in code, exactly like `helper_message` / `pending_label` (the HV-10 rule: no category named
+    in code). ABSENT => the row-level columns read `typed`, which is every category that shipped
+    before slice 12a."""
+    if RATE_COMPOSITION_KEY not in cfg:
+        return
+    comp = cfg.get(RATE_COMPOSITION_KEY)
+    if not isinstance(comp, dict) or not comp:
+        _vthrow("rate_composition must be a non-empty object of 'supply' / 'install' -> composition.")
+    unknown = set(comp.keys()) - {"supply", "install"}
+    if unknown:
+        _vthrow("rate_composition: unknown side(s) %s. Known: install, supply."
+                % ", ".join(sorted(unknown)))
+    for side, spec in comp.items():
+        if not isinstance(spec, dict):
+            _vthrow("rate_composition['%s'] must be an object." % side)
+        unknown_k = set(spec.keys()) - {"parts", "wastage_key", "markup_key", "roundup"}
+        if unknown_k:
+            _vthrow("rate_composition['%s']: unknown key(s) %s."
+                    % (side, ", ".join(sorted(unknown_k))))
+        parts = spec.get("parts")
+        if (not isinstance(parts, list) or not parts
+                or not all(isinstance(p, str) and p.strip() for p in parts)):
+            _vthrow("rate_composition['%s'].parts must be a non-empty list of rate keys." % side)
+        for k in ("wastage_key", "markup_key"):
+            if k in spec and (not isinstance(spec[k], str) or not spec[k].strip()):
+                _vthrow("rate_composition['%s'].%s must be a non-empty rate key." % (side, k))
+        if "roundup" in spec and not isinstance(spec["roundup"], int):
+            _vthrow("rate_composition['%s'].roundup must be an integer number of digits." % side)
+
+
+def _unit_class_of(unit, unit_classes):
+    """The unit CLASS a stored `unit` spelling belongs to, or None. Mirrors the interpreter's
+    READ-TIME projection (`attributes.unit_class`) -- nothing is stored, the class is resolved."""
+    want = (unit or "").strip().lower()
+    for cls, spellings in (unit_classes or {}).items():
+        for s in spellings or ():
+            if want == str(s).strip().lower():
+                return cls
+    return None
+
+
+def _pipeline_scopes(cfg):
+    """(label, family, unit_class, steps, is_convert) for EVERY pipeline a config carries -- the
+    top-level map (Electrical's shape) and the item-list families' per-unit-class and `convert`
+    blocks (ADP's shape). A `convert` block RE-POINTS the match onto its `to` class, so the rows it
+    prices are that class's rows, which that class's own `units` block already governs."""
+    for name, p in (cfg.get("pipelines") or {}).items():
+        if isinstance(p, dict):
+            yield ("pipelines." + name, None, None, p.get("steps") or [], False)
+    pricing = ((cfg.get("list_spec") or {}).get("pricing") or {})
+    for fam, fv in (pricing.get("families") or {}).items():
+        if not isinstance(fv, dict):
+            continue
+        for uc, ub in (fv.get("units") or {}).items():
+            if not isinstance(ub, dict):
+                continue
+            for pname, p in (ub.get("pipelines") or {}).items():
+                if isinstance(p, dict):
+                    yield ("%s/%s/%s" % (fam, uc, pname), fam, uc, p.get("steps") or [], False)
+        for from_uc, opts in (fv.get("convert") or {}).items():
+            for opt in (opts if isinstance(opts, list) else [opts]):
+                if not isinstance(opt, dict):
+                    continue
+                for pname, p in (opt.get("pipelines") or {}).items():
+                    if isinstance(p, dict):
+                        yield ("%s/%s->%s/%s" % (fam, from_uc, opt.get("to"), pname),
+                               fam, opt.get("to"), p.get("steps") or [], True)
+
+
+def _tainted_stored_results(steps, stored_keys):
+    """{stored rate key: the `component_ref` step that brought another row's value in}.
+
+    THE TAINT: a `component_ref` reads a rate key OFF A DIFFERENT ROW. Its contribution flows through
+    `sum_components` into that step's `result`, and onward through the value-carrying steps from
+    `target` (or from a `<name>_from_ctx` param) to `result`. A tainted name that is ALSO a rate key
+    the matched item STORES is a DERIVED cell -- the pipeline overwrites the row's own stored cost
+    with another row's. A `component` step reads the MATCHED row's own key and never taints; a step
+    that writes an untainted value over a tainted name CLEARS the taint."""
+    tainted = {}          # ctx name -> the component_ref that tainted it
+    pending = None        # the component_ref awaiting its sum_components
+    out = {}
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        st = s.get("step")
+        if st == "component_ref":
+            pending = s
+        elif st == "sum_components":
+            res = s.get("result")
+            if res:
+                if pending is not None:
+                    tainted[res] = pending
+                else:
+                    tainted.pop(res, None)
+            pending = None
+        elif st in _FLOW_STEPS:
+            tgt = s.get("target")
+            res = s.get("result") or tgt
+            src = tainted.get(tgt)
+            if src is None:
+                for pk, pv in (s.get("params") or {}).items():
+                    if pk.endswith(_CTX_PARAM_SUFFIX) and isinstance(pv, str):
+                        src = tainted.get(pv)
+                        if src is not None:
+                            break
+            if res:
+                if src is not None:
+                    tainted[res] = src
+                elif res != tgt:
+                    tainted.pop(res, None)
+        res = s.get("result")
+        if res and res in stored_keys and res in tainted:
+            out[res] = tainted[res]
+    return out
+
+
+def derived_rates_from_pipelines(cfg, items):
+    """THE MINT'S GENERATOR (owner I-2; recon B2.3). PURE.
+
+    Returns `derived_rates` for a config, PROJECTED from the config's own `component_ref` steps onto
+    the (item_uid, rate_key) pairs they govern. `items` are the discipline's active master items as
+    dicts carrying `item_uid`, `kind`, `unit`, `attributes`, `rates`.
+
+    An author never says which cells are derived: only a `component_ref` that overwrites a STORED
+    rate key can produce a declaration, so the row's-own-cost pipelines (60 of ADP's) and the rows the
+    pricer never matches cannot be mis-marked. `_validate_derived_rates` enforces flatness whichever
+    generator produced the map.
+
+    Raises ValueError when a `component_ref` does not resolve to exactly ONE base row -- the same
+    condition the interpreter requires at price time, so a mint cannot declare what pricing cannot do.
+    """
+    pricing = ((cfg.get("list_spec") or {}).get("pricing") or {})
+    unit_classes = pricing.get("unit_classes") or {}
+    family_attr = (cfg.get("list_spec") or {}).get("family_attribute_id") or "family"
+    kinds = set(cfg.get("item_kinds") or [])
+    stored = set()
+    for it in items:
+        stored.update((it.get("rates") or {}).keys())
+
+    def matches(it, kind, fam, uc, extra):
+        if kind and it.get("kind") != kind:
+            return False
+        if kinds and it.get("kind") not in kinds:
+            return False
+        attrs = it.get("attributes") or {}
+        if fam is not None and attrs.get(family_attr) != fam:
+            return False
+        if uc is not None and _unit_class_of(it.get("unit"), unit_classes) != uc:
+            return False
+        for k, v in (extra or {}).items():
+            if k in ("kind", "unit_class", family_attr, "family"):
+                continue
+            if attrs.get(k) != v:
+                return False
+        return True
+
+    out = {}
+    for label, fam, uc, steps, is_convert in _pipeline_scopes(cfg):
+        if is_convert:
+            continue           # the match is re-pointed onto the `to` class, governed by its own block
+        hits = _tainted_stored_results(steps, stored)
+        if not hits:
+            continue
+        priced = [it for it in items if matches(it, None, fam, uc, None)]
+        for rate_key, cref in sorted(hits.items()):
+            ref = cref.get("ref") or {}
+            base_key = cref.get("target") or rate_key
+            bases = [it for it in items
+                     if matches(it, ref.get("kind"), ref.get(family_attr, ref.get("family")),
+                                ref.get("unit_class"), ref)]
+            if len(bases) != 1:
+                raise ValueError(
+                    "%s: the component_ref %r resolves to %d rows, not exactly one -- a derivation "
+                    "must name ONE base row." % (label, ref, len(bases))
+                )
+            base = bases[0]
+            for it in priced:
+                if it["item_uid"] == base["item_uid"] and rate_key == base_key:
+                    continue
+                out.setdefault(it["item_uid"], {})[rate_key] = [{
+                    "from": {"item_uid": base["item_uid"], "rate_key": base_key},
+                    "multiplier": 1.0,
+                    "constant": 0.0,
+                }]
+    return out

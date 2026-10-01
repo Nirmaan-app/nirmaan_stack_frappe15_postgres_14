@@ -1131,6 +1131,35 @@ def _require_rate_admin():
     return user
 
 
+def _guard_pricing_input_values(kind, rates):
+    """SLICE 12b(B) -- THE NEGATIVE-VALUE GUARD, and it closes a live hole.
+
+    `csv_importer.validate_pricing_input_value` refuses a negative and DELIBERATELY allows zero (three
+    inputs are 0% by ruling, and v65 adds two more). Until now it had exactly ONE call site -- the CSV
+    upload -- while this file's rate writers validated with `_finite_number` alone, which rejects
+    None / bool / NaN / Inf but ACCEPTS A NEGATIVE. So `-20%` saved from the Rate Master grid and was
+    refused in the file: the same value, two answers.
+
+    ONE DEFINITION, NOW THREE CALL SITES. The refusal text is the importer's own, so the grid and the
+    file can never word it differently or disagree about what is allowed.
+
+    ⚠️ APPLIED TO BOTH WRITE PATHS (update AND create), deliberately. 12b(A)'s R5 note records the cost
+    of doing half of this: `refuse_if_in_use` was wired into the CSV path only, so a rename was blocked
+    and a DELETE was not, and the cert found it rather than the suite. A negative refused on edit but
+    accepted on create is the same shape of half-enforcement.
+
+    ⚠️ SCOPED BY THE KIND SUFFIX, like the rest of the pricing-input work. An ordinary catalogue rate is
+    free to be whatever it is; this says nothing about them.
+    """
+    from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+    if not csv_exporter.is_pricing_input_kind(kind):
+        return
+    for k, v in (rates or {}).items():
+        err = csv_importer.validate_pricing_input_value(v, k)
+        if err:
+            frappe.throw(err, title="Invalid pricing input")
+
+
 def _finite_number(value, label):
     """Parse value to a finite float (int/float/numeric-string). Rejects None/bool/NaN/Inf and
     non-numeric strings -- numeric-only param/rate values (RM-4a edits values, never types)."""
@@ -1333,9 +1362,15 @@ def _twin_confirmed_write(target_name, rates, block, spec_out=None):
     tdoc = frappe.get_doc(ITEM_DOCTYPE, target_name)
     tdoc.rates = json.dumps(csv_importer.merge_rates(_parse_json(tdoc.rates, {}) or {}, rates))
     tdoc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on this write path too.
+    # AFTER the save and BEFORE the commit, so the dependants read the value just written and ride
+    # the SAME transaction: a dependant can never be committed without its base. ONE implementation,
+    # shared with the upload path (`loader.recompute_derived_after_write`).
+    derived_recomputed = loader.recompute_derived_after_write(tdoc.discipline)
     frappe.db.commit()
     out = {
         "ok": True,
+        "derived_recomputed": derived_recomputed,
         "item": {
             "name": tdoc.name,
             "discipline": tdoc.discipline,
@@ -1397,6 +1432,7 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
                 rates[k] = None  # numeric-OR-NULL
             else:
                 rates[k] = _finite_number(v, f"rates.{k}")
+        _guard_pricing_input_values(doc.kind, rates_patch)
     # SLICE 1c: an item of an opted-in category (`attributes_from_spec`) takes its attributes from its
     # item_name / item_detail through the SAME reader the CSV upload uses -- no back door (S-c 3). Only
     # the two text keys may be patched; a changed text is re-read, an unchanged one leaves the stored
@@ -1448,9 +1484,15 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None,
     doc.rates = json.dumps(rates)
     doc.attributes = json.dumps(attributes)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on this write path too.
+    # AFTER the save and BEFORE the commit, so the dependants read the value just written and ride
+    # the SAME transaction: a dependant can never be committed without its base. ONE implementation,
+    # shared with the upload path (`loader.recompute_derived_after_write`).
+    derived_recomputed = loader.recompute_derived_after_write(doc.discipline)
     frappe.db.commit()
     out = {
         "ok": True,
+        "derived_recomputed": derived_recomputed,
         "item": {
             "name": doc.name,
             "discipline": doc.discipline,
@@ -1496,6 +1538,7 @@ def create_rate_master_item(
     clean_rates = {}
     for k, v in rates.items():
         clean_rates[k] = None if v is None else _finite_number(v, f"rates.{k}")
+    _guard_pricing_input_values(kind, rates)   # SLICE 12b(B): negative refused, ZERO accepted
     # SLICE 1c: an opted-in category (`attributes_from_spec`) -- the caller supplies item_name /
     # item_detail and NOTHING else; the reader derives the rest (or flags the row). Same reader, same
     # flag behaviour as the CSV upload (S-c 3). Any other category: the legacy path, byte-identical.
@@ -1558,9 +1601,19 @@ def create_rate_master_item(
         }
     )
     doc.insert(ignore_permissions=True)
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on this write path too.
+    # AFTER the save and BEFORE the commit, so the dependants read the value just written and ride
+    # the SAME transaction: a dependant can never be committed without its base. ONE implementation,
+    # shared with the upload path (`loader.recompute_derived_after_write`).
+    # A NEW item carries a freshly minted uid, so no declaration can name it as a base yet -- this
+    # call is therefore a no-op today. It is here because "every write path recomputes" must be true
+    # of the PATH, not of the cases that happen to exist: the twin-confirm branch above writes an
+    # EXISTING item's rates, and a future mint could make a hand-added row somebody's base.
+    derived_recomputed = loader.recompute_derived_after_write(doc.discipline)
     frappe.db.commit()
     out = {
         "ok": True,
+        "derived_recomputed": derived_recomputed,
         "item": {
             "name": doc.name,
             "discipline": doc.discipline,
@@ -1591,9 +1644,41 @@ def deactivate_rate_master_item(name=None):
     if not name:
         frappe.throw("name is required.", title="Missing field: name")
     doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
+    # ══════════════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 12b(A), owner ruling 2026-09-28 (OPTION 1) -- ACCEPTANCE 13 ON THIS PATH TOO.
+    #
+    # ⚠️ THE CERT CAUGHT THIS, NOT THE SUITE. `refuse_if_in_use` existed and was tested, but it was
+    # wired into the CSV path ONLY -- so a Pricing Input read by 8 pricing rules could be deactivated
+    # from the grid's trash icon and the endpoint answered {"ok": true}. Acceptance 13 was half
+    # enforced: RENAME was blocked (the read-only text columns), DELETE was not.
+    #
+    # ONE DEFINITION, TWO CALL SITES: the refusal text here is the SAME predicate the upload uses, so
+    # the two can never word it differently or disagree about what "in use" means.
+    #
+    # ⚠️ SCOPED TO PRICING-INPUT KINDS, BY THE KIND SUFFIX, exactly as the rest of the slice is. The
+    # owner rejected widening it to "any item a config references": that is a behaviour change to an
+    # endpoint this slice was never scoped to touch, and it is unmeasured. An ordinary catalogue item
+    # in any other category deactivates exactly as it did before -- pinned by test, so the wider rule
+    # cannot arrive later by accident.
+    # ══════════════════════════════════════════════════════════════════════════════════════════════
+    from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+    if csv_exporter.is_pricing_input_kind(doc.kind):
+        attrs = doc.attributes if isinstance(doc.attributes, dict) else json.loads(doc.attributes or "{}")
+        input_id = (attrs or {}).get(csv_exporter.PRICING_INPUT_NAME)
+        used = csv_exporter.pricing_input_used_by(csv_exporter._load_configs(doc.discipline))
+        refusal = csv_importer.refuse_if_in_use(input_id, used, "deactivate")
+        if refusal:
+            frappe.throw(refusal, title="Pricing input in use")
     if doc.active:
         doc.active = 0
         doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+        # SLICE 12a-FIX -- RECALCULATE ON SAVE reaches DEACTIVATION too, and here it REFUSES.
+        # ⚠️ Deactivating a row that others derive from leaves those declarations with no base, so
+        # `recompute_derived_after_write` raises `DerivedRateError` and this whole call rolls back
+        # (nothing is committed below it). That is acceptance item 8 landing on a real endpoint: a
+        # base row cannot be deleted out from under its dependants silently. The refusal names the
+        # cell and the missing base.
+        loader.recompute_derived_after_write(doc.discipline)
         frappe.db.commit()
     return {"ok": True, "active": 0}
 

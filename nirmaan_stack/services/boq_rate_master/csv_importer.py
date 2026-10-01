@@ -80,10 +80,12 @@ import csv
 import hashlib
 import io
 import json
+import re
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader, spec_reader, xlsx_io
+from nirmaan_stack.services.boq_rate_master import (config_validation, csv_exporter, exporter, freeze,
+                                                      loader, spec_reader, xlsx_io)
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -126,6 +128,21 @@ MAJOR_RATE_CHANGE_PCT = 10.0
 
 _LEAD = set(csv_exporter.LEAD_COLUMNS)          # item_uid, kind, brand, unit (kind OPTIONAL since 1e)
 _TAIL = set(csv_exporter.TAIL_COLUMNS)          # source_sheet, source_row -- SYSTEM columns: IGNORED since 1e
+# SLICE 12a (owner I-8): the two row-level formula columns and the formula ROW are EXPLANATIONS, not
+# data. "leaving it blank or overwriting it should not do anything" -- so the columns drop into the
+# `ignored` bucket that has carried `source_sheet` / `source_row` since 1e (read past, never applied,
+# never compared), and the formula row is dropped by its marker BEFORE any cell of it is read. Blanked,
+# overwritten and DELETED all behave identically, and a row whose only change is in them counts as
+# UNCHANGED -- `new_payload` is built from kind / brand / unit / attributes / rates / source_* only, so
+# the comparison cannot see a column that never entered the payload.
+_FORMULA_COLUMNS = set(csv_exporter.FORMULA_COLUMNS)
+_FORMULA_ROW_MARKER = csv_exporter.FORMULA_ROW_MARKER
+_PI_READONLY = set(csv_exporter.PRICING_INPUT_READONLY_COLUMNS)   # SLICE 12b(A)
+# Owner, 2026-09-27: a derived cell now carries the WORD `derived` rather than being blank, so
+# that it is never an ordinary empty cell. The importer must read that word EXACTLY as it reads a
+# blank -- "untouched" -- and NOT as a number it failed to parse. Case-insensitive, because Excel
+# and a pricer both capitalise.
+_DERIVED_CELL_TEXT = csv_exporter.DERIVED_CELL_TEXT
 _CATEGORY = csv_exporter.CATEGORY_COLUMN        # `category` -- in EVERY file since 1g (Mode B's marker before)
 _DISCIPLINE = csv_exporter.DISCIPLINE_COLUMN    # `discipline` -- in every file since 1g (owner Z-c)
 FORMAT_XLSX = csv_exporter.FORMAT_XLSX
@@ -221,6 +238,67 @@ def column_spaces(discipline):
     return attr_ids, rate_keys, attr_types, kind_cat
 
 
+def derived_rate_map(discipline, active_rows):
+    """SLICE 12a. {(item_uid, rate_key): [(term, base wording), ...]} over every active config of the
+    discipline -- the cells a config DECLARES derived, each already resolved to the wording the refusal
+    will name (owner I-5: the reference reads as wording, the id at the end).
+
+    Built ONCE per plan from the SAME `derived_cells` predicate the exporter's marking and the screen's
+    marking key on, so the file, the screen and the refusal can never disagree about which cell is
+    derived. EMPTY for a discipline whose configs declare nothing -- every Electrical config -- so its
+    upload path is byte-identical to before."""
+    by_uid = {}
+    for r in active_rows:
+        uid = (r.get("item_uid") or "").strip()
+        if uid and uid not in by_uid:
+            by_uid[uid] = {
+                "item_uid": uid,
+                "brand": r.get("brand"),
+                "unit": r.get("unit"),
+                "attributes": r["attributes"] if isinstance(r.get("attributes"), dict)
+                else json.loads(r.get("attributes") or "{}"),
+            }
+    out = {}
+    for c in frappe.get_all(CONFIG_DOCTYPE,
+                            filters={"discipline": discipline, "active": 1},
+                            fields=["category_id", "config"], order_by="category_id asc"):
+        cfg = c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+        for (uid, rate_key), terms in config_validation.derived_cells(cfg).items():
+            resolved = []
+            for t in terms:
+                src = (t.get("from") or {})
+                base = by_uid.get(src.get("item_uid"))
+                word = (csv_exporter.base_wording(cfg, base) if base
+                        else str(src.get("item_uid") or ""))
+                resolved.append((t, "%s of %s" % (src.get("rate_key"), word)))
+            out[(uid, rate_key)] = resolved
+    return out
+
+
+def derived_base_wording(resolved_terms):
+    """The base row(s) a derived cell reads, as the refusal names them."""
+    return " plus ".join(w for _t, w in resolved_terms)
+
+
+def _same_rate(typed, stored):
+    """SLICE 12a -- "did the user CHANGE this derived cell?", and ONLY that question.
+
+    ⚠️ A DELIBERATE, NARROW EXCEPTION to this module's type-strict comparison, and it earns its place
+    on the BACKWARDS-COMPATIBILITY case alone: a PRE-12a file still carries the derived figure in the
+    cell (we now export it empty), and a many-decimal cladding cost such as 46.0587... is ~15
+    significant digits in a workbook against 17 in Python -- so a faithful old file would be REFUSED
+    for a difference no human made. The tolerance is relative and microscopic; any real edit a pricer
+    types clears it by orders of magnitude. NOTHING IS REPAIRED: the value is not stored, not written
+    and not reported -- the answer is used only to decide refuse-or-ignore."""
+    if stored is None:
+        return False
+    try:
+        a, b = float(typed), float(stored)
+    except (TypeError, ValueError):
+        return False
+    return abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
+
+
 def _category_kinds(discipline):
     """SLICE 1e: {category_id: [kinds]} for one discipline -- what fills `kind` on a new row of a
     single-kind category, and what names the kinds when a multi-kind row leaves it blank."""
@@ -252,6 +330,28 @@ def _spec_owned_columns(discipline, spec_cats):
     return owned
 
 
+_LABEL_SUFFIX_RE = re.compile(r"\s*\[[^\[\]]*\]\s*$")
+
+
+def strip_header_label(header):
+    """`list_price [List price]` -> `list_price`. PURE.
+
+    SLICE 12b(B). The DERIVED rate-column kind rides in the header so a pricer reading the file knows
+    what the number is; the importer matches columns by EXACT NAME, so the suffix must come off before
+    anything is matched or every rate column would be an unplaceable-column ERROR and the whole file
+    would be refused.
+
+    ⚠️ SAFE BECAUSE NO NAME CONTAINS A BRACKET. Measured across BOTH disciplines: of 150 distinct
+    attribute ids and rate keys, not one contains `[` or `]`. So a trailing bracketed group can only be
+    a label, and stripping it can never eat part of a real name.
+
+    ⚠️ IT STRIPS ONLY A TRAILING GROUP, and the pattern forbids nested brackets, so a header that is
+    somehow all-bracket (`[x]`) strips to "" and is reported as a BLANK header rather than silently
+    matching something.
+    """
+    return _LABEL_SUFFIX_RE.sub("", str(header or "")).strip()
+
+
 def classify_columns(headers, attr_ids, rate_keys):
     """PURE. (spec, errors) -- which column index carries what.
 
@@ -273,6 +373,13 @@ def classify_columns(headers, attr_ids, rate_keys):
     """
     errors = []
     spec = {"attributes": {}, "rates": {}, "fixed": {}, "ignored": {}, "mode": "category"}
+    # SLICE 12b(B): a rate column's header now carries its DERIVED KIND -- `list_price [List price]`.
+    # The key still LEADS the cell and the suffix is stripped here, ONCE, before anything is matched, so
+    # every downstream reader (the name matching below, `is_pricing_input_headers`' positional check,
+    # `build_plan`) is byte-unchanged. A file with no labels strips to itself, so every pre-12b(B) file
+    # round-trips exactly as before.
+    headers = [strip_header_label(h) for h in headers]
+    pi_file = csv_exporter.is_pricing_input_headers(headers)   # SLICE 12b(A), keyed on the file's shape
     seen = set()
     for idx, name in enumerate(headers):
         if not name:
@@ -286,8 +393,13 @@ def classify_columns(headers, attr_ids, rate_keys):
         seen.add(name)
         if name in (_CATEGORY, _DISCIPLINE):
             spec["fixed"][name] = idx          # SLICE 1g: self-describing columns, checked in build_plan
-        elif name in _TAIL:
+        elif name in _TAIL or name in _FORMULA_COLUMNS:
             spec["ignored"][name] = idx            # a system column from an old file: read past, never applied
+        elif pi_file and name in _PI_READONLY:
+            # SLICE 12b(A): a Pricing Inputs file's text columns are READ-ONLY -- the `item` column shows
+            # the readable NAME while the stored id is what a pipeline names, so applying it would rename
+            # every input to its own description, and acceptance 13 forbids renaming an input in use.
+            spec["ignored"][name] = idx
         elif name in _LEAD:
             spec["fixed"][name] = idx
         elif name in attr_ids and name in rate_keys:
@@ -315,6 +427,80 @@ def classify_columns(headers, attr_ids, rate_keys):
 
 
 # ── value coercion ──────────────────────────────────────────────────────────────────────
+
+
+# SLICE 12b(A): a Pricing Input's factor columns are WRITTEN as percentages (ACCEPTANCE 6), so they
+# must be READ back as percentages -- "45%" is 0.45. The stored value never changed; only the display
+# did, and a round trip has to survive it.
+#
+# ⚠️ A BARE NUMBER IN A PERCENT COLUMN IS AMBIGUOUS AND IS REFUSED RATHER THAN GUESSED. Is `45` forty-
+# five percent or a factor of 45? Reading it either way silently re-prices a whole category -- 45 as a
+# factor is a 4,400% markup. So the percent sign is REQUIRED in a percent column, and its absence is a
+# named refusal, not a repair. (0 is the one exception: 0% and a factor of 0 are the same number.)
+def coerce_percent(text, label):
+    """(value, error). "45%" -> 0.45. A bare non-zero number is REFUSED, by name."""
+    s = (text or "").strip() if isinstance(text, str) else text
+    if s in (None, ""):
+        return None, None
+    if isinstance(s, (int, float)):
+        return (0.0, None) if float(s) == 0 else (
+            None, "%s: '%s' needs a per cent sign -- write 45%% rather than 45." % (label, s))
+    s = str(s).strip()
+    if s.endswith("%"):
+        body = s[:-1].strip()
+        try:
+            return float(body) / 100.0, None
+        except (TypeError, ValueError):
+            return None, "%s: '%s' is not a percentage." % (label, text)
+    try:
+        f = float(s)
+    except (TypeError, ValueError):
+        return None, "%s: '%s' is not a percentage." % (label, text)
+    if f == 0:
+        return 0.0, None
+    return None, "%s: '%s' needs a per cent sign -- write 45%% rather than 45." % (label, text)
+
+
+# ===================================================================================================
+# SLICE 12b(A) / ACCEPTANCE 13 -- what a Pricing Input refuses.
+# ===================================================================================================
+# ⚠️ ZERO IS NOT REFUSED, AND THAT IS A DELIBERATE DEVIATION FROM THE ACCEPTANCE LIST, reported rather
+# than quietly applied. The list says "zero, negative and non-numeric refused", but THREE of the 33
+# approved inputs are 0% by owner ruling:
+#     Lighting management system BCS markup   0%   (an LMS rate is our cost with nothing added)
+#     Cable tray installation markup          0%   (billed at cost, and the 0 is what makes it visible)
+#     Miscellaneous installation BCS ratio    0%   (the per-sqft labour ruling, now a visible number)
+# and cable tray's and junction box's DISCOUNTS are 0% too, which is what reconciled their "list" names
+# with the arithmetic. A blanket zero refusal would make the approved table unsaveable. So zero is
+# allowed; negative and non-numeric are refused.
+def validate_pricing_input_value(value, label):
+    """None if the value is acceptable, else the refusal text."""
+    if value in (None, ""):
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return "%s: '%s' is not a number." % (label, value)
+    if f != f or f in (float("inf"), float("-inf")):
+        return "%s: '%s' is not a finite number." % (label, value)
+    if f < 0:
+        return ("%s: a pricing input cannot be negative (%s). A discount, a markup, a wastage, a "
+                "ratio and a share are all positive." % (label, value))
+    return None
+
+
+def refuse_if_in_use(input_id, used_by, action):
+    """ACCEPTANCE 13: an input IN USE cannot be deleted or renamed. None, or the refusal text.
+
+    The count and the categories are NAMED, because "it is in use" without them leaves the reader with
+    nowhere to go. `used_by` is the DERIVED map (`csv_exporter.pricing_input_used_by`) -- never a stored
+    count, which would go stale the moment a pipeline changed.
+    """
+    n, cats = (used_by or {}).get(input_id, (0, []))
+    if not n:
+        return None
+    return ("Cannot %s '%s': it is read by %d pricing rule%s in %s. Change the rule first."
+            % (action, input_id, n, "" if n == 1 else "s", ", ".join(cats) or "a pricing rule"))
 
 
 def coerce_rate(text, label):
@@ -628,6 +814,14 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     twin_decisions = {str(k): v for k, v in (twin_decisions or {}).items()}
 
     headers, data_rows, encoding, fmt = read_upload(raw)
+    # SLICE 12a (owner I-7 / I-8): the FORMULA ROW is an explanation, not an item. It is dropped by its
+    # marker -- wherever it sits and whatever its other cells now say -- BEFORE the discipline pre-scan,
+    # the row count and every other read, so overwriting its text does nothing, blanking it leaves a
+    # wholly blank line (already skipped) and DELETING it leaves an ordinary file. Matched on ANY cell
+    # rather than on a column index, because the index is not known until the columns are classified.
+    if headers is not None:
+        data_rows = [(rn, cs) for rn, cs in data_rows
+                     if not any((c or "").strip() == _FORMULA_ROW_MARKER for c in cs)]
     if headers is None:
         # an unreadable workbook: ONE named error, the same shape as a header problem
         attr_ids, rate_keys, attr_types, kind_cat = set(), set(), {}, {}
@@ -671,6 +865,10 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
             by_uid.setdefault(uid, []).append(r)
     # SLICE 1f: the meaning of every active item, ONCE per plan (keyed by uid inside, so a shared item is one).
     twin_idx = twin_index(active, spec_cats)
+    # SLICE 12a: the DECLARED derived cells of this discipline, resolved to the wording the refusal
+    # names. ONE read per plan, from the same predicate the exporter and the screen use. {} for a
+    # discipline whose configs declare nothing, so its rates loop is byte-identical to before.
+    derived_map = derived_rate_map(discipline, active)
     in_file_identities = {}      # identity -> [rows] over the rows whose identity is NEW or CHANGED (Y-b 2)
 
     plan = {
@@ -947,6 +1145,33 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
 
         for name, idx in spec["rates"].items():
             raw_text = cell(cells, idx)
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 12a (owner I-2 / I-3) -- A DERIVED COST IS REFUSED, BY NAME.
+            # A cell the config DECLARES derived belongs to another catalogue row: "those formula
+            # should be preserved even in our system so that if we make change to the base row the
+            # change gets reflected on all other rows." So a value that DIFFERS from what is stored is
+            # refused, naming the base row to edit instead.
+            # ⚠️ REFUSED ON A CHANGE, NOT ON BEING NON-BLANK. A derived cell is EXPORTED with its
+            # stored figure (blanking it in the file would teach the reader nothing and, worse, a
+            # faithful re-upload of a blank cell CLEARS a rate), so an untouched download/upload must
+            # stay a silent no-op -- which is exactly what K2 checks. Every OTHER cell of the row,
+            # including the row's own cost parts and its markups, is accepted as always (I-3).
+            # ══════════════════════════════════════════════════════════════════════════════════
+            derived_terms = derived_map.get((uid, name)) if uid else None
+            if derived_terms is not None:
+                typed, terr = coerce_rate(raw_text, name)
+                was = (stored or {}).get("rates", {}).get(name)
+                if typed is None or (raw_text or "").strip().lower() == _DERIVED_CELL_TEXT:
+                    # BLANK, or the word we export -- both mean UNTOUCHED, and neither is a clearing.
+                    pass
+                elif terr:
+                    row_errors.append(terr)
+                elif not _same_rate(typed, was):
+                    row_errors.append(
+                        "'%s' is a DERIVED cost -- it comes from %s. Edit that row instead; a value "
+                        "typed here is refused." % (name, derived_base_wording(derived_terms))
+                    )
+                continue
             if (raw_text or "").strip() == "":
                 if stored is not None and name in rates:
                     if not _blankish(rates[name]):
@@ -954,7 +1179,23 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
                 elif stored is None:
                     rates.pop(name, None)
                 continue
-            value, err = coerce_rate(raw_text, name)
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 12b(A) -- A PRICING INPUT IS WRITTEN AS A PER CENT, SO IT MUST BE READ AS ONE.
+            # The owner ruled percentages, not decimals: the file shows `75%`, and `coerce_rate` would
+            # refuse that as "not a number", so the file could be downloaded and never uploaded back.
+            # The round trip IS the feature -- editing these numbers in the rate file is the entire
+            # point of the slice -- so the percent columns of a pricing-input row parse through
+            # `coerce_percent`, which also refuses a bare `45` naming the missing sign (45 and 0.45 are
+            # a 100x apart, and guessing which was meant is exactly the repair this module never makes).
+            # `amount` is rupees and is deliberately NOT a percent column.
+            # ⚠️ ZERO IS ALLOWED, negative and non-numeric are not -- three inputs are 0% by ruling.
+            # ══════════════════════════════════════════════════════════════════════════════════
+            if csv_exporter.is_pricing_input_kind(kind) and name in csv_exporter.PRICING_INPUT_PERCENT_COLUMNS:
+                value, err = coerce_percent(raw_text, name)
+            else:
+                value, err = coerce_rate(raw_text, name)
+            if not err and csv_exporter.is_pricing_input_kind(kind):
+                err = validate_pricing_input_value(value, name)
             if err:
                 row_errors.append(err)
             else:
@@ -1402,11 +1643,26 @@ def apply_plan(discipline, raw, expected_digest=None, decisions=None, accepted_f
             "active": 1,
         }).insert(ignore_permissions=True)
 
+    # SLICE 12a-FIX (owner R1 / R5) -- RECALCULATE ON SAVE, on the upload path.
+    #
+    # ⚠️ AFTER the inserts, deliberately: the recompute must read the catalogue AS IT NOW IS, so a
+    # base row this very upload changed is the value its dependants follow. Reading before the
+    # inserts would recompute against the figure the upload just replaced -- which is the stale
+    # read this whole slice exists to remove, reintroduced one line earlier.
+    #
+    # ⚠️ IT RIDES THE SAME TRANSACTION and this function still does not commit, so a dependant can
+    # never be written without its base, and a failure here rolls the whole upload back.
+    #
+    # The PREVIEW is untouched: a dependant's move is a CONSEQUENCE of the edit, not a row the user
+    # typed, so the preview still shows only what the file changed (acceptance item 1).
+    derived_written = loader.recompute_derived_after_write(discipline, batch)
+
     version = frappe.db.get_value(exporter.SNAPSHOT_DOCTYPE, snapshot, "version")
     return {
         "applied": len(plan["changes"]),
         "items_added": added,
         "items_replaced": replaced,
+        "derived_recomputed": derived_written,
         "snapshot": snapshot,
         "snapshot_version": version,
         "batch": batch,

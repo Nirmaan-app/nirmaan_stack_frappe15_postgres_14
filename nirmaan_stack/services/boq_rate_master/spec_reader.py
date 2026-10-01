@@ -16,8 +16,9 @@ Slice 1c (2026-09-21). Owner rulings, quoted:
 
 WHAT IT IS. A DETERMINISTIC rule set: a spec either fits a rule or it is reported as not understood,
 with the reason. No AI call. No fuzzy match. A family this module does not know is not understood.
-The rules are the slice 1a mapping (the `_mint_hvac_v1_tmp.py` `attrs_for` table) carried over
-verbatim, with every path that mapping ASSERTED on turned into a named refusal.
+The rules are the slice 1a mapping -- the `attrs_for` table in
+`scripts/_instruments/hvac_v1_attrs_for.py`, kept as provenance for exactly this reference -- carried
+over verbatim, with every path that mapping ASSERTED on turned into a named refusal.
 
 HOW A CATEGORY OPTS IN. Its stored config carries the top-level key `attributes_from_spec: true`
 (registered in `config_validation._KNOWN_CONFIG_KEYS`). Every category WITHOUT the key behaves

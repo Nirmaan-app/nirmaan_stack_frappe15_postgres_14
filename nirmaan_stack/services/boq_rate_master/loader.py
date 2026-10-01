@@ -383,6 +383,19 @@ def load_rate_master(payload=None, path=None, replace=False):
     )
     cfg_doc.insert(ignore_permissions=True)
 
+    # SLICE 12a-FIX -- THE LOAD VERIFIES, IT DOES NOT SILENTLY REPAIR (acceptance items 4 + 8).
+    #
+    # ⚠️ A load is the one write path that must NOT recompute. Every other path changes ONE thing and
+    # the dependants follow; a load replaces the WHOLE catalogue from an asset, and that asset is
+    # supposed to be internally consistent already -- the mint computes its derived cells. So if a
+    # declared cell disagrees with its base here, the ASSET is wrong, and quietly rewriting it would
+    # hide a bad mint behind a correct-looking catalogue. It raises instead, inside this function's
+    # transaction, so nothing is committed.
+    #
+    # It also catches a missing base and a cycle, which is where acceptance item 8's "refused loudly
+    # at mint" actually lands: the mint's own load is what runs this.
+    _verify_derived_consistent(discipline)
+
     frappe.db.commit()
 
     return {
@@ -523,6 +536,19 @@ def _load_multi(payload, replace):
         discipline, retired_kinds, retired_cat_ids, retirement_reasons
     )
 
+    # SLICE 12a-FIX -- THE LOAD VERIFIES, IT DOES NOT SILENTLY REPAIR (acceptance items 4 + 8).
+    #
+    # ⚠️ A load is the one write path that must NOT recompute. Every other path changes ONE thing and
+    # the dependants follow; a load replaces the WHOLE catalogue from an asset, and that asset is
+    # supposed to be internally consistent already -- the mint computes its derived cells. So if a
+    # declared cell disagrees with its base here, the ASSET is wrong, and quietly rewriting it would
+    # hide a bad mint behind a correct-looking catalogue. It raises instead, inside this function's
+    # transaction, so nothing is committed.
+    #
+    # It also catches a missing base and a cycle, which is where acceptance item 8's "refused loudly
+    # at mint" actually lands: the mint's own load is what runs this.
+    _verify_derived_consistent(discipline)
+
     frappe.db.commit()
 
     return {
@@ -545,3 +571,116 @@ def _load_multi(payload, replace):
         "retired_items_deactivated": retired_items_deactivated,
         "retired_configs_deactivated": retired_configs_deactivated,
     }
+
+
+# ── SLICE 12a-FIX: RECALCULATE ON SAVE ───────────────────────────────────────────────────────────
+# Owner R1: "those formula should be preserved even in our system so that if we make change to the
+# base row the change gets reflected on all other rows." Owner R5: recalculate on save.
+#
+# ⚠️ WHY IT LIVES HERE. This module already OWNS bulk item writes and the freeze-and-supersede model
+# (`_deactivate_scope` and the two insert loops), and it is imported by BOTH the other write paths
+# already -- `csv_importer` (line 88) and `api/boq/rate_master` (line 152) -- so there is exactly ONE
+# implementation and no new import anywhere. The PURE half is
+# `config_validation.recompute_derived_values` / `derived_rate_updates`; this is only the write.
+
+
+def recompute_derived_after_write(discipline, batch=None):
+    """Bring every STORED derived cell of `discipline` back in step with its base. Returns the number
+    of dependant ITEMS rewritten. Does NOT commit -- the caller owns the transaction.
+
+    ⚠️ CALL IT AFTER THE WRITE, NEVER BEFORE. It reads the catalogue as it now is, so a base row the
+    caller just changed is the value its dependants follow. Reading first would recompute against the
+    figure that was just replaced -- the stale read this slice exists to remove, one line earlier.
+
+    ⚠️ IT SUPERSEDES AND RE-INSERTS rather than updating in place, because that is this catalogue's
+    model: `item_uid` is the durable identity and `name` regenerates by design. The superseded row
+    stays as the record of what the cell held before -- which matters more here than anywhere else,
+    since a number no human typed has changed.
+
+    ⚠️ IT RAISES (`config_validation.DerivedRateError`) on a missing base, a base carrying no number,
+    or a cycle. Called inside the caller's transaction, that raise aborts the whole write rather than
+    leaving half a catalogue -- acceptance item 8. A declaration that cannot be computed is a defect,
+    never a cell to skip.
+    """
+    configs = [
+        c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+        for c in frappe.get_all(CONFIG_DOCTYPE,
+                                filters={"discipline": discipline, "active": 1},
+                                fields=["config"], order_by="category_id asc")
+    ]
+    if not any(config_validation.derived_cells(cfg) for cfg in configs):
+        return 0                      # nothing declared -- every Electrical upload takes this line
+    rows = frappe.get_all(
+        ITEM_DOCTYPE,
+        filters={"discipline": discipline, "active": 1},
+        fields=["name", "item_uid", "kind", "brand", "unit", "attributes", "rates",
+                "source_sheet", "source_row"],
+    )
+    by_uid = {}
+    for r in rows:
+        uid = (r.get("item_uid") or "").strip()
+        if not uid:
+            continue
+        r["rates"] = r["rates"] if isinstance(r["rates"], dict) else json.loads(r["rates"] or "{}")
+        r["attributes"] = (r["attributes"] if isinstance(r["attributes"], dict)
+                           else json.loads(r["attributes"] or "{}"))
+        by_uid[uid] = r
+    updates = config_validation.derived_rate_updates(configs, by_uid)
+    if not updates:
+        return 0
+    batch = batch or (BATCH_PREFIX + frappe.generate_hash(length=12))
+    for uid, new_rates in sorted(updates.items()):
+        row = by_uid[uid]
+        frappe.db.sql('UPDATE "tab%s" SET active = 0 WHERE name = %%s' % ITEM_DOCTYPE, row["name"])
+        rates = dict(row["rates"])
+        rates.update(new_rates)
+        frappe.get_doc({
+            "doctype": ITEM_DOCTYPE,
+            "discipline": discipline,
+            "kind": row["kind"],
+            "brand": row["brand"],
+            "unit": row["unit"],
+            "item_uid": uid,
+            "attributes": json.dumps(row["attributes"]),
+            "rates": json.dumps(rates),
+            "source_sheet": row["source_sheet"],
+            "source_row": row["source_row"],
+            "import_batch": batch,
+            "active": 1,
+        }).insert(ignore_permissions=True)
+    return len(updates)
+
+
+def _verify_derived_consistent(discipline):
+    """SLICE 12a-FIX -- every DECLARED derived cell of `discipline` already holds its computed value.
+
+    Raises `config_validation.DerivedRateError` naming the first disagreement. Used by the LOAD path,
+    which must refuse a bad asset rather than repair it (see the call sites). A discipline that
+    declares nothing returns immediately, so every Electrical load is byte-identical to before.
+    """
+    configs = [
+        c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+        for c in frappe.get_all(CONFIG_DOCTYPE,
+                                filters={"discipline": discipline, "active": 1},
+                                fields=["config"], order_by="category_id asc")
+    ]
+    if not any(config_validation.derived_cells(cfg) for cfg in configs):
+        return
+    by_uid = {}
+    for r in frappe.get_all(ITEM_DOCTYPE,
+                            filters={"discipline": discipline, "active": 1},
+                            fields=["item_uid", "rates"]):
+        uid = (r.get("item_uid") or "").strip()
+        if uid:
+            by_uid[uid] = {"rates": r["rates"] if isinstance(r["rates"], dict)
+                           else json.loads(r["rates"] or "{}")}
+    bad = config_validation.derived_rate_updates(configs, by_uid)
+    if bad:
+        uid, cells = sorted(bad.items())[0]
+        key, want = sorted(cells.items())[0]
+        raise config_validation.DerivedRateError(
+            "the asset just loaded is not internally consistent: %d item(s) carry a declared derived "
+            "value that disagrees with their base. First: %s/%s holds %r but its declaration computes "
+            "%r. The MINT is wrong -- nothing has been committed."
+            % (len(bad), uid, key, (by_uid[uid]["rates"] or {}).get(key), want)
+        )
