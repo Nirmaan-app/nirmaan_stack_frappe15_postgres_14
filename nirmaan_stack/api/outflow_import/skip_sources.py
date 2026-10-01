@@ -15,7 +15,7 @@ Bank refused, No amount and Skipped by hand need nothing extra: the row already 
 status and the person, reason and date.
 
 ⚠️ DERIVED AT READ, NOT STORED, AND THROUGH THE SAME LOOKUPS THE SKIP WAS DECIDED WITH. The earlier
-import comes from `candidates.prior_import_sightings` + `duplicates.find_prior_sighting`, the pair
+import comes from `candidates.prior_import_sightings` + `duplicates.find_prior_sightings`, the pair
 both upload paths use; the earlier line from `duplicates.row_identity`; the records from the SAME
 `related_records` the popup already links. A second, simpler rule here would one day point at a
 different document than the one that actually caused the skip.
@@ -34,7 +34,11 @@ import frappe
 from frappe.utils import getdate
 
 from nirmaan_stack.services.outflow_import.candidates import prior_import_sightings
-from nirmaan_stack.services.outflow_import.duplicates import find_prior_sighting, row_identity
+from nirmaan_stack.services.outflow_import.duplicates import (
+    PriorSighting,
+    find_prior_sightings,
+    row_identity,
+)
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
@@ -45,7 +49,7 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
 )
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
-__all__ = ["skip_sources"]
+__all__ = ["earlier_import_sightings", "earlier_lines", "skip_sources"]
 
 ROW_DOCTYPE = "Outflow Import Row"
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -98,24 +102,35 @@ def skip_sources(rows: list[dict], related: dict[str, list]) -> dict[str, dict]:
     return out
 
 
-def _fill_earlier_imports(rows: list[dict], out: dict) -> None:
-    """The earliest OTHER statement holding each transfer -- the lookup the upload decided with."""
+def earlier_import_sightings(rows: list[dict]) -> dict[str, PriorSighting]:
+    """`{row name: the earliest OTHER statement's sighting of it}` -- the lookup the upload decided with.
+
+    THE ONE ANSWER TO "which earlier import does this Already-imported line repeat?". The popup names
+    the sighting's batch; `patches/v3_0/delete_stored_exact_repeats` compares its bank status. Rows need
+    `name`, `import_batch`, `transfer_id`, `amount` and `added_on`. A row with no sighting is absent.
+    """
     by_batch: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         if row.get("transfer_id"):
             by_batch[row["import_batch"]].append(row)
 
-    found: dict[str, str] = {}
+    found: dict[str, PriorSighting] = {}
     for batch, members in by_batch.items():
         index = prior_import_sightings(
             sorted({r["transfer_id"] for r in members}), exclude_batch=batch
         )
         for row in members:
-            earlier = find_prior_sighting(
+            sightings = find_prior_sightings(
                 index, row["transfer_id"], normalize_amount(row.get("amount")), _date(row.get("added_on"))
             )
-            if earlier:
-                found[row["name"]] = earlier
+            if sightings:
+                found[row["name"]] = sightings[0]
+    return found
+
+
+def _fill_earlier_imports(rows: list[dict], out: dict) -> None:
+    """The earliest OTHER statement holding each transfer -- see `earlier_import_sightings`."""
+    found = {name: s.label for name, s in earlier_import_sightings(rows).items()}
     if not found:
         return
 
@@ -153,23 +168,27 @@ def _identity(row: dict):
     )
 
 
-def _fill_earlier_lines(rows: list[dict], out: dict) -> None:
-    """The first line of the SAME statement with the same identity -- staged before this one.
+def earlier_lines(rows: list[dict]) -> dict[str, dict]:
+    """`{row name: the first line of the SAME statement with the same identity}`, staged before it.
 
-    Staging inserts rows in file order and the row name is a sequence, so "earlier in the file" is the
-    lowest name among the lines sharing the identity.
+    THE ONE ANSWER TO "which line of this file does this Repeated-in-same-file line repeat?", read by
+    the popup and by `patches/v3_0/delete_stored_exact_repeats`. Staging inserts rows in file order and
+    the row name is a sequence, so "earlier in the file" is the lowest name among the lines sharing
+    the identity. Rows need `name`, `import_batch`, `transfer_id`, `amount`, `added_on`, `source`,
+    `direction` and `remarks`. A row that is itself the first is absent.
     """
     by_batch: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         if row.get("transfer_id"):
             by_batch[row["import_batch"]].append(row)
 
+    found: dict[str, dict] = {}
     for batch, members in by_batch.items():
         siblings = frappe.get_all(
             ROW_DOCTYPE,
             filters={"import_batch": batch, "transfer_id": ["in", sorted({r["transfer_id"] for r in members})]},
             fields=["name", "transfer_id", "amount", "added_on", "source", "direction", "remarks",
-                    "row_status", "bank_reference_no"],
+                    "row_status", "bank_reference_no", "status_raw"],
             order_by="name asc",
         )
         first_by_identity: dict = {}
@@ -178,13 +197,20 @@ def _fill_earlier_lines(rows: list[dict], out: dict) -> None:
         for row in members:
             first = first_by_identity.get(_identity(row))
             if first and first["name"] != row["name"]:
-                out[row["name"]]["earlier_line"] = {
-                    "name": first["name"],
-                    "added_on": str(first["added_on"]) if first.get("added_on") else None,
-                    "amount": float(first.get("amount") or 0),
-                    "reference": first.get("bank_reference_no") or first.get("transfer_id") or "",
-                    "row_status": first.get("row_status") or "",
-                }
+                found[row["name"]] = first
+    return found
+
+
+def _fill_earlier_lines(rows: list[dict], out: dict) -> None:
+    """The first line of the SAME statement with the same identity -- see `earlier_lines`."""
+    for row_name, first in earlier_lines(rows).items():
+        out[row_name]["earlier_line"] = {
+            "name": first["name"],
+            "added_on": str(first["added_on"]) if first.get("added_on") else None,
+            "amount": float(first.get("amount") or 0),
+            "reference": first.get("bank_reference_no") or first.get("transfer_id") or "",
+            "row_status": first.get("row_status") or "",
+        }
 
 
 def _fill_records(rows: list[dict], related: dict[str, list], out: dict) -> None:

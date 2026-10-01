@@ -716,6 +716,23 @@ needs one vocabulary rather than one per writer.
       reports the whole file (`ParseResult`'s figures) -- it says what the file contains. The upload
       result (`_summarize`) reads the batch. An upload with no repeats stores exactly the parser's
       figures, as before.
+    - **Past imports were cleaned once (#1356):** `patches/v3_0/delete_stored_exact_repeats`. A
+      stored row is an exact repeat when it is `Skipped` *Already imported* / *Repeated in same file*
+      and its ORIGINAL -- found by the Skipped popup's own lookups, `skip_sources.earlier_import_sightings`
+      / `earlier_lines` (one owner; the patch imports them) -- has the same bank status. Per import:
+      the count is ADDED to `repeats_not_saved`, the rows are raw-deleted (no Deleted Document copy;
+      their `Version` / `Comment` go with them), then counters/status go through
+      `review._refresh_batch_rollup` and gross/charges are re-summed from the remaining rows with
+      `gross_by_direction` / `charges_of`. ⚠️ **Two keeps that look like gaps are the safety:** an
+      *Already imported* row is deleted only when its original sits in a batch created BEFORE its own
+      (so every deletion points strictly earlier and each transfer keeps one row), and a row an
+      `Outflow Row Match` points at is never deleted. Dry run on the 2026-10-01 production copy:
+      **2,961 rows** across 85 imports (Cashfree 2,943, ICICI 4, Cashbook 14), **3 status-changed
+      rows kept** (one transfer, SUCCESS -> REVERSED), 0 kept for either guard; a second run plans 0.
+      `run_cleanup` repeats plan + apply until a plan is empty: deleting an in-file original can turn
+      a later "status change" into an exact repeat of the line between them, and one pass would leave
+      that for a second run.
+      Over every real import, the row re-sum reproduced the stored gross/charges exactly.
     - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.
