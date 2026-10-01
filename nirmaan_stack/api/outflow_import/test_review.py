@@ -145,6 +145,11 @@ class OutflowReviewFixture(unittest.TestCase):
         cls.payments = []
         cls.expenses = []
         cls.non_project_expenses = []
+        # A CLASS CLEANUP, not tearDownClass: unittest skips tearDownClass when setUpClass raises,
+        # and a subclass that fails its own precondition AFTER this commits the staged batch would
+        # leak it, plus every payment below. That happened: each leaked set made the next run's
+        # matching ambiguous, which failed the precondition again -- 1 red test became 24.
+        cls.addClassCleanup(cls._purge_fixtures)
         cls.parsed = _fresh_parse()
         cls.batch = _stage_batch(
             cls.parsed,
@@ -313,7 +318,7 @@ class OutflowReviewFixture(unittest.TestCase):
         )
 
     @classmethod
-    def tearDownClass(cls):
+    def _purge_fixtures(cls):
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
@@ -325,7 +330,6 @@ class OutflowReviewFixture(unittest.TestCase):
         for name in cls.non_project_expenses:
             frappe.db.delete("Non Project Expenses", {"name": name})
         frappe.db.commit()
-        super().tearDownClass()
 
     def _rows_by_transfer_suffix(self):
         rows = frappe.get_all(

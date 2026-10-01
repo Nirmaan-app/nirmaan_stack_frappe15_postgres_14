@@ -17,7 +17,7 @@ never re-decides a sibling: it cannot take a record a sibling currently holds (t
 an Option B pick, an ICICI claim), and it cannot un-pair a stack its siblings already paired. See the domain doc's #1272 section.
 
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Every record is created by the fixtures below and purged by
-`OutflowReviewFixture.tearDownClass`.
+`OutflowReviewFixture._purge_fixtures`, a class cleanup.
 """
 
 from datetime import timedelta

@@ -115,6 +115,10 @@ class PaymentSettlementFixture(unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.batches, self.payments, self.pos = [], [], []
+        # The safety net for when tearDown never commits: a setUp that raises skips tearDown, and a
+        # tearDown that raises (an aborted transaction makes every delete fail) loses every purge
+        # with it. Registered first, so it runs LAST, after every subclass's own cleanup.
+        self.addCleanup(self._purge_after_a_failure)
         self.parsed = _fresh_parse()
         self.batch = _stage_batch(
             self.parsed,
@@ -304,6 +308,15 @@ class PaymentSettlementFixture(unittest.TestCase):
         )
 
     def tearDown(self):
+        self._purge_settlement_fixtures()
+        super().tearDown()
+
+    def _purge_after_a_failure(self):
+        """Idempotent: after a clean tearDown every delete below finds nothing."""
+        frappe.db.rollback()
+        self._purge_settlement_fixtures()
+
+    def _purge_settlement_fixtures(self):
         # #1275: a reversal saves its match record through the document layer (a Version row, the
         # doctype tracks changes) and comments on the line. Purged with what they describe.
         legs = frappe.get_all(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]}, pluck="name")
@@ -346,13 +359,15 @@ class PaymentSettlementFixture(unittest.TestCase):
             frappe.db.delete(PAYMENT, {"name": name})
         for name in self.pos:
             frappe.db.delete("Procurement Orders", {"name": name})
+        # Committed BEFORE the project delete: `delete_doc` runs hooks and can raise, and it used
+        # to take every purge above down with it.
+        frappe.db.commit()
         # The dedicated allocation project (Ruling C), after its PO and payments are gone.
         if getattr(self, "_alloc_project_name", None):
             frappe.delete_doc(
                 "Projects", self._alloc_project_name, force=True, ignore_permissions=True
             )
         frappe.db.commit()
-        super().tearDown()
 
     def _po_amount_paid(self) -> float:
         return float(frappe.db.get_value("Procurement Orders", self.po, "amount_paid") or 0)
