@@ -14,12 +14,13 @@ def _line(tid, status="SUCCESS"):
     return SimpleNamespace(transfer_id=tid, status_raw=status)
 
 
-def _split(rows, earlier=None):
+def _split(rows, earlier=None, **rule):
     earlier = earlier or {}
     return split_repeats(
         rows,
         identity_of=lambda row: row.transfer_id,
         earlier_sightings_of=lambda row: earlier.get(row.transfer_id, ()),
+        **rule,
     )
 
 
@@ -62,3 +63,36 @@ class TestSplitRepeats(unittest.TestCase):
             {"A": (_seen("OFI-1", "SUCCESS"),), "B": (_seen("OFI-2", "SUCCESS"),)},
         )
         self.assertEqual(split.repeat_of_batch, "OFI-1")
+
+    def test_a_failed_line_is_a_sighting_by_default(self):
+        """Cashfree/ICICI: every TERMINAL line is a sighting, whatever its own outcome."""
+        split = _split([_line("A", "FAILED"), _line("A", "FAILED")])
+        self.assertEqual((len(split.kept), split.repeats_not_saved), (1, 1))
+
+
+class TestACallersInFileRule(unittest.TestCase):
+    """Cashbook's in-file sighting is a line that will be CREATED, not every terminal line (#1358)."""
+
+    @staticmethod
+    def _created_only(line):
+        return line.row.status_raw == "SUCCESS" and line.earlier is None and line.in_file is None
+
+    def test_a_line_the_rule_refuses_makes_no_later_line_a_repeat(self):
+        split = _split(
+            [_line("A", "FAILED"), _line("A")], is_in_file_sighting=self._created_only
+        )
+        self.assertEqual((len(split.kept), split.repeats_not_saved), (2, 0))
+        self.assertIsNone(split.kept[1].in_file)
+
+    def test_a_line_the_rule_accepts_still_makes_its_copy_a_repeat(self):
+        split = _split([_line("A"), _line("A")], is_in_file_sighting=self._created_only)
+        self.assertEqual((len(split.kept), split.repeats_not_saved), (1, 1))
+
+    def test_the_rule_sees_each_line_after_it_is_judged(self):
+        seen = []
+        _split(
+            [_line("A"), _line("A")],
+            is_in_file_sighting=lambda line: seen.append(line.in_file) or True,
+        )
+        self.assertIsNone(seen[0])
+        self.assertTrue(seen[1].exact)

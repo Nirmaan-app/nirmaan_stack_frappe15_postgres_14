@@ -84,6 +84,7 @@ __all__ = [
     "dates_agree",
     "find_prior_sighting",
     "find_prior_sightings",
+    "identity_wide_fields",
     "index_prior_sightings",
     "match_repeat",
     "row_identity",
@@ -174,10 +175,11 @@ def row_identity(
     comparison is safe.
 
     ⚠️ `remarks` IS COMPARED VERBATIM -- no strip, no case fold, no normalisation. The parser keeps
-    the narration exactly as the bank wrote it for the same reason, and the comparison never crosses
-    a database round trip (the cross-batch lookup settles the id, the amount and the date; remarks
-    only ever separate two rows of the SAME parsed file), so there is nothing for a normalisation to
-    repair and it could only make two genuinely different lines collide.
+    the narration exactly as the bank wrote it, and the staging stores it as parsed, so a stored row's
+    remarks are the parsed line's. Since #1358 the cross-batch lookup compares them too (a stored
+    sighting must match the FULL identity -- `find_prior_sightings`). A normalisation could only make
+    two genuinely different lines collide; if a stored narration ever came back altered, the line
+    would read as new and be stored again -- a copy someone can see, never a line lost.
 
     ⚠️ THE DATE, NOT THE DATETIME. `Outflow Import Row.added_on` is a Datetime and two exports of
     the same transfer can carry different clock times; `RawRow.added_on_date` already exists for
@@ -186,6 +188,13 @@ def row_identity(
     if source in WIDE_IDENTITY_SOURCES:
         return (transfer_id, amount, added_on_date, direction, remarks)
     return (transfer_id, amount, added_on_date)
+
+
+def identity_wide_fields(identity: RowIdentity) -> tuple:
+    """The fields of `identity` past `(transfer_id, amount, date)`: `(direction, remarks)` for a
+    `WIDE_IDENTITY_SOURCES` source, `()` for any other. What a stored sighting must ALSO agree on
+    (`find_prior_sightings`), beside the three axes the sightings index settles."""
+    return tuple(identity[3:])
 
 
 def row_identity_of(row, source: str = "") -> RowIdentity:
@@ -261,20 +270,26 @@ class PriorSighting:
 
     `bank_status` is what the bank said about that earlier line, as stored (ADR-0031). Blank for a
     corpus that has no bank status -- a booked expense -- which `match_repeat` is never asked about.
+
+    `wide_fields` is that line's `identity_wide_fields` under the source asking (#1358): `()` on the
+    triple, `(direction, remarks)` for a bank passbook.
     """
 
     added_on_date: "date | None"
     label: str
     bank_status: str = ""
+    wide_fields: tuple = ()
 
 
 def index_prior_sightings(
     entries: Iterable[tuple],
 ) -> dict[tuple[str, Decimal], tuple[PriorSighting, ...]]:
-    """Bucket `(transfer_id, amount, date, label[, bank_status])` entries by the two `==` axes.
+    """Bucket `(transfer_id, amount, date, label[, bank_status[, wide_fields]])` entries by the two
+    `==` axes.
 
     The fifth element is optional: an earlier IMPORT ROW carries the bank status it was stored with
-    (ADR-0031 needs it to tell an exact repeat from a status change); a booked expense has none.
+    (ADR-0031 needs it to tell an exact repeat from a status change); a booked expense has none. The
+    sixth is the stored line's `identity_wide_fields` (#1358), `()` when absent.
 
     ⚠️ A BLANK `transfer_id` IS DROPPED, NOT BUCKETED. Without this every reference-less record in
     the corpus would share one bucket keyed `("", amount)`, and a new statement row that also failed
@@ -286,14 +301,15 @@ def index_prior_sightings(
     never appear here.
     """
     index: dict[tuple[str, Decimal], list[PriorSighting]] = {}
-    for transfer_id, amount, added_on_date, label, *bank_status in entries:
+    for transfer_id, amount, added_on_date, label, *rest in entries:
         if not transfer_id:
             continue
         index.setdefault((transfer_id, amount), []).append(
             PriorSighting(
                 added_on_date=added_on_date,
                 label=label,
-                bank_status=bank_status[0] if bank_status else "",
+                bank_status=rest[0] if rest else "",
+                wide_fields=tuple(rest[1]) if len(rest) > 1 else (),
             )
         )
     return {key: tuple(sightings) for key, sightings in index.items()}
@@ -319,19 +335,28 @@ def find_prior_sightings(
     transfer_id: str,
     amount: Decimal,
     added_on_date: "date | None",
+    wide_fields: tuple = (),
 ) -> tuple[PriorSighting, ...]:
     """EVERY earlier sighting of this transfer, in the index's order (earliest first).
 
     `find_prior_sighting` is the first of these. All of them are needed to answer ADR-0031's
     question -- does the system already hold this line WITH THIS BANK STATUS? -- because the earliest
     sighting may carry an older status while a later one already carries this one.
+
+    ⚠️ A SIGHTING COUNTS ONLY ON THE SOURCE'S FULL IDENTITY (#1358). `wide_fields` is this line's
+    `identity_wide_fields`; a sighting whose own differ is a different line. On ICICI the other leg of
+    an SGST/CGST pair or a GL transfer shares the id, the amount and the date, and before this it read
+    as a sighting -- since ADR-0031 that dropped a real line silently. `()` on both sides for the
+    triple sources, so Cashfree and Cashbook are unchanged.
     """
     if not transfer_id:
         return ()
+    wide_fields = tuple(wide_fields)
     return tuple(
         sighting
         for sighting in index.get((transfer_id, amount), ())
         if dates_agree(sighting.added_on_date, added_on_date)
+        and sighting.wide_fields == wide_fields
     )
 
 

@@ -242,3 +242,126 @@ class TestWhatIsNeverDeleted(RepeatFixture):
         self.assertEqual(plan.kept_linked, [repeat])
         self.assertTrue(self._exists(repeat))
         self.assertEqual(self._stored(later).repeats_not_saved or 0, 0)
+
+
+class TestAnImportLeftEmpty(RepeatFixture):
+    def test_it_is_kept_completed_with_its_count(self):
+        """#1358: `derive_batch_status([])` is Draft, and a Draft import reads as open work. An import
+        the patch empties still records that the file was uploaded, so it is kept -- and Completed."""
+        earlier = self._batch("Cashfree")
+        original = self._line(batch=earlier)
+        later = self._batch("Cashfree")
+        repeat = self._repeat(original, later, "Already imported")
+
+        self._cleanup(later)
+
+        self.assertFalse(self._exists(repeat))
+        self.assertTrue(frappe.db.exists(BATCH_DOCTYPE, later))
+        stored = self._stored(later)
+        self.assertEqual((stored.status, stored.total_rows, stored.repeats_not_saved), ("Completed", 0, 1))
+        self.assertEqual(float(stored.gross_amount), 0.0)
+
+
+class TestThePatchAgreesWithTheUpload(RepeatFixture):
+    """#1358: the patch decides exactness through the upload's own walk (`repeats.split_repeats`,
+    `duplicates.match_repeat`), so what it deletes is what an upload today would have left out."""
+
+    def test_an_exact_repeat_of_any_earlier_sighting_goes_not_only_of_the_earliest(self):
+        """SUCCESS in A, then REVERSED in B, C and D. The upload keeps only B's line: C and D repeat
+        B exactly. Judged against A alone, all three would read as status changes and be kept."""
+        a = self._batch("Cashfree")
+        original = self._line(batch=a)
+        copies = []
+        for _ in range(3):
+            batch = self._batch("Cashfree")
+            copies.append(self._repeat(original, batch, "Already imported", status_raw="REVERSED"))
+
+        plan = self._cleanup(*self.batches)
+
+        self.assertTrue(self._exists(copies[0]))
+        self.assertFalse(self._exists(copies[1]))
+        self.assertFalse(self._exists(copies[2]))
+        self.assertEqual(plan.kept_status_changed, [copies[0]])
+
+    def test_an_in_flight_first_line_is_not_the_original(self):
+        """QUEUED, then SUCCESS, then a SUCCESS copy stored as repeated in the same file. Only a
+        terminal line is an in-file sighting, so the copy repeats line 2 exactly and goes."""
+        batch = self._batch("Cashfree")
+        queued = self._line(batch=batch, status_raw="QUEUED")
+        tid = frappe.db.get_value(ROW_DOCTYPE, queued, "transfer_id")
+        success = self._line(batch=batch, transfer_id=tid)
+        copy = self._repeat(success, batch, "Repeated in same file")
+
+        self._cleanup(batch)
+
+        self.assertFalse(self._exists(copy))
+        self.assertTrue(self._exists(queued))
+        self.assertTrue(self._exists(success))
+
+    def test_on_cashbook_the_original_is_the_line_that_was_created(self):
+        """FAILED (skipped), then SUCCESS (created), then a SUCCESS copy stored as repeated in the
+        same file. On Cashbook an in-file sighting is a created line, so the FAILED line is not the
+        original -- the copy repeats the SUCCESS line exactly and goes."""
+        source = "Cashbook"
+        batch = self._batch(source)
+        failed = self._line(batch=batch, source=source, status_raw="FAILED", status=ROW_SKIPPED,
+                            skip_origin="System", skip_kind="Bank refused")
+        tid = frappe.db.get_value(ROW_DOCTYPE, failed, "transfer_id")
+        created = self._line(batch=batch, source=source, transfer_id=tid)
+        copy = self._repeat(created, batch, "Repeated in same file")
+
+        self._cleanup(batch)
+
+        self.assertFalse(self._exists(copy))
+        self.assertTrue(self._exists(failed))
+        self.assertTrue(self._exists(created))
+
+    def test_on_cashbook_a_line_the_plan_skipped_is_no_original(self):
+        """A SUCCESS line the plan skipped (already booked) was never created, so on Cashbook it makes
+        no later line a repeat -- the stored copy is kept."""
+        source = "Cashbook"
+        batch = self._batch(source)
+        booked = self._line(batch=batch, source=source, status=ROW_SKIPPED, skip_origin="System",
+                            skip_kind="Outflow Already Recorded")
+        copy = self._repeat(booked, batch, "Repeated in same file")
+
+        plan = self._cleanup(batch)
+
+        self.assertTrue(self._exists(copy))
+        self.assertEqual(plan.kept_no_earlier_original, [copy])
+
+    def test_an_icici_line_whose_only_earlier_sighting_is_the_other_leg_is_kept(self):
+        """The earlier import holds the SGST leg. The later import holds a CGST leg the old lookup
+        skipped as already imported (same id, amount and date) -- it is a different line and stays.
+        The later import's true copy of the SGST leg still goes."""
+        fields = {"source": "ICICI Bank Statement", "direction": "Debit"}
+        earlier = self._batch("ICICI Bank Statement")
+        sgst = self._line(batch=earlier, remarks="SGST leg", **fields)
+        tid = frappe.db.get_value(ROW_DOCTYPE, sgst, "transfer_id")
+        later = self._batch("ICICI Bank Statement")
+        cgst = self._line(batch=later, remarks="CGST leg", transfer_id=tid, status=ROW_SKIPPED,
+                          skip_origin="System", skip_kind="Already imported", **fields)
+        sgst_again = self._repeat(sgst, later, "Already imported")
+
+        plan = self._cleanup(later)
+
+        self.assertTrue(self._exists(cgst))
+        self.assertIn(cgst, plan.kept_no_earlier_original)
+        self.assertFalse(self._exists(sgst_again))
+
+
+class TestCashbookMoneyWithNoStoredDirection(RepeatFixture):
+    def test_a_cashbook_import_keeps_its_gross_when_its_rows_carry_no_direction(self):
+        """Cashbook staging does not write `direction`, and the one-off direction backfill is not
+        wired in `patches.txt`, so production Cashbook rows can be blank. Cashbook cannot state money
+        in, so a blank there is money out -- the re-sum must not zero the import's gross."""
+        source = "Cashbook"
+        earlier = self._batch(source)
+        original = self._line(batch=earlier, source=source, direction="", amount=700.0)
+        later = self._batch(source)
+        self._line(batch=later, source=source, direction="", amount=300.0)
+        self._repeat(original, later, "Already imported", direction="")
+
+        self._cleanup(later)
+
+        self.assertEqual(float(self._stored(later).gross_amount), 300.0)

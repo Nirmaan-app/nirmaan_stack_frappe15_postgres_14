@@ -528,7 +528,7 @@ class TestQueuedThenSuccessfulReimport(unittest.TestCase):
         parsed = _parsed_in_a_fresh_transfer_namespace()
         self._stage(_all_queued(parsed))
 
-        verdict, _ = _assess_statement(parsed, "test-statement.csv")
+        verdict = _assess_statement(parsed, "test-statement.csv")
         # None of the queued lines counts -- only the fixture's in-file repeat (ADR-0031).
         self.assertEqual(verdict.duplicates, FIXTURE_IN_FILE_REPEATS)
         self.assertFalse(verdict.refuse)
@@ -768,7 +768,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
 
     def test_a_brand_new_statement_is_neither_refused_nor_warned(self):
         parsed = _parsed_in_a_fresh_transfer_namespace()
-        verdict, _ = _assess_statement(parsed, "aug.csv")
+        verdict = _assess_statement(parsed, "aug.csv")
         self.assertFalse(verdict.refuse)
         self.assertFalse(verdict.warn)
         # Nothing from an earlier import -- only the fixture's in-file repeat (ADR-0031).
@@ -779,7 +779,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
         parsed = _parsed_in_a_fresh_transfer_namespace()
         batch = self._stage(parsed)
 
-        verdict, _ = _assess_statement(parsed, "aug.csv")
+        verdict = _assess_statement(parsed, "aug.csv")
         self.assertTrue(verdict.refuse)
         self.assertEqual(verdict.new, 0)
         self.assertIn(batch.name, verdict.message)
@@ -796,7 +796,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
         )
         with_one_new = replace(parsed, rows=parsed.rows[1:] + (fresh,))
 
-        verdict, _ = _assess_statement(with_one_new, "aug.csv")
+        verdict = _assess_statement(with_one_new, "aug.csv")
         self.assertFalse(verdict.refuse)
         self.assertTrue(verdict.warn)
         self.assertEqual(verdict.new, 1)
@@ -814,7 +814,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
         self._stage(parsed)
         before = frappe.db.count(BATCH_DOCTYPE)
 
-        verdict, _ = _assess_statement(parsed, "aug.csv")
+        verdict = _assess_statement(parsed, "aug.csv")
 
         self.assertTrue(verdict.refuse)
         self.assertEqual(frappe.db.count(BATCH_DOCTYPE), before)
@@ -828,7 +828,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
         """
         parsed = _parsed_in_a_fresh_transfer_namespace()
         self._stage(parsed)
-        self.assertTrue(_assess_statement(parsed, "aug.csv")[0].refuse)
+        self.assertTrue(_assess_statement(parsed, "aug.csv").refuse)
 
         moved = replace(
             parsed,
@@ -846,7 +846,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
                            parsed.period_to.day),
         )
 
-        verdict, _ = _assess_statement(moved, "next-year.csv")
+        verdict = _assess_statement(moved, "next-year.csv")
         self.assertFalse(verdict.refuse)
         # Nothing found in the earlier batch -- only the fixture's in-file repeat (ADR-0031).
         self.assertEqual(verdict.duplicates, FIXTURE_IN_FILE_REPEATS)
@@ -862,7 +862,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
         )
         frappe.db.commit()
 
-        verdict, _ = _assess_statement(parsed, "aug.csv")
+        verdict = _assess_statement(parsed, "aug.csv")
         self.assertTrue(verdict.refuse)
 
 
@@ -1239,7 +1239,7 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         # One more in-file exact repeat of a NEW line, so both kinds of repeat are in the count.
         today = replace(today, rows=today.rows + (today.rows[-1],))
 
-        verdict, _ = _assess_statement(today, "today.csv")
+        verdict = _assess_statement(today, "today.csv")
         batch = self._stage(today)
         self.assertEqual(verdict.duplicates, batch.repeats_not_saved)
         self.assertEqual(verdict.new, batch.total_rows)
@@ -1276,7 +1276,7 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         self._stage(parsed)
         tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
 
-        verdict, _ = _assess_statement(self._with_status(parsed, tid, "REVERSED"), "t.csv")
+        verdict = _assess_statement(self._with_status(parsed, tid, "REVERSED"), "t.csv")
         self.assertFalse(verdict.refuse)
         self.assertEqual(verdict.new, 1)
         self.assertEqual(verdict.duplicates, len(parsed.rows) - 1)
@@ -1284,7 +1284,7 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
     def test_a_file_of_nothing_but_exact_repeats_is_refused(self):
         parsed = _parsed_in_a_fresh_transfer_namespace()
         first = self._stage(parsed)
-        verdict, _ = _assess_statement(parsed, "t.csv")
+        verdict = _assess_statement(parsed, "t.csv")
         self.assertTrue(verdict.refuse)
         self.assertEqual(verdict.duplicates, len(parsed.rows))
         self.assertIn(first.name, verdict.message)
@@ -1298,7 +1298,7 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         reversed_ = self._with_status(parsed, tid, "REVERSED")
         self._stage(reversed_)
 
-        verdict, _ = _assess_statement(reversed_, "t.csv")
+        verdict = _assess_statement(reversed_, "t.csv")
         self.assertTrue(verdict.refuse)
         third = self._stage(reversed_)
         self.assertEqual(self._rows(third), [])
@@ -1347,11 +1347,156 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         self.assertEqual(first.repeats_not_saved, 0)
         self.assertEqual(first.total_rows, len(parsed.rows))
 
-        verdict, _ = _assess_statement(parsed, "icici.csv")
+        verdict = _assess_statement(parsed, "icici.csv")
         self.assertTrue(verdict.refuse)
         second = self._stage(parsed)
         self.assertEqual(self._rows(second), [])
         self.assertEqual(second.repeats_not_saved, len(parsed.rows))
+
+
+    @staticmethod
+    def _icici_leg_pairs(parsed):
+        """The fixture's lines that share a transfer id with exactly one other line -- the SGST/CGST
+        pair (same direction, different narration) and the GL transfer (same narration, opposite
+        direction). Each pair shares its amount and date too, so only the wide fields tell them apart."""
+        by_id = {}
+        for row in parsed.rows:
+            by_id.setdefault(row.transfer_id, []).append(row)
+        pairs = [legs for legs in by_id.values() if len(legs) == 2]
+        for a, b in pairs:
+            assert (a.amount, a.added_on_date) == (b.amount, b.added_on_date), a.transfer_id
+        return pairs
+
+    def test_an_icici_line_whose_only_earlier_sighting_is_the_other_leg_is_stored(self):
+        """#1358: an earlier sighting counts only when it matches the FULL identity. The other leg
+        shares id, amount and date but not direction or remarks, so it is a different line."""
+        parsed = _parsed_icici_in_a_fresh_transfer_namespace()
+        pairs = self._icici_leg_pairs(parsed)
+        self.assertTrue(any(a.direction != b.direction for a, b in pairs))
+        self.assertTrue(any(a.direction == b.direction and a.remarks != b.remarks for a, b in pairs))
+        first_legs = replace(parsed, rows=tuple(a for a, _ in pairs))
+        other_legs = replace(parsed, rows=tuple(b for _, b in pairs))
+        self._stage(first_legs)
+
+        verdict = _assess_statement(other_legs, "icici.csv")
+        self.assertEqual(verdict.duplicates, 0)
+        second = self._stage(other_legs)
+        self.assertEqual(second.repeats_not_saved, 0)
+        rows = self._rows(second)
+        self.assertEqual(len(rows), len(pairs))
+        self.assertNotIn("Already imported", [r["skip_kind"] for r in rows])
+
+    def test_a_true_re_upload_of_both_icici_legs_is_still_left_out(self):
+        parsed = _parsed_icici_in_a_fresh_transfer_namespace()
+        both = replace(parsed, rows=tuple(leg for pair in self._icici_leg_pairs(parsed) for leg in pair))
+        self._stage(both)
+        again = self._stage(both)
+        self.assertEqual(self._rows(again), [])
+        self.assertEqual(again.repeats_not_saved, len(both.rows))
+
+
+class TestOneUploadAsksOnce(unittest.TestCase):
+    """#1358: an upload plans its lines ONCE -- one earlier-sightings query, one overlap query --
+    and the refusal check and the staging both read that one plan.
+
+    Through the real endpoint (the multipart read faked with a `werkzeug` `FileStorage`, `save_file`
+    stubbed), because the two calls sit in the endpoint and nowhere else."""
+
+    def setUp(self):
+        super().setUp()
+        # Unique per run, and purged BY NAME: an upload that raises after inserting its batch never
+        # returns the batch's id, and must still leave nothing behind.
+        self.filename = f"once-{frappe.generate_hash(length=8)}.csv"
+        self.addCleanup(self._purge)
+
+    def _purge(self):
+        frappe.db.rollback()
+        for name in frappe.get_all(BATCH_DOCTYPE, filters={"original_filename": self.filename}, pluck="name"):
+            frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
+            frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        frappe.db.commit()
+
+    def test_the_sightings_and_overlap_queries_run_once_per_upload(self):
+        import io as _io
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from werkzeug.datastructures import FileStorage, MultiDict
+
+        from nirmaan_stack.api.outflow_import import upload
+
+        prefix = frappe.generate_hash(length=8)
+        with open(FIXTURE, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        # A fresh transfer namespace in the FILE ITSELF, so nothing in the database already holds it.
+        content = text.replace("TID", f"TID{prefix}").encode()
+        filename = self.filename
+
+        class _Request:
+            files = MultiDict({"file": FileStorage(stream=_io.BytesIO(content), filename=filename)})
+
+        previous_request = getattr(frappe.local, "request", None)
+        previous_form = dict(frappe.form_dict)
+        frappe.set_user("Administrator")
+        frappe.local.request = _Request()
+        frappe.form_dict["source"] = "Cashfree"
+        frappe.form_dict.pop("header_row", None)
+        try:
+            with patch.object(
+                upload, "find_earlier_sightings_for_rows",
+                wraps=upload.find_earlier_sightings_for_rows,
+            ) as sightings, patch.object(
+                upload, "_find_overlapping_batch", wraps=upload._find_overlapping_batch
+            ) as overlaps, patch.object(
+                upload, "save_file",
+                return_value=SimpleNamespace(name="no-such-file", file_url=f"/private/files/{filename}"),
+            ):
+                result = upload.upload_outflow_statement()
+        finally:
+            frappe.local.request = previous_request
+            frappe.local.form_dict = frappe._dict(previous_form)
+
+        self.assertEqual(sightings.call_count, 1)
+        self.assertEqual(overlaps.call_count, 1)
+        self.assertGreater(result["total_rows"], 0)
+
+
+class TestOneMoneyRule(unittest.TestCase):
+    """#1358: "money over the stored lines" is ONE helper, `parser.stored_money`, read by the
+    Cashfree/ICICI staging, the Cashbook staging and the cleanup patch -- never three spellings."""
+
+    def test_every_writer_of_an_imports_money_reads_the_one_helper(self):
+        import inspect
+
+        from nirmaan_stack.api.outflow_import import cashbook, upload
+        from nirmaan_stack.patches.v3_0 import delete_stored_exact_repeats
+        from nirmaan_stack.services.outflow_import import parser
+
+        for module in (upload, cashbook, delete_stored_exact_repeats):
+            with self.subTest(module=module.__name__):
+                self.assertIs(module.stored_money, parser.stored_money)
+                source = inspect.getsource(module)
+                self.assertNotIn("gross_by_direction(", source)
+                self.assertNotIn("charges_of(", source)
+
+    def test_the_helper_is_successful_debits_and_every_lines_charges(self):
+        from types import SimpleNamespace
+
+        from nirmaan_stack.services.outflow_import.parser import stored_money
+
+        def line(amount, success, direction, charge):
+            return SimpleNamespace(
+                amount=Decimal(amount), is_success=success, direction=direction,
+                service_charge=Decimal(charge), service_tax=Decimal("0"),
+            )
+
+        gross, charges = stored_money([
+            line("100", True, "Debit", "1"),
+            line("200", False, "Debit", "2"),
+            line("300", True, "Credit", "3"),
+            line("400", True, "", "4"),
+        ])
+        self.assertEqual((gross, charges), (Decimal("100"), Decimal("10")))
 
 
 class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):

@@ -81,9 +81,8 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     StatementFormatError,
-    charges_of,
-    gross_by_direction,
     parse_statement,
+    stored_money,
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
@@ -185,7 +184,7 @@ def confirm_cashbook_import():
         "batch": batch.name,
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
-        "repeats_not_saved": plan.repeats_not_saved,
+        "repeats_not_saved": plan.split.repeats_not_saved,
     }
 
 
@@ -545,8 +544,8 @@ def _assess(parsed, plan: CashbookPlan, filename: str) -> DuplicateVerdict:
     """
     return assess_duplicates(
         total=len(parsed.rows),
-        duplicates=plan.repeats_not_saved,
-        earliest_batch=plan.repeat_of_batch,
+        duplicates=plan.split.repeats_not_saved,
+        earliest_batch=plan.split.repeat_of_batch,
         filename=filename,
     )
 
@@ -567,15 +566,12 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     counts it; the batch keeps only `repeats_not_saved`, the one trace such a line leaves. Every other
     parsed line is staged -- a status-changed repeat included, skipped with both statuses named.
 
-    ⚠️ THE MONEY TOTALS ARE THE STORED LINES', NOT THE FILE'S. The parser's figures sum every line;
-    an exact repeat's money already sits in the earlier import that holds it, so counting it here is
-    the same money in two imports. Each total keeps its own rule (`gross_by_direction` -- successful
-    debits; `charges_of` -- every line), over the smaller population. A file with no repeats gives
-    exactly the figures it gave before.
+    ⚠️ THE MONEY TOTALS ARE THE STORED LINES', NOT THE FILE'S -- `parser.stored_money`, the one
+    helper every import's money goes through. A file with no repeats gives exactly the figures it
+    gave before.
     """
-    by_row = {row.row_number: row for row in plan.rows}
-    stored = [raw for raw in parsed.rows if raw.row_number in by_row]
-    gross, _ = gross_by_direction(stored)
+    stored = [line.row for line in plan.split.kept]
+    gross, charges = stored_money(stored)
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
@@ -586,9 +582,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
             "period_from": parsed.period_from,
             "period_to": parsed.period_to,
             "gross_amount": float(gross),
-            "charges_amount": float(charges_of(stored)),
+            "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
-            "repeats_not_saved": plan.repeats_not_saved,
+            "repeats_not_saved": plan.split.repeats_not_saved,
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",
@@ -596,8 +592,8 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     )
     batch.insert(ignore_permissions=True)
 
-    for raw in stored:
-        planned = by_row[raw.row_number]
+    # `plan.rows` and `plan.split.kept` are the same lines in the same order -- see `CashbookPlan`.
+    for raw, planned in zip(stored, plan.rows, strict=True):
         creating = planned.action == ACTION_CREATE
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(

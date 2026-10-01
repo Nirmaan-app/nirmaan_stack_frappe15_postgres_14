@@ -697,18 +697,25 @@ needs one vocabulary rather than one per writer.
       leaves an exact repeat out of `plan.rows` BEFORE any skip test (so a top-up's copy goes too, not
       only a spend's) and counts it in `CashbookPlan.repeats_not_saved`. **The walk has ONE owner,
       `services/outflow_import/repeats.split_repeats`**, which `upload._plan_lines` calls too -- each
-      caller passes only its identity and its corpus of earlier sightings (Cashfree narrows by period,
-      Cashbook does not). Only a terminal line is an in-file sighting. A status-changed repeat is
+      caller passes its identity, its corpus of earlier sightings (Cashfree narrows by period,
+      Cashbook does not) and its IN-FILE rule. ⚠️ **The in-file rule differs by source (#1358):** on
+      Cashfree/ICICI every terminal line is a sighting (`repeats.terminal_line`); on Cashbook only a
+      line the plan will CREATE is (`is_in_file_sighting` in `plan_statement`). #1355 had given
+      Cashbook the terminal rule, so Txn X FAILED then Txn X SUCCESS skipped the SUCCESS line as a
+      locked status change and the spend never became an expense. A copy of an *already booked* line
+      is therefore stored too (both say "Already booked"). `CashbookPlan.split` holds the
+      `RepeatSplit` itself (no copied fields). A status-changed repeat is
       named ahead of "did not succeed" (else SUCCESS -> REVERSED would read as an unlocked Bank refused).
       `api/outflow_import/cashbook._assess` runs `assess_duplicates` over that plan for the preview
       (the Cashfree keys `duplicate_rows` / `new_rows` / `refused` / `warn` / `duplicate_message`) and
       the confirm, which **throws before `save_file`** on an all-repeats file -- Cashbook used to create
       an empty import. `_stage` writes only planned rows, `repeats_not_saved`, and gross / charges over
-      the stored lines. The old sentences `SKIP_ALREADY_IMPORTED` / `SKIP_REPEATED_IN_FILE` are no
+      the stored lines (`parser.stored_money`). The old sentences `SKIP_ALREADY_IMPORTED` / `SKIP_REPEATED_IN_FILE` are no
       longer written but stay defined: stored rows carry them and `skip_kind_backfill` reads them.
       Cashbook's lookup still searches every batch (no period), and "already booked" is unchanged.
     - **The batch's money follows its rows (#1354).** `gross_amount` / `charges_amount` are summed
-      over the lines the plan SAVES (`upload._LinePlan.saved_money`), not the whole file, keeping each
+      over the lines the plan SAVES, not the whole file, by ONE helper, `parser.stored_money` (#1358:
+      the Cashfree/ICICI staging, the Cashbook staging and the cleanup patch all call it), keeping each
       total's own rule (`parser.gross_by_direction` = successful debits; `parser.charges_of` = every
       line). So an exact repeat's money is never counted in two imports, a status-changed repeat is in
       under its new status (REVERSED is not a successful debit, but its charges count), and
@@ -716,23 +723,43 @@ needs one vocabulary rather than one per writer.
       reports the whole file (`ParseResult`'s figures) -- it says what the file contains. The upload
       result (`_summarize`) reads the batch. An upload with no repeats stores exactly the parser's
       figures, as before.
-    - **Past imports were cleaned once (#1356):** `patches/v3_0/delete_stored_exact_repeats`. A
-      stored row is an exact repeat when it is `Skipped` *Already imported* / *Repeated in same file*
-      and its ORIGINAL -- found by the Skipped popup's own lookups, `skip_sources.earlier_import_sightings`
-      / `earlier_lines` (one owner; the patch imports them) -- has the same bank status. Per import:
-      the count is ADDED to `repeats_not_saved`, the rows are raw-deleted (no Deleted Document copy;
-      their `Version` / `Comment` go with them), then counters/status go through
-      `review._refresh_batch_rollup` and gross/charges are re-summed from the remaining rows with
-      `gross_by_direction` / `charges_of`. ⚠️ **Two keeps that look like gaps are the safety:** an
-      *Already imported* row is deleted only when its original sits in a batch created BEFORE its own
-      (so every deletion points strictly earlier and each transfer keeps one row), and a row an
-      `Outflow Row Match` points at is never deleted. Dry run on the 2026-10-01 production copy:
-      **2,961 rows** across 85 imports (Cashfree 2,943, ICICI 4, Cashbook 14), **3 status-changed
-      rows kept** (one transfer, SUCCESS -> REVERSED), 0 kept for either guard; a second run plans 0.
-      `run_cleanup` repeats plan + apply until a plan is empty: deleting an in-file original can turn
-      a later "status change" into an exact repeat of the line between them, and one pass would leave
-      that for a second run.
-      Over every real import, the row re-sum reproduced the stored gross/charges exactly.
+    - **Past imports were cleaned once (#1356, rule corrected by #1358):**
+      `patches/v3_0/delete_stored_exact_repeats`. A stored row is deleted when it is `Skipped`
+      *Already imported* / *Repeated in same file* AND the UPLOAD'S OWN WALK calls it an exact repeat:
+      each import holding such a row is replayed in file order through `repeats.split_repeats` with the
+      same full identity, the same earlier sightings (terminal rows in imports created BEFORE it; exact
+      if ANY has its bank status -- `match_repeat`) and the same in-file rule (Cashbook: a line the plan
+      created, i.e. anything but a System skip). ⚠️ **It no longer reads the Skipped popup's display
+      lookups** (#1356 did: they compared against the EARLIEST sighting only and took the lowest-named
+      in-file sibling, terminal or not, so SUCCESS in A then REVERSED in B, C, D kept all three and a
+      QUEUED first line hid an exact copy). Those lookups are private to `skip_sources` again. Per
+      import: the count is ADDED to `repeats_not_saved`, the rows are raw-deleted (no Deleted Document
+      copy; their `Version` / `Comment` go with them), then counters/status go through
+      `review._refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
+      import left with NO rows is kept and marked `Completed` (the deriver's empty-import `Draft` reads
+      as open work). ⚠️ **Two keeps that look like gaps are the safety:** every earlier sighting must
+      sit in an import created BEFORE the row's own (so every deletion points strictly earlier and each
+      transfer keeps one row), and a row an `Outflow Row Match` points at is never deleted. Dry run on
+      the 2026-10-01 production copy (#1358 rule): **2,963 rows** across 85 imports (Cashfree 2,945,
+      ICICI 4, Cashbook 14), **1 status-changed row kept** (the SUCCESS -> REVERSED transfer keeps only
+      its first REVERSED row; #1356's rule kept 3 and deleted 2,961), 0 kept for either guard, no import
+      left empty; a second run plans 0. `run_cleanup` still repeats plan + apply until a plan is empty.
+      Over all 133 imports the pre-cleanup row re-sum reproduced the stored gross/charges exactly; 7
+      touched imports end at gross 0, each holding only PENDING / QUEUED / FAILED lines afterwards.
+      ⚠️ **The patch reads a BLANK stored direction as `Debit` on a source that cannot state money in**
+      (`parser.source_can_carry_credit`): Cashbook staging never writes `direction` and
+      `backfill_outflow_row_direction` is not wired in `patches.txt`, so production Cashbook rows can be
+      blank, and `gross_by_direction` would otherwise re-sum such an import to 0. Safe because the parser
+      leaves a Cashbook direction blank only on an amount-less line.
+    - **An earlier import's row counts only on the FULL identity (#1358).**
+      `candidates.prior_import_sightings(source=...)` stamps each stored row with its
+      `duplicates.identity_wide_fields` under the asking source, and `find_prior_sightings` requires
+      them equal. On ICICI the other leg of an SGST/CGST pair or a GL transfer (same id, amount, date)
+      used to count as an earlier sighting -- since ADR-0031 that dropped a real line silently. The
+      upload, the patch and the Skipped popup all ask it this way; Cashfree / Cashbook carry `()`.
+    - **One plan per upload (#1358).** `upload_outflow_statement` plans once and hands the plan to
+      both `_assess_statement` and `_stage_batch`: one earlier-sightings query and one overlap query
+      per upload (pinned by `test_upload.TestOneUploadAsksOnce`).
     - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.

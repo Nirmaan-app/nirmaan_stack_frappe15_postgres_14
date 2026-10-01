@@ -905,6 +905,25 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
         )
         self.assertEqual(self._batch(batch).repeats_not_saved, 0)
 
+    def test_a_failed_line_does_not_stop_a_later_success_of_the_same_transfer(self):
+        """#1358, the regression: Txn X FAILED, then Txn X SUCCESS (same amount and date) in one file.
+        On Cashbook only a line that will be created is an in-file sighting, so the SUCCESS line is
+        staged to create its expense -- not skipped as a status change of the failure."""
+        failed = self.data[0].replace('"SUCCESS"', '"FAILED"')
+        self.assertNotEqual(failed, self.data[0], "the fixture line changed shape; this asserts nothing")
+
+        batch = self._stage(self._file([failed, self.data[0]]))
+
+        by_status = {row.row_status: row for row in self._stored(batch)}
+        self.assertEqual(set(by_status), {ROW_SKIPPED, ROW_PENDING_MATCH})
+        self.assertEqual(by_status[ROW_SKIPPED].skip_kind, "Bank refused")
+        self.assertEqual(self._batch(batch).repeats_not_saved, 0)
+
+    def test_a_success_copy_of_a_success_line_is_still_an_exact_repeat(self):
+        batch = self._stage(self._file([self.data[0], self.data[0]]))
+        self.assertEqual([row.row_status for row in self._stored(batch)], [ROW_PENDING_MATCH])
+        self.assertEqual(self._batch(batch).repeats_not_saved, 1)
+
     def test_an_all_repeats_file_is_refused_on_preview_naming_the_earlier_import(self):
         first = self._stage(self.full)
         payload = self._post(cb.preview_cashbook_statement, self.full)

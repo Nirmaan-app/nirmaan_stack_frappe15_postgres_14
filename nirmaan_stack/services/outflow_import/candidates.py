@@ -73,7 +73,9 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
     PriorSighting,
     find_prior_sightings,
+    identity_wide_fields,
     index_prior_sightings,
+    row_identity,
     row_identity_of,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -822,13 +824,13 @@ def find_earlier_sightings_for_rows(
     full. `upload._already_imported` is the one caller that threads it. Omit it and you get the
     triple, which is correct for Cashfree and Cashbook and is why the parameter has a default.
 
-    ⚠️ THE **MATCH** IS STILL SETTLED ON `(transfer_id, amount)` PLUS `dates_agree`, whatever the
-    identity is. `find_prior_sighting` never sees a direction or a narration, and it must not: the
-    stored corpus is the `Outflow Import Row` table, and a row imported before those fields existed
-    carries neither. What the wide identity changes is which PARSED rows are treated as the same
-    line of the same file -- the two SGST/CGST legs now get an entry each instead of sharing one --
-    not which stored row answers for them. Both legs of a genuine re-upload still resolve to the
-    same earlier batch, which is the right answer: both really were imported before.
+    ⚠️ A STORED ROW ANSWERS ONLY ON THE SOURCE'S FULL IDENTITY (#1358, reversing the B3 note that
+    stood here). The bucket is `(transfer_id, amount)` plus `dates_agree`, and on a bank passbook the
+    stored row's direction and remarks must ALSO equal the line's (`find_prior_sightings`'
+    `wide_fields`). Before, the other leg of an SGST/CGST pair or a GL transfer -- same id, amount and
+    date -- answered for a line it is not. That was a visible skip once; since ADR-0031 a matched line
+    is dropped silently, so it lost a real line. A genuine re-upload still finds both legs: each
+    stored leg answers for its own. A triple source is unchanged (no wide fields on either side).
 
     ⚠️ THE SQL STILL NARROWS ON `transfer_id` ONLY, AND THE TRIPLE IS APPLIED IN PYTHON. That is
     deliberate twice over: `transfer_id` is the indexed column and remains the cheap first cut, and
@@ -890,6 +892,7 @@ def find_earlier_sightings_for_rows(
         exclude_batch=exclude_batch,
         period_from=period_from,
         period_to=period_to,
+        source=source,
     )
     if not index:
         return {}
@@ -901,7 +904,9 @@ def find_earlier_sightings_for_rows(
         identity = row_identity_of(row, source)
         if identity in seen:
             continue
-        sightings = find_prior_sightings(index, row.transfer_id, row.amount, row.added_on_date)
+        sightings = find_prior_sightings(
+            index, row.transfer_id, row.amount, row.added_on_date, identity_wide_fields(identity)
+        )
         if sightings:
             seen[identity] = sightings
     return seen
@@ -912,8 +917,13 @@ def prior_import_sightings(
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
+    source: str = "",
 ) -> dict:
     """Every TERMINAL stored import row for these transfer ids, as a `duplicates` sightings index.
+
+    `source` is the source ASKING: each stored row carries its `identity_wide_fields` under it, so a
+    bank passbook's lookup can require the full identity (#1358). Omit it and every sighting carries
+    `()` -- the triple, right for Cashfree and Cashbook.
 
     THE ONE QUERY BEHIND BOTH SOURCES' "have we imported this before?" CHECK (slice CB-DUP-2).
     `find_earlier_sightings_for_rows` (Cashfree) is a thin adapter over it, and
@@ -984,7 +994,7 @@ def prior_import_sightings(
 
     stored = frappe.db.sql(
         f"""
-        SELECT transfer_id, amount, added_on, import_batch, status_raw, creation
+        SELECT transfer_id, amount, added_on, import_batch, status_raw, direction, remarks, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
           AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
@@ -996,16 +1006,18 @@ def prior_import_sightings(
         as_dict=True,
     )
 
-    return index_prior_sightings(
-        (
-            r["transfer_id"],
-            normalize_amount(r.get("amount")),
-            _stored_date(r.get("added_on")),
-            r["import_batch"],
-            r.get("status_raw") or "",
+    entries = []
+    for r in stored:
+        amount, added_on_date = normalize_amount(r.get("amount")), _stored_date(r.get("added_on"))
+        identity = row_identity(
+            r["transfer_id"], amount, added_on_date, source=source,
+            direction=r.get("direction") or "", remarks=r.get("remarks") or "",
         )
-        for r in stored
-    )
+        entries.append(
+            (r["transfer_id"], amount, added_on_date, r["import_batch"], r.get("status_raw") or "",
+             identity_wide_fields(identity))
+        )
+    return index_prior_sightings(entries)
 
 
 def _stored_date(value) -> date | None:

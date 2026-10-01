@@ -29,8 +29,6 @@ ONCE -- it is consumed on read.
 """
 
 import os
-from dataclasses import dataclass
-from decimal import Decimal
 
 import frappe
 from frappe.utils.file_manager import save_file
@@ -47,12 +45,11 @@ from nirmaan_stack.services.outflow_import.parser import (
     DIRECTION_DEBIT,
     SUPPORTED_SOURCES,
     StatementFormatError,
-    charges_of,
     describe_mapped_columns,
-    gross_by_direction,
     parse_statement,
+    stored_money,
 )
-from nirmaan_stack.services.outflow_import.repeats import KeptLine, split_repeats
+from nirmaan_stack.services.outflow_import.repeats import RepeatSplit, split_repeats
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     resolve_settlement_reference,
 )
@@ -130,7 +127,8 @@ def preview_outflow_statement():
     see it. This endpoint is where it becomes visible BEFORE anything is written.
     """
     _, source, filename, _, parsed = _read_and_parse()
-    verdict, overlaps = _assess_statement(parsed, filename)
+    verdict = _assess_statement(parsed, filename)
+    overlaps = _find_overlapping_batch(parsed.period_from, parsed.period_to)
 
     payload = {
         "preview": True,
@@ -240,12 +238,15 @@ def upload_outflow_statement():
     URL: /api/method/nirmaan_stack.api.outflow_import.upload.upload_outflow_statement
     """
     user, source, filename, file_content, parsed = _read_and_parse()
+    # Planned ONCE (#1358): the refusal below and the staging both read this plan, so an upload asks
+    # the earlier-sightings question once and the two can never disagree about which lines repeat.
+    plan = _plan_lines(parsed)
 
     # ⚠️ THE REFUSAL HAPPENS BEFORE `save_file`, WHICH IS THE ONLY PLACE IT CAN. `save_file` is not
     # rollback-able -- the cloud attachment hook commits inside this request -- so a refusal after
     # it would leave an orphan File behind for a statement we declined. Owner ruling Q2: a wholly
     # duplicated sheet writes NOTHING AT ALL.
-    verdict, _ = _assess_statement(parsed, filename)
+    verdict = _assess_statement(parsed, filename, plan)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
@@ -254,7 +255,7 @@ def upload_outflow_statement():
     # insert, so any URL computed beforehand is already wrong.
     file_url = ret.file_url
 
-    batch = _stage_batch(parsed, file_url=file_url, filename=filename, user=user)
+    batch = _stage_batch(parsed, file_url=file_url, filename=filename, user=user, plan=plan)
 
     # Link the File to the batch so the CSV appears under its attachments. Done after the batch
     # exists, because the File is created first (see the module docstring).
@@ -355,59 +356,35 @@ def _posted_header_row() -> int | None:
     return int(raw)
 
 
-def _assess_statement(parsed, filename: str):
-    """How much of this statement is already imported, and the overlap warning. READ-ONLY.
+def _assess_statement(parsed, filename: str, plan: RepeatSplit | None = None):
+    """How much of this statement is already imported -- refuse, warn or proceed. READ-ONLY.
 
-    Returns `(DuplicateVerdict, overlapping_batch_name)`. Called by BOTH the preview and the
-    upload, so what the preview promised is what the upload enforces.
+    Called by BOTH the preview and the upload, so what the preview promised is what the upload
+    enforces. The upload passes the plan it stages from; without one (the preview, and the tests that
+    call this directly) it is planned here.
 
     ⚠️ IT COUNTS FROM `_plan_lines`, THE SAME PLAN `_stage_batch` WRITES FROM (ADR-0031). The
     preview's "already imported" count is the number of lines the upload will leave out, in-file
     repeats included, and `new` is the number it will save. Counting them any other way here is how
     the preview would promise a number the upload then misses.
     """
-    plan = _plan_lines(parsed)
-    verdict = assess_duplicates(
+    if plan is None:
+        plan = _plan_lines(parsed)
+    return assess_duplicates(
         total=len(parsed.rows),
         duplicates=plan.repeats_not_saved,
         earliest_batch=plan.repeat_of_batch,
         filename=filename,
     )
-    return verdict, _find_overlapping_batch(parsed.period_from, parsed.period_to)
 
 
-@dataclass(frozen=True)
-class _LinePlan:
-    """Which lines of a statement are saved, and how many exact repeats are left out."""
-
-    lines: tuple[KeptLine, ...]
-    repeats_not_saved: int
-    #: The earlier batch an exact repeat was first found in -- the one a message points at.
-    repeat_of_batch: str | None
-
-    def saved_money(self) -> tuple[Decimal, Decimal]:
-        """`(gross_amount, charges_amount)` over the lines this plan SAVES (#1354).
-
-        ⚠️ NOT THE WHOLE FILE'S FIGURES. The parser's `gross_amount` / `charges_amount` still sum
-        every line -- that is what the file CONTAINS, and the preview shows it. What the batch
-        STORES must describe its own rows: import history prints `successful_rows` (counted from
-        those rows) beside `gross_amount`, and an exact repeat's money already sits in the earlier
-        import that holds it -- counting it again here is the same money in two imports. Each total
-        keeps its own rule (`gross_by_direction`, `charges_of`), applied to a smaller population. A
-        status-changed repeat IS saved, so it is in, under the rule for its status.
-        """
-        rows = [line.row for line in self.lines]
-        gross, _ = gross_by_direction(rows)
-        return gross, charges_of(rows)
-
-
-def _plan_lines(parsed) -> _LinePlan:
+def _plan_lines(parsed) -> RepeatSplit:
     """Decide, line by line, what an upload of this statement saves. READ-ONLY. ADR-0031.
 
     An EXACT repeat -- the same identity and the same bank status as a line the system already
     holds, from an earlier import or from earlier in this file -- is left out and counted. Every
-    other line is saved, including a repeat whose bank status changed (SUCCESS earlier, REVERSED
-    now), which is new information about the money.
+    other line is saved (`kept`), including a repeat whose bank status changed (SUCCESS earlier,
+    REVERSED now), which is new information about the money.
 
     ⚠️ ONE PLAN FOR THE PREVIEW AND THE UPLOAD. `_assess_statement` counts from it and `_stage_batch`
     writes from it, so the two cannot disagree about which lines are repeats.
@@ -417,21 +394,17 @@ def _plan_lines(parsed) -> _LinePlan:
     differed between them would let one call a pair of rows duplicates while the other called them
     distinct, on one screen, about the same two lines. Both read `_row_identity`.
 
-    ⚠️ THE WALK ITSELF IS `repeats.split_repeats`, SHARED WITH CASHBOOK (#1355). This passes the two
-    things that stay per-source: the identity, and the PERIOD-NARROWED earlier sightings.
+    ⚠️ THE WALK ITSELF IS `repeats.split_repeats`, SHARED WITH CASHBOOK (#1355). This passes the
+    things that stay per-source: the identity, and the PERIOD-NARROWED earlier sightings. The in-file
+    rule is the default -- every terminal line is a sighting.
     """
     already_imported = _already_imported(parsed)
-    split = split_repeats(
+    return split_repeats(
         parsed.rows,
         identity_of=lambda row: _row_identity(row, parsed.source),
         earlier_sightings_of=lambda row: already_imported.get(
             _row_identity(row, parsed.source), ()
         ),
-    )
-    return _LinePlan(
-        lines=split.kept,
-        repeats_not_saved=split.repeats_not_saved,
-        repeat_of_batch=split.repeat_of_batch,
     )
 
 
@@ -519,8 +492,11 @@ def _already_imported(parsed, exclude_batch: str | None = None) -> dict:
     )
 
 
-def _stage_batch(parsed, file_url: str, filename: str, user: str):
+def _stage_batch(parsed, file_url: str, filename: str, user: str, plan: RepeatSplit | None = None):
     """Create the batch and one row per parsed transfer. No matching happens here -- that is S4.
+
+    `plan` is the upload's own `_plan_lines` (#1358: planned once per upload). Tests stage directly
+    and omit it; it is then planned here.
 
     ⚠️ EVERY PARSED ROW IS STAGED **EXCEPT AN EXACT REPEAT**, WHICH IS COUNTED INSTEAD (ADR-0031).
 
@@ -544,7 +520,8 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     only remaining signal -- a count that looks wrong for a file is the cue to investigate.
     """
     overlaps = _find_overlapping_batch(parsed.period_from, parsed.period_to)
-    plan = _plan_lines(parsed)
+    if plan is None:
+        plan = _plan_lines(parsed)
     # Resolved ONCE per batch rather than per row: it is a fact about the statement, and asking it
     # 1,274 times invites a call site that asks it differently.
     #
@@ -554,7 +531,7 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     # be the two halves of one ruling disagreeing.
     no_settlement_path = not source_has_settlement_path(parsed.source)
 
-    gross, charges = plan.saved_money()
+    gross, charges = stored_money([line.row for line in plan.kept])
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
@@ -565,7 +542,7 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
             "period_from": parsed.period_from,
             "period_to": parsed.period_to,
             "overlaps_batch": overlaps,
-            # The SAVED lines' money, not the file's -- see `_LinePlan.saved_money` (#1354).
+            # The SAVED lines' money, not the file's -- see `parser.stored_money` (#1354).
             "gross_amount": float(gross),
             "charges_amount": float(charges),
             # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
@@ -578,7 +555,7 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     batch.insert(ignore_permissions=True)
 
     statuses = []
-    for line in plan.lines:
+    for line in plan.kept:
         row = line.row
         # A planned repeat is always a STATUS CHANGE (an exact one is not planned); the earlier
         # batch's status wins the sentence when both kinds apply, as `already_imported_in` does.

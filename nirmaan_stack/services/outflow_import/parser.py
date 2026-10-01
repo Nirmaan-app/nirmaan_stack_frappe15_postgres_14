@@ -461,6 +461,20 @@ def charges_of(rows: Iterable[RawRow]) -> Decimal:
     return sum((row.service_charge + row.service_tax for row in rows), Decimal("0"))
 
 
+def stored_money(rows: Sequence[RawRow]) -> tuple[Decimal, Decimal]:
+    """`(gross_amount, charges_amount)` of an import, over the lines it STORES (#1354, #1358).
+
+    THE ONE HELPER for an import's money: the Cashfree/ICICI staging, the Cashbook staging and the
+    cleanup patch `delete_stored_exact_repeats` all call it, each over its own stored lines. Each total
+    keeps its own rule -- `gross_by_direction` (successful debits) and `charges_of` (every line).
+
+    ⚠️ NOT THE WHOLE FILE'S FIGURES. An exact repeat (ADR-0031) is not stored, and its money already
+    sits in the earlier import that holds it; counting it again is the same money in two imports.
+    """
+    gross, _ = gross_by_direction(rows)
+    return gross, charges_of(rows)
+
+
 # --- source adapters ---------------------------------------------------------------------------
 #
 # A statement may carry columns we ignore entirely (VPA, Acknowledged, Mode, Status Code, Payment

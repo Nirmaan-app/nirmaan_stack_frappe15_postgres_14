@@ -32,6 +32,7 @@ from nirmaan_stack.services.outflow_import.parser import RawRow
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
+    SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_REPEATED_IN_FILE,
 )
 
@@ -144,8 +145,8 @@ class TestWhatIsNotImported(unittest.TestCase):
         already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
         plan = _plan([raw], already=already)
         self.assertEqual(plan.rows, ())
-        self.assertEqual(plan.repeats_not_saved, 1)
-        self.assertEqual(plan.repeat_of_batch, "OFI-26-00007")
+        self.assertEqual(plan.split.repeats_not_saved, 1)
+        self.assertEqual(plan.split.repeat_of_batch, "OFI-26-00007")
 
     def test_a_repeat_whose_bank_status_changed_is_skipped_naming_both_statuses(self):
         """A status change is news about the money, so it is kept -- skipped as Already imported
@@ -153,7 +154,7 @@ class TestWhatIsNotImported(unittest.TestCase):
         raw = _row(transfer_id="OBO9", amount="250", status="REVERSED")
         already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
         plan = _plan([raw], already=already)
-        self.assertEqual(plan.repeats_not_saved, 0)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
         row = plan.rows[0]
         self.assertEqual(row.action, ACTION_SKIP)
         self.assertEqual(row.skip_kind, SKIP_KIND_ALREADY_IMPORTED)
@@ -181,12 +182,12 @@ class TestWhatIsNotImported(unittest.TestCase):
         )
         plan = _plan([raw], already=already)
         self.assertEqual(plan.rows, ())
-        self.assertEqual(plan.repeat_of_batch, "OFI-26-00009")
+        self.assertEqual(plan.split.repeat_of_batch, "OFI-26-00009")
 
     def test_the_status_is_compared_trimmed_and_upper_cased(self):
         raw = _row(transfer_id="OBO9", amount="250", status=" success ")
         already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
-        self.assertEqual(_plan([raw], already=already).repeats_not_saved, 1)
+        self.assertEqual(_plan([raw], already=already).split.repeats_not_saved, 1)
 
     def test_an_exact_repeat_of_a_row_that_was_not_a_spend_is_not_planned_either(self):
         """Every exact repeat is left out, whatever skip its first sighting got -- a top-up's first
@@ -194,7 +195,7 @@ class TestWhatIsNotImported(unittest.TestCase):
         raw = _row(transfer_id="VA9", amount="0", kind="VA → Wallet")
         already = _sightings(("VA9", "0", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
         plan = _plan([raw], already=already)
-        self.assertEqual((plan.rows, plan.repeats_not_saved), ((), 1))
+        self.assertEqual((plan.rows, plan.split.repeats_not_saved), ((), 1))
 
     def test_a_transfer_already_booked_as_an_expense_is_skipped_naming_the_record(self):
         """THE GAP THIS SLICE CLOSED. An expense can exist for a wallet spend without this import
@@ -253,19 +254,20 @@ class TestWhatIsNotImported(unittest.TestCase):
             already=_sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS")),
             booked=_sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1")),
         )
-        self.assertEqual((plan.rows, plan.repeats_not_saved), ((), 1))
+        self.assertEqual((plan.rows, plan.split.repeats_not_saved), ((), 1))
 
-    def test_an_in_file_exact_repeat_is_left_out_even_when_an_expense_is_booked(self):
-        """INVERTED FROM "both rows name the record". The first sighting still names the record;
-        its exact copy further down the sheet is not planned at all (ADR-0031)."""
+    def test_a_booked_line_is_no_in_file_sighting_so_both_copies_name_the_record(self):
+        """INVERTED BACK by #1358. An in-file sighting on Cashbook is a line that will be CREATED,
+        and a line already booked as an expense is not -- so its copy further down the sheet is not
+        an in-file repeat. Both rows are staged and both name the record, as before ADR-0031."""
         rows = [_row(transfer_id="OBO9", amount="250"), _row(number=2, transfer_id="OBO9", amount="250")]
         booked = _sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1"))
         plan = _plan(rows, booked=booked)
         self.assertEqual(
             [r.reason for r in plan.rows],
-            [SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1")],
+            [SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1")] * 2,
         )
-        self.assertEqual(plan.repeats_not_saved, 1)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
 
     def test_a_transfer_nobody_has_booked_still_creates(self):
         """The negative case. A guard that blocks everything would also look like it works."""
@@ -278,16 +280,16 @@ class TestWhatIsNotImported(unittest.TestCase):
         plan = _plan([_row(transfer_id="OBO5"), _row(number=2, transfer_id="OBO5")])
         self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE])
         self.assertEqual(plan.rows[0].row_number, 1)
-        self.assertEqual(plan.repeats_not_saved, 1)
+        self.assertEqual(plan.split.repeats_not_saved, 1)
         # No earlier IMPORT holds it, so there is no batch for a message to name.
-        self.assertIsNone(plan.repeat_of_batch)
+        self.assertIsNone(plan.split.repeat_of_batch)
 
     def test_an_in_file_repeat_whose_status_changed_is_skipped_naming_both_statuses(self):
         plan = _plan([
             _row(transfer_id="OBO5"),
             _row(number=2, transfer_id="OBO5", status="REVERSED"),
         ])
-        self.assertEqual(plan.repeats_not_saved, 0)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
         copy = plan.rows[1]
         self.assertEqual(copy.skip_kind, SKIP_KIND_REPEATED_IN_FILE)
         self.assertEqual(
@@ -302,8 +304,27 @@ class TestWhatIsNotImported(unittest.TestCase):
             _row(transfer_id="OBO5", status="PENDING"),
             _row(number=2, transfer_id="OBO5"),
         ])
-        self.assertEqual(plan.repeats_not_saved, 0)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
         self.assertEqual(plan.rows[1].action, ACTION_CREATE)
+
+    def test_a_failed_line_does_not_stop_a_later_success_of_the_same_transfer(self):
+        """#1358, the regression: an in-file sighting on Cashbook is a line that will be CREATED.
+        Txn X FAILED, then Txn X SUCCESS -- the spend still becomes an expense."""
+        plan = _plan([
+            _row(transfer_id="OBO5", status="FAILED"),
+            _row(number=2, transfer_id="OBO5"),
+        ])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_CREATE])
+        self.assertEqual(plan.rows[0].skip_kind, SKIP_KIND_BANK_REFUSED)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
+
+    def test_a_line_that_is_not_a_spend_does_not_stop_a_later_spend(self):
+        plan = _plan([
+            _row(transfer_id="OBO5", kind="VA → Wallet"),
+            _row(number=2, transfer_id="OBO5"),
+        ])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_CREATE])
+        self.assertEqual(plan.split.repeats_not_saved, 0)
 
     def test_the_first_batch_an_exact_repeat_came_from_is_the_one_named(self):
         plan = _plan(
@@ -313,7 +334,7 @@ class TestWhatIsNotImported(unittest.TestCase):
                 ("OBO6", "100", date(2026, 8, 1), "OFI-26-00008", "SUCCESS"),
             ),
         )
-        self.assertEqual((plan.repeats_not_saved, plan.repeat_of_batch), (2, "OFI-26-00007"))
+        self.assertEqual((plan.split.repeats_not_saved, plan.split.repeat_of_batch), (2, "OFI-26-00007"))
 
     def test_two_spends_alike_but_for_their_transfer_id_both_create(self):
         """Measured on a real export: two porter payments minutes apart, same payee and amount."""

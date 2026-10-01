@@ -37,6 +37,7 @@ from nirmaan_stack.services.outflow_import.candidates import prior_import_sighti
 from nirmaan_stack.services.outflow_import.duplicates import (
     PriorSighting,
     find_prior_sightings,
+    identity_wide_fields,
     row_identity,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
@@ -49,7 +50,7 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
 )
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
-__all__ = ["earlier_import_sightings", "earlier_lines", "skip_sources"]
+__all__ = ["skip_sources"]
 
 ROW_DOCTYPE = "Outflow Import Row"
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -102,12 +103,12 @@ def skip_sources(rows: list[dict], related: dict[str, list]) -> dict[str, dict]:
     return out
 
 
-def earlier_import_sightings(rows: list[dict]) -> dict[str, PriorSighting]:
-    """`{row name: the earliest OTHER statement's sighting of it}` -- the lookup the upload decided with.
+def _earlier_import_sightings(rows: list[dict]) -> dict[str, PriorSighting]:
+    """`{row name: the earliest OTHER statement's sighting of it}` -- the lookup the upload decided with,
+    on the row's FULL identity (#1358: on ICICI the other leg of a pair is not this line's original).
 
-    THE ONE ANSWER TO "which earlier import does this Already-imported line repeat?". The popup names
-    the sighting's batch; `patches/v3_0/delete_stored_exact_repeats` compares its bank status. Rows need
-    `name`, `import_batch`, `transfer_id`, `amount` and `added_on`. A row with no sighting is absent.
+    Rows need `name`, `import_batch`, `source`, `transfer_id`, `amount`, `added_on`, `direction` and
+    `remarks`. A row with no sighting is absent.
     """
     by_batch: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -116,12 +117,15 @@ def earlier_import_sightings(rows: list[dict]) -> dict[str, PriorSighting]:
 
     found: dict[str, PriorSighting] = {}
     for batch, members in by_batch.items():
+        # One statement, one source.
         index = prior_import_sightings(
-            sorted({r["transfer_id"] for r in members}), exclude_batch=batch
+            sorted({r["transfer_id"] for r in members}), exclude_batch=batch,
+            source=members[0].get("source") or "",
         )
         for row in members:
             sightings = find_prior_sightings(
-                index, row["transfer_id"], normalize_amount(row.get("amount")), _date(row.get("added_on"))
+                index, row["transfer_id"], normalize_amount(row.get("amount")), _date(row.get("added_on")),
+                identity_wide_fields(_identity(row)),
             )
             if sightings:
                 found[row["name"]] = sightings[0]
@@ -129,8 +133,8 @@ def earlier_import_sightings(rows: list[dict]) -> dict[str, PriorSighting]:
 
 
 def _fill_earlier_imports(rows: list[dict], out: dict) -> None:
-    """The earliest OTHER statement holding each transfer -- see `earlier_import_sightings`."""
-    found = {name: s.label for name, s in earlier_import_sightings(rows).items()}
+    """The earliest OTHER statement holding each transfer -- see `_earlier_import_sightings`."""
+    found = {name: s.label for name, s in _earlier_import_sightings(rows).items()}
     if not found:
         return
 
@@ -168,11 +172,10 @@ def _identity(row: dict):
     )
 
 
-def earlier_lines(rows: list[dict]) -> dict[str, dict]:
+def _earlier_lines(rows: list[dict]) -> dict[str, dict]:
     """`{row name: the first line of the SAME statement with the same identity}`, staged before it.
 
-    THE ONE ANSWER TO "which line of this file does this Repeated-in-same-file line repeat?", read by
-    the popup and by `patches/v3_0/delete_stored_exact_repeats`. Staging inserts rows in file order and
+    For the popup only -- a display answer. Staging inserts rows in file order and
     the row name is a sequence, so "earlier in the file" is the lowest name among the lines sharing
     the identity. Rows need `name`, `import_batch`, `transfer_id`, `amount`, `added_on`, `source`,
     `direction` and `remarks`. A row that is itself the first is absent.
@@ -202,8 +205,8 @@ def earlier_lines(rows: list[dict]) -> dict[str, dict]:
 
 
 def _fill_earlier_lines(rows: list[dict], out: dict) -> None:
-    """The first line of the SAME statement with the same identity -- see `earlier_lines`."""
-    for row_name, first in earlier_lines(rows).items():
+    """The first line of the SAME statement with the same identity -- see `_earlier_lines`."""
+    for row_name, first in _earlier_lines(rows).items():
         out[row_name]["earlier_line"] = {
             "name": first["name"],
             "added_on": str(first["added_on"]) if first.get("added_on") else None,

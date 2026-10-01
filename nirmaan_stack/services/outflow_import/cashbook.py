@@ -57,7 +57,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, alias_haystack
-from nirmaan_stack.services.outflow_import.repeats import KeptLine, split_repeats
+from nirmaan_stack.services.outflow_import.repeats import KeptLine, RepeatSplit, split_repeats
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
@@ -179,11 +179,10 @@ class PlanGroup:
 @dataclass(frozen=True)
 class CashbookPlan:
     rows: tuple[PlannedRow, ...] = ()
-    """Every row that will be STAGED. An exact repeat is not among them (ADR-0031)."""
-    repeats_not_saved: int = 0
-    """How many exact repeats were left out -- the one trace they leave, stored on the batch."""
-    repeat_of_batch: str | None = None
-    """The earlier batch the first exact repeat came from, for the refusal message to name."""
+    """Every row that will be STAGED, in file order. An exact repeat is not among them (ADR-0031)."""
+    split: RepeatSplit = RepeatSplit(kept=(), repeats_not_saved=0, repeat_of_batch=None)
+    """The repeat walk's answer, as `split_repeats` gave it: `split.kept` are the parsed lines behind
+    `rows` (same order), `split.repeats_not_saved` the exact repeats left out."""
 
     @property
     def creating(self) -> tuple[PlannedRow, ...]:
@@ -228,6 +227,12 @@ def plan_statement(
     `already_imported` must therefore carry each sighting's bank status
     (`candidates.prior_import_sightings` does).
 
+    ⚠️ AN IN-FILE SIGHTING HERE IS A LINE THE PLAN WILL **CREATE** (#1358), not every terminal line as
+    on Cashfree/ICICI. That was this path's rule before ADR-0031, and losing it was a regression: Txn X
+    FAILED then Txn X SUCCESS in one file read the SUCCESS line as a status-changed in-file repeat of
+    the failure -- skipped, Unskip-locked -- and the spend never became an expense. SUCCESS then
+    SUCCESS is still an exact repeat: the first line is created, so it is a sighting.
+
     ⚠️ THE ORDER OF THE SKIP TESTS IS THE MESSAGE. A failed top-up is not a spend AND did not
     succeed; reporting it as "did not succeed" would send somebody looking for a failed payment
     that never existed. Kind first, then a STATUS-CHANGED repeat (an earlier batch, then further up
@@ -260,6 +265,7 @@ def plan_statement(
         earlier_sightings_of=lambda raw: find_prior_sightings(
             already, getattr(raw, "transfer_id", "") or "", _amount(raw), _row_date(raw)
         ),
+        is_in_file_sighting=lambda line: not _skip_reason(line, _amount(line.row), booked)[0],
     )
 
     planned: list[PlannedRow] = []
@@ -279,11 +285,7 @@ def plan_statement(
             continue
         planned.append(PlannedRow(action=ACTION_CREATE, **base, **_placement(base["remarks"], index, expense_rules)))
 
-    return CashbookPlan(
-        rows=tuple(planned),
-        repeats_not_saved=split.repeats_not_saved,
-        repeat_of_batch=split.repeat_of_batch,
-    )
+    return CashbookPlan(rows=tuple(planned), split=split)
 
 
 def _skip_reason(
@@ -293,8 +295,9 @@ def _skip_reason(
 ) -> tuple[str, str | None]:
     """`(reason, skip_kind)` for a row to skip, `("", None)` for a row to create.
 
-    `line.earlier` / `line.in_file` are set only for a STATUS-CHANGED repeat -- `split_repeats` has
-    already left every exact one out. See `plan_statement` for the order.
+    `line.earlier` / `line.in_file` are set only for a STATUS-CHANGED repeat on a kept line. It is
+    also asked of every line by the in-file rule, an exact repeat included -- any repeat answers with
+    a skip, so an exact one is never a line that creates. See `plan_statement` for the order.
 
     Each kind is the owner-confirmed `skip_kinds.SKIP_KINDS` label for that sentence: a wallet failure is
     Bank refused, and an expense that already exists is Outflow Already Recorded (a Cashbook line is
