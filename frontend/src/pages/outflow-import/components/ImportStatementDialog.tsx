@@ -37,7 +37,9 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     describeFrappeError,
+    confirmImportLabel,
     previewCounts,
+    repeatsNotSavedLabel,
     statementCredit,
     statementDebit,
 } from "../outflowTableModel";
@@ -937,6 +939,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                     {isCashbook && cashbookBatch && (
                         <CashbookProgress
                             creating={cashbookBatch.creating}
+                            repeatsNotSaved={cashbookBatch.repeats_not_saved}
                             status={cashbookStatus}
                             running={isBusy === "match"}
                         />
@@ -969,7 +972,13 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                                 </Button>
                                 <Button
                                     onClick={handleCashbookConfirm}
-                                    disabled={working || !cashbookPreview?.creating}
+                                    // A refused file has nothing to create either; said by name so
+                                    // the button never depends on the two facts staying in step.
+                                    disabled={
+                                        working ||
+                                        !cashbookPreview?.creating ||
+                                        Boolean(cashbookPreview?.refused)
+                                    }
                                 >
                                     {isBusy === "upload" && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1091,10 +1100,11 @@ const StatementPreview = ({
                         tone="muted"
                     />
                 )}
+                {/* ADR-0031: an already-imported line is not saved at all, not staged and skipped. */}
                 {counts.duplicates > 0 && (
                     <PreviewFigure
                         label="Already imported"
-                        value={`${counts.duplicates} — will be skipped`}
+                        value={`${counts.duplicates} — will not be saved`}
                         tone="amber"
                     />
                 )}
@@ -1221,11 +1231,7 @@ const StatementPreview = ({
                         ? "Importing…"
                         : phase === "match"
                           ? "Matching…"
-                          : preview.warn
-                            ? `Import the ${preview.new_rows} new ${
-                                  preview.new_rows === 1 ? "transfer" : "transfers"
-                              }`
-                            : `Import ${preview.total_rows} transfers`}
+                          : confirmImportLabel(preview)}
                 </Button>
             )}
         </div>
@@ -1300,6 +1306,11 @@ const StagedSummary = ({
                     {result.skipped_rows} skipped automatically
                 </span>
             )}
+            {repeatsNotSavedLabel(result.repeats_not_saved) && (
+                <span className="text-muted-foreground">
+                    {repeatsNotSavedLabel(result.repeats_not_saved)}
+                </span>
+            )}
         </div>
         {matching && (
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -1347,15 +1358,19 @@ function extractServerMessage(payload: string): string | null {
  */
 const CashbookProgress = ({
     creating,
+    repeatsNotSaved,
     status,
     running,
 }: {
     creating: number;
+    repeatsNotSaved: number | undefined;
     status: CashbookStatus | null;
     running: boolean;
 }) => {
     const fraction = progressFraction(status, creating);
     const failed = (status?.failed ?? 0) > 0;
+    // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
+    const repeats = repeatsNotSavedLabel(repeatsNotSaved);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1380,6 +1395,7 @@ const CashbookProgress = ({
                     style={{ width: `${Math.round(fraction * 100)}%` }}
                 />
             </div>
+            {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
             {!running && (
                 <p className="text-xs text-muted-foreground">
                     Corrections are made in Expenses — open a record and change its project or type.

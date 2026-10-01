@@ -2,6 +2,7 @@ import frappe
 
 from nirmaan_stack.api.invoices._line_match import match_invoice_lines_to_po
 from nirmaan_stack.api.invoices._validation import (
+    ORDER_TOTAL_LABEL,
     existing_invoiced_sum,
     gstin_match,
 )
@@ -19,6 +20,7 @@ from nirmaan_stack.services.extraction.helpers import (
     pick_entity,
 )
 from nirmaan_stack.services.extraction.validation import (
+    derive_gst,
     reconcile_amounts,
     reconcile_line_items,
     validate_date,
@@ -26,6 +28,9 @@ from nirmaan_stack.services.extraction.validation import (
 )
 
 MIN_CONFIDENCE = 0.70
+# An UNSURE GST read (validation.derive_gst) is reported below the prefill floor, so the
+# form leaves the GST field for the user and shows why.
+UNSURE_GST_CONFIDENCE = 0.40
 
 INVOICE_NO_KEYS = ("invoice_id", "invoice_number", "invoice_no")
 INVOICE_DATE_KEYS = ("invoice_date",)
@@ -34,10 +39,19 @@ INVOICE_DATE_KEYS = ("invoice_date",)
 # tax-inclusive total. If the model misses total_amount, leave it blank.
 AMOUNT_KEYS = ("total_amount",)
 # `net_amount` (pre-tax subtotal) — surfaced separately for forms that have
-# a distinct "Amount (Excl. GST)" field (currently Project Invoices).
+# a distinct "Amount (Excl. GST)" field: Project Invoices, and the Vendor Invoice's
+# Invoice Base Amount (returned again as `base_amount`, ADR-0030).
 NET_AMOUNT_KEYS = ("net_amount",)
-# Validation-only entities — used to reconcile amounts, never populated into the form.
-TAX_KEYS = ("total_tax_amount",)
+# GST as printed (#1336): IGST, CGST, SGST or a plain Tax line, plus a printed
+# total-tax figure. validation.derive_gst turns them into the Invoice GST Amount
+# (`gst_amount`), which also feeds the amount reconciliation below.
+TOTAL_TAX_KEY = "total_tax_amount"
+GST_COMPONENT_KEYS = {
+    "igst": "igst_amount",
+    "cgst": "cgst_amount",
+    "sgst": "sgst_amount",
+    "tax": "tax_amount",
+}
 ROUND_OFF_KEYS = ("round_off",)
 OTHER_CHARGES_KEYS = ("other_charges",)
 TCS_KEYS = ("tcs_amount",)
@@ -45,7 +59,7 @@ TCS_KEYS = ("tcs_amount",)
 
 @frappe.whitelist()
 def extract_invoice_fields(file_url, docname=None):
-    """Extract invoice number, date, total amount and line items from an invoice.
+    """Extract invoice number, date, total, base + GST amounts and line items.
 
     Called from the Add Invoice dialog when the user picks a file in Auto-fill
     mode. Extracted values populate the form; a deterministic validation layer
@@ -86,8 +100,19 @@ def extract_invoice_fields(file_url, docname=None):
     net_amount, net_amount_conf = pick_entity(entities, NET_AMOUNT_KEYS, prefer_normalized=True)
     supplier_gstin, _ = pick_entity(entities, ("supplier_gstin",))
     receiver_gstin, _ = pick_entity(entities, ("receiver_gstin",))
+    gst = derive_gst(
+        total_tax=pick_entity(entities, (TOTAL_TAX_KEY,), prefer_normalized=True)[0],
+        **{
+            part: pick_entity(entities, (key,), prefer_normalized=True)[0]
+            for part, key in GST_COMPONENT_KEYS.items()
+        },
+    )
+    if gst["confident"]:
+        gst_conf = 1.0
+        entities = _with_total_tax(entities, gst["gst"])
+    else:
+        gst_conf = UNSURE_GST_CONFIDENCE if gst["reason"] else 0.0
     # Validation-only picks (not returned as form fields).
-    tax_amount, _ = pick_entity(entities, TAX_KEYS, prefer_normalized=True)
     round_off, _ = pick_entity(entities, ROUND_OFF_KEYS, prefer_normalized=True)
     other_charges, _ = pick_entity(entities, OTHER_CHARGES_KEYS, prefer_normalized=True)
     tcs_amount, _ = pick_entity(entities, TCS_KEYS, prefer_normalized=True)
@@ -108,13 +133,14 @@ def extract_invoice_fields(file_url, docname=None):
 
     normalized_amount = normalize_amount(amount) if amount_conf >= MIN_CONFIDENCE else ""
     normalized_net_amount = normalize_amount(net_amount) if net_amount_conf >= MIN_CONFIDENCE else ""
+    normalized_tax_amount = normalize_amount(gst["gst"]) if gst_conf >= MIN_CONFIDENCE else ""
     validation = _build_validation(
         file_doc,
         normalized_amount,
         supplier_gstin,
         receiver_gstin,
         net=net_amount,
-        tax=tax_amount,
+        tax=gst["gst"],
         total=amount,
         invoice_date=invoice_date,
         round_off=round_off,
@@ -147,6 +173,12 @@ def extract_invoice_fields(file_url, docname=None):
         "invoice_date": normalize_date(invoice_date) if invoice_date_conf >= MIN_CONFIDENCE else "",
         "amount": normalized_amount,
         "net_amount": normalized_net_amount,
+        # Invoice Base Amount / Invoice GST Amount for the Vendor Invoice form
+        # (ADR-0030). Pre-filled beside `amount`, never summed into it.
+        "base_amount": normalized_net_amount,
+        "gst_amount": normalized_tax_amount,
+        # Why an unsure GST was left blank ("Only CGST found — enter the total GST").
+        "gst_note": gst["reason"],
         # Surface the raw extracted GSTINs so the frontend can persist them to
         # the Vendor Invoice on submit (auto-approve gates 6 & 7 read them).
         "supplier_gstin": (supplier_gstin or "").strip(),
@@ -156,6 +188,8 @@ def extract_invoice_fields(file_url, docname=None):
             "invoice_date": round(invoice_date_conf, 3),
             "amount": round(amount_conf, 3),
             "net_amount": round(net_amount_conf, 3),
+            "base_amount": round(net_amount_conf, 3),
+            "gst_amount": round(gst_conf, 3),
         },
         "entities": all_entities,
         "line_items": line_items,
@@ -170,6 +204,20 @@ def extract_invoice_fields(file_url, docname=None):
         "processor_id": settings.get("gemini_model"),
         "validation": validation,
     }
+
+
+def _with_total_tax(entities, gst):
+    """The entity list with `total_tax_amount` set to the confidently derived GST.
+
+    The list is persisted on the Vendor Invoice and auto-approve gate 5 reconciles
+    against its `total_tax_amount`, so a confident derivation replaces the model's own
+    read there. An unsure read leaves the model's figure as it was.
+    """
+    value = str(int(gst)) if float(gst).is_integer() else str(gst)
+    kept = [e for e in (entities or []) if (e.get("type") or "").strip() != TOTAL_TAX_KEY]
+    return kept + [
+        {"type": TOTAL_TAX_KEY, "mention_text": value, "normalized_text": value, "confidence": 1.0}
+    ]
 
 
 def _po_items_for_match(po_name):
@@ -213,8 +261,8 @@ def _build_validation(
     """Compute validation status for the frontend banners + auto-approve.
 
     Two kinds of check:
-      * PO cross-checks (amount overage, GSTIN vs vendor/project master) — only
-        when the file is attached to a Procurement Order.
+      * Order cross-checks — amount overage against the order total (Procurement
+        Orders and Work Orders), and GSTIN vs vendor/project master (POs only).
       * Deterministic intrinsic checks (GSTIN checksum, amount reconciliation,
         date sanity) — always, independent of the parent doctype.
     """
@@ -239,27 +287,28 @@ def _build_validation(
         "date_validity": validate_date(invoice_date, normalize_date),
     }
 
-    # Only POs have full cross-check context; SR / Project Invoices skip it.
-    if parent_doctype != "Procurement Orders" or not parent_name:
+    # POs and Work Orders carry a total the invoices are capped at; Project Invoices skip it.
+    if parent_doctype not in ORDER_TOTAL_LABEL or not parent_name:
         return result
+    is_po = parent_doctype == "Procurement Orders"
 
     try:
-        po = frappe.db.get_value(
-            "Procurement Orders",
+        order = frappe.db.get_value(
+            parent_doctype,
             parent_name,
-            ["total_amount", "project_gst", "vendor"],
+            ["total_amount", "project_gst", "vendor"] if is_po else ["total_amount"],
             as_dict=True,
         )
     except Exception:
         return result
-    if not po:
+    if not order:
         return result
 
     result["applicable"] = True
 
     # --- Amount overage check ---
-    po_total = float(po.get("total_amount") or 0)
-    existing_sum = existing_invoiced_sum(parent_name)
+    order_total = float(order.get("total_amount") or 0)
+    existing_sum = existing_invoiced_sum(parent_name, doctype=parent_doctype)
     new_amount = 0.0
     try:
         new_amount = float(extracted_amount) if extracted_amount else 0.0
@@ -267,30 +316,34 @@ def _build_validation(
         new_amount = 0.0
     would_be_total = existing_sum + new_amount
     # Tolerate up to ₹10 of rounding drift — must match the hard-block threshold
-    # in update_invoice_data._check_po_amount_overage.
-    would_exceed = po_total > 0 and would_be_total > po_total + 10
+    # in update_invoice_data._check_invoice_amount_overage.
+    would_exceed = order_total > 0 and would_be_total > order_total + 10
     result["amount"] = {
-        "po_total": round(po_total, 2),
+        "order_total": round(order_total, 2),
         "existing_invoiced_sum": round(existing_sum, 2),
         "new_amount": round(new_amount, 2),
         "would_be_total": round(would_be_total, 2),
         "would_exceed": would_exceed,
         "message": (
-            f"Total invoiced would be ₹{would_be_total:,.2f}, exceeds PO total "
-            f"₹{po_total:,.2f}. Revise the amount or upload less."
+            f"Total invoiced would be ₹{would_be_total:,.2f}, exceeds "
+            f"{ORDER_TOTAL_LABEL[parent_doctype]} total "
+            f"₹{order_total:,.2f}. Revise the amount or upload less."
             if would_exceed
             else None
         ),
     }
 
+    if not is_po:
+        return result
+
     # --- Supplier GSTIN check (extracted vs vendor's vendor_gst) ---
     vendor_gst = ""
-    if po.get("vendor"):
-        vendor_gst = (frappe.db.get_value("Vendors", po["vendor"], "vendor_gst") or "").strip()
+    if order.get("vendor"):
+        vendor_gst = (frappe.db.get_value("Vendors", order["vendor"], "vendor_gst") or "").strip()
     result["supplier_gstin"] = gstin_match(extracted_supplier_gstin, vendor_gst, "supplier")
 
     # --- Receiver GSTIN check (extracted vs PO.project_gst) ---
-    project_gst = (po.get("project_gst") or "").strip()
+    project_gst = (order.get("project_gst") or "").strip()
     result["receiver_gstin"] = gstin_match(extracted_receiver_gstin, project_gst, "receiver")
 
     return result

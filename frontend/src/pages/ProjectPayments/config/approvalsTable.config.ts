@@ -126,6 +126,11 @@ export interface ApprovalQueueRow {
    * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.
    */
   on_hold: number;
+  /**
+   * 1 on a GST payment (ADR-0030): it pays a Work Order's GST only and is never taxed, so the
+   * lists tag it and the TDS forecast skips it (`paymentKind.isGstPayment`). Always 0 on an expense.
+   */
+  is_gst_payment: number;
 }
 
 /**

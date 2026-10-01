@@ -105,6 +105,11 @@ export const STEP_VOCABULARY = [
   // config) into the SELECTION, where circuit_fit's length and a component's {from_attr} qty read --
   // ctx, where every other step writes, is invisible to both. A stated value always wins.
   "derive_attribute",
+  // SLICE 12b(A): THE PRICING-INPUT READER. Loads one stored rate off a catalogue row into ctx WITHOUT
+  // touching the `components` accumulator -- which is why it is not `component_ref`: that writes into the
+  // accumulator `sum_components` sums, so reading an input through it would ADD the input's value to
+  // 29 pipelines' assembly totals, silently, under status "ok".
+  "rate_ref",
 ] as const;
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
@@ -204,6 +209,11 @@ export function blankStep(type: StepType): PipelineStep {
         step: "derive_attribute",
         params: { result_attr: "", terms: [], constants: {}, formula: "" },
       };
+    // SLICE 12b(A): a blank pricing-input read. NO `params`, NO `qty`, NO `rate_stages` -- the validator
+    // refuses all three by name, because an input is a single number and each of those keys would
+    // silently change what the step means.
+    case "rate_ref":
+      return { step: "rate_ref", ref: { kind: "" }, target: "rate", result: "" };
     default:
       return { step: type };
   }

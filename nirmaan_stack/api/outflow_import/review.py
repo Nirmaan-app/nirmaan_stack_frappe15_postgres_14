@@ -3844,6 +3844,9 @@ def list_imports(limit=60, sources=None):
     choosing ICICI could never bring it back, because the narrowing only ever saw the capped list.
     A statement with a BLANK source stays in every narrowing, mirroring the client's
     `importsForSource`: it cannot be scoped out by a word it does not carry.
+
+    `repeats_not_saved` is read straight off the batch (ADR-0031): how many exact repeats of lines
+    already held the upload left out. Those lines have no rows, so it cannot be counted from the join.
     """
     require_outflow_access()
     chosen = _parsed_sources(sources)
@@ -3856,7 +3859,7 @@ def list_imports(limit=60, sources=None):
     return frappe.db.sql(
         f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
-               b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by,
+               b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
                COUNT(r.name) FILTER (
                    WHERE UPPER(COALESCE(r.status_raw, '')) = %s
                      AND TRIM(COALESCE(r.direction, '')) = %s
@@ -3865,7 +3868,8 @@ def list_imports(limit=60, sources=None):
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
         {source_clause}
         GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
-                 b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by, b.creation
+                 b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
+                 b.creation
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         LIMIT %s
         """,

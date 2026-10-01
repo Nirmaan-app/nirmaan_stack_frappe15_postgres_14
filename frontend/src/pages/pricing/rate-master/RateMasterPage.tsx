@@ -9,7 +9,7 @@
 //
 // Lazy route module -- exports `Component` per the M1.59 lazy() contract.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +18,14 @@ import { ShieldCheck, ShieldOff } from "lucide-react";
 import { useUserData } from "@/hooks/useUserData";
 import { RATE_MASTER_DISCIPLINES, rateMasterPageEntry } from "./rateMasterRegistry";
 import { RateMasterDataViewer } from "./RateMasterDataViewer";
+// SLICE 12b(B): the impact panel and its two pure modules. The panel needs EVERY category's config,
+// because a pricing input's reach is cross-category by nature (a switch/socket row is priced by three
+// of them), so the page mounts the SHARED N-fetch children rather than minting a second fetcher.
+import { PricingInputImpactPanel } from "./PricingInputImpactPanel";
+import { computePricingInputReach } from "./pricingInputReach";
+import { isPricingInputConfig } from "./rateMasterSpec";
+import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, useConfigsByCategory }
+  from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
 import { isRateMasterAdmin } from "./rateMasterEdit";
@@ -97,6 +105,32 @@ export function RateMasterPage() {
   // RM-4a: admin gate (owner option (a)). `role` off the already-warm useUserData (PricingRoute warmed
   // it); the pure isRateMasterAdmin mirrors the server _is_nirmaan_admin. When false the tabs render
   // read-only (controls HIDDEN, not disabled). Server-authoritative regardless.
+  // SLICE 12b(B) -- the impact panel. All configs for the discipline (the shared plumbing), the reach
+  // walk memoised on [configs, items], and which input the panel is open on.
+  const { configsByCategory, onConfigLoaded } = useConfigsByCategory();
+  const allConfigs = useMemo(() => {
+    const out: Record<string, (typeof configsByCategory) extends Map<string, infer V> ? V : never> = {} as never;
+    for (const [cid, cfg] of configsByCategory) (out as Record<string, unknown>)[cid] = cfg;
+    return out;
+  }, [configsByCategory]);
+  const inputReach = useMemo(
+    () => computePricingInputReach(allConfigs as never, items),
+    [allConfigs, items],
+  );
+  const itemsByUid = useMemo(() => new Map(items.map((i) => [i.item_uid ?? "", i])), [items]);
+  /** the pricing inputs themselves -- a flat adder prices against what the OTHERS leave behind */
+  const pricingInputItems = useMemo(
+    () => items.filter((i) => String(i.kind ?? "").endsWith("_pricing_input")),
+    [items],
+  );
+  const [impactInputUid, setImpactInputUid] = useState<string | null>(null);
+  const impactInput = useMemo(
+    () => (impactInputUid ? items.find((i) => i.item_uid === impactInputUid) ?? null : null),
+    [impactInputUid, items],
+  );
+  // close the panel when the category changes -- its input belongs to the category that was open
+  useEffect(() => { setImpactInputUid(null); }, [activeCategoryId, disciplineId]);
+
   const { user_id: currentUser, role } = useUserData();
   const isAdmin = isRateMasterAdmin(role, currentUser);
   // RMF-1: the freeze population IS the rate-master edit population (owner ruling R5), so this
@@ -277,6 +311,25 @@ export function RateMasterPage() {
     config?.category_display ??
     discipline?.categories.find((c) => c.category_id === activeCategoryId)?.label ??
     activeCategoryId;
+  /**
+   * SLICE 12b(B) / OWNER RULING N-7 -- A CATEGORY ID MUST NEVER REACH THE SCREEN. The impact panel
+   * groups by category, so it needs id -> human name for categories OTHER than the open one. Prefers
+   * each config's own `category_display` (which the loaded configs carry), falls back to the registry
+   * label, and only then to the id -- so a category the fetch has not returned yet degrades to
+   * something readable rather than blank.
+   */
+  const categoryDisplayName = useCallback(
+    (cid: string): string =>
+      (configsByCategory.get(cid) as { category_display?: string } | undefined)?.category_display
+      // ⚠️ `discipline.categories`, NEVER `RATE_MASTER_DISCIPLINES` directly. The page reads the
+      // registry through `rateMasterPageEntry` ONLY (owner R1, slice 2) so a `holds_items: false`
+      // category can never surface here, and `pricingCalculator.test.ts` pins that there is exactly
+      // ONE raw `.find(` on the page. The filtered list is also SUFFICIENT: a message-only category
+      // holds no items and no pipelines, so no pricing input can reach it.
+      ?? discipline?.categories.find((c) => c.category_id === cid)?.label
+      ?? cid,
+    [configsByCategory, discipline],
+  );
 
   const loading = itemsLoading || configLoading;
   const error = itemsError || configError;
@@ -373,22 +426,63 @@ export function RateMasterPage() {
             <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
           </TabsList>
           <TabsContent value="viewer" className="mt-3">
-            <RateMasterDataViewer
-              items={items}
-              config={config}
-              disciplineLabel={discipline?.label ?? disciplineId}
-              categoryLabel={categoryLabel}
-              isAdmin={isAdmin}
-              frozen={writesBlocked}
-              onDownloadCsv={onDownloadCsv}
-              onDownloadAsset={onDownloadAsset}
-              onPreviewCsv={onPreviewCsv}
-              onApplyCsv={onApplyCsv}
-              onUploadApplied={onUploadApplied}
-              onSaveItem={onSaveItem}
-              onCreateItem={onCreateItem}
-              onDeactivateItem={onDeactivateItem}
-            />
+            {/* SLICE 12b(B): the hook-safe N-fetch children that load every category's config. They
+                render no DOM; the reach walk needs all of them because a pricing input's reach is
+                cross-category (a switch/socket row is priced by three). Their SWR keys are the shared
+                ones, so a config another surface already fetched costs no request. */}
+            {isPricingInputConfig(config)
+              ? RATE_MASTER_CONFIG_TARGETS.filter((t) => t.discipline === disciplineId).map((t) => (
+                  <RateConfigFetcher
+                    key={`impact-cfg-${t.discipline}-${t.categoryId}`}
+                    discipline={t.discipline}
+                    categoryId={t.categoryId}
+                    onLoaded={onConfigLoaded}
+                  />
+                ))
+              : null}
+            {/* ⚠️ A FLEX ROW, so the panel occupies REAL layout width and the table narrows instead of
+                being covered (owner: "BESIDE the table, not covering it"). Same shape as the pricing
+                editor's push panel -- never an overlay. */}
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <RateMasterDataViewer
+                  items={items}
+                  config={config}
+                  disciplineLabel={discipline?.label ?? disciplineId}
+                  categoryLabel={categoryLabel}
+                  isAdmin={isAdmin}
+                  frozen={writesBlocked}
+                  onDownloadCsv={onDownloadCsv}
+                  onDownloadAsset={onDownloadAsset}
+                  onPreviewCsv={onPreviewCsv}
+                  onApplyCsv={onApplyCsv}
+                  onUploadApplied={onUploadApplied}
+                  onSaveItem={onSaveItem}
+                  onCreateItem={onCreateItem}
+                  onDeactivateItem={onDeactivateItem}
+                  inputReach={inputReach}
+                  onOpenImpact={setImpactInputUid}
+                  openImpactUid={impactInputUid}
+                />
+              </div>
+              {impactInput ? (
+                <PricingInputImpactPanel
+                  input={impactInput}
+                  reach={inputReach[String((impactInput.attributes ?? {}).item ?? "")]}
+                  itemsByUid={itemsByUid}
+                  allInputs={pricingInputItems}
+                  allReach={inputReach}
+                  allConfigs={allConfigs as never}
+                  allItems={items}
+                  categoryLabel={categoryDisplayName}
+                  canEdit={isAdmin && !writesBlocked}
+                  onClose={() => setImpactInputUid(null)}
+                  onSave={async (patch) => {
+                    await onSaveItem(impactInput.name as string, { rates_patch: patch });
+                  }}
+                />
+              ) : null}
+            </div>
           </TabsContent>
           <TabsContent value="derivation" className="mt-3">
             <RateMasterDerivation

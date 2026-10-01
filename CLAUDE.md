@@ -275,7 +275,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 **A doctype's `track_changes` flag may be turned ON the same way** (that one key, reviewed, committed, migrate afterwards) when an audit needs Version rows. Used on `Outflow Row Match`, so a reversed match record keeps its own history beside the payment it reverted. It adds no column. A save that must leave the Version row passes `ignore_version=False` explicitly: Frappe defaults it to `frappe.flags.in_test`, so without it the audit goes untested.
 
-**A single new field may be ADDED the same way, when the owner rules it** (one field entry + its `field_order` line, reviewed, committed, migrate afterwards). Used for `Outflow Import Row.skip_kind` (a read-only Select): its options are pinned to `services/outflow_import/skip_kinds.SKIP_KINDS` by test, so the JSON and the code cannot drift. Also used for `Project Payments.mode_of_payment` (Select Online/Cheque, `set_only_once`) + `cheque_no` + `cheque_date` (owner, 2026-09-19): three fields for one ruling, the mode read through `services/cheque_payments.is_cheque`. Also used for `Vendors.gst_hold` (a Check, owner 2026-09-19, ADR-0028): written by `tasks/vendor_gst_hold`, `api/vendor/gst_hold`, and by hand (editable; no backend role guard — access is controlled by which UI gets the control, owner ruling). Also used for `Project Payments.on_hold` (a Check, owner 2026-09-22): a FLAG, never a status, so no status-keyed figure moves; unlike `gst_hold` it IS role-guarded server-side — `services/payment_hold.validate_hold` refuses both a flag change outside `PAYMENT_SETTLE_PROFILES` and any save that moves a held payment out of `Approved`.
+**A single new field may be ADDED the same way, when the owner rules it** (one field entry + its `field_order` line, reviewed, committed, migrate afterwards). Used for `Outflow Import Row.skip_kind` (a read-only Select): its options are pinned to `services/outflow_import/skip_kinds.SKIP_KINDS` by test, so the JSON and the code cannot drift. Also used for `Project Payments.mode_of_payment` (Select Online/Cheque, `set_only_once`) + `cheque_no` + `cheque_date` (owner, 2026-09-19): three fields for one ruling, the mode read through `services/cheque_payments.is_cheque`. Also used for `Vendors.gst_hold` (a Check, owner 2026-09-19, ADR-0028): written by `tasks/vendor_gst_hold`, `api/vendor/gst_hold`, and by hand (editable; no backend role guard — access is controlled by which UI gets the control, owner ruling). Also used for `Project Payments.on_hold` (a Check, owner 2026-09-22): a FLAG, never a status, so no status-keyed figure moves; unlike `gst_hold` it IS role-guarded server-side — `services/payment_hold.validate_hold` refuses both a flag change outside `PAYMENT_SETTLE_PROFILES` and any save that moves a held payment out of `Approved`. Also used for `Vendor Invoices.invoice_base_amount` + `invoice_gst_amount` + `autofill_extracted_base_amount` + `autofill_extracted_gst_amount` (Currency, owner 2026-09-30, ADR-0030): deliberately NOT `reqd` (an older invoice stays approvable) — `update_invoice_data` requires the split on create, rules in `services/invoice_amounts`; Currency reads back 0 when unset, so 0 / 0 means never entered. Also used for `Project Payments.is_gst_payment` (a Check, `set_only_once`, owner 2026-09-30, ADR-0030): a GST payment is never taxed — `payment_tds.is_deductible` refuses it (every withholding route asks that first) and `payment_split.split_payment` copies it onto the leftover. Also used for `Service Requests.gst_invoiced` (read-only Currency, owner 2026-09-30, ADR-0030): a derived cache — SUM(`invoice_gst_amount`) over Approved invoices, recomputed from source in `_item_billing_sync.recompute_document_amount_invoiced` beside `amount_invoiced`, with `invoice_gst_amount` a watched field of the Vendor Invoices doc event. Also used for `Outflow Import Batch.repeats_not_saved` (read-only Int, owner 2026-10-01, ADR-0031): the count of exact repeats an upload left out — written ONCE at staging and never recomputed, because the rows it counts were never saved (the one other writer is the one-time patch `v3_0.delete_stored_exact_repeats`, which ADDS the count of the stored repeats it deletes); the batch's `total_rows` / `skipped_rows` descriptions were corrected in the same change.
 
 ---
 
@@ -901,6 +901,148 @@ number that no test on either side of the seam would question.
 and ships a silently inert rule — the exact failure the closed allowlists exist to prevent. A new list-valued
 config key must test PRESENCE before the idiom (`if key in pr and not isinstance(pr[key], list)`), which is
 what `override_when` does; the older sibling keys still carry the gap.
+
+**⚠️ A DERIVED COST IS GENERATED FROM THE CONFIG'S OWN CROSS-ROW REFERENCE, FLATTENED AT MINT,
+MARKED, REFUSED ON UPLOAD, AND CHANGED ONLY BY MINTING (owner I-2..I-8, 2026-09-26).** A rate-master
+cell whose value comes from ANOTHER catalogue row is declared in the config key `derived_rates`
+(`{item_uid: {rate_key: [{from:{item_uid, rate_key}, multiplier, constant}]}}` -- a LIST, because one
+row can read two rows in two columns). It is **DESCRIPTIVE, never authoritative**: the price still
+comes from the pipeline, so if the two disagree the PIPELINE wins and the mint is wrong -- which is
+why `config_validation.derived_rates_from_pipelines` GENERATES it and no author writes it.
+**THE BOUNDARY IS A STEP TYPE:** a cell is derived iff a pipeline OVERWRITES A STORED RATE KEY OF THE
+MATCHED ROW with a value that entered through a `component_ref`. ⚠️ **"the pipeline carries a
+`component_ref`" is NOT the rule and would over-mark badly: 14 of Electrical's 28 pipelines carry one**
+-- they build an ASSEMBLY total (`supply` / `install` / `bcs_supply`), which no item stores, so
+Electrical declares nothing BY CONSTRUCTION; and ADP's 60 own-cost pipelines sit in `convert` blocks
+whose match is re-pointed. `_validate_derived_rates` enforces FLATTENING (no `from` pointing at a cell
+that is itself declared derived) whichever generator produced the map -- a category with NO pipelines
+(`hvac_insulation`) is generated from its SOURCE WORKBOOK'S formulas and is held to the same contract.
+⚠️ **A DERIVED RATE IS RECOMPUTED ON EVERY WRITE OF ITS BASE, ON EVERY WRITE PATH; A DECLARATION THAT
+IS RECORDED BUT NOT RECOMPUTED IS A DEFECT (owner R1/R5, slice 12a-FIX).** The pure rule is
+`config_validation.recompute_derived_values` / `derived_rate_updates` (chain order, loud refusal on a
+missing base or a cycle); the single write is `loader.recompute_derived_after_write`, called by the
+upload apply, the grid edit, the manual create, the twin-confirmed write and the deactivate, while the
+LOAD path verifies instead of repairing. ⚠️ **AN ABSENT DECLARED CELL IS NEVER WRITTEN**: the key
+serves two populations -- a STORED figure nothing recomputes (Insulation) and a cell the pipeline
+fetches live through a `component_ref` (ADP's 12 cross-talk cells, which store nothing). The
+discriminator is whether the cell is stored, never a category name; without it an Insulation upload
+writes ADP.
+⚠️ **A DERIVED CELL IS EXPORTED EMPTY, and that is correctness, not tidiness:** openpyxl serialises a
+float into at most 17 CHARACTERS, so a figure like `291.43125000000003` returns as `291.43125` and the
+type-strict guard called an untouched cell an edit. Nothing may re-export the figure; the row's
+`supply_formula` / `install_formula` carries it, and names the row it comes from. The narrow relative
+tolerance in `csv_importer._same_rate` exists ONLY for a pre-12a file that still carries it.
+**Every rate file (BOTH disciplines) carries two read-only columns `supply_formula` / `install_formula`
+and, directly UNDER THE HEADER, a FORMULA ROW** explaining each computed rate column -- generated from
+the category's own pipelines, its `rate_composition` and its `derived_rates`, plus a note on each
+markup column (`BoQ rate = cost x (1 + markup), rounded up.`). **The header MUST stay row 1** --
+`csv_importer.parse_csv_text` and `xlsx_io.read_xlsx` both read row 1 as the headers. All three are
+INERT on upload: the columns go in the `ignored` bucket and the row is dropped by
+`csv_exporter.FORMULA_ROW_MARKER`, so blanked, overwritten and DELETED behave identically.
+⚠️ **The explanation renderer is DUPLICATED ACROSS THE LANGUAGE BOUNDARY** (`csv_exporter` for the
+file, `rateMasterSpec.ts` for the screen, which cannot call an exporter for one cell) and the two are
+pinned to byte-identical output on ONE shared fixture -- `test_rate_master.FORMULA_FIXTURE` +
+`rateMasterFormula.test.ts`. Change one side without the other and a suite goes red; that pin IS the
+mechanism.
+⚠️ **A DERIVED CELL CARRIES THREE SIGNALS AND EACH ONE ALONE WAS FOUND INSUFFICIENT (owner, 2026-09-27, on the review files: "i cannot make out").** An EMPTY cell already means not-applicable, not-filled-in AND not-editable, so it signalled nothing: the cell now carries a GREY FILL with a border, the WORD `derived` (so it is never empty), and SHEET PROTECTION with no password and every other cell unlocked. **The CSV carries neither colour nor protection, so there the WORD carries it alone** -- do not remove it as redundant. The word and a blank BOTH read as UNTOUCHED on upload; a number there is still refused. Sorting, filtering and row/column insert-delete stay ALLOWED (`SheetProtection`'s flags are INVERTED -- True means blocked). The formula row is 3 standard rows tall and every DATA row carries an EXPLICIT standard height, because a wrapped cell with no explicit height makes Excel auto-fit and every row grew to three-plus lines.
+⚠️ **ROWS AND COLUMNS FOLLOW THE SOURCE WORKBOOK, AND THAT IS PRESENTATION ONLY.** Rows ascend by (source SHEET, source row) -- sheet first, because two categories draw from two sheets each; columns follow the sheet only where the category DECLARES an order (`rate_composition`), so every other category is byte-identical. A file with rows AND columns fully shuffled uploads as zero changes with an IDENTICAL digest: the importer matches columns by NAME and rows by `item_uid`.
+⚠️ **A COLUMN NOTE CARRIES THE PLAIN-ENGLISH EXPLANATION ONLY, AND ITS LENGTH CAP IS PER LINE.** The internal pipeline name and the step expression help nobody maintaining a rate. Capping the WHOLE note kept only the first line and dropped every other -- ADP's `cost_supply` carries eight short explanations and was cut to the DERIVED banner alone.
+
+**⚠️ A BUSINESS NUMBER LIVES IN THE PRICING INPUTS CATEGORY, AND BOTH MULTIPLIERS ARE DERIVED, NEVER
+STORED (owner-locked, 2026-09-27, Electrical v64).** A discount, a markup, a wastage, a BCS ratio or
+an installation share is a rate-master ITEM in `<discipline>_pricing_inputs` that a pipeline READS
+with a `rate_ref` step — never a literal in a config. There are no "factors": every number names what
+it is and, for a markup, which leg it is on. `BoQ multiplier = (1 − discount) × (1 + markup)` and
+`BCS multiplier = (1 − discount) × (1 + wastage)` are COMPUTED from the two editable numbers by a
+preamble `scale`; storing the product is what a **fold** was, and seven of them were unfolded because
+a pre-multiplied number cannot be edited by the person who owns either half of it.
+⚠️ **THE PREAMBLE IS APPENDED AND HOISTED, AND THAT IS NOT A STYLE CHOICE.** `rate_ref` steps are
+APPENDED so every original `steps[N]` index in the asset survives — PREPENDING them shifted the
+indices and broke nine tests whose subject was conduit trade sizes and back-box ladders, which would
+then have carried a permanent assertion about where a pricing-input step sits. The interpreter's
+`hoistRateRefs` moves the preamble to the front at run time, which is sound ONLY because every
+shipped `rate_ref` was MEASURED to carry zero `@` binds and so cannot observe any earlier step.
+⚠️ **THE PREAMBLE IS TWO STEP SHAPES AND HOISTING ONLY ONE SHIPS A SILENTLY DEAD CATEGORY:** a
+`scale` that derives a multiplier must carry `pricing_input: true` to hoist with the refs, or it lands
+after its consumers and every one of them refuses for a missing input — the category stops pricing
+with nothing on screen saying why. An ordinary `scale` reads a running value and must NEVER carry the
+flag; `_validate_config` refuses it on any other step type, by name. A ref that cannot resolve
+REFUSES naming the bind — an input that did not load is not an input of 1.
+⚠️ **ZERO IS A LEGITIMATE VALUE** (three inputs are 0% by ruling); negative and non-numeric are
+refused. A Pricing Inputs category declares no pipelines and no attribute definitions, so it is never
+eligible to price a row and never reaches extraction — and its items are kept OUT of the
+all-categories rate file. Full record incl. the two replay gates and the 48-test blast radius:
+`frontend/.claude/plans/boq-upload-plan.md` § "Build slice 12b(A)".
+
+**⚠️ A RATE COLUMN'S KIND IS DERIVED FROM HOW THE RULES USE IT, NEVER FROM ITS NAME; A COLUMN THE
+RULES DO NOT SETTLE IS LEFT UNLABELLED (owner-locked, 2026-09-29, Electrical v65).** `csv_exporter`
+walks each category's pipelines to decide whether a stored rate column is a **List price**, a **BCS
+price** or a **BoQ price**, and whether it carries `(install)`. ⚠️ **IT MUST BE A PROVENANCE WALK** —
+`(kind, rate_key) → component → sum_components → scale/roundup → output` — because an assembly's
+multiplier lands on the SUM, so a walk reading only the step that touches the column reports nothing
+for every assembly. A name-based guess is the failure this replaces: `install_base_per_mtr` is a BCS
+price and `lug_list` is a List price, and neither says so. **Silence is a verdict**: where the rules
+do not settle a column it is left unlabelled rather than guessed, and the formula row can say so.
+Gated on the DISCIPLINE (`RATE_LABEL_DISCIPLINES`) with an INDEPENDENT second gate on the `rate_ref`
+vocabulary — HVAC produces zero labels and its headers are byte-identical; a discipline opts in
+deliberately, never by acquiring a pipeline shape. The TypeScript mirror in `rateMasterSpec.ts` is
+pinned to the Python, like the `FORMULA_FIXTURE` pair.
+
+**⚠️ THE PRICING-INPUT IMPACT PANEL PRICES THROUGH THE PRODUCT'S OWN PIPELINE, NEVER THROUGH A SECOND
+IMPLEMENTATION OF IT (owner-locked, 2026-09-29).** It used to price a SKU as `stored rate x the
+multiplier the input contributes`. That is the same arithmetic the pipeline performs for a PAIR input
+with no rounding in the way, so it agreed to the rupee there and looked right — and it computed
+something else for the other two shapes: an INSTALLATION SHARE read 13 -> 32.5 where the product quoted
+10 -> 30 (the pipeline applies the share to the COMPUTED SUPPLY rate, then rounds UP TO TENS), and a
+FLAT ADDER read +44 where the product quoted +64 (the addend sits in the sum the markup multiplies).
+**`pricingInputExact` runs `runPipeline` over the catalogue as it stands and over the catalogue with the
+edited input patched in**, so the panel cannot drift from the product — a change to a pipeline, an order
+of operations or a rounding is picked up for free. **Do NOT re-derive pricing rules there; that is the
+bet that already failed once.** A pure ROUNDING difference of a rupee or two is acceptable; a different
+BASE, a different ORDER or a missing ROUNDING STEP is not. **EVERY output that moves is reported, not
+only the input's own leg** — a conduit DISCOUNT moves the install rate too, because install is a share
+OF supply, and a rate that moves unmentioned is how a pricer is surprised. Two traps that make the exact
+path look wired while doing nothing: a `no_match` is NORMAL (an input is read by pipelines spanning
+several kinds, and only one prices any given SKU), and the NEUTRAL branch test is **"every LITERAL is
+zero", not "every param is a literal"** — the cable-tray `cover` off-branch is a zero beside a ctx bind,
+and the stricter test left `cover` unset, so the pipeline never resolved and the panel silently fell
+back to the approximate arithmetic on every tray. The figure shown is the SKU's own rate, never a row
+total; the rounded row-level range stays the group summary.
+
+**⚠️ A FLAT ADDER MOVES EVERY PRICE IN ITS PIPELINE; `isFlatAdder` MEANS "THIS INPUT ADDS RATHER THAN
+SCALES" (owner-locked).** An ADDITIVE `component` carries no `target` and no `bands`, so a reach walk
+keyed on the target records nothing and reports zero — which is measuring what an input MULTIPLIES,
+not whose PRICE MOVES. Such a step inherits the columns accumulated so far, exactly as
+`install_as_ratio` does. The flag must NOT be re-derived as "reaches no SKU": that was a symptom, it
+is false once the adders correctly reach their SKUs, and it cannot express the ruling that a markup ON
+an adder (`tray_cutting`, which carries only an `installation_markup`) shares the adder's panel and its
+condition. A flat adder is ONE row per SKU, never one per rate column — an addend lands once on the
+sum, so per-column rows read as double the money — and the enabling condition branch is the one that
+ADDS something, never one picked by name.
+
+**⚠️ A DELIBERATE REMOVAL FROM AN ASSET IS DECLARED, NEVER ARGUED WITH — AND THE MINT GATE NOW SEES
+ITEM RATE KEYS (owner ruling, 2026-09-29).** `scripts/mint_completeness_check.py` reports every ATOM that
+disappears between two asset versions, and a removal counts as DECLARED when the new asset SAYS SO:
+`retired_category_ids`, `retired_kinds`, and now **`retired_rate_keys`** (entries `"<kind>:<rate_key>"`,
+or `"*:<rate_key>"` across every kind; a retired KIND cascades to its whole rate space, exactly as a
+retired category cascades to everything beneath it). ⚠️ **THE GATE WAS STRUCTURALLY BLIND TO ITEM DATA
+UNTIL v66**: from an item it read only `kind:<k>`, so `cable_tray.with_cover_list` vanished from all 450
+rows while it reported *"No atoms disappeared"*. It was built for CONFIG loss after the dbu3 incident and
+item rate keys were never in scope. There is now a **`rate:<kind>:<key>`** atom — keyed by KIND, because a
+column is a property of the kind: one row missing it is data, every row missing it is a schema change —
+and a `retrate:` atom so losing a DECLARATION is itself reported. **⚠️ NEVER WEAKEN OR BYPASS THE GATE TO
+LET ONE CHANGE THROUGH** (owner: *"a gate quietly relaxed to let one change through stops guarding every
+change after it"*); declare the removal instead, and prove a new atom BOTH WAYS — undeclared must refuse,
+declared must pass — because **an atom that has never been seen to refuse is not a guard**.
+
+**⚠️ A NEGATIVE PIN AIMED AT A SPECIFIC FUTURE NAME HAS A SHELF LIFE OF ONE MINT.** `test_h07`'s "no
+Electrical asset exists at a newer version" probe was hardcoded to `v64`, went stale at v65, was re-aimed
+at **v66 precisely because v66 could not exist** — and the very next slice minted v66. Derive such a probe
+(one past the highest N on disk), never name a future version. The same rule explains why a removal must be
+normalised on the OLD side of a cross-version comparison rather than by editing the pin: a pin claiming
+*"every other item is byte-equal to v59"* is a statement about THAT mint, and must not start failing for a
+removal made three mints later that it never spoke to. `_without_pricing_input_items` /
+`_without_with_cover_list` / `_without_wcl_note` in `test_rate_master` are that idiom.
 
 ## BoQ Rate Suggestion (RM-3)
 

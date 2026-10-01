@@ -20,6 +20,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { GstPaymentTag } from "../components/GstPaymentTag";
 import { SETTLED_STATUSES } from '@/utils/settlement';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import {
@@ -842,6 +843,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                             </div>
                                             <div className="text-muted-foreground">
                                                 {formatToRoundedIndianRupee(row.amount)}
+                                                <GstPaymentTag payment={row} />
                                                 {row.vendor
                                                     ? ` · ${vendorLabelMap.get(row.vendor) || row.vendor}`
                                                     : ""}
@@ -892,6 +894,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(holdRow.amount)}
+                                            <GstPaymentTag payment={holdRow} />
                                             {holdRow.vendor
                                                 ? ` · ${vendorLabelMap.get(holdRow.vendor) || holdRow.vendor}`
                                                 : ""}
@@ -948,6 +951,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(deleteRow.amount)}
+                                            <GstPaymentTag payment={deleteRow} />
                                             {deleteRow.vendor
                                                 ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}`
                                                 : ""}

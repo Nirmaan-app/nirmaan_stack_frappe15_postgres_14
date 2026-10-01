@@ -9,6 +9,7 @@ import {
     NON_PROJECT_LEDGER,
     PROJECT_LEDGER,
     createLabel,
+    duplicateNotice,
     isLoneRow,
     ledgerSections,
     progressFraction,
@@ -177,5 +178,45 @@ describe("the progress bar never lies about being finished", () => {
 
     it("does not divide by zero when there is nothing to create", () => {
         expect(progressFraction(status(), 0)).toBe(1);
+    });
+});
+
+describe("the already-imported notice (ADR-0031)", () => {
+    const dup = (over: Partial<Parameters<typeof duplicateNotice>[0]> = {}) => ({
+        duplicate_rows: 0,
+        duplicate_message: "",
+        refused: false,
+        warn: false,
+        ...over,
+    });
+
+    it("says nothing when no line is already imported", () => {
+        expect(duplicateNotice(dup())).toBeNull();
+    });
+
+    it("says the repeats will not be saved, in the server's own words", () => {
+        const message = "3 of 10 transfers were already imported in batch OFI-7. They will not be saved.";
+        expect(duplicateNotice(dup({ duplicate_rows: 3, duplicate_message: message }))).toEqual({
+            tone: "info",
+            text: message,
+        });
+    });
+
+    it("warns when most of the file is already imported", () => {
+        expect(duplicateNotice(dup({ duplicate_rows: 9, duplicate_message: "m", warn: true }))?.tone).toBe(
+            "warn"
+        );
+    });
+
+    it("marks a refusal as a refusal, not a louder warning", () => {
+        expect(
+            duplicateNotice(dup({ duplicate_rows: 10, duplicate_message: "Not imported.", refused: true }))
+        ).toEqual({ tone: "refused", text: "Not imported." });
+    });
+
+    it("falls back to a count when an older server sends no message", () => {
+        expect(duplicateNotice(dup({ duplicate_rows: 2 }))?.text).toBe(
+            "2 already imported — will not be saved"
+        );
     });
 });

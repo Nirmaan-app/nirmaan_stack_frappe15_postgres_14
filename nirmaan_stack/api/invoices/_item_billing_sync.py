@@ -169,7 +169,8 @@ _TOTAL_PARENT_DOCTYPES = ("Procurement Orders", "Service Requests")
 
 
 def recompute_document_amount_invoiced(document_type: str, document_name: str) -> None:
-    """Re-derive `amount_invoiced` on ONE Procurement Order / Service Request.
+    """Re-derive `amount_invoiced` on ONE Procurement Order / Service Request, and on a
+    Service Request also `gst_invoiced` (SUM of `invoice_gst_amount`, same approved set).
 
     Value = SUM of that document's Vendor Invoices with status 'Approved'.
 
@@ -195,22 +196,27 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
     if document_type not in _TOTAL_PARENT_DOCTYPES or not document_name:
         return
 
-    total = frappe.db.sql(
+    total, gst = frappe.db.sql(
         """
-        SELECT COALESCE(SUM(COALESCE(vi.invoice_amount, 0)), 0)
+        SELECT COALESCE(SUM(COALESCE(vi.invoice_amount, 0)), 0),
+               COALESCE(SUM(COALESCE(vi.invoice_gst_amount, 0)), 0)
         FROM "tabVendor Invoices" vi
         WHERE vi.document_type = %(dt)s
           AND vi.document_name = %(dn)s
           AND vi.status = 'Approved'
         """,
         {"dt": document_type, "dn": document_name},
-    )[0][0]
+    )[0]
+
+    values = {"amount_invoiced": flt(total)}
+    # GST Invoiced (ADR-0030): the GST twin of amount_invoiced, over the SAME approved
+    # set, so the two can never describe different invoices. Work Orders only.
+    if document_type == "Service Requests":
+        values["gst_invoiced"] = flt(gst)
 
     # A parent that no longer exists (an order deleted along with its invoices)
     # matches zero rows here — a silent no-op, not an error.
-    frappe.db.set_value(
-        document_type, document_name, "amount_invoiced", flt(total),
-    )
+    frappe.db.set_value(document_type, document_name, values)
 
     # amount_due is derived from this value, so it moves with it.
     recompute_document_amount_due(document_type, document_name)

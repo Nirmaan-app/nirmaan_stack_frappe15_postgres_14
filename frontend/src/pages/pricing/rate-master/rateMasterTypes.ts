@@ -123,6 +123,18 @@ export interface ScaleStep {
   step: "scale";
   target: string;
   result: string;
+  /**
+   * SLICE 12b(A). Declares this `scale` part of the PRICING-INPUT PREAMBLE: it derives a multiplier
+   * from `pi_*` ctx keys the preamble itself wrote (`(1-discount)*(1+markup)`, `1-discount`,
+   * `1+markup`, `a*b`) and reads NOTHING of the row. `hoistRateRefs` therefore moves it to the front
+   * alongside the `rate_ref` steps, which is what lets the mint APPEND the preamble and leave every
+   * original `steps[N]` index in the asset untouched.
+   *
+   * ⚠️ NEVER set this on an ordinary `scale`. A normal `scale` reads `target`, which is usually an
+   * EARLIER step's output; hoisting one would read it before it exists and move a figure. ABSENT is
+   * the default and every pre-slice pipeline is byte-identical.
+   */
+  pricing_input?: boolean;
   // EA-1: a param key ending in `_from_attr` carries an ATTRIBUTE ID (string) whose selected value is
   // bound into the formula under the key's base name (e.g. `kva_from_attr: "kva"` -> bind `kva`).
   // Plain numeric params are bound by their exact name.
@@ -170,6 +182,16 @@ export interface ComponentStep {
 // circuits; component_ref gains @attr / @fitted_size ref bindings + rate_stages + qty.
 export interface RateStage {
   mult: number;
+  /**
+   * SLICE 12b(A) -- bind this stage's multiplier from a COMPUTED (`ctx`) value instead of the literal
+   * `mult`, so a Pricing Input can drive it. `{"mult_from_ctx": "conduit_boq_multiplier"}`.
+   *
+   * ⚠️ ABSENT MEANS THE LITERAL `mult` IS USED, so every shipped stage is byte-identical. When present
+   * it REPLACES `mult` (it does not multiply with it): a stage whose factor now comes from an input has
+   * no business also carrying a hand-typed one, and letting both apply would silently square the
+   * migration. A ctx key that was never computed is an honest no-compute naming the key -- never a 1.
+   */
+  mult_from_ctx?: string;
   /** point_wiring RUNS: an OPTIONAL attribute-bound factor folded in BEFORE this stage's rounding, so
    * `x runs then round`. ABSENT (or missing / non-numeric on the selection) MEANS 1 -- so every shipped
    * stage without this key is byte-identical. Distinct from `scale`'s `<ident>_from_attr`, which
@@ -216,6 +238,32 @@ export interface ComponentRefStep {
   // EA-4a-r: when set, a ref @attr resolving to the "None" sentinel makes this component an EXPLICIT ZERO
   // (positive absence), not a no-compute. (back_box binds @plate_item, so plate=None zeroes it too.)
   none_skips?: boolean;
+  explain?: string;
+}
+/**
+ * SLICE 12b(A) -- THE PRICING-INPUT READER. Loads ONE stored rate off a catalogue row into `ctx`.
+ *
+ * ⚠️ IT MUST NEVER TOUCH `components`, AND THAT OMISSION IS THE WHOLE POINT. `component_ref` is the
+ * only existing way to read another row's rate, and it writes into the `components` accumulator, which
+ * `sum_components` then sums -- so using it to fetch a MARKUP would add the markup to the assembly
+ * total. 29 of the 40 migrated values sit in pipelines that already call `sum_components`, so that
+ * route would have moved a price on the majority of them, silently, under `status: "ok"`.
+ *
+ * It carries NO `qty`, NO `rate_stages` and NO `none_skips`: an input is a scalar, not a component, and
+ * `config_validation` refuses those keys by name. Resolution reuses `component_ref`'s exact one-row
+ * rule and its honest-no-compute messages, through the shared `resolveRefRow`.
+ *
+ * Discipline scoping is free: the kind is `<discipline>_pricing_input`, and a rate-master item kind is
+ * never shared across disciplines, so filtering on kind IS filtering on discipline.
+ */
+export interface RateRefStep {
+  step: "rate_ref";
+  /** {kind, <attr>: <literal or "@bound">} -- must resolve to EXACTLY ONE row. */
+  ref: { kind: string; [attr: string]: unknown };
+  /** which stored rate key to read off that row (Pricing Inputs store it as `rate`). */
+  target: string;
+  /** the `ctx` key to write it to. */
+  result: string;
   explain?: string;
 }
 // EA-4a: sizes the conduit for a point-wiring circuit and counts how many circuits fit. overall_dia =
@@ -701,6 +749,7 @@ export type PipelineStep =
   | LookupOrRatioStep
   | CircuitFitStep
   | ModuleFitStep
+  | RateRefStep
   // forward-compat: an unknown future step type still parses as an object with a `step` string.
   | { step: string; [k: string]: unknown };
 
@@ -759,7 +808,38 @@ export interface RateCategoryConfig {
    * the target config (a missing or ineligible target leaves the row on the coming-soon card).
    */
   alias_of?: { discipline: string; category_id: string };
+  /**
+   * SLICE 12a (2026-09-26, owner I-2 / I-4 / I-5): the cells whose cost comes from ANOTHER catalogue
+   * row, per item_uid -> rate_key -> a LIST of terms summed as `base * multiplier + constant`.
+   * GENERATED AT MINT (from the config's own `component_ref` steps, or -- for a category with no
+   * pipelines yet -- from the source workbook's own formulas), FLATTENED to the ultimate base, and
+   * changed only by minting. DESCRIPTIVE, never authoritative: the price still comes from the
+   * pipeline. Absent => no cell is marked and no edit is refused, which is every Electrical category.
+   */
+  derived_rates?: Record<string, Record<string, DerivedRateTerm[]>>;
+  /**
+   * SLICE 12a (owner I-6): how this category's STORED cost PARTS make up its supply / install cost, so
+   * the row-level formula columns can show each step's own result for a category whose pipelines are
+   * not built yet. Declared in CONFIG, never in code (the HV-10 rule). Absent => the formula columns
+   * read `typed`.
+   */
+  rate_composition?: Record<"supply" | "install", RateComposition | undefined>;
   [k: string]: unknown;
+}
+
+/** SLICE 12a: one term of a derived cost -- the base cell it reads, scaled and offset. */
+export interface DerivedRateTerm {
+  from: { item_uid: string; rate_key: string };
+  multiplier?: number;
+  constant?: number;
+}
+
+/** SLICE 12a: one side of `rate_composition`. */
+export interface RateComposition {
+  parts: string[];
+  wastage_key?: string;
+  markup_key?: string;
+  roundup?: number;
 }
 
 /** EA-4 ext-a: one estimator rule. Authored by the estimator and passed through unchanged -- the

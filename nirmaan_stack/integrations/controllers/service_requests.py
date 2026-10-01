@@ -4,18 +4,49 @@ from frappe import _
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
+from nirmaan_stack.services.work_order_gst import gst_is_on
 
 
 def validate(doc, method):
-    """Tendering operational guard (Slice 5 / B5) + vendor GST Hold.
+    """Tendering operational guard (Slice 5 / B5) + vendor GST Hold on a NEW Work Order;
+    the GST flag guard on an existing one.
 
     Defense-in-depth backstop: refuse to create a Service Request (Work Order)
     against a Tendering project stub, or for a vendor on GST Hold (ADR-0028).
-    Guard only NEW docs so edits to existing/legacy SRs are never blocked.
+    Those two guard only NEW docs so edits to existing/legacy SRs are never blocked.
     """
     if doc.is_new():
         validate_won(doc.project, "Service Request")
         validate_vendor_gst_hold(doc)
+    else:
+        validate_gst_not_switched_off_with_gst_payments(doc)
+
+
+def validate_gst_not_switched_off_with_gst_payments(doc):
+    """Refuse turning the GST flag OFF while the Work Order has a GST payment (ADR-0030, decision 6).
+
+    A GST payment counts at every status, Rejected included, until it is deleted. Turning GST ON is
+    never refused (Remove GST Hold relies on that). This runs in the lifecycle, after the doctype's
+    own `validate`, so the page switch, an amendment, Desk and the first-approval flip in
+    `ServiceRequests.set_gst_from_vendor_on_approval` all meet it. A raw `set_value` of `gst` would
+    not -- nothing writes `gst` that way.
+    """
+    old_doc = doc.get_doc_before_save()
+    if not (old_doc and gst_is_on(old_doc.gst) and not gst_is_on(doc.gst)):
+        return
+    gst_payments = frappe.get_all(
+        "Project Payments",
+        filters={"document_type": "Service Requests", "document_name": doc.name, "is_gst_payment": 1},
+        pluck="name",
+        order_by="creation asc",
+    )
+    if gst_payments:
+        frappe.throw(
+            _("GST cannot be switched off on {0} while it has GST payments: {1}.").format(
+                doc.name, ", ".join(gst_payments)
+            ),
+            title=_("GST payments exist"),
+        )
 
 
 def on_trash(doc, method):

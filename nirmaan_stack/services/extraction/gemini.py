@@ -33,6 +33,9 @@ _INVOICE_FIELDS = (
     "invoice_id", "invoice_date", "purchase_order", "supplier_gstin",
     "receiver_gstin", "supplier_name", "net_amount", "total_tax_amount",
     "total_amount", "round_off", "other_charges", "tcs_amount",
+    # GST as printed, one figure per line (#1336). The invoice's GST is derived from
+    # these in code (validation.derive_gst), never added up by the model.
+    "igst_amount", "cgst_amount", "sgst_amount", "tax_amount",
 )
 _PAYMENT_FIELDS = ("utr", "payment_date", "transfer_amount", "beneficiary_name")
 # Field names match the "Customer PO Child Table" doctype 1:1 (no rename layer).
@@ -57,6 +60,7 @@ _TDS_CHALLAN_FIELDS = (
 )
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
+    "igst_amount", "cgst_amount", "sgst_amount", "tax_amount",
     "other_charges", "tcs_amount", "transfer_amount",
     "customer_po_value_inctax", "customer_po_value_exctax",
     "amount", "breakup_tax", "breakup_surcharge", "breakup_cess",
@@ -81,8 +85,19 @@ _INVOICE_PROMPT = (
     "Extract the listed fields from this Indian tax invoice and return JSON only.\n"
     "- supplier_gstin = the seller's/vendor's 15-char GSTIN; receiver_gstin = the "
     "buyer's GSTIN.\n"
-    "- net_amount = taxable value before GST; total_tax_amount = total GST; "
-    "total_amount = grand total including GST and any other charges.\n"
+    "- net_amount = taxable value before GST; total_amount = grand total including "
+    "GST and any other charges.\n"
+    "- GST is printed in exactly ONE of three ways. Copy the rupee amount of each GST "
+    "line as printed (not its % rate):\n"
+    "  (1) IGST alone (usually 18% of the taxable value) -> igst_amount; it is then the "
+    "only GST line.\n"
+    "  (2) CGST and SGST together (UTGST counts as SGST), each normally half of the GST "
+    "-> cgst_amount and sgst_amount, each as its own printed figure.\n"
+    "  (3) a plain 'Tax' line with no IGST/CGST/SGST split -> tax_amount.\n"
+    "  If one of these is printed on several rate lines, return its printed total. Never "
+    "add, halve or double GST figures, and leave null any GST line that is not printed.\n"
+    "- total_tax_amount = a 'Total Tax' / 'Total GST' figure only if the invoice prints "
+    "one. Do not work it out.\n"
     "- round_off, other_charges (freight/packing/insurance), tcs_amount: include "
     "only if shown on the invoice.\n"
     "- line_items = one object per row of the item/particulars table. For each row: "

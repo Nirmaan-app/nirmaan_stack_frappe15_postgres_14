@@ -27,6 +27,7 @@ import {
   VendorDetailPopover,
 } from "../components/DetailPopovers";
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
+import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 
 import {
@@ -332,7 +333,12 @@ const REGISTRY: Record<
     id: "source_type",
     accessorKey: "source_type",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-    cell: ({ row }) => <TypeChip type={row.original.source_type} />,
+    cell: ({ row }) => (
+      <span className="inline-flex items-center">
+        <TypeChip type={row.original.source_type} />
+        <GstPaymentTag payment={row.original} />
+      </span>
+    ),
     // Sized for the longest label, "Non Project Expense", rendered as a pill.
     size: 158,
     meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },

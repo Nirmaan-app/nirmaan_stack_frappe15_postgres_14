@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import SITEURL from "@/constants/siteURL";
+import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
 
 export const sr2BReconcileColumns: ColumnDef<SR2BReconcileRowData>[] = [
     {
@@ -134,9 +135,9 @@ export const sr2BReconcileColumns: ColumnDef<SR2BReconcileRowData>[] = [
                     <span>{sr}</span>
                     <HoverCard>
                         <HoverCardTrigger asChild>
-                            <Link to={`/project-payments/${sr.replaceAll('/', "&=")}`}>
+                            <OrderDetailLink docName={sr}>
                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer" />
-                            </Link>
+                            </OrderDetailLink>
                         </HoverCardTrigger>
                         <HoverCardContent className="text-xs w-auto p-1.5">
                             View WO Details

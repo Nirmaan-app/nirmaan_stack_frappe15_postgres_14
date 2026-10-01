@@ -45,6 +45,15 @@ A generative model self-reports ~100% confidence, so confidence isn't trusted. P
 
 Three states, never conflated: **VALID** / **INVALID** (a real problem) / **ABSENT** (nothing to check).
 
+### GST: read the lines, derive the figure (#1336)
+
+An Indian invoice shows GST in exactly one of three shapes: **IGST alone**, **CGST + SGST** (each half), or a **plain Tax line**. The invoice prompt asks the model to copy each printed line into `igst_amount` / `cgst_amount` / `sgst_amount` / `tax_amount` and never to add, halve or double them; `total_tax_amount` stays in the schema but only as a printed "Total Tax" figure. `validation.derive_gst` (pure) sums them and returns a verdict:
+
+- **Confident** — IGST alone; CGST + SGST equal within ₹1; Tax alone; every printed component 0 (GST 0). A printed total-tax figure (or a Tax line beside a split) that disagrees by more than ₹1 makes it unsure.
+- **Unsure** — CGST without SGST (the "half GST" misread seen in real data) or the reverse, CGST ≠ SGST, IGST mixed with CGST/SGST, or no component but a model `total_tax_amount`. The figure is then that `total_tax_amount` (possibly none).
+
+`extract_invoice_fields` returns the derived `gst_amount` at confidence 1.0 when confident. Unsure → `gst_amount` blank, confidence `UNSURE_GST_CONFIDENCE` (0.40, below the 0.70 prefill floor) and a `gst_note` the dialog shows under the GST field while it is empty. A confident derivation also REPLACES the `total_tax_amount` entity in the returned (and persisted) entity list, so the reconciliation and auto-approve gate 5 read the derived GST; an unsure one leaves the model's own `total_tax_amount` exactly as before (so gate 5 behaves as it did, and a half figure is never written as the total). The components ride in the same entity list. Not done: a GST/base slab check (5/12/18/28%) — mixed-rate bills blend to off-slab rates.
+
 ### Behavior
 
 - **Autofill:** populate present fields; failed deterministic checks render as soft amber warnings (submit NOT blocked). The existing GSTIN-vs-vendor-master *mismatch* hard-block is preserved.

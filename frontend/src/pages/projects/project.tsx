@@ -50,11 +50,13 @@ import {
   HardHat,
   OctagonMinus,
   Award,
+  SearchX,
   Sparkles
 } from "lucide-react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
+  Link,
   useParams
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -174,12 +176,45 @@ export interface FilterParameters {
 }
 
 
+/**
+ * Shown instead of a blank page when the URL names a project that cannot be loaded.
+ * A 404 / DoesNotExistError (or no error at all) reads as "not found"; any other server
+ * error shows the server's own message.
+ */
+const ProjectNotFound: React.FC<{ projectId: string; error?: any }> = ({ projectId, error }) => {
+  const notFound =
+    !error || error?.httpStatus === 404 || error?.exc_type === "DoesNotExistError";
+  return (
+    <div className="flex min-h-[50vh] items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-lg border bg-card p-6 text-center shadow-sm">
+        <SearchX className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">
+          {notFound ? "Project not found" : "Couldn't load this project"}
+        </h2>
+        <p className="mt-2 break-all text-sm text-muted-foreground">
+          {notFound ? (
+            <>
+              No project with the ID <span className="font-medium text-foreground">{projectId}</span> exists.
+              Check the link.
+            </>
+          ) : (
+            error?.message || "Something went wrong while loading the project."
+          )}
+        </p>
+        <Button asChild className="mt-5">
+          <Link to="/projects">Back to Projects</Link>
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const Project: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
   if (!projectId) return <div>No Project ID Provided</div>
 
-  const { data, isLoading, mutate: project_mutate } = useProjectDocRealtime(
+  const { data, isLoading, error: projectError, mutate: project_mutate } = useProjectDocRealtime(
     projectId,
     (event) => {
       console.log("Project document updated (real-time):", event);
@@ -203,12 +238,28 @@ const Project: React.FC = () => {
 
   const { data: po_item_data, isLoading: po_item_loading } = useProjectPOSummaryCall(projectId);
 
+  // A link to a project that does not exist (a typo, a renamed/deleted project) used
+  // to render NOTHING — the page below only draws when `data` arrived. Say so instead.
+  //
+  // Checked BEFORE the loading spinners on purpose: SWR keeps retrying a failed request,
+  // and each retry flips `isLoading` back on — gating on it first flashed the spinner and
+  // rebuilt this card on every retry. Once the project request has failed, stay here.
+  // A plain `!data` (no error yet) still falls through to the spinner below.
+  if (!data && projectError) {
+    return <ProjectNotFound projectId={projectId} error={projectError} />;
+  }
+
   if (isLoading || projectCustomerLoading || po_item_loading) {
     return <LoadingFallback />
   }
 
   if (isLoading || projectCustomerLoading) {
     return <LoadingFallback />
+  }
+
+  // Loaded, no error, still no project: treat as not found too (never a blank page).
+  if (!data) {
+    return <ProjectNotFound projectId={projectId} />;
   }
 
   // v3 dual-field model: pre-Won projects (Tendering or Lost) are lightweight

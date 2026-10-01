@@ -145,7 +145,7 @@ from __future__ import annotations
 import csv
 import io
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -176,6 +176,7 @@ __all__ = [
     "is_success_status",
     "is_terminal_status",
     "gross_by_direction",
+    "charges_of",
 ]
 
 # The two things a passbook row can be. They are LABELS, not a sign: `RawRow.amount` stays the
@@ -195,7 +196,7 @@ BANK_SUCCESS_STATUS = "SUCCESS"
 # ⚠️ THIS IS A DIFFERENT QUESTION FROM `is_success_status`, AND CONFLATING THEM COSTS MONEY IN ONE
 # DIRECTION AND CLARITY IN THE OTHER. "Did money move?" decides whether a row can SETTLE anything.
 # "Is this the final account of the transfer?" decides whether a stored row may be treated as an
-# IMPORT -- see `candidates.find_earlier_batches_for_rows`. A transfer still QUEUED is neither: it
+# IMPORT -- see `candidates.find_earlier_sightings_for_rows`. A transfer still QUEUED is neither: it
 # settles nothing today AND tomorrow's export will say something new about it, so freezing it as
 # "already imported" strands the money permanently. A FAILED transfer also settles nothing, but it
 # IS final -- a retry gets a new transfer id, so that row will never say anything else -- and it must
@@ -449,6 +450,29 @@ def gross_by_direction(rows: Sequence[RawRow]) -> tuple[Decimal, Decimal]:
         Decimal("0"),
     )
     return outflow, inflow
+
+
+def charges_of(rows: Iterable[RawRow]) -> Decimal:
+    """Gateway charge plus tax across EVERY row, whatever its outcome -- see the module docstring.
+
+    Named so the parser's whole-file figure and the upload's stored-lines figure (#1354) are one
+    rule over two populations, never two spellings of it.
+    """
+    return sum((row.service_charge + row.service_tax for row in rows), Decimal("0"))
+
+
+def stored_money(rows: Sequence[RawRow]) -> tuple[Decimal, Decimal]:
+    """`(gross_amount, charges_amount)` of an import, over the lines it STORES (#1354, #1358).
+
+    THE ONE HELPER for an import's money: the Cashfree/ICICI staging, the Cashbook staging and the
+    cleanup patch `delete_stored_exact_repeats` all call it, each over its own stored lines. Each total
+    keeps its own rule -- `gross_by_direction` (successful debits) and `charges_of` (every line).
+
+    ⚠️ NOT THE WHOLE FILE'S FIGURES. An exact repeat (ADR-0031) is not stored, and its money already
+    sits in the earlier import that holds it; counting it again is the same money in two imports.
+    """
+    gross, _ = gross_by_direction(rows)
+    return gross, charges_of(rows)
 
 
 # --- source adapters ---------------------------------------------------------------------------
@@ -1003,7 +1027,7 @@ def parse_statement(
     # Charges across EVERY row; the two gross figures split by DIRECTION -- see the module docstring
     # and `gross_by_direction`, which owns both rules so no caller re-spells either.
     gross, gross_inflow = gross_by_direction(rows)
-    charges = sum((row.service_charge + row.service_tax for row in rows), Decimal("0"))
+    charges = charges_of(rows)
 
     return ParseResult(
         source=source,

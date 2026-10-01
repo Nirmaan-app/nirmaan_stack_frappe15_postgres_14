@@ -1,6 +1,22 @@
 """Every batch's snag report, merged into ONE PDF -- the "Download All" button.
 
-It produces THE SAME DOCUMENT THE TAB'S OWN DOWNLOAD PRODUCES, once per batch, and
+THE FILE ALWAYS OPENS ON A MASTER SUMMARY. Before any batch section, the same print
+format is rendered once with `mode="master"` and NO `batches` param -- the project-wide
+view: per-file status and category counts. Then, by `mode`:
+
+    mode="full"     (default) -> master summary + every batch's section, as below.
+    mode="summary"            -> the master summary ALONE; no batch sections at all.
+
+The master is not optional decoration: it is the file's first page, so a master render
+that fails FAILS THE DOWNLOAD (logged, then thrown) rather than shipping a file that
+silently starts somewhere else. A single BATCH that fails is still skipped-and-logged,
+exactly as before -- the other sections are worth having.
+
+⚠️ THE `mode=master` JINJA SECTION IS NOT IN THE PRINT FORMAT YET -- it is pasted in via
+Desk separately. Until it is, the master render ignores `mode` and prints the ordinary
+project-wide report (every batch, the same filters). That is expected, not a bug here.
+
+Each batch section is THE SAME DOCUMENT THE TAB'S OWN DOWNLOAD PRODUCES, once per batch, and
 concatenates them. Not a lookalike: it calls `frappe.get_print` with the same print
 format and the same `batches` filter the tab sends, so letterhead handling, print
 style, page size and margins are all Frappe's -- there is nothing here that can drift
@@ -53,6 +69,15 @@ PRINT_FORMAT = "Project Snag"
 #: module never re-encodes them, so the merged report narrows exactly like the screen.
 _PASSTHROUGH_PARAMS = ("statuses", "areas", "categories", "search", "search_field")
 
+#: What the caller may ask for. `full` is the default and keeps the pre-summary file
+#: shape (plus the master page in front); `summary` is the master page alone.
+_MODES = ("full", "summary")
+
+#: The `form_dict["mode"]` value that switches the print format into its master-summary
+#: section. Distinct from `_MODES` on purpose: THOSE describe the FILE the caller wants,
+#: this describes ONE RENDER. A batch render carries `mode=None` (see `_render`).
+_MASTER_RENDER_MODE = "master"
+
 
 def _drop_jinja_cache() -> None:
     """Force the NEXT `get_print` to re-render instead of reusing its cached env.
@@ -70,6 +95,32 @@ def _drop_jinja_cache() -> None:
                 pass
 
 
+def _render(project: str, supplied: dict, *, mode, batches) -> bytes:
+    """ONE `frappe.get_print` of the format, with every param it reads set EXPLICITLY.
+
+    Both `mode` and `batches` are always written, even as `None`: `form_dict` is the
+    live request dict, so a key this function does not set would carry over from the
+    PREVIOUS render -- or from the request itself, which arrives holding the caller's
+    own `mode=full|summary`. A batch section must see `mode=None` (render normally) and
+    the master must see `batches=None` (every batch); leaving either to chance is how
+    the master quietly becomes batch N's report, or a batch quietly becomes a summary.
+    """
+    frappe.local.form_dict["mode"] = mode
+    frappe.local.form_dict["batches"] = batches
+    for key in _PASSTHROUGH_PARAMS:
+        frappe.local.form_dict[key] = supplied.get(key)
+    # ⚠️ LOAD-BEARING -- see `_drop_jinja_cache`. Before EVERY render, the master included.
+    _drop_jinja_cache()
+
+    return frappe.get_print(
+        "Projects",
+        project,
+        print_format=PRINT_FORMAT,
+        as_pdf=True,
+        no_letterhead=1,
+    )
+
+
 @frappe.whitelist()
 def download_all_batches(
     project=None,
@@ -78,8 +129,14 @@ def download_all_batches(
     categories=None,
     search=None,
     search_field=None,
+    mode=None,
 ):
-    """One PDF holding every batch's report, in import order.
+    """One PDF: a MASTER SUMMARY first, then (in `full` mode) every batch's report in
+    import order.
+
+    `mode` -- `"full"` (default when omitted) or `"summary"`. Anything else is refused
+    rather than guessed at: a typo that fell back to `full` would hand the user a
+    many-page file when they asked for one page, with nothing saying why.
 
     READ-guarded on the same tier as `get_snag_stats`: this exposes the same defect
     data, just for every batch at once, so it cannot be the looser door.
@@ -91,6 +148,12 @@ def download_all_batches(
     """
     if not project:
         frappe.throw("project is required.", title="Missing field: project")
+    mode = (mode or "full").strip().lower()
+    if mode not in _MODES:
+        frappe.throw(
+            f"mode must be one of {', '.join(_MODES)} (got {mode!r}).",
+            title="Invalid download mode",
+        )
     require_read_access("view this project's snag list")
 
     if not frappe.db.exists("Projects", project):
@@ -119,23 +182,42 @@ def download_all_batches(
     }
 
     merged = PdfWriter()
-    rendered = 0
-    for batch in batches:
-        # The format reads these off `form_dict` at render time. Rebuilt per batch --
-        # `batches` is the only one this module authors; the rest pass through as sent,
-        # so each section narrows exactly like the screen the button was pressed on.
-        frappe.local.form_dict["batches"] = json.dumps([batch.name])
-        for key in _PASSTHROUGH_PARAMS:
-            frappe.local.form_dict[key] = supplied.get(key)
-        _drop_jinja_cache()
 
+    # --- The MASTER SUMMARY: always first, in both modes ---------------------------
+    # `batches=None` = every batch (the Jinja's own default); the caller's filters ride
+    # along, so the summary counts exactly what the sections below it contain.
+    # (Until the `mode=master` section is pasted into the format in Desk, this prints
+    # the ordinary project-wide report -- see the module docstring.)
+    try:
+        master_bytes = _render(
+            project, supplied, mode=_MASTER_RENDER_MODE, batches=None
+        )
+        for page in PdfReader(io.BytesIO(master_bytes)).pages:
+            merged.add_page(page)
+    except Exception:
+        # NOT skipped like a batch: the master is the file's first page, and a file
+        # that silently opens on batch 1 instead reads as complete when it is not.
+        # Logged FIRST, so the traceback survives the throw below.
+        frappe.log_error(
+            title="Snag bulk download: master summary failed to render",
+            message=f"project={project!r} mode={mode!r}\n\n{frappe.get_traceback()}",
+        )
+        merged.close()
+        frappe.throw(
+            "The master summary could not be generated, so nothing was downloaded. "
+            "The error has been logged.",
+            title="Download failed",
+        )
+
+    # --- The per-batch sections: `full` mode only ----------------------------------
+    rendered = 0
+    for batch in batches if mode == "full" else []:
         try:
-            pdf_bytes = frappe.get_print(
-                "Projects",
-                project,
-                print_format=PRINT_FORMAT,
-                as_pdf=True,
-                no_letterhead=1,
+            # `mode=None` -- a batch section renders normally, never as a summary.
+            # `batches` is the only filter this module authors; the rest pass through
+            # as sent, so each section narrows exactly like the screen.
+            pdf_bytes = _render(
+                project, supplied, mode=None, batches=json.dumps([batch.name])
             )
             for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
                 merged.add_page(page)
@@ -151,7 +233,10 @@ def download_all_batches(
                 ),
             )
 
-    if not rendered:
+    # Summary mode renders no sections by design, so "none rendered" is only a failure
+    # when sections were asked for.
+    if mode == "full" and not rendered:
+        merged.close()
         frappe.throw(
             "None of this project's batches could be rendered. Nothing was downloaded.",
             title="Download failed",
@@ -162,16 +247,35 @@ def download_all_batches(
     merged.close()
 
     project_label = frappe.db.get_value("Projects", project, "project_name") or project
-    frappe.local.response.filename = _merged_filename(project_label)
+    frappe.local.response.filename = (
+        _summary_filename(project_label) if mode == "summary" else _merged_filename(project_label)
+    )
     frappe.local.response.filecontent = output.getvalue()
     frappe.local.response.type = "download"
 
 
+def _safe_label(project_label: str) -> str:
+    """The project name with anything a filesystem would rather not see replaced."""
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in (project_label or ""))
+
+
+def _today() -> str:
+    return frappe.utils.formatdate(frappe.utils.nowdate(), "dd-MM-yyyy")
+
+
 def _merged_filename(project_label: str) -> str:
-    """`Snag_List_ALL_<project>_09-09-2026.pdf`.
+    """`Snag_List_ALL_<project>_09-09-2026.pdf` -- the `full` file.
 
     ALL is in the name on purpose: this file and a single-tab download otherwise land
     in a downloads folder looking identical.
     """
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in (project_label or ""))
-    return f"Snag_List_ALL_{safe}_{frappe.utils.formatdate(frappe.utils.nowdate(), 'dd-MM-yyyy')}.pdf"
+    return f"Snag_List_ALL_{_safe_label(project_label)}_{_today()}.pdf"
+
+
+def _summary_filename(project_label: str) -> str:
+    """`Snag_Summary_<project>_09-09-2026.pdf` -- the `summary` file.
+
+    A different STEM, not a suffix: a one-page summary saved beside a full merge must
+    not be mistaken for it (the frontend's local fallback name mirrors this).
+    """
+    return f"Snag_Summary_{_safe_label(project_label)}_{_today()}.pdf"

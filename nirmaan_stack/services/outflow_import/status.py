@@ -126,6 +126,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 # decide whether a record may be called Paid. Two copies of a one-line attribute test would be free
 # to drift, and the symptom would be a `Reconciliation Pending` expense announced as Paid.
 from nirmaan_stack.services.outflow_import.contains_guard import is_slip_candidate
+from nirmaan_stack.services.outflow_import.duplicates import bank_status_key
 
 # THE THIRD PERMITTED PACKAGE IMPORT, on the same terms as the two above: `skip_kinds` is a pure
 # vocabulary leaf with no imports at all. It lives outside this module so `cashbook.py` -- which is
@@ -185,7 +186,9 @@ __all__ = [
     "derive_settled_direction_blocks",
     "SKIP_REASON_NOT_SUCCESSFUL",
     "SKIP_REASON_ALREADY_IMPORTED",
+    "SKIP_REASON_ALREADY_IMPORTED_STATUS_CHANGED",
     "SKIP_REASON_DUPLICATE_IN_FILE",
+    "SKIP_REASON_DUPLICATE_IN_FILE_STATUS_CHANGED",
     "SKIP_REASON_ALREADY_PAID",
     "SKIP_REASON_ALREADY_RECEIVED",
     "SKIP_REASON_ALREADY_LINKED",
@@ -306,6 +309,15 @@ BATCH_STATUSES = (BATCH_DRAFT, BATCH_IN_REVIEW, BATCH_PARTIALLY_SETTLED, BATCH_C
 SKIP_REASON_NOT_SUCCESSFUL = "Transfer did not succeed at the bank ({status})."
 SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
+# ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
+# is ever staged is one whose bank status CHANGED -- and the reason names both statuses. The prefix up
+# to `{batch}` is the plain sentence's, so a reader of the old wording still finds these.
+SKIP_REASON_ALREADY_IMPORTED_STATUS_CHANGED = (
+    "Already imported in batch {batch}, bank status changed {earlier} → {now}."
+)
+SKIP_REASON_DUPLICATE_IN_FILE_STATUS_CHANGED = (
+    "This transfer appears earlier in the same statement, bank status changed {earlier} → {now}."
+)
 # `{records}` is `_records_phrase(...)`: every record NAMED WITH ITS LEDGER (#1253), never a bare
 # name. See `_record_sentence` for which of these two a group reads.
 #
@@ -424,6 +436,7 @@ def derive_staged_row_outcome(
     duplicate_in_file: bool = False,
     excluded_category: str = "",
     no_settlement_path: bool = False,
+    earlier_bank_status: str = "",
 ) -> RowOutcome:
     """The outcome a row gets AT UPLOAD, before any matching has run.
 
@@ -479,14 +492,24 @@ def derive_staged_row_outcome(
             SKIP_REASON_EXCLUDED_AT_INGEST.format(category=excluded_category),
             SKIP_KIND_BY_EXCLUSION_CATEGORY[excluded_category],
         )
+    # `earlier_bank_status` is set when this repeat's bank status CHANGED since its earlier sighting
+    # (ADR-0031) -- the only kind of repeat upload still stages, since an exact one is not saved.
+    now = bank_status_key(getattr(row, "status_raw", ""))
     if already_imported_in:
-        return RowOutcome(
-            ROW_SKIPPED,
-            SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in),
-            SKIP_KIND_ALREADY_IMPORTED,
-        )
+        if earlier_bank_status:
+            note = SKIP_REASON_ALREADY_IMPORTED_STATUS_CHANGED.format(
+                batch=already_imported_in, earlier=earlier_bank_status, now=now
+            )
+        else:
+            note = SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in)
+        return RowOutcome(ROW_SKIPPED, note, SKIP_KIND_ALREADY_IMPORTED)
     if duplicate_in_file:
-        return RowOutcome(ROW_SKIPPED, SKIP_REASON_DUPLICATE_IN_FILE, SKIP_KIND_REPEATED_IN_FILE)
+        note = (
+            SKIP_REASON_DUPLICATE_IN_FILE_STATUS_CHANGED.format(earlier=earlier_bank_status, now=now)
+            if earlier_bank_status
+            else SKIP_REASON_DUPLICATE_IN_FILE
+        )
+        return RowOutcome(ROW_SKIPPED, note, SKIP_KIND_REPEATED_IN_FILE)
     if not getattr(row, "is_success", False):
         status_raw = (getattr(row, "status_raw", "") or "unknown").strip() or "unknown"
         return RowOutcome(

@@ -44,6 +44,13 @@ export interface GetSnagColumnsOptions {
   onEditRow?: (snag: SnagListRow) => void;
   /** `name` of the row whose write is currently in flight, if any. */
   savingStatusFor?: string | null;
+  /**
+   * User ID (the login email, or `Administrator`) -> the person's full name, from
+   * `useUsersForLookup`. An ID it does not know (a deleted user, an account missing
+   * from Nirmaan Users) comes back UNCHANGED, so the cell still says who it was.
+   * Absent => the raw ID, as before.
+   */
+  userName?: (userId: string) => string;
 }
 
 const dash = (v?: string | null) => (v && v.trim() ? v : "--");
@@ -52,6 +59,7 @@ export const getSnagColumns = ({
   onStatusChange,
   onEditRow,
   savingStatusFor,
+  userName = (userId) => userId,
 }: GetSnagColumnsOptions): ColumnDef<SnagListRow>[] => [
   {
     // The number the snag is quoted by: the consultant's own, or the position the
@@ -208,7 +216,7 @@ export const getSnagColumns = ({
               className="truncate text-[11px] text-muted-foreground"
               title={status_changed_by}
             >
-              {status_changed_by}
+              {userName(status_changed_by)}
             </div>
           )}
         </div>
@@ -233,13 +241,16 @@ export const getSnagColumns = ({
         className="truncate text-xs"
         title={row.original.status_changed_by || undefined}
       >
-        {dash(row.original.status_changed_by)}
+        {row.original.status_changed_by
+          ? userName(row.original.status_changed_by)
+          : dash(null)}
       </div>
     ),
     meta: {
       columnLabel: "Last updated by",
       exportHeaderName: "Last Updated By",
-      exportValue: (r: SnagListRow) => r.status_changed_by || "",
+      exportValue: (r: SnagListRow) =>
+        r.status_changed_by ? userName(r.status_changed_by) : "",
     },
   },
   /* ── Actions ────────────────────────────────────────────────────────────────

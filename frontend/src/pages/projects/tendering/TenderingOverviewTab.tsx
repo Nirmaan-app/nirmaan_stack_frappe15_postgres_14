@@ -35,6 +35,7 @@ import {
   useMarkTenderingProjectLost,
 } from "./hooks/useTenderingMutations";
 import { TenderingProjectForm } from "./TenderingProjectForm";
+import { CopyProjectLinkButton } from "@/components/common/CopyProjectLink";
 
 interface TenderingOverviewTabProps {
   /** The loaded Projects doc whose `tendering_status` is NOT "Won". */
@@ -249,19 +250,20 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
               >
                 {tenderingStatus}
               </Badge>
-              {canManage && (
-                <div className="flex items-center gap-2">
-                  {!isLost && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsEditing(true)}
-                      className="flex items-center gap-1"
-                    >
-                      <FilePenLine className="h-4 w-4" />
-                      Edit
-                    </Button>
-                  )}
+              <div className="flex items-center gap-2">
+                <CopyProjectLinkButton projectId={data.name} />
+                {canManage && !isLost && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-1"
+                  >
+                    <FilePenLine className="h-4 w-4" />
+                    Edit
+                  </Button>
+                )}
+                {canManage && (
                   <Button
                     variant="destructive"
                     size="sm"
@@ -271,8 +273,8 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
                     <Trash2 className="h-4 w-4" />
                     Delete
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">

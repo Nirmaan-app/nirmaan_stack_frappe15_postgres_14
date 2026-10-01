@@ -9,7 +9,14 @@ THE RULE IS OWNER RULING Q2, OPTION B, and it has exactly two behaviours over on
 
     every row already imported   ->  REFUSE. Nothing is written: no File, no batch, no rows.
     90% or more already imported ->  WARN in the preview. Never blocks; you can always proceed.
-    below 90%                    ->  import normally; duplicates stage and auto-skip with reasons.
+    below 90%                    ->  import normally; the exact repeats are left out, not saved.
+
+⚠️ "ALREADY IMPORTED" MEANS AN **EXACT REPEAT** SINCE ADR-0031: the same identity AND the same bank
+status as a line the system already holds (`match_repeat`). An exact repeat is never stored -- the
+import keeps only a count of them. A repeat whose bank status CHANGED is new information about the
+money, so it is not counted here: it is saved (as a skipped line naming both statuses) and so it is
+part of `new`, the lines this import will store. That is what keeps the refusal honest -- a file
+whose only new content is a status change still has something to save, and is accepted.
 
 ⚠️ 90% IS ONE CONSTANT, and the owner said so in as many words: "say a different number and it
 moves". `DUPLICATE_WARN_RATIO` is that number. Do not grow a second threshold beside it, and do not
@@ -41,7 +48,7 @@ on five fields while `Cashfree` and `Cashbook` keep the proven triple BYTE-IDENT
 load-bearing on its own.
 
 ⚠️ THERE ARE THREE READERS OF THIS KEY AND ALL THREE NOW AGREE (the gap closed at B3a).
-`upload._stage_batch` (the in-file repeat check), `candidates.find_earlier_batches_for_rows` (the
+`upload._stage_batch` (the in-file repeat check), `candidates.find_earlier_sightings_for_rows` (the
 cross-batch lookup) and `parser._duplicate_transfer_ids` (the preview warning) all pass the source
 and get the same key. Keep it that way -- the D3 notes exist because a key that differs between
 readers lets one call two rows duplicates while another calls them distinct, on the same file.
@@ -70,11 +77,16 @@ __all__ = [
     "DUPLICATE_WARN_RATIO",
     "DuplicateVerdict",
     "PriorSighting",
+    "Repeat",
     "RowIdentity",
     "assess_duplicates",
+    "bank_status_key",
     "dates_agree",
     "find_prior_sighting",
+    "find_prior_sightings",
+    "identity_wide_fields",
     "index_prior_sightings",
+    "match_repeat",
     "row_identity",
     "row_identity_of",
     "WIDE_IDENTITY_SOURCES",
@@ -163,10 +175,11 @@ def row_identity(
     comparison is safe.
 
     ⚠️ `remarks` IS COMPARED VERBATIM -- no strip, no case fold, no normalisation. The parser keeps
-    the narration exactly as the bank wrote it for the same reason, and the comparison never crosses
-    a database round trip (the cross-batch lookup settles the id, the amount and the date; remarks
-    only ever separate two rows of the SAME parsed file), so there is nothing for a normalisation to
-    repair and it could only make two genuinely different lines collide.
+    the narration exactly as the bank wrote it, and the staging stores it as parsed, so a stored row's
+    remarks are the parsed line's. Since #1358 the cross-batch lookup compares them too (a stored
+    sighting must match the FULL identity -- `find_prior_sightings`). A normalisation could only make
+    two genuinely different lines collide; if a stored narration ever came back altered, the line
+    would read as new and be stored again -- a copy someone can see, never a line lost.
 
     ⚠️ THE DATE, NOT THE DATETIME. `Outflow Import Row.added_on` is a Datetime and two exports of
     the same transfer can carry different clock times; `RawRow.added_on_date` already exists for
@@ -175,6 +188,13 @@ def row_identity(
     if source in WIDE_IDENTITY_SOURCES:
         return (transfer_id, amount, added_on_date, direction, remarks)
     return (transfer_id, amount, added_on_date)
+
+
+def identity_wide_fields(identity: RowIdentity) -> tuple:
+    """The fields of `identity` past `(transfer_id, amount, date)`: `(direction, remarks)` for a
+    `WIDE_IDENTITY_SOURCES` source, `()` for any other. What a stored sighting must ALSO agree on
+    (`find_prior_sightings`), beside the three axes the sightings index settles."""
+    return tuple(identity[3:])
 
 
 def row_identity_of(row, source: str = "") -> RowIdentity:
@@ -227,7 +247,7 @@ def dates_agree(left: "date | None", right: "date | None") -> bool:
 # a plain `dict` keyed on the whole `row_identity` triple can only answer with `==`, and `==` on the
 # date is exactly what `dates_agree` exists to refuse. Bucketing on `(transfer_id, amount)` and
 # settling the date separately is the ONLY shape that can apply the missing-date fallback, which is
-# why `candidates.find_earlier_batches_for_rows` already has this shape by hand.
+# why `candidates.find_earlier_sightings_for_rows` already has this shape by hand.
 #
 # ⚠️ THE CORPUS IS THE CALLER'S BUSINESS AND THE RULE IS NOT. Cashbook asks this of two different
 # populations -- earlier IMPORT ROWS, and expenses already BOOKED against a wallet reference -- and
@@ -247,16 +267,37 @@ class PriorSighting:
 
     `label` is deliberately opaque -- a batch id from one corpus, a ledger and record name from
     another. This module has no opinion about which; it only guarantees which one comes back.
+
+    `bank_status` is what the bank said about that earlier line, as stored (ADR-0031). Blank for a
+    corpus that has no bank status -- a booked expense -- which `match_repeat` is never asked about.
+
+    `wide_fields` is that line's `identity_wide_fields` under the source asking (#1358): `()` on the
+    triple, `(direction, remarks)` for a bank passbook.
+
+    `final` says whether that line can be the basis of a STATUS CHANGE (#1359): a terminal stored
+    line, or on Cashbook a line of the same file the plan creates. A line still in flight (QUEUED,
+    PENDING, RECEIVED, Cashbook REFUNDED) is not final: it makes an IDENTICAL line an exact repeat,
+    but never makes a different status a repeat -- the D4 rule, a QUEUED line must never block its
+    later SUCCESS. See `match_repeat`.
     """
 
     added_on_date: "date | None"
     label: str
+    bank_status: str = ""
+    wide_fields: tuple = ()
+    final: bool = True
 
 
 def index_prior_sightings(
-    entries: Iterable["tuple[str, Decimal, date | None, str]"],
+    entries: Iterable[tuple],
 ) -> dict[tuple[str, Decimal], tuple[PriorSighting, ...]]:
-    """Bucket `(transfer_id, amount, date, label)` entries by the two axes that compare with `==`.
+    """Bucket `(transfer_id, amount, date, label[, bank_status[, wide_fields[, final]]])` entries by
+    the two `==` axes.
+
+    The fifth element is optional: an earlier IMPORT ROW carries the bank status it was stored with
+    (ADR-0031 needs it to tell an exact repeat from a status change); a booked expense has none. The
+    sixth is the stored line's `identity_wide_fields` (#1358), `()` when absent. The seventh is
+    `PriorSighting.final` (#1359), True when absent.
 
     ⚠️ A BLANK `transfer_id` IS DROPPED, NOT BUCKETED. Without this every reference-less record in
     the corpus would share one bucket keyed `("", amount)`, and a new statement row that also failed
@@ -268,11 +309,17 @@ def index_prior_sightings(
     never appear here.
     """
     index: dict[tuple[str, Decimal], list[PriorSighting]] = {}
-    for transfer_id, amount, added_on_date, label in entries:
+    for transfer_id, amount, added_on_date, label, *rest in entries:
         if not transfer_id:
             continue
         index.setdefault((transfer_id, amount), []).append(
-            PriorSighting(added_on_date=added_on_date, label=label)
+            PriorSighting(
+                added_on_date=added_on_date,
+                label=label,
+                bank_status=rest[0] if rest else "",
+                wide_fields=tuple(rest[1]) if len(rest) > 1 else (),
+                final=rest[2] if len(rest) > 2 else True,
+            )
         )
     return {key: tuple(sightings) for key, sightings in index.items()}
 
@@ -288,11 +335,98 @@ def find_prior_sighting(
     The date is settled by `dates_agree`, so an unreadable date on EITHER side does not break the
     match. That is the whole point of routing both Cashbook lookups through here.
     """
+    sightings = find_prior_sightings(index, transfer_id, amount, added_on_date)
+    return sightings[0].label if sightings else None
+
+
+def find_prior_sightings(
+    index: dict[tuple[str, Decimal], tuple[PriorSighting, ...]],
+    transfer_id: str,
+    amount: Decimal,
+    added_on_date: "date | None",
+    wide_fields: tuple = (),
+) -> tuple[PriorSighting, ...]:
+    """EVERY earlier sighting of this transfer, in the index's order (earliest first).
+
+    `find_prior_sighting` is the first of these. All of them are needed to answer ADR-0031's
+    question -- does the system already hold this line WITH THIS BANK STATUS? -- because the earliest
+    sighting may carry an older status while a later one already carries this one.
+
+    ⚠️ A SIGHTING COUNTS ONLY ON THE SOURCE'S FULL IDENTITY (#1358). `wide_fields` is this line's
+    `identity_wide_fields`; a sighting whose own differ is a different line. On ICICI the other leg of
+    an SGST/CGST pair or a GL transfer shares the id, the amount and the date, and before this it read
+    as a sighting -- since ADR-0031 that dropped a real line silently. `()` on both sides for the
+    triple sources, so Cashfree and Cashbook are unchanged.
+    """
     if not transfer_id:
-        return None
-    for sighting in index.get((transfer_id, amount), ()):
-        if dates_agree(sighting.added_on_date, added_on_date):
-            return sighting.label
+        return ()
+    wide_fields = tuple(wide_fields)
+    return tuple(
+        sighting
+        for sighting in index.get((transfer_id, amount), ())
+        if dates_agree(sighting.added_on_date, added_on_date)
+        and sighting.wide_fields == wide_fields
+    )
+
+
+# --- an exact repeat, or a status change? (ADR-0031) -------------------------------------------
+
+
+def bank_status_key(value: "str | None") -> str:
+    """A bank status as it is compared: trimmed and upper-cased.
+
+    ⚠️ THE SAME NORMALISATION AS `parser.is_terminal_status` (`.strip().upper()`), which is the filter
+    that decides which stored rows are sightings at all. It is spelled here rather than imported
+    because `parser` imports this module. Two lines that differ only in padding or case are the same
+    status, and treating them as a status change would save a row for news that is not news.
+    """
+    return (value or "").strip().upper()
+
+
+@dataclass(frozen=True)
+class Repeat:
+    """An earlier sighting of a line, and whether this line is an EXACT repeat of it.
+
+    `exact` is True when the system already holds this line with the same bank status: the line is
+    not saved, only counted. False means the bank status changed since (for example SUCCESS earlier,
+    REVERSED now): the line is saved as a skipped repeat whose reason names both statuses.
+
+    `label` names the earlier sighting to point a reader at; `earlier_status` is that sighting's
+    status, normalised by `bank_status_key`.
+    """
+
+    label: str
+    earlier_status: str
+    exact: bool
+
+
+def match_repeat(sightings: "tuple[PriorSighting, ...]", bank_status: "str | None") -> "Repeat | None":
+    """Classify a line against its earlier sightings, or `None` when there are none.
+
+    An EXACT repeat needs ANY sighting with the same bank status, not just the earliest -- the glossary
+    term is a line "the system already holds". Without that, a transfer imported SUCCESS and later
+    REVERSED would save a fresh REVERSED row on every overlapping statement after that, because the
+    earliest sighting would always still say SUCCESS. The first same-status sighting is the one named.
+
+    Any sighting counts for an exact repeat, an in-flight one included (#1359): an identical copy of a
+    QUEUED line is already held, and saving it again on every overlapping statement was the gap.
+
+    With no same-status sighting it is a STATUS CHANGE, named against the earliest FINAL sighting (the
+    order the index keeps, `ORDER BY creation ASC`), which is where the line was first imported.
+    ⚠️ ONLY A FINAL SIGHTING CAN BE THAT BASIS -- the D4 rule. A QUEUED line followed by its SUCCESS is
+    new work, not a status change; with no final sighting the answer is `None`.
+    """
+    status = bank_status_key(bank_status)
+    for sighting in sightings:
+        if bank_status_key(sighting.bank_status) == status:
+            return Repeat(label=sighting.label, earlier_status=status, exact=True)
+    for sighting in sightings:
+        if sighting.final:
+            return Repeat(
+                label=sighting.label,
+                earlier_status=bank_status_key(sighting.bank_status),
+                exact=False,
+            )
     return None
 
 
@@ -325,16 +459,26 @@ def assess_duplicates(
     duplicates: int,
     earliest_batch: str | None = None,
     filename: str | None = None,
+    repeated_in_file: int = 0,
 ) -> DuplicateVerdict:
     """Decide refuse / warn / proceed for a statement with `duplicates` of `total` rows seen before.
+
+    `duplicates` counts EXACT repeats only (ADR-0031) -- the lines that will not be saved -- so `new`
+    is what this import will store, status-changed repeats included, and `new == 0` is "nothing to
+    store".
 
     `earliest_batch` names the batch to point the reader at. It is optional because the message has
     to stay honest when the caller could not identify one -- a vague "already imported" beats naming
     the wrong batch.
+
+    `repeated_in_file` is how many of `duplicates` repeat only a line earlier in this file
+    (`repeats.RepeatSplit.repeated_in_file`). Those are not "already imported", and the message must
+    not say they are (#1359).
     """
     total = max(int(total or 0), 0)
     duplicates = min(max(int(duplicates or 0), 0), total)
     new = total - duplicates
+    repeated_in_file = min(max(int(repeated_in_file or 0), 0), duplicates)
 
     if total == 0 or duplicates == 0:
         return DuplicateVerdict(
@@ -344,13 +488,19 @@ def assess_duplicates(
 
     where = f" in batch {earliest_batch}" if earliest_batch else ""
     what = f"'{filename}'" if filename else "this file"
+    if repeated_in_file == duplicates:
+        seen = "are repeated in this file"
+    elif repeated_in_file:
+        seen = f"were already imported{where} or repeated in this file"
+    else:
+        seen = f"were already imported{where}"
 
     if new == 0:
         return DuplicateVerdict(
             total=total, duplicates=duplicates, new=0,
             refuse=True, warn=False, earliest_batch=earliest_batch,
             message=(
-                f"Not imported. All {total} transfers in {what} were already imported{where}. "
+                f"Not imported. All {total} transfers in {what} {seen}. "
                 f"Nothing in this file is new, so no records were created."
             ),
         )
@@ -361,7 +511,7 @@ def assess_duplicates(
             refuse=False, warn=True, earliest_batch=earliest_batch,
             message=(
                 f"Only {new} of {total} transfers in {what} are new. "
-                f"The other {duplicates} were already imported{where}."
+                f"The other {duplicates} {seen} and will not be saved."
             ),
         )
 
@@ -369,7 +519,7 @@ def assess_duplicates(
         total=total, duplicates=duplicates, new=new,
         refuse=False, warn=False, earliest_batch=earliest_batch,
         message=(
-            f"{duplicates} of {total} transfers were already imported{where}. "
-            f"They will be staged and skipped, not re-matched."
+            f"{duplicates} of {total} transfers {seen}. "
+            f"They will not be saved."
         ),
     )

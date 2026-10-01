@@ -24,18 +24,20 @@ from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
     SKIP_ALREADY_BOOKED,
-    SKIP_ALREADY_IMPORTED,
+    SKIP_ALREADY_IMPORTED_STATUS_CHANGED,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
 )
-from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_rows
+from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
 from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     row_identity,
 )
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_ALREADY_IMPORTED
+from nirmaan_stack.services.outflow_import.skip_origin import unskip_refusal
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_PENDING_MATCH,
@@ -402,8 +404,16 @@ class TestPendingThenSuccessfulReimport(FrappeTestCase):
         # ⚠️ THE GUARD AGAINST THE FIX BEING TOO LOOSE. Without this, a change that simply stopped
         # the lookup finding anything would pass the test above and reimport every wallet spend
         # every time -- creating a second expense for money that left once.
+        #
+        # INVERTED FROM "every row of the re-upload is staged Skipped" (ADR-0031): an exact repeat
+        # is not stored at all, so the second batch holds no row and counts every line instead.
         self._stage(self.parsed)
-        self.assertEqual(self._statuses(self._stage(self.parsed)), {ROW_SKIPPED})
+        second = self._stage(self.parsed)
+        self.assertEqual(self._statuses(second), set())
+        self.assertEqual(
+            frappe.db.get_value("Outflow Import Batch", second, "repeats_not_saved"),
+            len(self.parsed.rows),
+        )
 
 
 class TestItNeverSettlesAnExistingRecord(FrappeTestCase):
@@ -661,16 +671,26 @@ class TestTheEarliestBatchIsNamed(FrappeTestCase):
     `_already_imported` had no `ORDER BY` and took whichever row Postgres handed back first, so the
     message could point a reader at a later batch that merely also holds the transfer. Cosmetic --
     nothing double-creates -- but it sends somebody to the wrong screen.
+
+    ⚠️ RE-SHAPED FOR ADR-0031, NOT DELETED. A plain re-upload stores nothing any more, so two batches
+    can only both hold a transfer when the second holds a STATUS CHANGE. The first batch holds it as
+    SUCCESS, the second as REVERSED; a third statement saying FAILED is a status change against both,
+    and must name the first.
     """
 
     def setUp(self):
         super().setUp()
         self.parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
 
-    def _stage(self):
+    def _with_status(self, status):
+        from dataclasses import replace
+
+        return replace(self.parsed, rows=tuple(replace(r, status_raw=status) for r in self.parsed.rows))
+
+    def _stage(self, parsed):
         batch = cb._stage(
-            self.parsed,
-            cb._build_plan(self.parsed),
+            parsed,
+            cb._build_plan(parsed),
             file_url="/private/files/test-statement.csv",
             filename="test-statement.csv",
             user="Administrator",
@@ -680,14 +700,16 @@ class TestTheEarliestBatchIsNamed(FrappeTestCase):
         return batch
 
     def test_the_first_batch_is_the_one_named(self):
-        first = self._stage()
-        self._stage()
+        first = self._stage(self._with_status("SUCCESS"))
+        self._stage(self._with_status("REVERSED"))
         # Filter for THIS reason, not merely "has a reason" -- the fixture also holds rows
         # skipped as not-a-spend, and picking one of those would assert nothing.
-        expected = SKIP_ALREADY_IMPORTED.format(batch=first)
+        expected = SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
+            batch=first, earlier="SUCCESS", now="FAILED"
+        )
         reasons = [
             r.reason
-            for r in cb._build_plan(self.parsed).rows
+            for r in cb._build_plan(self._with_status("FAILED")).rows
             if r.reason.startswith("Already imported in ")
         ]
         self.assertTrue(reasons, "no row read as already imported, so this asserts nothing")
@@ -741,7 +763,7 @@ class TestCashbookDoesNotNarrowByPeriod(FrappeTestCase):
     def test_cashfree_narrowed_by_period_would_have_missed_it(self):
         """The other half. Without this the test above would also pass if the period filter simply
         never excluded anything -- and then it would be asserting nothing at all."""
-        narrowed = find_earlier_batches_for_rows(
+        narrowed = find_earlier_sightings_for_rows(
             self.parsed.rows,
             period_from=self.parsed.period_from,
             period_to=self.parsed.period_to,
@@ -752,12 +774,216 @@ class TestCashbookDoesNotNarrowByPeriod(FrappeTestCase):
 
     def test_both_agree_once_the_period_is_not_supplied(self):
         """Same core, same answer -- the argument is the ONLY difference."""
-        wide = find_earlier_batches_for_rows(self.parsed.rows)
+        wide = find_earlier_sightings_for_rows(self.parsed.rows)
         index = cb._already_imported(self.parsed)
         for row in self.parsed.rows:
             if not row.transfer_id:
                 continue
+            sightings = wide.get(row_identity(row.transfer_id, row.amount, row.added_on_date))
             self.assertEqual(
-                wide.get(row_identity(row.transfer_id, row.amount, row.added_on_date)),
+                sightings[0].label if sightings else None,
                 find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date),
             )
+
+
+class TestRepeatsAreNotSaved(FrappeTestCase):
+    """ADR-0031 on the Cashbook path (#1355): an exact repeat is left out and counted, a status change
+    is kept, and a file of nothing but repeats is refused before anything is written.
+
+    Accepted files are staged through `cb._stage` -- exactly what `confirm_cashbook_import` calls --
+    because a real confirm saves a File and ENQUEUES THE WORKER on the live queue, which would create
+    real expenses. A REFUSED confirm is driven through the real endpoint: it throws before either.
+    """
+
+    def setUp(self):
+        super().setUp()
+        lines = FIXTURE.read_text().splitlines()
+        # Header, the eleven transfer lines (the id-less one is dropped by the parser), the totals.
+        self.header, self.data, self.footer = lines[0], lines[1:12], lines[12:]
+        self.full = self._file(self.data)
+
+    def _file(self, data_lines) -> bytes:
+        return "\n".join([self.header, *data_lines, *self.footer]).encode()
+
+    def _stage(self, content: bytes) -> str:
+        parsed = parse_statement(content, source="Cashbook")
+        batch = cb._stage(
+            parsed,
+            cb._build_plan(parsed),
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        ).name
+        frappe.db.commit()
+        self.addCleanup(_purge, batch)
+        return batch
+
+    def _post(self, endpoint, content: bytes, filename="cashbook.csv"):
+        """Call a real endpoint with `content` as the posted file. Only the transport is faked."""
+        import io
+
+        from werkzeug.datastructures import FileStorage, MultiDict
+
+        class _Request:
+            files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
+
+        previous = getattr(frappe.local, "request", None)
+        frappe.set_user("Administrator")
+        frappe.local.request = _Request()
+        try:
+            return endpoint()
+        finally:
+            frappe.local.request = previous
+
+    def _stored(self, batch):
+        return frappe.get_all(
+            "Outflow Import Row",
+            filters={"import_batch": batch},
+            fields=["transfer_id", "row_status", "skip_kind", "skip_reason", "skip_origin",
+                    "source", "amount"],
+        )
+
+    def _batch(self, batch):
+        return frappe.db.get_value(
+            "Outflow Import Batch",
+            batch,
+            ["repeats_not_saved", "gross_amount", "charges_amount"],
+            as_dict=True,
+        )
+
+    def test_an_overlapping_file_stores_only_its_new_lines_and_counts_the_rest(self):
+        self._stage(self._file(self.data[:3]))
+        second = self._stage(self.full)
+        stored = {row.transfer_id for row in self._stored(second)}
+        self.assertEqual(len(stored), 7)
+        self.assertFalse(
+            stored & {"OBO1700000000001AAAAAA", "OBO1700000000002BBBBBB", "OBO1700000000003CCCCCC"}
+        )
+        self.assertEqual(self._batch(second).repeats_not_saved, 3)
+
+    def test_the_preview_and_the_stage_agree_on_what_is_left_out(self):
+        self._stage(self._file(self.data[:3]))
+        payload = self._post(cb.preview_cashbook_statement, self.full)
+        self.assertEqual(
+            (payload["duplicate_rows"], payload["new_rows"], payload["refused"]), (3, 7, False)
+        )
+        self.assertIn("will not be saved", payload["duplicate_message"])
+        second = self._stage(self.full)
+        self.assertEqual(payload["duplicate_rows"], self._batch(second).repeats_not_saved)
+        self.assertEqual(payload["new_rows"], len(self._stored(second)))
+
+    def test_an_exact_repeat_inside_the_file_is_not_stored_and_is_counted(self):
+        batch = self._stage(self._file([*self.data, self.data[0]]))
+        stored = self._stored(batch)
+        self.assertEqual(
+            [r.transfer_id for r in stored].count("OBO1700000000001AAAAAA"), 1
+        )
+        self.assertEqual(len(stored), 10)
+        self.assertEqual(self._batch(batch).repeats_not_saved, 1)
+
+    def test_a_status_changed_repeat_is_stored_skipped_and_locked(self):
+        first = self._stage(self.full)
+        changed = self.data[0].replace('"SUCCESS"', '"REVERSED"')
+        self.assertNotEqual(changed, self.data[0], "the fixture line changed shape; this asserts nothing")
+
+        # A file whose ONLY new content is the status change is accepted, not refused.
+        payload = self._post(cb.preview_cashbook_statement, self._file([changed]))
+        self.assertFalse(payload["refused"])
+
+        batch = self._stage(self._file([changed]))
+        (row,) = self._stored(batch)
+        self.assertEqual(row.row_status, ROW_SKIPPED)
+        self.assertEqual(row.skip_kind, SKIP_KIND_ALREADY_IMPORTED)
+        self.assertEqual(
+            row.skip_reason,
+            SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
+                batch=first, earlier="SUCCESS", now="REVERSED"
+            ),
+        )
+        self.assertIsNotNone(
+            unskip_refusal(row_status=row.row_status, skip_kind=row.skip_kind, source=row.source)
+        )
+        self.assertEqual(self._batch(batch).repeats_not_saved, 0)
+
+    def test_a_failed_line_does_not_stop_a_later_success_of_the_same_transfer(self):
+        """#1358, the regression: Txn X FAILED, then Txn X SUCCESS (same amount and date) in one file.
+        On Cashbook only a line that will be created is an in-file sighting, so the SUCCESS line is
+        staged to create its expense -- not skipped as a status change of the failure."""
+        failed = self.data[0].replace('"SUCCESS"', '"FAILED"')
+        self.assertNotEqual(failed, self.data[0], "the fixture line changed shape; this asserts nothing")
+
+        batch = self._stage(self._file([failed, self.data[0]]))
+
+        by_status = {row.row_status: row for row in self._stored(batch)}
+        self.assertEqual(set(by_status), {ROW_SKIPPED, ROW_PENDING_MATCH})
+        self.assertEqual(by_status[ROW_SKIPPED].skip_kind, "Bank refused")
+        self.assertEqual(self._batch(batch).repeats_not_saved, 0)
+
+    def test_a_refund_is_saved_once_and_its_next_copy_is_counted(self):
+        """#1359: REFUNDED is not terminal, so before this every overlapping file stored the refund
+        again (OFI-26-00147). It is saved once, as a status change naming both statuses."""
+        first = self._stage(self.full)
+        refunded = self._file([self.data[0].replace('"SUCCESS"', '"REFUNDED"')])
+        self.assertNotEqual(refunded, self._file([self.data[0]]), "the fixture changed; asserts nothing")
+
+        batch = self._stage(refunded)
+        (row,) = self._stored(batch)
+        self.assertEqual(row.skip_kind, SKIP_KIND_ALREADY_IMPORTED)
+        self.assertEqual(
+            row.skip_reason,
+            f"Already imported in batch {first}, bank status changed SUCCESS → REFUNDED.",
+        )
+
+        payload = self._post(cb.preview_cashbook_statement, refunded)
+        self.assertTrue(payload["refused"])
+        self.assertEqual((payload["duplicate_rows"], payload["new_rows"]), (1, 0))
+        self.assertIn(batch, payload["duplicate_message"])
+
+    def test_an_identical_in_flight_line_twice_in_one_file_is_saved_once(self):
+        pending = self.data[0].replace('"SUCCESS"', '"PENDING"')
+        self.assertNotEqual(pending, self.data[0], "the fixture line changed shape; this asserts nothing")
+        batch = self._stage(self._file([pending, pending]))
+        self.assertEqual(len(self._stored(batch)), 1)
+        self.assertEqual(self._batch(batch).repeats_not_saved, 1)
+
+    def test_a_success_copy_of_a_success_line_is_still_an_exact_repeat(self):
+        batch = self._stage(self._file([self.data[0], self.data[0]]))
+        self.assertEqual([row.row_status for row in self._stored(batch)], [ROW_PENDING_MATCH])
+        self.assertEqual(self._batch(batch).repeats_not_saved, 1)
+
+    def test_an_all_repeats_file_is_refused_on_preview_naming_the_earlier_import(self):
+        first = self._stage(self.full)
+        payload = self._post(cb.preview_cashbook_statement, self.full)
+        self.assertTrue(payload["refused"])
+        self.assertEqual((payload["duplicate_rows"], payload["new_rows"]), (10, 0))
+        self.assertIn(first, payload["duplicate_message"])
+
+    def test_an_all_repeats_file_is_refused_on_confirm_and_writes_nothing(self):
+        first = self._stage(self.full)
+        counts = lambda: tuple(
+            frappe.db.count(doctype) for doctype in ("File", "Outflow Import Batch", "Outflow Import Row")
+        )
+        before = counts()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            self._post(cb.confirm_cashbook_import, self.full)
+        self.assertIn(first, str(caught.exception))
+        self.assertEqual(counts(), before)
+
+    def test_money_totals_describe_only_the_stored_lines(self):
+        first = self._stage(self._file(self.data[:3]))
+        second = self._stage(self.full)
+        stored_gross = sum(
+            row.amount for row in self._stored(second) if row.row_status != ROW_SKIPPED
+        )
+        self.assertEqual(self._batch(second).gross_amount, stored_gross)
+        self.assertEqual(self._batch(second).gross_amount, 6750 - (180 + 70 + 6000))
+        self.assertEqual(self._batch(second).charges_amount, 0)
+        # No repeats: the same figure the whole file gave before this change.
+        self.assertEqual(self._batch(first).gross_amount, 180 + 70 + 6000)
+
+    def test_a_file_with_no_repeats_keeps_the_whole_file_figures(self):
+        batch = self._stage(self.full)
+        parsed = parse_statement(self.full, source="Cashbook")
+        self.assertEqual(self._batch(batch).gross_amount, float(parsed.gross_amount))
+        self.assertEqual(self._batch(batch).charges_amount, float(parsed.charges_amount))
+        self.assertEqual(self._batch(batch).repeats_not_saved, 0)

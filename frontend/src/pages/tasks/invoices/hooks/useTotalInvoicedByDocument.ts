@@ -3,7 +3,7 @@
  *
  * Sums `invoice_amount` across all Vendor Invoices with status in
  * ['Pending', 'Approved'] grouped by (document_type, document_name) — same
- * scope as the backend `_check_po_amount_overage` / `_existing_invoiced_sum`
+ * scope as the backend `_check_invoice_amount_overage` / `_existing_invoiced_sum`
  * used by autofill validation. Returns a getter the table columns can call
  * per row.
  *

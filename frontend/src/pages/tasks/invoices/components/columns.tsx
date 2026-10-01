@@ -195,7 +195,7 @@ const InvoiceAmtHoverCell: React.FC<{
 
 /**
  * ₹ tolerance before an invoiced total counts as breaching the parent's value.
- * MUST match the backend's `_check_po_amount_overage` threshold in
+ * MUST match the backend's `_check_invoice_amount_overage` threshold in
  * `api/delivery_notes/update_invoice_data.py` — what shows amber here is
  * exactly what the server would reject the next invoice for.
  */
@@ -638,7 +638,7 @@ const getCommonColumns = (
             // (document_type + document_name), shown over the parent's own value.
             //
             // Identical to the server's `_existing_invoiced_sum`, so the fraction
-            // is exactly what `_check_po_amount_overage` compares when it accepts
+            // is exactly what `_check_invoice_amount_overage` compares when it accepts
             // or rejects the next invoice on this order.
             id: "total_invoiced_for_parent",
             header: ({ column }) => (

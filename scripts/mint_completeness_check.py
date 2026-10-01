@@ -38,7 +38,9 @@ because that is where the real exposure sits (each of these has moved in a past 
     golden:<cid>:<gid>            a golden id (EFFECTIVE -- see the merge note below)
     expect:<cid>:<gid>:<key>      an output key INSIDE a golden's `expect`
     kind:<k>                      an item kind
-    retkind:<k> / retcat:<cid>    a retired_* entry (losing one UN-supersedes it)
+    rate:<kind>:<key>             a rate key on an item kind
+    retkind:<k> / retcat:<cid> / retrate:<kind>:<key>
+                                  a retired_* entry (losing one UN-supersedes it)
     excl:<cid>                    an excluded_categories entry
 
 Goldens are read EFFECTIVELY, exactly as ``_load_multi:358-360`` resolves them: the
@@ -49,7 +51,7 @@ lost CONFIG KEY and NOT as a lost golden -- which is the honest distinction.
 INTENT -- telling a deliberate removal from an accidental one
 -------------------------------------------------------------
 Machine-readable declarations exist TODAY at exactly two granularities:
-``retired_category_ids`` and ``retired_kinds``. This gate treats a removal as DECLARED
+``retired_category_ids``, ``retired_kinds`` and ``retired_rate_keys``. This gate treats a removal as DECLARED
 when the new asset ADDS the matching entry, and cascades that to every atom beneath a
 declared-retired category (its attrs, pipelines, goldens, defaults and config keys all
 go with it, by definition).
@@ -205,12 +207,23 @@ def atoms(payload: dict) -> dict[str, str]:
         a[f"retkind:{x}"] = "retired-kind declaration"
     for x in payload.get("retired_category_ids") or []:
         a[f"retcat:{x}"] = "retired-category declaration"
+    for x in payload.get("retired_rate_keys") or []:
+        a[f"retrate:{x}"] = "retired-rate-key declaration"
     for e in payload.get("excluded_categories") or []:
         if isinstance(e, dict) and e.get("category_id"):
             a[f"excl:{e['category_id']}"] = "excluded-categories entry (prose)"
     for it in payload.get("items") or []:
         if it.get("kind"):
             a[f"kind:{it['kind']}"] = "item kind"
+        # ⚠️ A RATE KEY IS AN ATOM TOO (owner ruling, 2026-09-29). Until now the ONLY thing this gate
+        # read from an item was its `kind`, so a rate COLUMN could vanish from every row of a kind and
+        # the gate still reported "No atoms disappeared" -- which is exactly what happened when
+        # `cable_tray.with_cover_list` was removed at v66, a removal that was correct but walked
+        # through the gap unremarked. The gate was built for CONFIG loss after the dbu3 incident and
+        # had never been extended to item data. Keyed by KIND, not by item, because a column is a
+        # property of the kind: one row missing it is data, every row missing it is a schema change.
+        for rk in (it.get("rates") or {}):
+            a[f"rate:{it.get('kind')}:{rk}"] = "item rate key"
 
     for cfg in _configs(payload):
         cid = (cfg.get("category_id") or "").strip()
@@ -251,6 +264,10 @@ def classify(lost: dict[str, str], old: dict, new: dict) -> tuple[dict, dict]:
                           - set(old.get("retired_category_ids") or []))
     newly_retired_kinds = (set(new.get("retired_kinds") or [])
                            - set(old.get("retired_kinds") or []))
+    # a deliberate rate-key removal is DECLARED the same way a retired kind is: by the new asset
+    # naming it. Entries are "<kind>:<rate_key>", or "*:<rate_key>" to retire a key across every kind.
+    newly_retired_rates = (set(new.get("retired_rate_keys") or [])
+                           - set(old.get("retired_rate_keys") or []))
     explicit = set(new.get("intentional_removals") or [])
 
     declared, undeclared = {}, {}
@@ -266,6 +283,16 @@ def classify(lost: dict[str, str], old: dict, new: dict) -> tuple[dict, dict]:
                 why = f"category '{parts[1]}' added to `retired_category_ids`"
         elif parts[0] == "kind" and len(parts) > 1 and parts[1] in newly_retired_kinds:
             why = f"kind '{parts[1]}' added to `retired_kinds`"
+        elif parts[0] == "rate" and len(parts) > 2:
+            kind, rate_key = parts[1], ":".join(parts[2:])
+            if f"{kind}:{rate_key}" in newly_retired_rates:
+                why = f"rate key '{kind}.{rate_key}' added to `retired_rate_keys`"
+            elif f"*:{rate_key}" in newly_retired_rates:
+                why = f"rate key '{rate_key}' retired across every kind via `retired_rate_keys`"
+            elif kind in newly_retired_kinds:
+                # a kind's whole rate space cascades from ONE retired_kinds entry, exactly as a
+                # category's key space cascades from retired_category_ids
+                why = f"kind '{kind}' added to `retired_kinds`"
         (declared if why else undeclared)[atom] = (desc, why)
     return declared, undeclared
 

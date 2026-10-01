@@ -262,6 +262,10 @@ def split_payment(
             "status": remainder_status,
             "split_from": pay.name,
             "approval_date": pay.approval_date,
+            # ⚠️ THE PAYMENT KIND TRAVELS WITH THE MONEY (ADR-0030). A GST payment's balance is
+            # still GST, and `payment_tds.is_deductible` reads this flag -- dropping it would tax the
+            # leftover's GST at its own approval. `set_only_once`, so it can only be set here.
+            "is_gst_payment": pay.get("is_gst_payment") or 0,
         })
         remainder_doc.flags.split_child = True
         remainder_doc.insert(ignore_permissions=True)

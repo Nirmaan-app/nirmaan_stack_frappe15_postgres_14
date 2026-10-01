@@ -45,7 +45,7 @@ All must be true for a PO to appear in the merge list:
 ### Base PO validation (to show merge UI at all)
 ```typescript
 MERGEPOVALIDATIONS =
-  !summaryPage && !accountsPage &&
+  canMergePO &&   // MATERIAL_PROCUREMENT_PROFILES + Admin + PMO + Project Lead, on every route
   PO?.custom != "true" &&
   !estimatesViewing && !isAccountant &&
   PO?.status === "PO Approved" &&
@@ -90,13 +90,9 @@ MERGEPOVALIDATIONS =
 ## Unmerge Flow
 
 ### Eligibility
-```typescript
-UNMERGEPOVALIDATIONS =
-  !summaryPage && !accountsPage &&
-  !PO?.custom && !estimatesViewing && !isAccountant &&
-  PO?.merged === "true"
-```
-Plus backend guard: no `Project Payments` against master PO.
+There is **no unmerge control in the frontend today** (`PurchaseOrder.tsx` has no `UNMERGEPOVALIDATIONS`,
+checked 2026-09-28); the backend endpoint below is all that remains. Backend guard: no `Project Payments`
+against the master PO.
 
 ### Backend (`handle_unmerge_pos`)
 ```

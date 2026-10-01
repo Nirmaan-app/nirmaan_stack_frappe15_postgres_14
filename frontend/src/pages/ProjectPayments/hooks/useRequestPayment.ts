@@ -15,6 +15,8 @@ export type PaymentRequestArgs = {
   doctype: "Procurement Orders" | "Service Requests";
   docname: string;
   amount: number;
+  /** Work Orders only: 1 for a GST payment (ADR-0030). Absent = a base payment. */
+  is_gst_payment?: 0 | 1;
 } & Partial<PaymentModeArgs>;
 
 /* ---------- SWR mutation hook ----------------------------------- */
