@@ -413,8 +413,11 @@ def _already_imported(parsed) -> dict:
     licence does not exist here: a Cashbook row CREATES its target, so `target_name` is new every
     time and the constraint can never fire. A miss costs Cashfree a worse message and costs
     Cashbook a SECOND EXPENSE. The full reasoning is on `prior_import_sightings`.
+
+    In-flight rows are included (#1359) so an identical REFUNDED copy is an exact repeat; they are
+    never the basis of a status change (`duplicates.match_repeat`).
     """
-    return prior_import_sightings(_statement_transfer_ids(parsed))
+    return prior_import_sightings(_statement_transfer_ids(parsed), in_flight=True)
 
 
 def _already_booked(parsed) -> dict:
@@ -547,6 +550,7 @@ def _assess(parsed, plan: CashbookPlan, filename: str) -> DuplicateVerdict:
         duplicates=plan.split.repeats_not_saved,
         earliest_batch=plan.split.repeat_of_batch,
         filename=filename,
+        repeated_in_file=plan.split.repeated_in_file,
     )
 
 

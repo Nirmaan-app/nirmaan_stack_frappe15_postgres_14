@@ -290,7 +290,7 @@ A Cashbook spend is refused if either lookup recognises it, and they ask **diffe
 
 | Lookup | Corpus | Asks | Message |
 |---|---|---|---|
-| `cashbook._already_imported` | `Outflow Import Row`, terminal `status_raw` only | did an earlier **batch** stage this transfer? | same bank status: **not saved, counted** (ADR-0031); changed: `Already imported in {batch}, bank status changed X → Y` |
+| `cashbook._already_imported` | `Outflow Import Row`, every `status_raw` (only a terminal one is *final*, #1359) | did an earlier **batch** stage this transfer? | same bank status, any status: **not saved, counted** (ADR-0031); changed (against a final row only): `Already imported in batch {batch}, bank status changed X → Y.` |
 | `cashbook._already_booked` | `Project Expenses` + `Non Project Expenses` | does an **expense** already exist for it? | `Already booked as {ledger} {name}` |
 
 **`_already_booked` closes a real hole.** An expense can exist for a wallet spend without this
@@ -699,11 +699,12 @@ needs one vocabulary rather than one per writer.
       `services/outflow_import/repeats.split_repeats`**, which `upload._plan_lines` calls too -- each
       caller passes its identity, its corpus of earlier sightings (Cashfree narrows by period,
       Cashbook does not) and its IN-FILE rule. ⚠️ **The in-file rule differs by source (#1358):** on
-      Cashfree/ICICI every terminal line is a sighting (`repeats.terminal_line`); on Cashbook only a
-      line the plan will CREATE is (`is_in_file_sighting` in `plan_statement`). #1355 had given
-      Cashbook the terminal rule, so Txn X FAILED then Txn X SUCCESS skipped the SUCCESS line as a
-      locked status change and the spend never became an expense. A copy of an *already booked* line
-      is therefore stored too (both say "Already booked"). `CashbookPlan.split` holds the
+      Cashfree/ICICI every terminal line is FINAL (`repeats.terminal_line`); on Cashbook only a line
+      the plan will CREATE is (`is_final_in_file` in `plan_statement`). #1355 had given Cashbook the
+      terminal rule, so Txn X FAILED then Txn X SUCCESS skipped the SUCCESS line as a locked status
+      change and the spend never became an expense. Since #1359 "final" decides only what can be the
+      basis of a STATUS CHANGE: every line is a sighting for an IDENTICAL copy (see #1359 below), so a
+      copy of an *already booked* line is now counted, not stored twice. `CashbookPlan.split` holds the
       `RepeatSplit` itself (no copied fields). A status-changed repeat is
       named ahead of "did not succeed" (else SUCCESS -> REVERSED would read as an unlocked Bank refused).
       `api/outflow_import/cashbook._assess` runs `assess_duplicates` over that plan for the preview
@@ -760,6 +761,34 @@ needs one vocabulary rather than one per writer.
     - **One plan per upload (#1358).** `upload_outflow_statement` plans once and hands the plan to
       both `_assess_statement` and `_stage_batch`: one earlier-sightings query and one overlap query
       per upload (pinned by `test_upload.TestOneUploadAsksOnce`).
+    - **#1359 (ADR-0031 Amendment B) -- an identical in-flight line is an exact repeat too.**
+      Before, only a terminal line was ever a sighting, so a QUEUED / PENDING / RECEIVED line (and a
+      Cashbook REFUNDED one) was stored again by every overlapping upload, and a re-upload holding one
+      was never refused. Now `PriorSighting.final` splits the two jobs a sighting does:
+      * **exact repeat** -- ANY earlier line with the same identity and the same bank status, final or
+        not, from an earlier import or earlier in this file (`duplicates.match_repeat`);
+      * **status change** -- only against a FINAL line, exactly as before: a terminal stored row
+        (Cashfree / ICICI / Cashbook), a terminal in-file line (Cashfree / ICICI), a created in-file
+        line (Cashbook). A QUEUED line never blocks its SUCCESS and is never named as a status change (D4).
+      `candidates.prior_import_sightings(in_flight=True)` returns the in-flight rows with `final=False`;
+      the two upload plans and the cleanup patch ask for them, the Skipped popup (`skip_sources`) does
+      not. ⚠️ **A line that is not final never makes a FINAL line a repeat** (`split_repeats`): on
+      Cashbook a top-up and a spend can share an identity and a status, and the top-up must not swallow
+      the spend. Cashbook SUCCESS -> REFUNDED is stored once (a status change); the next REFUNDED copy
+      is counted. `RepeatSplit.repeated_in_file` counts the repeats of this file only, so the preview no
+      longer calls them "already imported" (`assess_duplicates(repeated_in_file=)` says "repeated in
+      this file"). Cashbook's status-change reason is now Cashfree's sentence word for word
+      (`Already imported in batch X, bank status changed A → B.`).
+    - **Past repeats of ANY kind were cleaned (#1359):** `patches/v3_0/delete_stored_exact_repeats_of_any_kind`
+      = `run_cleanup(any_kind=True)` from the first patch's module (same replay, guards, count, raw
+      delete, recompute). The old staging checked exclusion rules and Cashbook "not a spend" BEFORE
+      "already imported", so repeats sat under *Cashfree wallet top-up*, *Cashbook internal movement* and
+      so on, and in-flight copies under their own skip. Candidates: `Skipped`, `skip_origin = System`, no
+      `duplicate_basis` claim, any kind. Dry run on the local restore of the 2026-10-01 backup (first
+      patch already applied): **167 rows** across 23 imports -- ICICI 67 (Cashfree wallet top-up 57,
+      Cashbook wallet top-up 4, Credit card auto-debit 3, Porter wallet top-up 3), Cashbook internal
+      movement 58 (56 SUCCESS + 2 REFUNDED), Cashfree *Bank refused* 42 (29 QUEUED + 13 PENDING); 1
+      status-changed row kept, 0 linked.
     - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.

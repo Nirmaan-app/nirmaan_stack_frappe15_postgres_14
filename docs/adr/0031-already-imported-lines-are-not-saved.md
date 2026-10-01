@@ -5,7 +5,7 @@ Date: 2026-10-01
 ## Status
 
 **Accepted** (owner grilling session 2026-10-01, Q1–Q12). Built in #1353–#1356. Amended by
-#1358 (see *Amendment A*).
+#1358 (see *Amendment A*) and #1359 (see *Amendment B*).
 
 ## Context
 
@@ -92,3 +92,40 @@ amendment states the rule precisely.
   It does not use the Skipped popup's display lookups. An import whose every row it deletes is kept,
   with its count, and is marked `Completed`. An empty import would otherwise derive as `Draft`, which
   reads as open work.
+
+## Amendment B: any status, and a cleanup of any kind (#1359)
+
+Date: 2026-10-01
+
+Simulating future uploads on a restore of the 2026-10-01 production backup found two gaps.
+
+- **The same-status rule applies to every status (owner decision).** Only a final bank status
+  (SUCCESS, FAILED, REJECTED, REVERSED) used to make a line count as already held. A line still
+  QUEUED, PENDING or RECEIVED, or a Cashbook REFUNDED line, was never a sighting, so every
+  overlapping upload stored it again: 110 rows covering 66 lines on the backup. Now a line whose
+  identity *and* bank status match a line already held is an exact repeat, whatever the status, in
+  every source, from an earlier import or from earlier in the same file.
+  - **The basis of a "status changed" skip does not change.** An in-flight line never makes a
+    *different* status a repeat: a QUEUED line must never block its later SUCCESS (the D4 rule).
+    Cashfree and ICICI judge a status change against terminal lines; Cashbook against terminal
+    earlier imports and lines of the same file the plan creates (Amendment A). In code, every
+    sighting carries `final`, and only a final one can be that basis.
+  - **A line that is not final never makes a final line a repeat.** On Cashbook a wallet top-up and a
+    spend can share an identity and a status; the top-up creates nothing and must not swallow the
+    spend that would.
+  - Consequences: Cashbook SUCCESS → REFUNDED is stored once, as a status change, and later REFUNDED
+    copies are counted. A file of nothing but exact repeats, in-flight ones included, is refused. A
+    copy of an *already booked* line later in the same file is now counted, not stored (this replaces
+    the last consequence in Amendment A).
+- **The one-time cleanup covers every skip kind.** The old staging checked bank-exclusion rules,
+  and Cashbook "not a spend", before "already imported". So many old repeats were stored as, for
+  example, *Cashfree wallet top-up* or *Cashbook internal movement*, which the first cleanup did not
+  read. A second patch, `delete_stored_exact_repeats_of_any_kind`, replays every import through the
+  same walk, with this amendment's rule, and deletes exact repeats of any kind. It uses the first
+  patch's planner and applier. It deletes only rows that are `Skipped` with `skip_origin = System`,
+  not pointed at by an `Outflow Row Match`, and carrying no `duplicate_basis` claim. It never touches
+  a hand skip or a row in any other status. Dry run on the backup, after the first patch: 167 rows
+  (67 ICICI, 58 Cashbook, 42 Cashfree in-flight copies).
+- **Wording.** A line repeated only within the file is no longer described as "already imported" in
+  the preview. Cashbook's status-change reason is now Cashfree's sentence: "Already imported in batch
+  OFI-…, bank status changed A → B."

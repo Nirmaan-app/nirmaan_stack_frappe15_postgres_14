@@ -919,6 +919,33 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
         self.assertEqual(by_status[ROW_SKIPPED].skip_kind, "Bank refused")
         self.assertEqual(self._batch(batch).repeats_not_saved, 0)
 
+    def test_a_refund_is_saved_once_and_its_next_copy_is_counted(self):
+        """#1359: REFUNDED is not terminal, so before this every overlapping file stored the refund
+        again (OFI-26-00147). It is saved once, as a status change naming both statuses."""
+        first = self._stage(self.full)
+        refunded = self._file([self.data[0].replace('"SUCCESS"', '"REFUNDED"')])
+        self.assertNotEqual(refunded, self._file([self.data[0]]), "the fixture changed; asserts nothing")
+
+        batch = self._stage(refunded)
+        (row,) = self._stored(batch)
+        self.assertEqual(row.skip_kind, SKIP_KIND_ALREADY_IMPORTED)
+        self.assertEqual(
+            row.skip_reason,
+            f"Already imported in batch {first}, bank status changed SUCCESS → REFUNDED.",
+        )
+
+        payload = self._post(cb.preview_cashbook_statement, refunded)
+        self.assertTrue(payload["refused"])
+        self.assertEqual((payload["duplicate_rows"], payload["new_rows"]), (1, 0))
+        self.assertIn(batch, payload["duplicate_message"])
+
+    def test_an_identical_in_flight_line_twice_in_one_file_is_saved_once(self):
+        pending = self.data[0].replace('"SUCCESS"', '"PENDING"')
+        self.assertNotEqual(pending, self.data[0], "the fixture line changed shape; this asserts nothing")
+        batch = self._stage(self._file([pending, pending]))
+        self.assertEqual(len(self._stored(batch)), 1)
+        self.assertEqual(self._batch(batch).repeats_not_saved, 1)
+
     def test_a_success_copy_of_a_success_line_is_still_an_exact_repeat(self):
         batch = self._stage(self._file([self.data[0], self.data[0]]))
         self.assertEqual([row.row_status for row in self._stored(batch)], [ROW_PENDING_MATCH])

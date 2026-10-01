@@ -375,6 +375,7 @@ def _assess_statement(parsed, filename: str, plan: RepeatSplit | None = None):
         duplicates=plan.repeats_not_saved,
         earliest_batch=plan.repeat_of_batch,
         filename=filename,
+        repeated_in_file=plan.repeated_in_file,
     )
 
 
@@ -395,8 +396,9 @@ def _plan_lines(parsed) -> RepeatSplit:
     distinct, on one screen, about the same two lines. Both read `_row_identity`.
 
     ⚠️ THE WALK ITSELF IS `repeats.split_repeats`, SHARED WITH CASHBOOK (#1355). This passes the
-    things that stay per-source: the identity, and the PERIOD-NARROWED earlier sightings. The in-file
-    rule is the default -- every terminal line is a sighting.
+    things that stay per-source: the identity, and the PERIOD-NARROWED earlier sightings (in-flight ones
+    included, never final -- #1359). The in-file rule is the default: every line is a sighting for an
+    identical copy, and a terminal line is also final, the basis of a status change.
     """
     already_imported = _already_imported(parsed)
     return split_repeats(

@@ -106,10 +106,12 @@ SKIP_NO_AMOUNT = "No amount was debited"
 # back out of it. Same disposition as `status.SKIP_REASON_ALREADY_IMPORTED`.
 SKIP_ALREADY_IMPORTED = "Already imported in {batch}"
 # The only repeat still staged is one whose bank status CHANGED, and its reason names both statuses.
-# BUILT FROM the sentence above, so the backfill and a reader searching for it still find it by
-# construction rather than by two strings being kept alike.
+# ⚠️ WORD FOR WORD CASHFREE'S `status.SKIP_REASON_ALREADY_IMPORTED_STATUS_CHANGED` (#1359) -- one line,
+# one sentence, whatever the source. Spelled here because this module does not import `status`;
+# `test_cashbook` pins the two equal. It still starts with `SKIP_ALREADY_IMPORTED`'s "Already imported
+# in ", which is the prefix `skip_kind_backfill` reads a kind back out of.
 _STATUS_CHANGED = ", bank status changed {earlier} → {now}"
-SKIP_ALREADY_IMPORTED_STATUS_CHANGED = SKIP_ALREADY_IMPORTED + _STATUS_CHANGED
+SKIP_ALREADY_IMPORTED_STATUS_CHANGED = "Already imported in batch {batch}" + _STATUS_CHANGED + "."
 # ⚠️ A DIFFERENT FACT FROM `SKIP_ALREADY_IMPORTED`, AND THE TWO MUST STAY APART. That one means an
 # earlier BATCH staged this transfer; this one means an EXPENSE already exists for it -- typically
 # keyed in by hand, outside this import entirely. Measured 2026-08-21: 17 live Non Project Expenses
@@ -227,11 +229,12 @@ def plan_statement(
     `already_imported` must therefore carry each sighting's bank status
     (`candidates.prior_import_sightings` does).
 
-    ⚠️ AN IN-FILE SIGHTING HERE IS A LINE THE PLAN WILL **CREATE** (#1358), not every terminal line as
-    on Cashfree/ICICI. That was this path's rule before ADR-0031, and losing it was a regression: Txn X
-    FAILED then Txn X SUCCESS in one file read the SUCCESS line as a status-changed in-file repeat of
-    the failure -- skipped, Unskip-locked -- and the spend never became an expense. SUCCESS then
-    SUCCESS is still an exact repeat: the first line is created, so it is a sighting.
+    ⚠️ A FINAL IN-FILE SIGHTING HERE IS A LINE THE PLAN WILL **CREATE** (#1358), not every terminal
+    line as on Cashfree/ICICI. That was this path's rule before ADR-0031, and losing it was a
+    regression: Txn X FAILED then Txn X SUCCESS in one file read the SUCCESS line as a status-changed
+    in-file repeat of the failure -- skipped, Unskip-locked -- and the spend never became an expense.
+    SUCCESS then SUCCESS is still an exact repeat. So is any IDENTICAL copy of a line earlier in the
+    file, whatever it became (#1359): FAILED then FAILED, or a second copy of an already-booked line.
 
     ⚠️ THE ORDER OF THE SKIP TESTS IS THE MESSAGE. A failed top-up is not a spend AND did not
     succeed; reporting it as "did not succeed" would send somebody looking for a failed payment
@@ -265,7 +268,7 @@ def plan_statement(
         earlier_sightings_of=lambda raw: find_prior_sightings(
             already, getattr(raw, "transfer_id", "") or "", _amount(raw), _row_date(raw)
         ),
-        is_in_file_sighting=lambda line: not _skip_reason(line, _amount(line.row), booked)[0],
+        is_final_in_file=lambda line: not _skip_reason(line, _amount(line.row), booked)[0],
     )
 
     planned: list[PlannedRow] = []

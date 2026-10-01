@@ -273,23 +273,31 @@ class PriorSighting:
 
     `wide_fields` is that line's `identity_wide_fields` under the source asking (#1358): `()` on the
     triple, `(direction, remarks)` for a bank passbook.
+
+    `final` says whether that line can be the basis of a STATUS CHANGE (#1359): a terminal stored
+    line, or on Cashbook a line of the same file the plan creates. A line still in flight (QUEUED,
+    PENDING, RECEIVED, Cashbook REFUNDED) is not final: it makes an IDENTICAL line an exact repeat,
+    but never makes a different status a repeat -- the D4 rule, a QUEUED line must never block its
+    later SUCCESS. See `match_repeat`.
     """
 
     added_on_date: "date | None"
     label: str
     bank_status: str = ""
     wide_fields: tuple = ()
+    final: bool = True
 
 
 def index_prior_sightings(
     entries: Iterable[tuple],
 ) -> dict[tuple[str, Decimal], tuple[PriorSighting, ...]]:
-    """Bucket `(transfer_id, amount, date, label[, bank_status[, wide_fields]])` entries by the two
-    `==` axes.
+    """Bucket `(transfer_id, amount, date, label[, bank_status[, wide_fields[, final]]])` entries by
+    the two `==` axes.
 
     The fifth element is optional: an earlier IMPORT ROW carries the bank status it was stored with
     (ADR-0031 needs it to tell an exact repeat from a status change); a booked expense has none. The
-    sixth is the stored line's `identity_wide_fields` (#1358), `()` when absent.
+    sixth is the stored line's `identity_wide_fields` (#1358), `()` when absent. The seventh is
+    `PriorSighting.final` (#1359), True when absent.
 
     ⚠️ A BLANK `transfer_id` IS DROPPED, NOT BUCKETED. Without this every reference-less record in
     the corpus would share one bucket keyed `("", amount)`, and a new statement row that also failed
@@ -310,6 +318,7 @@ def index_prior_sightings(
                 label=label,
                 bank_status=rest[0] if rest else "",
                 wide_fields=tuple(rest[1]) if len(rest) > 1 else (),
+                final=rest[2] if len(rest) > 2 else True,
             )
         )
     return {key: tuple(sightings) for key, sightings in index.items()}
@@ -399,17 +408,26 @@ def match_repeat(sightings: "tuple[PriorSighting, ...]", bank_status: "str | Non
     REVERSED would save a fresh REVERSED row on every overlapping statement after that, because the
     earliest sighting would always still say SUCCESS. The first same-status sighting is the one named.
 
-    With no same-status sighting it is a STATUS CHANGE, named against the earliest sighting (the
+    Any sighting counts for an exact repeat, an in-flight one included (#1359): an identical copy of a
+    QUEUED line is already held, and saving it again on every overlapping statement was the gap.
+
+    With no same-status sighting it is a STATUS CHANGE, named against the earliest FINAL sighting (the
     order the index keeps, `ORDER BY creation ASC`), which is where the line was first imported.
+    ⚠️ ONLY A FINAL SIGHTING CAN BE THAT BASIS -- the D4 rule. A QUEUED line followed by its SUCCESS is
+    new work, not a status change; with no final sighting the answer is `None`.
     """
-    if not sightings:
-        return None
     status = bank_status_key(bank_status)
     for sighting in sightings:
         if bank_status_key(sighting.bank_status) == status:
             return Repeat(label=sighting.label, earlier_status=status, exact=True)
-    first = sightings[0]
-    return Repeat(label=first.label, earlier_status=bank_status_key(first.bank_status), exact=False)
+    for sighting in sightings:
+        if sighting.final:
+            return Repeat(
+                label=sighting.label,
+                earlier_status=bank_status_key(sighting.bank_status),
+                exact=False,
+            )
+    return None
 
 
 @dataclass(frozen=True)
@@ -441,6 +459,7 @@ def assess_duplicates(
     duplicates: int,
     earliest_batch: str | None = None,
     filename: str | None = None,
+    repeated_in_file: int = 0,
 ) -> DuplicateVerdict:
     """Decide refuse / warn / proceed for a statement with `duplicates` of `total` rows seen before.
 
@@ -451,10 +470,15 @@ def assess_duplicates(
     `earliest_batch` names the batch to point the reader at. It is optional because the message has
     to stay honest when the caller could not identify one -- a vague "already imported" beats naming
     the wrong batch.
+
+    `repeated_in_file` is how many of `duplicates` repeat only a line earlier in this file
+    (`repeats.RepeatSplit.repeated_in_file`). Those are not "already imported", and the message must
+    not say they are (#1359).
     """
     total = max(int(total or 0), 0)
     duplicates = min(max(int(duplicates or 0), 0), total)
     new = total - duplicates
+    repeated_in_file = min(max(int(repeated_in_file or 0), 0), duplicates)
 
     if total == 0 or duplicates == 0:
         return DuplicateVerdict(
@@ -464,13 +488,19 @@ def assess_duplicates(
 
     where = f" in batch {earliest_batch}" if earliest_batch else ""
     what = f"'{filename}'" if filename else "this file"
+    if repeated_in_file == duplicates:
+        seen = "are repeated in this file"
+    elif repeated_in_file:
+        seen = f"were already imported{where} or repeated in this file"
+    else:
+        seen = f"were already imported{where}"
 
     if new == 0:
         return DuplicateVerdict(
             total=total, duplicates=duplicates, new=0,
             refuse=True, warn=False, earliest_batch=earliest_batch,
             message=(
-                f"Not imported. All {total} transfers in {what} were already imported{where}. "
+                f"Not imported. All {total} transfers in {what} {seen}. "
                 f"Nothing in this file is new, so no records were created."
             ),
         )
@@ -481,7 +511,7 @@ def assess_duplicates(
             refuse=False, warn=True, earliest_batch=earliest_batch,
             message=(
                 f"Only {new} of {total} transfers in {what} are new. "
-                f"The other {duplicates} were already imported{where} and will not be saved."
+                f"The other {duplicates} {seen} and will not be saved."
             ),
         )
 
@@ -489,7 +519,7 @@ def assess_duplicates(
         total=total, duplicates=duplicates, new=new,
         refuse=False, warn=False, earliest_batch=earliest_batch,
         message=(
-            f"{duplicates} of {total} transfers were already imported{where}. "
+            f"{duplicates} of {total} transfers {seen}. "
             f"They will not be saved."
         ),
     )

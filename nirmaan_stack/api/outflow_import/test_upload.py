@@ -1353,6 +1353,45 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         self.assertEqual(self._rows(second), [])
         self.assertEqual(second.repeats_not_saved, len(parsed.rows))
 
+    def test_a_re_upload_holding_in_flight_lines_is_refused_and_counts_every_line(self):
+        """#1359: an identical in-flight line is an exact repeat too. OFI-26-00154 held 3 QUEUED lines,
+        so re-uploading it was accepted and stored them again."""
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
+        with_queued = self._with_status(parsed, tid, "QUEUED")
+        first = self._stage(with_queued)
+
+        verdict = _assess_statement(with_queued, "t.csv")
+        self.assertTrue(verdict.refuse)
+        self.assertIn(first.name, verdict.message)
+        again = self._stage(with_queued)
+        self.assertEqual(self._rows(again), [])
+        self.assertEqual(again.repeats_not_saved, len(parsed.rows))
+
+    def test_a_stored_queued_line_arriving_successful_is_new_work_never_a_status_change(self):
+        """D4 under #1359: the in-flight sighting may only make an IDENTICAL line a repeat."""
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        tid = next(r.transfer_id for r in parsed.rows if r.transfer_id.endswith("0004"))
+        self._stage(self._with_status(parsed, tid, "QUEUED"))
+        batch = self._stage(parsed)
+
+        (row,) = self._rows(batch)
+        self.assertEqual((row["transfer_id"], row["row_status"]), (tid, "Pending match run"))
+        self.assertIsNone(row["skip_reason"])
+
+    def test_an_identical_in_flight_line_twice_in_one_file_is_saved_once(self):
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        line = replace(parsed.rows[0], status_raw="PENDING", bank_reference_no="")
+        twice = replace(parsed, rows=(line, replace(line, row_number=line.row_number + 1)))
+
+        verdict = _assess_statement(twice, "t.csv")
+        self.assertEqual(
+            verdict.message, "1 of 2 transfers are repeated in this file. They will not be saved."
+        )
+        batch = self._stage(twice)
+        self.assertEqual(len(self._rows(batch)), 1)
+        self.assertEqual(batch.repeats_not_saved, 1)
+
 
     @staticmethod
     def _icici_leg_pairs(parsed):

@@ -95,7 +95,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 # ⚠️ THE BANK'S OWN VOCABULARY FOR "this transfer's story is over", bound into the duplicate lookup
 # rather than spelled a second time. See `find_earlier_sightings_for_rows`. `parser` imports only
 # `duplicates` and `normalize`, so this direction adds no cycle.
-from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
+from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
@@ -852,6 +852,13 @@ def find_earlier_sightings_for_rows(
     not have, and dropping it would turn "we could not date this batch" into "this batch contains
     nothing".
 
+    ⚠️ #1359 NARROWS THE NOTES BELOW: EVERY STORED ROW IS RETURNED, AND ONLY A TERMINAL ONE IS
+    `final`. An in-flight stored row (QUEUED, PENDING, RECEIVED) answers for an IDENTICAL line only --
+    `duplicates.match_repeat` never makes a different status a repeat of it. Without this, each
+    overlapping statement stored the same QUEUED line again (110 rows over 66 lines on the
+    2026-10-01 backup). The D4 rule below still holds in full: a QUEUED row never makes its later
+    SUCCESS a repeat, and is never the basis of a status change.
+
     ⚠️ ONLY A **TERMINAL** STORED ROW CAN BE A DUPLICATE, AND THIS IS THE ONE CLAUSE THAT SAYS SO.
     A transfer still QUEUED when yesterday's sheet was exported stages with no bank reference and
     settles nothing -- it is a placeholder, not an import. When the next export carries that same
@@ -893,6 +900,7 @@ def find_earlier_sightings_for_rows(
         period_from=period_from,
         period_to=period_to,
         source=source,
+        in_flight=True,
     )
     if not index:
         return {}
@@ -918,8 +926,14 @@ def prior_import_sightings(
     period_from: date | None = None,
     period_to: date | None = None,
     source: str = "",
+    in_flight: bool = False,
 ) -> dict:
     """Every TERMINAL stored import row for these transfer ids, as a `duplicates` sightings index.
+
+    `in_flight=True` returns the in-flight rows too, each with `final=False` (#1359). The two upload
+    plans ask for them -- an identical copy of an in-flight line is an exact repeat -- and so does the
+    cleanup patch that replays them. The Skipped popup does not: it names the original a STATUS
+    CHANGE was judged against, which is always a final row.
 
     `source` is the source ASKING: each stored row carries its `identity_wide_fields` under it, so a
     bank passbook's lookup can require the full identity (#1358). Omit it and every sighting carries
@@ -975,7 +989,11 @@ def prior_import_sightings(
     terminal_placeholders = ", ".join(["%s"] * len(terminal))
     # Order matters: every param is appended in the order its clause appears in the SQL below, and
     # the status ones sit directly after the id list because their clause does too.
-    params: list = [*wanted, *terminal]
+    params: list = [*wanted]
+    terminal_clause = ""
+    if not in_flight:
+        terminal_clause = f" AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})"
+        params.extend(terminal)
     exclude_clause = ""
     if exclude_batch:
         exclude_clause = " AND import_batch <> %s"
@@ -997,7 +1015,7 @@ def prior_import_sightings(
         SELECT transfer_id, amount, added_on, import_batch, status_raw, direction, remarks, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
-          AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
+          {terminal_clause}
           {exclude_clause}
           {period_clause}
         ORDER BY creation ASC
@@ -1015,7 +1033,7 @@ def prior_import_sightings(
         )
         entries.append(
             (r["transfer_id"], amount, added_on_date, r["import_batch"], r.get("status_raw") or "",
-             identity_wide_fields(identity))
+             identity_wide_fields(identity), is_terminal_status(r.get("status_raw")))
         )
     return index_prior_sightings(entries)
 

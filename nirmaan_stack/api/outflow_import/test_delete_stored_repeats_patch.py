@@ -316,9 +316,10 @@ class TestThePatchAgreesWithTheUpload(RepeatFixture):
         self.assertTrue(self._exists(failed))
         self.assertTrue(self._exists(created))
 
-    def test_on_cashbook_a_line_the_plan_skipped_is_no_original(self):
-        """A SUCCESS line the plan skipped (already booked) was never created, so on Cashbook it makes
-        no later line a repeat -- the stored copy is kept."""
+    def test_on_cashbook_an_identical_copy_of_a_skipped_line_goes(self):
+        """INVERTED by #1359 (it was "a line the plan skipped is no original", #1358). A SUCCESS line
+        the plan skipped (already booked) was never created, so it is not FINAL -- but an identical
+        copy of it is still an exact repeat of a line the system holds, and goes."""
         source = "Cashbook"
         batch = self._batch(source)
         booked = self._line(batch=batch, source=source, status=ROW_SKIPPED, skip_origin="System",
@@ -327,8 +328,9 @@ class TestThePatchAgreesWithTheUpload(RepeatFixture):
 
         plan = self._cleanup(batch)
 
-        self.assertTrue(self._exists(copy))
-        self.assertEqual(plan.kept_no_earlier_original, [copy])
+        self.assertFalse(self._exists(copy))
+        self.assertTrue(self._exists(booked))
+        self.assertEqual(plan.delete, {batch: [copy]})
 
     def test_an_icici_line_whose_only_earlier_sighting_is_the_other_leg_is_kept(self):
         """The earlier import holds the SGST leg. The later import holds a CGST leg the old lookup
