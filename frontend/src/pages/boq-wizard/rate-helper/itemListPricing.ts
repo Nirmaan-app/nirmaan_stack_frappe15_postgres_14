@@ -577,7 +577,7 @@ const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.to
  * declares it. It was written as the literal "family" at eight sites, which is only right for a
  * category whose attribute happens to be called that. ABSENT => "family", so ADP is byte-identical.
  */
-function familyAttr(spec: ItemListPricingSpec): string {
+export function familyAttr(spec: ItemListPricingSpec): string {
   return spec.family_attribute_id ?? "family";
 }
 

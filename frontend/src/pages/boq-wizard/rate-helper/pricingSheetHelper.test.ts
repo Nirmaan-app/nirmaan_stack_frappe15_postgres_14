@@ -5636,3 +5636,73 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
     expect(v2.rowPriced).toBe(true);
   });
 });
+
+import HVAC_V18_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v18.json";
+import { assembleItems as assembleItemsFam, initialItemEdits as initialItemEditsFam } from "./pricingSheetHelper";
+import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } from "./itemListPricing";
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH -- A CHANGED OR ADDED ITEM WRITES ITS FAMILY WHERE THE PRICER READS IT
+ *
+ * `assembleItems` wrote the chosen family into a HARDCODED `family` attribute while the pricer reads
+ * `familyAttr(spec)` -- the config's `family_attribute_id`. On a category that calls it anything else
+ * the two never met: the item carried a key nothing read, and refused with "no kind could be told"
+ * however many fields the pricer went on to fill.
+ *
+ * HVAC Insulation calls it `item`, so FA7 -- which first made Insulation reachable in the calculator
+ * -- is what exposed it. Found in the browser cert, not by a test: every existing test used a
+ * category whose attribute happens to be called `family`, which is exactly why the literal survived
+ * eight sites of generalisation.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH -- the family is written under the attribute the config names", () => {
+  const asset = HVAC_V18_FAM as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const adpCfg = asset.category_configs.find((c) => c.category_id === "hvac_adp")!;
+  const insSpec = specOfFam(insCfg)!;
+  const adpSpec = specOfFam(adpCfg)!;
+  const FAMILY = "Nitrile Rubber Insulation";
+
+  const addedEdit = (family: string) => ({
+    items: [{ base: null, family, attrs: {} as Record<string, string> }],
+  });
+
+  it("the two categories really do name it differently -- else this proves nothing", () => {
+    expect((insCfg as { list_spec?: { family_attribute_id?: string } }).list_spec?.family_attribute_id).toBe("item");
+    expect((adpCfg as { list_spec?: { family_attribute_id?: string } }).list_spec?.family_attribute_id ?? "family").toBe("family");
+  });
+
+  it("an ADDED item carries its family under `item` on Insulation, where the pricer looks", () => {
+    const [assembled] = assembleItemsFam(addedEdit(FAMILY), [], "item");
+    expect(assembled.attributes.item).toEqual({ value: FAMILY });
+    expect(assembled.attributes.family).toBeUndefined();
+  });
+
+  it("⚠️ THE DEFECT, PINNED: writing it under `family` leaves the pricer with no family at all", () => {
+    const wrong = assembleItemsFam(addedEdit(FAMILY), [], "family");   // what the code used to do
+    const priced = priceItemListFam(insSpec, asset.items, "mts", wrong);
+    expect(priced.priced).toBe(false);
+    expect(priced.reason ?? "").toMatch(/kind could be told/);
+  });
+
+  it("and writing it under `item` gets past that refusal -- the fields are what remain", () => {
+    const right = assembleItemsFam(addedEdit(FAMILY), [], "item");
+    const priced = priceItemListFam(insSpec, asset.items, "mts", right);
+    // it may still want a cladding / size, but it must NOT be the "no kind" refusal any more
+    expect(priced.reason ?? "").not.toMatch(/kind could be told/);
+  });
+
+  it("ABSENT defaults to `family`, so ADP and every existing caller are byte-identical", () => {
+    const [a] = assembleItemsFam(addedEdit("VCD"), []);
+    const [b] = assembleItemsFam(addedEdit("VCD"), [], "family");
+    expect(a).toEqual(b);
+    expect(a.attributes.family).toEqual({ value: "VCD" });
+    expect(adpSpec.kind).toBeTruthy();
+  });
+
+  it("an UNCHANGED model item is untouched -- the family key is only written for a changed/added one", () => {
+    const model = [{ attributes: { family: { value: "VCD" }, dia_mm: { value: "200" } } }] as never;
+    const [assembled] = assembleItemsFam(initialItemEditsFam(1), model, "item");
+    expect(assembled.attributes.family).toEqual({ value: "VCD" });
+    expect(assembled.attributes.item).toBeUndefined();
+  });
+});

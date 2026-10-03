@@ -59,6 +59,7 @@ import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 // the helper only assembles the list (the model's items overlaid with the panel's session edits) and shapes the
 // result for the panel. Every default, ladder and conversion stays in the module + config.
 import {
+  familyAttr,
   familyChoices,
   itemFieldDefs,
   itemListPricingSpec,
@@ -1620,14 +1621,30 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number): It
 
 /** PURE. The list the module prices: each edit overlaid on the model item it started from. A changed or added
  * item (no base) starts from ITS FAMILY ALONE -- every other attribute blank until the pricer fills it (S1). */
-export function assembleItems(edits: ItemListEditState, modelItems: ExtractedListItem[]): ExtractedListItem[] {
+export function assembleItems(
+  edits: ItemListEditState,
+  modelItems: ExtractedListItem[],
+  /**
+   * ⚠️ THE ATTRIBUTE THE CATEGORY KEEPS ITS FAMILY IN -- `list_spec.pricing.family_attribute_id`.
+   *
+   * This was the literal "family" below, which is only right for a category whose attribute happens
+   * to be called that. The pricer reads `familyAttr(spec)`, so on a category that calls it anything
+   * else a CHANGED or ADDED item wrote a key nothing read, and the item refused with "no kind could
+   * be told" however many fields the pricer went on to fill. Found in the FA7 browser cert on HVAC
+   * Insulation, whose family attribute is `item` -- the ninth site of the eight this literal was
+   * generalised out of, and the one that lives in a different file.
+   *
+   * ABSENT => "family", so ADP and every existing caller are byte-identical.
+   */
+  familyAttrId = "family",
+): ExtractedListItem[] {
   return edits.items.map((e) => {
     const base = e.base !== null ? modelItems[e.base] : undefined;
     const attributes: ExtractedListItem["attributes"] = {};
     if (base && e.family === null) {
       for (const [k, cell] of Object.entries(base.attributes ?? {})) attributes[k] = { ...cell };
     } else if (e.family !== null) {
-      attributes.family = { value: e.family };
+      attributes[familyAttrId] = { value: e.family };
     }
     for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v };
     // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
@@ -1805,7 +1822,7 @@ function computeItemList(
 ): HelperResult {
   const modelItems = ext?.items ?? [];
   const edits = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
-  const assembled = assembleItems(edits, modelItems);
+  const assembled = assembleItems(edits, modelItems, familyAttr(spec));
   const unitChoices = unitChoicesOf(spec);
   const unitPickable = ctx.unit === undefined || ctx.unit === null;
   const unit = unitPickable ? (overrides?.[ROW_UNIT_OVERRIDE_KEY] ?? unitChoices[0] ?? "") : ctx.unit!;
