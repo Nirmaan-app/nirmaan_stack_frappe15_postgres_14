@@ -79,3 +79,58 @@ describe("acceptance 4: columnOrderForFile mirrors csv_exporter.column_order_for
     expect(input.map((x) => x.item_uid)).toEqual(before);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH -- A CATEGORY DECLARES ITS OWN PRESENTATION ORDER (owner F5, 2026-10-03)
+ *
+ * The TypeScript side of the shared rule. The fixture and the expectations are the SAME as
+ * `test_rate_master.TestDeclaredPresentationOrder`, which greps this file for them.
+ *
+ * WHY A SECOND ORDER KEY: the order was already per-category, but the only lever was
+ * `rate_composition`, which is a PRICING declaration -- `_composition_role` and the formula renderer
+ * read it, so reordering a file through it reworded the formula row. `column_order` does only this.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH -- column_order is the per-category PRESENTATION order", () => {
+  const PRESENTATION = {
+    ...DECLARED,
+    column_order: { attributes: ["alpha", "cladding"], rates: ["supply_markup", "cost_cladding"] },
+  };
+
+  it("the declared names LEAD and everything else keeps the order it had", () => {
+    const { attrs, rates } = columnOrderForFile(PRESENTATION, ITEMS);
+    expect(attrs).toEqual(["alpha", "cladding", "zeta", "mid"]);
+    expect(rates).toEqual(["supply_markup", "cost_cladding", "cost_insulation", "cost_adhesive",
+                           "wastage", "install_markup", "stray_rate"]);
+  });
+
+  it("ABSENT is byte-identical to before the key existed, on BOTH shapes", () => {
+    // ⚠️ THE HALF THAT PROTECTS EVERY SHIPPED SCREEN. No category declares one today.
+    expect("column_order" in DECLARED).toBe(false);
+    expect("column_order" in BARE).toBe(false);
+    expect(columnOrderForFile(DECLARED, ITEMS).attrs).toEqual(["cladding", "zeta", "alpha", "mid"]);
+    expect(columnOrderForFile(BARE, ITEMS).attrs).toEqual(["alpha", "cladding", "mid", "zeta"]);
+  });
+
+  it("it composes with NO rate_composition too -- the two keys are independent", () => {
+    const fx = { ...BARE, column_order: { attributes: ["alpha"] } };
+    const { attrs, rates } = columnOrderForFile(fx, ITEMS);
+    expect(attrs).toEqual(["alpha", "cladding", "mid", "zeta"]);
+    expect(rates).toEqual([...rates].sort());
+  });
+
+  it("a name nothing carries is skipped, never invented as a column", () => {
+    const fx = { ...DECLARED, column_order: { rates: ["no_such_rate", "supply_markup"] } };
+    const { rates } = columnOrderForFile(fx, ITEMS);
+    expect(rates).not.toContain("no_such_rate");
+    expect(rates[0]).toBe("supply_markup");
+  });
+
+  it("NEGATIVE: an empty or junk declaration changes nothing and never throws", () => {
+    // the server REFUSES these shapes; the screen must not break on one that somehow arrives
+    const base = columnOrderForFile(DECLARED, ITEMS);
+    for (const bad of [{}, null, [], "alpha", { attributes: "alpha" }, { attributes: null }]) {
+      const fx = { ...DECLARED, column_order: bad } as unknown;
+      expect(columnOrderForFile(fx, ITEMS)).toEqual(base);
+    }
+  });
+});

@@ -1021,6 +1021,35 @@ export function pricingInputUsedByText(
 
 const RATE_COMPOSITION_KEY = "rate_composition";
 
+const COLUMN_ORDER_KEY = "column_order";
+
+/**
+ * The category's own PRESENTATION order (`column_order`), applied over an already-ordered pair.
+ *
+ * ⚠️ OWNER F5, 2026-10-03. The order was already per-category, but the only lever was
+ * `rate_composition` -- a PRICING declaration that the formula renderer and `rateRoleOf` read, so
+ * reordering a file through it reworded the formula row. This key does only the ordering.
+ *
+ * PARTIAL and applied LAST: declared names LEAD in the order declared, everything else keeps the
+ * order it had. ABSENT returns the pair untouched, so every category that declares nothing is
+ * byte-identical to before. Mirrors `csv_exporter._declared_order`; pinned to it. PURE.
+ */
+function declaredOrder(
+  config: unknown,
+  attrs: string[],
+  rates: string[],
+): { attrs: string[]; rates: string[] } {
+  const spec = (config as any)?.[COLUMN_ORDER_KEY] ?? null;
+  if (!spec || typeof spec !== "object" || !Object.keys(spec).length) return { attrs, rates };
+  const lead = (declared: unknown, have: string[]) => {
+    const first = (Array.isArray(declared) ? declared : []).filter(
+      (n): n is string => typeof n === "string" && have.includes(n),
+    );
+    return [...first, ...have.filter((n) => !first.includes(n))];
+  };
+  return { attrs: lead(spec.attributes, attrs), rates: lead(spec.rates, rates) };
+}
+
 /** `(attrs, rates)` ids in the order the rate FILE puts them. PURE. Mirrors `column_order_for`. */
 export function columnOrderForFile(
   config: unknown,
@@ -1038,7 +1067,9 @@ export function columnOrderForFile(
 
   // step 2 -- a category that DECLARES the sheet's order overrides it; one that does not keeps the sort
   const comp = (config as any)?.[RATE_COMPOSITION_KEY] ?? null;
-  if (!comp || typeof comp !== "object" || !Object.keys(comp).length) return { attrs, rates };
+  if (!comp || typeof comp !== "object" || !Object.keys(comp).length) {
+    return declaredOrder(config, attrs, rates);
+  }
 
   const declared: string[] = ((config as any)?.attribute_definitions ?? [])
     .map((d: any) => d?.id).filter((x: unknown): x is string => typeof x === "string" && !!x);
@@ -1056,7 +1087,7 @@ export function columnOrderForFile(
   }
   // the markups LAST, after every cost part -- the sheet's own shape
   for (const side of ["supply", "install"]) push((comp[side] ?? {}).markup_key);
-  return { attrs: orderedAttrs, rates: [...seq, ...rates.filter((x) => !seq.includes(x))] };
+  return declaredOrder(config, orderedAttrs, [...seq, ...rates.filter((x) => !seq.includes(x))]);
 }
 
 /**

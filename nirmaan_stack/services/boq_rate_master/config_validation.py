@@ -177,6 +177,13 @@ _KNOWN_CONFIG_KEYS = {
     # structurally validated below; ABSENT from a config means byte-identical to before slice 12a,
     # which is every Electrical category and every HVAC category but ADP and Insulation.
     "derived_rates", "rate_composition",
+    # SLICE 12c FINISH (owner F5): `column_order` -- a category's own PRESENTATION order for the rate
+    # file and the Rate Master screen. It exists because the only order lever before it was
+    # `rate_composition`, which CARRIES PRICING MEANING (the formula renderer, `_composition_role` and, for
+    # a pipeline-less category, the generated `derived_rates` all read it), so reordering columns
+    # through it would reword the formula row -- the owner asked for the structure to vary per
+    # category, and this is the lever that does only that. Validated by `_validate_column_order`.
+    "column_order",
 }
 
 _LIST_MODE = "item_list"
@@ -974,6 +981,7 @@ def _validate_config(cfg):
     _validate_list_spec(cfg)  # SLICE 4: the item-list mode's per-item schema; a no-op for every other config
     _validate_derived_rates(cfg)      # SLICE 12a: the derived-cost declaration; a no-op without the key
     _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
+    _validate_column_order(cfg)       # SLICE 12c FINISH: the presentation order; a no-op without the key
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")
@@ -1875,6 +1883,8 @@ def _validate_config(cfg):
 # are enforced HERE, so both generators are held to exactly the same contract.
 DERIVED_RATES_KEY = "derived_rates"
 RATE_COMPOSITION_KEY = "rate_composition"
+COLUMN_ORDER_KEY = "column_order"
+COLUMN_ORDER_SIDES = ("attributes", "rates")
 _DERIVED_TERM_KEYS = {"from", "multiplier", "constant"}
 _DERIVED_FROM_KEYS = {"item_uid", "rate_key"}
 # The step types whose value flows target -> result (or in place, when there is no result).
@@ -2105,6 +2115,59 @@ def _validate_derived_rates(cfg):
                         "derived. A declaration must be FLATTENED to the ultimate base (owner I-4)."
                         % (uid, rate_key, src["item_uid"], src["rate_key"])
                     )
+
+
+
+def _validate_column_order(cfg):
+    """`column_order` -- the category's own PRESENTATION order for the rate file and the screen.
+
+    ⚠️ WHY A SECOND ORDER KEY EXISTS (owner F5, 2026-10-03: "the structure may vary for every
+    category ... we have planned to change the structure also for the electrical categories"). The
+    order already came from each category's OWN definition -- but the only lever was
+    `rate_composition`, which is a PRICING declaration: `csv_exporter._composition_role`, the formula
+    renderer and, for a category with no pipelines, the GENERATED `derived_rates` all read it. So
+    reordering a file through it reworded the formula row and could move a derivation. This key does
+    only the one thing, and nothing else reads it.
+
+    SHAPE: {"attributes": [ids...], "rates": [rate keys...]} -- either side may be omitted, and a
+    PARTIAL list is the point: the names it gives LEAD, in the order given, and everything else keeps
+    the order it had (a declared `rate_composition` sheet order, else the sorted default). ABSENT is
+    byte-identical to before this key existed.
+
+    An ATTRIBUTE id is reference-guarded against the category's own definitions -- a typo there would
+    silently order nothing, which is the "validates but never executes" failure. A RATE key cannot be:
+    rate keys are not declared anywhere in a config, they are OBSERVED on the items, so a name no item
+    carries simply orders nothing (which is the same tolerance `rate_composition.parts` already has,
+    and `test_co_01` pins).
+    """
+    if COLUMN_ORDER_KEY not in cfg:
+        return
+    spec = cfg.get(COLUMN_ORDER_KEY)
+    # ⚠️ PRESENCE, NOT TRUTHINESS: `"column_order": {}` must be REFUSED, not read as absent -- the
+    # `or []` lesson from `override_when`. An empty declaration is a mistake, not a no-op.
+    if not isinstance(spec, dict) or not spec:
+        _vthrow("column_order must be a non-empty object of 'attributes' / 'rates' -> list of names.")
+    unknown = sorted(set(spec) - set(COLUMN_ORDER_SIDES))
+    if unknown:
+        _vthrow("column_order: unknown key(s) %s. Known: %s."
+                % (", ".join(unknown), ", ".join(COLUMN_ORDER_SIDES)))
+    declared_attrs = {d.get("id") for d in (cfg.get("attribute_definitions") or [])
+                      if isinstance(d, dict)}
+    for side in COLUMN_ORDER_SIDES:
+        if side not in spec:
+            continue
+        names = spec[side]
+        if not isinstance(names, list) or not names:
+            _vthrow("column_order['%s'] must be a non-empty list of names." % side)
+        seen = set()
+        for n in names:
+            if not isinstance(n, str) or not n.strip():
+                _vthrow("column_order['%s'] must hold non-empty strings." % side)
+            if n in seen:
+                _vthrow("column_order['%s']: '%s' is listed twice." % (side, n))
+            seen.add(n)
+            if side == "attributes" and n not in declared_attrs:
+                _vthrow("column_order['attributes']: '%s' is not an attribute of this category." % n)
 
 
 def _validate_rate_composition(cfg):

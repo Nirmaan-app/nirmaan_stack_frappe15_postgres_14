@@ -408,6 +408,35 @@ def _source_order(items):
     return sorted(items, key=key)
 
 
+def _declared_order(cfg, attrs, rates):
+    """Apply the category's own PRESENTATION order (`column_order`) over an already-ordered pair.
+
+    ⚠️ OWNER F5, 2026-10-03: "the structure may vary for every category ... we have planned to change
+    the structure also for the electrical categories after ADP retrofit". The order was already
+    per-category, but the only lever was `rate_composition`, which is a PRICING declaration -- the
+    formula renderer, `_composition_role` and a pipeline-less category's generated `derived_rates` all read
+    it, so reordering a file through it reworded the formula row. `column_order` does only this.
+
+    It is applied LAST and it is PARTIAL: the names it declares LEAD, in the order declared, and
+    everything else keeps the order it already had (the `rate_composition` sheet order, else sorted).
+    That is what lets a category move two columns to the front without restating its whole file. A
+    name nothing observed is skipped -- never invented as an empty column.
+
+    ABSENT => the pair is returned UNTOUCHED, so every category that declares nothing (today: all of
+    them) is byte-identical to before this key existed. `rateMasterSpec.columnOrderForFile` is the
+    TypeScript mirror and the two are pinned to identical output on one shared fixture.
+    """
+    spec = (cfg or {}).get(config_validation.COLUMN_ORDER_KEY) or {}
+    if not spec:
+        return attrs, rates
+
+    def lead(declared, have):
+        first = [n for n in (declared or []) if n in have]
+        return first + [n for n in have if n not in first]
+
+    return lead(spec.get("attributes"), attrs), lead(spec.get("rates"), rates)
+
+
 def _sheet_column_order(cfg, attrs, rates):
     """(attrs, rates) in the SOURCE SHEET'S own left-to-right order, for a category that DECLARES one.
 
@@ -422,7 +451,7 @@ def _sheet_column_order(cfg, attrs, rates):
     """
     comp = cfg.get(config_validation.RATE_COMPOSITION_KEY) or {}
     if not comp:
-        return attrs, rates
+        return _declared_order(cfg, attrs, rates)
     declared = [d["id"] for d in (cfg.get("attribute_definitions") or [])
                 if isinstance(d, dict) and d.get("id")]
     ordered_attrs = [a for a in declared if a in attrs] + [a for a in attrs if a not in declared]
@@ -436,7 +465,7 @@ def _sheet_column_order(cfg, attrs, rates):
         k = (comp.get(side) or {}).get("markup_key")
         if k and k in rates and k not in seq:
             seq.append(k)
-    return ordered_attrs, seq + [r for r in rates if r not in seq]
+    return _declared_order(cfg, ordered_attrs, seq + [r for r in rates if r not in seq])
 
 
 def _category_labels(configs):

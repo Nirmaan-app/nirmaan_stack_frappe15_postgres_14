@@ -17171,3 +17171,133 @@ class TestUsedByNamesEveryCategory(FrappeTestCase):
         src = _read_frontend_src("pages", "pricing", "rate-master", "rateMasterSpec.test.ts")
         for _n, _c, _l, want in self.FIXTURE:
             self.assertIn(want, src, "the TypeScript pin does not assert %r" % want)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c FINISH -- A CATEGORY DECLARES ITS OWN PRESENTATION ORDER (owner F5, 2026-10-03)
+#
+# "the structure may vary for every category ... if that is ensured then we can keep this change. else
+# we will neeed to build the mechanism. Further we have planned to chane the strrcuture also for the
+# electrical categories after ADP retorfit."
+#
+# IT NEEDED BUILDING. The order WAS already per-category, but the only lever was `rate_composition`,
+# which is a PRICING declaration: `_composition_role`, the formula renderer and -- for a category with no
+# pipelines -- the GENERATED `derived_rates` all read it. Reordering a file through it reworded the
+# formula row and could move a derivation, so it could not be the presentation lever.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+# the SHARED fixture: the declaring category, plus a presentation order over it. The TypeScript
+# mirror's test asserts the SAME expectations on the SAME shape.
+COLUMN_ORDER_FIXTURE_PRESENTATION = dict(
+    COLUMN_ORDER_FIXTURE_DECLARED,
+    column_order={"attributes": ["alpha", "cladding"],
+                  "rates": ["supply_markup", "cost_cladding"]},
+)
+
+
+class TestDeclaredPresentationOrder(FrappeTestCase):
+    """`column_order` orders the file and the screen, and does nothing else."""
+
+    def test_cp_01_the_declared_names_LEAD_and_the_rest_keep_their_order(self):
+        """PARTIAL BY DESIGN: a category moves two columns to the front without restating its file."""
+        attrs, rates = csv_exporter.column_order_for(COLUMN_ORDER_FIXTURE_PRESENTATION,
+                                                     COLUMN_ORDER_FIXTURE_ITEMS)
+        self.assertEqual(attrs, ["alpha", "cladding", "zeta", "mid"])
+        # the two declared rates lead; the others keep the `rate_composition` sheet order behind them
+        self.assertEqual(rates, ["supply_markup", "cost_cladding", "cost_insulation", "cost_adhesive",
+                                 "wastage", "install_markup", "stray_rate"])
+
+    def test_cp_02_ABSENT_is_byte_identical_to_before_the_key_existed(self):
+        """⚠️ THE HALF THAT PROTECTS EVERY SHIPPED FILE. No category declares one today, so every
+        file and every screen must be exactly what it was -- for the declaring shape AND the bare one.
+        """
+        for fx in (COLUMN_ORDER_FIXTURE_DECLARED, COLUMN_ORDER_FIXTURE_BARE):
+            self.assertNotIn("column_order", fx)
+        a1, r1 = csv_exporter.column_order_for(COLUMN_ORDER_FIXTURE_DECLARED,
+                                               COLUMN_ORDER_FIXTURE_ITEMS)
+        self.assertEqual(a1, ["cladding", "zeta", "alpha", "mid"])
+        self.assertEqual(r1, ["cost_insulation", "cost_adhesive", "cost_cladding", "wastage",
+                              "supply_markup", "install_markup", "stray_rate"])
+        a2, r2 = csv_exporter.column_order_for(COLUMN_ORDER_FIXTURE_BARE, COLUMN_ORDER_FIXTURE_ITEMS)
+        self.assertEqual(a2, sorted(a2))
+        self.assertEqual(r2, sorted(r2))
+
+    def test_cp_03_it_composes_with_NO_rate_composition_too(self):
+        """A category with no sheet order declared still gets a presentation order -- the two keys are
+        independent, which is the whole point of splitting them."""
+        fx = dict(COLUMN_ORDER_FIXTURE_BARE, column_order={"attributes": ["alpha"]})
+        attrs, rates = csv_exporter.column_order_for(fx, COLUMN_ORDER_FIXTURE_ITEMS)
+        self.assertEqual(attrs, ["alpha", "cladding", "mid", "zeta"])
+        self.assertEqual(rates, sorted(rates), "the rates keep the sorted default")
+
+    def test_cp_04_a_name_NOTHING_CARRIES_is_skipped_never_invented_as_a_column(self):
+        """The same tolerance `rate_composition.parts` already has (`test_co_01`): a rate key is
+        OBSERVED on the items, never declared, so a stale name orders nothing and adds nothing."""
+        fx = dict(COLUMN_ORDER_FIXTURE_DECLARED,
+                  column_order={"rates": ["no_such_rate", "supply_markup"]})
+        _attrs, rates = csv_exporter.column_order_for(fx, COLUMN_ORDER_FIXTURE_ITEMS)
+        self.assertNotIn("no_such_rate", rates)
+        self.assertEqual(rates[0], "supply_markup")
+
+    def test_cp_05_NEGATIVE_the_key_is_REFUSED_by_name_for_every_malformed_shape(self):
+        """A key the validator admits but nothing checks is the "validates but never executes"
+        failure -- and an ATTRIBUTE typo is exactly that, so it is reference-guarded."""
+        cases = [
+            ({}, "non-empty object"),                                   # the `or []` trap
+            ([], "non-empty object"),
+            ({"nope": ["a"]}, "unknown key"),
+            ({"attributes": []}, "non-empty list"),
+            ({"attributes": "alpha"}, "non-empty list"),
+            ({"attributes": ["alpha", "alpha"]}, "listed twice"),
+            ({"attributes": [""]}, "non-empty strings"),
+            ({"attributes": ["no_such_attr"]}, "not an attribute of this category"),
+        ]
+        for patch, needle in cases:
+            cfg = copy.deepcopy(COLUMN_ORDER_FIXTURE_DECLARED)
+            cfg["column_order"] = patch
+            with self.assertRaises(Exception, msg="accepted %r" % (patch,)) as cm:
+                config_validation._validate_column_order(cfg)
+            self.assertIn(needle, str(cm.exception), "%r refused for the wrong reason" % (patch,))
+
+    def test_cp_06_a_RATE_name_is_deliberately_NOT_reference_guarded(self):
+        """It cannot be: rate keys are not declared anywhere in a config. The guard that WOULD be
+        wrong here is a guard against the items, which the validator never sees."""
+        cfg = copy.deepcopy(COLUMN_ORDER_FIXTURE_DECLARED)
+        cfg["column_order"] = {"rates": ["anything_at_all"]}
+        config_validation._validate_column_order(cfg)        # must not raise
+
+    def test_cp_07_the_key_is_on_the_allowlist_so_a_whole_config_SAVE_keeps_working(self):
+        """RM-4b resubmits the WHOLE config, so a key missing from `_KNOWN_CONFIG_KEYS` makes every
+        later save of that category fail -- the load-bearing reason that list exists."""
+        self.assertIn("column_order", config_validation._KNOWN_CONFIG_KEYS)
+
+    def test_cp_08_NO_SHIPPED_config_declares_one_yet(self):
+        """⚠️ THE PROOF THAT THIS SLICE REORDERED NOTHING. The mechanism ships inert; the owner
+        declares an order per category when the Electrical restructure happens."""
+        rows = frappe.get_all("BoQ Rate Category Config", filters={"active": 1},
+                              fields=["discipline", "category_id", "config"])
+        self.assertTrue(rows, "no active configs -- this test would prove nothing")
+        for r in rows:
+            cfg = _obj(r["config"])
+            self.assertNotIn("column_order", cfg,
+                             "%s / %s declares one" % (r["discipline"], r["category_id"]))
+
+    def test_cp_09_rate_composition_is_READ_BY_PRICING_which_is_why_this_key_exists(self):
+        """⚠️ THE JUSTIFICATION, PINNED. If `rate_composition` were presentation-only this key would be
+        redundant; it is not -- `_composition_role` reads it to label a column, and the formula renderer
+        reads it to explain one. Reordering a file through it would reword the file."""
+        role, side, _spec = csv_exporter._composition_role(COLUMN_ORDER_FIXTURE_DECLARED, "wastage")
+        self.assertEqual((role, side), ("wastage", "supply"))
+        role2, side2, _s2 = csv_exporter._composition_role(COLUMN_ORDER_FIXTURE_DECLARED, "cost_adhesive")
+        self.assertEqual((role2, side2), ("part", "supply"))
+        # and a category that declares NO composition gets no role at all
+        self.assertEqual(csv_exporter._composition_role(COLUMN_ORDER_FIXTURE_BARE, "wastage")[0], None)
+
+    def test_cp_10_the_TS_mirror_pins_the_SAME_expectations(self):
+        """⚠️ THE CROSS-LANGUAGE PIN (the `FORMULA_FIXTURE` idiom): the screen cannot call an exporter
+        for one header, so the rule exists twice and this is what stops the two drifting."""
+        src = _read_frontend_src("pages", "pricing", "rate-master", "rateMasterColumnOrder.test.ts")
+        flat = src.replace("'", '"')
+        self.assertIn('"alpha", "cladding", "zeta", "mid"', flat)
+        self.assertIn("supply_markup", flat)
+        self.assertIn("column_order", flat)
