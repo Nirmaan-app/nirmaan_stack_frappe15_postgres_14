@@ -271,7 +271,13 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12c: the two blocks `ladderResolution.ts` reads. Each arrives WITH its shape
                  # check below -- a key this allowlist admits but nothing validates is the
                  # "validates but never executes" failure, and it is the whole reason this file exists.
-                 "size_match", "compose", "label_attr"}
+                 "size_match", "compose", "label_attr", "number_defaults"}
+# SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). `defaults` cannot express this --
+# it requires a CHOICE attribute carrying `allow_none`, and a thickness is a NUMBER read through
+# `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
+# are FOR: `defaults` turns the model's "not mentioned" into a ruled value, while this fills a number
+# the row never stated at all. ABSENT => nothing is defaulted and every category is unchanged.
+_PRICING_NUMBER_DEFAULT_KEYS = {"value", "families", "rule"}
 # SLICE 12c -- a stated value and a catalogue rung that are the SAME size written to different precision.
 # `dp` is the rounding depths to try, in order. ABSENT => nothing resolves and the ladder decides, exactly
 # as before. A depth that is not collision-free over a family's rungs is SKIPPED at run time, never
@@ -512,6 +518,33 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if la not in by_id and la != spec.get("family_attribute_id"):
             _vthrow(f"list_spec.pricing.label_attr '{la}' is not an item attribute of this category; "
                     "a ladder would skip every row and refuse everything.")
+    nd = pr.get("number_defaults")
+    if nd is not None:
+        if not isinstance(nd, dict):
+            _vthrow("list_spec.pricing.number_defaults must be an object.")
+        for nid, spec_nd in nd.items():
+            loc = f"list_spec.pricing.number_defaults['{nid}']"
+            # the attribute must be a NUMBER this category reads -- a default for a number nothing
+            # reads is the "validates but never executes" failure
+            if nid not in numbers:
+                _vthrow(f"{loc}: '{nid}' is not one of this category's numbers.")
+            if not isinstance(spec_nd, dict):
+                _vthrow(f"{loc} must be an object.")
+            unk = set(spec_nd) - _PRICING_NUMBER_DEFAULT_KEYS
+            if unk:
+                _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+            v = spec_nd.get("value")
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                _vthrow(f"{loc}.value must be a number.")
+            fams = spec_nd.get("families")
+            if fams is not None:
+                if not isinstance(fams, list) or not fams:
+                    _vthrow(f"{loc}.families, when present, must be a non-empty list.")
+                for f in fams:
+                    if f not in (pr.get("families") or {}):
+                        _vthrow(f"{loc}.families names '{f}', which is not a family of this category.")
+            if not isinstance(spec_nd.get("rule"), str) or not spec_nd.get("rule").strip():
+                _vthrow(f"{loc} needs a 'rule' saying whose ruling it is.")
     rn = pr.get("reason_names")
     if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
         _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")

@@ -124,6 +124,14 @@ function ctxOwners(pipeline: { steps?: any[] } | null | undefined): Record<strin
   const steps = pipeline?.steps ?? [];
   for (const s of steps) {
     if (s?.step !== "rate_ref") continue;
+    /**
+     * ⚠️ ONLY A RATE_REF THAT READS A PRICING INPUT MAKES ONE. `rate_ref` is a general "read one
+     * stored rate off one row" step, and slice 12c FINISH uses it to read a CATALOGUE row's own
+     * wastage and markups -- which made the catalogue row appear in this map as an input with zero
+     * SKUs, a name the Pricing Inputs page has never heard of. Keyed on the kind SUFFIX, exactly as
+     * `is_pricing_input_kind` is, so no discipline or category is named here.
+     */
+    if (!String(s?.ref?.kind ?? "").endsWith("_pricing_input")) continue;
     const id = s?.ref?.item;
     if (typeof id !== "string") continue;
     (own[s.result] ??= new Set<string>()).add(id);

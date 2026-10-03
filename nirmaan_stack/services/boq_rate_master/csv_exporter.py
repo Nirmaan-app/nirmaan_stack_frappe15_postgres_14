@@ -167,10 +167,16 @@ def pricing_input_used_by(configs):
         if isinstance(node, dict):
             if isinstance(node.get("steps"), list):
                 for st in node["steps"]:
-                    if isinstance(st, dict) and st.get("step") == "rate_ref":
-                        iid = (st.get("ref") or {}).get("item")
-                        if isinstance(iid, str):
-                            found.append(iid)
+                    if not isinstance(st, dict) or st.get("step") != "rate_ref":
+                        continue
+                    # ⚠️ ONLY a rate_ref that reads a PRICING INPUT makes one. The step is general --
+                    # slice 12c FINISH reads a CATALOGUE row's own wastage and markups with it -- and
+                    # without this the catalogue row is reported as an input nothing has heard of.
+                    if not is_pricing_input_kind((st.get("ref") or {}).get("kind")):
+                        continue
+                    iid = (st.get("ref") or {}).get("item")
+                    if isinstance(iid, str):
+                        found.append(iid)
             for key in sorted(node):
                 walk(node[key], found)
         elif isinstance(node, list):

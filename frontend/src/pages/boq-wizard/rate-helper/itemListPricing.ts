@@ -191,6 +191,10 @@ export interface ItemListPricingSpec {
    * precision (22.2 and 22.23; 7/8" and 22.23) resolve to the rung instead of laddering past it.
    * ABSENT => nothing resolves and every category is byte-identical to before this slice. */
   size_match?: SizeMatchSpec;
+  /** SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). A NUMBER the row never stated
+   * takes a ruled value, optionally only for named families. `defaults` cannot express this -- it is
+   * for a CHOICE attribute whose model answer was "None". ABSENT => nothing is defaulted. */
+  number_defaults?: Record<string, { value: number; families?: string[]; rule: string }>;
   /** SLICE 12c (owner Q8): what to do when a stated value is ABOVE the top rung of one named ladder
    * -- build it out of two or more rungs instead of refusing. ABSENT => it still refuses, exactly as
    * before. The tolerance and the layer ceiling are config, never code. */
@@ -839,6 +843,23 @@ function priceOneItem(
   // (4) the needs (R7-R10, R2): the first missing one names the blank; only the needed facts reach the matcher
   for (const n of needs) {
     if (n in read) { sel[n] = read[n]; continue; }
+    /**
+     * SLICE 12c FINISH (owner F1). A NUMBER the row never stated takes its ruled value rather than
+     * refusing -- a cladding-only row that says no thickness is priced at 9 mm.
+     *
+     * ⚠️ IT MUST FIRE BEFORE THE REFUSAL BELOW, and it is MARKED like every other assumed value, so
+     * the panel shows it as a default rather than as something the row said. A number the row DID
+     * state is untouched: this branch is only reached when the key is absent from `read`.
+     */
+    const ndef = spec.number_defaults?.[n];
+    if (ndef && Number.isFinite(ndef.value)
+        && (!ndef.families || (out.family !== null && ndef.families.includes(out.family)))) {
+      sel[n] = ndef.value;
+      read[n] = ndef.value;
+      // `DefaultedAttr.value` is the DISPLAY string every other default already uses
+      readDefaulted.push({ attr: n, value: fmt(ndef.value), rule: ndef.rule });
+      continue;
+    }
     if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel };
     return { ...blank(spec.choice_attrs.includes(n) ? `could not tell ${reasonName(spec, n)}` : `no ${reasonName(spec, n)} stated`), selection: sel };
   }
@@ -867,6 +888,18 @@ function priceOneItem(
     const rungs = buildModuleLadder(familyRows, { kind: spec.kind, where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
     const name = reasonName(spec, attr);
     const want = Number(sel[attr]);
+    /**
+     * ⚠️ A FAMILY WHOSE ROWS CARRY THIS ATTRIBUTE AT ALL IS LADDERING ON IT; ONE WHOSE ROWS CARRY IT
+     * NOWHERE IS NOT. For the second, the stated value is an INPUT TO A FORMULA, not a choice between
+     * rungs -- a cladding-only row has no pipe size of its own, and its cost is a continuous function
+     * of the pipe size the ROW states. Without this the ladder found no rungs and refused every such
+     * row with "no SKU for this combination", naming a size when nothing was wrong with the size.
+     *
+     * The test is the FAMILY'S OWN ROWS, so it cannot change a family that does ladder: every shipped
+     * family's ladder attributes are carried by its rows (measured), which is why this is a no-op for
+     * them and the refusal below still fires when some rows carry the attribute and none match.
+     */
+    if (!familyRows.some((it) => attr in (it.attributes ?? {}))) continue;
     if (!rungs.length) {
       const desc = Object.entries(where).filter(([k]) => k !== familyAttr(spec) && k !== spec.unit_class_attr).map(([k, v]) => `${shortName(spec, k)} ${String(v)}`).join(", ");
       return { ...blank(`no SKU for this combination (${family}${desc ? ": " + desc : ""})`), selection: sel };
