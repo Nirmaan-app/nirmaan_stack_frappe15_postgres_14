@@ -11430,7 +11430,7 @@ def _read_frontend_src(*parts):
         return fh.read()
 
 
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v18.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v19.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -12710,7 +12710,7 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                          # which is the point: both are read only by HVAC Insulation.
                          - {"panel_controls", "override_when", "second_key", "unit_factors",
                             "size_match", "compose", "label_attr", "number_defaults",
-                            "typed_cladding"})
+                            "typed_cladding", "panel_notes"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         def refused(mutate, needle):
@@ -17460,3 +17460,139 @@ class TestCalculatorAdmission(FrappeTestCase):
                     continue
                 for banned in ("hvac_", "Electrical", "insulation"):
                     self.assertNotIn(banned, line, "a name reached the code: %r" % line)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c FINISH, FA8 -- EVERY CATALOGUE ATTRIBUTE A DROPDOWN; EVERY TYPED FIELD SAYS WHAT TO TYPE
+#
+# Owner (2026-10-04): "all attributes which can be dropdpwns based on catalog miust be made dropdowns
+# instead of free text/number. the dropdowns must be dynamic, so that any change in catalog must be
+# refelcted automativcally. the attributes whic cannot be dropdowns and the user is expected to type
+# in, must have brief explantion abnout whathe user is expected to eneter there."
+#
+# `dropdown_or_other` is the control the two SIZE fields take: the live stocked values PLUS the right
+# to type the size the BoQ states, because the ladder, the rounding and the composition rules exist
+# precisely to resolve a size the sheet does not stock.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestPanelControlsAndNotes(FrappeTestCase):
+    """The control vocabulary, and the note a typed field must carry."""
+
+    CAT = "hvac_insulation"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+
+    def _cfg(self):
+        """The insulation config with FA8's own block REMOVED -- the state every category that
+        declares nothing is still in, and the baseline each case below builds its own shape on. The
+        SHIPPED config now declares both keys (that is the point of v19), so a test that wants the
+        ABSENT case has to construct it rather than assume it."""
+        cfg = copy.deepcopy(next(c for c in self.asset["category_configs"]
+                                 if c["category_id"] == self.CAT))
+        cfg["list_spec"]["pricing"].pop("panel_controls", None)
+        cfg["list_spec"]["pricing"].pop("panel_notes", None)
+        return cfg
+
+    def _shipped(self):
+        return copy.deepcopy(next(c for c in self.asset["category_configs"]
+                                  if c["category_id"] == self.CAT))
+
+    FULL = {"item": "dropdown", "cladding": "dropdown",
+            "thickness_mm": "dropdown_or_other", "pipe_size_mm": "dropdown_or_other"}
+    NOTES = {"thickness_mm": "Type the thickness in mm as the BoQ states it.",
+             "pipe_size_mm": "Type the pipe size the BoQ states, in mm or inches."}
+
+    def test_fa8_01_the_new_control_is_part_of_the_vocabulary(self):
+        self.assertIn("dropdown_or_other", config_validation._PANEL_CONTROLS)
+        self.assertEqual(config_validation._TYPED_CONTROLS, {"text", "dropdown_or_other"})
+
+    def test_fa8_02_a_complete_map_with_its_notes_is_ACCEPTED(self):
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["panel_controls"] = dict(self.FULL)
+        cfg["list_spec"]["pricing"]["panel_notes"] = dict(self.NOTES)
+        config_validation._validate_config(cfg)      # must not raise
+
+    def test_fa8_03_NEGATIVE_a_TYPED_field_with_no_note_is_REFUSED_by_name(self):
+        """⚠️ A typed box with no note is a box with no question. The owner asked for the
+        explanation, so the note is REQUIRED wherever typing is possible -- not merely allowed."""
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["panel_controls"] = dict(self.FULL)
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("panel_notes", str(cm.exception))
+        # and a HALF-declared set names the one that is missing
+        cfg["list_spec"]["pricing"]["panel_notes"] = {"thickness_mm": self.NOTES["thickness_mm"]}
+        with self.assertRaises(Exception) as cm2:
+            config_validation._validate_config(cfg)
+        self.assertIn("pipe_size_mm", str(cm2.exception))
+
+    def test_fa8_04_NEGATIVE_every_other_malformed_shape_is_refused_by_name(self):
+        base = self._cfg()
+        cases = [
+            ({"item": "dropdown", "cladding": "dropdown",
+              "thickness_mm": "spinner", "pipe_size_mm": "text"}, None, "each control must be one of"),
+            (dict(self.FULL), {"nope": "x"}, "names attribute(s) the panel cannot show"),
+            (dict(self.FULL), dict(self.NOTES, thickness_mm="  "), "non-empty string"),
+            (dict(self.FULL), "a string", "must be an object"),
+        ]
+        for controls, notes, needle in cases:
+            cfg = copy.deepcopy(base)
+            cfg["list_spec"]["pricing"]["panel_controls"] = controls
+            if notes is not None:
+                cfg["list_spec"]["pricing"]["panel_notes"] = notes
+            with self.assertRaises(Exception, msg="accepted %r" % (notes,)) as cm:
+                config_validation._validate_config(cfg)
+            self.assertIn(needle, str(cm.exception), "%r refused for the wrong reason" % (notes,))
+
+    def test_fa8_05b_a_TEXT_control_does_not_force_a_note_so_ADP_stays_valid_untouched(self):
+        """⚠️ THE SCOPE IS A RULING. The owner asked for a note on every typed field AND ruled ADP
+        read-only; ADP declares four `text` controls with no notes, so a blanket requirement would
+        REFUSE a shipped config the owner forbade touching. The requirement binds on
+        `dropdown_or_other` -- where this slice introduces typing -- and ADP's notes come with the
+        ADP retrofit. A `text` note is still VALIDATED when one is declared."""
+        adp = copy.deepcopy(next(c for c in self.asset["category_configs"]
+                                 if c["category_id"] == "hvac_adp"))
+        self.assertIn("text", set(adp["list_spec"]["pricing"]["panel_controls"].values()))
+        self.assertNotIn("panel_notes", adp["list_spec"]["pricing"])
+        config_validation._validate_config(adp)        # must not raise
+        # but a MALFORMED note on a text field is still refused
+        adp["list_spec"]["pricing"]["panel_notes"] = {"depth_mm": ""}
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(adp)
+        self.assertIn("non-empty string", str(cm.exception))
+
+    def test_fa8_05_a_map_of_plain_DROPDOWNS_needs_no_notes_at_all(self):
+        """Nothing can be typed, so there is nothing to explain -- the requirement is on TYPING,
+        not on declaring controls."""
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["panel_controls"] = {
+            "item": "dropdown", "cladding": "dropdown",
+            "thickness_mm": "dropdown", "pipe_size_mm": "dropdown"}
+        config_validation._validate_config(cfg)      # must not raise
+
+    def test_fa8_06_ABSENT_is_byte_identical_to_before_FA8(self):
+        """⚠️ THE HALF THAT PROTECTS ADP AND EVERY ELECTRICAL CATEGORY. A config that declares no
+        block is validated exactly as it was."""
+        cfg = self._cfg()
+        self.assertNotIn("panel_notes", cfg["list_spec"]["pricing"])
+        self.assertNotIn("panel_controls", cfg["list_spec"]["pricing"])
+        config_validation._validate_config(cfg)
+        # and the SHIPPED config DOES declare both -- v19's whole point
+        shipped = self._shipped()["list_spec"]["pricing"]
+        self.assertEqual(shipped["panel_controls"]["thickness_mm"], "dropdown_or_other")
+        self.assertIn("pipe_size_mm", shipped["panel_notes"])
+        for c in self.asset["category_configs"]:
+            config_validation._validate_config(
+                loader._loaded_config(copy.deepcopy(c), "HVAC", self.asset.get("goldens") or {}))
+
+    def test_fa8_07_ADP_is_UNTOUCHED_and_still_validates_with_its_own_controls(self):
+        """ADP declares `dropdown` / `text` only -- the owner ruled it is READ-ONLY here, fixed in
+        the ADP retrofit. This asserts this slice changed none of it."""
+        adp = next(c for c in self.asset["category_configs"] if c["category_id"] == "hvac_adp")
+        pc = adp["list_spec"]["pricing"]["panel_controls"]
+        self.assertTrue(pc)
+        self.assertEqual(set(pc.values()) - {"dropdown", "text"}, set())
+        self.assertNotIn("panel_notes", adp["list_spec"]["pricing"])

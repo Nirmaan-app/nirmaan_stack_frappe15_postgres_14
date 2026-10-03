@@ -48,6 +48,12 @@ const DEFAULT_PANEL_WIDTH = 300;
 const MIN_PANEL_WIDTH = 280;
 const PANEL_RESIZE_STEP = 16;
 
+/** OWNER FA8: the sentinel the "other" entry carries. A value no catalogue row can hold, so it can
+ * never collide with a real option, and it is never written to an item -- picking it CLEARS the
+ * field and opens the typed box beside the select. */
+const OTHER_VALUE = "\u0000other";
+const OTHER_LABEL = "Other\u2026";
+
 /** A selected choice longer than this gets a wrapped read-out under its <select>, because a native
  *  select truncates option text to one line and never wraps it.
  *
@@ -1138,19 +1144,39 @@ function ItemListBlocks({
                     )}
                   </span>
                   {f.options ? (
-                    <select
-                      className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", tone)}
-                      value={f.value}
-                      onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
-                    >
-                      <option value="">&mdash; select &mdash;</option>
-                      {f.options.map((o) => (
-                        // SLICE 9 (A-6): the VALUE is what prices; the TEXT may be the catalogue's own word
-                        // for it. Keeping the value real is what stops a controlled select falling back to
-                        // another option (frontend/CLAUDE.md) and keeps the field editable.
-                        <option key={o} value={o}>{f.optionLabels?.[o] ?? o}</option>
-                      ))}
-                    </select>
+                    <span className="flex items-center gap-1">
+                      <select
+                        className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", tone)}
+                        /**
+                         * OWNER FA8: a `dropdown_or_other` field keeps its select on OTHER whenever the
+                         * current value is not one of the stocked options -- which is exactly when a
+                         * person has typed the size the BoQ states. Without that the controlled select
+                         * would find no matching option and fall back to the first selectable one
+                         * (frontend/CLAUDE.md), silently showing a size nobody chose.
+                         */
+                        value={f.allowOther && f.value !== "" && !f.options.includes(f.value) ? OTHER_VALUE : f.value}
+                        onChange={(e) =>
+                          onEdit({ op: "set_attr", index: i, id: f.id,
+                                   value: e.target.value === OTHER_VALUE ? "" : e.target.value })}
+                      >
+                        <option value="">&mdash; select &mdash;</option>
+                        {f.options.map((o) => (
+                          // SLICE 9 (A-6): the VALUE is what prices; the TEXT may be the catalogue's own word
+                          // for it. Keeping the value real is what stops a controlled select falling back to
+                          // another option (frontend/CLAUDE.md) and keeps the field editable.
+                          <option key={o} value={o}>{f.optionLabels?.[o] ?? o}</option>
+                        ))}
+                        {f.allowOther && <option value={OTHER_VALUE}>{OTHER_LABEL}</option>}
+                      </select>
+                      {f.allowOther && (f.value === "" || !f.options.includes(f.value)) && (
+                        <Input
+                          className={cn("h-7 w-20 text-xs", tone)}
+                          value={f.value}
+                          aria-label={`${f.label} -- the value the BoQ states`}
+                          onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                        />
+                      )}
+                    </span>
                   ) : (
                     <Input
                       className={cn("h-7 w-28 text-xs", tone)}
@@ -1161,6 +1187,12 @@ function ItemListBlocks({
                 </label>
                 {f.rule && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.rule}</p>}
                 {f.note && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.note}</p>}
+                {/* OWNER FA8: what to type, in plain English -- declared in config, never written here, so
+                    no attribute wording lives in the frontend. Muted, because unlike `rule` and `note` it
+                    reports nothing that HAPPENED: it is standing guidance. */}
+                {f.typedNote && (f.value === "" || !(f.options ?? []).includes(f.value)) && (
+                  <p className="pl-1 text-[10px] leading-tight text-muted-foreground">{f.typedNote}</p>
+                )}
               </div>
             );
           })}

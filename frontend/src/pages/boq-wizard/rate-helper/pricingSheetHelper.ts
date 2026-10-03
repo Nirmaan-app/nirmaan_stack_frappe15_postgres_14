@@ -1630,7 +1630,7 @@ export function assembleItems(
    * This was the literal "family" below, which is only right for a category whose attribute happens
    * to be called that. The pricer reads `familyAttr(spec)`, so on a category that calls it anything
    * else a CHANGED or ADDED item wrote a key nothing read, and the item refused with "no kind could
-   * be told" however many fields the pricer went on to fill. Found in the FA7 browser cert on HVAC
+   * be told" however many fields the pricer filled in. Found in the FA7 browser cert on HVAC
    * Insulation, whose family attribute is `item` -- the ninth site of the eight this literal was
    * generalised out of, and the one that lives in a different file.
    *
@@ -1746,7 +1746,10 @@ function itemBlockView(
     const defaulted = !!d && !userEdited && (stated === "None" || stated === "");
     let value = defaulted ? d!.value : stated;
     const hop = hopBy.get(f.skuAttr);
-    const isSizeDropdown = f.control === "dropdown" && f.skuAttr in spec.numbers;
+    // OWNER FA8: `dropdown_or_other` is a size dropdown too -- it shows the LADDER RESULT with the
+    // note naming the stated size, which is the whole reason an unstocked size may be typed.
+    const isSizeDropdown = (f.control === "dropdown" || f.control === "dropdown_or_other")
+      && f.skuAttr in spec.numbers;
     let note: string | undefined;
     if (hop && !hop.exact) note = `${hop.name} ${hop.requested} is not on the sheet -> ${hop.fitted} (next size up)`;
     if (isSizeDropdown) {

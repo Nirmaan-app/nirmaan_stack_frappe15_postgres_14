@@ -213,9 +213,21 @@ export interface ItemListPricingSpec {
    * "text" (a BoQ measurement the sheet does not stock as a pick). Declared in CONFIG, never in code; absent =
    * today's controls (a choice def a select, a number a text input). This block never reaches the model. */
   panel_controls?: Record<string, PanelControl>;
+  /** OWNER FA8: one plain-English line per TYPED field saying what to enter. Declared in config, never
+   * in code, so no category or attribute wording lives in the frontend. */
+  panel_notes?: Record<string, string>;
 }
 
-export type PanelControl = "dropdown" | "text";
+/**
+ * OWNER FA8 (2026-10-04). `dropdown_or_other` is a live dropdown of the values the CATALOGUE stocks
+ * PLUS an "other" entry for the value the BoQ actually states -- a size needs both, because the
+ * ladder, the rounding and the composition rules exist precisely to resolve an UNSTOCKED size, and a
+ * plain dropdown would remove the only way to say what the document says.
+ */
+export type PanelControl = "dropdown" | "text" | "dropdown_or_other";
+
+/** The controls a person can TYPE into; each one declares what to type (`panel_notes`). */
+export const TYPED_CONTROLS: ReadonlySet<PanelControl> = new Set(["text", "dropdown_or_other"]);
 
 /** Read the block off a config; null when the config does not declare it. PURE. */
 export function itemListPricingSpec(config: RateCategoryConfig | null | undefined): ItemListPricingSpec | null {
@@ -1116,6 +1128,10 @@ export interface ItemFieldDef {
   /** SLICE 6b: where a dropdown's options came from -- the active SKUs (V1, V4) or the definition's closed
    * vocabulary (an attribute no SKU carries, e.g. the air stream). Absent on a text field. */
   optionSource?: "catalogue" | "definition";
+  /** OWNER FA8: this field offers its stocked options AND lets a person type an unstocked value. */
+  allowOther?: boolean;
+  /** OWNER FA8: what to type here, in plain English -- shown under every field a person can type in. */
+  typedNote?: string;
 }
 
 /**
@@ -1216,12 +1232,18 @@ export function itemFieldDefs(
       seenIds.add(modelId);
       const d = defById.get(modelId);
       const control = controlOf(attr, "text");
-      if (control === "dropdown" && skus) {
-        // a STOCKED size: the options are the sheet's sizes for this family, narrowed by the block's other answers
+      const typedNote = spec.panel_notes?.[attr];
+      if ((control === "dropdown" || control === "dropdown_or_other") && skus) {
+        // a STOCKED size: the options are the sheet's sizes for this family, narrowed by the block's other answers.
+        // OWNER FA8: `dropdown_or_other` offers those SAME live options and still lets a person type the size the
+        // BoQ states -- the ladder then resolves it and says which stocked size it used.
         const options = fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {});
-        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control, options, optionSource: "catalogue" });
+        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control, options,
+                   optionSource: "catalogue",
+                   ...(control === "dropdown_or_other" ? { allowOther: true, typedNote } : {}) });
       } else {
-        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control });
+        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control,
+                   ...(TYPED_CONTROLS.has(control) ? { typedNote } : {}) });
       }
       continue;
     }
@@ -1232,8 +1254,10 @@ export function itemFieldDefs(
     let values = d.values ?? [];
     if (d.values_by_family && d.values_by_family[family]) values = d.values_by_family[family];
     const control = controlOf(attr, d.type === "choice" ? "dropdown" : "text");
-    if (control !== "dropdown") {
-      out.push({ id: attr, label: d.label, allowNone: d.allow_none === true, skuAttr: attr, control });
+    const typedNoteC = spec.panel_notes?.[attr];
+    if (control !== "dropdown" && control !== "dropdown_or_other") {
+      out.push({ id: attr, label: d.label, allowNone: d.allow_none === true, skuAttr: attr, control,
+                 ...(TYPED_CONTROLS.has(control) ? { typedNote: typedNoteC } : {}) });
       continue;
     }
     // a choice: from the SKUs where the family's rows carry the attribute (V1), else the definition's vocabulary
@@ -1247,9 +1271,120 @@ export function itemFieldDefs(
       allowNone: d.allow_none === true,
       skuAttr: attr,
       control,
+      ...(control === "dropdown_or_other" ? { allowOther: true, typedNote: typedNoteC } : {}),
       optionSource,
     });
   }
   return out;
 }
 
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * OWNER FA8 (2026-10-04) -- WHAT TO TYPE IN A SIZE FIELD, AND HOW IT WILL BE MATCHED
+ *
+ * The owner approved the wording; this generates the SIZES in it LIVE from the catalogue, because a
+ * worked example naming a size that is no longer stocked teaches the reader something false. Every
+ * number below is read from the active SKUs of the block's family, or computed by the SAME
+ * `resolveSize` / `composeSize` the pricer uses -- so the explanation cannot drift from the matching.
+ *
+ * It is generated from the SPEC's own declared rules (`size_match.dp`, `compose`), never from a list
+ * of categories: a category that declares no composition simply gets no composition line.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** What a size field tells the pricer: the one-line note, and the rules behind "Other...". */
+export interface SizeFieldHelp {
+  /** the one-line note under the box -- what to type */
+  note: string;
+  /** the "How is this matched?" rules, each a complete sentence with its own live example */
+  lines: string[];
+}
+
+/** PURE. `12` not `12.0`, and `22.23` kept -- a size reads as the catalogue writes it. */
+function sizeText(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(4)));
+}
+
+/**
+ * PURE. The help for ONE size field, or null when the attribute is not a size this spec ladders on.
+ *
+ * `stocked` is the live option list (the same `fieldOptionsFromSkus` the dropdown is built from), so
+ * adding a catalogue row changes the examples with no code change.
+ */
+export function sizeFieldHelp(
+  spec: ItemListPricingSpec,
+  attr: string,
+  stocked: readonly string[],
+): SizeFieldHelp | null {
+  const reader = spec.numbers[attr];
+  if (!reader) return null;
+  const nums = stocked.map((s) => Number(s)).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  const name = reader.name ?? attr;
+  const unit = reader.unit ? ` ${reader.unit}` : "";
+  const lines: string[] = [];
+  if (!nums.length) {
+    return { note: `Type the ${name} the BoQ states${unit ? `, in ${reader.unit}` : ""}.`, lines };
+  }
+
+  const smallest = nums[0];
+  const largest = nums[nums.length - 1];
+  const composes = spec.compose?.attr === attr;
+
+  // (1) EXACT -- a stocked size is used as it stands
+  lines.push(`A size the sheet stocks is used as it stands (${sizeText(smallest)}${unit}).`);
+
+  // (2) PRECISION -- the same size written to a different number of decimals (`size_match.dp`)
+  const dps = (spec.size_match?.dp ?? []).filter((d) => Number.isFinite(d));
+  const fractional = nums.find((n) => !Number.isInteger(n));
+  if (dps.length && fractional !== undefined) {
+    for (const dp of dps) {
+      const written: number = Number(fractional.toFixed(dp));
+      if (written === fractional) continue;
+      lines.push(
+        `The same size written to ${dp} decimal${dp === 1 ? "" : "s"} is the same size: `
+        + `${sizeText(written)} is matched to ${sizeText(fractional)}${unit}.`,
+      );
+    }
+  }
+
+  // (3) BETWEEN TWO STOCKED SIZES -- the next size up
+  const gap = nums.find((n, i) => i > 0 && n - nums[i - 1] > 1);
+  if (gap !== undefined) {
+    const below = nums[nums.indexOf(gap) - 1];
+    const between = Math.round((below + gap) / 2);
+    if (between > below && between < gap) {
+      lines.push(`A size between two stocked sizes takes the next size UP: `
+                 + `${sizeText(between)} is priced as ${sizeText(gap)}${unit}.`);
+    }
+  }
+
+  // (4) ABOVE THE LARGEST -- layers, or a refusal
+  if (composes && spec.compose) {
+    const c = spec.compose;
+    const target = largest + Math.max(2, Math.round(smallest / 2));
+    const comp = composeSize(target, nums, c);
+    const built = comp?.layers ?? [];
+    if (built.length > 1) {
+      const sum = built.reduce((a, b) => a + b, 0);
+      lines.push(
+        `Thicker than the largest stocked size is built from ${built.length} layers within `
+        + `${sizeText(c.tolerance ?? 0)}${unit}, fewest layers first: ${sizeText(target)} is priced as `
+        + `${built.map(sizeText).join(" + ")} = ${sizeText(sum)}${unit}, shown as separate items.`,
+      );
+      lines.push(`Layers written out (${built.map(sizeText).join("+")}) each price as their own item `
+                 + `at the same size, and nothing fits is not priced -- the reason is shown.`);
+    } else {
+      lines.push(`Larger than the largest stocked size (${sizeText(largest)}${unit}) is not priced, `
+                 + `and the reason is shown.`);
+    }
+  } else {
+    lines.push(`Larger than the largest stocked size (${sizeText(largest)}${unit}) is not priced, `
+               + `and the reason is shown.`);
+  }
+
+  const egs = nums.slice(0, 2).map(sizeText).join(", ");
+  const note = composes
+    ? `Type the ${name} in ${reader.unit ?? "mm"} as the BoQ states it, e.g. ${egs}, `
+      + `or ${sizeText(smallest)}+${sizeText(smallest)} for two layers.`
+    : `Type the ${name} the BoQ states, in ${reader.unit ?? "mm"} (e.g. ${egs}).`;
+  return { note, lines };
+}

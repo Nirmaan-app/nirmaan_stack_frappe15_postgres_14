@@ -286,7 +286,11 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12c: the two blocks `ladderResolution.ts` reads. Each arrives WITH its shape
                  # check below -- a key this allowlist admits but nothing validates is the
                  # "validates but never executes" failure, and it is the whole reason this file exists.
-                 "size_match", "compose", "label_attr", "number_defaults", "typed_cladding"}
+                 "size_match", "compose", "label_attr", "number_defaults", "typed_cladding",
+                 # SLICE 12c FINISH (owner FA8): one plain-English line per TYPED field saying what
+                 # to enter. REQUIRED wherever `panel_controls` admits typing -- see
+                 # `_validate_calculator_only`'s neighbour below.
+                 "panel_notes"}
 # SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). `defaults` cannot express this --
 # it requires a CHOICE attribute carrying `allow_none`, and a thickness is a NUMBER read through
 # `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
@@ -322,7 +326,15 @@ def _norm_unit_spelling(s):
 # SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
 # definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
 # which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
-_PANEL_CONTROLS = {"dropdown", "text"}
+# SLICE 12c FINISH (owner FA8, 2026-10-04): `dropdown_or_other` -- a live dropdown of the values the
+# CATALOGUE stocks PLUS an "other" entry for the value the BoQ actually states. A size needs both:
+# the options must come from the SKUs (so a new catalogue row is a new option with no code change),
+# and an unstocked size must still be typeable, because the ladder, the rounding and the composition
+# rules all exist to resolve exactly that. A plain `dropdown` on a size would silently remove the
+# only way to say what the document says.
+_PANEL_CONTROLS = {"dropdown", "text", "dropdown_or_other"}
+# the controls that let a person TYPE: each one must declare what to type (`panel_notes`)
+_TYPED_CONTROLS = {"text", "dropdown_or_other"}
 # SLICE 9 (owner A-1): `component` -- this SKU attribute is ONE AXIS (1 width, 2 height, 3 depth) of a size the
 # row writes as a SINGLE phrase, which CODE splits. ABSENT => the reader is byte-identical to before.
 _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range", "component"}
@@ -601,6 +613,37 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         missing_pc = panel_ns - set(pc)
         if missing_pc:
             _vthrow(f"list_spec.pricing.panel_controls must declare every attribute the panel can show; missing: {', '.join(sorted(missing_pc))}.")
+        # OWNER FA8 (2026-10-04): "the attributes whic cannot be dropdowns and the user is expected to
+        # type in, must have brief explantion abnout whathe user is expected to eneter there." A typed
+        # field with no note is a box with no question, so the note is REQUIRED wherever typing is
+        # possible -- and `panel_notes` is closed to the same namespace, for the same reason the
+        # controls are: a note on an attribute the panel cannot show would never be read.
+        notes = pr.get("panel_notes")
+        # ⚠️ REQUIRED ON `dropdown_or_other` ONLY, and that scope is a RULING, not caution. The owner
+        # asked for a note on every typed field AND ruled ADP read-only in the same breath -- and ADP
+        # declares four `text` controls with no notes, so requiring them everywhere would REFUSE a
+        # shipped config the owner forbade touching. The requirement therefore binds where this slice
+        # introduces typing; a `text` field MAY carry a note and it is validated if it does, and ADP's
+        # own notes arrive with the ADP retrofit.
+        typed = {k for k, v in pc.items() if v == "dropdown_or_other"}
+        if typed and not isinstance(notes, dict):
+            _vthrow("list_spec.pricing.panel_notes must be an object naming what to type in each typed "
+                    "field: %s." % ", ".join(sorted(typed)))
+        if isinstance(notes, dict):
+            unknown_n = set(notes) - panel_ns
+            if unknown_n:
+                _vthrow("list_spec.pricing.panel_notes names attribute(s) the panel cannot show: %s."
+                        % ", ".join(sorted(unknown_n)))
+            bad_n = sorted(k for k, v in notes.items() if not isinstance(v, str) or not v.strip())
+            if bad_n:
+                _vthrow("list_spec.pricing.panel_notes: each note must be a non-empty string (bad: %s)."
+                        % ", ".join(bad_n))
+            missing_n = typed - set(notes)
+            if missing_n:
+                _vthrow("list_spec.pricing.panel_notes must say what to type in every typed field; "
+                        "missing: %s." % ", ".join(sorted(missing_n)))
+        elif notes is not None:
+            _vthrow("list_spec.pricing.panel_notes must be an object.")
     # families: the family attribute's values, through the alias
     alias = pr.get("family_alias") or {}
     if not isinstance(alias, dict) or not all(isinstance(k, str) and isinstance(v, str) and k in family_vals and v in family_vals and k != v for k, v in alias.items()):

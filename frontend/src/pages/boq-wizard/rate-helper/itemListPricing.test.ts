@@ -18,7 +18,7 @@ import {
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
-import HVAC_V18 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v18.json";
+import HVAC_V19 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v19.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
@@ -38,7 +38,7 @@ import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data
 import HVAC_V11 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v11.json";
 import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
 import HVAC_V13 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v13.json";
-import { familyChoices, itemFieldDefs, listSpecDefs } from "./itemListPricing";
+import { familyChoices, itemFieldDefs, listSpecDefs, sizeFieldHelp } from "./itemListPricing";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
 const asset = HVAC_V7 as unknown as Asset;
@@ -1920,10 +1920,10 @@ const CALCULATOR_SRC = readFileSync(
 
 describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V18 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs18 = (HVAC_V19 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V18 as unknown as { items: RateMasterItem[] }).items;
+  const items18 = (HVAC_V19 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
@@ -1992,5 +1992,158 @@ describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CAL
         expect(l).not.toMatch(/hvac_|HVAC|Electrical|insulation/);
       }
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH, FA8 -- A CATALOGUE ATTRIBUTE IS A LIVE DROPDOWN; A TYPED ONE SAYS WHAT TO TYPE
+ *
+ * Owner (2026-10-04): "all attributes which can be dropdpwns based on catalog miust be made
+ * dropdowns instead of free text/number. the dropdowns must be dynamic, so that any change in
+ * catalog must be refelcted automativcally. the attributes whic cannot be dropdowns and the user is
+ * expected to type in, must have brief explantion abnout whathe user is expected to eneter there."
+ *
+ * On thickness and pipe size the owner chose the live stocked values PLUS "Other...", because the
+ * ladder, the rounding and the composition rules exist precisely to resolve a size the sheet does
+ * NOT stock -- a plain dropdown would remove the only way to say what the document says.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => {
+  const asset = HVAC_V19 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const items = asset.items.filter((i) => i.kind === "hvac_insulation_item");
+  const NR = "Nitrile Rubber Insulation";
+
+  /** the spec with FA8's controls declared, as v19 ships them */
+  const withControls = (controls: Record<string, string>, notes?: Record<string, string>) => {
+    const cfg = JSON.parse(JSON.stringify(insCfg));
+    cfg.list_spec.pricing.panel_controls = controls;
+    if (notes) cfg.list_spec.pricing.panel_notes = notes;
+    return itemListPricingSpec(cfg as never)!;
+  };
+  const FA8_CONTROLS = { item: "dropdown", cladding: "dropdown",
+                         thickness_mm: "dropdown_or_other", pipe_size_mm: "dropdown_or_other" };
+  const FA8_NOTES = { thickness_mm: "Type the thickness in mm as the BoQ states it.",
+                      pipe_size_mm: "Type the pipe size the BoQ states, in mm or inches." };
+
+  const defsFor = (spec: ReturnType<typeof itemListPricingSpec>) =>
+    itemFieldDefs(spec!, listSpecDefs(insCfg as never), NR, "length",
+                  { items, answers: {} } as never);
+
+  it("⚠️ THE SHIPPED CONFIG declares them -- not a fixture this test built", () => {
+    const pr = (insCfg as { list_spec: { pricing: Record<string, unknown> } }).list_spec.pricing;
+    expect(pr.panel_controls).toEqual({
+      item: "dropdown", cladding: "dropdown",
+      thickness_mm: "dropdown_or_other", pipe_size_mm: "dropdown_or_other",
+    });
+    // ⚠️ AND THE NOTES NAME NO SIZE (owner FA8(f)): every worked example is generated live from the
+    // catalogue, because a note naming a size that is no longer stocked teaches the reader a lie.
+    const notes = pr.panel_notes as Record<string, string>;
+    expect(Object.keys(notes).sort()).toEqual(["pipe_size_mm", "thickness_mm"]);
+    for (const n of Object.values(notes)) expect(n).not.toMatch(/\d/);
+  });
+
+  it("the SHIPPED spec gives both sizes the Other... control, end to end", () => {
+    const shipped = itemListPricingSpec(insCfg as never)!;
+    const defs = itemFieldDefs(shipped, listSpecDefs(insCfg as never), NR, "length",
+                               { items, answers: {} } as never);
+    for (const attr of ["thickness_mm", "pipe_size_mm"]) {
+      const f = defs.find((d) => d.skuAttr === attr)!;
+      expect(f.allowOther, attr).toBe(true);
+      expect(f.optionSource, attr).toBe("catalogue");
+      expect((f.typedNote ?? ""), attr).not.toBe("");
+    }
+    expect(defs.find((d) => d.skuAttr === "cladding")!.allowOther).toBeUndefined();
+  });
+
+  it("a size field offers the LIVE stocked values AND the right to type", () => {
+    const defs = defsFor(withControls(FA8_CONTROLS, FA8_NOTES));
+    const thick = defs.find((d) => d.skuAttr === "thickness_mm")!;
+    expect(thick.control).toBe("dropdown_or_other");
+    expect(thick.allowOther).toBe(true);
+    expect(thick.optionSource).toBe("catalogue");
+    // the options ARE the catalogue's, not a list in code or config
+    expect(thick.options).toEqual(["13", "19", "25"]);
+    expect(thick.typedNote).toBe(FA8_NOTES.thickness_mm);
+  });
+
+  it("⚠️ DYNAMIC: a new catalogue row IS a new option, with no code and no config change", () => {
+    const extra = {
+      ...items.find((i) => (i.attributes as Record<string, unknown>).item === NR)!,
+      item_uid: "rmi-test-fa8", attributes: {
+        ...(items.find((i) => (i.attributes as Record<string, unknown>).item === NR)!.attributes as Record<string, unknown>),
+        thickness_mm: 32,
+      },
+    } as RateMasterItem;
+    const spec = withControls(FA8_CONTROLS, FA8_NOTES);
+    const before = itemFieldDefs(spec, listSpecDefs(insCfg as never), NR, "length", { items, answers: {} } as never)
+      .find((d) => d.skuAttr === "thickness_mm")!.options;
+    const after = itemFieldDefs(spec, listSpecDefs(insCfg as never), NR, "length", { items: [...items, extra], answers: {} } as never)
+      .find((d) => d.skuAttr === "thickness_mm")!.options;
+    expect(before).not.toContain("32");
+    expect(after).toContain("32");
+    // and removing it again takes the option away -- the deactivate half
+    const back = itemFieldDefs(spec, listSpecDefs(insCfg as never), NR, "length", { items, answers: {} } as never)
+      .find((d) => d.skuAttr === "thickness_mm")!.options;
+    expect(back).toEqual(before);
+  });
+
+  it("a plain `dropdown` offers NO typed box -- the two controls are different things", () => {
+    const defs = defsFor(withControls({ ...FA8_CONTROLS, thickness_mm: "dropdown" }, FA8_NOTES));
+    const thick = defs.find((d) => d.skuAttr === "thickness_mm")!;
+    expect(thick.control).toBe("dropdown");
+    expect(thick.allowOther).toBeUndefined();
+    expect(thick.typedNote).toBeUndefined();
+  });
+
+  it("ABSENT panel_controls is byte-identical to before FA8 existed", () => {
+    // the shipped config now DECLARES the block, so the absent case is constructed by removing it --
+    // this is what every category that declares nothing (ADP's siblings, all of Electrical) still gets
+    const stripped = JSON.parse(JSON.stringify(insCfg));
+    delete stripped.list_spec.pricing.panel_controls;
+    delete stripped.list_spec.pricing.panel_notes;
+    const plain = itemListPricingSpec(stripped as never)!;
+    expect(plain.panel_controls).toBeUndefined();
+    const defs = itemFieldDefs(plain, listSpecDefs(stripped as never), NR, "length", { items, answers: {} } as never);
+    expect(defs.length).toBeGreaterThan(0);
+    for (const d of defs) {
+      expect(d.allowOther, d.skuAttr).toBeUndefined();
+      expect(d.typedNote, d.skuAttr).toBeUndefined();
+    }
+  });
+
+  it("⚠️ THE SIZE HELP NAMES REAL SIZES, GENERATED LIVE -- never a number written in code", () => {
+    const spec = withControls(FA8_CONTROLS, FA8_NOTES);
+    const help = sizeFieldHelp(spec, "thickness_mm", ["13", "19", "25"])!;
+    expect(help).not.toBeNull();
+    const all = help.lines.join(" ");
+    // every size it names is one the catalogue stocks, or a composition of them
+    expect(all).toContain("13");
+    expect(all).toMatch(/next size UP/i);
+    expect(all).toMatch(/layers/i);
+    // the composition example is computed by the SAME composer the pricer uses
+    expect(all).toMatch(/\d+ \+ \d+/);
+  });
+
+  it("the help follows the catalogue: different stocked values give different sentences", () => {
+    const spec = withControls(FA8_CONTROLS, FA8_NOTES);
+    const a = sizeFieldHelp(spec, "thickness_mm", ["13", "19", "25"])!.lines.join(" ");
+    const b = sizeFieldHelp(spec, "thickness_mm", ["9", "13", "16", "19", "25"])!.lines.join(" ");
+    expect(a).not.toBe(b);
+    expect(b).toContain("9");
+  });
+
+  it("NEGATIVE: an attribute that is not a size gets no size help", () => {
+    const spec = withControls(FA8_CONTROLS, FA8_NOTES);
+    expect(sizeFieldHelp(spec, "cladding", ["No"])).toBeNull();
+  });
+
+  it("the panel renders the OTHER entry and keeps the select on it for an unstocked value", () => {
+    const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
+    expect(src).toContain("OTHER_VALUE");
+    expect(src).toContain("f.allowOther");
+    // ⚠️ the controlled-select trap: an unstocked value must PIN the select to OTHER, or the browser
+    // falls back to the first selectable option and shows a size nobody chose (frontend/CLAUDE.md)
+    expect(src).toContain("!f.options.includes(f.value) ? OTHER_VALUE : f.value");
+    expect(src).toContain("f.typedNote");
   });
 });
