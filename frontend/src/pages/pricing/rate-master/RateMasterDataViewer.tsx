@@ -50,6 +50,8 @@ import {
   // SLICE 12b(B): the derived rate-column kind for the header (acceptance item 1).
   deriveRateColumnLabels,
   rateColumnLabel,
+  columnOrderForFile,
+  sourceOrder,
 } from "./rateMasterSpec";
 
 /**
@@ -227,8 +229,12 @@ export function RateMasterDataViewer({
   // still resolves a kind, so it is UNCHANGED.
   const categoryKinds = useMemo(() => categoryItemKinds(config), [config]);
   const emptyScope = useMemo(() => isCategoryDataScopeEmpty(config), [config]);
+  // SLICE 12c / ACCEPTANCE 4: the ROWS come out in the SOURCE WORKBOOK'S order -- the same order the
+  // rate file is written in (`sourceOrder`, the mirror of `csv_exporter._source_order`). The screen used
+  // to render the fetch order (kind, then source_row), which interleaved two categories drawn from two
+  // sheets and did not match the file a reader had just downloaded. PRESENTATION ONLY.
   const scopedItems = useMemo(
-    () => (emptyScope ? [] : items.filter((it) => categoryKinds.includes(it.kind))),
+    () => (emptyScope ? [] : sourceOrder(items.filter((it) => categoryKinds.includes(it.kind)))),
     [items, categoryKinds, emptyScope]
   );
   // The kind column + chips only appear when the category spans MORE THAN ONE kind.
@@ -241,10 +247,19 @@ export function RateMasterDataViewer({
   const specMode = isSpecDrivenConfig(config);
   const specCols = useMemo(() => splitSpecColumns(config.attribute_definitions), [config]);
   const textCols = useMemo(() => (specMode ? specCols.text : []), [specMode, specCols]);
-  const attrCols = useMemo(
-    () => (specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand")),
-    [config, specMode, specCols]
-  );
+  // SLICE 12c / ACCEPTANCE 4: ordered the way the FILE orders them -- `columnOrderForFile`, the mirror
+  // of `csv_exporter.column_order_for`. A category declaring `rate_composition` keeps its declaration
+  // order (which IS the sheet's); every other category takes the sorted order the file uses. Any
+  // definition the items do not carry keeps its declared place at the end, so a template column never
+  // disappears off the screen.
+  const fileOrder = useMemo(() => columnOrderForFile(config, scopedItems), [config, scopedItems]);
+  const attrCols = useMemo(() => {
+    const defs = specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand");
+    const rank = new Map(fileOrder.attrs.map((id, i) => [id, i]));
+    const known = defs.filter((d) => rank.has(d.id))
+      .sort((x, y) => (rank.get(x.id) as number) - (rank.get(y.id) as number));
+    return [...known, ...defs.filter((d) => !rank.has(d.id))];
+  }, [config, specMode, specCols, fileOrder]);
   // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
   const editableAttrCols = specMode ? textCols : attrCols;
 
@@ -288,12 +303,10 @@ export function RateMasterDataViewer({
         scopedItems.some((it) => (it.rates || {})[k] !== undefined && (it.rates || {})[k] !== null),
       );
     }
-    const seen: string[] = [];
-    for (const it of scopedItems) {
-      for (const k of Object.keys(it.rates || {})) if (!seen.includes(k)) seen.push(k);
-    }
-    return seen;
-  }, [scopedItems, piMode]);
+    // SLICE 12c / ACCEPTANCE 4: the FILE's order, not first-seen. First-seen depended on which row the
+    // mint happened to write first, so the screen and the file agreed only by accident.
+    return fileOrder.rates;
+  }, [fileOrder, scopedItems, piMode]);
 
   /** the plan's total, so the table declares its own width and cannot be squeezed by its container */
   const piTableWidth = useMemo(() => (
@@ -916,6 +929,9 @@ export function RateMasterDataViewer({
                 <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input")}</TableHead>
               )}
               {!piMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", "brand")}</TableHead>}
+              {/* SLICE 12c / ACCEPTANCE 4 (U4, approved): `unit` sits right after `brand`, where the
+                  rate file puts it. It used to render after the rate columns. */}
+              {!piMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>}
               {attrCols.map((d) => (
                 <TableHead key={d.id} className={cn("sticky top-0 z-20 bg-background", piHead)}>
                   {hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
@@ -930,7 +946,7 @@ export function RateMasterDataViewer({
                        undefined, piMode ? undefined : rateLabelFor(k))}
                 </TableHead>
               ))}
-              <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>
+              {piMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>}
               {/* ACCEPTANCE 12: sharing has its OWN column, never the name. ACCEPTANCE 4/13: the remark
                   and the READ-ONLY used-by count. The SKU columns (source sheet / row, the two formula
                   columns) are absent -- they are what "nothing borrowed from a SKU file" means. */}

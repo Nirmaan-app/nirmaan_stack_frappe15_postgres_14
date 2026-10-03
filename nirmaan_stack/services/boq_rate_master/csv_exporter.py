@@ -432,6 +432,23 @@ def _sheet_column_order(cfg, attrs, rates):
     return ordered_attrs, seq + [r for r in rates if r not in seq]
 
 
+def column_order_for(cfg, items):
+    """(attrs, rates) -- THE column order of a category's rate file, as one callable.
+
+    ⚠️ IT EXISTS SO THE SCREEN CAN FOLLOW THE FILE (slice 12c, acceptance 4). The Data Viewer used to
+    derive its own order -- rate columns in FIRST-SEEN order across the items, attributes in declaration
+    order -- and the two agreed only by accident, because the mint happened to store the dicts that way.
+    `rateMasterSpec.columnOrderForFile` is the TypeScript mirror of this function and the two are pinned
+    to identical output on one shared fixture, exactly as the formula renderer pair is.
+
+    It is the composition of what the exporter already did: observe the keys, sort them for stability,
+    then let a category that DECLARES a sheet order (`rate_composition`) override it. A category with no
+    declaration keeps the sorted order, byte-identical to before this helper existed.
+    """
+    attrs, rates = _keys_for(items)
+    return _sheet_column_order(cfg or {}, attrs, rates)
+
+
 def build_category_rows(discipline, category_id):
     """MODE A -- one category, format-neutral. Returns {headers, rows (raw values), numeric, n}.
 

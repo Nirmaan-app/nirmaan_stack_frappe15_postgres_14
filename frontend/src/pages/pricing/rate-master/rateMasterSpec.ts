@@ -985,3 +985,85 @@ export function pricingInputUsedByText(
   if (!entry || !entry.sites) return "not used";
   return `${entry.sites} site${entry.sites === 1 ? "" : "s"} in ${entry.categories.join(", ")}`;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c, ACCEPTANCE 4 -- THE SCREEN FOLLOWS THE FILE
+//
+// The Data Viewer used to derive its own column order (rate keys in FIRST-SEEN order across the items,
+// attributes in declaration order) while the rate file derives its own (observed keys SORTED, then
+// overridden by a declared `rate_composition` sheet order). The two agreed only by ACCIDENT -- because
+// the mint happened to store the dicts in an order that matched -- so a reader comparing the screen
+// with the file they just downloaded could find the columns in different places for no stated reason.
+//
+// ⚠️ THIS IS THE MIRROR OF `csv_exporter.column_order_for`, AND THE TWO ARE PINNED TO IDENTICAL OUTPUT
+// on one shared fixture, exactly as the formula renderer pair is. The screen cannot call an exporter
+// for one header, so the duplication is deliberate and the pin IS the mechanism: change one side
+// without the other and a suite goes red.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+const RATE_COMPOSITION_KEY = "rate_composition";
+
+/** `(attrs, rates)` ids in the order the rate FILE puts them. PURE. Mirrors `column_order_for`. */
+export function columnOrderForFile(
+  config: unknown,
+  items: ReadonlyArray<{ attributes?: Record<string, unknown>; rates?: Record<string, unknown> }>,
+): { attrs: string[]; rates: string[] } {
+  // step 1 -- the observed keys, SORTED, which is `_keys_for`
+  const a = new Set<string>();
+  const r = new Set<string>();
+  for (const it of items ?? []) {
+    for (const k of Object.keys(it.attributes ?? {})) a.add(k);
+    for (const k of Object.keys(it.rates ?? {})) r.add(k);
+  }
+  const attrs = Array.from(a).sort();
+  const rates = Array.from(r).sort();
+
+  // step 2 -- a category that DECLARES the sheet's order overrides it; one that does not keeps the sort
+  const comp = (config as any)?.[RATE_COMPOSITION_KEY] ?? null;
+  if (!comp || typeof comp !== "object" || !Object.keys(comp).length) return { attrs, rates };
+
+  const declared: string[] = ((config as any)?.attribute_definitions ?? [])
+    .map((d: any) => d?.id).filter((x: unknown): x is string => typeof x === "string" && !!x);
+  const orderedAttrs = [...declared.filter((x) => attrs.includes(x)),
+                        ...attrs.filter((x) => !declared.includes(x))];
+
+  const seq: string[] = [];
+  const push = (k: unknown) => {
+    if (typeof k === "string" && k && rates.includes(k) && !seq.includes(k)) seq.push(k);
+  };
+  for (const side of ["supply", "install"]) {
+    const spec = comp[side] ?? {};
+    for (const k of (spec.parts ?? [])) push(k);
+    push(spec.wastage_key);
+  }
+  // the markups LAST, after every cost part -- the sheet's own shape
+  for (const side of ["supply", "install"]) push((comp[side] ?? {}).markup_key);
+  return { attrs: orderedAttrs, rates: [...seq, ...rates.filter((x) => !seq.includes(x))] };
+}
+
+/**
+ * The items in the SOURCE WORKBOOK'S OWN order -- sheet, then row, then uid. Mirrors
+ * `csv_exporter._source_order`.
+ *
+ * ⚠️ SHEET FIRST is load-bearing, for the same reason it is in the exporter: two categories draw from
+ * two sheets each, and ordering on the row number alone interleaves them. PRESENTATION ONLY.
+ */
+export function sourceOrder<T extends { source_sheet?: unknown; source_row?: unknown; item_uid?: unknown }>(
+  items: readonly T[],
+): T[] {
+  const key = (it: T): [string, number, number, string] => {
+    const raw = it.source_row;
+    const hasRow = raw !== null && raw !== undefined && String(raw).trim() !== "";
+    const n = Number(raw);
+    return [String(it.source_sheet ?? ""), hasRow ? 0 : 1,
+            hasRow && Number.isFinite(n) ? n : 0, String(it.item_uid ?? "")];
+  };
+  return [...items].sort((x, y) => {
+    const kx = key(x), ky = key(y);
+    for (let i = 0; i < kx.length; i++) {
+      if (kx[i] < ky[i]) return -1;
+      if (kx[i] > ky[i]) return 1;
+    }
+    return 0;
+  });
+}

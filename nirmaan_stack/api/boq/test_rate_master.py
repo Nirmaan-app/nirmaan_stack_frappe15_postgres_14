@@ -16551,3 +16551,127 @@ class TestHvacPricingInputsAndInsulationRules(FrappeTestCase):
         path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
         with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
             return fh.read()
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c, COMMIT 6 -- THE DATA VIEWER'S COLUMNS AND ROWS FOLLOW THE DOWNLOAD (acceptance 4)
+#
+# ONE SHARED FIXTURE, pinned to byte-identical output on both sides of the language boundary -- the
+# `FORMULA_FIXTURE` idiom. `rateMasterColumnOrder.test.ts` asserts the SAME expectations against the
+# TypeScript mirror; change one side without the other and a suite goes red.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+COLUMN_ORDER_FIXTURE_ITEMS = [
+    {"attributes": {"zeta": 1, "alpha": 2, "cladding": "No"},
+     "rates": {"install_markup": 0.4, "cost_adhesive": 30.0, "supply_markup": 0.4,
+               "cost_insulation": 99.0, "wastage": 0.05, "stray_rate": 1.0}},
+    {"attributes": {"alpha": 3, "mid": 4}, "rates": {"cost_cladding": 7.0}},
+]
+# a category that DECLARES the sheet's order
+COLUMN_ORDER_FIXTURE_DECLARED = {
+    "attribute_definitions": [{"id": "cladding"}, {"id": "zeta"}, {"id": "alpha"}],
+    "rate_composition": {
+        "supply": {"parts": ["cost_insulation", "cost_adhesive", "cost_cladding"],
+                   "wastage_key": "wastage", "markup_key": "supply_markup"},
+        "install": {"parts": ["cost_install_x"], "markup_key": "install_markup"},
+    },
+}
+# ...and one that declares nothing
+COLUMN_ORDER_FIXTURE_BARE = {"attribute_definitions": [{"id": "zeta"}, {"id": "alpha"}]}
+
+
+class TestColumnOrderIsShared(FrappeTestCase):
+    """The screen follows the file, and the two orderings are ONE rule in two languages."""
+
+    def test_co_01_a_DECLARING_category_takes_the_sheets_order(self):
+        attrs, rates = csv_exporter.column_order_for(COLUMN_ORDER_FIXTURE_DECLARED,
+                                                     COLUMN_ORDER_FIXTURE_ITEMS)
+        # declared attributes first IN DECLARATION ORDER, then anything observed but undeclared, sorted
+        self.assertEqual(attrs, ["cladding", "zeta", "alpha", "mid"])
+        # the cost parts in the sheet's order, then the wastage, then BOTH markups last
+        self.assertEqual(rates, ["cost_insulation", "cost_adhesive", "cost_cladding", "wastage",
+                                 "supply_markup", "install_markup", "stray_rate"])
+        # NEGATIVE: a part the items do not carry (`cost_install_x`) is NOT invented as a column
+        self.assertNotIn("cost_install_x", rates)
+
+    def test_co_02_a_category_that_declares_NOTHING_keeps_the_sorted_order(self):
+        """⚠️ THIS IS WHAT KEEPS EVERY ELECTRICAL FILE BYTE-IDENTICAL. Inventing a sheet order for a
+        category that never declared one would reorder files the owner did not ask about."""
+        attrs, rates = csv_exporter.column_order_for(COLUMN_ORDER_FIXTURE_BARE,
+                                                     COLUMN_ORDER_FIXTURE_ITEMS)
+        self.assertEqual(attrs, sorted(attrs))
+        self.assertEqual(rates, sorted(rates))
+        self.assertEqual(attrs, ["alpha", "cladding", "mid", "zeta"])
+
+    def test_co_03_it_is_what_the_EXPORTER_ITSELF_uses(self):
+        """Not a parallel implementation: the real file's headers ARE this order. Proven on the live
+        catalogue, so the helper cannot drift away from the thing it claims to describe."""
+        checked = 0
+        for disc, cat in (("HVAC", "hvac_insulation"), ("HVAC", "hvac_adp"),
+                          ("Electrical", "wiring_cabling"), ("Electrical", "switches_sockets")):
+            out = csv_exporter.build_category_rows(disc, cat)
+            items, _kc, cat_kinds, _t = csv_exporter._load_full(disc)
+            kinds = set(cat_kinds[cat])
+            rows_in = [it for it in items if it["kind"] in kinds]
+            cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                        {"discipline": disc, "active": 1, "category_id": cat}, "config"))
+            attrs, rates = csv_exporter.column_order_for(cfg, rows_in)
+            hdr = [h.split(" [")[0] for h in out["headers"]]       # strip the 12b(B) rate-kind label
+            # the RATE order holds for every category, spec-driven or not
+            self.assertEqual([h for h in hdr if h in rates], rates, cat)
+            if kinds and kinds <= csv_exporter._spec_kinds(disc):
+                # ⚠️ A SPEC-DRIVEN CATEGORY IS THE ONE DOCUMENTED EXCEPTION, by the slice-1c ruling
+                # ("we should not show the derived attribute columns in the csv to avoid confusion").
+                # Its file carries the TWO TEXT columns and NO derived attribute column, while the
+                # SCREEN shows the derived ones read-only and tagged "read from spec". So the screen and
+                # the file differ here BY DESIGN, and that is asserted rather than skipped.
+                self.assertEqual([h for h in hdr if h in set(attrs) | set(csv_exporter.TEXT_COLUMNS)],
+                                 list(csv_exporter.TEXT_COLUMNS), cat)
+                self.assertTrue(set(attrs) - set(csv_exporter.TEXT_COLUMNS),
+                                "%s has no derived attributes, so it is not the exception it claims" % cat)
+            else:
+                self.assertEqual([h for h in hdr if h in attrs], attrs, cat)
+                # and the file's attributes come BEFORE its rates, which is what the screen now mirrors
+                if attrs and rates:
+                    self.assertLess(max(hdr.index(a) for a in attrs),
+                                    min(hdr.index(r) for r in rates), cat)
+            checked += 1
+        self.assertEqual(checked, 4)
+
+    def test_co_04_unit_sits_right_after_brand_in_the_file(self):
+        """ACCEPTANCE 4 / U4: the screen was moved to match THIS, so it is pinned here as the truth."""
+        out = csv_exporter.build_category_rows("HVAC", "hvac_insulation")
+        h = out["headers"]
+        self.assertEqual(h[h.index("brand") + 1], "unit")
+
+    def test_co_05_the_file_is_in_SOURCE_WORKBOOK_order_sheet_first(self):
+        """The screen mirrors this with `rateMasterSpec.sourceOrder`. Sheet FIRST, because two
+        categories draw from two sheets each and a row-only sort interleaves them."""
+        items, _kc, cat_kinds, _t = csv_exporter._load_full("Electrical")
+        rows_in = [it for it in items if it["kind"] in set(cat_kinds["wiring_cabling"])]
+        ordered = csv_exporter._source_order(rows_in)
+        keys = [(it.get("source_sheet") or "", int(it.get("source_row") or 0)) for it in ordered]
+        self.assertEqual(keys, sorted(keys))
+        self.assertGreater(len({k[0] for k in keys}), 1, "this category must span >1 sheet to be the test")
+
+    def test_co_06_the_TS_MIRROR_IS_PINNED_TO_THE_SAME_FIXTURE(self):
+        """⚠️ THE MECHANISM. The screen cannot call an exporter for one header, so the order exists
+        twice; this asserts the TypeScript test carries the SAME fixture and the SAME expectations, so
+        the two cannot drift silently."""
+        src = self._frontend_src("pages", "pricing", "rate-master", "rateMasterColumnOrder.test.ts")
+        for needle in ('"cladding", "zeta", "alpha", "mid"',
+                       '"cost_insulation", "cost_adhesive", "cost_cladding", "wastage"',
+                       '"supply_markup", "install_markup", "stray_rate"',
+                       '"alpha", "cladding", "mid", "zeta"'):
+            self.assertIn(needle, src, needle)
+        # and the viewer really reads the shared helpers rather than deriving its own order
+        viewer = self._frontend_src("pages", "pricing", "rate-master", "RateMasterDataViewer.tsx")
+        self.assertIn("columnOrderForFile(config, scopedItems)", viewer)
+        self.assertIn("sourceOrder(items.filter", viewer)
+        # NEGATIVE: the retired first-seen walk is GONE, not merely unused
+        self.assertNotIn("for (const k of Object.keys(it.rates || {})) if (!seen.includes(k))", viewer)
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
