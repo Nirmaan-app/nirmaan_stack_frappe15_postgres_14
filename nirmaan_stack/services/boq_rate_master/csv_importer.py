@@ -275,6 +275,30 @@ def derived_rate_map(discipline, active_rows):
     return out
 
 
+def computed_rate_map(discipline, active_rows):
+    """{(item_uid, rate_key): live figure} -- the cells whose value the RULES compute (owner F4).
+
+    ⚠️ DIFFERENT FROM `derived_rate_map` IN WHAT IT COMPARES AGAINST. A declared-derived cell is
+    checked against the STORED figure; a computed one has no meaningful stored figure at all, so it is
+    checked against the value RECOMPUTED here and now. That is also what makes an untouched
+    download/upload a silent no-op: the file carries the figure we just computed, so it matches.
+    """
+    out = {}
+    by_cat = {}
+    for it in active_rows or []:
+        by_cat.setdefault(it.get("kind"), None)
+    cfgs = csv_exporter._load_configs(discipline)
+    kind_cat = {}
+    for cid, cfg in (cfgs or {}).items():
+        for k in csv_exporter._config_kinds(cfg):
+            kind_cat[k] = cid
+    for cid, cfg in (cfgs or {}).items():
+        kinds = [k for k, c in kind_cat.items() if c == cid]
+        for k in kinds:
+            out.update(csv_exporter.computed_cladding_cells(cfg, active_rows, cid, {cid: [k]}))
+    return out
+
+
 def derived_base_wording(resolved_terms):
     """The base row(s) a derived cell reads, as the refusal names them."""
     return " plus ".join(w for _t, w in resolved_terms)
@@ -869,6 +893,8 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     # names. ONE read per plan, from the same predicate the exporter and the screen use. {} for a
     # discipline whose configs declare nothing, so its rates loop is byte-identical to before.
     derived_map = derived_rate_map(discipline, active)
+    # SLICE 12c FINISH (owner F4): the cells the rules COMPUTE, recomputed once per plan.
+    computed_map = computed_rate_map(discipline, active)
     in_file_identities = {}      # identity -> [rows] over the rows whose identity is NEW or CHANGED (Y-b 2)
 
     plan = {
@@ -1157,6 +1183,27 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
             # stay a silent no-op -- which is exactly what K2 checks. Every OTHER cell of the row,
             # including the row's own cost parts and its markups, is accepted as always (I-3).
             # ══════════════════════════════════════════════════════════════════════════════════
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 12c FINISH (owner F4) -- A COMPUTED CELL. Its figure comes from the Pricing
+            # Inputs and the row's own geometry, so a number typed here could only be ignored or
+            # wrong. The file carries the LIVE figure (the owner asked to SEE it), so an untouched
+            # download/upload matches and is a silent no-op; anything else is refused, and the
+            # refusal says where to go instead.
+            # ══════════════════════════════════════════════════════════════════════════════════
+            computed_now = computed_map.get((uid, name)) if uid else None
+            if computed_now is not None:
+                typed, terr = coerce_rate(raw_text, name)
+                if typed is None or (raw_text or "").strip().lower() == _DERIVED_CELL_TEXT:
+                    pass                      # blank, or the word -- both mean UNTOUCHED
+                elif terr:
+                    row_errors.append(terr)
+                elif not _same_rate(typed, computed_now):
+                    row_errors.append(
+                        "'%s' is CALCULATED from the Pricing Inputs and this row's own size -- it is "
+                        "not typed. Change the Pricing Inputs instead; a value typed here is refused."
+                        % name
+                    )
+                continue
             derived_terms = derived_map.get((uid, name)) if uid else None
             if derived_terms is not None:
                 typed, terr = coerce_rate(raw_text, name)

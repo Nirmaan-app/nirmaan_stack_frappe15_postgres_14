@@ -271,7 +271,7 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12c: the two blocks `ladderResolution.ts` reads. Each arrives WITH its shape
                  # check below -- a key this allowlist admits but nothing validates is the
                  # "validates but never executes" failure, and it is the whole reason this file exists.
-                 "size_match", "compose", "label_attr", "number_defaults"}
+                 "size_match", "compose", "label_attr", "number_defaults", "typed_cladding"}
 # SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). `defaults` cannot express this --
 # it requires a CHOICE attribute carrying `allow_none`, and a thickness is a NUMBER read through
 # `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
@@ -518,6 +518,19 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if la not in by_id and la != spec.get("family_attribute_id"):
             _vthrow(f"list_spec.pricing.label_attr '{la}' is not an item attribute of this category; "
                     "a ladder would skip every row and refuse everything.")
+    # SLICE 12c FINISH (owner F4): the cladding values whose cost stays TYPED and editable. Every
+    # other row shows the live computed figure, greyed. Must name values the category actually has.
+    tc = pr.get("typed_cladding")
+    if tc is not None:
+        if not isinstance(tc, list) or not tc:
+            _vthrow("list_spec.pricing.typed_cladding, when present, must be a non-empty list.")
+        vocab = set()
+        for a in choice_attrs:
+            vocab |= set(by_id[a].get("values") or [])
+        for v in tc:
+            if v not in vocab:
+                _vthrow(f"list_spec.pricing.typed_cladding names '{v}', which is not a value of any "
+                        "choice attribute of this category.")
     nd = pr.get("number_defaults")
     if nd is not None:
         if not isinstance(nd, dict):

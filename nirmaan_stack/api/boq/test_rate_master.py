@@ -70,7 +70,10 @@ SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
 
 import base64
 import collections
+import ast
+import csv
 import io
+import sys
 import copy
 import inspect
 import json
@@ -82,7 +85,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import (config_validation, csv_exporter, csv_importer,
+from nirmaan_stack.services.boq_rate_master import (cladding_cost, config_validation, csv_exporter, csv_importer,
                                                       extraction, freeze, loader)
 
 # The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
@@ -11420,6 +11423,13 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
+def _read_frontend_src(*parts):
+    """A frontend file, for the cross-language pins. Module-level so any class may use it."""
+    path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+    with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
 CURRENT_HVAC_ASSET = "rate_master_hvac_all_v17.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
@@ -12685,10 +12695,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         # it predates the four above -- and ADP carries NONE of the three, which is the point: the HVAC
         # Insulation category is the only consumer, so widening the allowlist cannot have moved ADP.
         self.assertEqual(set(pr), config_validation._PRICING_KEYS
-                         # SLICE 12c FINISH adds `number_defaults`, which v7 predates exactly as it
-                         # predates the others -- and ADP declares none, which is the point.
+                         # SLICE 12c FINISH adds `number_defaults` and `typed_cladding`, which v7
+                         # predates exactly as it predates the others -- and ADP declares neither,
+                         # which is the point: both are read only by HVAC Insulation.
                          - {"panel_controls", "override_when", "second_key", "unit_factors",
-                            "size_match", "compose", "label_attr", "number_defaults"})
+                            "size_match", "compose", "label_attr", "number_defaults",
+                            "typed_cladding"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         def refused(mutate, needle):
@@ -14837,14 +14849,25 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
             for uid, keys in (_obj(c["config"]).get("derived_rates") or {}).items():
                 for k in keys:
                     all_cats.add((uid, k))
+        # ⚠️ INVERTED BY SLICE 12c FINISH (owner F4), NOT RELAXED. The fill's meaning was always "a
+        # cell the pricer may not type in", and until F4 the only such cells were the DECLARED-derived
+        # ones. F4 adds a second population -- the cells whose figure the RULES COMPUTE live from the
+        # Pricing Inputs and the row's own geometry -- and rules them "greyed and not editable" too. So
+        # the pin now asserts the fill over BOTH populations and still asserts its ABSENCE everywhere
+        # else, which is the half that catches an over-filled file. The computed set is read from the
+        # SAME exporter function that writes the cells, so the pin cannot drift from the mechanism.
+        items, _kc, cat_kinds, _t = ex._load_full(disc)
+        computed = set(ex.computed_cladding_cells(cfg, items, "hvac_insulation", cat_kinds))
+        self.assertEqual(len(computed), 219, "the computed population must not be empty or it proves nothing")
         for label, blob, b, declared, want_n in (
             ("mode A", ex.build_category_xlsx(disc, "hvac_insulation")[0],
              # SLICE 12c: 228 -> 172 in mode A and 240 -> 184 in mode B, both for the one reason -- the
              # 56 cladding declarations dissolved with the stored column. ADP's 12 are untouched, which
-             # is why the two numbers moved by exactly the same 56.
-             ex.build_category_rows(disc, "hvac_insulation"), ins_only, 172),
+             # is why the two numbers moved by exactly the same 56. SLICE 12c FINISH then adds the 219
+             # COMPUTED cladding cells on top of each: 172 + 219 and 184 + 219.
+             ex.build_category_rows(disc, "hvac_insulation"), ins_only | computed, 172 + 219),
             ("mode B", ex.build_all_categories_xlsx(disc)[0], ex.build_all_categories_rows(disc),
-             all_cats, 184),
+             all_cats | computed, 184 + 219),
         ):
             ws = openpyxl.load_workbook(io.BytesIO(blob)).worksheets[0]
             headers = b["headers"]
@@ -16887,3 +16910,264 @@ class TestCladdingOnlySkus(FrappeTestCase):
         self.assertNotIn(self.FAMILY, used)
         for iid in used:
             self.assertEqual(used[iid][1], ["hvac_insulation"], iid)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c FINISH, COMMIT 11 -- THE CLADDING COST COLUMN SHOWS ITS LIVE FIGURE, GREYED (owner F4)
+#
+# Owner: show "the live calculated figure, greyed and not editable", in the grid AND the download;
+# typing a value into it on upload is refused with a message pointing to Pricing Inputs; Aluminium
+# Foil rows keep their typed value, editable.
+#
+# ⚠️ THE FIGURE IS COMPUTED FROM THE CONFIG'S OWN RULE, not restated here. `cladding_cost` reads the
+# cladding `component` the pipeline runs -- its branch for this row, its bindings, its formula -- and
+# the geometry scale that produces the girth. A second implementation would drift from the price.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestComputedCladdingColumn(FrappeTestCase):
+    """219 computed cells carry the live number; the 5 foil rows stay typed and editable."""
+
+    D, C = "HVAC", "hvac_insulation"
+    KEY = "cost_cladding"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v17 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v15.json"), "r", encoding="utf-8") as fh:
+            cls.v15 = json.load(fh)
+
+    def _file(self):
+        return csv_exporter.build_category_rows(self.D, self.C)
+
+    # ---- the split -------------------------------------------------------------------------------
+
+    def test_cc_01_exactly_219_cells_are_COMPUTED_and_the_five_foil_rows_are_not(self):
+        """ACCEPTANCE FA4. 224 composites minus the 5 Aluminium Foil rows the owner ruled stay typed.
+        The 5 cladding-only SKUs carry no geometry of their own, so the rules compute nothing for
+        THEM either -- their cost depends on the ROW, which is the whole point of their shape."""
+        out = self._file()
+        locked = out["locked"]
+        h = out["headers"]
+        n_locked = sum(1 for lk in locked if self.KEY in lk)
+        self.assertEqual(n_locked, 219)
+        items, _kc, cat_kinds, _t = csv_exporter._load_full(self.D)
+        foil = {i["item_uid"] for i in items
+                if i["kind"] == "hvac_insulation_item"
+                and i["attributes"].get("cladding") == "Aluminium Foil"}
+        ui = h.index("item_uid")
+        ci = h.index(self.KEY)
+        for row, lk in zip(out["rows"], locked):
+            if row[ui] in foil:
+                self.assertNotIn(self.KEY, lk, "a foil row must stay editable")
+                self.assertEqual(row[ci], 80.0)
+
+    def test_cc_02_the_LIVE_figure_reproduces_every_frozen_one_v15_stored(self):
+        """⚠️ THE STRONGEST EVIDENCE THE RULE IS READ CORRECTLY. v15 stored a frozen `cost_cladding`
+        on every composite; this computes it from the Pricing Inputs and the row's own geometry. If
+        the reading were wrong, these would differ -- and not one of them does."""
+        cfg = next(c for c in self.v17["category_configs"] if c["category_id"] == self.C)
+        got = cladding_cost.computed_cladding_by_uid(
+            cfg, self.v17["items"], csv_exporter._unit_class_of, "hvac_insulation_item")
+        old = {i["item_uid"]: (i["rates"] or {}).get(self.KEY)
+               for i in self.v15["items"] if i["kind"] == "hvac_insulation_item"}
+        checked = 0
+        for uid, val in got.items():
+            was = old.get(uid)
+            if was is None:
+                continue
+            # ⚠️ TO WITHIN ONE UNIT IN THE LAST STORED DIGIT, which is the strongest claim the
+            # stored figure can support: the mint wrote it ROUNDED to 6 dp, and one row's exact
+            # value (107.6176125) is a TIE at that precision -- the mint rounded it up, Python's
+            # banker's rounding takes it down. A tighter assertion would be asserting the tie-break
+            # of whatever rounded the asset, not that the rule is read correctly.
+            self.assertAlmostEqual(val, was, delta=1e-6, msg=uid)
+            checked += 1
+        self.assertEqual(checked, 219, "expected all 219 checked against v15's frozen figures")
+
+    def test_cc_03_WHICH_claddings_stay_typed_is_declared_in_CONFIG(self):
+        """⚠️ NOT INFERRED, and it cannot be: a foil row and a cladding-of-"No" row are structurally
+        identical (both reduce to the row's own stored base). The config names the typed ones, so no
+        cladding value and no category appears in code."""
+        cfg = next(c for c in self.v17["category_configs"] if c["category_id"] == self.C)
+        self.assertEqual(cfg["list_spec"]["pricing"]["typed_cladding"], ["Aluminium Foil"])
+        # ⚠️ THE BAN IS ON CODE, NOT ON PROSE. The module's docstring and comments EXPLAIN the
+        # ruling and necessarily quote it; what must not exist is a literal the module evaluates.
+        # So this walks the AST and looks at the string constants only, docstrings excluded.
+        tree = ast.parse(inspect.getsource(cladding_cost))
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                body = getattr(node, "body", None) or []
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docstrings.add(id(body[0].value))
+        literals = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and id(n) not in docstrings]
+        self.assertTrue(literals, "the AST walk found no literals -- it is not looking at the module")
+        for banned in ("Aluminium Foil", "hvac_insulation", "26G", "24G"):
+            for lit in literals:
+                self.assertNotIn(banned, lit, "%r is named in code" % banned)
+
+    # ---- the upload (FA4's three cases) -----------------------------------------------------------
+
+    def _csv_rows(self):
+        payload, _h, _n = csv_exporter.build_category_csv(self.D, self.C)
+        text = payload.decode("utf-8-sig") if isinstance(payload, bytes) else payload
+        return list(csv.reader(io.StringIO(text.lstrip("﻿"))))
+
+    @staticmethod
+    def _dump(rows):
+        buf = io.StringIO()
+        csv.writer(buf, lineterminator="\n").writerows(rows)
+        return buf.getvalue().encode("utf-8")
+
+    def _plan(self, rows):
+        return csv_importer.public_plan(
+            csv_importer.build_plan(self.D, self._dump(rows), category_id=self.C))
+
+    def test_cc_04_an_UNCHANGED_download_re_uploads_as_zero_changes(self):
+        """⚠️ THE CELL NOW CARRIES A FIGURE, so this is the case that could have broken: a faithful
+        re-upload must not read the number we just wrote as an edit."""
+        p = self._plan(self._csv_rows())
+        self.assertEqual(len(p["errors"]), 0)
+        self.assertEqual(len(p["changes"]), 0)
+        self.assertEqual(p["counts"]["unchanged"], 229)
+
+    def test_cc_05_TYPING_into_a_computed_cell_is_REFUSED_pointing_at_Pricing_Inputs(self):
+        rows = self._csv_rows()
+        h = rows[0]
+        ui, ci = h.index("item_uid"), h.index(self.KEY)
+        items, _kc, _ck, _t = csv_exporter._load_full(self.D)
+        target = next(i["item_uid"] for i in items
+                      if i["kind"] == "hvac_insulation_item"
+                      and i["attributes"].get("cladding") == "26G Aluminium")
+        hit = 0
+        for r in rows[1:]:
+            if len(r) > ci and r[ui] == target:
+                r[ci] = "999"
+                hit += 1
+        self.assertEqual(hit, 1, "the fixture must change exactly one cell")
+        p = self._plan(rows)
+        self.assertEqual(len(p["errors"]), 1)
+        msg = p["errors"][0].get("message", "") if isinstance(p["errors"][0], dict) else str(p["errors"][0])
+        self.assertIn("CALCULATED", msg)
+        self.assertIn("Pricing Inputs", msg)
+
+    def test_cc_06_a_FOIL_row_is_still_EDITABLE(self):
+        """Owner F4, the exception: "Aluminium Foil rows keep their typed value, editable"."""
+        rows = self._csv_rows()
+        h = rows[0]
+        ui, ci = h.index("item_uid"), h.index(self.KEY)
+        items, _kc, _ck, _t = csv_exporter._load_full(self.D)
+        foil = next(i["item_uid"] for i in items
+                    if i["kind"] == "hvac_insulation_item"
+                    and i["attributes"].get("cladding") == "Aluminium Foil")
+        for r in rows[1:]:
+            if len(r) > ci and r[ui] == foil:
+                r[ci] = "88"
+        p = self._plan(rows)
+        self.assertEqual(len(p["errors"]), 0, "a foil cladding cost must be editable")
+        self.assertEqual(p["counts"]["rates_changed"], 1)
+
+    # ---- one definition, and nothing else moved ---------------------------------------------------
+
+    def test_cc_07_the_SCREEN_and_the_FILE_read_the_SAME_helper(self):
+        """⚠️ ONE DEFINITION. The api read that feeds the grid and the exporter that writes the file
+        both call `csv_exporter.computed_cladding_cells`; a second copy would let the screen and the
+        download disagree about a number neither of them owns."""
+        api_src = inspect.getsource(sys.modules["nirmaan_stack.api.boq.rate_master"])
+        self.assertIn("csv_exporter.computed_cladding_cells(", api_src)
+        exp_src = inspect.getsource(csv_exporter)
+        self.assertIn("computed.get((it[\"item_uid\"], r)", exp_src)
+        # and the api returns the map the grid greys from, rather than the grid re-deriving it
+        self.assertIn("computed_rate_keys", api_src)
+        viewer = _read_frontend_src("pages", "pricing", "rate-master", "RateMasterDataViewer.tsx")
+        self.assertIn("computedRateKeys?.[String(r.it.item_uid", viewer)
+
+    def test_cc_08_NEGATIVE_Electrical_computes_NOTHING(self):
+        """A discipline whose configs declare no cladding component is untouched: no cell is greyed,
+        no cell is refused, and its file is what it was."""
+        for cat in ("wiring_cabling", "conduit_piping", "electrical_pricing_inputs"):
+            cfg = _obj(frappe.get_value("BoQ Rate Category Config",
+                                        {"discipline": "Electrical", "active": 1,
+                                         "category_id": cat}, "config"))
+            items, _kc, cat_kinds, _t = csv_exporter._load_full("Electrical")
+            got = csv_exporter.computed_cladding_cells(cfg, items, cat, cat_kinds)
+            self.assertEqual(got, {}, cat)
+
+    def test_cc_09_NEGATIVE_a_computed_cell_is_never_WRITTEN(self):
+        """It is a READ-TIME projection, exactly like the brand projection: no write, no migration,
+        no backfill. What is STORED on a computed row is what the mint put there."""
+        items, _kc, _ck, _t = csv_exporter._load_full(self.D)
+        stored = {i["item_uid"]: (i["rates"] or {}).get(self.KEY)
+                  for i in items if i["kind"] == "hvac_insulation_item"}
+        asset = {i["item_uid"]: (i["rates"] or {}).get(self.KEY)
+                 for i in self.v17["items"] if i["kind"] == "hvac_insulation_item"}
+        self.assertEqual(stored, asset, "the database holds the asset's figures, not the computed ones")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c FINISH -- THE USED-BY CELL NAMES EVERY CATEGORY (owner, 2026-10-03)
+#
+# "the used by should mention all categories where it is used instead on the current format. check the
+# electrical pricing input sheet for clarity."
+#
+# The old text led with an internal site COUNT and named the categories by their RAW IDS
+# ("10 sites in conduit_piping, point_wiring, wiring_cabling") -- ids are not what any page is called,
+# and the count read as the headline. The categories now lead under their display names.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestUsedByNamesEveryCategory(FrappeTestCase):
+    """One text function, two languages, pinned to the same output on one shared fixture."""
+
+    # the SHARED fixture -- the TypeScript mirror's test asserts the same three strings
+    FIXTURE = (
+        (2, ["conduit_piping", "point_wiring"], {"conduit_piping": "Electrical Conduit",
+                                                 "point_wiring": "Point Wiring"},
+         "Electrical Conduit, Point Wiring (2 uses)"),
+        (1, ["conduit_piping"], {"conduit_piping": "Electrical Conduit"},
+         "Electrical Conduit (1 use)"),
+        (2, ["conduit_piping", "point_wiring"], None,
+         "conduit_piping, point_wiring (2 uses)"),
+    )
+
+    def test_ub_01_the_categories_LEAD_by_their_display_names(self):
+        for n, cats, labels, want in self.FIXTURE:
+            self.assertEqual(csv_exporter.pricing_input_used_by_text(n, cats, labels), want)
+
+    def test_ub_02_the_OLD_format_is_gone(self):
+        """INVERTED, not deleted: the retired shape is asserted ABSENT so it cannot creep back."""
+        got = csv_exporter.pricing_input_used_by_text(2, ["conduit_piping", "point_wiring"], None)
+        self.assertNotIn("sites in", got)
+        self.assertFalse(got.startswith("2"), "the count must not lead any more")
+
+    def test_ub_03_an_input_NOTHING_reads_still_says_not_used(self):
+        """The negative half is unchanged -- a deactivate may be allowed only on this text."""
+        self.assertEqual(csv_exporter.pricing_input_used_by_text(0, []), "not used")
+        self.assertEqual(csv_exporter.pricing_input_used_by_text(0, ["anything"]), "not used")
+
+    def test_ub_04_a_category_with_NO_declared_display_name_falls_back_to_its_id(self):
+        """So the cell always names something a reader can match to a page, never an empty string."""
+        got = csv_exporter.pricing_input_used_by_text(1, ["mystery_cat"], {"other": "Other"})
+        self.assertEqual(got, "mystery_cat (1 use)")
+
+    def test_ub_05_the_LIVE_Electrical_file_names_real_categories_not_ids(self):
+        """The end-to-end half: the column the owner was reading."""
+        out = csv_exporter.build_category_rows("Electrical", "electrical_pricing_inputs")
+        ci = out["headers"].index(csv_exporter.PRICING_INPUT_USED_BY)
+        texts = [r[ci] for r in out["rows"]]
+        self.assertTrue(texts, "the Electrical pricing-input file must have rows")
+        self.assertTrue(any("Electrical Conduit" in t for t in texts),
+                        "no cell names a category by its display name: %r" % texts[:3])
+        for t in texts:
+            self.assertNotIn("sites in", t)
+            self.assertNotIn("conduit_piping", t, "a raw category id reached the cell: %r" % t)
+
+    def test_ub_06_the_TS_mirror_asserts_the_SAME_strings(self):
+        """⚠️ THE CROSS-LANGUAGE PIN (the `FORMULA_FIXTURE` idiom). The screen cannot call an
+        exporter for one cell, so the text exists twice; this is what stops the two drifting."""
+        src = _read_frontend_src("pages", "pricing", "rate-master", "rateMasterSpec.test.ts")
+        for _n, _c, _l, want in self.FIXTURE:
+            self.assertIn(want, src, "the TypeScript pin does not assert %r" % want)

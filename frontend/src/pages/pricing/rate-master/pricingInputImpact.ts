@@ -392,6 +392,9 @@ export function computeImpact(
 
   const rows: SkuImpactRow[] = [];
   const seen = new Set<string>();
+  // OWNER 2026-10-03: labels are resolved against EACH OTHER, so a name several rows share is
+  // followed by the facts that tell them apart. Built ONCE per computation, not per row.
+  const labelCtx = skuLabelContext(itemsByUid?.values() ?? []);
   for (const col of reach?.columns ?? []) {
     const key = `${col.itemUid}\u0000${col.rateKey}`;
     if (seen.has(key)) continue;
@@ -415,7 +418,7 @@ export function computeImpact(
       const primary = ex.legs.find((l) => legClassOf(l.output) === legWanted) ?? ex.legs[0];
       rows.push({
         itemUid: col.itemUid, kind: col.kind, rateKey: col.rateKey,
-        label: skuLabel(it), categories: col.categories, storedRate: rate,
+        label: skuLabel(it, labelCtx), categories: col.categories, storedRate: rate,
         now: primary.now, becomes: primary.becomes,
         pctChange: primary.now === 0 ? null : ((primary.becomes - primary.now) / primary.now) * 100,
         moved: primary.moved,
@@ -437,7 +440,7 @@ export function computeImpact(
       itemUid: col.itemUid,
       kind: col.kind,
       rateKey: col.rateKey,
-      label: skuLabel(it),
+      label: skuLabel(it, labelCtx),
       categories: col.categories,
       storedRate: rate,
       now,
@@ -582,12 +585,78 @@ export function skuKey(row: Pick<SkuImpactRow, "itemUid" | "kind" | "rateKey">):
   return `${row.itemUid}\u0000${row.kind}\u0000${row.rateKey}`;
 }
 
-export function skuLabel(it: RateMasterItem | null | undefined): string {
+const _LABEL_SKIP_ATTRS = new Set(["spec_status", "spec_note"]);
+
+/** PURE. The row's own name, or null -- the first of `item` / `item_name` / `name` that says anything. */
+export function skuName(it: RateMasterItem | null | undefined): string | null {
   const a = (it?.attributes ?? {}) as Record<string, unknown>;
-  const named = a.item ?? a.item_name ?? a.name;
-  if (typeof named === "string" && named.trim()) return named.trim();
+  for (const k of ["item", "item_name", "name"]) {
+    const v = a[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/**
+ * ⚠️ WHY A NAME IS NOT ALWAYS A LABEL (owner, 2026-10-03: "the SKU shows only item and not
+ * description. it is not possible to find which SKU is which").
+ *
+ * `skuLabel` used to return the row's name and stop. That is right where a name identifies one row,
+ * and useless where it does not: on HVAC Insulation the name is the FAMILY, so 168 rows all read
+ * "Nitrile Rubber Insulation" and the impact list was 168 identical lines. Measured on the live
+ * catalogue the same defect sits on Electrical -- 142 rows share a name, eleven of them reading
+ * "Industrial Socket with MCB".
+ *
+ * So this returns, per shared name, the attribute keys whose values actually DIFFER between the rows
+ * sharing it -- the facts that tell them apart, and only those. A name no other row carries is absent
+ * from the map, so its label stays the name alone, byte-identical to before. PURE.
+ */
+export function skuLabelContext(
+  items: Iterable<RateMasterItem | null | undefined>,
+): Map<string, string[]> {
+  const byName = new Map<string, Array<Record<string, unknown>>>();
+  for (const it of items) {
+    const n = skuName(it);
+    if (!n) continue;
+    const list = byName.get(n) ?? [];
+    list.push((it?.attributes ?? {}) as Record<string, unknown>);
+    byName.set(n, list);
+  }
+  const out = new Map<string, string[]>();
+  byName.forEach((rowsWithName, name) => {
+    if (rowsWithName.length < 2) return;             // the name identifies the row on its own
+    const keys = new Set<string>();
+    for (const r of rowsWithName) for (const k of Object.keys(r)) keys.add(k);
+    const varying = [...keys].filter((k) => {
+      if (_LABEL_SKIP_ATTRS.has(k)) return false;
+      const first = JSON.stringify(rowsWithName[0]?.[k] ?? null);
+      return rowsWithName.some((r) => JSON.stringify(r[k] ?? null) !== first);
+    }).sort();
+    if (varying.length) out.set(name, varying);
+  });
+  return out;
+}
+
+/** How many distinguishing facts a label carries before it stops -- enough to tell the rows apart,
+ * short enough to read in a table cell (the full text is always in the row's `title`). */
+const _LABEL_MAX_PARTS = 5;
+
+export function skuLabel(
+  it: RateMasterItem | null | undefined,
+  ctx?: ReadonlyMap<string, string[]>,
+): string {
+  const a = (it?.attributes ?? {}) as Record<string, unknown>;
+  const named = skuName(it);
+  if (named) {
+    const parts = (ctx?.get(named) ?? [])
+      .map((k) => [k, a[k]] as const)
+      .filter(([, v]) => v !== null && v !== "" && v !== undefined)
+      .slice(0, _LABEL_MAX_PARTS)
+      .map(([k, v]) => `${k} ${String(v)}`);
+    return parts.length ? `${named} · ${parts.join(" · ")}` : named;
+  }
   const parts = Object.entries(a)
-    .filter(([k, v]) => k !== "spec_status" && k !== "spec_note" && v !== null && v !== "" && v !== undefined)
+    .filter(([k, v]) => !_LABEL_SKIP_ATTRS.has(k) && v !== null && v !== "" && v !== undefined)
     .slice(0, 4)
     .map(([, v]) => String(v));
   return parts.join(" · ") || String(it?.item_uid ?? "");

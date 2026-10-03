@@ -985,12 +985,23 @@ export function pricingInputUsedBy(
   return out;
 }
 
-/** "10 sites in conduit_piping, point_wiring, wiring_cabling", or "not used". */
+/**
+ * What the read-only `used_by` cell says: EVERY category this input is read in, BY NAME --
+ * "Electrical Conduit, Point Wiring, Wiring, Cabling & Termination (10 uses)", or "not used".
+ *
+ * ⚠️ OWNER, 2026-10-03: "the used by should mention all categories where it is used instead of the
+ * current format". The old text led with the internal site COUNT and named the categories by their
+ * raw ids, which is not what any page is called. `labelOf` maps a category id to its display name
+ * (the config's own `category_display`); without it the ids are used, so a caller with no configs
+ * still renders something. Mirrors `csv_exporter.pricing_input_used_by_text` and is pinned to it.
+ */
 export function pricingInputUsedByText(
-  entry: { sites: number; categories: string[] } | undefined
+  entry: { sites: number; categories: string[] } | undefined,
+  labelOf?: (categoryId: string) => string,
 ): string {
   if (!entry || !entry.sites) return "not used";
-  return `${entry.sites} site${entry.sites === 1 ? "" : "s"} in ${entry.categories.join(", ")}`;
+  const names = [...new Set(entry.categories.map((c) => labelOf?.(c) ?? c))].sort();
+  return `${names.join(", ")} (${entry.sites} use${entry.sites === 1 ? "" : "s"})`;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════

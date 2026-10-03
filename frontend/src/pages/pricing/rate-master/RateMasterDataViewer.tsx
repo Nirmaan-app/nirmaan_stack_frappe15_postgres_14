@@ -112,6 +112,12 @@ interface Props {
   /** SLICE 12c: the DERIVED "used by", computed by the PAGE because it needs every category's config
    *  (the same reason `inputReach` is). Used only where an item carries no stored `used_by`. */
   derivedUsedBy?: Record<string, { sites: number; categories: string[] }>;
+  /** {category id: its display name} -- the used-by cell names the categories, not their ids (owner
+   * 2026-10-03). Built by the PAGE, the only holder of every category's config. */
+  categoryNameById?: Record<string, string>;
+  /** SLICE 12c FINISH (owner F4): {item_uid: [rate keys]} the RULES compute -- greyed, not editable.
+   *  Told by the server beside the items, so the screen never re-derives the rule. */
+  computedRateKeys?: Record<string, string[]>;
   /** opens the impact panel on that catalogue row; null closes it */
   onOpenImpact?: (itemUid: string | null) => void;
   openImpactUid?: string | null;
@@ -167,13 +173,17 @@ const PI_W = {
   unit: 90, sharedBy: 150, usedBy: 190, items: 84,
 } as const;
 
+/** what the hover says on a cell whose figure the rules compute (owner F4) */
+const COMPUTED_CELL_TITLE =
+  "Calculated from the Pricing Inputs and this row's own size. Change the Pricing Inputs to move it.";
+
 export function RateMasterDataViewer({
   items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem,
   onDeactivateItem, onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
   // SLICE 12b(B): the ITEMS column. The reach map is computed by the PAGE (it needs every category's
   // config, which this component does not have), so the viewer only RENDERS it. Both absent => no
   // column at all, which is what keeps every other category's grid byte-identical.
-  inputReach, derivedUsedBy, onOpenImpact, openImpactUid,
+  inputReach, derivedUsedBy, categoryNameById, computedRateKeys, onOpenImpact, openImpactUid,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -262,8 +272,10 @@ export function RateMasterDataViewer({
     const stored = it.attributes?.used_by;
     if (stored !== undefined && stored !== null && String(stored).trim() !== "") return String(stored);
     const id = String(it.attributes?.item ?? "");
-    return id ? pricingInputUsedByText((derivedUsedBy ?? {})[id]) : "";
-  }, [derivedUsedBy]);
+    return id
+      ? pricingInputUsedByText((derivedUsedBy ?? {})[id], (c) => (categoryNameById ?? {})[c] ?? c)
+      : "";
+  }, [derivedUsedBy, categoryNameById]);
   const attrCols = useMemo(() => {
     const defs = specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand");
     const rank = new Map(fileOrder.attrs.map((id, i) => [id, i]));
@@ -1192,14 +1204,27 @@ export function RateMasterDataViewer({
                   // the row, its own cost parts and its markups included, stays exactly as editable as
                   // it was.
                   const derived = isDerivedCell(config, r.it.item_uid, k);
+                  /**
+                   * SLICE 12c FINISH (owner F4): a COMPUTED cell shows the LIVE figure, GREYED and not
+                   * editable -- the owner asked to SEE the calculated number, which is what separates
+                   * it from a DERIVED cell (amber, and showing the word). Which cells are computed is
+                   * told to us by the server beside the items, so the screen never re-derives the rule.
+                   * An Aluminium Foil row is absent from that map and stays typed and editable.
+                   */
+                  const computed = !derived
+                    && (computedRateKeys?.[String(r.it.item_uid ?? "")] ?? []).includes(k);
+                  const readOnlyCell = derived || computed;
                   return (
                   <TableCell
                     key={k}
-                    className={cn("text-right tabular-nums", derived && "bg-amber-50 text-amber-900")}
-                    title={derived ? formulaByUid.get(r.it.item_uid ?? "")?.[sideOfRateKey(k) === "install" ? 1 : 0] : undefined}
-                    data-testid={derived ? "derived-rate-cell" : undefined}
+                    className={cn("text-right tabular-nums", derived && "bg-amber-50 text-amber-900",
+                                  computed && "bg-muted text-muted-foreground")}
+                    title={derived
+                      ? formulaByUid.get(r.it.item_uid ?? "")?.[sideOfRateKey(k) === "install" ? 1 : 0]
+                      : computed ? COMPUTED_CELL_TITLE : undefined}
+                    data-testid={derived ? "derived-rate-cell" : computed ? "computed-rate-cell" : undefined}
                   >
-                    {editing && !derived ? (
+                    {editing && !readOnlyCell ? (
                       <Input
                         className="h-7 w-24 text-right text-xs"
                         inputMode="decimal"

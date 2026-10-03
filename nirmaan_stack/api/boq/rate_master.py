@@ -108,11 +108,46 @@ def get_rate_master_items(discipline=None, kind=None):
         )
         r["rates"] = _parse_json(r.get("rates"), {})
 
+    # ══════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 12c FINISH (owner F4) -- THE LIVE CLADDING COST, PROJECTED AT READ TIME.
+    #
+    # The owner asked to SEE the calculated figure in the grid, greyed and not editable. It is
+    # computed from the Pricing Inputs and the row's own size, so it is a READ-TIME projection
+    # exactly like `brand` above: ⚠️ NOTHING IS STORED -- no write, no migration, no backfill.
+    #
+    # ⚠️ THE SAME helper the FILE uses (`csv_exporter.computed_cladding_cells`), so the screen and
+    # the download cannot disagree about a number neither of them owns. `computed_rate_keys` rides
+    # beside the items so the grid knows which cells to grey WITHOUT re-deriving the rule.
+    #
+    # ⚠️ The INVARIANT above applies unchanged: nothing may read a projected item and write its
+    # rates back. `update_rate_master_item` re-reads `doc.rates` from the document.
+    # ══════════════════════════════════════════════════════════════════════════════════════
+    computed = {}
+    try:
+        cfgs = csv_exporter._load_configs(discipline) or {}
+        for cid, cfg in cfgs.items():
+            kinds = sorted(csv_exporter._config_kinds(cfg))
+            if not kinds:
+                continue
+            computed.update(csv_exporter.computed_cladding_cells(cfg, rows, cid, {cid: kinds}))
+    except Exception:
+        # a projection must never take the page down; an absent figure shows the stored cell
+        frappe.log_error(frappe.get_traceback(), "rate_master computed cladding projection")
+        computed = {}
+    computed_keys = {}
+    for (uid, rate_key), val in computed.items():
+        computed_keys.setdefault(uid, []).append(rate_key)
+    for r in rows:
+        for rate_key in computed_keys.get(r.get("item_uid"), ()):
+            r["rates"][rate_key] = computed[(r["item_uid"], rate_key)]
+
     return {
         "discipline": discipline,
         "kind": kind,
         "count": len(rows),
         "items": rows,
+        # which (item, rate) cells the RULES compute -- the grid greys exactly these
+        "computed_rate_keys": {u: sorted(v) for u, v in computed_keys.items()},
     }
 
 
@@ -152,6 +187,7 @@ from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
 from nirmaan_stack.services.boq_rate_master import freeze  # noqa: E402  (deployment freeze guard)
 from nirmaan_stack.services.boq_rate_master import spec_reader  # noqa: E402  (slice 1c: item text -> attributes)
+from nirmaan_stack.services.boq_rate_master import csv_exporter  # noqa: E402  (12c FINISH: the computed cladding projection)
 from nirmaan_stack.api.boq.wizard import pricing  # noqa: E402  (D8 gate reuse; import UP api->api)
 
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"

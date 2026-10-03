@@ -64,7 +64,8 @@ import re
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import config_validation, spec_reader, xlsx_io
+from nirmaan_stack.services.boq_rate_master import (cladding_cost, config_validation, spec_reader,
+                                                   xlsx_io)
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -438,6 +439,33 @@ def _sheet_column_order(cfg, attrs, rates):
     return ordered_attrs, seq + [r for r in rates if r not in seq]
 
 
+def _category_labels(configs):
+    """{category_id: its display label}, from each category's OWN config (`category_display`).
+
+    A category with no declared display name falls back to its id, so the cell always names something
+    a reader can match to a page.
+    """
+    return {cid: ((cfg or {}).get("category_display") or cid) for cid, cfg in (configs or {}).items()}
+
+
+def pricing_input_used_by_text(n, cats, labels=None):
+    """What the read-only `used_by` cell says: EVERY category this input is read in, BY NAME.
+
+    ⚠️ OWNER, 2026-10-03: "the used by should mention all categories where it is used instead of the
+    current format". The old text led with an internal site COUNT and named the categories by their
+    raw ids ("10 sites in conduit_piping, point_wiring, wiring_cabling") -- the ids are not what any
+    page is called, and the count read as the headline. The categories now lead, under the names the
+    pricer sees on screen, and the count follows in parentheses as the secondary fact it is.
+
+    `rateMasterSpec.pricingInputUsedByText` is the TypeScript mirror and the two are pinned to
+    identical output on one shared fixture, exactly as the formula renderer pair is. PURE.
+    """
+    if not n:
+        return "not used"
+    names = sorted({(labels or {}).get(c, c) for c in (cats or [])})
+    return "%s (%d use%s)" % (", ".join(names), n, "" if n == 1 else "s")
+
+
 def column_order_for(cfg, items):
     """(attrs, rates) -- THE column order of a category's rate file, as one callable.
 
@@ -491,7 +519,7 @@ def build_category_rows(discipline, category_id):
                 cells.append(as_percent(v) if c in PRICING_INPUT_PERCENT_COLUMNS else v)
             cells += [it.get("unit"), a.get(PRICING_INPUT_SHARED_BY) or "",
                       a.get(PRICING_INPUT_REMARKS) or "",
-                      ("%d site%s in %s" % (n, "" if n == 1 else "s", ", ".join(cats))) if n else "not used"]
+                      pricing_input_used_by_text(n, cats, _category_labels(_load_configs(discipline)))]
             rows.append(cells)
         # Every value column is TEXT here (a percentage is a string), so nothing is numeric. The
         # used-by column is READ-ONLY and is locked on every row: it is derived from the pipelines, so
@@ -538,12 +566,16 @@ def build_category_rows(discipline, category_id):
                + [rate_hdr[r] for r in rates] + list(FORMULA_COLUMNS))
     texts, derived_by_key = formula_cells_for(cfg, rows_in)
     derived = config_validation.derived_cells(cfg)
+    # SLICE 12c FINISH (owner F4): the cells whose figure the RULES compute. They carry the LIVE
+    # number, greyed and locked -- unlike a `derived_rates` cell, which carries the word. Both are
+    # read-only; what differs is that a pricer asked to SEE this one.
+    computed = computed_cladding_cells(cfg, items, category_id, cat_kinds)
     rows = []
     for it in rows_in:
         rows.append(
             _lead(it, with_kind, discipline, category_id)
             + [it["attributes"].get(a) for a in attrs]
-            + [_rate_cell(it, r, derived) for r in rates]
+            + [computed.get((it["item_uid"], r), _rate_cell(it, r, derived)) for r in rates]
             + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
     numeric = _numeric_columns(attrs, rates, attr_types)
@@ -557,7 +589,10 @@ def build_category_rows(discipline, category_id):
                                                               if rate_hdr[r] == r}),
             # one set per row: the cells a pricer must NOT type in (owner 2026-09-27 -- the .xlsx
             # fills them red, because an EMPTY cell says nothing about whether it is editable)
-            "locked": [{rate_hdr.get(r, r) for r in rates if (it["item_uid"], r) in derived}
+            # a COMPUTED cell is locked for the same reason a derived one is: its value comes from
+            # the rules, so a typed number there could only be ignored or wrong
+            "locked": [{rate_hdr.get(r, r) for r in rates
+                        if (it["item_uid"], r) in derived or (it["item_uid"], r) in computed}
                        for it in rows_in]}
 
 
@@ -568,6 +603,12 @@ def build_all_categories_rows(discipline):
     # SLICE 12b(A) / ACCEPTANCE 15: Pricing Inputs STAY OUT of the all-categories file. They are not
     # SKUs, and letting them in would put a `discount` / `share` / `amount` column onto every other
     # category's rows -- a union that is sparse by construction would become sparse and misleading.
+    # ⚠️ SLICE 12c FINISH: KEPT FOR THE COMPUTATION, DROPPED FROM THE FILE. The live cladding figure is
+    # computed FROM the pricing-input rows, so the catalogue handed to `computed_cladding_cells` must
+    # still contain them -- handing it the filtered list produced a figure for only the 52 rows whose
+    # branch reads no input and left the other 219 showing a stale stored number. The FILE is still
+    # built from the filtered list, so acceptance 15 is untouched.
+    all_items = items
     items = [it for it in items if not is_pricing_input_kind(it["kind"])]
     spec_kinds = _spec_kinds(discipline)
     if spec_kinds:
@@ -606,6 +647,14 @@ def build_all_categories_rows(discipline):
         derived_by_cat[cat] = dk
         # resolved ONCE per category, never per cell -- Mode B is 1,367 rows x ~45 columns
         derived_cells_by_cat[cat] = config_validation.derived_cells(configs.get(cat) or {})
+    # SLICE 12c FINISH (owner F4): the COMPUTED cells, resolved once per category exactly as the
+    # declared-derived ones are. ⚠️ THE ALL-CATEGORIES FILE IS A DOWNLOAD TOO -- the owner ruled the
+    # live figure shows "in the grid AND the download", and mode B was the half that had no computed
+    # cells until the derived-fill pin caught it. {} for a category whose rules compute nothing, so
+    # every other category's file stays byte-identical.
+    computed = {}
+    for cat, cat_items in items_by_cat.items():
+        computed.update(computed_cladding_cells(configs.get(cat) or {}, all_items, cat, cat_kinds))
     rows = []
     for it in items:
         if it["kind"] in spec_kinds:
@@ -615,7 +664,8 @@ def build_all_categories_rows(discipline):
         rows.append(
             _lead(it, with_kind, discipline, kind_cat.get(it["kind"], ""))
             + attr_cells
-            + [_rate_cell(it, r, derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})
+            + [computed.get((it["item_uid"], r),
+                            _rate_cell(it, r, derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {}))
                for r in rates]
             + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
@@ -624,7 +674,8 @@ def build_all_categories_rows(discipline):
             "numeric": {rate_hdr.get(n, n) for n in _numeric_columns(attrs, rates, attr_types)},
             "locked": [{rate_hdr.get(r, r) for r in rates
                         if (it["item_uid"], r)
-                        in (derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})}
+                        in (derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})
+                        or (it["item_uid"], r) in computed}
                        for it in items],
             # `header_keys`, never `headers`: this row aligns by NAME (see `formula_row_cells`)
             "formula_row": formula_row_cells_all(configs, header_keys, set(rates), derived_by_cat,
@@ -1399,6 +1450,36 @@ def _rate_cell(item, rate_key, derived):
     if (item["item_uid"], rate_key) in derived:
         return DERIVED_CELL_TEXT
     return item["rates"].get(rate_key)
+
+
+# SLICE 12c FINISH -- the column whose figure the rules compute, and the one helper that produces it.
+# ⚠️ ONE DEFINITION, used by the FILE (above) and by the api read that feeds the GRID. A second copy
+# would let the screen and the download disagree about a number neither of them owns.
+COMPUTED_RATE_KEY = "cost_cladding"
+
+
+def computed_cladding_cells(cfg, items, category_id, cat_kinds):
+    """{(item_uid, rate_key): figure} for the rows whose cladding cost the rules compute. PURE-ish:
+    it reads the config and the items it is handed, nothing else."""
+    kinds = set((cat_kinds or {}).get(category_id) or [])
+    if not kinds:
+        return {}
+    out = {}
+    for kind in sorted(kinds):
+        for uid, val in cladding_cost.computed_cladding_by_uid(
+                cfg, items, _unit_class_of, kind).items():
+            out[(uid, COMPUTED_RATE_KEY)] = round(float(val), 6)
+    return out
+
+
+_AREA_UNITS = {"sqm", "sq.m", "sq m", "sqmt", "sq.mt", "m2", "m²", "smt", "sq.mtr", "sq mtr"}
+
+
+def _unit_class_of(item):
+    """The unit class of a catalogue row, from its own unit. Mirrors the read-time projection the
+    pricer applies; kept here so this module needs no frontend."""
+    u = str(item.get("unit") or "").strip().lower().rstrip(".")
+    return "area" if u in _AREA_UNITS else "length"
 
 
 def formula_cells_for(cfg, items):

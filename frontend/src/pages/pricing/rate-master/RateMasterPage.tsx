@@ -100,6 +100,9 @@ export function RateMasterPage() {
   );
 
   const items = itemsData?.message?.items ?? [];
+  // SLICE 12c FINISH (owner F4): which (item, rate) cells the RULES compute. It rides beside the
+  // items from the SAME read, so the screen never re-derives the rule the file uses.
+  const computedRateKeys = itemsData?.message?.computed_rate_keys ?? undefined;
   const config = configData?.message?.config ?? null;
   const configName = configData?.message?.name;
 
@@ -124,6 +127,15 @@ export function RateMasterPage() {
     () => pricingInputUsedBy(Object.values(allConfigs ?? {}) as never),
     [allConfigs],
   );
+  // OWNER 2026-10-03: the used-by cell names the categories, so it needs each one's DISPLAY name --
+  // built here for the same reason `derivedUsedBy` is: only the page holds every config.
+  const categoryNameById = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const cfg of Object.values(allConfigs ?? {}) as Array<{ category_id?: string; category_display?: string }>) {
+      if (cfg?.category_id) out[cfg.category_id] = cfg.category_display || cfg.category_id;
+    }
+    return out;
+  }, [allConfigs]);
   const itemsByUid = useMemo(() => new Map(items.map((i) => [i.item_uid ?? "", i])), [items]);
   /** the pricing inputs themselves -- a flat adder prices against what the OTHERS leave behind */
   const pricingInputItems = useMemo(
@@ -469,6 +481,8 @@ export function RateMasterPage() {
                   onDeactivateItem={onDeactivateItem}
                   inputReach={inputReach}
                   derivedUsedBy={derivedUsedBy}
+                  categoryNameById={categoryNameById}
+                  computedRateKeys={computedRateKeys}
                   onOpenImpact={setImpactInputUid}
                   openImpactUid={impactInputUid}
                 />

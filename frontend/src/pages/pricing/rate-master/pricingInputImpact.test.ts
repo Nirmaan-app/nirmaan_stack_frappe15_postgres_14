@@ -13,7 +13,7 @@ import { computePricingInputReach, reachedSkuCount } from "./pricingInputReach";
 import {
   computeImpact, panelShapeOf, movedLegOf, multiplierFor, editableFieldsOf, workingLegs,
   LEG_LABEL, NOT_MOVED_NOTE, isPercentField, pctText,
-  skuKey,
+  skuKey, skuLabel, skuLabelContext, skuName,
 } from "./pricingInputImpact";
 import type { RateMasterItem } from "./rateMasterTypes";
 
@@ -447,5 +447,89 @@ describe("skuKey - the identity the open detail is re-derived from", () => {
     const live = afterEdit.find((r) => skuKey(r) === skuKey(captured));
     expect(captured.becomes).toBe(10);        // the snapshot is frozen...
     expect(live!.becomes).toBe(15);           // ...the re-derived row is not
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH -- THE SKU LABEL TELLS SIBLINGS APART (owner, 2026-10-03)
+ *
+ * "the SKu shows only item and not descriptio. it ius not possible to find which SKu is which"
+ *
+ * Measured on the live catalogue: 319 of HVAC's 331 named rows share a name (168 of them read
+ * "Nitrile Rubber Insulation"), and 142 Electrical rows share one too. A name is a label only where
+ * it identifies one row.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH -- the SKU label distinguishes rows sharing a name", () => {
+  const ins = (cladding: string, thickness: number, pipe?: number) =>
+    item(`u-${cladding}-${thickness}-${pipe ?? "x"}`, "hvac_insulation_item",
+         pipe === undefined
+           ? { item: "Nitrile Rubber Insulation", cladding, thickness_mm: thickness }
+           : { item: "Nitrile Rubber Insulation", cladding, thickness_mm: thickness, pipe_size_mm: pipe },
+         { cost_insulation: 1 });
+
+  it("a UNIQUE name is the label, byte-identical to before -- nothing is appended", () => {
+    const only = item("u1", "k", { item_name: "Cable lug 16 sq.mm" }, { list_price: 10 });
+    const ctx = skuLabelContext([only]);
+    expect(ctx.size).toBe(0);                 // the name identifies it; nothing to disambiguate
+    expect(skuLabel(only, ctx)).toBe("Cable lug 16 sq.mm");
+    expect(skuLabel(only)).toBe("Cable lug 16 sq.mm");   // and with no context at all
+  });
+
+  it("a SHARED name is followed by the facts that differ -- and ONLY those", () => {
+    const rows = [ins("26G Aluminium", 25, 100), ins("26G Aluminium", 50, 100), ins("Aluminium Foil", 25, 100)];
+    const ctx = skuLabelContext(rows);
+    // pipe_size_mm is the SAME on all three, so it is NOT a distinguishing fact and is left out
+    expect(ctx.get("Nitrile Rubber Insulation")).toEqual(["cladding", "thickness_mm"]);
+    expect(skuLabel(rows[0], ctx)).toBe("Nitrile Rubber Insulation · cladding 26G Aluminium · thickness_mm 25");
+    expect(skuLabel(rows[1], ctx)).toBe("Nitrile Rubber Insulation · cladding 26G Aluminium · thickness_mm 50");
+    // THE DEFECT: without the context every one of them reads the same
+    expect(new Set(rows.map((r) => skuLabel(r))).size).toBe(1);
+    expect(new Set(rows.map((r) => skuLabel(r, ctx))).size).toBe(3);
+  });
+
+  it("a fact ABSENT on a row is skipped rather than printed as blank or null", () => {
+    const rows = [ins("26G Aluminium", 25, 100), ins("26G Aluminium", 25)];
+    const ctx = skuLabelContext(rows);
+    expect(ctx.get("Nitrile Rubber Insulation")).toEqual(["pipe_size_mm"]);
+    expect(skuLabel(rows[1], ctx)).toBe("Nitrile Rubber Insulation");
+    expect(skuLabel(rows[0], ctx)).toBe("Nitrile Rubber Insulation · pipe_size_mm 100");
+  });
+
+  it("the spec bookkeeping attributes never reach a label", () => {
+    const a = item("a", "k", { item: "X", spec_status: "ok", spec_note: "n", unit: "Mtr" }, { r: 1 });
+    const b = item("b", "k", { item: "X", spec_status: "flagged", spec_note: "m", unit: "Nos" }, { r: 1 });
+    const ctx = skuLabelContext([a, b]);
+    expect(ctx.get("X")).toEqual(["unit"]);
+    expect(skuLabel(a, ctx)).toBe("X · unit Mtr");
+  });
+
+  it("skuName reads the first of item / item_name / name, and null when none says anything", () => {
+    expect(skuName(item("a", "k", { item: " Padded ", item_name: "Other" }, {}))).toBe("Padded");
+    expect(skuName(item("a", "k", { item_name: "Second" }, {}))).toBe("Second");
+    expect(skuName(item("a", "k", { name: "Third" }, {}))).toBe("Third");
+    expect(skuName(item("a", "k", { item: "   " }, {}))).toBeNull();
+    expect(skuName(null)).toBeNull();
+  });
+
+  it("an UNNAMED row keeps its value-list fallback, unchanged", () => {
+    const it0 = item("u9", "k", { cladding: "26G Aluminium", thickness_mm: 25 }, { r: 1 });
+    expect(skuLabel(it0, skuLabelContext([it0]))).toBe("26G Aluminium · 25");
+  });
+
+  it("the label is capped, so one row can never push a table column off screen", () => {
+    const wide = (n: number) => item(`w${n}`, "k",
+      { item: "Same", a: n, b: n, c: n, d: n, e: n, f: n, g: n }, { r: 1 });
+    const rows = [wide(1), wide(2)];
+    const ctx = skuLabelContext(rows);
+    expect(ctx.get("Same")!.length).toBe(7);
+    expect(skuLabel(rows[0], ctx).split(" · ").length).toBe(6);   // the name + 5 facts
+  });
+
+  it("the impact rows carry the DISAMBIGUATED label, not the bare name", () => {
+    const rows = [ins("26G Aluminium", 25, 100), ins("Aluminium Foil", 25, 100)];
+    const ctx = skuLabelContext(rows);
+    const labels = rows.map((r) => skuLabel(r, ctx));
+    expect(labels.every((l) => l.includes("cladding"))).toBe(true);
+    expect(new Set(labels).size).toBe(rows.length);
   });
 });

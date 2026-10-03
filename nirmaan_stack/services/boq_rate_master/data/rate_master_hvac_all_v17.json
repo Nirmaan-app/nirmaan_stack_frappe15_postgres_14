@@ -16327,6 +16327,9 @@
        }
       }
      },
+     "typed_cladding": [
+      "Aluminium Foil"
+     ],
      "number_defaults": {
       "thickness_mm": {
        "value": 9.0,

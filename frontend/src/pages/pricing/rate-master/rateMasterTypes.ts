@@ -859,6 +859,9 @@ export interface GetItemsResponse {
   kind: string | null;
   count: number;
   items: RateMasterItem[];
+  /** SLICE 12c FINISH (owner F4): {item_uid: [rate keys]} whose figure the RULES compute -- the cells
+   *  the grid greys and refuses to edit. A PAYLOAD key, not schema: nothing is stored. */
+  computed_rate_keys?: Record<string, string[]>;
 }
 export interface GetConfigResponse {
   name?: string;

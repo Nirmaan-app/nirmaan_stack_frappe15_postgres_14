@@ -298,8 +298,16 @@ describe("SLICE 12b(A) -- Pricing Inputs on the screen", () => {
     ] as any;
     const u = pricingInputUsedBy(configs);
     expect(u["conduit"]).toEqual({ sites: 2, categories: ["conduit_piping", "point_wiring"] });
-    expect(pricingInputUsedByText(u["conduit"])).toBe("2 sites in conduit_piping, point_wiring");
-    expect(pricingInputUsedByText(u["conduit_share"])).toBe("1 site in conduit_piping");
+    // ⚠️ INVERTED, NOT DELETED (owner 2026-10-03: "the used by should mention all categories where
+    // it is used instead of the current format"). The categories now LEAD, under the display names
+    // the pricer sees on screen, and the site count follows as the secondary fact it is. The old
+    // shape -- count first, raw ids -- is asserted ABSENT so it cannot come back unnoticed.
+    const label = (c: string) => ({ conduit_piping: "Electrical Conduit", point_wiring: "Point Wiring" } as Record<string, string>)[c] ?? c;
+    expect(pricingInputUsedByText(u["conduit"], label)).toBe("Electrical Conduit, Point Wiring (2 uses)");
+    expect(pricingInputUsedByText(u["conduit_share"], label)).toBe("Electrical Conduit (1 use)");
+    expect(pricingInputUsedByText(u["conduit"], label)).not.toContain("2 sites in");
+    // with NO label resolver the ids stand in, so a caller holding no configs still renders something
+    expect(pricingInputUsedByText(u["conduit"])).toBe("conduit_piping, point_wiring (2 uses)");
   });
 
   it("NEGATIVE: an input no rule reads reads as 'not used' -- so a delete can be allowed", () => {
