@@ -7,6 +7,7 @@
 // pricer-facing helper defers them. Honest no-match + unsupported-step states.
 
 import { useMemo, useState } from "react";
+import { itemListRuleOrder } from "./itemListRuleOrder";
 import { Pencil, Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -185,6 +186,9 @@ function detailFor(s: StepTrace): string {
 }
 
 export function RateMasterDerivation({ items, config, isAdmin, frozen, onSaveParam }: Props) {
+  // SLICE 12c / ACCEPTANCE 5: the resolution order, read from `list_spec.pricing`. PURE and unit-tested,
+  // so this component stays thin over it (ADR-0010 F4); [] for a category that is not item-list.
+  const ruleOrder = useMemo(() => itemListRuleOrder(config), [config]);
   // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
   // carry one) -- an absent key renders the empty state, never a crash.
   const rules = useMemo(
@@ -448,6 +452,40 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
           </div>
         </CardContent>
       </Card>
+
+      {/* SLICE 12c / ACCEPTANCE 5 (U10): HOW A ROW IS PRICED, for a category that prices a row as a
+          LIST OF ITEMS. Its pipelines live inside `list_spec`, so the cards below could not see them and
+          the tab read "No rules configured" for a category that carries a complete rule set. And pricing
+          such a row is not "run a pipeline": the unit class, the kind, the block, the facts it needs, the
+          ruled defaults and the size fitting are all resolved FIRST, and none of that is visible in a
+          list of steps.
+
+          ⚠️ NOT SCOPED TO ONE CATEGORY. The whole section is driven by `list_spec.pricing`, so a config
+          without one renders NOTHING here and every other tab is byte-identical -- scoping it by name
+          would put a category id in code, which the standing rule forbids. It therefore shows on ADP's
+          tab as well, which is what U10 approves. */}
+      {ruleOrder.length > 0 && (
+        <Card data-testid="rate-master-item-list-order">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">How a row is priced</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="space-y-2">
+              {ruleOrder.map((r) => (
+                <li key={r.n} className="flex gap-3 text-sm">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                    {r.n}
+                  </span>
+                  <span>
+                    {r.title}
+                    {r.detail ? <span className="text-muted-foreground"> &mdash; {r.detail}</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </CardContent>
+        </Card>
+      )}
 
       {/* EA-4 ext-a: RULES -- owner-authored estimator guidance, read-only. It is the SAME text the
           extraction prompt receives verbatim, so this panel is what the config actually tells the AI,
