@@ -1,0 +1,219 @@
+/**
+ * SLICE 12c, ACCEPTANCE ITEM 23 -- ONE PRICING PATH, PROVEN.
+ *
+ * Owner: "for the pricing input sheet panel, we need to use the same pipeline for pricing impact
+ * calculation as the rate helper panel. just like we did for electrical."
+ *
+ * ⚠️ WHAT MAKES THIS NOT VACUOUS. `priceSkuExactItemList` calls `priceItemList`, so comparing it with
+ * itself would prove nothing. What is at stake is not the ARITHMETIC (there is only one copy of that)
+ * but the WIRING: whether the panel hands that function the right spec, the right row unit and the
+ * right attributes. So this file builds the row INDEPENDENTLY -- the way a reader would say "price
+ * this SKU" -- calls `priceItemList` directly, and asserts the panel's before and after figures equal
+ * it, for every SKU and for every one of the seven inputs.
+ */
+import { describe, it, expect } from "vitest";
+import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v16.json";
+import { priceSkuExactItemList, isItemListConfig, itemsWithInput, sampleGeometries } from "./pricingInputExact";
+import { itemListPricingSpec, priceItemList } from "../../boq-wizard/rate-helper/itemListPricing";
+import type { RateMasterItem, RateCategoryConfig } from "./rateMasterTypes";
+
+type Asset = { discipline: string; items: any[]; category_configs: any[] };
+const asset = HVAC as unknown as Asset;
+const KIND = "hvac_insulation_item";
+const PI_KIND = "hvac_pricing_input";
+
+const items: RateMasterItem[] = asset.items.map((it) => ({
+  item_uid: it.item_uid, discipline: asset.discipline, kind: it.kind,
+  brand: it.brand ?? undefined, unit: it.unit,
+  attributes: { ...it.attributes }, rates: { ...it.rates },
+})) as RateMasterItem[];
+const cfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation") as RateCategoryConfig;
+const spec = itemListPricingSpec(cfg)!;
+const skus = items.filter((i) => i.kind === KIND);
+const inputIds = asset.items.filter((i) => i.kind === PI_KIND)
+  .map((i) => String(i.attributes.item)).sort();
+
+/** THE INDEPENDENT READING: a perfectly-stated row for this SKU, built here and priced here. */
+function helperFigures(sku: RateMasterItem, cat: readonly RateMasterItem[]) {
+  const attributes: Record<string, { value: string | number | null }> = {};
+  for (const [k, v] of Object.entries((sku.attributes ?? {}) as Record<string, unknown>)) {
+    if (k === spec.unit_class_attr) continue;
+    if (v === null || v === undefined || v === "") continue;
+    attributes[k] = { value: String(v) };
+  }
+  const r = priceItemList(spec, cat as RateMasterItem[], String(sku.unit ?? ""), [{ attributes } as never]);
+  return r.priced ? { supply: r.supply, install: r.install } : null;
+}
+
+/** the value column an input carries, and a changed value for it */
+function bumped(id: string): Record<string, number> {
+  const row = asset.items.find((i) => i.kind === PI_KIND && i.attributes.item === id)!;
+  const key = ["rate", "factor", "amount"].find((k) => row.rates[k] !== undefined)!;
+  return { [key]: Number(row.rates[key]) + (key === "factor" ? 0.05 : 50) };
+}
+
+describe("acceptance 23: the impact panel prices through the rate-helper panel's own pricer", () => {
+  it("(a) the category IS an item-list one, so the panel takes that path at all", () => {
+    expect(isItemListConfig(cfg)).toBe(true);
+    expect(skus.length).toBe(224);
+    expect(inputIds).toHaveLength(7);
+  });
+
+  it("(b) BEFORE: every SKU's panel figure equals the helper path's, 0 differences", () => {
+    let checked = 0, priced = 0;
+    for (const sku of skus) {
+      const ex = priceSkuExactItemList(sku, cfg, items, items);
+      const want = helperFigures(sku, items);
+      expect(ex.ok).toBe(want !== null);
+      if (!want) continue;
+      priced++;
+      const got = Object.fromEntries(ex.legs.map((l) => [l.output, l.now]));
+      expect(got.supply).toBe(want.supply);
+      expect(got.install).toBe(want.install);
+      // nothing moved, because nothing was patched
+      expect(ex.legs.every((l) => !l.moved)).toBe(true);
+      checked += 2;
+    }
+    // ⚠️ the counts are asserted so this cannot pass on an empty set
+    expect(priced).toBe(224);
+    expect(checked).toBe(448);
+  });
+
+  it("(b) AFTER: for each of the SEVEN inputs, every SKU's 'becomes' equals the helper path's", () => {
+    const moversByInput: Record<string, number> = {};
+    let checked = 0;
+    for (const id of inputIds) {
+      const patch = bumped(id);
+      const next = itemsWithInput(items, id, patch);
+      let movers = 0;
+      for (const sku of skus) {
+        const ex = priceSkuExactItemList(sku, cfg, items, next);
+        const want = helperFigures(sku, next);
+        if (!want) { expect(ex.ok).toBe(false); continue; }
+        const got = Object.fromEntries(ex.legs.map((l) => [l.output, l.becomes]));
+        expect(got.supply).toBe(want.supply);
+        expect(got.install).toBe(want.install);
+        checked += 2;
+        if (ex.legs.some((l) => l.moved)) movers++;
+      }
+      moversByInput[id] = movers;
+    }
+    expect(checked).toBe(7 * 448);
+    // the separation the seventh input exists for: the GI rate moves ONLY the 3 GI rows, and the two
+    // aluminium grades move disjoint sets of 68
+    expect(moversByInput.gi_sheet_rate).toBe(3);
+    expect(moversByInput.gi_framework_factor).toBe(3);
+    expect(moversByInput.gi_framework_adder).toBe(3);
+    expect(moversByInput.alu_sheet_24g).toBe(68);
+    expect(moversByInput.alu_sheet_26g).toBe(68);
+    expect(moversByInput.glass_cloth).toBe(84);
+    expect(moversByInput.cladding_overlap).toBe(136);   // every aluminium-clad row, both grades
+  });
+
+  it("NEGATIVE: a SKU the rules refuse is REPORTED with its reason, never silently dropped", () => {
+    const broken = { ...skus[0], attributes: { ...skus[0].attributes, cladding: "Not A Cladding" } };
+    const ex = priceSkuExactItemList(broken as RateMasterItem, cfg, items, items);
+    expect(ex.ok).toBe(false);
+    expect(ex.legs).toHaveLength(0);
+    expect(typeof ex.note).toBe("string");
+    expect(ex.note!.length).toBeGreaterThan(0);
+  });
+
+  it("NEGATIVE: a config with no item-list rules is not routed down this path", () => {
+    const adp = asset.category_configs.find((c) => c.category_id === "hvac_adp");
+    const vendor = asset.category_configs.find((c) => c.category_id === "hvac_ahu");
+    expect(isItemListConfig(adp)).toBe(true);        // ADP IS item-list
+    expect(isItemListConfig(vendor)).toBe(false);    // a message-only config is not
+    expect(isItemListConfig(null)).toBe(false);
+    const ex = priceSkuExactItemList(skus[0], vendor, items, items);
+    expect(ex.ok).toBe(false);
+    expect(ex.note).toContain("no item-list pricing rules");
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// OWNER RULING 2 / U9 -- the sample geometries, and the fact that nothing renders them yet.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ruling 2 / U9: sample geometries from the catalogue's own stocked sizes", () => {
+  const NITRILE = "Nitrile Rubber Insulation";
+  const AXES = spec.ladders as readonly string[];
+
+  /**
+   * The stocked tuples of a family, ordered by the LADDER AXES IN THEIR DECLARED ORDER -- the picker's
+   * rule, derived here from `spec.ladders` rather than assumed.
+   *
+   * ⚠️ MY FIRST VERSION HARDCODED PIPE-MAJOR ORDER AND PASSED BY COINCIDENCE: on this catalogue the
+   * pipe-major and thickness-major extremes happen to agree, so the test was green while asserting a
+   * rule the code does not follow. It only surfaced when a 9999 mm row was added in the next test --
+   * a reminder that a green assertion over real data can still be the wrong assertion.
+   */
+  const orderedTuples = (family: string, isLength: boolean) => {
+    const seen = new Map<string, number[]>();
+    for (const s of skus) {
+      const at = s.attributes as Record<string, unknown>;
+      if (at.item !== family) continue;
+      if (isLength !== (String(s.unit) !== "SQM")) continue;
+      const t = AXES.map((a) => Number(at[a]));
+      if (t.some((n) => !Number.isFinite(n))) continue;
+      seen.set(t.join("|"), t);
+    }
+    return Array.from(seen.values()).sort((x, y) => {
+      for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
+      return 0;
+    });
+  };
+
+  it("picks the SMALLEST, MIDDLE and LARGEST stocked combination -- no number written in code", () => {
+    const got = sampleGeometries(spec as never, items, NITRILE, "length", 3);
+    expect(got).toHaveLength(3);
+    const all = orderedTuples(NITRILE, true);
+    expect(all.length).toBeGreaterThan(3);
+    const stocked = new Set(all.map((t) => t.join("|")));
+    for (const g of got) expect(stocked.has(AXES.map((a) => g[a]).join("|"))).toBe(true);
+    // the ends ARE the ends, and the middle sits between them, under the DECLARED axis order
+    expect(AXES.map((a) => got[0][a])).toEqual(all[0]);
+    expect(AXES.map((a) => got[2][a])).toEqual(all[all.length - 1]);
+    expect(got[1][AXES[0]]).toBeGreaterThanOrEqual(got[0][AXES[0]]);
+    expect(got[2][AXES[0]]).toBeGreaterThanOrEqual(got[1][AXES[0]]);
+  });
+
+  it("is a FUNCTION OF THE CATALOGUE, so it follows a new SKU with no code change", () => {
+    // cloned from a NITRILE row, because the picker is per family and per unit class; and given the TOP
+    // rung on the FIRST declared axis, because that is the axis the order is major on
+    const seed = skus.find((s) => (s.attributes as Record<string, unknown>).item === NITRILE)!;
+    const topFirstAxis = Math.max(...orderedTuples(NITRILE, true).map((t) => t[0]));
+    const clone = {
+      ...seed, item_uid: "rmi-test-sample-geometry",
+      attributes: { ...seed.attributes, [AXES[0]]: topFirstAxis, [AXES[1]]: 9999 },
+    } as RateMasterItem;
+    const got = sampleGeometries(spec as never, [...items, clone], NITRILE, "length", 3);
+    expect(got[got.length - 1][AXES[1]]).toBe(9999);
+  });
+
+  it("NEGATIVE: fewer picks than asked yields however many exist, and never a duplicate", () => {
+    expect(sampleGeometries(spec as never, items, NITRILE, "length", 2)).toHaveLength(2);
+    expect(sampleGeometries(spec as never, items, NITRILE, "length", 1)).toHaveLength(1);
+    const many = sampleGeometries(spec as never, items, NITRILE, "length", 3);
+    expect(new Set(many.map((g) => JSON.stringify(g))).size).toBe(many.length);
+  });
+
+  it("NEGATIVE: a family with no stocked geometry on an axis yields NO samples, never a guess", () => {
+    // the sheet families carry no pipe size, so they have no complete ladder tuple
+    expect(sampleGeometries(spec as never, items, "Thermal Nitrile Insulation", "area", 3)).toEqual([]);
+    expect(sampleGeometries(spec as never, items, "no such family", "length", 3)).toEqual([]);
+    expect(sampleGeometries({ ...spec, ladders: [] } as never, items, NITRILE, "length", 3)).toEqual([]);
+  });
+
+  it("⚠️ NEGATIVE: there are NO cladding-only SKUs yet, which is why nothing renders a sample", () => {
+    // A cladding-only row would price a cladding and carry no insulation cost of its own. Design
+    // question O1 -- one SKU per cladding type, or one per type per geometry -- is still OPEN, as is
+    // Q7's PROVISIONAL rider on whether a per-sq.m cladding-only row takes the overlap factor. So the
+    // picker above is shipped and tested but unused. THIS PIN FAILS, loudly, the moment such a row is
+    // minted, which is exactly when the panel work has a real row to render.
+    const claddingOnly = skus.filter((s) => {
+      const r = (s.rates ?? {}) as Record<string, number>;
+      return !(typeof r.cost_insulation === "number" && r.cost_insulation > 0);
+    });
+    expect(claddingOnly).toHaveLength(0);
+  });
+});

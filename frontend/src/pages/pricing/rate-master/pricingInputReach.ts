@@ -166,6 +166,35 @@ function inputsRead(step: any, owners: Record<string, Set<string>>): Set<string>
  *
  * Measured on v65: **8 ms** for all 35 inputs over 1,402 items. Memoise on [configs, items].
  */
+/**
+ * Every pipeline a config can run, as [id, pipeline] pairs: the config's OWN `pipelines` plus each
+ * `list_spec.pricing.families[*].units[*].pipelines` of an ITEM-LIST category.
+ *
+ * ⚠️ WITHOUT THE SECOND HALF THE PANEL REPORTS ZERO FOR EVERY INPUT OF AN ITEM-LIST CATEGORY. An
+ * item-list category keeps its rules inside `list_spec` (that is what lets it hold a full rule set
+ * while staying ineligible), so a walk over `cfg.pipelines` alone sees nothing -- HVAC's seven inputs
+ * priced 204 rows and would have shown "no SKUs affected" on their own impact panel. The Python
+ * reach walk (`csv_exporter.pricing_input_used_by`) had the identical blindness and is fixed in the
+ * same slice.
+ *
+ * The nested id carries family and unit class, so two families' `supply` pipelines are distinct keys
+ * -- `pipesBy` is keyed by "category|pipelineId" and would otherwise merge them.
+ */
+export function pipelinesOf(cfg: unknown): Array<[string, any]> {
+  const out: Array<[string, any]> = [];
+  const own = (cfg as any)?.pipelines ?? {};
+  for (const pid of Object.keys(own).sort()) out.push([pid, own[pid] ?? {}]);
+  const fams = (cfg as any)?.list_spec?.pricing?.families ?? {};
+  for (const fam of Object.keys(fams).sort()) {
+    const units = fams[fam]?.units ?? {};
+    for (const uc of Object.keys(units).sort()) {
+      const pls = units[uc]?.pipelines ?? {};
+      for (const pid of Object.keys(pls).sort()) out.push([`${fam}/${uc}/${pid}`, pls[pid] ?? {}]);
+    }
+  }
+  return out;
+}
+
 export function computePricingInputReach(
   configs: Record<string, RateCategoryConfig | null | undefined> | null | undefined,
   items: readonly RateMasterItem[] | null | undefined,
@@ -199,8 +228,7 @@ export function computePricingInputReach(
 
   for (const cid of Object.keys(configs ?? {}).sort()) {
     const cfg = (configs ?? {})[cid];
-    for (const pid of Object.keys(cfg?.pipelines ?? {}).sort()) {
-      const pl: any = (cfg!.pipelines as any)[pid] ?? {};
+    for (const [pid, pl] of pipelinesOf(cfg)) {
       const steps: any[] = pl.steps ?? [];
       const owners = ctxOwners(pl);
       const prov = new Map<string, Set<string>>();

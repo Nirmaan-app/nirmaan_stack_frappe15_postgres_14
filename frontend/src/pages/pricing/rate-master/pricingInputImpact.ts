@@ -36,9 +36,11 @@
  */
 import type { RateMasterItem } from "./rateMasterTypes";
 import type { InputReach, AdderSpec } from "./pricingInputReach";
+import { pipelinesOf } from "./pricingInputReach";
 import { evalFormula } from "./ratePipelineInterpreter";
 import {
-  conditionsFor, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
+  conditionsFor, isItemListConfig, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
+  priceSkuExactItemList,
   type ExactLeg, type ExactPipelineRef,
 } from "./pricingInputExact";
 
@@ -328,7 +330,12 @@ export function computeImpact(
     if (!exactCtx || !changed) return null;
     const refs: ExactPipelineRef[] = [];
     for (const { category, pipelineId } of reach?.pipelines ?? []) {
-      const pl = (exactCtx.configs?.[category]?.pipelines ?? {})[pipelineId];
+      // ⚠️ THROUGH `pipelinesOf`, NOT `cfg.pipelines`. An ITEM-LIST category's pipelines live inside
+      // `list_spec`, and the reach walk now reports them under a `family/unit/id` key -- resolving
+      // against `cfg.pipelines` alone would find NOTHING for every one of them, so the panel would
+      // fall back to its approximate arithmetic on the whole category. ONE resolver, shared with the
+      // walk that produced the ids, so the two can never disagree about what a pipeline id means.
+      const pl = pipelinesOf(exactCtx.configs?.[category]).find(([pid]) => pid === pipelineId)?.[1];
       if (pl) refs.push({ category, pipelineId, pipeline: pl as never });
     }
     if (!refs.length) return null;
@@ -351,7 +358,21 @@ export function computeImpact(
       if (out.has(c.itemUid)) continue;
       const sku = itemsByUid?.get(c.itemUid);
       if (!sku) continue;
-      out.set(c.itemUid, priceSkuExact(sku, refs, exactCtx.items, itemsNext, conds));
+      /**
+       * ACCEPTANCE 23 -- ONE PRICING PATH. An ITEM-LIST category prices a row through
+       * `priceItemList`, so its SKUs are priced through `priceItemList` here too. Running one of its
+       * `list_spec` pipelines directly would re-implement the family / unit / ladder / default /
+       * per-row-condition resolution that function performs -- and would get Insulation's cladding
+       * wrong in a plausible way, pricing every row as though it carried the input's own cladding.
+       *
+       * ⚠️ `conds` IS DELIBERATELY NOT PASSED on this path. There is nothing to assume: the branch
+       * each SKU takes is decided by that SKU's own attributes, which is exactly what makes the moved
+       * COUNT fall out of the product rather than out of a guess.
+       */
+      const cfgOf = exactCtx.configs?.[(c.categories ?? [])[0] ?? ""];
+      out.set(c.itemUid, isItemListConfig(cfgOf)
+        ? priceSkuExactItemList(sku, cfgOf, exactCtx.items, itemsNext)
+        : priceSkuExact(sku, refs, exactCtx.items, itemsNext, conds));
     }
     return out;
   })();
