@@ -2015,7 +2015,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
 
   /** the spec with FA8's controls declared, as v19 ships them */
   const withControls = (controls: Record<string, string>, notes?: Record<string, string>) => {
-    const cfg = JSON.parse(JSON.stringify(insCfg));
+    const cfg = structuredClone(insCfg);
     cfg.list_spec.pricing.panel_controls = controls;
     if (notes) cfg.list_spec.pricing.panel_notes = notes;
     return itemListPricingSpec(cfg as never)!;
@@ -2098,7 +2098,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
   it("ABSENT panel_controls is byte-identical to before FA8 existed", () => {
     // the shipped config now DECLARES the block, so the absent case is constructed by removing it --
     // this is what every category that declares nothing (ADP's siblings, all of Electrical) still gets
-    const stripped = JSON.parse(JSON.stringify(insCfg));
+    const stripped = structuredClone(insCfg);
     delete stripped.list_spec.pricing.panel_controls;
     delete stripped.list_spec.pricing.panel_notes;
     const plain = itemListPricingSpec(stripped as never)!;
