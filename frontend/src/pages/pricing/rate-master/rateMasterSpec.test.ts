@@ -315,17 +315,37 @@ describe("SLICE 12b(A) -- Pricing Inputs on the screen", () => {
     expect(pricingInputUsedBy(configs)).toEqual({});
   });
 
-  it("ACCEPTANCE 4 / 9: the column set is fixed, and amount is the only non-percentage", () => {
-    expect(PRICING_INPUT_VALUE_COLUMNS).toEqual([
-      "discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share", "amount",
-    ]);
+  // ⚠️ INVERTED BY SLICE 12c (owner ruling, 2026-09-30), NOT deleted. It asserted "amount is the only
+  // non-percentage" and banned the word "factor" from EVERY label. Both claims were true of 12b(A)'s
+  // eight columns and the owner has since ruled two more into existence, so this now asserts the NEW
+  // truth and keeps the OLD claims exactly where they still hold.
+  //
+  // ⚠️ THE `factor` COLUMN AND 12b(A)'s "THERE ARE NO FACTORS" RULE. That rule was about FOLDS -- a
+  // pre-multiplied (1-discount)x(1+markup) called a "factor", which nobody who owned either half could
+  // edit. `factor` here is a KIND-OF-NUMBER column, exactly as `amount` and `rate` are: the MEANING
+  // lives in the item (cladding overlap; GI framework sheet factor), which is what the rule asked for.
+  // The ban therefore still applies in full to the seven percentage columns, where a "factor" label
+  // WOULD hide which business number it is.
+  const PRE_12C = ["discount", "supply_markup", "installation_markup", "bcs_markup",
+                   "wastage", "ratio", "share", "amount"];
+  it("ACCEPTANCE 4 / 9: the column set is fixed; amount, rate and factor are the non-percentages", () => {
+    expect(PRICING_INPUT_VALUE_COLUMNS).toEqual([...PRE_12C, "rate", "factor"]);
+    // the pre-12c eight still LEAD, in their original order -- nothing moved
+    expect(PRICING_INPUT_VALUE_COLUMNS.slice(0, 8)).toEqual(PRE_12C);
     expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("amount");
+    expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("rate");
+    expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("factor");
     expect(PRICING_INPUT_PERCENT_COLUMNS).toHaveLength(7);
     // ACCEPTANCE 7/8: every column names a kind of number, and every markup names its leg
     for (const c of PRICING_INPUT_VALUE_COLUMNS) {
       expect(PRICING_INPUT_COLUMN_LABELS[c]).toBeTruthy();
+    }
+    // the 12b(A) ban, still in force on every column it was written for
+    for (const c of PRE_12C) {
       expect(PRICING_INPUT_COLUMN_LABELS[c]).not.toMatch(/factor/i);
     }
+    expect(PRICING_INPUT_COLUMN_LABELS.rate).toBe("Rate");
+    expect(PRICING_INPUT_COLUMN_LABELS.factor).toBe("Factor");
     expect(PRICING_INPUT_COLUMN_LABELS.supply_markup).toBe("Supply markup");
     expect(PRICING_INPUT_COLUMN_LABELS.installation_markup).toBe("Installation markup");
     expect(PRICING_INPUT_COLUMN_LABELS.bcs_markup).toBe("BCS markup");

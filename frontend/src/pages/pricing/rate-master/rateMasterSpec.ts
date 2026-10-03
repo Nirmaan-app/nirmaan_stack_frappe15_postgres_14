@@ -871,10 +871,23 @@ export const PRICING_INPUT_KIND_SUFFIX = "_pricing_input";
 /** ACCEPTANCE 4 / 9: the ONLY columns a Pricing Input carries, in this order. */
 export const PRICING_INPUT_VALUE_COLUMNS = [
   "discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share", "amount",
+  // SLICE 12c: APPENDED, after `amount`, so no existing column moves and every Electrical figure keeps
+  // its place. A discipline carrying neither still shows the same eight.
+  "rate", "factor",
 ] as const;
 
-/** ACCEPTANCE 6: every value column is a percentage EXCEPT `amount`, which is rupees. */
-export const PRICING_INPUT_PERCENT_COLUMNS = PRICING_INPUT_VALUE_COLUMNS.filter((c) => c !== "amount");
+/**
+ * ACCEPTANCE 6: a value column is a percentage EXCEPT for these three. `amount` and `rate` are RUPEES;
+ * `factor` is a PLAIN MULTIPLIER (1.25, 0.9) -- owner ruling, slice 12c.
+ *
+ * ⚠️ IT IS A DENY-LIST BECAUSE THE DEFAULT IS "PERCENT", so a value column added without a thought
+ * renders 450 as 45000%. A new non-percentage column belongs here in the SAME edit that adds it.
+ * ⚠️ MIRRORS `csv_exporter.PRICING_INPUT_NON_PERCENT_COLUMNS`.
+ */
+export const PRICING_INPUT_NON_PERCENT_COLUMNS = ["amount", "rate", "factor"] as const;
+export const PRICING_INPUT_PERCENT_COLUMNS = PRICING_INPUT_VALUE_COLUMNS.filter(
+  (c) => !(PRICING_INPUT_NON_PERCENT_COLUMNS as readonly string[]).includes(c),
+);
 
 export const PRICING_INPUT_COLUMN_LABELS: Record<string, string> = {
   discount: "Discount",
@@ -885,6 +898,8 @@ export const PRICING_INPUT_COLUMN_LABELS: Record<string, string> = {
   ratio: "BCS ratio",
   share: "Installation share",
   amount: "Amount",
+  rate: "Rate",
+  factor: "Factor",
 };
 
 /**
@@ -905,6 +920,8 @@ export const PRICING_INPUT_COLUMN_SHORT_LABELS: Record<string, string> = {
   ratio: "BCS ratio",
   share: "Inst. share",
   amount: "Amount",
+  rate: "Rate",
+  factor: "Factor",
 };
 
 /** True when this config is the discipline's Pricing Inputs category. */

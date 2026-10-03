@@ -6135,7 +6135,27 @@ class TestRateMaster(FrappeTestCase):
                 # rather than skipped, so the exemption cannot quietly become "this file is unchecked".
                 if cat == PRICING_INPUTS_CATEGORY:
                     self.assertEqual(headers[:4], ["item_uid", "discipline", "category", "item"], cat)
-                    for must in csv_exporter.PRICING_INPUT_VALUE_COLUMNS:
+                    # ⚠️ INVERTED BY SLICE 12c (owner RULING 1, option (b)), not deleted. This asserted
+                    # that EVERY value column appears, which was true only while no value column could
+                    # be blank across a WHOLE discipline. The ruling keeps the blank-column filter and
+                    # adds two columns Electrical's inputs do not carry, so the honest claim is now:
+                    # a column IN USE appears, and one in use NOWHERE does not -- which is the filter's
+                    # entire purpose and what keeps this file byte-identical for Electrical.
+                    # the population is read through the EXPORTER'S OWN loader, so the test measures the
+                    # same rows the file is built from rather than a second opinion about what exists
+                    _items, _k2c, _c2k, _types = csv_exporter._load_full(disc)
+                    _kinds = set(_c2k[cat])
+                    in_use = {k for it in _items if it["kind"] in _kinds
+                              for k, v in (it.get("rates") or {}).items() if v is not None}
+                    for col in csv_exporter.PRICING_INPUT_VALUE_COLUMNS:
+                        if col in in_use:
+                            self.assertIn(col, headers, "%s: %s is in use and must appear" % (cat, col))
+                        else:
+                            self.assertNotIn(col, headers, "%s: %s is used by no row" % (cat, col))
+                    # the pre-12c eight are all in use on Electrical, so the ORIGINAL claim still holds
+                    # there in full -- stated separately so the inversion cannot hide a real loss
+                    for must in ("discount", "supply_markup", "installation_markup", "bcs_markup",
+                                 "wastage", "ratio", "share", "amount"):
                         self.assertIn(must, headers, cat)
                     for tail in (csv_exporter.PRICING_INPUT_SHARED_BY, csv_exporter.PRICING_INPUT_REMARKS,
                                  csv_exporter.PRICING_INPUT_USED_BY):
@@ -16123,3 +16143,89 @@ class TestItemListMayReadAPricingInput(FrappeTestCase):
                     raise AssertionError("%s: %s" % (os.path.basename(path), exc))
             checked += 1
         self.assertGreater(checked, 60)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c, COMMIT 4 -- THE `rate` AND `factor` COLUMNS
+#
+# Owner RULING 1 (option (b), "agree"): the two columns exist for EVERY discipline and appear wherever
+# an input CARRIES them. The blank-column filter STAYS, so a discipline whose inputs carry neither --
+# Electrical, all 35 of them -- is untouched: same eight columns, same values, byte-identical download.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestRateAndFactorColumns(FrappeTestCase):
+    """The two columns, the two label maps, the non-percent set -- and Electrical unmoved."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_rf_01_both_columns_exist_and_are_APPENDED_after_amount(self):
+        """Appended, so no existing column moves and every Electrical figure keeps its place."""
+        cols = list(csv_exporter.PRICING_INPUT_VALUE_COLUMNS)
+        self.assertEqual(cols[:8], ["discount", "supply_markup", "installation_markup", "bcs_markup",
+                                    "wastage", "ratio", "share", "amount"])
+        self.assertEqual(cols[8:], ["rate", "factor"])
+
+    def test_rf_02_NEGATIVE_neither_is_a_PERCENTAGE(self):
+        """⚠️ THE DEFAULT IS "PERCENT", so this is the assertion that stops a rate of 450 rendering as
+        45000% and a factor of 1.25 as 125%."""
+        for c in ("rate", "factor"):
+            self.assertNotIn(c, csv_exporter.PRICING_INPUT_PERCENT_COLUMNS, c)
+            self.assertIn(c, csv_exporter.PRICING_INPUT_NON_PERCENT_COLUMNS, c)
+        self.assertEqual(sorted(csv_exporter.PRICING_INPUT_NON_PERCENT_COLUMNS),
+                         ["amount", "factor", "rate"])
+        # and the percent set is still exactly the other seven -- nothing was lost in the widening
+        self.assertEqual(list(csv_exporter.PRICING_INPUT_PERCENT_COLUMNS),
+                         ["discount", "supply_markup", "installation_markup", "bcs_markup",
+                          "wastage", "ratio", "share"])
+
+    def test_rf_03_the_TS_mirror_declares_the_same_three_columns(self):
+        """The screen and the file must agree, or a pricer reads one number as two different things.
+        Pinned by SOURCE, the `FORMULA_FIXTURE` idiom, because the two live in different languages."""
+        src = self._frontend_src("pages", "pricing", "rate-master", "rateMasterSpec.ts")
+        self.assertIn('PRICING_INPUT_NON_PERCENT_COLUMNS = ["amount", "rate", "factor"] as const;', src)
+        self.assertIn('"rate", "factor",', src)
+        for label_line in ('  rate: "Rate",', '  factor: "Factor",'):
+            # BOTH maps -- the long one and the SHORT one the narrow header uses
+            self.assertEqual(src.count(label_line), 2, label_line)
+
+    def test_rf_04_ELECTRICAL_IS_UNTOUCHED_because_none_of_its_inputs_carries_either(self):
+        """ACCEPTANCE 13, the half that matters most: the blank-column filter means a discipline whose
+        inputs carry neither column never sees them. This is the FACT that makes it true."""
+        pis = [i for i in self.eall["items"] if csv_exporter.is_pricing_input_kind(i["kind"])]
+        self.assertEqual(len(pis), 35)
+        for i in pis:
+            for c in ("rate", "factor"):
+                self.assertNotIn(c, (i.get("rates") or {}),
+                                 "%s carries %s -- Electrical's file would grow a column" % (i["item_uid"], c))
+
+    def test_rf_05_the_blank_column_filter_is_STILL_THERE_at_both_sites(self):
+        """⚠️ OWNER RULING 1 REVERSED THE DESIGN, which had called for deleting this filter. Removing it
+        makes both columns appear EMPTY on Electrical's 35 rows and changes its download. Pinned at both
+        sites, because either one alone would let the other drift."""
+        src = inspect.getsource(csv_exporter)
+        self.assertIn("if any(c in (it.get(\"rates\") or {}) for it in rows_in)", src)
+        viewer = self._frontend_src("pages", "pricing", "rate-master", "RateMasterDataViewer.tsx")
+        self.assertIn("(it.rates || {})[k] !== undefined && (it.rates || {})[k] !== null", viewer)
+
+    def test_rf_06_the_real_electrical_export_carries_NEITHER_new_column(self):
+        """The end-to-end form of rf_04: the REAL exporter over the LIVE rows, which is what a pricer
+        downloads. rf_04 proves the data cannot produce the columns; this proves the exporter does not
+        produce them anyway."""
+        cfg = next(c for c in self.eall["category_configs"]
+                   if csv_exporter.is_pricing_input_kind((c.get("item_kinds") or [None])[0]))
+        out = csv_exporter.build_category_rows("Electrical", cfg["category_id"])
+        headers = out["headers"]
+        self.assertNotIn("rate", headers)
+        self.assertNotIn("factor", headers)
+        for c in ("discount", "supply_markup", "amount"):
+            self.assertIn(c, headers)
+        self.assertEqual(out["n"], 35)

@@ -95,10 +95,18 @@ PRICING_INPUT_KIND_SUFFIX = "_pricing_input"
 # ACCEPTANCE 4 / 9: the file carries ONLY these, in this order, and nothing borrowed from a SKU file.
 # `item` is the row's name, then one column per KIND of number, then the unit, the remark and the
 # read-only used-by count.
+# SLICE 12c: `rate` and `factor` are APPENDED, after `amount`, so no existing column moves and every
+# Electrical figure keeps its place. A discipline that carries neither still exports the same eight.
 PRICING_INPUT_VALUE_COLUMNS = ("discount", "supply_markup", "installation_markup", "bcs_markup",
-                               "wastage", "ratio", "share", "amount")
-# ACCEPTANCE 6: a factor is shown as a PERCENTAGE. `amount` is rupees and is NOT a percentage.
-PRICING_INPUT_PERCENT_COLUMNS = tuple(c for c in PRICING_INPUT_VALUE_COLUMNS if c != "amount")
+                               "wastage", "ratio", "share", "amount", "rate", "factor")
+# ACCEPTANCE 6: a factor is shown as a PERCENTAGE -- but three columns are not percentages and must be
+# named, not inferred. `amount` and `rate` are RUPEES; `factor` is a PLAIN MULTIPLIER (1.25, 0.9) --
+# owner ruling, slice 12c, "Rate and Factor as plain numbers".
+# ⚠️ THE SET IS A DENY-LIST BECAUSE THE DEFAULT IS "PERCENT", so a value column added without a thought
+# renders 450 as 45000%. A new non-percentage column belongs here in the SAME edit that adds it.
+PRICING_INPUT_NON_PERCENT_COLUMNS = ("amount", "rate", "factor")
+PRICING_INPUT_PERCENT_COLUMNS = tuple(c for c in PRICING_INPUT_VALUE_COLUMNS
+                                      if c not in PRICING_INPUT_NON_PERCENT_COLUMNS)
 PRICING_INPUT_USED_BY = "used_by"
 PRICING_INPUT_SHARED_BY = "shared_by"
 PRICING_INPUT_NAME = "item"
