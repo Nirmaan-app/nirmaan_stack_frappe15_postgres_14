@@ -232,9 +232,30 @@ describe("Calculator slice 2 / a blank withholds the price; None prices", () => 
 describe("Calculator slice 2 / the calculator constructs the helper with an EMPTY map and computes NOTHING itself", () => {
   const src = strip(CALC_SRC);
   it("the construction, verbatim", () => {
-    expect(src).toContain("makePricingSheetHelper({ configsByCategory, items, extractionByRow: new Map() })");
+    /**
+     * ⚠️ INVERTED BY SLICE 12c FINISH / FA7 (owner ruling 2026-10-04), NOT RELAXED. The single-line
+     * form this used to quote can no longer exist: the calculator now passes a FOURTH dep,
+     * `admitCalculatorOnly`, which is what admits a `calculator_only` category to this tab and to
+     * nowhere else. The claim is unchanged in substance -- the calculator builds THE ONE helper with
+     * an EMPTY extraction map and computes nothing itself -- so each part is asserted separately and
+     * the retired one-line shape is asserted ABSENT.
+     */
+    expect(src).toContain("makePricingSheetHelper({");
+    expect(src).toContain("configsByCategory,");
+    expect(src).toContain("extractionByRow: new Map(),");
+    expect(src).toContain("admitCalculatorOnly: true,");
+    expect(src).not.toContain(
+      "makePricingSheetHelper({ configsByCategory, items, extractionByRow: new Map() })");
     expect(src).toContain('variant="calculator"');
     expect(src).toContain("<RateHelperPanel");
+  });
+  it("⚠️ FA7: the BoQ pricing editor does NOT pass the admission -- that is the whole boundary", () => {
+    // if this ever contains the flag, a `calculator_only` category starts pricing BoQ rows, which is
+    // exactly what the owner's option A ruled out.
+    const boq = readFileSync(
+      join(__dirname, "..", "boq-wizard", "SheetPricingPage.tsx"), "utf-8");
+    expect(boq).not.toContain("admitCalculatorOnly");
+    expect(boq).toContain("makePricingSheetHelper");      // it really does build the same helper
   });
   it("⚠️ NEGATIVE: no second arithmetic -- no interpreter import, no figure read, no kind mapped, no number formatted", () => {
     expect(src).not.toContain("ratePipelineInterpreter");

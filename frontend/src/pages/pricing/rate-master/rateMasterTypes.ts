@@ -824,6 +824,10 @@ export interface RateCategoryConfig {
    * read `typed`.
    */
   rate_composition?: Record<"supply" | "install", RateComposition | undefined>;
+  /** SLICE 12c FINISH / FA7: priceable in the Pricing CALCULATOR tab only -- see
+   * `pricingSheetHelper.isCalculatorOnlyConfig`. TEMPORARY; removed by the slice that makes the
+   * category fully eligible. */
+  calculator_only?: boolean;
   [k: string]: unknown;
 }
 

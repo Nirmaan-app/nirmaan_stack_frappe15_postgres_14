@@ -289,7 +289,16 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
   const helper = useMemo<RateHelper | null>(
     () =>
       configsByCategory.size > 0
-        ? makePricingSheetHelper({ configsByCategory, items, extractionByRow: new Map() })
+        ? makePricingSheetHelper({
+            configsByCategory,
+            items,
+            extractionByRow: new Map(),
+            // FA7 (owner ruling 2026-10-04, option A): the CALCULATOR -- and only the calculator --
+            // prices a `calculator_only` category. The BoQ pricing editor builds this same helper
+            // WITHOUT the flag, so such a category still shows its coming-soon card on a BoQ row and
+            // stays out of the extraction population.
+            admitCalculatorOnly: true,
+          })
         : null,
     [configsByCategory, items],
   );

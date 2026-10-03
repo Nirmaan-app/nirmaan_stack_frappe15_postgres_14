@@ -220,6 +220,34 @@ export function isEligibleConfig(config: RateCategoryConfig | null | undefined):
 }
 
 /**
+ * FA7 (owner ruling 2026-10-04, option A) -- does this config declare the CALCULATOR ADMISSION?
+ *
+ * A category whose pricing rules are complete may be exercised in the Pricing Calculator tab before
+ * it is wired into BoQ rows, so the rules can be checked against real picks without turning on
+ * extraction for that category. TEMPORARY: the slice that makes the category fully eligible REMOVES
+ * the key in the same slice, so there is never a second on/off switch -- and the server validator
+ * refuses the key beside real eligibility, which is what keeps that promise mechanical.
+ *
+ * The key is DATA: no discipline and no category is named here (the HV-10 rule). PURE.
+ */
+export function isCalculatorOnlyConfig(config: RateCategoryConfig | null | undefined): boolean {
+  return (config as { calculator_only?: unknown } | null | undefined)?.calculator_only === true;
+}
+
+/**
+ * Can the CALCULATOR price this config? Eligible as usual, OR admitted by `calculator_only` while
+ * carrying real pricing rules -- for an item-list category those live in `list_spec.pricing`, which
+ * is exactly the nesting that keeps such a category out of `isEligibleConfig`. An admitted config
+ * with no rules is NOT priceable: it would reach the panel only to refuse every pick, which is worse
+ * than the coming-soon card. PURE.
+ */
+export function isCalculatorPriceableConfig(config: RateCategoryConfig | null | undefined): boolean {
+  if (isEligibleConfig(config)) return true;
+  if (!isCalculatorOnlyConfig(config)) return false;
+  return !!itemListPricingSpec(config) || Object.keys(config?.pipelines ?? {}).length > 0;
+}
+
+/**
  * SLICE 3 (2026-09-22, owner Q-a / Q-b) -- THE ONE alias resolution on the frontend, used by the helper's
  * `resolveConfig` AND by the calculator's layout reads. A config carrying `alias_of` resolves ONE HOP to
  * the target config when that target is in the map; otherwise (missing target, or no alias) the config
@@ -350,6 +378,15 @@ interface Deps {
   items: RateMasterItem[];
   /** excel_row -> the run's extraction for that row. */
   extractionByRow: Map<number, ExtractionRow>;
+  /**
+   * FA7 (owner ruling 2026-10-04, option A): admit a `calculator_only` category.
+   *
+   * ⚠️ IT IS A PROPERTY OF THE SURFACE, NOT OF THE CONFIG ALONE -- which is why it is a dep and not
+   * simply read inside `compute`. Only the Pricing CALCULATOR tab passes it; the BoQ pricing editor
+   * never does, so a `calculator_only` category keeps showing its coming-soon card on a BoQ row.
+   * Absent (every other caller, including every existing test) is byte-identical to before.
+   */
+  admitCalculatorOnly?: boolean;
 }
 
 /** Cable vs termination from the row text (a termination line prices the gland/lug set).
@@ -987,7 +1024,7 @@ function neverAskedDefault(
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
-  const { config, configsByCategory, items, extractionByRow } = deps;
+  const { config, configsByCategory, items, extractionByRow, admitCalculatorOnly } = deps;
 
   /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
    * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
@@ -1010,7 +1047,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
     // always resolves to its own eligible category by construction.
     const cfg = resolveConfig(ctx.category);
-    if (!isEligibleConfig(cfg)) {
+    // FA7: the CALCULATOR may also price a category that declares `calculator_only` -- the ONE site
+    // where that admission is read. `isEligibleConfig` itself is deliberately untouched, so every
+    // other reader of eligibility (the BoQ decline cards, the pre-run rules, the extraction
+    // population on the server) sees exactly what it saw before.
+    if (!(admitCalculatorOnly ? isCalculatorPriceableConfig(cfg) : isEligibleConfig(cfg))) {
       // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
       return { kind: "none", reason: declineReasonFor(cfg) };
     }

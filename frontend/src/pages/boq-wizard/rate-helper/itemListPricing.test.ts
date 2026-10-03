@@ -13,7 +13,13 @@ import HVAC_V6 from "../../../../../nirmaan_stack/services/boq_rate_master/data/
 import ELECTRICAL_V63 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v63.json";
 import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
 import { runPipeline } from "../../pricing/rate-master/ratePipelineInterpreter";
-import { isEligibleConfig } from "./pricingSheetHelper";
+import {
+  isEligibleConfig, isCalculatorOnlyConfig, isCalculatorPriceableConfig,
+  makePricingSheetHelper, declineReasonFor,
+} from "./pricingSheetHelper";
+// SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
+import HVAC_V18 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v18.json";
+import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
   priceItemList,
@@ -1891,5 +1897,100 @@ describe("slice 12c: size_match and compose, wired", () => {
     const wrong = { ...spec, family_attribute_id: "not_the_family_key" };
     const r = priceItemList(wrong, items, "Nos", [ext({ family: SQ, damper: "None", neck_mm: "375 x 375" })]);
     expect(r.priced).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH, FA7 -- THE CALCULATOR ADMISSION (owner ruling 2026-10-04, option A)
+ *
+ * Insulation's pricing rules are complete, so the category is priceable in the HVAC Pricing
+ * CALCULATOR tab while BoQ rows and the extraction population stay untouched. The owner asked for it
+ * to be pinned BOTH WAYS, and these are the two halves on this side of the boundary:
+ *   - priceable in the calculator        (the helper built WITH the admission)
+ *   - coming soon on a BoQ row          (the helper built WITHOUT it -- what the BoQ editor builds)
+ * The third half -- excluded from the extraction population -- is a server fact and is pinned in
+ * `test_rate_master.TestCalculatorAdmission`.
+ *
+ * ⚠️ IT READS THE REAL SHIPPED ASSET, not a hand-built config. A fixture would pass just as happily
+ * if the key never reached the asset at all, which is the vacuity this slice has already hit once.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+const HELPER_SRC = readFileSync(join(__dirname, "pricingSheetHelper.ts"), "utf-8");
+const CALCULATOR_SRC = readFileSync(
+  join(__dirname, "..", "..", "pricing", "PricingCalculator.tsx"), "utf-8");
+
+describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
+  const CAT = "hvac_insulation";
+  const cfgs18 = (HVAC_V18 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+    .category_configs;
+  const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
+  const items18 = (HVAC_V18 as unknown as { items: RateMasterItem[] }).items;
+
+  const ctx = (): RateHelperRowContext => ({
+    excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
+    category: CAT, discipline: "HVAC", displayKinds: [...DISPLAY_RATE_KINDS],
+  } as unknown as RateHelperRowContext);
+
+  const helperFor = (admit: boolean) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([[CAT, ins]]),
+      items: items18,
+      extractionByRow: new Map(),
+      ...(admit ? { admitCalculatorOnly: true } : {}),
+    });
+
+  it("the SHIPPED asset declares the admission, and the category is still NOT eligible", () => {
+    // if either half of this is false the rest of the suite proves nothing
+    expect(isCalculatorOnlyConfig(ins)).toBe(true);
+    expect(isEligibleConfig(ins)).toBe(false);
+    expect(Object.keys(ins.pipelines ?? {})).toEqual([]);
+  });
+
+  it("PRICEABLE IN THE CALCULATOR: the admitted helper does NOT decline the row", () => {
+    const res = helperFor(true).compute(ctx());
+    // it reaches the item-list path: a suggestion (possibly with its own per-item refusals), never
+    // the category-level "coming soon" decline
+    expect(res.kind).not.toBe("none");
+  });
+
+  it("COMING SOON ON A BoQ ROW: the same helper built WITHOUT the admission declines", () => {
+    // ⚠️ THIS IS WHAT THE BoQ PRICING EDITOR BUILDS -- it never passes the flag.
+    const res = helperFor(false).compute(ctx());
+    expect(res.kind).toBe("none");
+    expect((res as { reason: string }).reason).toBe(declineReasonFor(ins));
+  });
+
+  it("NEGATIVE: the admission cannot rescue a config with NO pricing rules", () => {
+    // such a config would reach the panel only to refuse every pick, which is worse than the card
+    const empty = { category_id: "x", calculator_only: true, attribute_definitions: [] } as unknown as RateCategoryConfig;
+    expect(isCalculatorOnlyConfig(empty)).toBe(true);
+    expect(isCalculatorPriceableConfig(empty)).toBe(false);
+  });
+
+  it("NEGATIVE: a config WITHOUT the key is unchanged on both surfaces", () => {
+    const plain = { ...(ins as object) } as Record<string, unknown>;
+    delete plain.calculator_only;
+    const p = plain as unknown as RateCategoryConfig;
+    expect(isCalculatorPriceableConfig(p)).toBe(false);
+    expect(isEligibleConfig(p)).toBe(false);
+  });
+
+  it("an ELIGIBLE config is calculator-priceable without any admission -- ADP is the exemplar", () => {
+    const adp = cfgs18.find((c) => c.category_id === "hvac_adp") as unknown as RateCategoryConfig;
+    expect(isEligibleConfig(adp)).toBe(true);
+    expect(isCalculatorOnlyConfig(adp)).toBe(false);
+    expect(isCalculatorPriceableConfig(adp)).toBe(true);
+  });
+
+  it("⚠️ NO DISCIPLINE AND NO CATEGORY IS NAMED IN CODE (the HV-10 rule)", () => {
+    for (const src of [HELPER_SRC, CALCULATOR_SRC]) {
+      const admissionLines = src
+        .split("\n")
+        .filter((l) => /calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig/.test(l))
+        .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));          // prose may name them; code may not
+      expect(admissionLines.length).toBeGreaterThan(0);
+      for (const l of admissionLines) {
+        expect(l).not.toMatch(/hvac_|HVAC|Electrical|insulation/);
+      }
+    }
   });
 });

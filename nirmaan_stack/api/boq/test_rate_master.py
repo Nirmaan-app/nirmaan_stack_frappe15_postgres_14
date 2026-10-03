@@ -11430,7 +11430,7 @@ def _read_frontend_src(*parts):
         return fh.read()
 
 
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v17.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v18.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -11837,9 +11837,24 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # SLICE 12c INVERTS IT ONCE MORE (v15 -> v16): HVAC's Pricing Inputs + Insulation's pricing
         # rules. SLICE 12c FINISH takes it to v17 (the five cladding-only SKUs). Each superseded
         # version stays on disk as history, asserted two lines down.
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v17.json")
-        for hist in ("rate_master_hvac_all_v14.json", "rate_master_hvac_all_v15.json",
-                     "rate_master_hvac_all_v16.json"):
+        # ⚠️ SLICE 12c FINISH / FA7 DERIVES THIS CLAIM INSTEAD OF BUMPING IT -- the lesson this very
+        # test already carries two paragraphs down, applied to its OWN hardcoded line. A per-mint bump
+        # goes stale on the next mint by construction (it just did, v17 -> v18), and a pin that has to
+        # be edited every slice teaches the next reader to edit it rather than read it. The claims now
+        # are: the current asset IS the highest-numbered file in the series, and the series is
+        # CONTIGUOUS from v1 with no gap -- both of which stay true across every future mint and would
+        # fail loudly on a skipped or deleted version, which a hardcoded name cannot see.
+        data_dir_h = os.path.dirname(_asset_path(CURRENT_HVAC_ASSET))
+        hvac_names = [n for n in sorted(os.listdir(data_dir_h)) if _mint_gate_module().HVAC_RE.match(n)]
+        nums = sorted(int(re.search(r"_v(\d+)\.json$", n).group(1)) for n in hvac_names)
+        self.assertEqual(nums, list(range(1, max(nums) + 1)),
+                         "the HVAC series must be contiguous from v1: %r" % nums)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v%d.json" % max(nums),
+                         "the current asset must be the HIGHEST version on disk")
+        # every superseded version stays on disk as history -- asserted over the whole series, not a
+        # hand-listed tail that needs extending each time
+        for n in range(1, max(nums)):
+            hist = "rate_master_hvac_all_v%d.json" % n
             self.assertTrue(os.path.exists(_asset_path(hist)), "%s must stay on disk as history" % hist)
         # ⚠️ SLICE 12b(A) INVERTED THE "ELECTRICAL UNMOVED" HALF OF THIS PIN, deliberately (v63 -> v64,
         # PRICING INPUTS), and SLICE 12b(B) MOVES IT AGAIN (v64 -> v65): the two 0% discounts the owner
@@ -11860,25 +11875,20 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # series lists EXACTLY v1 and v2, the latest is the current asset, and v1 is BYTE-IDENTICAL to its
         # committed form -- a superseded version is history, never edited; Electrical's latest file IS the
         # pinned current asset -- no slice created an Electrical file at any newer N
+        # ⚠️ DERIVED FOR THE SAME REASON (slice 12c FINISH): this list was hand-maintained per mint,
+        # and `CURRENT_HVAC_ASSET` sat in the middle of it because v13..v17 sort before v2. The claim
+        # it is making is that os.listdir + sorted is ALPHABETICAL while `latest_in` must resolve
+        # NUMERICALLY -- so it is asserted as exactly that, which is the real content and cannot go
+        # stale. The alphabetical-vs-numeric trap is still proven: v10 sorts between v1 and v2, and
+        # the numeric latest is asserted three lines below.
         self.assertEqual([n for n in names if gate.HVAC_RE.match(n)],
-                         # ALPHABETICAL, which is what os.listdir + sorted gives: v10 sorts between v1 and v2.
-                         # That is exactly why `latest_in` must resolve NUMERICALLY, pinned two lines below --
-                         # v10 is the first two-digit version in either series.
-                         ["rate_master_hvac_all_v1.json", "rate_master_hvac_all_v10.json",
-                          "rate_master_hvac_all_v11.json", "rate_master_hvac_all_v12.json",
-                          # SLICE 12a: v13 becomes history and v14 is the current asset -- and note that
-                          # ALPHABETICALLY v13 and v14 both sort here, before v2.
-                          # SLICE 12a-FIX: v14 becomes history and v15 is the current asset. Note that
-                          # ALPHABETICALLY v13, v14 and v15 all sort here, before v2.
-                          # SLICE 12c: v15 becomes history and v16 is the current asset. v13..v16 all
-                          # sort here, before v2.
-                          "rate_master_hvac_all_v13.json", "rate_master_hvac_all_v14.json",
-                          "rate_master_hvac_all_v15.json", "rate_master_hvac_all_v16.json",
-                          CURRENT_HVAC_ASSET,
-                          "rate_master_hvac_all_v2.json",
-                          "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
-                          "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
-                          "rate_master_hvac_all_v9.json"])
+                         sorted("rate_master_hvac_all_v%d.json" % n for n in nums))
+        self.assertIn(CURRENT_HVAC_ASSET, names)
+        self.assertLess(names.index("rate_master_hvac_all_v10.json"),
+                        names.index("rate_master_hvac_all_v2.json"),
+                        "the alphabetical trap this pin exists for must still be real")
+        # (the hand-listed alphabetical expectation that stood here is now the two derived
+        #  assertions above -- same claim, no per-mint edit)
         import subprocess
         repo = os.path.abspath(os.path.join(data_dir, "..", "..", "..", ".."))
         for prior in ("rate_master_hvac_all_v1.json", "rate_master_hvac_all_v2.json", "rate_master_hvac_all_v3.json",
@@ -17301,3 +17311,152 @@ class TestDeclaredPresentationOrder(FrappeTestCase):
         self.assertIn('"alpha", "cladding", "zeta", "mid"', flat)
         self.assertIn("supply_markup", flat)
         self.assertIn("column_order", flat)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c FINISH, FA7 -- THE CALCULATOR ADMISSION (owner ruling 2026-10-04, option A)
+#
+# "Add a config-declared calculator admission (e.g. calculator_only: true), read at ONE site, no
+# discipline or category named in code. The calculator tab prices Insulation through priceItemList;
+# BoQ rows and extraction stay untouched; test_co_f1_09 stays true as written."
+#
+# THE SERVER'S HALF of the both-ways pin: Insulation stays OUT of the extraction population, and the
+# key can never become a second on/off switch. The calculator / BoQ-row halves are pinned on the
+# frontend, in `itemListPricing.test.ts`.
+#
+# WHY THE ADMISSION EXISTS AT ALL, measured rather than assumed: ADP's top-level pipelines really run
+# (29 of its 30 unit blocks carry none of their own), so for ADP eligibility is a live code path.
+# Insulation's 7 of 7 blocks carry their own, so a top-level entry added merely to satisfy the
+# eligibility predicate would NEVER EXECUTE -- the "validates but never executes" defect. That is the
+# measurement `test_fa7_09` keeps true.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestCalculatorAdmission(FrappeTestCase):
+    """`calculator_only` admits a category to the calculator and to nothing else."""
+
+    CAT = "hvac_insulation"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+
+    @classmethod
+    def _cfg(cls, cat=None):
+        return next(c for c in cls.asset["category_configs"]
+                    if c["category_id"] == (cat or cls.CAT))
+
+    # ---- the asset + the stored config -----------------------------------------------------------
+
+    def test_fa7_01_the_SHIPPED_asset_declares_the_admission(self):
+        self.assertIs(self._cfg().get("calculator_only"), True)
+        # and it is the ONLY category that declares one
+        declaring = [c["category_id"] for c in self.asset["category_configs"]
+                     if c.get("calculator_only") is not None]
+        self.assertEqual(declaring, [self.CAT])
+
+    def test_fa7_02_the_LOADED_config_carries_it_too(self):
+        """⚠️ THE SEAM. An asset pin and a frontend pin can both be green while the key never
+        reaches the database the screen reads -- a test on each side of a boundary is not a test of
+        the boundary (standing rule). This reads what the product actually serves."""
+        stored = _obj(frappe.get_value("BoQ Rate Category Config",
+                                       {"discipline": "HVAC", "active": 1,
+                                        "category_id": self.CAT}, "config"))
+        self.assertIs(stored.get("calculator_only"), True)
+
+    # ---- the half this slice must NOT change ------------------------------------------------------
+
+    def test_fa7_03_the_category_is_STILL_OUT_of_the_extraction_population(self):
+        """OWNER: "BoQ rows and extraction stay untouched". `config_is_eligible` is what the
+        extraction population is assembled from, and the admission must not move it."""
+        cfgs = self.asset["category_configs"]
+        self.assertFalse(extraction.config_is_eligible(self._cfg(), cfgs))
+        # the admission is NOT consulted anywhere in the extraction service
+        self.assertNotIn("calculator_only", inspect.getsource(extraction))
+
+    def test_fa7_04_test_co_f1_09_STAYS_TRUE_AS_WRITTEN(self):
+        """The owner said so explicitly. Its two claims, re-asserted here against the NEW asset so a
+        later mint cannot quietly falsify them in that older test's name."""
+        cfg = self._cfg()
+        self.assertEqual(cfg["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(cfg, self.asset["category_configs"]))
+
+    # ---- there must never be two switches --------------------------------------------------------
+
+    def test_fa7_05_NEGATIVE_the_key_is_REFUSED_beside_real_eligibility(self):
+        """⚠️ THIS IS THE REMOVAL CONDITION, MADE MECHANICAL. The owner's words: the slice that makes
+        the category fully eligible REMOVES this admission in the same slice, "so there is never a
+        second on/off switch". A config carrying both would have two independent switches for one
+        question -- and nobody would think to turn the forgotten one off."""
+        cfg = copy.deepcopy(self._cfg())
+        cfg["pipelines"] = {"item_supply": {"steps": []}}
+        self.assertTrue(cfg.get("attribute_definitions"))
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_calculator_only(cfg)
+        msg = str(cm.exception)
+        self.assertIn("already eligible", msg)
+        self.assertIn("never be two switches", msg)
+
+    def test_fa7_06_NEGATIVE_every_other_malformed_shape_is_refused_by_name(self):
+        cases = [
+            (False, "exactly true"),          # a key doing nothing, the shape refused twice already
+            ("true", "exactly true"),
+            (1, "exactly true"),
+            (None, "exactly true"),
+        ]
+        for val, needle in cases:
+            cfg = copy.deepcopy(self._cfg())
+            cfg["calculator_only"] = val
+            with self.assertRaises(Exception, msg="accepted %r" % (val,)) as cm:
+                config_validation._validate_calculator_only(cfg)
+            self.assertIn(needle, str(cm.exception), "%r refused for the wrong reason" % (val,))
+
+    def test_fa7_07_NEGATIVE_it_is_refused_on_a_config_with_NOTHING_TO_PRICE(self):
+        """Admitting such a category would put it in the calculator's reach only to refuse every
+        pick, which is worse than the coming-soon card it replaces."""
+        cfg = {"category_id": "x", "calculator_only": True, "attribute_definitions": [],
+               "pipelines": {}}
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_calculator_only(cfg)
+        self.assertIn("needs pricing rules", str(cm.exception))
+
+    def test_fa7_08_the_whole_asset_still_validates_through_the_loaders_own_gate(self):
+        for c in self.asset["category_configs"]:
+            config_validation._validate_config(
+                loader._loaded_config(copy.deepcopy(c), "HVAC", self.asset.get("goldens") or {}))
+
+    # ---- the measurement the design rests on ------------------------------------------------------
+
+    def test_fa7_09_a_top_level_pipeline_on_THIS_category_would_never_execute(self):
+        """⚠️ WHY THE ADMISSION, AND NOT "just make it eligible". Eligibility needs non-empty
+        top-level `pipelines`; for an item-list category those are the SHARED PER-ITEM DEFAULT that a
+        unit block without pipelines of its own runs. ADP has 29 such blocks of 30, so its default
+        really runs. Insulation has NONE -- every block carries its own -- so a top-level entry added
+        to satisfy the predicate would be a key that validates and never executes."""
+        def blocks(cat):
+            pr = (self._cfg(cat).get("list_spec") or {}).get("pricing") or {}
+            total = without = 0
+            for fam in (pr.get("families") or {}).values():
+                for unit in (fam.get("units") or {}).values():
+                    total += 1
+                    if not (unit.get("pipelines") or {}):
+                        without += 1
+            return total, without
+
+        ins_total, ins_without = blocks(self.CAT)
+        adp_total, adp_without = blocks("hvac_adp")
+        self.assertEqual((ins_total, ins_without), (7, 0), "insulation: every block has own pipelines")
+        self.assertEqual((adp_total, adp_without), (30, 29), "ADP: its top-level default really runs")
+        self.assertTrue(self._cfg("hvac_adp")["pipelines"], "ADP declares the default it runs")
+
+    def test_fa7_10_NO_DISCIPLINE_AND_NO_CATEGORY_IS_NAMED_IN_THE_ADMISSION_CODE(self):
+        """The HV-10 rule. Prose may name them; code may not."""
+        for mod in (config_validation,):
+            for line in inspect.getsource(mod).split("\n"):
+                if "CALCULATOR_ONLY_KEY" not in line and "calculator_only" not in line:
+                    continue
+                stripped = line.strip()
+                if stripped.startswith(("#", '"', "*")):
+                    continue
+                for banned in ("hvac_", "Electrical", "insulation"):
+                    self.assertNotIn(banned, line, "a name reached the code: %r" % line)
