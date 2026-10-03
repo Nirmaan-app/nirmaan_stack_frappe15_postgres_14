@@ -267,7 +267,23 @@ def _validate_list_spec(cfg):
 _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_factors", "family_alias",
                  "no_sku_families", "defaults",
                  "derive_when_none", "override_when", "numbers", "ladders", "match_attrs", "choice_attrs",
-                 "reason_names", "families", "panel_controls", "second_key"}
+                 "reason_names", "families", "panel_controls", "second_key",
+                 # SLICE 12c: the two blocks `ladderResolution.ts` reads. Each arrives WITH its shape
+                 # check below -- a key this allowlist admits but nothing validates is the
+                 # "validates but never executes" failure, and it is the whole reason this file exists.
+                 "size_match", "compose", "label_attr"}
+# SLICE 12c -- a stated value and a catalogue rung that are the SAME size written to different precision.
+# `dp` is the rounding depths to try, in order. ABSENT => nothing resolves and the ladder decides, exactly
+# as before. A depth that is not collision-free over a family's rungs is SKIPPED at run time, never
+# resolved arbitrarily, so the config cannot make the match order-dependent.
+_PRICING_SIZE_MATCH_KEYS = {"dp"}
+# SLICE 12c (owner Q8) -- above the top rung, build the value out of TWO OR MORE rungs within `tolerance`.
+# ⚠️ `max_layers` BELOW 2 IS REFUSED BY NAME. One layer is what the ordinary ladder already is, so a
+# one-layer "composition" is that ladder wearing the tolerance as a disguise -- able to shave a stated
+# value DOWN, which is exactly the 26 -> 25 exception the owner refused.
+_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only"}
+_PRICING_COMPOSE_REQUIRED = {"attr", "tolerance", "max_layers"}
+_PRICING_OUTER_ONLY_KEYS = {"attr", "value"}
 # SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
 # class -- a square foot is an area, but the catalogue quotes per square metre. Such a unit is declared here,
 # NEVER in `unit_classes`: a `unit_classes` spelling is a SYNONYM (factor 1, nothing is scaled), and a
@@ -435,6 +451,67 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         lst = pr.get(key)
         if not isinstance(lst, list) or not all(isinstance(a, str) and a in sku_attrs for a in lst):
             _vthrow(f"list_spec.pricing.{key} must list SKU attributes (a numbers key or a choice_attrs entry).")
+    # ---- SLICE 12c: the two resolution blocks ---------------------------------------------------
+    # Placed AFTER the ladders, because both name a LADDER attribute and that is the namespace they
+    # read from -- the rule that every name a step reads is checked where it reads it.
+    sm = pr.get("size_match")
+    if sm is not None:
+        if not isinstance(sm, dict):
+            _vthrow("list_spec.pricing.size_match must be an object.")
+        unk = set(sm) - _PRICING_SIZE_MATCH_KEYS
+        if unk:
+            _vthrow(f"list_spec.pricing.size_match: unknown key(s): {', '.join(sorted(unk))}.")
+        dps = sm.get("dp")
+        if (not isinstance(dps, list) or not dps
+                or not all(isinstance(d, int) and not isinstance(d, bool) and d >= 0 for d in dps)):
+            _vthrow("list_spec.pricing.size_match.dp must be a non-empty list of rounding depths "
+                    "(non-negative integers).")
+        if len(set(dps)) != len(dps):
+            _vthrow("list_spec.pricing.size_match.dp repeats a depth; each is tried once, in order.")
+    cp = pr.get("compose")
+    if cp is not None:
+        if not isinstance(cp, dict):
+            _vthrow("list_spec.pricing.compose must be an object.")
+        unk = set(cp) - _PRICING_COMPOSE_KEYS
+        if unk:
+            _vthrow(f"list_spec.pricing.compose: unknown key(s): {', '.join(sorted(unk))}.")
+        missing = _PRICING_COMPOSE_REQUIRED - set(cp)
+        if missing:
+            _vthrow(f"list_spec.pricing.compose needs {', '.join(sorted(missing))}.")
+        # the axis that composes must be a LADDER: composition only has meaning above a top rung
+        if cp["attr"] not in (pr.get("ladders") or []):
+            _vthrow(f"list_spec.pricing.compose.attr '{cp['attr']}' is not one of the ladders; only a "
+                    "laddered axis has a largest rung to compose above.")
+        if not isinstance(cp["tolerance"], (int, float)) or isinstance(cp["tolerance"], bool) or cp["tolerance"] < 0:
+            _vthrow("list_spec.pricing.compose.tolerance must be a non-negative number.")
+        if (not isinstance(cp["max_layers"], int) or isinstance(cp["max_layers"], bool)
+                or cp["max_layers"] < 2):
+            # ⚠️ BY NAME, because one layer is what the ordinary ladder already is: a one-layer
+            # "composition" is that ladder wearing the tolerance as a disguise, and it can shave a
+            # stated value DOWN -- exactly the 26 -> 25 exception the owner refused.
+            _vthrow("list_spec.pricing.compose.max_layers must be an integer of at least 2. One layer "
+                    "is what the ladder already does; a composition is two or more.")
+        oo = cp.get("outer_only")
+        if oo is not None:
+            if not isinstance(oo, dict) or set(oo) != _PRICING_OUTER_ONLY_KEYS:
+                _vthrow("list_spec.pricing.compose.outer_only needs exactly attr and value.")
+            if oo["attr"] not in choice_attrs:
+                _vthrow(f"list_spec.pricing.compose.outer_only.attr '{oo['attr']}' is not a choice SKU "
+                        "attribute of this category.")
+            if oo["value"] not in (by_id[oo["attr"]].get("values") or []):
+                _vthrow(f"list_spec.pricing.compose.outer_only.value '{oo['value']}' is not one of "
+                        f"'{oo['attr']}'s values; the inner layers would take a value no SKU carries.")
+    # SLICE 12c: which SKU attribute labels a ladder rung. A row missing it is NOT A RUNG, so this is a
+    # correctness key -- it must name an attribute the SKUs actually carry, or the ladder is empty and
+    # every row refuses. Checked against the ITEM definitions, not `sku_attrs`: a label is not a
+    # matching axis (ADP's `item_detail` is neither a `numbers` key nor a `choice_attrs` entry).
+    la = pr.get("label_attr")
+    if la is not None:
+        if not isinstance(la, str) or not la.strip():
+            _vthrow("list_spec.pricing.label_attr must be a non-empty string.")
+        if la not in by_id and la != spec.get("family_attribute_id"):
+            _vthrow(f"list_spec.pricing.label_attr '{la}' is not an item attribute of this category; "
+                    "a ladder would skip every row and refuse everything.")
     rn = pr.get("reason_names")
     if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
         _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")

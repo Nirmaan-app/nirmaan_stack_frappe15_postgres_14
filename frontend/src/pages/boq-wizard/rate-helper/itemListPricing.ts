@@ -183,6 +183,10 @@ export interface ItemListPricingSpec {
    * config (the `qty_attribute_id` precedent -- it lives on `list_spec`, not in the pricing block).
    * ABSENT => "family", which is what ADP declares, so ADP is byte-identical. */
   family_attribute_id?: string;
+  /** SLICE 12c: which SKU attribute labels a ladder rung. ABSENT => `item_detail` (what ADP carries).
+   * A row MISSING this attribute is not a rung at all, so pointing it at an attribute the SKUs do not
+   * have empties the ladder and refuses every row -- it is a correctness key, not a display one. */
+  label_attr?: string;
   /** SLICE 12c: a stated size and a catalogue rung that are the SAME size written to different
    * precision (22.2 and 22.23; 7/8" and 22.23) resolve to the rung instead of laddering past it.
    * ABSENT => nothing resolves and every category is byte-identical to before this slice. */
@@ -855,7 +859,12 @@ function priceOneItem(
       if (k === attr || k === familyAttr(spec) || k === spec.unit_class_attr || spec.ladders.includes(k)) continue;
       if (keysCarried.has(k)) where[k] = sel[k];
     }
-    const rungs = buildModuleLadder(familyRows, { kind: spec.kind, where, size_from: { attr }, label_attr: "item_detail" });
+    // SLICE 12c: the rung's LABEL attribute is config-declared, defaulting to ADP's `item_detail`.
+    // ⚠️ IT IS NOT COSMETIC. `buildModuleLadder` SKIPS any row whose label attribute is missing, so a
+    // category whose SKUs carry no `item_detail` builds an EMPTY ladder and every row reports
+    // "no SKU for this combination" -- which is exactly what Insulation did, with nothing on screen
+    // hinting that a display field was the cause. ABSENT => "item_detail", so ADP is byte-identical.
+    const rungs = buildModuleLadder(familyRows, { kind: spec.kind, where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
     const name = reasonName(spec, attr);
     const want = Number(sel[attr]);
     if (!rungs.length) {

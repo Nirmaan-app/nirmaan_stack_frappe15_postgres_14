@@ -11420,7 +11420,7 @@ class TestValidationGaps(FrappeTestCase):
 # SLICE 1c (owner ruling on the 1b pin, Option 1): the CURRENT HVAC asset moves to v2 -- minted THROUGH the
 # spec reader, same 95 item_uids, item_name / item_detail added, rows 89 / 91 cost_install 0 (S-d). v1 stays
 # on disk byte-identical to its committed form (pinned in h07).
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v15.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v16.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -11824,9 +11824,11 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         # slice 11 (owner F-1..F-4, inverting the slice-9 pin): the series now holds EXACTLY v1..v13
         # SLICE 12a-FIX INVERTS IT AGAIN (v14 -> v15, owner R3: the Type column restored). The HVAC
         # series now holds v1..v15; v14 is history and is still on disk, asserted two lines down.
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v15.json")
-        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v14.json")),
-                        "v14 must stay on disk as history")
+        # SLICE 12c INVERTS IT ONCE MORE (v15 -> v16): HVAC's Pricing Inputs + Insulation's pricing
+        # rules. v15 is history and is still on disk, asserted two lines down.
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v16.json")
+        for hist in ("rate_master_hvac_all_v14.json", "rate_master_hvac_all_v15.json"):
+            self.assertTrue(os.path.exists(_asset_path(hist)), "%s must stay on disk as history" % hist)
         # ⚠️ SLICE 12b(A) INVERTED THE "ELECTRICAL UNMOVED" HALF OF THIS PIN, deliberately (v63 -> v64,
         # PRICING INPUTS), and SLICE 12b(B) MOVES IT AGAIN (v64 -> v65): the two 0% discounts the owner
         # ruled on 2026-09-27 and 12b(A) never built. The HVAC half is UNCHANGED across both and still
@@ -11856,8 +11858,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
                           # ALPHABETICALLY v13 and v14 both sort here, before v2.
                           # SLICE 12a-FIX: v14 becomes history and v15 is the current asset. Note that
                           # ALPHABETICALLY v13, v14 and v15 all sort here, before v2.
+                          # SLICE 12c: v15 becomes history and v16 is the current asset. v13..v16 all
+                          # sort here, before v2.
                           "rate_master_hvac_all_v13.json", "rate_master_hvac_all_v14.json",
-                          CURRENT_HVAC_ASSET,
+                          "rate_master_hvac_all_v15.json", CURRENT_HVAC_ASSET,
                           "rate_master_hvac_all_v2.json",
                           "rate_master_hvac_all_v3.json", "rate_master_hvac_all_v4.json", "rate_master_hvac_all_v5.json",
                           "rate_master_hvac_all_v6.json", "rate_master_hvac_all_v7.json", "rate_master_hvac_all_v8.json",
@@ -12674,8 +12678,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         # from v9 on, `override_when` from v11 on)
         # slice 9: `second_key` joins the keys declared AFTER v7, so v7's block is the full set minus them
         # SLICE 11 added `unit_factors`, which v7 does not carry -- the same exclusion the three keys above get
+        # SLICE 12c added `size_match`, `compose` and `label_attr`, which v7's block predates exactly as
+        # it predates the four above -- and ADP carries NONE of the three, which is the point: the HVAC
+        # Insulation category is the only consumer, so widening the allowlist cannot have moved ADP.
         self.assertEqual(set(pr), config_validation._PRICING_KEYS
-                         - {"panel_controls", "override_when", "second_key", "unit_factors"})
+                         - {"panel_controls", "override_when", "second_key", "unit_factors",
+                            "size_match", "compose", "label_attr"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         def refused(mutate, needle):
@@ -14771,7 +14779,11 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
                                     {"discipline": disc, "active": 1,
                                      "category_id": "hvac_insulation"}, "config"))
         declared = {(uid, k) for uid, keys in cfg["derived_rates"].items() for k in keys}
-        self.assertEqual(len(declared), 228)
+        # ⚠️ INVERTED BY SLICE 12c (228 -> 172): the 56 `cost_cladding` declarations dissolved with the
+        # stored column. The behaviour under test -- a declared cell carries the WORD, never its figure
+        # -- is unchanged and still exercised over every survivor.
+        self.assertEqual(len(declared), 172)
+        self.assertFalse([k for (_u, k) in declared if k == "cost_cladding"])
         for label, b in (("mode A", ex.build_category_rows(disc, "hvac_insulation")),
                          ("mode B", ex.build_all_categories_rows(disc))):
             ui = b["headers"].index("item_uid")
@@ -14783,7 +14795,7 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
                     seen += 1
                     self.assertEqual(r[b["headers"].index(key)], ex.DERIVED_CELL_TEXT,
                                      "%s %s/%s" % (label, uid, key))
-            self.assertEqual(seen, 228, label)
+            self.assertEqual(seen, 172, label)   # SLICE 12c: 228 -> 172, the 56 cladding cells
             # NEGATIVE: an UNDECLARED rate on a DECLARED row still carries its figure -- the cell is
             # emptied per (item, rate key), never per row. (Mode B is ordered by kind, so the row must
             # be found by uid rather than taken from the head of the file.)
@@ -14822,9 +14834,12 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
                     all_cats.add((uid, k))
         for label, blob, b, declared, want_n in (
             ("mode A", ex.build_category_xlsx(disc, "hvac_insulation")[0],
-             ex.build_category_rows(disc, "hvac_insulation"), ins_only, 228),
+             # SLICE 12c: 228 -> 172 in mode A and 240 -> 184 in mode B, both for the one reason -- the
+             # 56 cladding declarations dissolved with the stored column. ADP's 12 are untouched, which
+             # is why the two numbers moved by exactly the same 56.
+             ex.build_category_rows(disc, "hvac_insulation"), ins_only, 172),
             ("mode B", ex.build_all_categories_xlsx(disc)[0], ex.build_all_categories_rows(disc),
-             all_cats, 240),
+             all_cats, 184),
         ):
             ws = openpyxl.load_workbook(io.BytesIO(blob)).worksheets[0]
             headers = b["headers"]
@@ -15669,7 +15684,7 @@ class TestDerivedRatesRecompute(FrappeTestCase):
         out = config_validation.derived_rate_updates(self.configs, self.items)
         self.assertEqual(out, {}, "the asset already disagrees with its own declarations: %r" % out)
 
-    def test_dr_02_ALL_228_bump_every_base_and_every_dependant_follows(self):
+    def test_dr_02_ALL_declared_bump_every_base_and_every_dependant_follows(self):
         """ACCEPTANCE ITEM 7. For EVERY declared cell: raise its base by a known delta, assert the
         cell moves by multiplier x delta, and assert NOTHING else moves."""
         bases = sorted({(t["from"]["item_uid"], t["from"]["rate_key"])
@@ -15698,20 +15713,32 @@ class TestDerivedRatesRecompute(FrappeTestCase):
                     self.assertNotIn(key, moved.get(uid, {}),
                                      "%s/%s moved for an unrelated base %s/%s"
                                      % (uid, key, b_uid, b_key))
-        self.assertEqual(checked, 228,
-                         "expected all 228 STORED declared cells exercised, got %d" % checked)
+        # ⚠️ INVERTED BY SLICE 12c (228 -> 172), not relaxed. The 56 `cost_cladding` declarations
+        # dissolved STRUCTURALLY when the column stopped being stored on the 204 pipe rows -- there is
+        # no cell left to declare. The MECHANISM this test is about is unchanged and is still exercised
+        # over every surviving cell; what moved is how many there are.
+        self.assertEqual(checked, 172,
+                         "expected all 172 STORED declared cells exercised, got %d" % checked)
+        self.assertFalse([k for (_u, k) in self.cells if k == "cost_cladding"],
+                         "a cladding declaration survived the 12c column drop")
 
-    def test_dr_03_the_cladding_add_keeps_its_constant(self):
-        """ACCEPTANCE ITEM 3: +10 on the glass-cloth base is +10 on the dependant -- the constant is
-        not re-applied, doubled or dropped."""
-        uid, key = "rmi-ced6bc7c4209", "cost_cladding"
+    def test_dr_03_a_dependant_follows_its_base_one_for_one(self):
+        """⚠️ INVERTED BY SLICE 12c, NOT DELETED. It was `test_dr_03_the_cladding_add_keeps_its_constant`
+        and read a `cost_cladding` declaration that no longer exists -- the 56 of them dissolved with the
+        stored column. The CLAIM it was making (a base moves by d and the dependant moves by
+        multiplier x d, with the constant neither re-applied nor dropped) is unchanged, so it is
+        re-aimed at a surviving declaration and the retired shape is asserted ABSENT below."""
+        self.assertFalse([k for (_u, k) in self.cells if k == "cost_cladding"],
+                         "the retired cladding declarations are back")
+        uid, key = next((u, k) for (u, k) in sorted(self.cells)
+                        if isinstance(self.items[u]["rates"].get(k), (int, float)))
         term = self.cells[(uid, key)][0]
         base_uid, base_key = term["from"]["item_uid"], term["from"]["rate_key"]
         items = self._fresh()
         items[base_uid]["rates"][base_key] = float(items[base_uid]["rates"][base_key]) + 10.0
         moved = config_validation.derived_rate_updates(self.configs, items)
-        self.assertAlmostEqual(moved[uid][key] - float(self.items[uid]["rates"][key]), 10.0,
-                               places=6)
+        self.assertAlmostEqual(moved[uid][key] - float(self.items[uid]["rates"][key]),
+                               10.0 * float(term["multiplier"]), places=6)
 
     # ---- the guard the Phase-0 defect bought -------------------------------------------------
 
@@ -15849,7 +15876,10 @@ class TestInsulationTypeRestored(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v14.json"), "r", encoding="utf-8") as fh:
             cls.v14 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # ⚠️ v15 BY NAME, not CURRENT_HVAC_ASSET. This class's subject is slice 12a-FIX's delta
+        # (v14 -> v15) and nothing else; 12c's v16 drops `cost_cladding` from 204 rows, which these
+        # pins never spoke to. Re-pointed at the mint that follows, which is this file's own idiom.
+        with open(_asset_path("rate_master_hvac_all_v15.json"), "r", encoding="utf-8") as fh:
             cls.v15 = json.load(fh)
 
     @staticmethod
@@ -16229,3 +16259,295 @@ class TestRateAndFactorColumns(FrappeTestCase):
         for c in ("discount", "supply_markup", "amount"):
             self.assertIn(c, headers)
         self.assertEqual(out["n"], 35)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c, COMMIT 5 -- HVAC PRICING INPUTS + INSULATION'S PRICING RULES (HVAC v16)
+#
+# The seven numbers that used to be baked into `cost_cladding` are now editable rate-master items, and
+# Insulation's cladding is computed from them. The arithmetic proof lives in TypeScript (the product's
+# own interpreter prices all 224 SKUs); these are the ASSET and CONFIG facts that proof rests on.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestHvacPricingInputsAndInsulationRules(FrappeTestCase):
+    """v16 = v15 + the seven inputs + Insulation's rules, with ADP untouched."""
+
+    KIND = "hvac_insulation_item"
+    PI_KIND = "hvac_pricing_input"
+    PI_CAT = "hvac_pricing_inputs"
+    # owner ruling: SEVEN, not the design's six. GI gets its OWN rate (design question O3-b) -- 24G and
+    # 26G are both 450 today, so binding GI to either would move three GI rows the moment one of them
+    # changed, for a reason nobody could see on screen.
+    EXPECTED = {
+        "alu_sheet_24g": ("rate", 450.0), "alu_sheet_26g": ("rate", 450.0),
+        "glass_cloth": ("rate", 200.0), "cladding_overlap": ("factor", 1.25),
+        "gi_sheet_rate": ("rate", 450.0), "gi_framework_factor": ("factor", 0.9),
+        "gi_framework_adder": ("amount", 150.0),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v15.json"), "r", encoding="utf-8") as fh:
+            cls.v15 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v16 = json.load(fh)
+
+    @classmethod
+    def _cfg(cls, asset, cat):
+        return next(c for c in asset["category_configs"] if c["category_id"] == cat)
+
+    # ---- the seven inputs (acceptance 2; T2) -----------------------------------------------------
+
+    def test_pi7_01_there_are_SEVEN_inputs_with_exactly_these_values(self):
+        rows = [i for i in self.v16["items"] if i["kind"] == self.PI_KIND]
+        self.assertEqual(len(rows), 7)
+        got = {}
+        for i in rows:
+            vals = {k: v for k, v in (i["rates"] or {}).items()}
+            self.assertEqual(len(vals), 1, "%s carries %d value columns; one each" % (i["attributes"]["item"], len(vals)))
+            (col, val), = vals.items()
+            got[i["attributes"]["item"]] = (col, val)
+        self.assertEqual(got, self.EXPECTED)
+
+    def test_pi7_02_each_one_has_a_name_a_unit_and_a_remark(self):
+        """A pricer reads the file, not the config -- a number with no name is unmaintainable."""
+        for i in [x for x in self.v16["items"] if x["kind"] == self.PI_KIND]:
+            a = i["attributes"]
+            iid = a["item"]
+            for key in ("name", "remarks"):
+                self.assertTrue((a.get(key) or "").strip(), "%s has no %s" % (iid, key))
+            self.assertIn(i["unit"], ("Rs per sq.m", "factor"), iid)
+            # the unit tells the truth about which column it carries
+            col = self.EXPECTED[iid][0]
+            self.assertEqual(i["unit"], "factor" if col == "factor" else "Rs per sq.m", iid)
+
+    def test_pi7_03_the_GI_rate_is_ITS_OWN_INPUT_not_the_aluminium_one(self):
+        """⚠️ THE WHOLE POINT OF THE SEVENTH INPUT (design question O3-b, settled by the owner's cert
+        requirement that a GI change move ONLY the 3 GI rows). All three are 450 today, so a config
+        that read the aluminium rate for GI would price identically and look correct -- and would move
+        three GI rows the first time aluminium alone changed."""
+        ins = self._cfg(self.v16, "hvac_insulation")
+        blob = json.dumps(ins["list_spec"])
+        self.assertIn("gi_sheet_rate", blob)
+        # the GI cladding branch must not read either aluminium input
+        pr = ins["list_spec"]["pricing"]
+        area = pr["families"]["Thermal Nitrile Insulation"]["units"]["area"]["pipelines"]["supply"]
+        gi_refs = [s for s in area["steps"] if s.get("step") == "rate_ref"]
+        self.assertEqual(sorted(s["ref"]["item"] for s in gi_refs),
+                         ["gi_framework_adder", "gi_framework_factor", "gi_sheet_rate"])
+
+    def test_pi7_04_the_PI_category_can_never_price_a_row(self):
+        pi = self._cfg(self.v16, self.PI_CAT)
+        self.assertEqual(pi["pipelines"], {})
+        self.assertEqual(pi["attribute_definitions"], [])
+        self.assertEqual(pi["item_kinds"], [self.PI_KIND])
+        self.assertTrue(csv_exporter.is_pricing_input_kind(self.PI_KIND))
+        self.assertFalse(extraction.config_is_eligible(pi, self.v16["category_configs"]))
+
+    def test_pi7_05_every_one_of_the_seven_is_BORN_CONNECTED(self):
+        """ACCEPTANCE 2's own words. An input no pipeline reads shows 'not used' in the file and a
+        zero-SKU impact panel -- so this is what makes 'born connected' a fact rather than a hope."""
+        # keyed by category_id, exactly as `_load_configs` returns it
+        used = csv_exporter.pricing_input_used_by(
+            {c["category_id"]: c for c in self.v16["category_configs"]})
+        for iid in self.EXPECTED:
+            n, cats = used.get(iid, (0, []))
+            self.assertGreater(n, 0, "%s is read by nothing" % iid)
+            self.assertEqual(cats, ["hvac_insulation"], iid)
+
+    def test_pi7_06_NEGATIVE_no_business_number_is_a_LITERAL_in_the_config(self):
+        """12b(A)'s rule, applied to HVAC: a discount, a rate, a factor or an adder is an ITEM a pricer
+        edits, never a number in a rule. ⚠️ 3.14 and the unit divisors ARE allowed -- geometry and unit
+        conversion are rules, not business numbers (owner Q6)."""
+        ins = self._cfg(self.v16, "hvac_insulation")
+        blob = json.dumps(ins["list_spec"])
+        for n in ("450", "200.0", "1.25", "0.9", "150.0"):
+            self.assertNotIn(n, blob, "the business number %s is back in the rule" % n)
+        # POSITIVE: the geometry constant IS there, which is what Q6 ruled
+        self.assertIn("3.14", blob)
+
+    # ---- Insulation's rules (acceptance 1, 3, 15, 17, 19) ----------------------------------------
+
+    def test_pi7_07_insulation_stays_INELIGIBLE_and_its_pipelines_live_in_list_spec(self):
+        """ACCEPTANCE 19 / owner Q13: every Insulation BoQ row keeps its coming-soon card after 12c.
+        No flag and no new mechanism -- `pipelines` is empty and `config_is_eligible` reads that."""
+        ins = self._cfg(self.v16, "hvac_insulation")
+        self.assertEqual(ins["pipelines"], {})
+        self.assertFalse(extraction.config_is_eligible(ins, self.v16["category_configs"]))
+        self.assertEqual(ins["matching_mode"], "item_list")
+        # but the rules EXIST, per family and unit class
+        fams = ins["list_spec"]["pricing"]["families"]
+        self.assertEqual(len(fams), 5)
+        for fn, f in fams.items():
+            for uc, u in f["units"].items():
+                self.assertEqual(sorted(u["pipelines"]), ["install", "supply"], "%s/%s" % (fn, uc))
+
+    def test_pi7_08_cost_cladding_is_GONE_from_the_204_pipe_rows_and_kept_on_the_20_sheet_rows(self):
+        """ACCEPTANCE 3. The pipe rows' cladding is now DERIVED from the inputs, so a stored copy could
+        only go stale. The sheet rows keep it because the component binds it as `base`: on the 5
+        Aluminium Foil rows it is the owner's SKU-stored foil rate (Q4)."""
+        ins = [i for i in self.v16["items"] if i["kind"] == self.KIND]
+        self.assertEqual(len(ins), 224)
+        has = [i for i in ins if "cost_cladding" in (i["rates"] or {})]
+        self.assertEqual(len(has), 20)
+        self.assertTrue(all(i["unit"] == "SQM" for i in has))
+        self.assertEqual(sorted({i["attributes"]["cladding"] for i in has}),
+                         ["Aluminium Foil", "GI Framework with perforated Al sheet", "No"])
+        foil = [i for i in has if i["attributes"]["cladding"] == "Aluminium Foil"]
+        self.assertEqual(len(foil), 5)
+        self.assertEqual({i["rates"]["cost_cladding"] for i in foil}, {80.0})
+
+    def test_pi7_09_the_three_GI_rows_are_ZEROED_not_left_at_555(self):
+        """⚠️ 555 was a FROZEN COPY of 450 x 0.9 + 150, and a frozen copy of a derivation is exactly
+        the defect 12a-FIX was written for: the moment the GI rate moves, the stored figure asserts a
+        number nothing recomputes. Zero means 'the SKU adds nothing'; the whole 555 now arrives through
+        the three GI inputs, which the TypeScript sweep proves leaves every figure unchanged."""
+        gi = [i for i in self.v16["items"] if i["kind"] == self.KIND
+              and i["attributes"]["cladding"] == "GI Framework with perforated Al sheet"]
+        self.assertEqual(len(gi), 3)
+        self.assertEqual({i["rates"]["cost_cladding"] for i in gi}, {0.0})
+        # and v15 held the frozen 555, so this records what changed
+        gi15 = [i for i in self.v15["items"] if i["kind"] == self.KIND
+                and i["attributes"]["cladding"] == "GI Framework with perforated Al sheet"]
+        self.assertEqual({i["rates"]["cost_cladding"] for i in gi15}, {555.0})
+
+    def test_pi7_10_derived_rates_drops_the_56_cladding_declarations(self):
+        """ACCEPTANCE 3 / design O3-e: 228 cells -> 172, and the survivors are all `cost_insulation`.
+        The 56 dissolve STRUCTURALLY -- there is no stored cell left to declare."""
+        dr = self._cfg(self.v16, "hvac_insulation")["derived_rates"]
+        cells = collections.Counter(k for m in dr.values() for k in m)
+        self.assertEqual(dict(cells), {"cost_insulation": 172})
+        dr15 = self._cfg(self.v15, "hvac_insulation")["derived_rates"]
+        self.assertEqual(sum(len(m) for m in dr15.values()), 228)
+        # NEGATIVE: not one cladding declaration survives anywhere
+        self.assertNotIn("cost_cladding", json.dumps(dr))
+
+    def test_pi7_11_the_sqft_conversion_is_in_unit_factors_NEVER_unit_classes(self):
+        """⚠️ Q11 and the standing rule: a square foot in `unit_classes` takes the class's rate
+        UNSCALED -- wrong by 10.76x, with nothing on screen saying so."""
+        pr = self._cfg(self.v16, "hvac_insulation")["list_spec"]["pricing"]
+        self.assertIn("sqft", pr["unit_factors"])
+        self.assertEqual(pr["unit_factors"]["sqft"]["class"], "area")
+        for spellings in pr["unit_classes"].values():
+            for s in spellings:
+                self.assertNotIn("ft", s, "a square-foot spelling is in unit_classes: %r" % s)
+
+    def test_pi7_12_the_pipe_unit_spelling_is_in_the_LENGTH_class(self):
+        """⚠️ The catalogue writes the pipe families' unit as 'Mts', and the read-time projection
+        resolves a SKU's unit through this very list. Omit it and all 204 pipe SKUs project to no
+        class, every ladder is empty and every row refuses -- with nothing naming the cause."""
+        pr = self._cfg(self.v16, "hvac_insulation")["list_spec"]["pricing"]
+        self.assertIn("mts", pr["unit_classes"]["length"])
+        self.assertIn("sqm", pr["unit_classes"]["area"])
+
+    def test_pi7_13_label_attr_names_an_attribute_the_SKUs_ACTUALLY_CARRY(self):
+        """⚠️ NOT COSMETIC. `buildModuleLadder` skips any row whose label attribute is missing, so
+        ADP's default `item_detail` -- which Insulation's SKUs do not have -- built an EMPTY ladder and
+        refused all 224 rows. Found by running the sweep, not by reading the config."""
+        pr = self._cfg(self.v16, "hvac_insulation")["list_spec"]["pricing"]
+        self.assertEqual(pr["label_attr"], "item")
+        ins = [i for i in self.v16["items"] if i["kind"] == self.KIND]
+        self.assertTrue(all("item" in i["attributes"] for i in ins))
+        self.assertFalse(any("item_detail" in i["attributes"] for i in ins))
+
+    def test_pi7_14_compose_demands_TWO_layers_and_names_a_ladder(self):
+        pr = self._cfg(self.v16, "hvac_insulation")["list_spec"]["pricing"]
+        cp = pr["compose"]
+        self.assertEqual(cp["attr"], "thickness_mm")
+        self.assertIn(cp["attr"], pr["ladders"])
+        self.assertGreaterEqual(cp["max_layers"], 2)
+        self.assertEqual(cp["tolerance"], 2.0)
+        self.assertEqual(cp["outer_only"], {"attr": "cladding", "value": "No"})
+        self.assertEqual(pr["size_match"]["dp"], [2, 1])
+
+    # ---- the validator learned both keys, WITH shape checks (the commit-1 rule) -------------------
+
+    def test_pi7_15_NEGATIVE_the_validator_refuses_a_bad_size_match_or_compose(self):
+        """A key the allowlist admits but nothing checks is the 'validates but never executes' failure.
+        These are the checks that stop it, each refusing BY NAME."""
+        ins = self._cfg(self.v16, "hvac_insulation")
+        cases = [
+            ({"size_match": {"dp": []}}, "non-empty list"),
+            ({"size_match": {"dp": [2, 2]}}, "repeats a depth"),
+            ({"size_match": {"dp": [2], "nope": 1}}, "unknown key"),
+            ({"compose": dict(attr="thickness_mm", tolerance=2.0, max_layers=1)}, "at least 2"),
+            ({"compose": dict(attr="cladding", tolerance=2.0, max_layers=2)}, "not one of the ladders"),
+            ({"compose": dict(attr="thickness_mm", tolerance=-1, max_layers=2)}, "non-negative"),
+            ({"compose": dict(attr="thickness_mm", tolerance=2.0, max_layers=2,
+                              outer_only={"attr": "cladding", "value": "Nope"})}, "not one of"),
+            ({"label_attr": "no_such_attribute"}, "not an item attribute"),
+        ]
+        for patch, needle in cases:
+            cfg = copy.deepcopy(ins)
+            cfg["list_spec"]["pricing"].update(patch)
+            with self.assertRaises(Exception, msg="accepted %r" % (patch,)) as cm:
+                config_validation._validate_config(cfg)
+            self.assertIn(needle, str(cm.exception), "%r refused for the wrong reason: %s" % (patch, cm.exception))
+
+    def test_pi7_16_a_factor_column_is_labelled_a_MULTIPLIER_not_rupees(self):
+        """⚠️ A GAP COMMIT 4 LEFT, invisible until a discipline actually carried the column. The formula
+        row read 'percentage if in the percent set else rupees', so a 1.25 overlap factor was labelled
+        rupees. A map cannot acquire that gap again."""
+        self.assertEqual(csv_exporter.PRICING_INPUT_COLUMN_SENSE["factor"], "a multiplier")
+        self.assertEqual(csv_exporter.PRICING_INPUT_COLUMN_SENSE["rate"], "rupees")
+        self.assertEqual(csv_exporter.PRICING_INPUT_COLUMN_SENSE["amount"], "rupees")
+        self.assertEqual(csv_exporter.PRICING_INPUT_COLUMN_SENSE["discount"], "percentage")
+        # every value column has a sense -- a new one cannot silently default to "rupees"
+        for c in csv_exporter.PRICING_INPUT_VALUE_COLUMNS:
+            self.assertIn(c, csv_exporter.PRICING_INPUT_COLUMN_SENSE, c)
+
+    # ---- and nothing else moved (acceptance 9, 20) -----------------------------------------------
+
+    def test_pi7_17_ADP_is_byte_identical_v15_to_v16(self):
+        """ACCEPTANCE 9 / owner Q12: the new asset adds the Insulation part and nothing else."""
+        for kind in ("hvac_adp_item",):
+            a = sorted((i for i in self.v15["items"] if i["kind"] == kind), key=lambda x: x["item_uid"])
+            b = sorted((i for i in self.v16["items"] if i["kind"] == kind), key=lambda x: x["item_uid"])
+            self.assertEqual(len(a), 95)
+            self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+        self.assertEqual(json.dumps(self._cfg(self.v15, "hvac_adp"), sort_keys=True),
+                         json.dumps(self._cfg(self.v16, "hvac_adp"), sort_keys=True))
+
+    def test_pi7_18_every_other_config_is_byte_identical(self):
+        skip = {"hvac_insulation", self.PI_CAT}
+        a = [c for c in self.v15["category_configs"] if c["category_id"] not in skip]
+        b = [c for c in self.v16["category_configs"] if c["category_id"] not in skip]
+        self.assertEqual(len(a), 7)
+        self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+
+    def test_pi7_19_the_insulation_items_differ_ONLY_in_cost_cladding(self):
+        """Every attribute, every other rate, the unit, the brand and the source row are untouched --
+        which is what makes the 224/224 figure sweep a statement about the RULE, not about new data."""
+        a = {i["item_uid"]: i for i in self.v15["items"] if i["kind"] == self.KIND}
+        b = {i["item_uid"]: i for i in self.v16["items"] if i["kind"] == self.KIND}
+        self.assertEqual(set(a), set(b))
+        for uid in sorted(a):
+            x, y = dict(a[uid]), dict(b[uid])
+            xr, yr = dict(x.pop("rates")), dict(y.pop("rates"))
+            xr.pop("cost_cladding", None)
+            yr.pop("cost_cladding", None)
+            self.assertEqual(xr, yr, uid)
+            self.assertEqual(json.dumps(x, sort_keys=True), json.dumps(y, sort_keys=True), uid)
+
+    def test_pi7_20_every_v16_config_validates_through_the_loaders_own_gate(self):
+        for c in self.v16["category_configs"]:
+            config_validation._validate_config(
+                loader._loaded_config(copy.deepcopy(c), "HVAC", self.v16.get("goldens") or {}))
+
+    def test_pi7_21_v16_is_internally_consistent_with_its_own_derived_declarations(self):
+        items = {i["item_uid"]: {"rates": i["rates"]} for i in self.v16["items"]}
+        self.assertEqual(
+            config_validation.derived_rate_updates(self.v16["category_configs"], items), {})
+
+    def test_pi7_22_the_registry_lists_the_new_category_and_it_HOLDS_ITEMS(self):
+        src = self._frontend_src("pages", "pricing", "rate-master", "rateMasterRegistry.ts")
+        self.assertIn('{ category_id: "hvac_pricing_inputs", label: "Pricing Inputs" }', src)
+        # NEGATIVE: not hidden from the Rate Master page -- it holds the seven items a pricer edits
+        i = src.index('category_id: "hvac_pricing_inputs"')
+        self.assertNotIn("holds_items", src[i:src.index("\n", i)])
+
+    @staticmethod
+    def _frontend_src(*parts):
+        path = os.path.join(os.path.dirname(loader.__file__), "..", "..", "..", "frontend", "src", *parts)
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return fh.read()

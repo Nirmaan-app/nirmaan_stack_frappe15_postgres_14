@@ -107,6 +107,13 @@ PRICING_INPUT_VALUE_COLUMNS = ("discount", "supply_markup", "installation_markup
 PRICING_INPUT_NON_PERCENT_COLUMNS = ("amount", "rate", "factor")
 PRICING_INPUT_PERCENT_COLUMNS = tuple(c for c in PRICING_INPUT_VALUE_COLUMNS
                                       if c not in PRICING_INPUT_NON_PERCENT_COLUMNS)
+# What KIND of number each value column holds, for the formula row under the header.
+# ⚠️ `factor` IS NEITHER A PERCENTAGE NOR RUPEES. The pre-12c line was a two-way
+# "percentage if in the percent set else rupees", which was right while `amount` was the only
+# exception -- it labelled a 1.25 overlap factor as "rupees". Invisible until a discipline actually
+# carried the column, which is 12c; a plain map cannot acquire that gap again.
+PRICING_INPUT_COLUMN_SENSE = {c: "percentage" for c in PRICING_INPUT_PERCENT_COLUMNS}
+PRICING_INPUT_COLUMN_SENSE.update({"amount": "rupees", "rate": "rupees", "factor": "a multiplier"})
 PRICING_INPUT_USED_BY = "used_by"
 PRICING_INPUT_SHARED_BY = "shared_by"
 PRICING_INPUT_NAME = "item"
@@ -146,20 +153,38 @@ def pricing_input_used_by(configs):
     A stored count goes stale the moment a pipeline changes, so it is computed by walking every
     `rate_ref` of every pipeline of the discipline. This is the count acceptance item 13 refuses a
     delete or a rename with.
+
+    ⚠️ SLICE 12c: IT MUST WALK `list_spec` PIPELINES TOO. An ITEM-LIST category keeps its pipelines
+    inside `list_spec.pricing.families[*].units[*].pipelines`, not in the config's own `pipelines`, so
+    a walk over `cfg["pipelines"]` alone reported every HVAC input as read by NOTHING -- the file's
+    used-by column would have read "not used" on all seven while they priced 204 rows, and
+    `refuse_if_in_use` would have let a pricer DELETE one. The walk is now over every `steps` list
+    anywhere in the config, which is also why it cannot miss the next shape.
     """
     out = {}
+
+    def walk(node, found):
+        if isinstance(node, dict):
+            if isinstance(node.get("steps"), list):
+                for st in node["steps"]:
+                    if isinstance(st, dict) and st.get("step") == "rate_ref":
+                        iid = (st.get("ref") or {}).get("item")
+                        if isinstance(iid, str):
+                            found.append(iid)
+            for key in sorted(node):
+                walk(node[key], found)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, found)
+
     for cid, cfg in sorted((configs or {}).items()):
-        for pid in sorted((cfg.get("pipelines") or {})):
-            for st in ((cfg["pipelines"][pid] or {}).get("steps") or []):
-                if st.get("step") != "rate_ref":
-                    continue
-                iid = (st.get("ref") or {}).get("item")
-                if not isinstance(iid, str):
-                    continue
-                n, cats = out.get(iid, (0, []))
-                if cid not in cats:
-                    cats = cats + [cid]
-                out[iid] = (n + 1, cats)
+        found = []
+        walk(cfg, found)
+        for iid in found:
+            n, cats = out.get(iid, (0, []))
+            if cid not in cats:
+                cats = cats + [cid]
+            out[iid] = (n + 1, cats)
     return out
 
 
@@ -451,8 +476,7 @@ def build_category_rows(discipline, category_id):
         return {"headers": headers, "rows": rows, "n": len(rows), "numeric": [],
                 "formula_row": [
                     FORMULA_ROW_MARKER, "", "", "the number a pricer edits",
-                ] + ["percentage" if c in PRICING_INPUT_PERCENT_COLUMNS else "rupees"
-                     for c in value_cols] + [
+                ] + [PRICING_INPUT_COLUMN_SENSE.get(c, "rupees") for c in value_cols] + [
                     "", "which categories read it", "what it does, with an example",
                     "derived from the pricing rules - read only",
                 ],
