@@ -107,6 +107,30 @@ export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 
 /**
+ * Client billing tracker (owner, 2026-10-03): Admin, PMO and billing profiles see
+ * the project Billing tab and the Billing Tracker page, and may set up billing,
+ * add or edit bills and log Supply DC. Mirrored server-side by
+ * `role_profiles.PROJECT_BILLING_WRITE_PROFILES`, which is the ENFORCEMENT boundary.
+ */
+export const PROJECT_BILLING_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ...BILLING_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may use the client billing tracker. */
+export const canUseProjectBilling = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && PROJECT_BILLING_PROFILES.includes(role));
+
+/**
+ * May edit a billing package's PO value and assigned users from its row on the project
+ * Billing tab — Admin only for now (owner, 2026-10-03). UI-only: the setup endpoint still
+ * accepts every billing writer, so this decides whether the ✏️ renders.
+ */
+export const canEditBillingPackage = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || role === ADMIN_PROFILE;
+
+/**
  * May delete a DC / MIR (PO or ITM) — admin, PMO, procurement (they file them)
  * and billing (they catch the bad ones). Mirrored server-side by
  * `role_profiles.PDD_DELETE_PROFILES`, which is the ENFORCEMENT boundary;

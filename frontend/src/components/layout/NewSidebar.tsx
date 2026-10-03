@@ -74,6 +74,7 @@ import {
   NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
+  canUseProjectBilling,
   isMaterialProcurementProfile,
   isProcurementProfile,
 } from "@/constants/roles";
@@ -740,6 +741,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(canUseProjectBilling(role as string, user_id)
+      ? [
+        {
+          key: '/billing-tracker',
+          icon: FileChartLine,
+          label: 'Billing Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
@@ -856,6 +866,8 @@ export function NewSidebar() {
     "pmo-dashboard",
     "reminders",
     'commission-tracker',
+    // Billing Tracker; its /billing-tracker/:projectId page falls back to this first segment.
+    'billing-tracker',
     "upload-boq",
     // Pricing Module (PW-1): one key per registry workbook.
     ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
@@ -909,6 +921,7 @@ export function NewSidebar() {
     '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
+    '/billing-tracker': ['billing-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
     '/reminders': ['reminders'],
     '/work-order-rate-card': ['work-order-rate-card'],
@@ -1026,6 +1039,8 @@ export function NewSidebar() {
                     // renders a chevron and swallows the click (see the note further down).
                     "Snag List",
                     "Commission Report Tracker",
+                    // Flat nav button (no children), like the trackers around it.
+                    "Billing Tracker",
                     "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
