@@ -363,7 +363,14 @@ export type SampleGeometry = Record<string, number>;
 export function sampleGeometries(
   spec: Parameters<typeof projectUnitClass>[0],
   items: readonly RateMasterItem[],
-  family: string,
+  /**
+   * The family whose stocked geometries to sample, or NULL for "any family of this kind and unit
+   * class". ⚠️ NULL IS WHAT A CLADDING-ONLY SKU NEEDS: its own family deliberately stores no pipe
+   * size and no thickness (that is the whole point of its shape), so the sizes can only come from
+   * the rows that DO store them. The owner's words are "based on sizes stored in SKU" -- stored in
+   * the catalogue, not stored on that one row.
+   */
+  family: string | null,
   unitClass: string,
   want = 3,
 ): SampleGeometry[] {
@@ -379,7 +386,7 @@ export function sampleGeometries(
   for (const it of projectUnitClass(spec, items as RateMasterItem[])) {
     if (it.kind !== spec.kind) continue;
     const at = (it.attributes ?? {}) as Record<string, unknown>;
-    if (String(at[famAttr] ?? "") !== family) continue;
+    if (family !== null && String(at[famAttr] ?? "") !== family) continue;
     if (String(at[spec.unit_class_attr] ?? "") !== unitClass) continue;
     const tuple: SampleGeometry = {};
     let complete = true;
@@ -406,4 +413,68 @@ export function sampleGeometries(
     if (!picks.includes(all[idx])) picks.push(all[idx]);
   }
   return picks;
+}
+
+
+/** One priced sample: the geometry it was run at, and the figures the rules returned there. */
+export interface SampleImpact {
+  geometry: SampleGeometry;
+  result: ExactSkuResult;
+}
+
+/**
+ * Does this SKU carry every geometry axis the rules ladder on? A row that does not cannot be priced
+ * on its own -- it needs a geometry from somewhere, which is what the samples supply. PURE.
+ */
+export function skuCarriesGeometry(config: unknown, item: RateMasterItem): boolean {
+  const spec = itemListPricingSpec(config as never);
+  const axes = ((spec?.ladders ?? []) as unknown[]).filter(
+    (a): a is string => typeof a === "string" && !!a,
+  );
+  if (!spec || !axes.length) return true;        // nothing to carry; the SKU is self-sufficient
+  const at = (item.attributes ?? {}) as Record<string, unknown>;
+  return axes.every((a) =>
+    Number.isFinite(typeof at[a] === "number" ? (at[a] as number) : Number(at[a])),
+  );
+}
+
+/**
+ * OWNER F3: "show 2-3 sample impact calculations based on sizes stored in SKU."
+ *
+ * Up to `want` priced samples for a SKU that carries no geometry of its own. Each one runs the SAME
+ * `priceSkuExactItemList` -- the product's own pricer -- over the SKU's attributes PLUS one stocked
+ * geometry, so a sample cannot drift from what the panel would quote for a real row of that size.
+ *
+ * ⚠️ IT NEVER MUTATES THE CATALOGUE ROW: the geometry goes into a shallow COPY whose `attributes` is
+ * a fresh object. Writing it onto the row would persist a geometry the SKU deliberately does not
+ * have -- the read-time-projection rule, one level down.
+ *
+ * Empty when the SKU already carries its geometry (it is priced directly, no samples needed) or when
+ * the catalogue stocks no complete geometry to sample. PURE.
+ */
+export function priceSkuExactSamples(
+  item: RateMasterItem,
+  config: unknown,
+  itemsNow: readonly RateMasterItem[],
+  itemsNext: readonly RateMasterItem[],
+  want = 3,
+): SampleImpact[] {
+  const spec = itemListPricingSpec(config as never);
+  if (!spec || skuCarriesGeometry(config, item)) return [];
+  const unitClass = String(
+    ((projectUnitClass(spec, [item])[0]?.attributes ?? {}) as Record<string, unknown>)[
+      spec.unit_class_attr
+    ] ?? "",
+  );
+  // family NULL: the sizes come from whatever this kind + unit class actually stocks
+  const geometries = sampleGeometries(spec, itemsNow, null, unitClass, want);
+  const out: SampleImpact[] = [];
+  for (const geometry of geometries) {
+    const probe = {
+      ...item,
+      attributes: { ...((item.attributes ?? {}) as Record<string, unknown>), ...geometry },
+    } as RateMasterItem;
+    out.push({ geometry, result: priceSkuExactItemList(probe, config, itemsNow, itemsNext) });
+  }
+  return out;
 }

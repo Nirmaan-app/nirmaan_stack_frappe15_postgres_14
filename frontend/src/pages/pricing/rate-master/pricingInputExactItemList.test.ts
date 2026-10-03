@@ -13,7 +13,13 @@
  */
 import { describe, it, expect } from "vitest";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v16.json";
-import { priceSkuExactItemList, isItemListConfig, itemsWithInput, sampleGeometries } from "./pricingInputExact";
+import {
+  priceSkuExactItemList, isItemListConfig, itemsWithInput, sampleGeometries,
+  priceSkuExactSamples, skuCarriesGeometry,
+} from "./pricingInputExact";
+import { sampleGeometryText } from "./pricingInputImpact";
+// SLICE 12c FINISH / F3 -- the real shipped asset, never a fixture
+import HVAC_V18 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v18.json";
 import { itemListPricingSpec, priceItemList } from "../../boq-wizard/rate-helper/itemListPricing";
 import { computePricingInputReach } from "./pricingInputReach";
 import EALL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
@@ -275,5 +281,112 @@ describe("the SKU list holds only the SKUs an input really reaches", () => {
       if (!r[id]) continue;
       expect(r[id].isFlatAdder).toBe(true);
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH, F3 -- SAMPLE IMPACTS FOR A SKU WITH NO GEOMETRY OF ITS OWN
+ *
+ * Owner F3: "show 2-3 sample impact calculations based on sizes stored in SKU."
+ *
+ * A CLADDING-ONLY SKU prices a cladding and nothing else, so by design it stores neither pipe size
+ * nor thickness -- and a cladding cost is proportional to the girth, which is made of exactly those
+ * two. One figure for such a row would be a figure for a geometry nobody named.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH / F3 -- sample impacts for a geometry-less SKU", () => {
+  const INS = "hvac_insulation";
+  const cfg = (HVAC_V18 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+    .category_configs.find((c) => c.category_id === INS)!;
+  const allItems = (HVAC_V18 as unknown as { items: RateMasterItem[] }).items;
+  const items = allItems.filter((i) => i.kind === "hvac_insulation_item"
+                                    || i.kind === "hvac_pricing_input");
+  const claddingOnly = items.filter(
+    (i) => (i.attributes as Record<string, unknown>)?.item === "Cladding Only");
+  const composite = items.filter(
+    (i) => i.kind === "hvac_insulation_item"
+        && (i.attributes as Record<string, unknown>)?.item !== "Cladding Only");
+
+  it("the fixture is the real thing: five cladding-only SKUs, none carrying a geometry", () => {
+    expect(claddingOnly).toHaveLength(5);
+    for (const sku of claddingOnly) expect(skuCarriesGeometry(cfg, sku)).toBe(false);
+    // and a composite DOES carry one, so it is priced directly and needs no samples
+    const withGeom = composite.filter((i) => skuCarriesGeometry(cfg, i));
+    expect(withGeom.length).toBeGreaterThan(0);
+    expect(priceSkuExactSamples(withGeom[0], cfg, items, items)).toEqual([]);
+  });
+
+  it("a cladding-only SKU is quoted at up to THREE stocked geometries", () => {
+    const got = priceSkuExactSamples(claddingOnly[0], cfg, items, items, 3);
+    expect(got.length).toBeGreaterThanOrEqual(2);
+    expect(got.length).toBeLessThanOrEqual(3);
+    for (const sm of got) {
+      // every sample names a COMPLETE geometry, and the rules priced it
+      expect(Object.keys(sm.geometry).length).toBeGreaterThan(0);
+      for (const v of Object.values(sm.geometry)) expect(Number.isFinite(v)).toBe(true);
+      expect(sm.result.legs.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("⚠️ THE SIZES ARE STOCKED ONES, never invented", () => {
+    const got = priceSkuExactSamples(claddingOnly[0], cfg, items, items, 3);
+    const stocked = new Set(
+      composite.map((i) => {
+        const a = i.attributes as Record<string, unknown>;
+        return `${Number(a.pipe_size_mm)}x${Number(a.thickness_mm)}`;
+      }),
+    );
+    for (const sm of got) {
+      const key = `${sm.geometry.pipe_size_mm}x${sm.geometry.thickness_mm}`;
+      expect(stocked.has(key), key).toBe(true);
+    }
+  });
+
+  it("⚠️ IT NEVER MUTATES THE CATALOGUE ROW -- the SKU still stores no geometry afterwards", () => {
+    const before = JSON.stringify(claddingOnly[0]);
+    priceSkuExactSamples(claddingOnly[0], cfg, items, items, 3);
+    expect(JSON.stringify(claddingOnly[0])).toBe(before);
+    expect(skuCarriesGeometry(cfg, claddingOnly[0])).toBe(false);
+  });
+
+  it("a sample MOVES when the input moves, and the figures come from the real pricer", () => {
+    // raise the glass-cloth rate and the glass-cloth claddings must move at every sample
+    const gc = items.find((i) => i.kind === "hvac_pricing_input"
+      && /glass/i.test(String((i.attributes as Record<string, unknown>)?.name ?? "")));
+    expect(gc, "the fixture needs a glass-cloth pricing input").toBeTruthy();
+    const next = items.map((i) => i.item_uid === gc!.item_uid
+      ? { ...i, rates: { ...(i.rates ?? {}), rate: Number((i.rates ?? {}).rate ?? 0) + 50 } }
+      : i);
+    const sku = claddingOnly.find(
+      (i) => /Glass Cloth/i.test(String((i.attributes as Record<string, unknown>)?.cladding ?? "")))!;
+    const got = priceSkuExactSamples(sku, cfg, items, next, 3);
+    expect(got.length).toBeGreaterThan(0);
+    for (const sm of got) {
+      const supply = sm.result.legs.find((l) => l.output === "supply")!;
+      expect(supply.moved, JSON.stringify(sm.geometry)).toBe(true);
+      expect(supply.becomes).toBeGreaterThan(supply.now);
+    }
+  });
+
+  it("a LARGER sample geometry costs more than a smaller one -- the girth really drives it", () => {
+    const got = priceSkuExactSamples(claddingOnly[0], cfg, items, items, 3);
+    const girth = (g: Record<string, number>) => (g.pipe_size_mm ?? 0) + 2 * (g.thickness_mm ?? 0);
+    const sorted = [...got].sort((a, b) => girth(a.geometry) - girth(b.geometry));
+    const rate = (sm: typeof got[number]) => sm.result.legs.find((l) => l.output === "supply")!.now;
+    for (let i = 1; i < sorted.length; i += 1) {
+      expect(rate(sorted[i]), JSON.stringify(sorted[i].geometry))
+        .toBeGreaterThan(rate(sorted[i - 1]));
+    }
+  });
+
+  it("NEGATIVE: nothing to sample yields NO samples -- the caller then shows the refusal", () => {
+    // a catalogue with no complete geometry anywhere
+    const bare = [...claddingOnly, ...items.filter((i) => i.kind === "hvac_pricing_input")];
+    expect(priceSkuExactSamples(claddingOnly[0], cfg, bare, bare, 3)).toEqual([]);
+  });
+
+  it("the geometry label names no axis in code and reports one unit, not three", () => {
+    expect(sampleGeometryText({ pipe_size_mm: 100, thickness_mm: 25 })).toBe("pipe size 100 x 25 mm");
+    expect(sampleGeometryText({ width: 2, depth: 3 })).toBe("width 2 x depth 3");
+    expect(sampleGeometryText({})).toBe("");
   });
 });

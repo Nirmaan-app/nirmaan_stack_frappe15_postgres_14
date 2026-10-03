@@ -40,8 +40,8 @@ import { pipelinesOf } from "./pricingInputReach";
 import { evalFormula } from "./ratePipelineInterpreter";
 import {
   conditionsFor, isItemListConfig, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
-  priceSkuExactItemList,
-  type ExactLeg, type ExactPipelineRef,
+  priceSkuExactItemList, priceSkuExactSamples,
+  type ExactLeg, type ExactPipelineRef, type SampleImpact,
 } from "./pricingInputExact";
 
 export type PanelShape = "pair" | "installation_share" | "installation_markup" | "bcs_only" | "flat_adder";
@@ -157,6 +157,17 @@ export interface SkuImpactRow {
    * rate that had moved without being mentioned (owner ruling, gap (c)). Empty on the approximate path.
    */
   otherLegs?: ExactLeg[];
+  /**
+   * OWNER F3: "show 2-3 sample impact calculations based on sizes stored in SKU."
+   *
+   * A SKU that carries no geometry of its own -- a CLADDING-ONLY row, which prices a cladding and
+   * nothing else, so it stores neither pipe size nor thickness -- has no single figure to show,
+   * because a cladding cost is proportional to the girth and the girth is made of exactly those two.
+   * It is quoted at two or three stocked geometries instead. Absent on every other SKU.
+   */
+  samples?: SampleImpact[];
+  /** why the rules returned no figure, when they returned none. Shown instead of a fabricated one. */
+  note?: string;
   /** true when this row's figures came from the product's own pipeline rather than the multiplier */
   exact?: boolean;
 }
@@ -339,6 +350,12 @@ export function computeImpact(
    */
   const legWanted: "bcs" | "install" | "supply" =
     leg === "bcs" ? "bcs" : leg === "boq_install" ? "install" : "supply";
+  /**
+   * The PATCHED catalogue the exact figures were computed against -- set by the IIFE below and reused
+   * by the F3 samples, so a sample is quoted against exactly the same edit the rest of the panel is.
+   * Recomputing the patch beside it would be a second definition of "what the user changed".
+   */
+  let itemsNextForSamples: readonly RateMasterItem[] | null = null;
   const exactRows = (() => {
     if (!exactCtx || !changed) return null;
     const refs: ExactPipelineRef[] = [];
@@ -356,6 +373,7 @@ export function computeImpact(
     for (const k of Object.keys(next)) if (next[k] !== stored[k]) patch[k] = next[k];
     if (!Object.keys(patch).length) return null;
     const itemsNext = itemsWithInput(exactCtx.items, exactCtx.inputItemKey, patch);
+    itemsNextForSamples = itemsNext;
     /**
      * ⚠️ THE OWN CONDITION WINS, and every OTHER conditional component is held at its neutral branch.
      * Order matters: neutral first, then the input's own enabling branch on top, so an adder whose
@@ -402,6 +420,37 @@ export function computeImpact(
     const it = itemsByUid?.get(col.itemUid);
     if (!it) continue;
     const rate = (it.rates ?? {})[col.rateKey];
+    const cfgForRow = exactCtx?.configs?.[(col.categories ?? [])[0] ?? ""];
+    const itemList = isItemListConfig(cfgForRow);
+    const exHere = exactRows?.get(col.itemUid);
+    if (exHere && !exHere.legs.length && itemList) {
+      /**
+       * ⚠️ THIS BRANCH SITS ABOVE THE STORED-RATE GUARD ON PURPOSE. A SKU with no stored cost column
+       * is EXACTLY the SKU the samples exist for -- a cladding-only row stores no cost at all,
+       * because its pipelines build the assembly total -- so the guard below was skipping it before
+       * the samples could be offered.
+       *
+       * ⚠️ AND IT MUST NEVER FALL THROUGH TO THE MULTIPLIER PATH. That path is the approximate
+       * arithmetic the owner ruled against (2026-09-29); on a geometry-less row it would quote a
+       * confident figure for a geometry nobody named. OWNER F3: quote two or three STOCKED
+       * geometries instead, priced through the SAME `priceSkuExactItemList`. With nothing to sample
+       * the row carries its own reason -- an honest absence, never a fabricated number.
+       */
+      const samples = itemsNextForSamples
+        ? priceSkuExactSamples(it, cfgForRow, exactCtx!.items, itemsNextForSamples)
+        : [];
+      const movedAny = samples.some((sm) => sm.result.legs.some((l) => l.moved));
+      rows.push({
+        itemUid: col.itemUid, kind: col.kind, rateKey: col.rateKey,
+        label: skuLabel(it, labelCtx), categories: col.categories,
+        storedRate: typeof rate === "number" && Number.isFinite(rate) ? rate : 0,
+        now: 0, becomes: 0, pctChange: null, moved: movedAny,
+        samples: samples.length ? samples : undefined,
+        note: samples.length ? undefined : exHere.note,
+        exact: true,
+      });
+      continue;
+    }
     if (typeof rate !== "number" || !Number.isFinite(rate)) continue;
     let now: number;
     let becomes: number;
@@ -673,4 +722,21 @@ export function pctText(v: unknown): string {
 /** Is this value field a percentage, or a rupee amount? Mirrors the exporter's split. */
 export function isPercentField(key: string): boolean {
   return (PERCENT_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * How a sample geometry reads on screen: `pipe 100 x 25 mm` -- the axis VALUES in the order the
+ * rules ladder on them, which is the order `sampleGeometries` builds the tuple in.
+ *
+ * ⚠️ IT NAMES NO AXIS IN CODE. The keys come from the config's own `ladders`, so a category with a
+ * different geometry reads correctly with no change here (the HV-10 rule). A `_mm` suffix is dropped
+ * and reported once as the unit, because repeating it per axis reads as three different units. PURE.
+ */
+export function sampleGeometryText(geometry: Record<string, number>): string {
+  const keys = Object.keys(geometry);
+  if (!keys.length) return "";
+  const allMm = keys.every((k) => k.endsWith("_mm"));
+  const nice = (k: string) => k.replace(/_mm$/, "").replace(/_/g, " ");
+  if (allMm) return `${nice(keys[0])} ${keys.map((k) => geometry[k]).join(" x ")} mm`;
+  return keys.map((k) => `${nice(k)} ${geometry[k]}`).join(" x ");
 }
