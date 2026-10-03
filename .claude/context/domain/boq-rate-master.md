@@ -1767,3 +1767,188 @@ and is not "the rules of the switch socket module".
 
 Measured: without modules **10800/1200** (the p1 golden, unchanged); with modules **5760/680** =
 box 5400/600 + modules 360/80.
+
+
+---
+
+## Slice 12c — INSULATION PRICING RULES + HVAC PRICING INPUTS + the calculator (2026-10-03) — SHIPPED
+
+Seven commits: `c6d038983` (allowlist), `53ef18b12` (the two resolution rules), `d945eb558` (Rate and
+Factor columns), `7922020e5` (HVAC v16, the one asset commit), `bb8fef2f3` (the impact panel),
+`8fa8d3262` (the data viewer), `db372c0c6` (the Derivation tab), plus this docs commit.
+
+Built in the owner's stated order 1 → 3 → 4 → 5 → 2 → 6 → 7 → 8.
+
+### WHAT IT IS
+
+The seven business numbers that slice 12a baked into `cost_cladding` at mint time are now rate-master
+ITEMS a pricer edits, and Insulation's cladding is computed from them through the interpreter's existing
+steps. Insulation stays INELIGIBLE (owner Q13): every rule lives in `list_spec`, `config.pipelines` is
+empty, and every Insulation BoQ row keeps its coming-soon card. The calculator prices it; the BoQ helper
+declines it. That pair is intended and is stated out loud because it is surprising.
+
+### THE SEVEN INPUTS (`hvac_pricing_inputs`, kind `hvac_pricing_input`)
+
+| item | value | unit |
+|---|---:|---|
+| `alu_sheet_24g` | rate 450 | Rs per sq.m |
+| `alu_sheet_26g` | rate 450 | Rs per sq.m |
+| `glass_cloth` | rate 200 | Rs per sq.m |
+| `cladding_overlap` | factor 1.25 | factor |
+| `gi_sheet_rate` | rate 450 | Rs per sq.m |
+| `gi_framework_factor` | factor 0.9 | factor |
+| `gi_framework_adder` | amount 150 | Rs per sq.m |
+
+**SEVEN, not the design's six.** GI gets its OWN rate, which is the answer to design question O3-b. All
+three rates are 450 today, so binding GI to an aluminium input prices identically and LOOKS CORRECT —
+and would move three GI rows the first time aluminium alone changed, for a reason nobody could see.
+Measured on the product's own pricer: 26G 450→500 moves **68** rows and **not** the 3 GI ones; the GI
+rate moves exactly **3**; 24G moves a **disjoint 68**; glass cloth **84**; the overlap **136** (every
+aluminium-clad row, both grades). The 24G/26G separation is one no derivation in v15 could express.
+
+### THE ARITHMETIC IS UNCHANGED, AND THAT IS MEASURED
+
+`scripts/_instruments/replay_insulation.ts` prices all 224 Insulation SKUs through the PRODUCT'S OWN
+`priceItemList` and compares each figure with the SHEET RULE computed from v15's stored parts:
+**224/224, 0 refused, 0 figure mismatches.** The cladding formula was verified against the stored
+`cost_cladding` on all 224 rows BEFORE any config was written —
+`(aluminium × overlap + glass cloth) × girth`, girth `= 3.14 × (pipe + 2 × thickness) / 1000`, with GI
+as `sheet × factor + fabrication` and the Aluminium Foil rate staying on the SKU (owner Q4).
+
+### ⚠️ THE 3 GI ROWS' STORED `cost_cladding` IS ZEROED, NOT LEFT AT 555
+
+555 was a frozen copy of `450 × 0.9 + 150`, and a frozen copy of a derivation is exactly the defect
+12a-FIX was written for: the moment the GI rate moves, the stored figure asserts a number nothing
+recomputes. Zero means "the SKU adds nothing"; the whole 555 now arrives through the three GI inputs,
+so no figure moves. `cost_cladding` is dropped from the 204 PIPE rows and KEPT on the 20 sheet rows,
+because the area cladding component binds it as `base`. `derived_rates` 228 → 172 cells: the 56 cladding
+declarations dissolve structurally, with no stored cell left to declare.
+
+### FOUR DEFECTS FOUND BY RUNNING IT, NOT BY READING IT
+
+1. **`buildModuleLadder` SKIPS any row whose LABEL attribute is missing**, and the call hardcoded ADP's
+   `item_detail`. Insulation's SKUs do not carry it, so every ladder was EMPTY and all 224 rows reported
+   *"no SKU for this combination"* — with nothing on screen hinting that a DISPLAY field was the cause.
+   `label_attr` is now config-declared (ABSENT ⇒ `item_detail`, so ADP is byte-identical) and the
+   validator refuses an attribute the SKUs lack.
+2. **`pricing_input_used_by` walked `cfg["pipelines"]` only**, so the file's used-by column would have
+   read *"not used"* on all seven inputs while they priced 204 rows — and `refuse_if_in_use` would have
+   let a pricer DELETE one.
+3. **The same blindness in the frontend**, twice: `pricingInputReach` and `pricingInputImpact`. Measured:
+   0 inputs with reach before the fix, 7 after.
+4. **The formula row labelled a 1.25 overlap factor as "rupees"** — a gap commit 4 opened with its
+   two-way "percentage else rupees" line, invisible until a discipline actually carried the column.
+
+### ACCEPTANCE 23 — ONE PRICING PATH (owner, mid-slice)
+
+> "for the pricing input sheet panel, we need to use the same pipeline for pricing impact calculation as
+> the rate helper panel. just like we did for electrical."
+
+The function is **`priceItemList`**; the panel's single call site is
+`pricingInputExact.priceSkuExactItemList`, reached from one branch in `pricingInputImpact`'s `exactRows`.
+The category-level path keeps calling `runPipeline` through `priceSkuExact`, unchanged.
+
+⚠️ **Running a nested pipeline directly would have been wrong in a specific, plausible way.** Insulation's
+cladding is ONE component with six branches keyed on the row's own `cladding`, and `conditionsFor` can
+pick only one enabling branch — so a 26G input would price all 224 rows as though each were clad in 26G.
+The figures would look right and the count would read 224 instead of 68. Through `priceItemList` each
+SKU's branch comes from its own attributes, so the moved count falls out of the product. `conds` is
+deliberately NOT passed on that path: there is nothing to assume.
+
+**Parity (23b):** 448 before-figures and 3,136 after-figures against an INDEPENDENT call of
+`priceItemList`, 0 differences, counts asserted. The test builds the row itself rather than reusing the
+panel's builder, because what is at stake is the WIRING (right spec, right unit, right attributes), not
+the arithmetic — there is only one copy of that, which is the point.
+**Vacuity (23c):** perturbing the panel's figures by 1 reddens both parity tests; restored, green.
+
+### ⚠️ OWNER RULING 2 / U9 IS BUILT BUT NOT RENDERED, AND CANNOT BE YET
+
+Ruling 2 asks for 2–3 sample impact calculations on the **cladding-only SKUs**. There are **none in the
+catalogue**: design question O1 put the two shapes to the owner — (i) one SKU per cladding type per
+geometry, 200 new rows, or (ii) one SKU per cladding type, 5 new rows — and that choice is **still
+open**, as is Q7's PROVISIONAL rider on whether a per-sq.m cladding-only row takes the overlap factor.
+
+So the sample PICKER ships, pure and tested: `sampleGeometries` takes the distinct tuples of the
+category's ladder axes across the family's active SKUs, orders them by the DECLARED axis order and takes
+smallest / middle / largest — no size written in code, no category named. A NEGATIVE pin asserts no
+cladding-only row exists, and will fail loudly the moment one is minted, which is exactly when the panel
+work has a real row to render. **Minting those rows is what this is waiting on.**
+
+### TWO OF MY OWN TESTS WERE WRONG AND REAL DATA HID IT
+
+The sample helper's first test hardcoded pipe-major ordering while the rule is declared-axis order
+(thickness first). On this catalogue the two extremes COINCIDE, so the test was **green while asserting
+a rule the code does not follow**, and only a synthetic 9999 mm row exposed it. The expected order is now
+derived from `spec.ladders`. A green assertion over real data can still be the wrong assertion.
+
+### RULING 1 — THE BLANK-COLUMN FILTER STAYS (owner: "agree", option (b))
+
+`rate` and `factor` exist for every discipline and appear wherever an input CARRIES them, APPENDED after
+`amount` so no existing column moves. The filter is kept at BOTH sites, which is the whole of acceptance
+13: Electrical's 35 inputs carry neither column, so its page and its download are byte-identical —
+round-trip digest **`764e5bc30277`, the same figure as before the slice**, which VOIDS the design's
+warning that it would change. Both columns are declared non-percentage in a named deny-list, because the
+default is "percent" and a value column added without a thought renders 450 as 45000%.
+
+### ACCEPTANCE 4 — THE SCREEN FOLLOWS THE FILE
+
+Four presentation changes over one rule: rate columns and attribute columns from the shared order, `unit`
+right after `brand` (U4), rows in SOURCE WORKBOOK order (sheet first). `csv_exporter.column_order_for`
+and `rateMasterSpec.columnOrderForFile` are pinned to identical output on ONE shared fixture — the
+`FORMULA_FIXTURE` idiom, and the pin IS the mechanism. A category that declares no `rate_composition`
+keeps the sorted order, which is what leaves every Electrical file and screen byte-identical. ONE
+documented exception, asserted rather than skipped: a SPEC-DRIVEN category (ADP) omits its derived
+attribute columns from the file by the slice-1c ruling while the screen shows them read-only.
+
+### ACCEPTANCE 5 / U10 — THE DERIVATION TAB
+
+`itemListRuleOrder` (pure, unit-tested, ADR-0010 F4) describes the whole resolution order, because
+pricing one of these rows is not "run a pipeline" — the unit class, the kind, the block, the facts it
+needs, the ruled defaults and the size fitting are resolved first and none of that is visible in a list
+of steps. Driven entirely by the presence of `list_spec.pricing`, so every Electrical tab is
+byte-identical (pinned over all 13 v66 configs) and ADP's tab gains it too, which is what U10 approves.
+A negative pin asserts no internal key name reaches the screen.
+
+### PROOFS AND COUNTS
+
+* Insulation 224/224 reproduce the sheet rule; 0 refused.
+* ADP: 95 items and the `hvac_adp` config byte-identical v15 → v16; all 95 SKUs priced through the live
+  path before and after the O3-a generalisation — **0 differing rows, digest `001c7bea060cf884`**.
+* Electrical: 1402 items before and after the load; its own asset untouched; the whole reach map digests
+  **`51a10332e0ed260c2275c403`** before and after the walk widening.
+* Round trips: Electrical PI 35 unchanged / 0 errors; HVAC PI 7 unchanged; Insulation 224 unchanged;
+  xlsx digest == csv digest in all three.
+* Mint gate v15 → v16: no atoms disappeared. The `rate:hvac_insulation_item:cost_cladding` atom survives
+  because 20 rows still carry the key — data, not a schema change.
+* Python **541 → 587** OK across the slice; frontend **4701 → 4732** (the one standing failure is the
+  pre-existing `POAdjustment/writeOffControl.test.ts`, in code this slice never touches).
+* Vacuity proved and restored five times: the step allowlist, both resolution rules, the blank-column
+  filter, the `label_attr` default, the reach walk, and the panel's figures.
+
+### PINS MOVED UNDER MECHANICAL AUTHORITY — SIXTEEN, NONE DELETED
+
+Two on the column set (`rateMasterSpec.test.ts`, `test_e03` — the latter now asserts a column IN USE
+appears and one used by NO row does not, which is the filter's whole purpose), four on the HVAC registry
+shape, four on the 228 figure (228→172 and 240→184 for the one reason), `_PRICING_KEYS` learning three
+keys with ADP asserted to carry none, and the asset-series pins. `test_dr_03` was RE-AIMED rather than
+deleted — it read a `cost_cladding` declaration that no longer exists, so it now makes the same claim
+about a surviving one AND asserts the retired shape absent; `test_dr_02`'s name was changed too, because
+it said 228 while asserting 172.
+
+### A NON-DEFECT, RECORDED SO IT IS NOT RE-RAISED
+
+Two zero-change HVAC upload plans share a digest. `csv_importer._digest` fingerprints the discipline, the
+errors and **the changes the plan touches** — by design, so an unrelated edit elsewhere cannot block a
+correct upload — so two empty plans of one discipline are identical material, and applying either writes
+nothing.
+
+### OPEN, FOR THE OWNER
+
+1. **O1 — the cladding-only SKU shape:** (i) 200 rows or (ii) 5 rows. Ruling 2's samples cannot render
+   until those rows exist.
+2. **Q7's PROVISIONAL rider:** does a per-sq.m cladding-only row take the overlap factor?
+3. **The `factor` column vs 12b(A)'s "there are no factors".** That rule was about FOLDS — a
+   pre-multiplied `(1−discount)×(1+markup)` nobody who owned either half could edit. `factor` here is a
+   KIND-OF-NUMBER column like `amount` and `rate`, with the meaning carried by the ITEM (cladding
+   overlap; GI framework sheet factor), and the ban is kept in full force on the seven percentage
+   columns. That reading is mine, not the owner's, and is worth one line of confirmation.

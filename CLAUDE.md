@@ -1009,6 +1009,66 @@ and the stricter test left `cover` unset, so the pipeline never resolved and the
 back to the approximate arithmetic on every tray. The figure shown is the SKU's own rate, never a row
 total; the rounded row-level range stays the group summary.
 
+**⚠️ AN ITEM-LIST CATEGORY KEEPS ITS PIPELINES INSIDE `list_spec`, SO ANY CODE THAT WALKS
+`cfg["pipelines"]` IS BLIND TO THEM -- AND REPORTS ZERO RATHER THAN FAILING (owner-locked).** That
+shape is deliberate (it is what lets a category carry a complete rule set while staying NOT eligible),
+and it broke three independent readers at once: `csv_exporter.pricing_input_used_by` reported every
+HVAC input as read by NOTHING, so the rate file's used-by column read *"not used"* while they priced 204
+rows and `refuse_if_in_use` would have allowed a DELETE; and `pricingInputReach` /
+`pricingInputImpact` reported no SKUs on the impact panel. **Every such walk goes through ONE resolver**
+-- `pricingInputReach.pipelinesOf` on the frontend, a recursive `steps` walk in `csv_exporter` -- and the
+NESTED id carries family and unit class, because a per-category map keyed on the pipeline id merges two
+families' `supply` pipelines otherwise. **The resolver that PRODUCES an id and the one that resolves it
+BACK must be the same function**, or the panel silently falls back to its approximate arithmetic.
+
+**⚠️ AND THE PANEL PRICES AN ITEM-LIST SKU THROUGH `priceItemList`, THE RATE-HELPER PANEL'S OWN PRICER
+(owner acceptance 23, 2026-09-30) -- never by running one of its nested pipelines.** `priceItemList`
+resolves the unit class, the family, the block, the facts it needs, the defaults, the overrides and the
+PER-ROW conditions BEFORE running the pipeline that combination selects, so running a pipeline directly
+re-implements all of it -- the bet that already failed once. **It would also be wrong in a specific,
+plausible way:** a cladding component with six branches keyed on the row's own value cannot be resolved
+by `conditionsFor`, which picks ONE enabling branch, so every row would be priced as though it carried
+the input's own cladding -- plausible figures and a row count of 224 where 68 move. The branch conditions
+are therefore NOT passed on that path: each SKU's branch comes from its own attributes, which is what
+makes the moved COUNT fall out of the product rather than a guess.
+
+**⚠️ A LADDER'S `label_attr` IS A CORRECTNESS KEY, NOT A DISPLAY ONE.** `buildModuleLadder` SKIPS any row
+whose label attribute is missing, so pointing it at an attribute the SKUs do not carry builds an EMPTY
+ladder and refuses EVERY row with *"no SKU for this combination"* -- naming a size, never the display
+field that actually caused it. It is declared in `list_spec.pricing.label_attr`; ABSENT means
+`item_detail` (what ADP carries), and the validator refuses an attribute no definition declares.
+
+**⚠️ A COMPOSITION CARRIES AT LEAST TWO LAYERS, AND `max_layers < 2` IS REFUSED BY NAME (owner Q8).** One
+layer is what the ordinary ladder already is, so a one-layer "composition" is that ladder wearing the
+tolerance as a disguise -- able to shave a stated value DOWN, which the ladder never does. A first
+implementation allowed it and turned a stated 26 into a single 25, the exact exception the owner refused.
+The tolerance applies ONLY when composing; letting it reach the exact / next-size-up rules makes 26 -> 25
+legal again by the back door. `size_match` is its sibling: a stated value and a rung that are the SAME
+size written to different precision resolve to the rung, and a rounding depth that is NOT collision-free
+over the rungs is SKIPPED rather than resolved arbitrarily (otherwise the rung chosen depends on
+catalogue row order). ⚠️ Half-up rounding needs an explicit epsilon: 7/8" is `22.224999999999998`, so
+`toFixed(2)` drops it off its own 22.23 rung.
+
+**⚠️ A PRICING-INPUT VALUE COLUMN IS A PERCENTAGE BY DEFAULT, SO A NON-PERCENTAGE ONE MUST BE NAMED.**
+`PRICING_INPUT_NON_PERCENT_COLUMNS` (`amount`, `rate`, `factor`) is a DENY-LIST for that reason: a column
+added without a thought renders 450 as `45000%`. The sense each column carries is a MAP
+(`PRICING_INPUT_COLUMN_SENSE`), not a two-way "percentage else rupees" -- that form labelled a 1.25
+overlap factor as rupees and stayed invisible until a discipline actually carried the column. The
+blank-column filter in `csv_exporter.build_category_rows` and `RateMasterDataViewer.rateCols` is KEPT
+(owner Ruling 1): a discipline whose inputs carry neither column never sees them, which is what keeps
+Electrical's file and page byte-identical. ⚠️ `factor` does NOT contradict *"there are no factors"*: that
+rule is about FOLDS, and this is a KIND-OF-NUMBER column like `amount` -- the MEANING lives in the item.
+
+**⚠️ THE RATE MASTER SCREEN FOLLOWS THE RATE FILE, AND THE TWO ORDERINGS ARE ONE RULE IN TWO LANGUAGES.**
+`csv_exporter.column_order_for` and `rateMasterSpec.columnOrderForFile` (plus `_source_order` /
+`sourceOrder`) are pinned to identical output on ONE shared fixture -- the `FORMULA_FIXTURE` idiom, and
+the pin IS the mechanism, because the screen cannot call an exporter for one header. A category that
+declares no `rate_composition` keeps the SORTED order, which is what leaves every other discipline's file
+and screen byte-identical; inventing a sheet order for it would reorder files nobody asked about. SHEET
+comes before ROW in the row order, because two categories draw from two sheets each and a row-only sort
+interleaves them. ONE documented exception: a SPEC-DRIVEN category omits its derived attribute columns
+from the file (slice 1c) while the screen shows them read-only, so there they differ BY DESIGN.
+
 **⚠️ A FLAT ADDER MOVES EVERY PRICE IN ITS PIPELINE; `isFlatAdder` MEANS "THIS INPUT ADDS RATHER THAN
 SCALES" (owner-locked).** An ADDITIVE `component` carries no `target` and no `bands`, so a reach walk
 keyed on the target records nothing and reports zero — which is measuring what an input MULTIPLIES,
