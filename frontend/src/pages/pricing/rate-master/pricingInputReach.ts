@@ -195,6 +195,47 @@ export function pipelinesOf(cfg: unknown): Array<[string, any]> {
   return out;
 }
 
+/**
+ * Note a CONDITIONAL additive component's inherited columns PER BRANCH, narrowed to the SKUs that
+ * branch selects. Returns false when there is nothing to narrow by, so the caller falls back to the
+ * un-narrowed note and every existing category stays byte-identical.
+ */
+function narrowAdditiveByBranch(
+  step: any,
+  ks: readonly string[],
+  owners: Record<string, Set<string>> | Record<string, string[]>,
+  note: (ids: Set<string>, keys: readonly string[]) => void,
+  remember: (c: Col) => string,
+  colLookup: Map<string, Col>,
+  attrKeysByKind: Map<string, Set<string>>,
+): boolean {
+  let narrowedAny = false;
+  const planned: Array<{ ids: Set<string>; keys: string[] }> = [];
+  for (const cond of step?.conditions ?? []) {
+    const ids = new Set<string>();
+    for (const [k, v] of Object.entries(cond?.params ?? {})) {
+      if (!k.endsWith(CTX_SUFFIX) || typeof v !== "string") continue;
+      for (const id of owners[v] ?? []) ids.add(id);
+    }
+    if (!ids.size) continue;                       // a branch that reads no input contributes nothing
+    const keys: string[] = [];
+    for (const colK of ks) {
+      const base = colLookup.get(colK);
+      if (!base) continue;
+      const carried = attrKeysByKind.get(base.kind) ?? new Set<string>();
+      const extra: Record<string, unknown> = {};
+      for (const [wk, wv] of Object.entries(cond?.when ?? {})) if (carried.has(wk)) extra[wk] = wv;
+      if (!Object.keys(extra).length) { keys.push(colK); continue; }
+      narrowedAny = true;
+      keys.push(remember({ kind: base.kind, rateKey: base.rateKey, where: { ...base.where, ...extra } }));
+    }
+    if (keys.length) planned.push({ ids, keys });
+  }
+  if (!narrowedAny) return false;                  // nothing SKU-shaped to narrow by -- leave as it was
+  for (const p of planned) note(p.ids, p.keys);
+  return true;
+}
+
 export function computePricingInputReach(
   configs: Record<string, RateCategoryConfig | null | undefined> | null | undefined,
   items: readonly RateMasterItem[] | null | undefined,
@@ -218,6 +259,18 @@ export function computePricingInputReach(
     uidsByColumn.set(k, got);
     return got;
   };
+
+  /**
+   * The attribute keys the catalogue's rows of a kind actually CARRY. Used to tell a branch that
+   * selects a SKU SUBSET from one that selects a BoQ-ROW option.
+   */
+  const attrKeysByKind = new Map<string, Set<string>>();
+  for (const it of items ?? []) {
+    const k = String(it.kind ?? "");
+    if (!attrKeysByKind.has(k)) attrKeysByKind.set(k, new Set<string>());
+    const set = attrKeysByKind.get(k)!;
+    for (const a of Object.keys(it.attributes ?? {})) set.add(a);
+  }
 
   const colLookup = new Map<string, Col>();
   const hits = new Map<string, Map<string, Set<string>>>();   // inputId -> colKey -> categories
@@ -309,7 +362,28 @@ export function computePricingInputReach(
           provAdd(s?.name, ks);
           for (const k of ks) acc.add(k);
           const readers = inputsRead(s, owners);
-          note(readers, ks);
+          /**
+           * ⚠️ PER BRANCH, for the same reason `apply_effective_multiplier` below is. A CONDITIONAL
+           * additive component does not move every row of its pipeline -- it moves the rows whose
+           * branch it is. Insulation's cladding is ONE component with six branches keyed on the row's
+           * own `cladding`, so folding them together reported 224 SKUs for an input that moves 68, and
+           * 20 for one that moves 3. The owner found it on the live page: "can you check if only the
+           * really linked SKUs for a parameter are coming in the SKUs count and list for it?"
+           *
+           * ⚠️ NARROWED ONLY BY `when` KEYS THE SKUs ACTUALLY CARRY. A branch may key on a BoQ-ROW
+           * option instead -- `cover`, `installation_type`, `floor_refilling`, `floor_cutting`, which
+           * is EVERY conditional component Electrical has, verified over v66 -- and no SKU carries
+           * those, so narrowing on them would filter every row out and report zero. With this test
+           * Electrical narrows by nothing and its whole reach map is byte-identical.
+           */
+          // ⚠️ ANY conditional component, additive or TARGETED. The first version gated on `additive`
+          // and left the three GI inputs reporting 20 where 3 move: Insulation's AREA cladding has a
+          // `target`, so its columns come from the target rather than from `acc` -- a different code
+          // path, the same over-report. The narrowing is about WHICH SKUs a branch selects, which has
+          // nothing to do with where the columns came from.
+          const branchNoted = Array.isArray(s?.conditions) && s.conditions.length > 0
+            && narrowAdditiveByBranch(s, ks, owners, note, remember, colLookup, attrKeysByKind);
+          if (!branchNoted) note(readers, ks);
           if (additive) {
             const branches = (s?.conditions ?? []).map((c: any) => {
               const ctxBinds: Record<string, string> = {};

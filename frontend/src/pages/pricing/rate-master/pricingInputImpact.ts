@@ -91,10 +91,23 @@ export function movedLegOf(shape: PanelShape): MovedLeg {
   return "boq_supply";
 }
 
-/** The value fields a shape's panel offers, in the order it shows them. Only keys the input CARRIES. */
+/**
+ * The value fields a shape's panel offers, in the order it shows them. Only keys the input CARRIES.
+ *
+ * ⚠️ SLICE 12c: `rate` and `factor` are APPENDED, and the omission was not cosmetic -- it left an HVAC
+ * input (whose only value IS a rate or a factor) with an EMPTY field list, so the panel rendered NO
+ * edit box at all and could never be driven: every row sat at "—" under the hint "Change a value above
+ * to see what it would do", with nothing to change. The owner spotted it on the live page.
+ *
+ * ⚠️ APPENDED RATHER THAN DERIVED FROM `PRICING_INPUT_VALUE_COLUMNS`, deliberately. This order is NOT
+ * that constant's order -- `wastage` sits third here and fifth there -- so adopting it would reorder
+ * the fields on Electrical's panel for no reason anyone asked for. Appending keeps every existing panel
+ * byte-identical, exactly as appending the two COLUMNS did.
+ */
 export function editableFieldsOf(rates: Record<string, unknown> | null | undefined): string[] {
   const keys = Object.keys(rates ?? {});
-  const order = ["discount", "supply_markup", "wastage", "installation_markup", "bcs_markup", "ratio", "share", "amount"];
+  const order = ["discount", "supply_markup", "wastage", "installation_markup", "bcs_markup", "ratio",
+                 "share", "amount", "rate", "factor"];
   return order.filter((k) => keys.includes(k));
 }
 

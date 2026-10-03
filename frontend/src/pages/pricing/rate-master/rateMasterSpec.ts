@@ -11,6 +11,7 @@
 // opt-in key, splits the definitions into text vs derived for rendering, and reads the two reserved
 // flag keys the server stores on a not-understood item.
 
+import { pipelinesOf } from "./pricingInputReach";
 import { formatDate } from "@/utils/FormatDate";
 import type {
   AttributeDefinition, DerivedRateTerm, RateCategoryConfig, RateComposition, RateMasterItem,
@@ -963,8 +964,14 @@ export function pricingInputUsedBy(
   const out: Record<string, { sites: number; categories: string[] }> = {};
   for (const cfg of configs ?? []) {
     const cid = String(cfg?.category_id ?? "");
-    for (const pid of Object.keys(cfg?.pipelines ?? {}).sort()) {
-      for (const st of (((cfg.pipelines as any)?.[pid] ?? {}).steps ?? []) as any[]) {
+    // ⚠️ `pipelinesOf`, NOT `cfg.pipelines`. An ITEM-LIST category keeps its pipelines inside
+    // `list_spec`, so this walk reported every HVAC input as read by NOTHING and the page's "used by"
+    // column read empty while those inputs priced 204 rows. THE THIRD SITE with this same blindness
+    // (the other two: `csv_exporter.pricing_input_used_by` and `computePricingInputReach`), and the only
+    // one a test did not catch -- it was found by looking at the live page.
+    for (const [pid, pl] of pipelinesOf(cfg)) {
+      void pid;
+      for (const st of ((pl ?? {}).steps ?? []) as any[]) {
         if (st?.step !== "rate_ref") continue;
         const iid = st?.ref?.item;
         if (typeof iid !== "string") continue;

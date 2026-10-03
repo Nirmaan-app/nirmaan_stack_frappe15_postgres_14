@@ -51,6 +51,7 @@ import {
   deriveRateColumnLabels,
   rateColumnLabel,
   columnOrderForFile,
+  pricingInputUsedByText,
   sourceOrder,
 } from "./rateMasterSpec";
 
@@ -108,6 +109,9 @@ interface Props {
   onDeactivateItem?: (name: string) => Promise<void>;
   /** SLICE 12b(B): {pricing-input id -> its reach}. Absent => no ITEMS column (every non-PI grid). */
   inputReach?: Record<string, { distinctSkus: string[]; isFlatAdder: boolean }>;
+  /** SLICE 12c: the DERIVED "used by", computed by the PAGE because it needs every category's config
+   *  (the same reason `inputReach` is). Used only where an item carries no stored `used_by`. */
+  derivedUsedBy?: Record<string, { sites: number; categories: string[] }>;
   /** opens the impact panel on that catalogue row; null closes it */
   onOpenImpact?: (itemUid: string | null) => void;
   openImpactUid?: string | null;
@@ -169,7 +173,7 @@ export function RateMasterDataViewer({
   // SLICE 12b(B): the ITEMS column. The reach map is computed by the PAGE (it needs every category's
   // config, which this component does not have), so the viewer only RENDERS it. Both absent => no
   // column at all, which is what keeps every other category's grid byte-identical.
-  inputReach, onOpenImpact, openImpactUid,
+  inputReach, derivedUsedBy, onOpenImpact, openImpactUid,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -253,6 +257,13 @@ export function RateMasterDataViewer({
   // definition the items do not carry keeps its declared place at the end, so a template column never
   // disappears off the screen.
   const fileOrder = useMemo(() => columnOrderForFile(config, scopedItems), [config, scopedItems]);
+  // SLICE 12c: the DERIVED used-by, for an input whose item carries no stored copy. See the cell below.
+  const usedByText = useCallback((it: RateMasterItem) => {
+    const stored = it.attributes?.used_by;
+    if (stored !== undefined && stored !== null && String(stored).trim() !== "") return String(stored);
+    const id = String(it.attributes?.item ?? "");
+    return id ? pricingInputUsedByText((derivedUsedBy ?? {})[id]) : "";
+  }, [derivedUsedBy]);
   const attrCols = useMemo(() => {
     const defs = specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand");
     const rank = new Map(fileOrder.attrs.map((id, i) => [id, i]));
@@ -1225,9 +1236,22 @@ export function RateMasterDataViewer({
                     {/* READ-ONLY: derived from the pricing rules, so there is no input to type into. */}
                     {/* ⚠️ NEVER `whitespace-nowrap` HERE. In a fixed 190px column a 65-character list
                         overflowed its cell and ran under the items badge -- the owner saw it. */}
+                    {/* ⚠️ SLICE 12c: STORED FIRST, DERIVED WHERE NOTHING IS STORED. The rate FILE always
+                        DERIVES this (`csv_exporter.pricing_input_used_by`), and the comment at the top of
+                        this file says it is "derived from the pricing rules, never edited" -- but the
+                        SCREEN has always rendered a STORED attribute, and Electrical's items carry one in
+                        a DIFFERENT format (display names joined by a middot) from the derived string. So
+                        deriving unconditionally would change Electrical's column, which cert step 6
+                        requires byte-identical.
+                        HVAC's inputs carry no stored copy -- deliberately, because a stored count goes
+                        stale the moment a pipeline changes -- so they would otherwise read EMPTY while
+                        pricing 204 rows. Found by looking at the live page.
+                        ⚠️ THE STORED COPY IS LEGACY and the two formats should be reconciled in a slice
+                        of its own; this fallback is the minimum that makes the screen honest without
+                        moving a value the cert pins. */}
                     <TableCell className="align-top text-[11px] text-muted-foreground" data-testid="pi-used-by">
-                      <span className="line-clamp-2" title={String(r.it.attributes?.used_by ?? "")}>
-                        {String(r.it.attributes?.used_by ?? "")}
+                      <span className="line-clamp-2" title={usedByText(r.it)}>
+                        {usedByText(r.it)}
                       </span>
                     </TableCell>
                     {showImpactCol ? (

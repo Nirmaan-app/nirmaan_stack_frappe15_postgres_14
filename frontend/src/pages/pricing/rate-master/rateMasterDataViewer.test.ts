@@ -145,12 +145,25 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     expect(upTo).toContain("cellText(it.attributes?.used_by)");
   });
 
+  /**
+   * ⚠️ INVERTED BY SLICE 12c, claim unchanged. It asserted the cell renders `r.it.attributes?.used_by`
+   * DIRECTLY; it now renders `usedByText(r.it)`, which returns that stored value when there is one and
+   * the DERIVED text when there is not. HVAC's inputs carry no stored copy -- deliberately, because a
+   * stored count goes stale the moment a pipeline changes -- so the column read EMPTY for all seven
+   * while they priced 204 rows, which the live page showed and no test did. The READ-ONLY claim, which
+   * is what acceptance 13 is about, is unchanged and still asserted.
+   */
   it("ACCEPTANCE 13: the used-by cell is READ-ONLY -- rendered, never an input", () => {
     const cell = src.slice(src.indexOf('data-testid="pi-used-by"'));
     const upToClose = cell.slice(0, cell.indexOf("</TableCell>"));
-    expect(upToClose).toContain("r.it.attributes?.used_by");
+    expect(upToClose).toContain("usedByText(r.it)");
     expect(upToClose).not.toContain("<Input");
     expect(upToClose).not.toContain("onChange");
+    // and the resolver really is stored-first, so a stored value is never replaced by a derived one
+    const fn = src.slice(src.indexOf("const usedByText = useCallback"));
+    const body = fn.slice(0, fn.indexOf("}, [derivedUsedBy]);"));
+    expect(body).toContain("it.attributes?.used_by");
+    expect(body.indexOf("return String(stored)")).toBeLessThan(body.indexOf("pricingInputUsedByText"));
   });
 
   /**

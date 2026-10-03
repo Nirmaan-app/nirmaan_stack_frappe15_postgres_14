@@ -15,10 +15,13 @@ import { describe, it, expect } from "vitest";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v16.json";
 import { priceSkuExactItemList, isItemListConfig, itemsWithInput, sampleGeometries } from "./pricingInputExact";
 import { itemListPricingSpec, priceItemList } from "../../boq-wizard/rate-helper/itemListPricing";
+import { computePricingInputReach } from "./pricingInputReach";
+import EALL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
 import type { RateMasterItem, RateCategoryConfig } from "./rateMasterTypes";
 
 type Asset = { discipline: string; items: any[]; category_configs: any[] };
 const asset = HVAC as unknown as Asset;
+const hvacAsset = HVAC as unknown as { category_configs: any[] };
 const KIND = "hvac_insulation_item";
 const PI_KIND = "hvac_pricing_input";
 
@@ -108,7 +111,9 @@ describe("acceptance 23: the impact panel prices through the rate-helper panel's
     expect(moversByInput.alu_sheet_26g).toBe(68);
     expect(moversByInput.glass_cloth).toBe(84);
     expect(moversByInput.cladding_overlap).toBe(136);   // every aluminium-clad row, both grades
-  });
+    // ⚠️ an explicit timeout, NOT a smaller sample: this prices 224 SKUs twice for each of 7 inputs
+    // (3,136 figures). It runs in ~2.5 s alone and over vitest's 5 s default when the suite is loaded.
+  }, 120_000);
 
   it("NEGATIVE: a SKU the rules refuse is REPORTED with its reason, never silently dropped", () => {
     const broken = { ...skus[0], attributes: { ...skus[0].attributes, cladding: "Not A Cladding" } };
@@ -215,5 +220,60 @@ describe("ruling 2 / U9: sample geometries from the catalogue's own stocked size
       return !(typeof r.cost_insulation === "number" && r.cost_insulation > 0);
     });
     expect(claddingOnly).toHaveLength(0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// OWNER, on the live page: "only the linked SKUs should be in the SKU list. not impacted SKUs should
+// not be a part of it."
+//
+// The badge and the list showed every SKU the PIPELINE touches, not the ones the input's own branch
+// selects: 224 for an input that moves 68, and 20 for one that moves 3. The figures were right -- only
+// the real ones ever showed a change -- so this is the COUNT and the LIST, not the arithmetic.
+//
+// A conditional component is now noted PER BRANCH, narrowed by the `when` keys THE SKUs CARRY. Every
+// conditional component Electrical has keys on a BoQ-ROW option (`cover`, `installation_type`,
+// `floor_refilling`, `floor_cutting`) that no SKU carries, so it narrows by nothing and is unchanged.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+describe("the SKU list holds only the SKUs an input really reaches", () => {
+  const reach = computePricingInputReach(
+    Object.fromEntries(hvacAsset.category_configs.map((c: any) => [c.category_id, c])) as never,
+    items,
+  );
+
+  it("each input's count equals the number of SKUs that actually MOVE when it changes", () => {
+    // the right-hand numbers are measured independently, by pricing every SKU before and after
+    const expected: Record<string, number> = {
+      alu_sheet_24g: 68, alu_sheet_26g: 68, glass_cloth: 84, cladding_overlap: 136,
+      gi_sheet_rate: 3, gi_framework_factor: 3, gi_framework_adder: 3,
+    };
+    for (const [id, want] of Object.entries(expected)) {
+      expect(reach[id], `${id} has no reach`).toBeTruthy();
+      expect(reach[id].distinctSkus.length, `${id} lists the wrong SKU count`).toBe(want);
+      // and the listed SKUs are EXACTLY the ones that move -- not a count that happens to agree
+      const patch = bumped(id);
+      const next = itemsWithInput(items, id, patch);
+      const movers = new Set(skus.filter((s) => {
+        const ex = priceSkuExactItemList(s, cfg, items, next);
+        return ex.ok && ex.legs.some((l) => l.moved);
+      }).map((s) => String(s.item_uid)));
+      expect(new Set(reach[id].distinctSkus)).toEqual(movers);
+    }
+    // same reason as above -- it re-prices every SKU for all seven inputs to derive the mover SET
+  }, 120_000);
+
+  it("⚠️ NEGATIVE: a branch keying on a BoQ-ROW option narrows by NOTHING, so Electrical is unchanged", () => {
+    const eallCfgs = Object.fromEntries(
+      (EALL as unknown as { category_configs: any[] }).category_configs.map((c) => [c.category_id, c]));
+    const eItems = (EALL as unknown as { items: any[] }).items.map((i) => ({ ...i, discipline: "Electrical" }));
+    const r = computePricingInputReach(eallCfgs as never, eItems as never);
+    expect(Object.keys(r).length).toBe(35);
+    // the tray adders still reach every tray row -- their condition is a row option, not a SKU fact
+    const trays = eItems.filter((i) => i.kind === "cable_tray").length;
+    expect(trays).toBeGreaterThan(0);
+    for (const id of ["tray_accessories", "tray_refilling"]) {
+      if (!r[id]) continue;
+      expect(r[id].isFlatAdder).toBe(true);
+    }
   });
 });

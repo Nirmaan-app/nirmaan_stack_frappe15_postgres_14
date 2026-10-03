@@ -23,6 +23,7 @@ import { RateMasterDataViewer } from "./RateMasterDataViewer";
 // of them), so the page mounts the SHARED N-fetch children rather than minting a second fetcher.
 import { PricingInputImpactPanel } from "./PricingInputImpactPanel";
 import { computePricingInputReach } from "./pricingInputReach";
+import { pricingInputUsedBy } from "./rateMasterSpec";
 import { isPricingInputConfig } from "./rateMasterSpec";
 import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, useConfigsByCategory }
   from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
@@ -116,6 +117,12 @@ export function RateMasterPage() {
   const inputReach = useMemo(
     () => computePricingInputReach(allConfigs as never, items),
     [allConfigs, items],
+  );
+  // SLICE 12c: the DERIVED "used by", for an input whose item carries no stored copy. Computed HERE
+  // because it needs EVERY category's config, exactly as `inputReach` does -- the viewer holds one.
+  const derivedUsedBy = useMemo(
+    () => pricingInputUsedBy(Object.values(allConfigs ?? {}) as never),
+    [allConfigs],
   );
   const itemsByUid = useMemo(() => new Map(items.map((i) => [i.item_uid ?? "", i])), [items]);
   /** the pricing inputs themselves -- a flat adder prices against what the OTHERS leave behind */
@@ -461,6 +468,7 @@ export function RateMasterPage() {
                   onCreateItem={onCreateItem}
                   onDeactivateItem={onDeactivateItem}
                   inputReach={inputReach}
+                  derivedUsedBy={derivedUsedBy}
                   onOpenImpact={setImpactInputUid}
                   openImpactUid={impactInputUid}
                 />
