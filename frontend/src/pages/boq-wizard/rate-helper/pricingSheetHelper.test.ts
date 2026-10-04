@@ -5637,7 +5637,7 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
   });
 });
 
-import HVAC_V19_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v19.json";
+import HVAC_V20_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v20.json";
 import { assembleItems as assembleItemsFam, initialItemEdits as initialItemEditsFam } from "./pricingSheetHelper";
 import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } from "./itemListPricing";
 
@@ -5655,7 +5655,7 @@ import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } f
  * eight sites of generalisation.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH -- the family is written under the attribute the config names", () => {
-  const asset = HVAC_V19_FAM as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const asset = HVAC_V20_FAM as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const adpCfg = asset.category_configs.find((c) => c.category_id === "hvac_adp")!;
   const insSpec = specOfFam(insCfg)!;

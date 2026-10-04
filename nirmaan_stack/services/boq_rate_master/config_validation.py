@@ -619,16 +619,19 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         # possible -- and `panel_notes` is closed to the same namespace, for the same reason the
         # controls are: a note on an attribute the panel cannot show would never be read.
         notes = pr.get("panel_notes")
-        # ⚠️ REQUIRED ON `dropdown_or_other` ONLY, and that scope is a RULING, not caution. The owner
-        # asked for a note on every typed field AND ruled ADP read-only in the same breath -- and ADP
-        # declares four `text` controls with no notes, so requiring them everywhere would REFUSE a
-        # shipped config the owner forbade touching. The requirement therefore binds where this slice
-        # introduces typing; a `text` field MAY carry a note and it is validated if it does, and ADP's
-        # own notes arrive with the ADP retrofit.
-        typed = {k for k, v in pc.items() if v == "dropdown_or_other"}
-        if typed and not isinstance(notes, dict):
-            _vthrow("list_spec.pricing.panel_notes must be an object naming what to type in each typed "
-                    "field: %s." % ", ".join(sorted(typed)))
+        # ⚠️ EVERY TYPED FIELD CARRIES A NOTE, owner ruling 2026-10-04 -- and the validator enforces it
+        # "for every category that complies", which is the owner's own wording and the only reading
+        # that works. A config DECLARING `panel_notes` must cover every typed field it has; one that
+        # declares none is not refused.
+        #
+        # ⚠️ THAT SCOPE IS MEASURED, NOT CAUTIOUS. Requiring the map outright refused EVERY HISTORICAL
+        # HVAC ASSET -- ADP has declared `text` controls with no notes since v9 -- and took 30 tests
+        # with it, including the sweeps that pin "every asset file on disk validates with exactly
+        # today's outcome". Those assets are frozen history; refusing them buys nothing and costs the
+        # sweeps their meaning. The standard is held where it belongs instead: `test_an_07` pins that
+        # EVERY typed field of EVERY category in the CURRENT asset has its note, so a new typed field
+        # shipped without one fails loudly, while v9 stays as valid as it was the day it was minted.
+        typed = {k for k, v in pc.items() if v in _TYPED_CONTROLS}
         if isinstance(notes, dict):
             unknown_n = set(notes) - panel_ns
             if unknown_n:

@@ -18,7 +18,7 @@ import {
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
-import HVAC_V19 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v19.json";
+import HVAC_V20 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v20.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
@@ -1920,10 +1920,10 @@ const CALCULATOR_SRC = readFileSync(
 
 describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V19 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs18 = (HVAC_V20 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V19 as unknown as { items: RateMasterItem[] }).items;
+  const items18 = (HVAC_V20 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
@@ -2008,14 +2008,14 @@ describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CAL
  * NOT stock -- a plain dropdown would remove the only way to say what the document says.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => {
-  const asset = HVAC_V19 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V20 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item");
   const NR = "Nitrile Rubber Insulation";
 
   /** the spec with FA8's controls declared, as v19 ships them */
   const withControls = (controls: Record<string, string>, notes?: Record<string, string>) => {
-    const cfg = structuredClone(insCfg);
+    const cfg = structuredClone(insCfg) as unknown as { list_spec: { pricing: Record<string, unknown> } };
     cfg.list_spec.pricing.panel_controls = controls;
     if (notes) cfg.list_spec.pricing.panel_notes = notes;
     return itemListPricingSpec(cfg as never)!;
@@ -2030,7 +2030,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
                   { items, answers: {} } as never);
 
   it("⚠️ THE SHIPPED CONFIG declares them -- not a fixture this test built", () => {
-    const pr = (insCfg as { list_spec: { pricing: Record<string, unknown> } }).list_spec.pricing;
+    const pr = (insCfg as unknown as { list_spec: { pricing: Record<string, unknown> } }).list_spec.pricing;
     expect(pr.panel_controls).toEqual({
       item: "dropdown", cladding: "dropdown",
       thickness_mm: "dropdown_or_other", pipe_size_mm: "dropdown_or_other",
@@ -2098,7 +2098,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
   it("ABSENT panel_controls is byte-identical to before FA8 existed", () => {
     // the shipped config now DECLARES the block, so the absent case is constructed by removing it --
     // this is what every category that declares nothing (ADP's siblings, all of Electrical) still gets
-    const stripped = structuredClone(insCfg);
+    const stripped = structuredClone(insCfg) as unknown as { list_spec: { pricing: Record<string, unknown> } };
     delete stripped.list_spec.pricing.panel_controls;
     delete stripped.list_spec.pricing.panel_notes;
     const plain = itemListPricingSpec(stripped as never)!;

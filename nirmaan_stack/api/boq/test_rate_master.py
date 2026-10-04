@@ -11430,7 +11430,7 @@ def _read_frontend_src(*parts):
         return fh.read()
 
 
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v19.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v20.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -16875,7 +16875,22 @@ class TestCladdingOnlySkus(FrappeTestCase):
         self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
         skip = {"hvac_insulation"}
         x = [c for c in self.v16["category_configs"] if c["category_id"] not in skip]
-        y = [c for c in self.v17["category_configs"] if c["category_id"] not in skip]
+        # ⚠️ ADP's FOUR NOTE STRINGS ARE NORMALISED OUT ON THE NEW SIDE, and nothing else is. The
+        # owner approved exactly those (2026-10-04, "we can do now") as a narrow exception to "ADP
+        # untouched"; this pin is a statement about THAT mint and must not start failing for a change
+        # made later that it never spoke to -- the `_without_pricing_input_items` idiom, applied here.
+        # Everything else about ADP, and every other category, is still asserted byte-identical.
+        y = []
+        for c in self.v17["category_configs"]:
+            if c["category_id"] in skip:
+                continue
+            if c["category_id"] == "hvac_adp":
+                c = copy.deepcopy(c)
+                notes = c["list_spec"]["pricing"].pop("panel_notes", None)
+                self.assertEqual(sorted(notes or []),
+                                 ["area_sqm", "depth_mm", "face_h_mm", "face_w_mm"],
+                                 "ADP's approved exception is the four typed-field notes, nothing else")
+            y.append(c)
         self.assertEqual(json.dumps(x, sort_keys=True), json.dumps(y, sort_keys=True))
 
     def test_co_f1_09_insulation_is_STILL_not_eligible(self):
@@ -17520,14 +17535,17 @@ class TestPanelControlsAndNotes(FrappeTestCase):
         explanation, so the note is REQUIRED wherever typing is possible -- not merely allowed."""
         cfg = self._cfg()
         cfg["list_spec"]["pricing"]["panel_controls"] = dict(self.FULL)
-        with self.assertRaises(Exception) as cm:
-            config_validation._validate_config(cfg)
-        self.assertIn("panel_notes", str(cm.exception))
-        # and a HALF-declared set names the one that is missing
+        # a HALF-declared set names the one that is missing. (A config declaring NO notes is NOT
+        # refused -- that scope is measured: requiring the map outright refused every historical
+        # asset, since ADP has had note-less `text` controls since v9. The standard is held on the
+        # CURRENT asset by `test_an_07` instead.)
         cfg["list_spec"]["pricing"]["panel_notes"] = {"thickness_mm": self.NOTES["thickness_mm"]}
         with self.assertRaises(Exception) as cm2:
             config_validation._validate_config(cfg)
         self.assertIn("pipe_size_mm", str(cm2.exception))
+        # and declaring none is accepted, which is what keeps v9..v19 valid
+        cfg["list_spec"]["pricing"].pop("panel_notes")
+        config_validation._validate_config(cfg)
 
     def test_fa8_04_NEGATIVE_every_other_malformed_shape_is_refused_by_name(self):
         base = self._cfg()
@@ -17556,8 +17574,14 @@ class TestPanelControlsAndNotes(FrappeTestCase):
         adp = copy.deepcopy(next(c for c in self.asset["category_configs"]
                                  if c["category_id"] == "hvac_adp"))
         self.assertIn("text", set(adp["list_spec"]["pricing"]["panel_controls"].values()))
-        self.assertNotIn("panel_notes", adp["list_spec"]["pricing"])
-        config_validation._validate_config(adp)        # must not raise
+        # ⚠️ INVERTED, NOT DELETED (owner 2026-10-04, "we can do now"): ADP now carries notes on its
+        # four typed fields -- a NARROW approved exception to "ADP untouched". What this test still
+        # asserts is the half that did not change: a config declaring NO notes is accepted, which is
+        # what keeps every historical asset (ADP has had note-less `text` controls since v9) valid.
+        stripped = copy.deepcopy(adp)
+        stripped["list_spec"]["pricing"].pop("panel_notes", None)
+        config_validation._validate_config(stripped)   # must not raise
+        config_validation._validate_config(adp)        # and the noted form is valid too
         # but a MALFORMED note on a text field is still refused
         adp["list_spec"]["pricing"]["panel_notes"] = {"depth_mm": ""}
         with self.assertRaises(Exception) as cm:
@@ -17595,4 +17619,125 @@ class TestPanelControlsAndNotes(FrappeTestCase):
         pc = adp["list_spec"]["pricing"]["panel_controls"]
         self.assertTrue(pc)
         self.assertEqual(set(pc.values()) - {"dropdown", "text"}, set())
-        self.assertNotIn("panel_notes", adp["list_spec"]["pricing"])
+        # ⚠️ INVERTED (owner 2026-10-04): ADP now carries notes on its four typed fields and NOTHING
+        # else -- the approved exception. Its CONTROLS are still untouched, which is what this pin is
+        # really about: no control changed, no `dropdown_or_other` reached ADP.
+        self.assertEqual(sorted(adp["list_spec"]["pricing"]["panel_notes"]),
+                         ["area_sqm", "depth_mm", "face_h_mm", "face_w_mm"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c FINISH -- A NOTE ON EVERY TYPED FIELD, INCLUDING ADP'S FOUR (owner ruling 2026-10-04)
+#
+# Owner: "ideally we shoud ass brief explantory notes for every typed fied, so that the user knows
+# what is required to be filled in it", and for ADP's four: "we can do now" -- a NARROW approved
+# exception to "ADP untouched", covering those four note strings and nothing else.
+#
+# This SUPERSEDES the earlier `dropdown_or_other`-only scoping, which existed only to keep ADP's
+# shipped config valid while ADP was read-only.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestEveryTypedFieldHasItsNote(FrappeTestCase):
+    """ADP's four notes, the widened rule, and the mechanism that leaves Electrical alone."""
+
+    # the four, quoted verbatim for the owner's approval -- each drafted from how the field is READ
+    ADP_NOTES = {
+        "face_w_mm": "Type the face width in mm -- the first number of the size the BoQ states.",
+        "face_h_mm": "Type the face height in mm -- the second number of the size the BoQ states.",
+        "depth_mm": "Type the depth in mm -- the third number of the size, where the BoQ gives one.",
+        "area_sqm": "Type the area in sq.m. Where the BoQ gives a band, type the largest value in it.",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v20 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v19.json"), "r", encoding="utf-8") as fh:
+            cls.v19 = json.load(fh)
+
+    @staticmethod
+    def _cfg(asset, cat):
+        return next(c for c in asset["category_configs"] if c["category_id"] == cat)
+
+    def test_an_01_ADP_declares_the_four_notes_VERBATIM(self):
+        pr = self._cfg(self.v20, "hvac_adp")["list_spec"]["pricing"]
+        self.assertEqual(pr["panel_notes"], self.ADP_NOTES)
+        # one per TYPED control, and only those -- a note on a dropdown would never be read
+        typed = sorted(k for k, v in pr["panel_controls"].items() if v != "dropdown")
+        self.assertEqual(sorted(pr["panel_notes"]), typed)
+
+    def test_an_02_and_NOTHING_ELSE_about_ADP_moved(self):
+        """⚠️ THE NARROW EXCEPTION, PINNED. The owner approved four strings; this asserts the asset
+        carries exactly that and no more -- items included."""
+        a19 = [i for i in self.v19["items"] if i["kind"] == "hvac_adp_item"]
+        a20 = [i for i in self.v20["items"] if i["kind"] == "hvac_adp_item"]
+        self.assertEqual(len(a20), 95)
+        self.assertEqual(json.dumps(a19, sort_keys=True), json.dumps(a20, sort_keys=True))
+        c19, c20 = self._cfg(self.v19, "hvac_adp"), copy.deepcopy(self._cfg(self.v20, "hvac_adp"))
+        c20["list_spec"]["pricing"].pop("panel_notes")
+        self.assertEqual(json.dumps(c19, sort_keys=True), json.dumps(c20, sort_keys=True))
+        # and no OTHER category moved between the two
+        for cat in {c["category_id"] for c in self.v20["category_configs"]} - {"hvac_adp"}:
+            self.assertEqual(json.dumps(self._cfg(self.v19, cat), sort_keys=True),
+                             json.dumps(self._cfg(self.v20, cat), sort_keys=True), cat)
+
+    def test_an_03_the_STORED_ADP_config_carries_them_too(self):
+        """⚠️ THE SEAM: an asset pin is not a test that the product serves it."""
+        stored = _obj(frappe.get_value("BoQ Rate Category Config",
+                                       {"discipline": "HVAC", "active": 1,
+                                        "category_id": "hvac_adp"}, "config"))
+        self.assertEqual(stored["list_spec"]["pricing"]["panel_notes"], self.ADP_NOTES)
+
+    def test_an_04_an_INCOMPLETE_note_map_is_refused_naming_what_is_missing(self):
+        """The rule binds on a category that COMPLIES: having declared notes, it must cover every
+        typed field. Declaring none is not refused -- see `test_an_07` for where the standard lives."""
+        cfg = copy.deepcopy(self._cfg(self.v20, "hvac_adp"))
+        cfg["list_spec"]["pricing"]["panel_notes"].pop("depth_mm")
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("depth_mm", str(cm.exception))
+        # ...and a config declaring NO notes is accepted, which is what keeps every v9..v19 asset valid
+        cfg2 = copy.deepcopy(self._cfg(self.v20, "hvac_adp"))
+        cfg2["list_spec"]["pricing"].pop("panel_notes")
+        config_validation._validate_config(cfg2)
+
+    def test_an_07_EVERY_typed_field_of_the_CURRENT_asset_has_its_note(self):
+        """⚠️ WHERE THE OWNER'S STANDING RULE ACTUALLY LIVES. The validator cannot carry it without
+        refusing frozen history, so this does: every typed field of every category in the CURRENT
+        asset has a one-line note. A new typed field shipped without one fails here, loudly."""
+        checked = 0
+        for c in self.v20["category_configs"]:
+            pr = ((c.get("list_spec") or {}).get("pricing") or {})
+            pc = pr.get("panel_controls") or {}
+            typed = sorted(k for k, v in pc.items() if v != "dropdown")
+            if not typed:
+                continue
+            notes = pr.get("panel_notes") or {}
+            for k in typed:
+                self.assertTrue((notes.get(k) or "").strip(),
+                                "%s / %s is typed and has no note" % (c["category_id"], k))
+                checked += 1
+        self.assertEqual(checked, 6, "ADP's four typed fields plus Insulation's two")
+
+    def test_an_05_ELECTRICAL_is_UNTOUCHED_and_the_rule_cannot_refuse_it(self):
+        """⚠️ THE MECHANISM, not an exemption list. The whole block is read only when a config
+        DECLARES `panel_controls`, and Electrical declares it on NONE of its configs -- so the
+        widened rule is invisible there and refuses nothing. Electrical's 50 typed fields have no
+        notes today and this slice changes none of them."""
+        rows = frappe.get_all("BoQ Rate Category Config",
+                              filters={"discipline": "Electrical", "active": 1},
+                              fields=["category_id", "config"])
+        self.assertTrue(rows)
+        declaring = []
+        for r in rows:
+            cfg = _obj(r["config"])
+            pr = ((cfg.get("list_spec") or {}).get("pricing") or {})
+            if pr.get("panel_controls"):
+                declaring.append(r["category_id"])
+            config_validation._validate_config(cfg)      # every one still validates, untouched
+        self.assertEqual(declaring, [], "no Electrical config declares panel_controls")
+
+    def test_an_06_every_v20_config_validates_through_the_loaders_own_gate(self):
+        for c in self.v20["category_configs"]:
+            config_validation._validate_config(
+                loader._loaded_config(copy.deepcopy(c), "HVAC", self.v20.get("goldens") or {}))
