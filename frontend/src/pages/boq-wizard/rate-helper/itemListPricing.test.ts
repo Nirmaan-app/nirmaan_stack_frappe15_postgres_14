@@ -18,7 +18,7 @@ import {
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
-import HVAC_V22 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v22.json";
+import HVAC_V24 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v24.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
@@ -39,6 +39,7 @@ import HVAC_V11 from "../../../../../nirmaan_stack/services/boq_rate_master/data
 import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
 import HVAC_V13 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v13.json";
 import { familyChoices, itemFieldDefs, listSpecDefs, sizeFieldHelp } from "./itemListPricing";
+import { auditPanelFields, missingNotes } from "./panelFieldAudit";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
 const asset = HVAC_V7 as unknown as Asset;
@@ -1924,10 +1925,10 @@ const CALCULATOR_SRC = readFileSync(
 
 describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V22 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs18 = (HVAC_V24 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V22 as unknown as { items: RateMasterItem[] }).items;
+  const items18 = (HVAC_V24 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
@@ -2012,7 +2013,7 @@ describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CAL
  * NOT stock -- a plain dropdown would remove the only way to say what the document says.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => {
-  const asset = HVAC_V22 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item");
   const NR = "Nitrile Rubber Insulation";
@@ -2166,7 +2167,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
  * one pipe size, because the narrowing skipped every other LADDER attribute.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapest", () => {
-  const asset = HVAC_V22 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const spec = itemListPricingSpec(insCfg as never)!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
@@ -2280,7 +2281,7 @@ describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapes
  * priced silently as a 9.52 mm pipe -- a plausible wrong size with nothing on screen to catch it.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8(d) -- inches, decimals and the next size up", () => {
-  const asset = HVAC_V22 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const spec = itemListPricingSpec(insCfg as never)!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
@@ -2349,5 +2350,113 @@ describe("SLICE 12c FINISH / FA8(d) -- inches, decimals and the next size up", (
     // whatever fraction it chose, the size it names must be one of the options it was given
     const named = inchLine.match(/matches ([\d.]+)/)![1];
     expect(["6.35", "9.52", "22.23", "53.98"]).toContain(named);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * OWNER RULING, FINAL FORM (2026-10-04) -- A NOTE IS REQUIRED ON EXACTLY THREE CONDITIONS
+ *
+ * "any field on the calculator or pricing helper panel which must be mandatorily filled for a rate
+ * to be calculated and the user needs to type it in should have the note explnantion."
+ *
+ *   (1) TYPED  (2) RENDERS on the panel  (3) MANDATORY -- no rate without it
+ *
+ * ⚠️ THE RULE LIVES HERE, NOT IN THE PYTHON VALIDATOR, AND THAT IS FORCED. Two of the three are
+ * decided by the frontend's own code paths -- `itemFieldDefs` decides what renders, the pricer
+ * decides what is mandatory -- and Python can read neither. Re-deriving them server-side would be
+ * exactly the second list the owner forbade, free to drift from the panel, which is how a field
+ * loses its note silently. The validator keeps the SHAPE checks (a note names a real typed control
+ * and says something); this measures the rule against the product.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("OWNER final form -- a note on every typed, rendered, mandatory field", () => {
+  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const cfgOf = (id: string) => asset.category_configs.find((c) => c.category_id === id)!;
+  const itemsOf = (id: string) => {
+    const kind = ((cfgOf(id) as never as { list_spec?: { pricing?: { kind?: string } } }).list_spec?.pricing?.kind) ?? "";
+    return asset.items.filter((i) => i.kind === kind || i.kind === "hvac_pricing_input");
+  };
+
+  it("INSULATION: every field that must carry a note does", () => {
+    expect(missingNotes(cfgOf("hvac_insulation"), itemsOf("hvac_insulation"))).toEqual([]);
+  });
+
+  it("ADP: every field that must carry a note does", () => {
+    expect(missingNotes(cfgOf("hvac_adp"), itemsOf("hvac_adp"))).toEqual([]);
+  });
+
+  it("the three properties, measured -- INSULATION", () => {
+    const rows = auditPanelFields(cfgOf("hvac_insulation"), itemsOf("hvac_insulation"));
+    expect(rows.map((r) => r.attr)).toEqual(["cladding", "pipe_size_mm", "thickness_mm"]);
+    // a `dropdown_or_other` counts as TYPED: choosing "Other..." opens a box, which is the case the
+    // owner's rule is about
+    expect(rows.find((r) => r.attr === "cladding")!.typed).toBe(false);
+    for (const a of ["pipe_size_mm", "thickness_mm"]) {
+      const f = rows.find((r) => r.attr === a)!;
+      expect(f.typed, a).toBe(true);
+      expect(f.mandatory, a).toBe(true);
+      expect(f.needsNote, a).toBe(true);
+      expect(f.note.trim(), a).not.toBe("");
+    }
+  });
+
+  it("the three properties, measured -- ADP: ONE typed field renders, and it is mandatory", () => {
+    const rows = auditPanelFields(cfgOf("hvac_adp"), itemsOf("hvac_adp"));
+    const typed = rows.filter((r) => r.typed);
+    expect(typed.map((r) => r.attr)).toEqual(["face_w_mm"]);
+    expect(typed[0].mandatory).toBe(true);
+    expect(typed[0].note).toContain("Type the size as the BoQ states it");
+    // ⚠️ and the three the owner removed render NOWHERE, which is why they carry no note
+    for (const gone of ["face_h_mm", "depth_mm", "area_sqm"]) {
+      expect(rows.map((r) => r.attr)).not.toContain(gone);
+    }
+  });
+
+  /* ---- each condition proved BOTH WAYS (owner item 2) ---------------------------------------- */
+
+  it("(1) TYPED: a rendered mandatory field with NO note is REFUSED; as a dropdown it is accepted", () => {
+    const cfg = structuredClone(cfgOf("hvac_insulation")) as never as
+      { list_spec: { pricing: { panel_notes: Record<string, string>; panel_controls: Record<string, string> } } };
+    delete cfg.list_spec.pricing.panel_notes.thickness_mm;
+    expect(missingNotes(cfg, itemsOf("hvac_insulation"))).toEqual(["thickness_mm"]);
+    // the SAME field as a plain dropdown needs no note
+    cfg.list_spec.pricing.panel_controls.thickness_mm = "dropdown";
+    expect(missingNotes(cfg, itemsOf("hvac_insulation"))).toEqual([]);
+  });
+
+  it("(2) RENDERS: a typed control the panel never shows needs no note", () => {
+    // ADP declares four typed controls and renders ONE field for them; the other three are exactly
+    // this case, and the audit does not ask for their notes
+    const rows = auditPanelFields(cfgOf("hvac_adp"), itemsOf("hvac_adp"));
+    const declared = Object.entries(((cfgOf("hvac_adp") as never as { list_spec: { pricing: { panel_controls: Record<string, string> } } })
+      .list_spec.pricing.panel_controls)).filter(([, v]) => v !== "dropdown").map(([k]) => k);
+    expect(declared.sort()).toEqual(["area_sqm", "depth_mm", "face_h_mm", "face_w_mm"]);
+    expect(rows.filter((r) => r.typed).map((r) => r.attr)).toEqual(["face_w_mm"]);
+    expect(missingNotes(cfgOf("hvac_adp"), itemsOf("hvac_adp"))).toEqual([]);
+  });
+
+  it("(3) MANDATORY: the same field made OPTIONAL needs no note", () => {
+    const cfg = structuredClone(cfgOf("hvac_insulation")) as never as
+      { list_spec: { pricing: { panel_notes: Record<string, string>; families: Record<string, { units: Record<string, { needs?: string[] }> }> } } };
+    delete cfg.list_spec.pricing.panel_notes.thickness_mm;
+    expect(missingNotes(cfg, itemsOf("hvac_insulation"))).toEqual(["thickness_mm"]);
+    // drop it from every family's `needs` -- the pricer then no longer refuses without it
+    for (const fam of Object.values(cfg.list_spec.pricing.families)) {
+      for (const unit of Object.values(fam.units ?? {})) {
+        unit.needs = (unit.needs ?? []).filter((n) => n !== "thickness_mm");
+      }
+    }
+    const rows = auditPanelFields(cfg, itemsOf("hvac_insulation"));
+    const th = rows.find((r) => r.attr === "thickness_mm");
+    // it is either no longer mandatory, or no longer rendered -- either way no note is demanded
+    expect(th?.needsNote ?? false).toBe(false);
+    expect(missingNotes(cfg, itemsOf("hvac_insulation"))).toEqual([]);
+  });
+
+  it("⚠️ the audit asks the PRODUCT, not a list: no attribute id is written in the module", () => {
+    const src = readFileSync(join(__dirname, "panelFieldAudit.ts"), "utf-8");
+    for (const banned of ["thickness_mm", "pipe_size_mm", "face_w_mm", "hvac_", "Electrical"]) {
+      const code = src.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
+      expect(code, banned).not.toContain(banned);
+    }
   });
 });

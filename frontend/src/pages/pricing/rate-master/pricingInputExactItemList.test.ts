@@ -19,7 +19,7 @@ import {
 } from "./pricingInputExact";
 import { sampleGeometryText } from "./pricingInputImpact";
 // SLICE 12c FINISH / F3 -- the real shipped asset, never a fixture
-import HVAC_V22 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v22.json";
+import HVAC_V24 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v24.json";
 import { itemListPricingSpec, priceItemList } from "../../boq-wizard/rate-helper/itemListPricing";
 import { computePricingInputReach } from "./pricingInputReach";
 import EALL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
@@ -295,9 +295,9 @@ describe("the SKU list holds only the SKUs an input really reaches", () => {
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / F3 -- sample impacts for a geometry-less SKU", () => {
   const INS = "hvac_insulation";
-  const cfg = (HVAC_V22 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfg = (HVAC_V24 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs.find((c) => c.category_id === INS)!;
-  const allItems = (HVAC_V22 as unknown as { items: RateMasterItem[] }).items;
+  const allItems = (HVAC_V24 as unknown as { items: RateMasterItem[] }).items;
   const items = allItems.filter((i) => i.kind === "hvac_insulation_item"
                                     || i.kind === "hvac_pricing_input");
   const claddingOnly = items.filter(

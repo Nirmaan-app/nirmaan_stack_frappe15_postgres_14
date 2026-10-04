@@ -654,10 +654,20 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             if bad_n:
                 _vthrow("list_spec.pricing.panel_notes: each note must be a non-empty string (bad: %s)."
                         % ", ".join(bad_n))
-            missing_n = typed - set(notes)
-            if missing_n:
-                _vthrow("list_spec.pricing.panel_notes must say what to type in every typed field; "
-                        "missing: %s." % ", ".join(sorted(missing_n)))
+            # ⚠️ NO COVERAGE REQUIREMENT HERE, AND THAT IS A RULING, NOT A GAP (owner, final form
+            # 2026-10-04). A note is required only where the field is TYPED **and** RENDERS on the
+            # panel **and** is MANDATORY -- and two of those three are decided by the frontend's own
+            # code paths (`itemFieldDefs` for rendering, the pricer itself for mandatory). Python
+            # cannot read them, and re-deriving them here would be exactly the second list the owner
+            # forbade -- free to drift from the panel, which is how a field loses its note silently.
+            #
+            # So this side checks SHAPE (a note names a real typed control, and says something), and
+            # the three-condition rule is enforced where the code paths live:
+            # `panelFieldAudit.missingNotes`, pinned by `itemListPricing.test.ts`.
+            noted_not_typed = sorted(set(notes) - typed)
+            if noted_not_typed:
+                _vthrow("list_spec.pricing.panel_notes names field(s) that are not typed: %s. A note "
+                        "on a dropdown would never be read." % ", ".join(noted_not_typed))
         elif notes is not None:
             _vthrow("list_spec.pricing.panel_notes must be an object.")
     # families: the family attribute's values, through the alias
