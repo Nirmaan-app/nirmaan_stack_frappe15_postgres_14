@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { shouldShowLongOptionReadout, LONG_OPTION_CHARS } from "./RateHelperPanel";
+import { shouldShowLongOptionReadout, LONG_OPTION_CHARS, otherMode } from "./RateHelperPanel";
 
 // ══════════════════════════════════════════════════════════════════════════════════════════
 // THE LONG-OPTION WRAPPED READ-OUT (owner ruling 2026-09-04, option C)
@@ -156,5 +156,60 @@ describe("slice 11 / the unit label is opt-in per call site, which is what keeps
     for (const forbidden of ['"area"', '"length"', '"count"', "sq.m", "sqft"]) {
       expect(src, forbidden).not.toContain(forbidden);
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * CERT-FOUND DEFECT (2026-10-04) -- "Other..." COULD NOT BE TYPED INTO
+ *
+ * Reported from the live screen: pick "Other..." for Thickness, type a size, nothing lands. The
+ * cause was ONE binding. `ItemFieldView.value` is the RESOLVED size -- the ladder result, or blank
+ * where nothing fits (rule X3: the field shows the size that will be PRICED) -- and the typed box
+ * was bound to it. So every keystroke was rewritten to the rung it resolved to, or erased:
+ *
+ *   type "3"  -> 3 ladders up to 13   -> the box is rewritten to "13"
+ *   type "32" -> 32 composes, no rung -> the box is BLANKED, and the note reported a stray "2"
+ *
+ * The box's render CONDITION keyed on the same resolved value, so a typed 16 resolved to the stocked
+ * 19, `options.includes("19")` went true, and the box VANISHED mid-entry while the select jumped to a
+ * size nobody chose.
+ *
+ * TWO DIFFERENT QUESTIONS WERE SHARING ONE FIELD: "what will be priced" and "what did you enter".
+ * `typedValue` is the second, and `otherMode` keys on it. The resolution is not lost -- it shows in
+ * the select beside the box and in the note beneath, which is what C-R4 asks for.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("CERT-FOUND -- a size can be TYPED into Other...", () => {
+  const F = (over: Partial<{ allowOther: boolean; value: string; typedValue: string; options: string[] }>) => ({
+    allowOther: true, value: "", typedValue: "", options: ["13", "19", "25"], ...over,
+  });
+
+  it("THE DEFECT: a typed size that RESOLVES keeps the box open and keeps what was typed", () => {
+    expect(otherMode(F({ typedValue: "16", value: "19" }))).toBe(true);
+  });
+
+  it("THE DEFECT: a typed size that resolves to NOTHING also keeps the box open", () => {
+    expect(otherMode(F({ typedValue: "32", value: "" }))).toBe(true);
+  });
+
+  it("a STOCKED size, typed or picked, is NOT other-mode -- the plain dropdown is untouched", () => {
+    expect(otherMode(F({ typedValue: "19", value: "19" }))).toBe(false);
+    expect(otherMode(F({ typedValue: "", value: "19" }))).toBe(false);
+  });
+
+  it("picking Other... (which CLEARS the field) opens the box", () => {
+    expect(otherMode(F({ typedValue: "", value: "" }))).toBe(true);
+  });
+
+  it("a field without allowOther is NEVER other-mode, whatever it holds", () => {
+    expect(otherMode(F({ allowOther: false, typedValue: "32", value: "" }))).toBe(false);
+    expect(otherMode(F({ allowOther: false, typedValue: "", value: "" }))).toBe(false);
+  });
+
+  it("VACUITY: the OLD rule really did close the box on the case that broke", () => {
+    const old = (x: { allowOther: boolean; value: string; options: string[] }) =>
+      x.allowOther && (x.value === "" || !x.options.includes(x.value));
+    // a typed 16 resolving to the stocked 19: OLD says closed (the defect), NEW says open
+    expect(old({ allowOther: true, value: "19", options: ["13", "19", "25"] })).toBe(false);
+    expect(otherMode(F({ typedValue: "16", value: "19" }))).toBe(true);
   });
 });

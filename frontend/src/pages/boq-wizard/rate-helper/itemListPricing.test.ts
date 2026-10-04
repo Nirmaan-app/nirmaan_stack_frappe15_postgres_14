@@ -2142,14 +2142,28 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
     expect(sizeFieldHelp(spec, "cladding", ["No"])).toBeNull();
   });
 
-  it("the panel renders the OTHER entry and keeps the select on it for an unstocked value", () => {
+  /**
+   * INVERTED 2026-10-04 under mechanical authority, NOT deleted. Its claim -- the select must PIN to
+   * OTHER for an unstocked value, or the controlled-select trap shows a size nobody chose
+   * (frontend/CLAUDE.md) -- still holds; what changed is WHAT THE PIN IS READ FROM. Keying that
+   * decision on the RESOLVED value was itself the cert-found defect: a typed 16 resolves to the
+   * stocked 19, so the select left OTHER and the typed box vanished mid-entry. The decision now
+   * lives in the pure `otherMode`, keyed on what was TYPED.
+   *
+   * The negative half is KEPT and is the important line: the retired expression must be ABSENT, so
+   * the old binding cannot quietly come back.
+   */
+  it("the panel renders the OTHER entry and pins the select to it -- via the typed value", () => {
     const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
     expect(src).toContain("OTHER_VALUE");
     expect(src).toContain("f.allowOther");
-    // ⚠️ the controlled-select trap: an unstocked value must PIN the select to OTHER, or the browser
-    // falls back to the first selectable option and shows a size nobody chose (frontend/CLAUDE.md)
-    expect(src).toContain("!f.options.includes(f.value) ? OTHER_VALUE : f.value");
+    expect(src).toContain("otherMode(f) ? OTHER_VALUE : f.value");
+    // the typed box reads what was TYPED, never the resolved size
+    expect(src).toContain("value={f.typedValue}");
     expect(src).toContain("f.typedNote");
+    // NEGATIVE: the retired resolved-value binding is gone, from BOTH the select and the box
+    expect(src).not.toContain("!f.options.includes(f.value) ? OTHER_VALUE : f.value");
+    expect(src).not.toContain("(f.value === \"\" || !f.options.includes(f.value))");
   });
 });
 
@@ -2510,6 +2524,27 @@ describe("v25 -- the thickness note says only what the reader will accept", () =
     // and it still says the two things a pricer needs: one number, and that layers happen for them
     expect(notes.thickness_mm).toMatch(/single number/i);
     expect(notes.thickness_mm).toMatch(/layers/i);
+  });
+
+  /**
+   * ⚠️ THE THIRD CERT-FOUND DEFECT, AND THE REASON THIS TEST EXISTS.
+   *
+   * The false "layers may be written out" promise lived in TWO places: the config note AND the
+   * generated help under it. Correcting the note alone left the help still saying it, and a green
+   * suite could not see the difference -- only a runtime read of the screen did. A field's note and
+   * its "How is this matched?" help are two sentences about ONE behaviour; they must agree, and the
+   * only durable way to enforce that is to ask the SAME behaviour about both.
+   */
+  it("NEITHER the note NOR the generated help promises written-out layers", () => {
+    const help = sizeFieldHelp(spec, "thickness_mm", ["13", "19", "25"])!;
+    const everything = [notes.thickness_mm, ...help.lines].join(" | ");
+    // the behaviour: the reader refuses it
+    expect(price("19+13").priced).toBe(false);
+    // so neither sentence may offer it
+    expect(everything).not.toMatch(/each price as their own item/i);
+    expect(everything).not.toMatch(/may be written out/i);
+    // and the help says positively what to type instead
+    expect(help.lines.join(" ")).toMatch(/Type one number/i);
   });
 
   it("the pipe note's inch claim is BACKED by the shipped reader (the other half of the same audit)", () => {

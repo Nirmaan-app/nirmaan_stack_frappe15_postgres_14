@@ -5710,3 +5710,86 @@ describe("SLICE 12c FINISH -- the family is written under the attribute the conf
     expect(assembled.attributes.item).toBeUndefined();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * CERT-FOUND DEFECT (2026-10-04) -- "Row total" SHOWED ONE LAYER OF A COMPOSED ROW
+ *
+ * On the live calculator, Nitrile Rubber at pipe 19.05 with a typed thickness of 32 priced as
+ * 13 + 19 mm. The headline read 474 -- correct. The green "Row total per 1 mts" read **219**: the
+ * FIRST LAYER ALONE. A pricer reading the box labelled "Row total" would have taken a rate 54% low,
+ * with the right number visible a few centimetres away.
+ *
+ * `rowTotals` summed `view.items` -- the USER's blocks. A composition expands ONE block into several
+ * priced layers inside `priceItemList`, so the block count and the priced count stop agreeing.
+ *
+ * ⚠️ IT SURVIVED BECAUSE THE TWO AGREE ON EVERY UNCOMPOSED ROW. The existing ADP `rowTotals` test
+ * passes before AND after this fix, and would never have caught it: one block, one priced item, so
+ * the sum is right by coincidence of shape. Only a composition separates them.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("CERT-FOUND -- the Row total of a COMPOSED row is the ROW's, not the first layer's", () => {
+  const asset = HVAC_V25_FAM as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const CONFIGS = new Map<string, RateCategoryConfig>([["hvac_insulation", insCfg]]);
+  const ITEMS: RateMasterItem[] = asset.items.map((i) => ({ ...i, discipline: "HVAC" }));
+
+  const viewFor = (thickness: string) => {
+    const h = makePricingSheetHelper({
+      configsByCategory: CONFIGS, items: ITEMS,
+      extractionByRow: buildExtractionByRow([]),
+      admitCalculatorOnly: true,
+    });
+    const edits = {
+      items: [{
+        base: null, family: "Nitrile Rubber Insulation",
+        attrs: { pipe_size_mm: "19.05", thickness_mm: thickness, cladding: "No" } as Record<string, string>,
+      }],
+    };
+    const ctx: RateHelperRowContext & { unit?: string | null } = {
+      excelRow: 1, description: "x", nodeType: "Line Item", category: "hvac_insulation",
+      discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"], unit: "mts",
+    };
+    const r = h.compute(ctx, {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edits),
+      [ROW_UNIT_OVERRIDE_KEY]: "mts",
+    });
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList!;
+    return { r: r as ItemListSuggestion, v };
+  };
+
+  const blockSum = (v: ItemListView) => {
+    const out: Record<string, number> = {};
+    for (const b of v.items) for (const [k, n] of Object.entries(b.figures)) if (typeof n === "number") out[k] = (out[k] ?? 0) + n;
+    return out;
+  };
+
+  it("the row really IS composed -- one user block, more than one priced layer", () => {
+    const { v } = viewFor("32");
+    expect(v.rowPriced).toBe(true);
+    expect(v.items.length).toBe(1);                       // one block the pricer added
+  });
+
+  it("⚠️ THE DEFECT: the block sum is NOT the row total on a composed row", () => {
+    const { v } = viewFor("32");
+    const sum = blockSum(v);
+    const total = rowTotals(v);
+    expect(sum.supply_rate).not.toBe(total.supply_rate);  // 219 vs 474 -- the two readings differ
+    expect(total.supply_rate).toBeGreaterThan(sum.supply_rate!);
+  });
+
+  it("Row total equals the HEADLINE figures, which is what makes the screen consistent", () => {
+    const { r, v } = viewFor("32");
+    expect(rowTotals(v)).toEqual({
+      supply_rate: r.values!.supply_rate,
+      install_rate: r.values!.install_rate,
+      combined_rate: r.values!.combined_rate,
+    });
+    // the certified figures for this case (C1), to the rupee
+    expect(rowTotals(v)).toEqual({ supply_rate: 474, install_rate: 28, combined_rate: 502 });
+  });
+
+  it("NEGATIVE: on an UNCOMPOSED row the two agree -- which is why this went unseen", () => {
+    const { v } = viewFor("19");                           // a stocked size: one layer, one block
+    expect(blockSum(v).supply_rate).toBe(rowTotals(v).supply_rate);
+  });
+});

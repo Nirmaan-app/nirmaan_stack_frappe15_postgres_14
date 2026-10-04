@@ -1461,8 +1461,18 @@ export function sizeFieldHelp(
         + `${sizeText(c.tolerance ?? 0)}${unit}, fewest layers first: ${sizeText(target)} is priced as `
         + `${built.map(sizeText).join(" + ")} = ${sizeText(sum)}${unit}, shown as separate items.`,
       );
-      lines.push(`Layers written out (${built.map(sizeText).join("+")}) each price as their own item `
-                 + `at the same size, and nothing fits is not priced -- the reason is shown.`);
+      /**
+       * ⚠️ CERT-FOUND, 2026-10-04. This line used to read "Layers written out (19+13) each price as
+       * their own item at the same size" -- and the reader REFUSES "19+13" ("several values stated").
+       * The same false promise lived in the config note and was corrected there at v25; it SURVIVED
+       * HERE, in generated help, and only a runtime read of the screen found it. A note and the help
+       * beneath it are two sentences about one behaviour and must be changed together.
+       *
+       * The refusal is correct and stays: hand-written layers would bypass the C-R1 ordering
+       * (fewest layers, then closest, then cheapest) entirely. So the help says what to type.
+       */
+      lines.push(`Type one number -- layers written out (${built.map(sizeText).join("+")}) are not `
+                 + `accepted. Where nothing fits, the row is not priced and the reason is shown.`);
     } else {
       lines.push(`Larger than the largest stocked size (${sizeText(largest)}${unit}) is not priced, `
                  + `and the reason is shown.`);

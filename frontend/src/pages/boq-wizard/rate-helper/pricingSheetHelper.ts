@@ -1664,6 +1664,16 @@ function fmtNum(n: number | string): string {
 
 export interface ItemFieldView extends ItemFieldDef {
   value: string;
+  /**
+   * OWNER FA8(b), CERT-FOUND 2026-10-04: WHAT THE PRICER ACTUALLY TYPED, before any resolution.
+   *
+   * ⚠️ `value` is the RESOLVED size -- the ladder result, or blank where nothing fits (rule X3: the
+   * field shows the size that will be PRICED). That is right for the SELECT and fatal for the
+   * "Other..." BOX, which was bound to the same field: every keystroke was rewritten to the rung it
+   * resolved to, or erased, so a size could not be typed at all. The two readings are different
+   * questions -- "what will be priced" and "what did you enter" -- and they need different fields.
+   */
+  typedValue: string;
   /** The value came from a ruled default over a "None" / an absent-as-none answer (amber + "default"). */
   defaulted: boolean;
   /** The rule behind the default, shown under the field. */
@@ -1716,6 +1726,15 @@ export interface ItemListView {
   families: Array<{ family: string; units: string }>;
   editState: ItemListEditState;
   modelCount: number;
+  /**
+   * The ROW's own totals, as `priceItemList` returned them -- the same figures the headline shows.
+   *
+   * ⚠️ PRESENT ONLY ON A PRICED ROW, AND IT IS WHAT "Row total" MUST READ. Summing the item blocks
+   * is NOT the same number: a composition expands one user block into several priced layers, so the
+   * block sum reports the first layer alone (cert-found 2026-10-04 -- 219 shown where the row cost
+   * 474, beside a headline that already said 474).
+   */
+  totals?: Partial<Record<RateKind, number>>;
 }
 
 /** A suggestion that carries the item-list view (an extension read by the panel through this alias). */
@@ -1812,6 +1831,7 @@ function itemBlockView(
     return {
       ...f,
       value,
+      typedValue: stated,
       defaulted,
       ...(defaulted ? { rule: d!.rule } : {}),
       userEdited,
@@ -1892,6 +1912,9 @@ function computeItemList(
   const view: ItemListView = {
     unit, unitClass, unitPickable, unitChoices, rowPriced: priced.priced, ...(priced.reason ? { reason: priced.reason } : {}),
     items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
+    // the ROW's own totals -- the same figures the headline shows, so "Row total" can never disagree
+    // with it (see the warning on `rowTotals`)
+    ...(priced.priced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
   };
   const out: ItemListSuggestion = {
     kind: "suggestion",
@@ -1960,6 +1983,24 @@ export function itemsOnScreen(view: ItemListView): Array<{ family: string | null
  * shows per block, so the total can never be built from a fourth arithmetic. Only meaningful when the row
  * priced (S4); on a blank row the panel shows the reason instead. */
 export function rowTotals(view: ItemListView): Partial<Record<RateKind, number>> {
+  /**
+   * CERT-FOUND DEFECT (2026-10-04) -- THIS RETURNED A WRONG PRICE ON A COMPOSED ROW.
+   *
+   * It summed `view.items`, which are the USER's blocks. A composition expands ONE user block into
+   * several priced layers inside `priceItemList`, so after "32 mm -> 13 + 19" there is still one
+   * block, holding the FIRST layer only -- and the green "Row total" read 219 where the row costs
+   * 474. The headline, which reads the row's own `supply`/`install`, said 474 at the same time, so
+   * the screen contradicted itself and the smaller number was the one labelled "Row total".
+   *
+   * ⚠️ IT SURVIVED BECAUSE THE TWO AGREE ON EVERY UNCOMPOSED ROW -- blocks and priced items are then
+   * one-to-one, so the sum is right by coincidence of shape. Only a composition separates them, and
+   * only the screen showed it.
+   *
+   * The row's totals now come from the row (`view.totals`, set from the same `priced.supply` /
+   * `priced.install` the headline uses), so the two readings cannot diverge again. The block sum is
+   * kept ONLY for a view with no totals -- an unpriced row, which the panel does not render this for.
+   */
+  if (view.totals) return { ...view.totals };
   const out: Partial<Record<RateKind, number>> = {};
   for (const b of view.items) {
     for (const [k, v] of Object.entries(b.figures)) if (typeof v === "number") out[k] = (out[k] ?? 0) + v;

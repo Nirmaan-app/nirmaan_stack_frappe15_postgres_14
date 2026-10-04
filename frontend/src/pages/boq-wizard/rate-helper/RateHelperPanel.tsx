@@ -54,6 +54,28 @@ const PANEL_RESIZE_STEP = 16;
 const OTHER_VALUE = "\u0000other";
 const OTHER_LABEL = "Other\u2026";
 
+/**
+ * PURE. Is a `dropdown_or_other` field in "Other..." mode -- that is, is the pricer typing a size the
+ * catalogue does not stock?
+ *
+ * IT KEYS ON WHAT WAS TYPED, NEVER ON THE RESOLVED VALUE, and that is the whole fix (cert-found
+ * 2026-10-04). Keyed on `value`, a typed 16 resolves to the stocked 19, `options.includes("19")` is
+ * true, and the box the person is typing into DISAPPEARS mid-entry while the select jumps to a size
+ * they never chose. Keyed on `typedValue` the box stays, the select reads "Other...", and the note
+ * beneath says how it landed -- which is what C-R4 asks for.
+ *
+ * Nothing typed and nothing resolved -> the box opens, which is what picking "Other..." produces
+ * (it clears the field). An ordinary dropdown has no `allowOther` and is untouched.
+ */
+export function otherMode(
+  f: { allowOther?: boolean; value: string; typedValue: string; options?: string[] },
+): boolean {
+  if (!f.allowOther) return false;
+  const opts = f.options ?? [];
+  if (f.typedValue !== "") return !opts.includes(f.typedValue);
+  return f.value === "";
+}
+
 /** A selected choice longer than this gets a wrapped read-out under its <select>, because a native
  *  select truncates option text to one line and never wraps it.
  *
@@ -1154,7 +1176,7 @@ function ItemListBlocks({
                          * would find no matching option and fall back to the first selectable one
                          * (frontend/CLAUDE.md), silently showing a size nobody chose.
                          */
-                        value={f.allowOther && f.value !== "" && !f.options.includes(f.value) ? OTHER_VALUE : f.value}
+                        value={otherMode(f) ? OTHER_VALUE : f.value}
                         onChange={(e) =>
                           onEdit({ op: "set_attr", index: i, id: f.id,
                                    value: e.target.value === OTHER_VALUE ? "" : e.target.value })}
@@ -1168,10 +1190,16 @@ function ItemListBlocks({
                         ))}
                         {f.allowOther && <option value={OTHER_VALUE}>{OTHER_LABEL}</option>}
                       </select>
-                      {f.allowOther && (f.value === "" || !f.options.includes(f.value)) && (
+                      {f.allowOther && otherMode(f) && (
                         <Input
                           className={cn("h-7 w-20 text-xs", tone)}
-                          value={f.value}
+                          /**
+                           * BOUND TO `typedValue`, NOT `value`. `value` is the RESOLVED size, which the
+                           * helper rewrites on every render -- so binding the box to it replaced or erased
+                           * each character as it was typed, and a size could not be entered at all. The
+                           * resolution still shows: in the select beside it, and in the note beneath.
+                           */
+                          value={f.typedValue}
                           aria-label={`${f.label} -- the value the BoQ states`}
                           onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
                         />
