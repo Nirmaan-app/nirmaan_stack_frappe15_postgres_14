@@ -213,3 +213,52 @@ describe("CERT-FOUND -- a size can be TYPED into Other...", () => {
     expect(otherMode(F({ typedValue: "16", value: "19" }))).toBe(true);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * OWNER RULING 2026-10-04 -- THE PANEL SAYS WHICH RATE IT IS SHOWING
+ *
+ * "the calculator panel should clearly mention whether the final rates are BoQ or BCS rate. it
+ * should be BoQ rates."
+ *
+ * The screen gave a real reason to guess wrong: the working above each figure ends with
+ * "ROUNDUP(BCS supply, 0)" and "BCS cost x (1 + markup)", so the last words before the number are
+ * "BCS cost". The number is the BoQ rate -- what the CLIENT is charged.
+ *
+ * The label is written at the two CALL SITES, never inside `FiguresRow`, which is what keeps the
+ * non-item-list (Electrical) surface byte-identical -- the same opt-in rule the `unit` label
+ * follows. Both headings read ONE constant so they cannot drift.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("the panel names the rate it shows -- BoQ, not BCS", () => {
+  const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
+
+  it("there is ONE label constant, and it says BoQ", () => {
+    expect(src).toContain('const BOQ_RATE_LABEL = "BoQ rates";');
+    expect((src.match(/const BOQ_RATE_LABEL/g) ?? []).length).toBe(1);
+  });
+
+  it("BOTH figure surfaces carry it -- the row total and each priced item", () => {
+    expect(src).toContain("Row total per 1 {view.unit} &middot; {BOQ_RATE_LABEL}");
+    // the per-item label sits immediately above that block's FiguresRow
+    const i = src.indexOf("{BOQ_RATE_LABEL}");
+    const j = src.indexOf("<FiguresRow figures={b.figures}");
+    expect(i).toBeGreaterThan(-1);
+    expect(j).toBeGreaterThan(i);
+  });
+
+  it("⚠️ it is NOT a property of FiguresRow -- that would change Electrical's panel", () => {
+    // the same boundary the sibling unit-label test uses, so both read the identical span
+    const start = src.indexOf("function FiguresRow");
+    const fn = src.slice(start, src.indexOf("interface RateHelperPanelProps"));
+    expect(fn).toContain("function FiguresRow");
+    expect(fn).not.toContain("BOQ_RATE_LABEL");
+    // ⚠️ NOT a bare /BoQ/ match: FiguresRow's own doc comment says "as the BoQ writes it" about the
+    // UNIT, which is correct and unrelated. What must be absent is the rate LABEL it would render.
+    expect(fn).not.toContain("BoQ rates");
+  });
+
+  it("NEGATIVE: the panel never labels these figures as a BCS rate", () => {
+    // BCS appears in the WORKING the pricer emits, never as a heading over the final figures
+    expect(src).not.toMatch(/BCS rates?"/);
+    expect(src).not.toContain('const BCS_RATE_LABEL');
+  });
+});

@@ -1753,6 +1753,9 @@ function itemBlockView(
   res: ItemPriceResult,
   unitClass: string | null,
   items: RateMasterItem[] = [],
+  /** Every priced layer of THIS block, in order. One for an ordinary item; several after a
+   *  composition. `res` stays the FIRST, so field display and refusal text are unchanged. */
+  layers: ItemPriceResult[] = [res],
 ): ItemBlockView {
   const family = res.family ?? (typeof assembled.attributes.family?.value === "string" ? assembled.attributes.family.value : null);
   // SLICE 6b (V1, X2): the block's answers as they reached the matcher (defaults applied, ladders fitted) narrow
@@ -1841,11 +1844,26 @@ function itemBlockView(
       blank: value === "" && needed,
     };
   });
+  /**
+   * CERT-FOUND 2026-10-04 (owner: "the row total line does not match ... in the calculation block,
+   * which is confusing"). A COMPOSED row buys several LAYERS for one user block, so this block's
+   * figures are the SUM OF ITS OWN LAYERS -- not the first layer's. Before this the block read
+   * 219 / 14 / 233 while the row total read 474 / 28 / 502, two numbers on one screen that could not
+   * be reconciled, and the smaller one sat under the item the pricer had filled in.
+   *
+   * `layers` is this block's priced items, in order; for everything uncomposed it is exactly one, so
+   * every other category is byte-identical.
+   */
   const figures: Partial<Record<RateKind, number>> = {};
   if (res.state === "priced") {
-    if (typeof res.figures.supply === "number") figures.supply_rate = res.figures.supply;
-    if (typeof res.figures.install === "number") figures.install_rate = res.figures.install;
-    if (typeof figures.supply_rate === "number" && typeof figures.install_rate === "number") figures.combined_rate = figures.supply_rate + figures.install_rate;
+    let supply = 0, install = 0, anySupply = false, anyInstall = false;
+    for (const l of layers) {
+      if (typeof l.figures.supply === "number") { supply += l.figures.supply; anySupply = true; }
+      if (typeof l.figures.install === "number") { install += l.figures.install; anyInstall = true; }
+    }
+    if (anySupply) figures.supply_rate = supply;
+    if (anyInstall) figures.install_rate = install;
+    if (anySupply && anyInstall) figures.combined_rate = supply + install;
   }
   return {
     index: res.index,
@@ -1859,9 +1877,36 @@ function itemBlockView(
     state: res.state,
     ...(res.reason ? { reason: res.reason } : {}),
     ...(res.sku ? { skuLine: `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
-    working: res.working,
+    working: layersWorking(layers, res),
     figures,
   };
+}
+
+/**
+ * The working a block shows. One layer -> exactly what it always was. SEVERAL layers -> the
+ * composition line first (it belongs to the whole block), then each layer's own derivation under a
+ * heading naming the layer and its figures, so the block's total can be ADDED UP ON SCREEN.
+ *
+ * ⚠️ Without this the block showed the first layer's derivation under the first layer's figure, and a
+ * pricer had no way to see where the rest of the money went -- or which layer carried the cladding.
+ */
+function layersWorking(layers: ItemPriceResult[], res: ItemPriceResult): string[] {
+  if (layers.length <= 1) return res.working;
+  const out: string[] = [];
+  // the composition line was unshifted onto the FIRST layer and speaks for the block
+  const head = layers[0].working[0] ?? "";
+  const isComposeLine = /->/.test(head) && /priced as/.test(head);
+  if (isComposeLine) out.push(head);
+  layers.forEach((l, i) => {
+    const size = Object.entries(l.selection).map(([, v]) => v).length ? "" : "";
+    const sup = typeof l.figures.supply === "number" ? l.figures.supply : null;
+    const ins = typeof l.figures.install === "number" ? l.figures.install : null;
+    const money = sup !== null && ins !== null ? ` -- supply ${sup}, install ${ins}` : "";
+    out.push(`Layer ${i + 1} of ${layers.length}${size}${money}`);
+    const body = i === 0 && isComposeLine ? l.working.slice(1) : l.working;
+    for (const w of body) out.push(`   ${w}`);
+  });
+  return out;
 }
 
 /**
@@ -1887,12 +1932,26 @@ function computeItemList(
   const priced = priceItemList(spec, items, unit, assembled);
   const defs = listSpecDefs(category);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
+  /**
+   * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so
+   * `priced.items` and `edits.items` stop being one-to-one and `priced.items[i]` is no longer this
+   * block's item -- it is the first layer of whichever block the index happens to land in. Group by
+   * the `sourceIndex` the pricer stamps; `?? index` keeps the old positional reading for any result
+   * that predates the stamp, which is exactly the uncomposed one-to-one case.
+   */
+  const layersBySource = new Map<number, ItemPriceResult[]>();
+  priced.items.forEach((p, idx) => {
+    const src = typeof p.sourceIndex === "number" ? p.sourceIndex : idx;
+    const list = layersBySource.get(src);
+    if (list) list.push(p); else layersBySource.set(src, [p]);
+  });
   const blocks = edits.items.map((e, i) => {
-    const res: ItemPriceResult = priced.items[i] ?? {
+    const mine = layersBySource.get(i) ?? [];
+    const res: ItemPriceResult = mine[0] ?? {
       index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
       selection: {}, defaulted: [], ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
     };
-    return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items);
+    return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items, mine.length ? mine : [res]);
   });
   const values: Record<string, number> = {};
   if (priced.priced) {

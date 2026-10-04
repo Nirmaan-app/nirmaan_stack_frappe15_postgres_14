@@ -305,6 +305,9 @@ export interface ItemPriceResult {
   state: "priced" | "blank";
   reason?: string;
   /** What reached the interpreter, after defaults, parsing and ladder fits. */
+  /** The index of the USER block this priced item came from. A composition yields several items
+   *  sharing one `sourceIndex`; everything else is one-to-one. */
+  sourceIndex?: number;
   selection: Record<string, string | number>;
   defaulted: DefaultedAttr[];
   ladderHops: LadderHop[];
@@ -1121,7 +1124,10 @@ export function priceItemList(
     const expanded: ItemPriceResult[] = [];
     priced.forEach((p, i) => {
       const c = p.composeInto;
-      if (!c) { expanded.push({ ...p, index: expanded.length }); return; }
+      // SLICE 12c (cert-found 2026-10-04): which USER block each priced layer came from. A composition
+      // turns ONE block into several layers, so without this the panel can only find the FIRST and shows
+      // one layer's figures beside a row total that counts them all.
+      if (!c) { expanded.push({ ...p, index: expanded.length, sourceIndex: i }); return; }
       const oo = spec.compose?.outer_only;
       const src = extracted[i];
       // INNERMOST first, so the LAST item is the outer one -- which is the layer that keeps the cladding.
@@ -1144,7 +1150,7 @@ export function priceItemList(
             ` (${fmt(total)}${u}, ${sign}${fmt(c.delta)}) -- above the largest stocked size (${fmt(c.top)}${u})`,
           );
         }
-        expanded.push(one);
+        expanded.push({ ...one, sourceIndex: i });
       });
     });
     priced = expanded;

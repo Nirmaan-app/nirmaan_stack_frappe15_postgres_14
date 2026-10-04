@@ -5769,12 +5769,41 @@ describe("CERT-FOUND -- the Row total of a COMPOSED row is the ROW's, not the fi
     expect(v.items.length).toBe(1);                       // one block the pricer added
   });
 
-  it("⚠️ THE DEFECT: the block sum is NOT the row total on a composed row", () => {
+  /**
+   * INVERTED the same day, under mechanical authority, NOT deleted. Written when only `rowTotals` was
+   * fixed, it asserted the two readings DIFFER -- which was true of that intermediate state and is
+   * precisely what the owner then objected to on the screen: "the row total line does not match with
+   * the individual supply, install and combined rates in the calculation block, which is confusing."
+   *
+   * The block now sums ITS OWN LAYERS, so the two agree. The claim the test exists for is unchanged
+   * and is kept as its negative half: the block must never again show ONE LAYER of a composed row.
+   */
+  it("the block and the row total AGREE on a composed row -- and neither is one layer", () => {
     const { v } = viewFor("32");
     const sum = blockSum(v);
     const total = rowTotals(v);
-    expect(sum.supply_rate).not.toBe(total.supply_rate);  // 219 vs 474 -- the two readings differ
-    expect(total.supply_rate).toBeGreaterThan(sum.supply_rate!);
+    expect(sum.supply_rate).toBe(total.supply_rate);
+    expect(sum.install_rate).toBe(total.install_rate);
+    // NEGATIVE: the retired reading -- the FIRST layer alone -- must not be what either one shows
+    const firstLayerSupply = 219;
+    expect(sum.supply_rate).not.toBe(firstLayerSupply);
+    expect(total.supply_rate).not.toBe(firstLayerSupply);
+    expect(sum.supply_rate).toBe(474);
+  });
+
+  it("the block's WORKING shows every layer, so its figure can be added up on screen", () => {
+    const { v } = viewFor("32");
+    const w = v.items[0].working;
+    expect(w.some((l) => /^Layer 1 of 2/.test(l))).toBe(true);
+    expect(w.some((l) => /^Layer 2 of 2/.test(l))).toBe(true);
+    // each heading carries that layer's own money, and the two add to the block's figure
+    const money = w.filter((l) => /^Layer \d of \d/.test(l)).map((l) => Number((l.match(/supply (\d+)/) ?? [])[1]));
+    expect(money.filter((n) => Number.isFinite(n)).reduce((a, b) => a + b, 0)).toBe(474);
+  });
+
+  it("NEGATIVE: an UNCOMPOSED block's working is untouched -- no layer headings at all", () => {
+    const { v } = viewFor("19");
+    expect(v.items[0].working.some((l) => /^Layer \d of \d/.test(l))).toBe(false);
   });
 
   it("Row total equals the HEADLINE figures, which is what makes the screen consistent", () => {

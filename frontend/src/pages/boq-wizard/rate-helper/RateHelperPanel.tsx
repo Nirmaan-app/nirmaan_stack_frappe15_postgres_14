@@ -55,6 +55,23 @@ const OTHER_VALUE = "\u0000other";
 const OTHER_LABEL = "Other\u2026";
 
 /**
+ * OWNER RULING 2026-10-04: "the calculator panel should clearly mention whether the final rates are
+ * BoQ or BCS rate. it should be BoQ rates."
+ *
+ * THIS IS NOT DECORATION -- THE SCREEN GIVES A PRICER A REAL REASON TO GUESS WRONG. The working
+ * above each figure ends with "ROUNDUP(BCS supply, 0) = 156" and then "BCS cost x (1 + markup)", so
+ * the last words a reader sees before the number are "BCS cost". The figure is the BoQ rate -- what
+ * the CLIENT is charged -- and the BCS line is an intermediate step on the way to it. Reading a BoQ
+ * rate as a cost is the same confusion the BCS export-leak boundary exists to prevent, made by a
+ * person rather than by a file.
+ *
+ * ONE constant drives both headings, so they cannot drift apart. It is written at the CALL SITES,
+ * never inside `FiguresRow` -- the same opt-in rule the `unit` label follows, which is what keeps
+ * the non-item-list (Electrical) surface byte-identical.
+ */
+const BOQ_RATE_LABEL = "BoQ rates";
+
+/**
  * PURE. Is a `dropdown_or_other` field in "Other..." mode -- that is, is the pricer typing a size the
  * catalogue does not stock?
  *
@@ -1272,6 +1289,9 @@ function ItemListBlocks({
               {b.working.map((line, li) => (
                 <div key={li}>{line}</div>
               ))}
+              <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
+                {BOQ_RATE_LABEL}
+              </div>
               <FiguresRow figures={b.figures} unit={view.unit} />
             </div>
           ) : (
@@ -1299,7 +1319,9 @@ function ItemListBlocks({
         )}
         data-testid="item-row-total"
       >
-        <div className="text-xs font-semibold">Row total per 1 {view.unit}</div>
+        <div className="text-xs font-semibold">
+          Row total per 1 {view.unit} &middot; {BOQ_RATE_LABEL}
+        </div>
         {view.rowPriced ? (
           <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />
         ) : (
