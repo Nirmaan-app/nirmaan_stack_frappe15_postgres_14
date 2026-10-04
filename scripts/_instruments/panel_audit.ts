@@ -1,5 +1,5 @@
 /** The CALCULATOR REVIEW TABLE (owner item 7): every field on screen, its three properties, its note. */
-import HVAC from "../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v24.json";
+import HVAC from "../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 import ELEC from "../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
 import { auditPanelFields } from "../../frontend/src/pages/boq-wizard/rate-helper/panelFieldAudit";
 

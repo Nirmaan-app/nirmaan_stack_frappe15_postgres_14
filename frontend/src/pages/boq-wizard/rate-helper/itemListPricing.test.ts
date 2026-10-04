@@ -18,7 +18,7 @@ import {
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
-import HVAC_V24 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v24.json";
+import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
@@ -1925,10 +1925,10 @@ const CALCULATOR_SRC = readFileSync(
 
 describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V24 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs18 = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V24 as unknown as { items: RateMasterItem[] }).items;
+  const items18 = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
@@ -2013,7 +2013,7 @@ describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CAL
  * NOT stock -- a plain dropdown would remove the only way to say what the document says.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => {
-  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V25 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item");
   const NR = "Nitrile Rubber Insulation";
@@ -2167,7 +2167,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
  * one pipe size, because the narrowing skipped every other LADDER attribute.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapest", () => {
-  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V25 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const spec = itemListPricingSpec(insCfg as never)!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
@@ -2281,7 +2281,7 @@ describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapes
  * priced silently as a 9.52 mm pipe -- a plausible wrong size with nothing on screen to catch it.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8(d) -- inches, decimals and the next size up", () => {
-  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V25 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const spec = itemListPricingSpec(insCfg as never)!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
@@ -2369,7 +2369,7 @@ describe("SLICE 12c FINISH / FA8(d) -- inches, decimals and the next size up", (
  * and says something); this measures the rule against the product.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("OWNER final form -- a note on every typed, rendered, mandatory field", () => {
-  const asset = HVAC_V24 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V25 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const cfgOf = (id: string) => asset.category_configs.find((c) => c.category_id === id)!;
   const itemsOf = (id: string) => {
     const kind = ((cfgOf(id) as never as { list_spec?: { pricing?: { kind?: string } } }).list_spec?.pricing?.kind) ?? "";
@@ -2458,5 +2458,69 @@ describe("OWNER final form -- a note on every typed, rendered, mandatory field",
       const code = src.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
       expect(code, banned).not.toContain(banned);
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * CERT-FOUND DEFECT (2026-10-04, v25) -- A NOTE MUST NOT PROMISE WHAT THE READER REFUSES
+ *
+ * The shipped thickness note read "Two layers may be written out." -- and the reader REFUSES
+ * "13+13" ("several values stated for thickness"). Nothing was broken in the pricing; the SENTENCE
+ * was wrong, which is the harder kind to notice: it reads as a documented capability, and a pricer
+ * who believes it gets a refusal they cannot explain.
+ *
+ * ⚠️ THE REFUSAL IS THE CORRECT BEHAVIOUR AND MUST STAY. Accepting written-out layers would let a
+ * pricer hand-pick the layers and so bypass C-R1 entirely -- the ordering (fewest layers, then
+ * closest, then cheapest) the owner spent three rulings pinning. The composition is the system's
+ * job; the pricer states the thickness. So the NOTE was corrected, not the reader.
+ *
+ * Pinned BOTH WAYS: the refusal still fires, and the shipped note no longer claims otherwise.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("v25 -- the thickness note says only what the reader will accept", () => {
+  const asset = HVAC_V25 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const spec = itemListPricingSpec(insCfg as never)!;
+  const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
+  const notes = ((insCfg as never as { list_spec: { pricing: { panel_notes: Record<string, string> } } })
+    .list_spec.pricing.panel_notes);
+
+  const price = (thickness: string) => priceItemList(spec, items, "mts", [{
+    attributes: Object.fromEntries(Object.entries({
+      item: "Nitrile Rubber Insulation", pipe_size_mm: "19.05", thickness_mm: thickness, cladding: "No",
+    }).map(([k, v]) => [k, { value: v }])),
+  }] as never);
+
+  it("THE REFUSAL STANDS: written-out layers are not an entry the reader accepts", () => {
+    for (const written of ["13+13", "13 + 13", "13x2"]) {
+      const r = price(written);
+      expect(r.priced, written).toBe(false);
+      expect(r.reason ?? "", written).toMatch(/thickness/);
+    }
+  });
+
+  it("and a SINGLE number composes, which is what the note now describes", () => {
+    const r = price("26");
+    expect(r.priced).toBe(true);
+    expect((r.items ?? []).map((x) => Number((x as { selection?: Record<string, unknown> }).selection?.thickness_mm)))
+      .toEqual([13, 13]);
+  });
+
+  it("⚠️ the shipped note no longer claims layers may be written out", () => {
+    expect(notes.thickness_mm).not.toMatch(/written out/i);
+    // and it still says the two things a pricer needs: one number, and that layers happen for them
+    expect(notes.thickness_mm).toMatch(/single number/i);
+    expect(notes.thickness_mm).toMatch(/layers/i);
+  });
+
+  it("the pipe note's inch claim is BACKED by the shipped reader (the other half of the same audit)", () => {
+    expect(notes.pipe_size_mm).toMatch(/inches/i);
+    expect(spec.numbers.pipe_size_mm.inches).toBe(true);
+    const r = priceItemList(spec, items, "mts", [{
+      attributes: Object.fromEntries(Object.entries({
+        item: "Nitrile Rubber Insulation", pipe_size_mm: "3/4\"", thickness_mm: "19", cladding: "No",
+      }).map(([k, v]) => [k, { value: v }])),
+    }] as never);
+    expect(r.priced).toBe(true);
+    expect((r.items?.[0] as { selection?: Record<string, unknown> })?.selection?.pipe_size_mm).toBe(19.05);
   });
 });
