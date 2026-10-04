@@ -2305,9 +2305,26 @@ class TestItemListSlice4(FrappeTestCase):
             "family_attribute_id": "family", "qty_attribute_id": "n"}}
         self.assertEqual(extraction.build_items_spec(with_qty)["qty_attribute_id"], "n")
         self.assertIs(extraction.build_items_spec(with_qty)["second_opinion"], False)
-        # NEGATIVE: every other mode yields None
+        # INVERTED 2026-10-04 under MECHANICAL AUTHORITY (owner "ok"), NOT deleted. This half used to assert
+        # that ADP was the ONLY category building an items_spec at all. Slice 12c's Q2 ruling made Insulation an
+        # item-list category too (commit 7922020e5, HVAC v16), so that sentence is no longer the product's --
+        # but WHAT IT WAS PROTECTING is, and it is kept and sharpened here: the thing that must stay true is not
+        # "only ADP has a spec", it is "only ADP REACHES EXTRACTION". Insulation has a spec and is still
+        # excluded, by calculator_only plus empty pipelines. Stating it this way means the day Insulation
+        # becomes eligible (slice 12d), this test fails loudly -- which is exactly when someone should look.
+        ins = self.cfgs[("HVAC", "hvac_insulation")]
+        self.assertIsNotNone(extraction.build_items_spec(ins))            # it HAS a spec ...
+        self.assertIs(ins.get("calculator_only"), True)                   # ... because it is calculator-only ...
+        self.assertEqual(ins.get("pipelines"), {})                        # ... with no pipelines of its own ...
+        self.assertFalse(extraction.config_is_eligible(ins, self.cfgs))   # ... so it NEVER reaches extraction.
+        # ADP is the only ELIGIBLE item-list category -- the claim that replaces the retired one
+        eligible = sorted(cat for (disc, cat) in self.cfgs
+                          if extraction.build_items_spec(self.cfgs[(disc, cat)]) is not None
+                          and extraction.config_is_eligible(self.cfgs[(disc, cat)], self.cfgs))
+        self.assertEqual(eligible, ["hvac_adp"])
+        # NEGATIVE HALF KEPT: every category that is neither of those two still yields None
         for key in self.cfgs:
-            if key != ("HVAC", "hvac_adp"):
+            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation")):
                 self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
         self.assertIsNone(extraction.build_items_spec({"matching_mode": "item_list"}))   # mode without a spec
 
