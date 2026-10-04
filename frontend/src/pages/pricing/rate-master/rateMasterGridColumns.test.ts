@@ -23,6 +23,7 @@ import { join } from "node:path";
 import ELECTRICAL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 import { columnOrderForFile } from "./rateMasterSpec";
+import CAT_KINDS from "../../../../../scripts/_instruments/cat_kinds.json";
 import {
   gridColumnKeys, gridColumnsSharedWithFile, attrColKey, rateColKey,
   COL_UNIT, COL_BRAND, COL_ACTIONS, COL_KIND, COL_SPEC, COL_PI_NAME,
@@ -37,10 +38,19 @@ const ASSETS: Array<[string, Asset]> = [
 ];
 
 /** The categories a discipline's asset really holds items for, with those items. */
-function categoriesWithItems(asset: Asset): Array<{ id: string; config: AnyRec; items: Array<AnyRec> }> {
+function categoriesWithItems(asset: Asset, disc: string): Array<{ id: string; config: AnyRec; items: Array<AnyRec> }> {
   const out: Array<{ id: string; config: AnyRec; items: Array<AnyRec> }> = [];
   for (const cfg of asset.category_configs) {
-    const kinds = new Set<string>((cfg.item_kinds as string[] | undefined) ?? []);
+    /**
+     * ⚠️ THE KINDS COME FROM THE EXPORTER, NOT FROM `item_kinds` -- and getting this wrong made an
+     * EARLIER VERSION OF THIS FILE VACUOUS WHERE IT MATTERED MOST. Two Electrical categories
+     * (`wiring_cabling`, `point_wiring`) declare NO `item_kinds` in the asset, yet `wiring_cabling`
+     * holds 588 rows, and it is the grid whose misalignment was actually seen in the browser. The
+     * count assertions still passed while that category was being skipped, which is exactly the way
+     * a sweep lies. The authoritative mapping is `csv_exporter._load`, exported to `cat_kinds.json`.
+     */
+    const entry = (CAT_KINDS as Record<string, { kinds: string[] }>)[`${disc}/${cfg.category_id}`];
+    const kinds = new Set<string>(entry?.kinds ?? []);
     const items = asset.items.filter((i) => kinds.has(String(i.kind ?? "")));
     if (items.length) out.push({ id: cfg.category_id, config: cfg, items });
   }
@@ -75,7 +85,7 @@ function inputsFor(cfg: AnyRec, items: Array<AnyRec>, mode: "normal" | "editing"
 
 describe("the grid's columns are the file's columns, in the file's order", () => {
   for (const [disc, asset] of ASSETS) {
-    const cats = categoriesWithItems(asset);
+    const cats = categoriesWithItems(asset, disc);
 
     it(`${disc}: the sweep reaches real categories (never vacuous)`, () => {
       expect(cats.length).toBeGreaterThan(0);
@@ -123,8 +133,8 @@ describe("every render mode, every category: one list, correct shape", () => {
   for (const mode of MODES) {
     it(`${mode}: every category produces a list with no duplicate column and one unit`, () => {
       let checked = 0;
-      for (const [, asset] of ASSETS) {
-        for (const c of categoriesWithItems(asset)) {
+      for (const [disc, asset] of ASSETS) {
+        for (const c of categoriesWithItems(asset, disc)) {
           const keys = gridColumnKeys(inputsFor(c.config, c.items, mode));
           expect(new Set(keys).size, `${c.id}: duplicate column key`).toBe(keys.length);
           expect(keys.filter((k) => k === COL_UNIT).length, `${c.id}: unit must appear exactly once`).toBe(1);
@@ -132,27 +142,27 @@ describe("every render mode, every category: one list, correct shape", () => {
         }
       }
       // COUNT ASSERTED: the mode's sweep must have reached every category of both disciplines
-      expect(checked).toBeGreaterThanOrEqual(14);
+      expect(checked).toBeGreaterThanOrEqual(15);
     });
   }
 
   it("normal: `unit` sits immediately after `brand` -- the rule 8fa8d3262 set out to apply", () => {
     let checked = 0;
-    for (const [, asset] of ASSETS) {
-      for (const c of categoriesWithItems(asset)) {
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
         if (isPricingInputs(c.id)) continue;
         const keys = gridColumnKeys(inputsFor(c.config, c.items, "normal"));
         expect(keys[keys.indexOf(COL_BRAND) + 1], `${c.id}`).toBe(COL_UNIT);
         checked++;
       }
     }
-    expect(checked).toBeGreaterThanOrEqual(12);
+    expect(checked).toBeGreaterThanOrEqual(13);
   });
 
   it("pricingInputs: `unit` sits AFTER the rate columns, where that page has always put it", () => {
     let checked = 0;
-    for (const [, asset] of ASSETS) {
-      for (const c of categoriesWithItems(asset)) {
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
         const inp = inputsFor(c.config, c.items, "pricingInputs");
         if (!inp.rateCols.length) continue;
         const keys = gridColumnKeys(inp);
@@ -162,13 +172,13 @@ describe("every render mode, every category: one list, correct shape", () => {
         checked++;
       }
     }
-    expect(checked).toBeGreaterThanOrEqual(14);
+    expect(checked).toBeGreaterThanOrEqual(15);
   });
 
   it("editing adds the actions column FIRST and changes nothing else", () => {
     let checked = 0;
-    for (const [, asset] of ASSETS) {
-      for (const c of categoriesWithItems(asset)) {
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
         const plain = gridColumnKeys(inputsFor(c.config, c.items, "normal"));
         const edit = gridColumnKeys(inputsFor(c.config, c.items, "editing"));
         expect(edit[0]).toBe(COL_ACTIONS);
@@ -176,7 +186,7 @@ describe("every render mode, every category: one list, correct shape", () => {
         checked++;
       }
     }
-    expect(checked).toBeGreaterThanOrEqual(14);
+    expect(checked).toBeGreaterThanOrEqual(15);
   });
 });
 
@@ -191,8 +201,8 @@ describe("VACUITY -- reintroduce the one-sided move and each mode goes red", () 
 
   it("normal: the retired order puts `unit` somewhere else -- so the pin can fail", () => {
     let differed = 0;
-    for (const [, asset] of ASSETS) {
-      for (const c of categoriesWithItems(asset)) {
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
         if (isPricingInputs(c.id)) continue;
         const inp = inputsFor(c.config, c.items, "normal");
         if (!inp.rateCols.length) continue;
@@ -204,26 +214,26 @@ describe("VACUITY -- reintroduce the one-sided move and each mode goes red", () 
       }
     }
     // the vacuity check must itself reach rows, or it proves nothing
-    expect(differed).toBeGreaterThanOrEqual(10);
+    expect(differed).toBeGreaterThanOrEqual(12);
   });
 
   it("pricingInputs: the retired order is INDISTINGUISHABLE -- which is why PI never broke", () => {
     let same = 0;
-    for (const [, asset] of ASSETS) {
-      for (const c of categoriesWithItems(asset)) {
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
         const inp = inputsFor(c.config, c.items, "pricingInputs");
         if (!inp.rateCols.length) continue;
         expect(retiredBodyOrder(inp)).toEqual(gridColumnKeys(inp));
         same++;
       }
     }
-    expect(same).toBeGreaterThanOrEqual(14);
+    expect(same).toBeGreaterThanOrEqual(15);
   });
 
   it("editing: the retired order breaks there too", () => {
     let differed = 0;
-    for (const [, asset] of ASSETS) {
-      for (const c of categoriesWithItems(asset)) {
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
         if (isPricingInputs(c.id)) continue;
         const inp = inputsFor(c.config, c.items, "editing");
         if (!inp.rateCols.length) continue;
@@ -231,7 +241,7 @@ describe("VACUITY -- reintroduce the one-sided move and each mode goes red", () 
         differed++;
       }
     }
-    expect(differed).toBeGreaterThanOrEqual(10);
+    expect(differed).toBeGreaterThanOrEqual(12);
   });
 });
 
