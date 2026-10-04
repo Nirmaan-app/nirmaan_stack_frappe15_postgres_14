@@ -12,6 +12,9 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import {
+  gridColumnKeys, COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL,
+} from "./rateMasterGridColumns";
 import { join } from "node:path";
 import { coerceAttributeForStorage } from "./RateMasterDataViewer";
 import type { AttributeDefinition } from "./rateMasterTypes";
@@ -82,10 +85,27 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     expect(src).toContain("piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]");
   });
 
+  // ⚠️ INVERTED 2026-10-05 under mechanical authority, NOT deleted. It pinned the ABSENCE of the SKU
+  // columns in Pricing Inputs by grepping for the `{!piMode && ...}` JSX that placed them. Those
+  // inline placements are gone: the header, the formula row and the body now all map ONE shared
+  // column list (`rateMasterGridColumns.gridColumnKeys`), because keeping the order in three places
+  // is what let the `unit` column drift out of step with its heading on every non-PI grid.
+  // The CLAIM is unchanged and is now asserted against the list itself -- behaviour, not source text.
   it("ACCEPTANCE 4: the SKU columns are ABSENT for a Pricing Input", () => {
+    const base = { canEdit: false, showKindCol: false, specMode: false, showImpactCol: false,
+                   textCols: [], attrCols: [{ id: "a" }], rateCols: ["r1"] };
+    const pi = gridColumnKeys({ ...base, piMode: true });
     // source sheet / row and the two formula columns are what "nothing borrowed from a SKU file" means
-    expect(src).toContain("{!piMode && <TableCell>{r.it.source_sheet}</TableCell>}");
-    expect(src).toContain("{!piMode && FORMULA_COLUMNS.map(");
+    for (const k of [COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL]) {
+      expect(pi).not.toContain(k);
+    }
+    // NEGATIVE HALF KEPT: a SKU grid still carries all four
+    const sku = gridColumnKeys({ ...base, piMode: false });
+    for (const k of [COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL]) {
+      expect(sku).toContain(k);
+    }
+    // and the retired inline placements must not come back
+    expect(src).not.toContain("{!piMode && <TableCell>{r.it.source_sheet}</TableCell>}");
   });
 
   // ⚠️ INVERTED at slice 12b(B), not deleted. This pin used to assert that `remarks` was its OWN
@@ -100,7 +120,8 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     // the remark is NO LONGER a column of its own ...
     expect(src).not.toContain('hdr("pi:remarks"');
     // ... and it is rendered inside the name cell instead
-    const nameCell = src.slice(src.indexOf('<TableCell className="font-medium align-top">'));
+    // the cell now carries its column key, so the slice starts at the keyed open tag
+    const nameCell = src.slice(src.indexOf('<TableCell key={COL_PI_NAME} className="font-medium align-top">'));
     const upToClose = nameCell.slice(0, nameCell.indexOf("</TableCell>"));
     expect(upToClose).toContain("r.it.attributes?.name");
     expect(upToClose).toContain("r.it.attributes?.remarks");
