@@ -18,7 +18,7 @@ import {
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
-import HVAC_V20 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v20.json";
+import HVAC_V21 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v21.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
@@ -1920,10 +1920,10 @@ const CALCULATOR_SRC = readFileSync(
 
 describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V20 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs18 = (HVAC_V21 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V20 as unknown as { items: RateMasterItem[] }).items;
+  const items18 = (HVAC_V21 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
@@ -2008,7 +2008,7 @@ describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CAL
  * NOT stock -- a plain dropdown would remove the only way to say what the document says.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => {
-  const asset = HVAC_V20 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V21 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item");
   const NR = "Nitrile Rubber Insulation";
@@ -2145,5 +2145,122 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
     // falls back to the first selectable option and shows a size nobody chose (frontend/CLAUDE.md)
     expect(src).toContain("!f.options.includes(f.value) ? OTHER_VALUE : f.value");
     expect(src).toContain("f.typedNote");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH -- THE COMPOSITION RULINGS (owner C-R1 / C-R2 / C-R3, 2026-10-04)
+ *
+ * C-R1 "within +-2 mm -> fewest layers -> CLOSEST to the stated thickness -> if still tied, LOWEST
+ *      insulation material cost (cost_insulation of the layers summed)". Closeness before cost.
+ * C-R2 "if iyt can be composed using the same pipe size sku, then we can do it. but we cannot
+ *      combine 2 diffrent sized pipe SKus."
+ * C-R3 a PUF thickness below the pipe's stocked one takes the next size up.
+ *
+ * All three were VIOLATED before this change, and all three are one root cause: the ladder -- and so
+ * the composition built from its rungs -- was drawn from the whole family instead of from the rows of
+ * one pipe size, because the narrowing skipped every other LADDER attribute.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapest", () => {
+  const asset = HVAC_V21 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const spec = itemListPricingSpec(insCfg as never)!;
+  const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
+  const NR = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation";
+
+  const price = (family: string, attrs: Record<string, string>, unit = "mts") =>
+    priceItemList(spec, items, unit, [{
+      attributes: Object.fromEntries(Object.entries({ item: family, ...attrs }).map(([k, v]) => [k, { value: v }])),
+    }] as never);
+  const layersOf = (r: ReturnType<typeof priceItemList>) =>
+    (r.items ?? []).map((x) => Number((x as { selection?: Record<string, unknown> }).selection?.thickness_mm)).sort((a, b) => a - b);
+
+  it("the SHIPPED config resolves the PIPE SIZE first and names the cost key", () => {
+    // ⚠️ THE ORDER IS THE MECHANISM. The axis that selects the SKU set must resolve first, or the
+    // thickness rungs come from every pipe size at once -- which is what produced all three defects.
+    expect(spec.ladders).toEqual(["pipe_size_mm", "thickness_mm"]);
+    expect(spec.compose?.cost_key).toBe("cost_insulation");
+  });
+
+  it("C5: 38 at pipe 19.05 takes 13 + 25 (283), not 19 + 19 (286) -- the cost tie-break", () => {
+    const r = price(NR, { pipe_size_mm: "19.05", thickness_mm: "38", cladding: "No" });
+    expect(r.priced).toBe(true);
+    expect(layersOf(r)).toEqual([13, 25]);
+    // and the two candidates really are a tie on everything before cost
+    const cost = (t: number) => Number((items.find((i) => {
+      const a = i.attributes as Record<string, unknown>;
+      return a.item === NR && Number(a.pipe_size_mm) === 19.05 && Number(a.thickness_mm) === t && a.cladding === "No";
+    })?.rates ?? {}).cost_insulation);
+    expect(cost(13) + cost(25)).toBe(283);
+    expect(cost(19) + cost(19)).toBe(286);
+  });
+
+  it("CLOSENESS BEATS COST: Thermal Nitrile 30 takes 16 + 13 (29), whatever the costs are", () => {
+    const r = price("Thermal Nitrile Insulation", { thickness_mm: "30", cladding: "No" }, "sqm");
+    expect(r.priced).toBe(true);
+    expect(layersOf(r)).toEqual([13, 16]);          // 29, one off -- beats 19+9 (28) and 19+13 (32)
+  });
+
+  it("an exact-cost tie still resolves to ONE composition, deterministically", () => {
+    // 50 at pipe 19.05: 25 + 25 is the only two-layer exact fit, and it is reached the same way twice
+    const a = layersOf(price(NR, { pipe_size_mm: "19.05", thickness_mm: "50", cladding: "No" }));
+    const b = layersOf(price(NR, { pipe_size_mm: "19.05", thickness_mm: "50", cladding: "No" }));
+    expect(a).toEqual([25, 25]);
+    expect(a).toEqual(b);
+  });
+
+  it("C-R2: PUF 100 on a 50-pipe is 50 + 50 -- built from that pipe's own rows", () => {
+    const r = price(PUF, { pipe_size_mm: "50", thickness_mm: "100", cladding: "No" });
+    expect(r.priced).toBe(true);
+    expect(layersOf(r)).toEqual([50, 50]);
+  });
+
+  it("C-R2: PUF 75 on a 50-pipe is NOT PRICED, with its reason", () => {
+    const r = price(PUF, { pipe_size_mm: "50", thickness_mm: "75", cladding: "No" });
+    expect(r.priced).toBe(false);
+    expect(r.reason ?? "").toMatch(/above the largest size on the sheet \(50\)/);
+  });
+
+  it("C-R3: PUF 25 on a 50-pipe takes the 50 that pipe stocks", () => {
+    const r = price(PUF, { pipe_size_mm: "50", thickness_mm: "25", cladding: "No" });
+    expect(r.priced).toBe(true);
+    expect(layersOf(r)).toEqual([50]);
+  });
+
+  it("⚠️ PROPERTY: NO composition anywhere mixes pipe sizes -- every family, every pipe size", () => {
+    const byFamilyPipe = new Map<string, Set<number>>();
+    for (const it of items) {
+      const a = it.attributes as Record<string, unknown>;
+      if (it.kind !== "hvac_insulation_item" || a.pipe_size_mm === undefined) continue;
+      const key = `${a.item}\u0000${a.pipe_size_mm}`;
+      (byFamilyPipe.get(key) ?? byFamilyPipe.set(key, new Set()).get(key)!).add(Number(a.thickness_mm));
+    }
+    expect(byFamilyPipe.size).toBeGreaterThan(0);
+    let composed = 0;
+    for (const [key, stocked] of byFamilyPipe) {
+      const [family, pipe] = key.split("\u0000");
+      const top = Math.max(...stocked);
+      // ⚠️ THE PROBE VALUES MUST REACH THE MIXING REGIME, or this property is decoration. Mixing can
+      // only arise where the FAMILY stocks a thickness this pipe does not, so the sweep asks for
+      // values that need one: the family-wide top, and sums that only a foreign rung can reach. The
+      // first version asked only around THIS pipe's own top and stayed green while the narrowing was
+      // disabled -- it was measuring nothing.
+      const famTop = Math.max(...[...byFamilyPipe].filter(([k]) => k.startsWith(`${family} `))
+        .flatMap(([, v]) => [...v]));
+      for (const want of [top + 5, top * 2, top * 3, famTop + top, famTop * 2, famTop + 5]) {
+        const r = price(family, { pipe_size_mm: pipe, thickness_mm: String(want), cladding: "No" });
+        // ⚠️ NOT GATED ON `priced`. A composition that MIXES pipe sizes proposes a layer that pipe
+        // does not stock, so the row then fails to match a SKU and comes back UNPRICED -- gating on
+        // `priced` would skip exactly the case this property exists to catch, and did: the first
+        // version of this test stayed green while the narrowing was disabled.
+        if ((r.items ?? []).length < 2) continue;
+        composed++;
+        for (const layer of layersOf(r)) {
+          expect(stocked.has(layer),
+                 `${family} @ pipe ${pipe}: layer ${layer} is not stocked at that pipe`).toBe(true);
+        }
+      }
+    }
+    expect(composed, "the sweep must actually reach some compositions").toBeGreaterThan(0);
   });
 });

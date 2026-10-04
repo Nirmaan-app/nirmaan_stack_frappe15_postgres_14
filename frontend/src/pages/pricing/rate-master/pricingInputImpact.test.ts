@@ -17,7 +17,7 @@ import {
 } from "./pricingInputImpact";
 import type { RateMasterItem } from "./rateMasterTypes";
 // SLICE 12c FINISH / F3 -- the real shipped asset, because the defect lives in the join
-import HVAC_V20 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v20.json";
+import HVAC_V21 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v21.json";
 
 const item = (uid: string, kind: string, attrs: Record<string, unknown>, rates: Record<string, number>): RateMasterItem =>
   ({ item_uid: uid, kind, discipline: "Electrical", unit: "Nos", attributes: attrs, rates } as unknown as RateMasterItem);
@@ -549,10 +549,10 @@ describe("SLICE 12c FINISH -- the SKU label distinguishes rows sharing a name", 
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / F3 -- a refused item-list SKU is sampled or reported, never guessed", () => {
   const INS = "hvac_insulation";
-  const cfgs = (HVAC_V20 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs = (HVAC_V21 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const insCfg = cfgs.find((c) => c.category_id === INS)!;
-  const allItems = (HVAC_V20 as unknown as { items: RateMasterItem[] }).items;
+  const allItems = (HVAC_V21 as unknown as { items: RateMasterItem[] }).items;
   const byUid = new Map(allItems.map((i) => [String(i.item_uid ?? ""), i]));
   const configs: Record<string, unknown> = {};
   for (const c of cfgs) configs[c.category_id] = c;

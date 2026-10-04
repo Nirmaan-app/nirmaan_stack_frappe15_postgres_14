@@ -306,7 +306,11 @@ _PRICING_SIZE_MATCH_KEYS = {"dp"}
 # ⚠️ `max_layers` BELOW 2 IS REFUSED BY NAME. One layer is what the ordinary ladder already is, so a
 # one-layer "composition" is that ladder wearing the tolerance as a disguise -- able to shave a stated
 # value DOWN, which is exactly the 26 -> 25 exception the owner refused.
-_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only"}
+# SLICE 12c FINISH (owner C-R1, 2026-10-04): `cost_key` -- the rate key whose SUM breaks a tie
+# that closeness could not: "lowest insulation material cost (cost_insulation of the layers
+# summed)". Declared here so no rate name is written in frontend code; ABSENT leaves the
+# deterministic fallback deciding, exactly as every composition did before the key existed.
+_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only", "cost_key"}
 _PRICING_COMPOSE_REQUIRED = {"attr", "tolerance", "max_layers"}
 _PRICING_OUTER_ONLY_KEYS = {"attr", "value"}
 # SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
@@ -524,6 +528,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             # stated value DOWN -- exactly the 26 -> 25 exception the owner refused.
             _vthrow("list_spec.pricing.compose.max_layers must be an integer of at least 2. One layer "
                     "is what the ladder already does; a composition is two or more.")
+        ck = cp.get("cost_key")
+        if ck is not None and (not isinstance(ck, str) or not ck.strip()):
+            _vthrow("list_spec.pricing.compose.cost_key must be a non-empty rate key.")
         oo = cp.get("outer_only")
         if oo is not None:
             if not isinstance(oo, dict) or set(oo) != _PRICING_OUTER_ONLY_KEYS:

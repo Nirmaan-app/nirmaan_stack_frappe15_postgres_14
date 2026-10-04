@@ -885,11 +885,30 @@ function priceOneItem(
   const keysCarried = new Set<string>();
   for (const it of familyRows) for (const k of Object.keys(it.attributes)) keysCarried.add(k);
   let candidates = projected;
+  /**
+   * ⚠️ OWNER C-R2 (2026-10-04): "we cannot combine 2 diffrent sized pipe SKus". A ladder -- and so the
+   * COMPOSITION built from its rungs -- must be drawn from the rows of ONE pipe size, not from the
+   * family as a whole.
+   *
+   * The clause below used to skip EVERY other ladder attribute when narrowing, which is why it did
+   * not: at pipe 6.35 Nitrile stocks 13 and 19, but the thickness ladder was built across every pipe
+   * and so offered 25 as well. Measured consequences, all one defect: a stated 25 at pipe 6.35 was
+   * taken as an exact rung and then matched nothing; PUF 25 at pipe 50 refused instead of taking the
+   * 50 that pipe stocks; and 44 at pipe 6.35 composed 19 + 25, where the 25 exists only at pipe 19.05.
+   *
+   * ⚠️ IT NARROWS ON A RESOLVED AXIS ONLY. A ladder attribute's STATED value may still need resolving
+   * (22.2 is the stocked 22.23), so narrowing on a raw one would find no rows at all -- which is the
+   * hazard the blanket skip was avoiding. `sel` is rewritten to the RUNG as each ladder resolves, so
+   * an axis this loop has already passed is safe to narrow on, and one it has not is still skipped.
+   * That makes the ORDER of `spec.ladders` load-bearing: the axis that selects the SKU set comes first.
+   */
+  const resolvedLadders = new Set<string>();
   for (const attr of spec.ladders) {
     if (!(attr in sel) || !needs.includes(attr)) continue;
     const where: Record<string, string | number> = { [familyAttr(spec)]: family, [spec.unit_class_attr]: target };
     for (const k of Object.keys(sel)) {
-      if (k === attr || k === familyAttr(spec) || k === spec.unit_class_attr || spec.ladders.includes(k)) continue;
+      if (k === attr || k === familyAttr(spec) || k === spec.unit_class_attr) continue;
+      if (spec.ladders.includes(k) && !resolvedLadders.has(k)) continue;
       if (keysCarried.has(k)) where[k] = sel[k];
     }
     // SLICE 12c: the rung's LABEL attribute is config-declared, defaulting to ADP's `item_detail`.
@@ -933,12 +952,34 @@ function priceOneItem(
       const top = rungs[rungs.length - 1];
       // SLICE 12c (owner Q8): above the top rung, build it out of rungs rather than refuse -- but only
       // on the ONE ladder the config names, and only as two or more layers (see `composeSize`).
-      const comp = spec.compose && spec.compose.attr === attr ? composeSize(want, sizes, spec.compose) : null;
+      /**
+       * OWNER C-R1: the LAST tie-break is the summed material cost of the layers, read from the rows
+       * this very ladder was built from -- so the costs compared are the costs of the SKUs that would
+       * actually be bought, at this pipe size, not a family-wide average. A rung with no cost on its
+       * row yields null and the candidate falls through to the deterministic fallback.
+       *
+       * The rate key is CONFIG-DECLARED (`compose.cost_key`); absent, no cost is read and the
+       * composition is chosen exactly as it was before this key existed.
+       */
+      const costKey = spec.compose?.cost_key;
+      const costOf = costKey
+        ? (rung: number): number | null => {
+            for (const it of familyRows) {
+              if (Number(it.attributes[attr]) !== rung) continue;
+              if (!Object.entries(where).every(([k, v]) => k === attr || it.attributes[k] === v)) continue;
+              const c = (it.rates ?? {})[costKey];
+              if (typeof c === "number" && Number.isFinite(c)) return c;
+            }
+            return null;
+          }
+        : undefined;
+      const comp = spec.compose && spec.compose.attr === attr ? composeSize(want, sizes, spec.compose, costOf) : null;
       if (comp) {
         return { ...out, selection: { ...sel }, composeInto: { attr, stated: want, layers: [...comp.layers].sort((a, b) => a - b), delta: comp.delta, top: top.size } };
       }
       return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel };
     }
+    resolvedLadders.add(attr);
     out.ladderHops.push({ attr, name, requested: want, fitted: fit.modules, exact: fit.exact });
     if (!fit.exact) {
       out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (next size up, R6)`);

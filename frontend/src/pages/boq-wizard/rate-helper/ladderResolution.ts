@@ -87,6 +87,13 @@ export interface ComposeSpec {
   tolerance: number;
   /** The most layers a composition may use. */
   max_layers: number;
+  /**
+   * OWNER C-R1 (2026-10-04): the rate key whose SUM breaks a tie that closeness could not --
+   * "lowest insulation material cost (cost_insulation of the layers summed)". Declared in config so
+   * no rate name is written in code; ABSENT leaves the deterministic fallback below deciding, which
+   * is what every composition did before this key existed.
+   */
+  cost_key?: string;
 }
 
 export interface Composition {
@@ -113,7 +120,17 @@ export interface Composition {
  * ⚠️ THE TOLERANCE APPLIES ONLY HERE. Letting it reach the exact / next-size-up rules would make
  * 26 -> 25 legal again by the back door.
  */
-export function composeSize(stated: number, rungs: number[], spec: ComposeSpec | undefined | null): Composition | null {
+export function composeSize(
+  stated: number,
+  rungs: number[],
+  spec: ComposeSpec | undefined | null,
+  /**
+   * OWNER C-R1: the material cost of one rung, for the LAST tie-break. Null for a rung whose cost is
+   * unknown, which makes the whole candidate unrankable by cost and leaves it to the fallback -- a
+   * half-known comparison would rank a cheap-looking candidate above one whose cost nobody read.
+   */
+  costOf?: (rung: number) => number | null,
+): Composition | null {
   if (!spec || !Number.isFinite(spec.tolerance) || !Number.isFinite(spec.max_layers)) return null;
   if (!Number.isFinite(stated) || !rungs.length) return null;
   const max = Math.floor(spec.max_layers);
@@ -128,7 +145,7 @@ export function composeSize(stated: number, rungs: number[], spec: ComposeSpec |
     const delta = total - stated;
     if (Math.abs(delta) > spec.tolerance) return;
     const cand: Composition = { layers: [...layers], delta };
-    if (!best || betterThan(cand, best)) best = cand;
+    if (!best || betterThan(cand, best, costOf)) best = cand;
   };
 
   // depth-first over NON-INCREASING multisets, so `13 + 19` and `19 + 13` are the one candidate
@@ -149,10 +166,38 @@ export function composeSize(stated: number, rungs: number[], spec: ComposeSpec |
   return best;
 }
 
-function betterThan(a: Composition, b: Composition): boolean {
+/** The summed cost of a candidate's layers, or null when any one of them is unknown. */
+function costOfLayers(c: Composition, costOf?: (rung: number) => number | null): number | null {
+  if (!costOf) return null;
+  let total = 0;
+  for (const r of c.layers) {
+    const v = costOf(r);
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    total += v;
+  }
+  return total;
+}
+
+/**
+ * OWNER C-R1 (revised, 2026-10-04): "within +-2 mm -> fewest layers -> CLOSEST to the stated
+ * thickness -> if still tied, LOWEST insulation material cost". The tolerance is the FILTER (applied
+ * by `consider`); this is the ranking, in that order.
+ *
+ * ⚠️ CLOSENESS COMES BEFORE COST, and the owner said so explicitly -- so Thermal Nitrile 30 takes
+ * 16 + 13 (29, one off) over 19 + 9 (28) and 19 + 13 (32), whatever they cost. Cost only separates
+ * candidates that are equally close, which is what makes Nitrile 38 take 13 + 25 (118 + 165 = 283)
+ * over 19 + 19 (143 + 143 = 286): both are two layers and both land exactly on 38.
+ *
+ * The two older tie-breaks are KEPT below as the deterministic fallback -- a catalogue with no cost
+ * key, or a rung whose cost nobody read, must still resolve to ONE composition rather than whichever
+ * the walk happened to reach first.
+ */
+function betterThan(a: Composition, b: Composition, costOf?: (rung: number) => number | null): boolean {
   if (a.layers.length !== b.layers.length) return a.layers.length < b.layers.length;
   const da = Math.abs(a.delta), db = Math.abs(b.delta);
   if (da !== db) return da < db;
+  const ca = costOfLayers(a, costOf), cb = costOfLayers(b, costOf);
+  if (ca !== null && cb !== null && ca !== cb) return ca < cb;
   const ua = new Set(a.layers).size, ub = new Set(b.layers).size;
   if (ua !== ub) return ua < ub;
   for (let i = 0; i < a.layers.length; i++) {

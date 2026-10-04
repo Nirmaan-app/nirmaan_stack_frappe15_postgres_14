@@ -11430,7 +11430,7 @@ def _read_frontend_src(*parts):
         return fh.read()
 
 
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v20.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v21.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -17650,10 +17650,17 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # ⚠️ PINNED TO THE MINT IT SPEAKS TO, NOT TO "CURRENT". This class is a statement about the
+        # v19 -> v20 mint (ADP's four notes); reading CURRENT instead would make it fail for any
+        # later change to any other category -- which it did, the moment v21 moved Insulation's
+        # ladders. The `_without_pricing_input_items` idiom: normalise on the OLD side, name the
+        # version on both.
+        with open(_asset_path("rate_master_hvac_all_v20.json"), "r", encoding="utf-8") as fh:
             cls.v20 = json.load(fh)
         with open(_asset_path("rate_master_hvac_all_v19.json"), "r", encoding="utf-8") as fh:
             cls.v19 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.current = json.load(fh)
 
     @staticmethod
     def _cfg(asset, cat):
@@ -17706,7 +17713,7 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
         refusing frozen history, so this does: every typed field of every category in the CURRENT
         asset has a one-line note. A new typed field shipped without one fails here, loudly."""
         checked = 0
-        for c in self.v20["category_configs"]:
+        for c in self.current["category_configs"]:
             pr = ((c.get("list_spec") or {}).get("pricing") or {})
             pc = pr.get("panel_controls") or {}
             typed = sorted(k for k, v in pc.items() if v != "dropdown")
