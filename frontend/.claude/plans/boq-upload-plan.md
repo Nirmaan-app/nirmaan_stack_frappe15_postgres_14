@@ -43256,3 +43256,248 @@ nothing.
    KIND-OF-NUMBER column like `amount` and `rate`, with the meaning carried by the ITEM (cladding
    overlap; GI framework sheet factor), and the ban is kept in full force on the seven percentage
    columns. That reading is mine, not the owner's, and is worth one line of confirmation.
+
+---
+
+## Slice 12c FINISH — THE CALCULATOR ADMISSION, COMPOSITION ORDER, TYPEABLE SIZES, NOTES ON WHAT YOU TYPE; HVAC v18–v25 (2026-10-04) — SHIPPED
+
+Six code commits on top of the seven above, plus this docs commit. In the order the owner set them:
+
+| commit | what |
+|---|---|
+| `1dbb2c1ec` | the FA8 deep-clones use `structuredClone`, not `JSON.parse` (the F2 ratchet) |
+| `97222f6f1` | ADP's four typed fields carry their notes; HVAC v20 |
+| `1e5270564` | a composition stays within one pipe size, closest first, then cheapest; HVAC v21 |
+| `7fd50da82` | a size field says what to type, how it matched, and takes inches; HVAC v22/v23 |
+| `a03af1416` | a note is required on a typed, rendered, mandatory field; HVAC v24 |
+| `5fe7cf8c2` | the thickness note no longer promises what the reader refuses; HVAC v25 |
+| `948319afa` | a size can be typed into "Other...", and a composed row shows its own total |
+| `469767be1` | a composed block shows all its layers and sums them; the panel names the BoQ rate |
+
+### FA7 — `calculator_only`, AND WHEN IT MUST BE REMOVED
+
+Insulation is admitted to the HVAC Pricing **calculator** by the config key `calculator_only: true`,
+read at ONE site (`pricingSheetHelper.admitCalculatorOnly`), with no discipline or category named in
+code. BoQ rows and extraction are untouched: `config.pipelines` stays empty, so both eligibility
+predicates still say no and every Insulation BoQ row keeps its coming-soon card. Pinned both ways —
+with the key the calculator prices it, without the key it declines, and `test_co_f1_09` stands as
+written.
+
+> ⚠️ **SLICE 12d MUST REMOVE THIS ADMISSION IN THE SAME SLICE THAT MAKES INSULATION FULLY ELIGIBLE.**
+> Once `pipelines` is non-empty the ordinary predicates admit the category on their own, and leaving
+> `calculator_only` in place would be a SECOND on/off switch for one thing — two switches that can
+> disagree about whether a category prices, which is the shape of defect this project keeps paying
+> for. Removing it is not cleanup; it is part of making Insulation eligible.
+
+### ⚠️ A SLICE-12d TRAP FOUND WHILE CERTIFYING, NOT YET A DEFECT
+
+`itemListPricing`'s composition line reads **"You typed 30 mm -> priced as 13 + 19 mm"**, with the
+literal *You typed*. The panel's per-field note is source-honest (`said = userEdited ? "You typed" :
+"BoQ says"`, FA8(h)) — but the PRICER cannot know who typed what, so its own sentence asserts a
+source.
+
+Today that sentence is always TRUE, and the reason is structural: `compose` is declared by
+`hvac_insulation` **alone**, and that category is `calculator_only`, so every composition that exists
+is a calculator entry the pricer did type. **The moment slice 12d makes Insulation BoQ-eligible, the
+same line will tell a pricer they typed a thickness the model read off the BoQ.** The fix is a
+provenance marker set where it is known (`assembleItems`, which merges the edits) and read at the one
+sentence that needs it — never a second who-said-it list. Not built now: it would change a rendered
+string mid-cert for a case no shipped path can reach.
+
+### C-R1 / C-R2 / C-R3 — HOW A COMPOSITION IS CHOSEN
+
+Within ±2 mm → **fewest layers** → **closest** to the stated thickness → if still tied, **lowest
+`cost_insulation` summed**. Closeness before cost, by explicit ruling: Thermal Nitrile 30 takes
+16 + 13 (29, one off) over 19 + 9 (28) and 19 + 13 (32), whatever they cost; cost then separates
+genuine ties, which is what makes Nitrile 38 take 13 + 25 (118 + 165 = **283**) over 19 + 19
+(143 + 143 = **286**). The cost key is declared in config (`compose.cost_key`), so no rate name is
+written in code, and a rung whose cost is unknown makes the whole candidate unrankable by cost rather
+than ranking it on half the information.
+
+**All three rulings had ONE root cause**, which is worth recording because it looked like three bugs:
+the thickness ladder was built across the whole family instead of the rows of ONE pipe size, so the
+rungs on offer came from every pipe at once. Resolving the SELECTING axis first (`ladders:
+["pipe_size_mm", "thickness_mm"]`) fixes the pipe-size scope (C-R2), the stocked-size-up rule (C-R3)
+and the candidate set the cost tie-break ranks (C-R1) together. A property test now sweeps every
+family × pipe size and asserts no composition ever uses a layer that pipe does not stock.
+
+⚠️ **I over-reported C-R2 once and the correction matters:** a direct `composeSize` probe suggested
+PUF 75 composed as 50 + 25 across two pipe sizes. Through the real pricer it never did — PUF at pipe
+50 composed 50 + 50 correctly. The probe bypassed the narrowing; the defect was the ladder's scope,
+which is what was fixed.
+
+### FA8 — EVERY ATTRIBUTE INPUT
+
+Every catalogue attribute is a **live dropdown built from the active SKUs** (`fieldOptionsFromSkus`),
+narrowed by the block's other answered attributes exactly as the ladder narrows its rungs — so a new
+SKU is a new option with no code change. The two sizes are `dropdown_or_other`: the stocked values
+**plus "Other…"**, which opens a typed box, because an unstocked size must be enterable. Every number
+in the on-screen help and in the worked examples is **generated from the live options** — no size is
+written in code anywhere.
+
+Proved dynamic against the live database, not a fixture: adding a test SKU moved the thickness options
+`[13, 19, 25] → [13, 19, 25, 31]` and deactivating it moved them back to `[13, 19, 25]`, with the row
+left in place as history.
+
+A pipe size may be typed **in mm or in inches** (`numbers.<attr>.inches`, HVAC v22). ⚠️ **A BARE
+FRACTION IS INCHES**: before this, `7/8` parsed as the number 0.875 and priced silently as a 9.52 mm
+pipe — a plausible wrong size with nothing on screen to catch it. The conversion is ×25.4 and that is
+correct HERE, against the standing "a conversion is the vocabulary the catalogue speaks, never
+arithmetic" rule, for a stated reason: this catalogue's own pipe sizes ARE inch-derived (6.35 = 1/4",
+22.23 = 7/8"), so ×25.4 lands on a real rung and the 2-decimal `size_match` closes the gap. Conduit's
+TRADE sizes are the opposite case and keep their table.
+
+### THE NOTE RULE — THREE CONDITIONS, MEASURED FROM THE PRODUCT
+
+A note is required when ALL THREE hold: the user **TYPES** it, it **RENDERS** on the panel, and it is
+**MANDATORY**. ⚠️ **The rule lives in the frontend and that is forced, not preferred:** `itemFieldDefs`
+decides what renders and the PRICER decides what is mandatory, and the Python validator can read
+neither. Re-deriving them server-side would be exactly the second list the owner forbade — free to
+drift from the panel, which is how a field loses its note silently. `panelFieldAudit` therefore asks
+the product (rendering from the call the panel makes; mandatory by pricing the item with the field
+blank and seeing whether it refuses), and names no attribute, category or discipline — pinned by a
+grep. Python keeps the SHAPE checks: a note must name a real typed control and must say something; a
+note on a dropdown is refused by name.
+
+### ADP — ONE NOTE, AND TWO RETROFIT ITEMS
+
+ADP shows 12 fields: 11 dropdowns (10 from the live SKUs, one from the definition's vocabulary) and
+**one typed field, `face_w_mm`**, which IS mandatory, so it carries the owner's reworded note:
+
+> *Type the size as the BoQ states it, in mm: width x height, plus depth where the BoQ gives one.*
+
+The other three approved notes were **removed from the asset** because their fields render NOWHERE —
+`face_h_mm` and `depth_mm` are two more axes of the ONE size phrase the panel shows once, and
+`area_sqm` has no field on any family or unit. A note that cannot be read is worse than none. The
+approved wording is kept in the tests, for the retrofit.
+
+**ADP RETROFIT, OWED:**
+1. **Split width / height / depth into their own fields**, so the three approved notes render and a
+   pricer can correct one axis without retyping the phrase.
+2. **`area_sqm` renders nowhere** — decide whether it should have a field at all, or stay a derived
+   value with no control.
+
+### ELECTRICAL — READ-ONLY, MEASURED, PARKED
+
+Nothing in Electrical was changed. Measured for the record: of **50** typed fields, **33** render and
+**28** of those are mandatory; **5** are optional. Three categories (`earthing`,
+`industrial_sockets`, `wiring_cabling`) do not price from a synthetic fill, so they are **not
+measurable this way** and are reported as such rather than counted as zero. The 28 note-less
+rendered-mandatory fields are the **Electrical note retrofit**, parked by the owner.
+
+### ⚠️ TWO DEFECTS THE BROWSER CERT FOUND THAT NO TEST COULD — v25
+
+Both were found by reading the LIVE database before the browser walk, and both are the same class: a
+green suite over an asset says nothing about what the site is serving.
+
+1. **A LOAD GAP.** The live `hvac_insulation` config was still at **v21** — v22's `inches: true` was
+   minted and never loaded, so typing `3/4"` on the real screen would have been refused while the
+   asset, the spec and 216 passing tests all said it worked. Cert case C13 would have failed. Fixed by
+   a **config-only supersede** (items are never touched: all 4,557 HVAC rows digest-identical before
+   and after, ADP's config row untouched down to `modified`).
+2. **A NOTE THAT PROMISED WHAT THE READER REFUSES.** The shipped thickness note read *"Two layers may
+   be written out."* — and the reader refuses `13+13` with *"several values stated for thickness"*.
+   Nothing was wrong with the pricing; the SENTENCE was wrong, which is the harder kind to notice: it
+   reads as a documented capability, and a pricer who believes it gets a refusal they cannot explain.
+   **The refusal is correct and stays** — accepting written-out layers would let a pricer hand-pick
+   the layers and so bypass C-R1 entirely, the ordering the owner spent three rulings pinning. So the
+   NOTE was corrected, not the reader:
+
+   > *Type the thickness the BoQ states, in mm - a single number. Where no stocked size fits, two or
+   > more layers are combined automatically.*
+
+   Pinned both ways: the refusal still fires on all three written-out forms, a single `26` still
+   composes to 13 + 13, and the shipped note no longer claims otherwise. The pipe note's inch claim is
+   pinned against the shipped reader in the same test, so the other half of the audit cannot rot.
+
+**v25 moved nothing but that one string:** structurally identical to v24 with the note stripped, 331
+items and 9 configs unchanged, mint gate "no atoms disappeared", and all 21 cert-9b figures byte-identical
+v24 → v25.
+
+### ⚠️ TWO MORE DEFECTS THE SCREEN FOUND, AND ONE THE OWNER FOUND BY HAND
+
+Both commits below exist because the browser cert was re-done from scratch. Neither defect was
+reachable from any test, and one of them was a WRONG PRICE on screen.
+
+**(3) `Other…` could not be typed into** (owner, by hand: *"i am not able to do it from UI"*). One
+binding. `ItemFieldView.value` is the RESOLVED size — the ladder result, or blank where nothing
+fits (rule X3: the field shows the size that will be PRICED) — and the typed box was bound to it.
+Every keystroke was rewritten or erased: `3` laddered up to 13 and the box became `13`; `32`
+composed, so the box was BLANKED and the note reported a stray `2`. The box's render CONDITION keyed
+on the same resolved value, so a typed 16 resolved to the stocked 19, `options.includes("19")` went
+true, and the box VANISHED mid-entry while the select jumped to a size nobody chose — the
+controlled-select trap in `frontend/CLAUDE.md`, reached from the other side.
+
+⚠️ **TWO DIFFERENT QUESTIONS WERE SHARING ONE FIELD:** *what will be priced* and *what did you
+enter*. `typedValue` is the second, and the pure `otherMode` keys on it. Nothing is lost — the
+resolution shows in the select beside the box and in the note beneath, which is what C-R4 asks for.
+
+**(4) `Row total` showed ONE LAYER of a composed row — 219 where the row cost 474**, beside a
+headline already reading 474. `rowTotals` summed `view.items`, the USER's blocks; a composition
+expands ONE block into several priced layers, so the block count and the priced count stop agreeing.
+
+⚠️ **IT SURVIVED BECAUSE THE TWO AGREE ON EVERY UNCOMPOSED ROW** — one block, one priced item, so
+the block sum is right by coincidence of shape. The existing ADP `rowTotals` test passes before AND
+after the fix and could never have caught it.
+
+**(5) And fixing only the row total left the two visibly disagreeing** (owner: *"the row total line
+does not match with the individual supply, install and combined rates in the calculation block,
+which is confusing"*). The BLOCK now sums its own layers, and the working names each one with its
+own money, so the figure can be ADDED UP ON SCREEN:
+
+```
+You typed 32 mm -> priced as 13 + 19 mm (32 mm, +0) -- above the largest stocked size (25 mm)
+Layer 1 of 2 -- supply 219, install 14
+Layer 2 of 2 -- supply 255, install 14
+BOQ RATES   Supply 474   Install 28   Combined 502
+```
+
+This also answers a question cert 9b asks that the old rendering could not: **which layer carries
+the cladding** — the outer one, visible as install 224 against the inner layer's 14. The pricer
+stamps `sourceIndex` on every priced item so the panel can group layers back to their block;
+`priced.items[i]` was the latent trap, correct only while the two lists are one-to-one.
+
+**(6) The panel now names the rate it shows: `BoQ rates`** (owner: *"the calculator panel should
+clearly mention whether the final rates are BoQ or BCS rate. it should be BoQ rates."*).
+⚠️ **THE SCREEN GAVE A REAL REASON TO GUESS WRONG:** the working ends with
+`ROUNDUP(BCS supply, 0) = 156` and `BCS cost x (1 + markup)`, so the last words a reader sees before
+the number are *BCS cost*. The number is the BoQ rate — what the CLIENT is charged — and the BCS
+line is an intermediate step toward it. Reading a BoQ rate as a cost is the same confusion the BCS
+export-leak boundary exists to prevent, made by a person rather than by a file. ONE constant drives
+both headings, written at the two CALL SITES and never inside `FiguresRow` — the same opt-in rule
+the `unit` label follows, which is what keeps the non-item-list (Electrical) surface byte-identical.
+
+### CERT 9b — ALL 21 CASES, EVERY FIGURE STATED IN ADVANCE, ALL MATCHED
+
+Predicted from the shipped asset through the product's own `priceItemList`, then observed on the
+live calculator. The owner's set is C1–C13 + S1–S5 + P1 = 19; the revision expanded P1 into three,
+and three cladding variants were walked as well.
+
+| case | entry | priced as | supply / install / combined |
+|---|---|---|---|
+| C1 | NR 32 @ 19.05 | 13 + 19 | 474 / 28 / 502 |
+| C2 | NR 30 | 13 + 19 (+2) | 474 / 28 / 502 |
+| C3 | NR 27 | 13 + 13 (−1) | 438 / 28 / 466 |
+| C4 | NR 29 | **not priced** — above the largest (25) | — |
+| C5 | NR 38 | 13 + 25 (the cost tie-break) | 506 / 28 / 534 |
+| C6 | NR 50 | 25 + 25 | 574 / 28 / 602 |
+| C7 | NR 64 | 13 + 25 + 25 | 793 / 42 / 835 |
+| C8 | NR 100 | 25 × 4 (max_layers) | 1148 / 56 / 1204 |
+| C9 | NR 110 | **not priced** — beyond 4 layers | — |
+| C10 | NR 25 @ 6.35 | 13 + 13 | 382 / 28 / 410 |
+| C11 | NR `13+13` typed | **refused** — several values stated | — |
+| C12 | NR 20 | ladder → 25 (one layer) | 287 / 14 / 301 |
+| C13 | NR 32, pipe typed `3/4"` | 13 + 19 | 474 / 28 / 502 |
+| C1-clad | + 26G Aluminium | 13 + 19, cladding on the OUTER layer | 623 / 238 / 861 |
+| C5-clad | + 26G Aluminium | 13 + 25 | 686 / 238 / 924 |
+| C6-clad | + 26G Aluminium | 25 + 25 | 754 / 238 / 992 |
+| S1 | Thermal 30 | 13 + 16 (closeness beats cost) | 1058 / 308 / 1366 |
+| S2 | Thermal 32 | 13 + 19 (cost decides an exact tie) | 1058 / 308 / 1366 |
+| S3 | Fiberglass 75 | 25 + 50 | 1471 / 308 / 1779 |
+| S4 | Thermal 30 + Aluminium Foil | 13 + 16 | 1176 / 308 / 1484 |
+| S5 | Thermal 97 | **not priced** | — |
+| P1a | PUF 100 @ pipe 50 | 50 + 50 (C-R2, one pipe size) | 420 / 28 / 448 |
+| P1b | PUF 75 @ pipe 50 | **not priced** — cannot mix pipe sizes | — |
+| P1c | PUF 25 @ pipe 50 | 50 (C-R3, next size up) | 210 / 14 / 224 |
+
+All 21 figures were byte-identical v24 → v25, and the screen agreed with every one.

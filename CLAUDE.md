@@ -1104,6 +1104,64 @@ normalised on the OLD side of a cross-version comparison rather than by editing 
 removal made three mints later that it never spoke to. `_without_pricing_input_items` /
 `_without_with_cover_list` / `_without_wcl_note` in `test_rate_master` are that idiom.
 
+**⚠️ A PANEL FIELD HAS TWO VALUES AND THEY ANSWER DIFFERENT QUESTIONS — "what will be priced" vs
+"what did you enter" (owner-locked, 2026-10-04).** `ItemFieldView.value` is the RESOLVED size (the
+ladder result, or blank where nothing fits — rule X3) and `typedValue` is the raw entry. Binding the
+`dropdown_or_other` typed box to `value` made a size IMPOSSIBLE TO TYPE: every keystroke was
+rewritten to the rung it resolved to, or erased (`3` → `13`, `32` → blank). The box's visibility keyed
+on the same field, so a typed 16 resolved to the stocked 19 and **the box vanished mid-entry while the
+select jumped to a size nobody chose** — the controlled-select trap in `frontend/CLAUDE.md` reached
+from the other side. The ONE predicate `RateHelperPanel.otherMode` keys on `typedValue`; the
+resolution still shows in the select beside it and in the note beneath (C-R4).
+
+**⚠️ A COMPOSED ROW'S BLOCK MUST SUM ITS OWN LAYERS, AND `priced.items[i]` IS NOT THAT BLOCK'S ITEM.**
+A composition expands ONE user block into several priced layers, so `priced.items` and the edit
+state's items stop being one-to-one — the index then lands in whichever block the count reaches.
+Group by the `sourceIndex` the pricer stamps. ⚠️ **THIS CLASS HIDES BEHIND A COINCIDENCE OF SHAPE:
+block sum and row total AGREE on every uncomposed row**, so the existing `rowTotals` test passed
+before and after the defect that showed **219 where the row cost 474**, under a box labelled "Row
+total", beside a headline already reading 474. `rowTotals` reads the ROW's own totals (`view.totals`,
+the same figures the headline uses); the block sums its layers; the working names each layer with its
+money so the figure adds up on screen — which is also what makes the cladding's carrying layer
+visible.
+
+**⚠️ THE PANEL NAMES THE RATE IT SHOWS: `BoQ rates`, NEVER BCS (owner-locked).** The working ends
+`ROUNDUP(BCS supply, 0)` then `BCS cost x (1 + markup)`, so the last words before the figure are "BCS
+cost" — while the figure is the BoQ rate, what the CLIENT is charged. ONE constant drives both
+headings, written at the two CALL SITES and never inside `FiguresRow`, the same opt-in rule the
+`unit` label follows — which is what keeps the non-item-list (Electrical) surface byte-identical.
+
+**⚠️ A NOTE IS REQUIRED ON A FIELD THAT IS TYPED **AND** RENDERS **AND** IS MANDATORY — AND THE RULE
+LIVES IN THE FRONTEND BECAUSE IT HAS TO (owner-locked, final form 2026-10-04).** `itemFieldDefs`
+decides what renders and the PRICER decides what is mandatory; the Python validator can read neither,
+so re-deriving them server-side would be a SECOND LIST free to drift from the panel — which is how a
+field loses its note silently. `panelFieldAudit` measures all three by asking the product (rendering
+from the call the panel makes; mandatory by pricing with the field blank), and names no attribute,
+category or discipline. Python keeps the SHAPE checks only: a note must name a real typed control and
+say something; a note on a dropdown is refused by name. **A note that cannot be read is worse than
+none** — ADP's `face_h_mm` / `depth_mm` / `area_sqm` notes were removed because those fields render
+nowhere, and `face_w_mm` keeps the one that does.
+
+**⚠️ AND A NOTE MUST NOT PROMISE WHAT THE READER REFUSES — THE NOTE AND ITS "How is this matched?"
+HELP ARE TWO SENTENCES ABOUT ONE BEHAVIOUR AND MUST CHANGE TOGETHER.** The thickness note said "Two
+layers may be written out" while the reader refuses `13+13`; correcting the CONFIG note left the same
+claim alive in the GENERATED HELP, which is code. Only a runtime read of the screen found the second
+one. The refusal is correct and stays: hand-written layers would bypass the C-R1 ordering (fewest
+layers → closest → cheapest) entirely.
+
+**⚠️ A CONFIG-DECLARED `calculator_only: true` ADMITS A CATEGORY TO THE CALCULATOR ONLY, AND THE
+SLICE THAT MAKES THAT CATEGORY ELIGIBLE MUST REMOVE IT IN THE SAME CHANGE (owner ruling FA7).** Read
+at ONE site (`pricingSheetHelper.admitCalculatorOnly`, passed by `PricingCalculator` alone and never
+by the BoQ page), no discipline or category named in code. Once `pipelines` is non-empty the ordinary
+predicates admit the category by themselves, so leaving the key in place would be a SECOND on/off
+switch for one thing — two switches that can disagree about whether a category prices.
+
+**⚠️ A GREEN SUITE OVER AN ASSET FILE SAYS NOTHING ABOUT WHAT THE SITE IS SERVING.** The live
+Insulation config sat at v21 while the asset, the spec and 216 passing tests all described v22's inch
+reading — so `3/4"` would have been refused on the real screen. Before certifying a rate-master
+change, READ THE LIVE CONFIG, not the asset; and remember a host edit does not fire the container's
+inotify, so vite serves stale modules until it is restarted with `node_modules/.vite` purged.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
