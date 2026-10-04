@@ -66,6 +66,7 @@ import {
   readNumber,
   listSpecDefs,
   priceItemList,
+  sizeFieldHelp,
   unitClassOf,
   type ExtractedListItem,
   type ItemFieldDef,
@@ -1654,6 +1655,13 @@ export function assembleItems(
 }
 
 /** One field of one block, as the panel renders it. */
+/** PURE. A size as the catalogue writes it: `12`, not `12.0`; `22.23` kept. */
+function fmtNum(n: number | string): string {
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return String(n);
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)));
+}
+
 export interface ItemFieldView extends ItemFieldDef {
   value: string;
   /** The value came from a ruled default over a "None" / an absent-as-none answer (amber + "default"). */
@@ -1666,6 +1674,9 @@ export interface ItemFieldView extends ItemFieldDef {
   note?: string;
   /** A genuinely missing input the row needs (red border). */
   blank: boolean;
+  /** OWNER FA8(c)/(d): the "How is this matched?" rules for a size field, each sentence carrying an
+   * example GENERATED LIVE from the catalogue. Absent on every field that is not a typeable size. */
+  matchHelp?: string[];
   /** SLICE 9 (owner A-6): what to DISPLAY for an option, where the catalogue's own word differs from the
    * value the pricing uses. The select keeps the real value (so it still matches an option and stays
    * editable -- see the controlled-select trap in frontend/CLAUDE.md); only the text changes. */
@@ -1750,8 +1761,21 @@ function itemBlockView(
     // note naming the stated size, which is the whole reason an unstocked size may be typed.
     const isSizeDropdown = (f.control === "dropdown" || f.control === "dropdown_or_other")
       && f.skuAttr in spec.numbers;
+    /**
+     * OWNER C-R4 (standing, 2026-10-04): "always in pricing hlper the attrinbute should show the
+     * value which was actually used to calculate the vealue", and the note "should declare correctly
+     * how it landed there". So the field holds the value the pricing USED, and the note says how it
+     * got there, in the owner's own phrasing.
+     *
+     * ⚠️ WHO SAID IT CHANGES THE SENTENCE (FA8(h)). A value the pricer typed reads "You typed ...";
+     * one the model read off the BoQ reads "BoQ says ...". Same transformation, same arrow, honest
+     * about its source -- a pricer should never be told they typed something they did not.
+     */
+    const unitOf = spec.numbers[f.skuAttr]?.unit;
+    const u = unitOf ? ` ${unitOf}` : "";
+    const said = userEdited ? "You typed" : "BoQ says";
     let note: string | undefined;
-    if (hop && !hop.exact) note = `${hop.name} ${hop.requested} is not on the sheet -> ${hop.fitted} (next size up)`;
+    if (hop && !hop.exact) note = `${said} ${fmtNum(hop.requested)}${u} -> priced as ${fmtNum(hop.fitted)}${u} (next size up)`;
     if (isSizeDropdown) {
       // SLICE 6b (V3, X3): the field shows the size that will be PRICED -- the ladder result -- with the note naming
       // the stated size; an exact fit shows the stocked spelling; a size above the largest keeps the refusal and
@@ -1759,7 +1783,14 @@ function itemBlockView(
       if (hop) value = String(hop.fitted);
       else if (value !== "" && !(f.options ?? []).includes(value)) {
         const parsed = readNumber(value, spec.numbers[f.skuAttr]);
-        note = parsed && "value" in parsed ? `stated ${value}: ${res.reason ?? "no stocked size fits"}` : note;
+        if (parsed && "value" in parsed) {
+          // a PRECISION match (22.2 is the stocked 22.23) resolves silently in the pricer; where it
+          // did not resolve at all, the refusal is the note and the field shows no pick
+          note = `${said} ${value}${u}: ${res.reason ?? "no stocked size fits"}`;
+        } else if (value.trim() !== "") {
+          // OWNER FA8(e): an entry that is not a number at all
+          note = `Enter a number in ${unitOf ?? "mm"}, or an inch size like 7/8".`;
+        }
         value = "";
       }
     }
@@ -1770,6 +1801,9 @@ function itemBlockView(
       note = ov.rule;
       if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
     }
+    // OWNER FA8(c)/(d): a size field a pricer can type into explains HOW the value will be matched --
+    // every number in the explanation read from the LIVE options, never written here.
+    const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [])?.lines : undefined;
     const name = spec.numbers[f.skuAttr]?.name ?? "\u0000";
     const needed = res.state === "blank" && !!res.reason && (
       res.reason.includes(name) ||
@@ -1783,6 +1817,7 @@ function itemBlockView(
       userEdited,
       ...(note ? { note } : {}),
       ...(optionLabels ? { optionLabels } : {}),
+      ...(matchHelp && matchHelp.length ? { matchHelp } : {}),
       blank: value === "" && needed,
     };
   });

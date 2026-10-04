@@ -341,7 +341,11 @@ _PANEL_CONTROLS = {"dropdown", "text", "dropdown_or_other"}
 _TYPED_CONTROLS = {"text", "dropdown_or_other"}
 # SLICE 9 (owner A-1): `component` -- this SKU attribute is ONE AXIS (1 width, 2 height, 3 depth) of a size the
 # row writes as a SINGLE phrase, which CODE splits. ABSENT => the reader is byte-identical to before.
-_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range", "component"}
+# SLICE 12c FINISH (owner FA8(d)): `inches` -- an inch value on this axis converts to mm instead of
+# being refused, and a bare fraction is read as inches. Only for an axis whose catalogue sizes are
+# themselves inch-derived; ABSENT keeps the refusal every other axis has always given.
+_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below",
+                       "range", "component", "inches"}
 # SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
 # beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
 _PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
@@ -467,6 +471,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                 _vthrow(f"list_spec.pricing.numbers['{nid}'].{bkey} must be true or false.")
         if "reject_tokens" in rd and (not isinstance(rd["reject_tokens"], list) or not all(isinstance(t, str) and t for t in rd["reject_tokens"])):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_tokens must be a list of strings.")
+        if "inches" in rd and rd["inches"] is not True:
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].inches must be exactly true, or be omitted.")
         if "reject_below" in rd and not _is_finite_number(rd["reject_below"]):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_below must be a finite number.")
         if "range" in rd and rd["range"] != "max":

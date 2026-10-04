@@ -11430,7 +11430,7 @@ def _read_frontend_src(*parts):
         return fh.read()
 
 
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v21.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v22.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads

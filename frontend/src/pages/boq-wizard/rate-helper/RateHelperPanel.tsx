@@ -1193,6 +1193,23 @@ function ItemListBlocks({
                 {f.typedNote && (f.value === "" || !(f.options ?? []).includes(f.value)) && (
                   <p className="pl-1 text-[10px] leading-tight text-muted-foreground">{f.typedNote}</p>
                 )}
+                {/* OWNER FA8(c)/(d): HOW the value will be matched, in full, on demand. A <details>
+                    rather than a tooltip because these are several sentences a pricer may want to
+                    read twice -- and every number in them is generated from the live catalogue, so
+                    the explanation cannot outlive the sizes it names. */}
+                {f.matchHelp && f.matchHelp.length > 0
+                  && (f.value === "" || !(f.options ?? []).includes(f.value)) && (
+                  <details className="pl-1">
+                    <summary className="cursor-pointer text-[10px] leading-tight text-muted-foreground underline decoration-dotted">
+                      How is this matched?
+                    </summary>
+                    <ul className="ml-3 list-disc space-y-0.5 pt-0.5">
+                      {f.matchHelp.map((line) => (
+                        <li key={line} className="text-[10px] leading-tight text-muted-foreground">{line}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
             );
           })}

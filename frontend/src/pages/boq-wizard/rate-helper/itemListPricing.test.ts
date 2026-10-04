@@ -18,7 +18,7 @@ import {
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
-import HVAC_V21 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v21.json";
+import HVAC_V22 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v22.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   itemListPricingSpec,
@@ -1861,9 +1861,13 @@ describe("slice 12c: size_match and compose, wired", () => {
       // 300 + 450 and 375 + 375 BOTH total 750, so the delta cannot settle it -- FEWEST DISTINCT SIZES
       // does, which is why that tie-break is in the rule rather than left to the rung array's order.
       expect(r.items.map((i) => i.selection.neck_mm)).toEqual([375, 375]);
+      // ⚠️ INVERTED BY OWNER FA8(c) (2026-10-04), NOT RELAXED: the line now reads in the owner's own
+      // phrasing -- "You typed ... -> priced as ..." -- and still names the top rung it could not
+      // reach, the layers, the total and the delta. The retired wording is asserted ABSENT.
       expect(r.items[0].working[0]).toBe(
-        "749 is above the largest stocked size (450) -> composed as 375 + 375 = 750 (+1)",
+        "You typed 749 mm -> priced as 375 + 375 mm (750 mm, +1) -- above the largest stocked size (450 mm)",
       );
+      expect(r.items[0].working[0]).not.toContain("749 is above the largest");
       expect(r.items[1].working.some((l) => /composed as/.test(l))).toBe(false);
     });
 
@@ -1920,10 +1924,10 @@ const CALCULATOR_SRC = readFileSync(
 
 describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V21 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs18 = (HVAC_V22 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
   const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V21 as unknown as { items: RateMasterItem[] }).items;
+  const items18 = (HVAC_V22 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
@@ -2008,7 +2012,7 @@ describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CAL
  * NOT stock -- a plain dropdown would remove the only way to say what the document says.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => {
-  const asset = HVAC_V21 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V22 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item");
   const NR = "Nitrile Rubber Insulation";
@@ -2162,7 +2166,7 @@ describe("SLICE 12c FINISH / FA8 -- dropdown_or_other, and what to type", () => 
  * one pipe size, because the narrowing skipped every other LADDER attribute.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapest", () => {
-  const asset = HVAC_V21 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const asset = HVAC_V22 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const spec = itemListPricingSpec(insCfg as never)!;
   const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
@@ -2245,7 +2249,7 @@ describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapes
       // values that need one: the family-wide top, and sums that only a foreign rung can reach. The
       // first version asked only around THIS pipe's own top and stayed green while the narrowing was
       // disabled -- it was measuring nothing.
-      const famTop = Math.max(...[...byFamilyPipe].filter(([k]) => k.startsWith(`${family} `))
+      const famTop = Math.max(...[...byFamilyPipe].filter(([k]) => k.startsWith(`${family}\u0000`))
         .flatMap(([, v]) => [...v]));
       for (const want of [top + 5, top * 2, top * 3, famTop + top, famTop * 2, famTop + 5]) {
         const r = price(family, { pipe_size_mm: pipe, thickness_mm: String(want), cladding: "No" });
@@ -2262,5 +2266,88 @@ describe("SLICE 12c FINISH -- composition: same pipe size, closest, then cheapes
       }
     }
     expect(composed, "the sweep must actually reach some compositions").toBeGreaterThan(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH, FA8(d)/(e) -- A PIPE SIZE MAY BE TYPED IN mm OR IN INCHES
+ *
+ * Owner: "Type the pipe size the BoQ states, in mm (e.g. 22.2) or inches (e.g. 7/8"). For NB sizes
+ * type the number (32 NB -> 32)." and the matching rules: 2 decimals -> used; else 1 decimal ->
+ * used; else the next stocked size up; larger than the largest -> not priced, reason shown.
+ *
+ * ⚠️ THE BARE FRACTION IS THE DANGEROUS CASE. Before this, `7/8` parsed as the NUMBER 0.875 and
+ * priced silently as a 9.52 mm pipe -- a plausible wrong size with nothing on screen to catch it.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH / FA8(d) -- inches, decimals and the next size up", () => {
+  const asset = HVAC_V22 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }>; items: RateMasterItem[] };
+  const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const spec = itemListPricingSpec(insCfg as never)!;
+  const items = asset.items.filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
+  const NR = "Nitrile Rubber Insulation";
+
+  const used = (pipe: string) => {
+    const r = priceItemList(spec, items, "mts", [{
+      attributes: Object.fromEntries(Object.entries({ item: NR, pipe_size_mm: pipe, thickness_mm: "19", cladding: "No" })
+        .map(([k, v]) => [k, { value: v }])),
+    }] as never);
+    return { priced: r.priced, pipe: (r.items?.[0] as { selection?: Record<string, unknown> })?.selection?.pipe_size_mm,
+             reason: r.reason };
+  };
+
+  it("the SHIPPED axis declares inches -- and no other axis does", () => {
+    expect(spec.numbers.pipe_size_mm.inches).toBe(true);
+    expect(spec.numbers.thickness_mm.inches).toBeUndefined();
+  });
+
+  it('an inch size converts and matches: 7/8" -> 22.23, 3/4" -> 19.05', () => {
+    expect(used('7/8"').pipe).toBe(22.23);     // 7/8" = 22.225, the stocked rung is 22.23
+    expect(used('3/4"').pipe).toBe(19.05);     // exactly stocked
+    expect(used("1/4 inch").pipe).toBe(6.35);
+  });
+
+  it("⚠️ A BARE FRACTION IS INCHES, not the number 0.875 -- the silent wrong size, pinned", () => {
+    expect(used("7/8").pipe).toBe(22.23);
+    // the defect it replaces: 0.875 would ladder up to the smallest rung
+    expect(used("7/8").pipe).not.toBe(9.52);
+  });
+
+  it("decimals: 22.2 and 22.23 are the same size; 22 takes the next size up", () => {
+    expect(used("22.23").pipe).toBe(22.23);
+    expect(used("22.2").pipe).toBe(22.23);
+    expect(used("22").pipe).toBe(22.23);
+  });
+
+  it("larger than the largest is NOT PRICED, with its reason", () => {
+    const r = used("500");
+    expect(r.priced).toBe(false);
+    expect(r.reason ?? "").toMatch(/above the largest size on the sheet \(53\.98\)/);
+  });
+
+  it("FA8(e): an entry that is not a number at all is refused, naming what to enter", () => {
+    const r = used("abc");
+    expect(r.priced).toBe(false);
+    expect(r.reason ?? "").toMatch(/no number in 'abc'/);
+  });
+
+  it("NEGATIVE: an axis WITHOUT the flag still refuses inches, so ADP is untouched", () => {
+    const noFlag = structuredClone(insCfg) as unknown as { list_spec: { pricing: { numbers: Record<string, Record<string, unknown>> } } };
+    delete noFlag.list_spec.pricing.numbers.pipe_size_mm.inches;
+    const s2 = itemListPricingSpec(noFlag as never)!;
+    const r = priceItemList(s2, items, "mts", [{
+      attributes: Object.fromEntries(Object.entries({ item: NR, pipe_size_mm: '7/8"', thickness_mm: "19", cladding: "No" })
+        .map(([k, v]) => [k, { value: v }])),
+    }] as never);
+    expect(r.priced).toBe(false);
+    expect(r.reason ?? "").toMatch(/stated in inches/);
+  });
+
+  it("the help states the inch rule with an example the catalogue actually stocks", () => {
+    const help = sizeFieldHelp(spec, "pipe_size_mm", ["6.35", "9.52", "22.23", "53.98"])!;
+    const inchLine = help.lines.find((l) => /inch/i.test(l))!;
+    expect(inchLine).toBeTruthy();
+    // whatever fraction it chose, the size it names must be one of the options it was given
+    const named = inchLine.match(/matches ([\d.]+)/)![1];
+    expect(["6.35", "9.52", "22.23", "53.98"]).toContain(named);
   });
 });

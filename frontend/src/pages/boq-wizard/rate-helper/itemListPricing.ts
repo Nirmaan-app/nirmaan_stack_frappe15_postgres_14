@@ -58,6 +58,9 @@ export interface NumberReader {
   reject_tokens?: string[];
   /** A stated number BELOW this is not this quantity either (a 0.8 mm sheet gauge is not a plenum thickness). */
   reject_below?: number;
+  /** OWNER FA8(d): an inch value on this axis converts to mm (x25.4) instead of being refused, and a
+   * bare fraction is read as inches. Only for an axis whose catalogue sizes are inch-derived. */
+  inches?: boolean;
   /** "max": a range takes its top value (R6 / R16) -- the default for every reader. */
   range?: "max";
   /** SLICE 9 (owner A-1): this SKU attribute is ONE AXIS of a size the row writes as a single phrase --
@@ -503,7 +506,34 @@ export function readNumber(text: string | number | null | undefined, reader: Num
       return { blank: `${reader.name} stated as '${raw}' -- a gauge, not a thickness` };
     }
   }
-  if (/\b(inch|inches)\b|"|\b\d+(\.\d+)?\s*in\b/.test(s)) return { blank: `${reader.name} stated in inches ('${raw}')` };
+  const statedInInches = /\b(inch|inches)\b|"|\b\d+(\.\d+)?\s*in\b/.test(s);
+  /**
+   * OWNER FA8(d), 2026-10-04: "Type the pipe size the BoQ states, in mm (e.g. 22.2) or inches
+   * (e.g. 7/8")." A reader DECLARING `inches: true` converts an inch value to mm; every other reader
+   * keeps refusing them exactly as before, which is what leaves ADP and Electrical untouched.
+   *
+   * ⚠️ THE ARITHMETIC IS RIGHT HERE AND WRONG ELSEWHERE. The standing rule is that a unit conversion
+   * belongs in the vocabulary the catalogue speaks (conduit's `inch_trade_mm` table), never as x25.4
+   * -- because a conduit's TRADE sizes are not its inches. Copper tube is the opposite case: this
+   * catalogue's own pipe sizes ARE inch-derived (6.35 = 1/4", 9.52 = 3/8", 22.23 = 7/8"), so x25.4
+   * lands on a real rung and the 2-decimal `size_match` closes the gap -- 7/8" is 22.225 and the
+   * stocked rung is 22.23. That epsilon is the one `roundHalfUp` was built for.
+   *
+   * ⚠️ AND ON SUCH A READER A BARE FRACTION MEANS INCHES. Before this, `7/8` parsed as 0.875 and
+   * priced silently as a 9.52 mm pipe -- a plausible wrong size with nothing on screen to catch it.
+   */
+  if (reader.inches) {
+    const frac = s.match(/(\d+)\s*\/\s*(\d+)/);
+    if (statedInInches || (frac && Number(frac[2]) !== 0)) {
+      const mixed = s.match(/(\d+)\s+\d+\s*\/\s*\d+/);
+      const part = frac ? Number(frac[1]) / Number(frac[2]) : Number((s.match(/[\d.]+/) ?? ["0"])[0]);
+      const value = ((mixed ? Number(mixed[1]) : 0) + part) * 25.4;
+      if (!Number.isFinite(value) || value <= 0) return { blank: `no number in '${raw}' for ${reader.name}` };
+      return { value };
+    }
+  } else if (statedInInches) {
+    return { blank: `${reader.name} stated in inches ('${raw}')` };
+  }
   if (reader.unit === "sqm" && /sq\.?\s?ft|sqft|square\s?feet/.test(s)) return { blank: `${reader.name} stated in square feet ('${raw}')` };
 
   // R17 / a ratio: "1:6" -> 6; anything else numeric beside it is a second value
@@ -1103,9 +1133,15 @@ export function priceItemList(
         if (li === 0) {
           const total = c.layers.reduce((a, b) => a + b, 0);
           const sign = c.delta >= 0 ? "+" : "";
+          // OWNER FA8(c): the line the panel shows after a composition, in the owner's own phrasing --
+          // "You typed 30 mm -> priced as 13 + 19 mm (32 mm)". The unit comes from the axis's own
+          // reader, so no unit is written here, and the stocked top it could not reach is kept so the
+          // reader can see WHY it was composed at all.
+          const unit = spec.numbers[c.attr]?.unit;
+          const u = unit ? ` ${unit}` : "";
           one.working.unshift(
-            `${fmt(c.stated)} is above the largest stocked size (${fmt(c.top)})` +
-            ` -> composed as ${c.layers.map(fmt).join(" + ")} = ${fmt(total)} (${sign}${fmt(c.delta)})`,
+            `You typed ${fmt(c.stated)}${u} -> priced as ${c.layers.map(fmt).join(" + ")}${u}` +
+            ` (${fmt(total)}${u}, ${sign}${fmt(c.delta)}) -- above the largest stocked size (${fmt(c.top)}${u})`,
           );
         }
         expanded.push(one);
@@ -1384,6 +1420,20 @@ export function sizeFieldHelp(
         `The same size written to ${dp} decimal${dp === 1 ? "" : "s"} is the same size: `
         + `${sizeText(written)} is matched to ${sizeText(fractional)}${unit}.`,
       );
+    }
+  }
+
+  // (2b) INCHES, where the axis declares them -- with a worked example CHOSEN from the stocked sizes
+  if (reader.inches) {
+    const common: Array<[string, number]> = [["1/4", 1 / 4], ["3/8", 3 / 8], ["1/2", 1 / 2],
+                                             ["5/8", 5 / 8], ["3/4", 3 / 4], ["7/8", 7 / 8], ["1", 1]];
+    // the example is the first common fraction that lands on a size THIS catalogue stocks, so it can
+    // never name an inch size the sheet has no rung for
+    const hit = common.find(([, f]) => nums.some((n) => Math.abs(n - f * 25.4) < 0.02));
+    if (hit) {
+      const landed = nums.find((n) => Math.abs(n - hit[1] * 25.4) < 0.02)!;
+      lines.push(`An inch size is converted to ${reader.unit ?? "mm"}: ${hit[0]}" is `
+                 + `${sizeText(Number((hit[1] * 25.4).toFixed(3)))} and matches ${sizeText(landed)}${unit}.`);
     }
   }
 

@@ -5337,13 +5337,17 @@ describe("SLICE 6b / the item-list view under v9 -- controls from config, option
   it("V3 / U2: a stated 120 shows the LADDER RESULT 150 in the field with the note naming the stated size; 150MM DIA shows the stocked 150; 160 keeps the refusal, shows no pick and keeps the stated size on the note", () => {
     const at = (d: string) => list(runWith([{ excel_row: 12, items: [li({ family: "disc valve", dia_mm: d })] }]).compute(adpCtx(12, "Nos")));
     const f120 = field(at("120").v, 0, "dia_mm");
-    expect(f120).toMatchObject({ value: "150", note: "diameter 120 is not on the sheet -> 150 (next size up)", blank: false });
+    // ⚠️ INVERTED BY OWNER C-R4 / FA8(h) (2026-10-04): the field still shows the value the pricing
+    // USED (150) and the note still names the stated size -- it now says so in the owner's phrasing,
+    // and says WHO said it. This value came from the BoQ, not from the pricer.
+    expect(f120).toMatchObject({ value: "150", note: "BoQ says 120 mm -> priced as 150 mm (next size up)", blank: false });
+    expect(f120.note).not.toContain("is not on the sheet");
     expect(at("120").v.items[0].figures.combined_rate).toBe(829);
     expect(field(at("150MM DIA").v, 0, "dia_mm")).toMatchObject({ value: "150", blank: false });
     expect(field(at("150MM DIA").v, 0, "dia_mm").note).toBeUndefined();
     const r160 = at("160");
     expect(r160.v.items[0]).toMatchObject({ state: "blank", reason: "diameter 160 is above the largest size on the sheet (150)" });
-    expect(field(r160.v, 0, "dia_mm")).toMatchObject({ value: "", blank: true, note: "stated 160: diameter 160 is above the largest size on the sheet (150)" });
+    expect(field(r160.v, 0, "dia_mm")).toMatchObject({ value: "", blank: true, note: "BoQ says 160 mm: diameter 160 is above the largest size on the sheet (150)" });
     expect(r160.r.values).toEqual({});
     // and the pricer's own pick from the dropdown prices the pick
     const s = applyItemEdit(initialItemEdits(1), { op: "set_attr", index: 0, id: "dia_mm", value: "150" });
@@ -5637,7 +5641,7 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
   });
 });
 
-import HVAC_V21_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v21.json";
+import HVAC_V22_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v22.json";
 import { assembleItems as assembleItemsFam, initialItemEdits as initialItemEditsFam } from "./pricingSheetHelper";
 import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } from "./itemListPricing";
 
@@ -5655,7 +5659,7 @@ import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } f
  * eight sites of generalisation.
  * ════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe("SLICE 12c FINISH -- the family is written under the attribute the config names", () => {
-  const asset = HVAC_V21_FAM as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const asset = HVAC_V22_FAM as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
   const insCfg = asset.category_configs.find((c) => c.category_id === "hvac_insulation")!;
   const adpCfg = asset.category_configs.find((c) => c.category_id === "hvac_adp")!;
   const insSpec = specOfFam(insCfg)!;
