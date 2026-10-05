@@ -14,6 +14,10 @@ from nirmaan_stack.services.project_billing.rules import (
 	SUMMARY_COLUMNS,
 	can_edit_package_bills,
 	clean_package_name,
+	first_submission_date,
+	format_inr,
+	missing_bill_fields,
+	raises_over_po,
 	counts_in_totals,
 	deadline_window,
 	next_bill,
@@ -159,3 +163,96 @@ class TestBillingPackages(unittest.TestCase):
 		self.assertEqual(clean_package_name("  Fire   Alarm "), "Fire Alarm")
 		self.assertEqual(clean_package_name(None), "")
 		self.assertEqual(clean_package_name("   "), "")
+
+
+class TestPoCap(unittest.TestCase):
+	"""Billed and Supply DC may not rise above the package's PO value (owner, 2026-10-05)."""
+
+	def test_no_po_value_means_no_check(self):
+		self.assertFalse(raises_over_po(0, 0, 10_00_000))
+		self.assertFalse(raises_over_po(None, 0, 10_00_000))
+
+	def test_up_to_the_po_value_is_fine(self):
+		self.assertFalse(raises_over_po(1_00_000, 60_000, 1_00_000))
+		self.assertFalse(raises_over_po(1_00_000, 0, 99_999.99))
+
+	def test_going_over_is_refused(self):
+		self.assertTrue(raises_over_po(1_00_000, 60_000, 1_00_000.01))
+		self.assertTrue(raises_over_po(1_00_000, 0, 1_50_000))
+
+	def test_already_over_can_stay_or_come_down(self):
+		self.assertFalse(raises_over_po(5_000, 1_84_909, 1_84_909))  # status change, value unchanged
+		self.assertFalse(raises_over_po(5_000, 1_84_909, 1_00_000))  # corrected down, still over
+		self.assertTrue(raises_over_po(5_000, 1_84_909, 1_84_910))  # any further rise is refused
+
+	def test_paise_rounding_does_not_trip_the_check(self):
+		self.assertFalse(raises_over_po(1_00_000, 0, 1_00_000.004))
+
+	def test_format_inr_uses_indian_grouping(self):
+		self.assertEqual(format_inr(92_00_000), "₹92,00,000")
+		self.assertEqual(format_inr(1_84_909), "₹1,84,909")
+		self.assertEqual(format_inr(999), "₹999")
+		self.assertEqual(format_inr(0), "₹0")
+		self.assertEqual(format_inr(None), "₹0")
+		self.assertEqual(format_inr(12_34_56_789.6), "₹12,34,56,790")
+		self.assertEqual(format_inr(-1500), "-₹1,500")
+
+
+class TestBillRequiredFields(unittest.TestCase):
+	"""What a bill must carry for its status (owner, 2026-10-05)."""
+
+	def missing(self, status="Not Started", bill_type="Supply 1", value=100, eta="2026-11-01", doc=False, paid=0):
+		return missing_bill_fields(status, bill_type, value, eta, doc, paid)
+
+	def test_a_complete_pending_bill_saves(self):
+		self.assertEqual(self.missing(), [])
+
+	def test_bill_value_must_be_greater_than_zero(self):
+		for value in (None, 0, -5):
+			self.assertEqual(self.missing(value=value), ["Bill value (greater than 0)"])
+
+	def test_eta_is_needed_only_while_pending(self):
+		self.assertEqual(self.missing(eta=None), ["ETA date"])
+		self.assertEqual(self.missing(status="Client Approved", eta=None, doc=True), [])
+
+	def test_document_is_needed_from_submitted_on(self):
+		self.assertEqual(self.missing(status="Internally Approved"), [])
+		self.assertEqual(self.missing(status="Submitted"), ["Bill document (a link or an attachment)"])
+		self.assertEqual(self.missing(status="Submitted", doc=True), [])
+		self.assertEqual(self.missing(status="Invoice Sent", eta=None, doc=True), [])
+
+	def test_partial_payment_needs_the_amount_received(self):
+		self.assertEqual(
+			self.missing(status="Partial Payment Received", eta=None, doc=True), ["Payment received (greater than 0)"]
+		)
+		self.assertEqual(self.missing(status="Partial Payment Received", eta=None, doc=True, paid=500), [])
+		self.assertEqual(self.missing(status="Payment Received", eta=None, doc=True), [])
+
+	def test_an_na_bill_needs_nothing(self):
+		self.assertEqual(self.missing(status="NA", value=None, eta=None), [])
+		self.assertEqual(self.missing(bill_type="NA", value=None, eta=None), [])
+
+	def test_everything_missing_is_listed_together(self):
+		self.assertEqual(
+			self.missing(status="Submitted", value=None, eta=None),
+			["Bill value (greater than 0)", "ETA date", "Bill document (a link or an attachment)"],
+		)
+
+
+class TestFirstSubmissionDate(unittest.TestCase):
+	"""Only Submitted stamps it, once (owner, 2026-10-05)."""
+
+	TODAY = "2026-10-05"
+
+	def test_submitted_stamps_today(self):
+		self.assertEqual(first_submission_date(None, "Submitted", self.TODAY), self.TODAY)
+
+	def test_no_other_status_stamps_it(self):
+		for status in ("Not Started", "Prepared", "Submission Pending", "Internally Approved", "Revision Pending",
+				"Client Hold", "Certification Pending", "Client Approved", "Invoice Sent", "Payment Received",
+				"Partial Payment Received", "NA"):
+			self.assertIsNone(first_submission_date(None, status, self.TODAY), status)
+
+	def test_a_stamped_date_never_moves_or_clears(self):
+		for status in ("Submitted", "Revision Pending", "Client Approved", "Not Started"):
+			self.assertEqual(first_submission_date("2026-09-01", status, self.TODAY), "2026-09-01")

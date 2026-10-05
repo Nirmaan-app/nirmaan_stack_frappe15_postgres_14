@@ -33,8 +33,8 @@ def setup_project_billing(project: str, packages) -> dict:
 		package = entry.get("package")
 		managers = _managers(entry)
 		po_value = flt(entry.get("po_value"))
-		if po_value < 0:
-			frappe.throw(_("PO value for {0} cannot be negative.").format(package))
+		if po_value <= 0:
+			frappe.throw(_("Enter a PO value greater than 0 for {0}.").format(package))
 		manager_rows = [{"manager": user} for user in managers]
 
 		name = frappe.db.get_value("Project Billing Tracker", {"project": project, "package": package})

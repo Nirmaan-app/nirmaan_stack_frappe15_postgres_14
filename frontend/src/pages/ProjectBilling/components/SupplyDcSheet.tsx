@@ -7,7 +7,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
 import { useBillingMutations } from "../data/useBillingQueries";
 import type { BillingTracker } from "../types";
-import { type DcEntryMode, dcEntryPlan, dcFreshness, inr, parseAmount, pct } from "../utils/billingFormat";
+import { type DcEntryMode, dcEntryPlan, dcFreshness, inr, parsePlainAmount, pct } from "../utils/billingFormat";
 import { PackageChip, SegmentedTabs, ToneTag } from "./BillingBits";
 
 interface SupplyDcSheetProps {
@@ -65,8 +65,8 @@ export function SupplyDcSheet({ open, onOpenChange, trackers, showProject }: Sup
         <SheetHeader>
           <SheetTitle>Supply DC — daily update</SheetTitle>
           <SheetDescription>
-            Enter today's delivered value for each package; the running total updates itself. Type 2.5L or 1.2cr if you
-            prefer.
+            Enter today's delivered value for each package in rupees; the running total updates itself. It can't go
+            above the package's PO value.
           </SheetDescription>
         </SheetHeader>
 
@@ -104,7 +104,12 @@ export function SupplyDcSheet({ open, onOpenChange, trackers, showProject }: Sup
           {visible.map(({ t, fresh }) => {
             const draft = drafts[t.name] ?? "";
             const current = t.supply_dc || 0;
-            const { amount, newTotal, problem } = dcEntryPlan(mode, parseAmount(draft), current);
+            // No PO value, no Supply DC: there is nothing to measure it against (owner, 2026-10-05).
+            const noPo = !(t.po_value > 0);
+            const typed = parsePlainAmount(draft);
+            const plan = dcEntryPlan(mode, typed, current, t.po_value || 0);
+            const { amount, newTotal } = plan;
+            const problem = draft.trim() && typed === null ? "Numbers only, e.g. 250000" : plan.problem;
             const save = () => {
               if (amount === null || problem) return;
               commit(t, amount, mode === "add" ? "Supply DC added" : "Supply DC corrected");
@@ -123,42 +128,63 @@ export function SupplyDcSheet({ open, onOpenChange, trackers, showProject }: Sup
                   <span className="font-semibold text-gray-700">{inr(current)}</span>
                   {t.po_value > 0 && <span className="ml-1">{pct(current, t.po_value)}% of PO</span>}
                 </div>
-                <div className="mt-2.5 flex items-center gap-2">
-                  <Input
-                    className="w-32"
-                    inputMode="decimal"
-                    placeholder={mode === "add" ? "e.g. 2.5L" : "e.g. 86.6L"}
-                    aria-label={`Supply DC for ${t.package}`}
-                    value={draft}
-                    onChange={(e) => setDrafts((d) => ({ ...d, [t.name]: e.target.value }))}
-                    onKeyDown={(e) => e.key === "Enter" && save()}
-                  />
-                  {newTotal !== null && (
-                    <span className="text-sm text-muted-foreground">
-                      → <span className={cn("font-bold", problem ? "text-red-700" : "text-green-700")}>{inr(newTotal)}</span>
-                    </span>
-                  )}
-                  <Button
-                    size="sm"
-                    className="ml-auto"
-                    disabled={amount === null || !!problem || saving === t.name}
-                    onClick={save}
-                  >
-                    {saving === t.name ? "Saving…" : "Save"}
-                  </Button>
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  {problem ? <span className="text-[11px] font-semibold text-red-700">{problem}</span> : <span />}
-                  {/* Logs a ₹0 DC row dated today, so the package counts as updated today. */}
-                  <button
-                    type="button"
-                    disabled={saving === t.name}
-                    onClick={() => commit(t, 0, "Marked no delivery today")}
-                    className="text-[11px] font-semibold text-muted-foreground underline hover:text-gray-900"
-                  >
-                    No delivery today
-                  </button>
-                </div>
+                {noPo ? (
+                  <>
+                    <p className="mt-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      Set this package's PO value before logging Supply DC (project Billing tab → Packages).
+                    </p>
+                    {/* A zero day needs no PO value, so it can still be marked (owner, 2026-10-05). */}
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        disabled={saving === t.name}
+                        onClick={() => commit(t, 0, "Marked no delivery today")}
+                        className="text-[11px] font-semibold text-muted-foreground underline hover:text-gray-900"
+                      >
+                        No delivery today
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <Input
+                        className="w-32"
+                        inputMode="decimal"
+                        placeholder={mode === "add" ? "e.g. 250000" : "e.g. 8660000"}
+                        aria-label={`Supply DC for ${t.package}`}
+                        value={draft}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [t.name]: e.target.value }))}
+                        onKeyDown={(e) => e.key === "Enter" && save()}
+                      />
+                      {newTotal !== null && (
+                        <span className="text-sm text-muted-foreground">
+                          → <span className={cn("font-bold", problem ? "text-red-700" : "text-green-700")}>{inr(newTotal)}</span>
+                        </span>
+                      )}
+                      <Button
+                        size="sm"
+                        className="ml-auto"
+                        disabled={amount === null || !!problem || saving === t.name}
+                        onClick={save}
+                      >
+                        {saving === t.name ? "Saving…" : "Save"}
+                      </Button>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      {problem ? <span className="text-[11px] font-semibold text-red-700">{problem}</span> : <span />}
+                      {/* Logs a ₹0 DC row dated today, so the package counts as updated today. */}
+                      <button
+                        type="button"
+                        disabled={saving === t.name}
+                        onClick={() => commit(t, 0, "Marked no delivery today")}
+                        className="text-[11px] font-semibold text-muted-foreground underline hover:text-gray-900"
+                      >
+                        No delivery today
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}

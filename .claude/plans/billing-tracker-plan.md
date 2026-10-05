@@ -12,7 +12,7 @@ and the owner's decisions. Synced with the code on 2026-10-05.
 
 ## 0. Status
 
-- **Committed** on branch `billing-tracker`, 8 commits starting at `61ab3654d` (`git log 61ab3654d~1..`), **not pushed**.
+- **Committed** on branch `billing-tracker`, from `61ab3654d` onwards (`git log 61ab3654d~1..`), **not pushed**.
 - **Migrate:** a site without the billing doctypes needs `bench --site <site> migrate` once. It creates the
   five doctypes and imports the 9 packages from the fixture.
 - **Tested:**
@@ -47,7 +47,8 @@ and the owner's decisions. Synced with the code on 2026-10-05.
   - Admin also sees an ✏️ per package.
   - There is no "Next bill" column.
 - **Bills table:** "All | each package" tabs with bill counts (NA excluded).
-- **Buttons:** Add Bill, Packages, Update Supply DC. Update Supply DC is hidden here for Billing Executive and
+- **Buttons:** Setup Packages and Update Supply DC sit in the Billing summary header (owner, 2026-10-05); Add Bill is
+  on the bills table. Update Supply DC is hidden here for Billing Executive and
   Billing Lead (owner, 2026-10-05): they log Supply DC from Billing Tracker → My Bills. Screen only.
 
 **Billing Tracker page**
@@ -76,8 +77,8 @@ and the owner's decisions. Synced with the code on 2026-10-05.
 - **My Bills:** counts (my bills, pending, due in 7 days, overdue), the bills of the packages I manage, and
   Update Supply DC.
 
-**View Bills page:** owner, deadline (earliest pending ETA), bill count, an "approved & beyond" ring,
-package tabs, and the bills table.
+**View Bills page:** owner, deadline (earliest pending ETA), bill count and a **Setup Packages** button (billing
+writers; the same Packages dialog) in the top card, an "approved & beyond" ring, package tabs, and the bills table.
 
 **Bill tables everywhere:**
 - All use the shared DataTable (`BillsDataTable`): self-fetching facets on Project, Package, Bill Type
@@ -125,7 +126,7 @@ Project Billing Packages (master, fixture)            Projects
 | project | Link → Projects | required, set once |
 | package | Link → Project Billing Packages | required, set once |
 | billing_managers | Table MultiSelect → Project Billing Manager | one or more managers (decision 17) |
-| po_value | Currency | typed in the Packages dialog |
+| po_value | Currency | typed in the Packages dialog; greater than 0, plain rupees (decision 22) |
 | supply_dc | Currency, read-only | sum of the DC log |
 | dc_updated_on | Date, read-only | latest DC log date; drives "Updated today / N days ago" |
 | dc_log | Table → Project Billing DC Log | |
@@ -138,7 +139,12 @@ Project Billing Packages (master, fixture)            Projects
   - drops a manager picked twice;
   - stamps `entered_by` on new DC rows;
   - recomputes `supply_dc` and `dc_updated_on` from every row (never incremented);
-  - refuses a Supply DC total below zero.
+  - refuses a PO value of 0 or less when it is set or changed (decision 22; an older package saved without
+    one can still be edited);
+  - refuses a new Supply DC amount while the PO value is not set; a ₹0 "no delivery" row is still allowed
+    (decision 23);
+  - refuses a Supply DC total below zero;
+  - refuses a Supply DC total above the package's PO value (decision 21).
 - **A new tracker is refused unless the project is Won** (`validate_won`, the same guard as Project Inflows).
 
 ### Project Billing Manager (child of the tracker)
@@ -172,20 +178,24 @@ Project Billing Packages (master, fixture)            Projects
 | package | Link → Project Billing Packages, read-only | copied from the tracker on every save |
 | bill_type | Select | Supply 1 · Supply 2 · Supply 3 · RA 1 · RA 2 · RA 3 · Final · NA |
 | status | Select, default Not Started | the 13 statuses in §3 |
-| bill_value | Currency | |
+| bill_value | Currency | optional; greater than 0 when entered (decision 22) |
 | payment_received | Currency | per-bill tracking only; feeds no total (inflow comes from Financials) |
 | invoice_requested | Check | per-bill tracking only (yes / no); feeds no total |
 | eta_date | Date | today or later when set or changed |
-| first_submission_date | Date, read-only | stamped automatically (§3) |
+| first_submission_date | Date, read-only | stamped when saved as Submitted, never by another status (§3) |
 | approval_date | Date | today or later when set or changed |
 | bill_document_link | Data (URL) | a link **or** `bill_attachment`, never both |
 | bill_attachment | Attach | uploaded before save, then linked to the bill by `bills._link_attachment` |
 
 - **The bill's own validate** (`project_billing.py`):
   - copies project and package from the tracker;
-  - stamps the first submission date;
+  - refuses a negative bill value or payment received (decision 22);
+  - refuses a bill missing what its status requires (`rules.missing_bill_fields`, decision 24);
+  - stamps the first submission date, on Submitted only (decision 25);
   - refuses a link and an attachment together;
   - refuses an ETA or approval date before today when it is set or changed (a saved past date may stay).
+- **The bill hook** (`billing_validate` → `_guard_billed_within_po`) refuses a bill that takes the package's
+  billed total (non-NA bills) above its PO value, naming the most this bill can be (decision 21).
 - **Uniqueness:** the same package may have two bills of the same type (decision 3).
 - **No DC on a bill:** Supply DC is package-level only (decision 8).
 - **Change history** is on (`track_changes`).
@@ -205,12 +215,15 @@ Partial Payment Received, NA.
 | **Neither** | NA: left out of every count **and** every money total |
 
 - **Next bill** of a package = the pending bill with the **earliest ETA**; bills without an ETA come last.
-- **First submission date** is stamped with today's date the first time a bill is saved with Submitted,
-  Client Hold, Certification Pending, Client Approved, Invoice Sent, Payment Received or Partial Payment
-  Received (`SUBMITTED_OR_LATER`).
+- **First submission date** is stamped with today's date the first time a bill is saved as **Submitted**,
+  and by no other status (decision 25, `rules.first_submission_date`).
   - It never moves afterwards and cannot be edited.
-  - A bill saved straight into a later status is stamped that day.
+  - A bill that skips Submitted (e.g. Prepared → Client Approved, or created straight as Certification
+    Pending) keeps it **empty**; the drawer warns "You're skipping the Submitted status, so the first
+    submission date will stay empty." If the bill is saved as Submitted later, it is stamped then.
   - It records when the status was saved, not when the bill physically went out.
+  - `SUBMITTED_OR_LATER` no longer drives the date; it now only marks where the bill document becomes
+    required (decision 24).
 - **Deadline filter** (Bill Wise grid and bills table): pending bills only.
   - "Due within 7 days" = ETA from today to today + 7.
   - "Overdue" = ETA before today.
@@ -224,9 +237,12 @@ Partial Payment Received, NA.
     per-bill "Invoice requested" and "Payment received" fields are tracking only and feed no total.
 - **PO value:** typed per package; the project PO total is the sum over its trackers. Progress bars and
   "% of PO" fall back to the billed total until a PO value is entered.
+- **PO value cap** (decision 21): a package's billed total (non-NA bills) and its Supply DC total may not go
+  above its PO value. A save is refused only when the PO value is set, the save pushes the total above it, and the total goes up (`rules.raises_over_po`). So a package with no PO value is never capped, and one already over its PO can still be saved unchanged or corrected down. Lowering the PO value itself is
+  always allowed, even below what is already billed or delivered.
 
 The rules live in one pure module: `services/project_billing/rules.py` (`APPROVED_STATUSES`,
-`PENDING_STATUSES`, `SUBMITTED_OR_LATER`, `next_bill`, `SUMMARY_COLUMNS`, `summary_column`,
+`PENDING_STATUSES`, `SUBMITTED_OR_LATER`, `SUBMITTED_STATUS`, `first_submission_date`, `next_bill`, `SUMMARY_COLUMNS`, `summary_column`,
 `deadline_window`, `can_edit_package_bills`, `clean_package_name`). The frontend's status lists are pinned
 to the doctype by `src/utils/projectBillingStatusParity.test.ts`.
 
@@ -237,9 +253,11 @@ to the doctype by `src/utils/projectBillingStatusParity.test.ts`.
 1. **Set up packages** (project Billing tab → "Set up billing packages" / "Packages"; Admin, PMO and
    Billing users):
    - ① Tick the packages in scope. A package already set up stays ticked and locked.
-   - ② For each picked package, choose one or more managers and type the PO value (accepts 45L / 1.2cr).
+   - ② For each picked package, choose one or more managers and type the PO value: plain rupees, greater
+     than 0 (decision 22).
      "Use these managers for all packages" copies one row to the rest.
-   - A missing manager or PO value is outlined in amber; it never blocks saving.
+   - A missing PO value blocks saving (red, named in the footer). A missing manager is outlined in amber and
+     never blocks saving.
    - Save creates one tracker per new package and updates the managers and PO value of existing ones, in one
      transaction.
 2. **Edit one package** (Admin; ✏️ on the package row): managers and PO value for that package, saved
@@ -249,14 +267,28 @@ to the doctype by `src/utils/projectBillingStatusParity.test.ts`.
      drawer asks to set up packages first.
    - Fields: bill type, value, ETA, approval date, status, payment received, invoice requested, and the
      document as a **link or an uploaded file**.
+   - Package, bill type and status are always required (marked *). Required by status (decision 24, marked * in the drawer):
+     bill value > 0 always; ETA while pending; the document (link or file) from Submitted on; payment
+     received > 0 for Partial Payment Received. An NA bill (NA status or NA type) needs none of these.
+   - Save is never disabled for a gap (owner, 2026-10-05): a click with something missing saves nothing,
+     flags each missing field (red border + message) and scrolls to the first. A wrong value (past date,
+     "2.5L", 0) is flagged as it is typed. A refusal from the server (e.g. over the PO value) is a toast.
    - ETA and approval date cannot be before today when set or changed (the screen and the server both check).
+   - The package's billed total cannot go above its PO value: the save is refused with a toast saying the
+     most this bill can be (server check, decision 21).
 4. **Log Supply DC** ("Update Supply DC" on My Bills, and on the project tab for Admin and PMO): lists only
    the packages you may edit.
    - **Add today's:** the value delivered today.
    - **Correct total:** type the corrected total and the difference is logged (a minus entry when lower).
      A total equal to the current one is refused.
    - **No delivery today:** saves a ₹0 row dated today, so the package counts as updated today.
-   - A typed 0 is refused on screen (decision 16); the server refuses a total below zero.
+   - A package with no PO value cannot log an amount: its card says to set the PO value first and offers
+     only "No delivery today" (decision 23).
+   - Plain rupee amounts greater than 0 only (e.g. 250000); "2.5L" / "1.2cr" are not accepted (decision 22).
+     Add today's takes a positive amount; a lower total goes through Correct total, which itself must be
+     greater than 0; a zero day goes through No delivery today.
+   - A typed 0 is refused on screen (decision 16); the server refuses a total below zero, and a total above
+     the package's PO value (decision 21). The sheet shows "More than the PO value" before saving.
    - Saved rows: Admin only, in Desk.
 5. **Delete a bill:** in Desk only (no screen), same rule as editing.
 6. **Manage billing packages** (Billing Packages tab; Administrator, Admin, Billing Lead):
@@ -338,7 +370,8 @@ a SQL total or join, or a server-side lock:
 | Tracker, Bill | `has_permission`, `get_permission_query_conditions` | hide billing from non-billing users |
 | Tracker | `tracker_validate` | billing writer; Won check on new; saved DC rows Admin-only; new DC rows by managers as saved |
 | Tracker | `tracker_on_trash` | billing writer |
-| Bill | `billing_validate`, `billing_on_trash` | billing writer + Admin or a manager of the bill's package |
+| Bill | `billing_validate` | billing writer + Admin or a manager of the bill's package; billed total within the PO value |
+| Bill | `billing_on_trash` | billing writer + Admin or a manager of the bill's package |
 | Packages | `package_validate` | Admin / Billing Lead; duplicate name ignoring case |
 | Packages | `package_before_rename` | Admin / Billing Lead; no merge; no clash |
 | Packages | `package_on_trash` | Admin / Billing Lead; refused while any tracker uses it |
@@ -377,7 +410,7 @@ The app shell also changed:
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | First submission date: automatic only, or editable with pre-fill? | **Automatic only.** |
+| 1 | First submission date: automatic only, or editable with pre-fill? | **Automatic only.** *Which status stamps it: decision 25.* |
 | 2 | Who can change past DC rows? | **Admin only, in Desk.** Give the child table filterable columns in Desk. |
 | 3 | Two bills of the same type in one package? | **Allowed.** |
 | 4 | Who sets up billing and edits bills? | **Admin, PMO and Billing users** (Billing Lead + Billing Executive). *Narrowed for bills and Supply DC by decision 18.* |
@@ -392,11 +425,16 @@ The app shell also changed:
 | 13 | `billing_manager` + `remarks` on the tracker? | **Keep both.** The single manager became several in decision 17. |
 | 14 | Project Lead / Accountant / Accountant Lead read access? | **Removed.** Only Admin, PMO and Billing users see billing, read included. |
 | 15 | How are the 9 packages created? | **Fixture** (`fixtures/project_billing_packages.json`), no patch (owner, 2026-10-03; kept 2026-10-05 when a one-time seed patch was offered). |
-| 16 | A 0 typed in the Supply DC box? | **Not saved** (owner, 2026-10-03). The **"No delivery today"** button is the one way to log a zero day: it saves a ₹0 DC log row dated today, so the package counts as updated today (owner, 2026-10-03, after briefly hiding it; no extra field). In Correct total, a total equal to the current one is refused too; a real correction down to 0 still saves, as a minus entry. Screen rule only (`dcEntryPlan`): the server still accepts an amount of 0. |
+| 16 | A 0 typed in the Supply DC box? | **Not saved** (owner, 2026-10-03). *Since decision 22 a corrected total must also be greater than 0, so a correction all the way down to 0 is no longer entered from the screen.* The **"No delivery today"** button is the one way to log a zero day: it saves a ₹0 DC log row dated today, so the package counts as updated today (owner, 2026-10-03, after briefly hiding it; no extra field). In Correct total, a total equal to the current one is refused too; a real correction down to 0 still saves, as a minus entry. Screen rule only (`dcEntryPlan`): the server still accepts an amount of 0. |
 | 17 | Several billing managers per package? | **Yes** (owner, 2026-10-03). New child table `Project Billing Manager`, shown on the tracker as `billing_managers`; it replaces the single `billing_manager` field. My Bills and the Bill Wise manager filter match anyone among the managers. The Bill Wise manager grid counts a package's bills under each of its managers, so its rows can add up to more than the overall total. No patch: nothing was live, and the old column is left in the database unread. |
 | 18 | Who may add / edit bills and log Supply DC? | **Admin for every package; everyone else only for packages where they are one of the billing managers** (owner, 2026-10-03; narrows decision 4 for bills and DC). Viewing is unchanged: every billing user still sees every bill. Setup (Packages dialog: managers, PO value) is unchanged. Enforced in the controller hooks (bill save / delete, a new DC row checked against the managers as saved) through the pure `rules.can_edit_package_bills`; the read APIs stamp `can_edit_bills` per package and the screens follow it: Update Supply DC lists only those packages, Add Bill offers only those, and other rows show a lock instead of the pencil. |
 | 19 | Where are billing packages managed? | **Admin Options → Packages Settings → Billing Packages tab** (owner, 2026-10-05). Admin adds, renames and deletes (server rule: Admin + Billing Lead); PMO sees it read-only. Every package is ordinary (owner, 2026-10-05: "that not standard i can remove those also", which replaced the earlier option a with its locked standard 9): any package can be deleted while no project uses it, and renamed at any time. Because the fixture stays, a migrate re-creates any of the 9 that was deleted, or renamed away from its fixture name. Renaming or deleting: `rename_billing_package` renames the package AND each tracker named `{project}-{package}` (Frappe's rename then updates the bills' `billing_tracker` / `package` links, the managers + DC log child rows and the Version history), in one transaction (owner, 2026-10-05: option 1, no tracker ID keeps the old name). Names are unique ignoring case. |
 | 20 | Endpoints for single-document calls? | **No** (owner, 2026-10-05). The package list, add and delete use the standard document API; the unused `delete_bill`, `get_billing_packages`, `add_billing_package` and `delete_billing_package` endpoints were removed. Endpoints only where §6 says why. |
+| 21 | Can billing or Supply DC go above the PO value? | **No** (owner, 2026-10-05). A package's billed total (non-NA bills) and its Supply DC total stay within its PO value; a save that would go over is refused with a toast (bills: "… This bill can be at most ₹X"). The check is the total, not each bill alone; a package with no PO value set is not capped (for Supply DC, decision 23 now refuses it outright); only an increase past the PO is refused, so status changes and corrections down still save. Enforced on the server (`_guard_billed_within_po`, the tracker's validate) through `rules.raises_over_po`; the Supply DC sheet also shows it before saving. Supply DC takes plain rupee amounts only (no L / cr). |
+| 22 | Amounts and the PO value? | **Plain rupees, greater than 0** (owner, 2026-10-05). Every billing money box takes a plain number (no 45L / 1.2cr shorthand). The PO value is required and greater than 0: the Packages and Edit dialogs block Save without it, the setup endpoint refuses it, and the tracker refuses a PO value of 0 or less whenever it is set or changed (older packages saved without one keep working). Bill value and payment received are optional but greater than 0 when filled in (screen); the server refuses negatives (an empty field is stored as 0). Supply DC: the typed amount or corrected total is greater than 0. |
+| 23 | Supply DC on a package with no PO value? | **Not allowed** (owner, 2026-10-05): there is nothing to measure it against. The Supply DC sheet shows "Set this package's PO value before logging Supply DC" instead of the amount box, keeping only "No delivery today" (owner, same day: a zero day needs no PO value), and the tracker refuses any new non-zero DC row while the PO value is 0. Already-saved rows stay, and Admin can still correct them in Desk. Bills on such a package are still allowed (not decided). |
+| 24 | Which bill fields are required? | (owner, 2026-10-05) Package, bill type and status as before, plus, by status: a **bill value greater than 0** on every bill; an **ETA date** while the bill is pending; the **bill document** (a link or an attachment) from Submitted on; **payment received greater than 0** for Partial Payment Received. An NA bill (NA status or NA bill type) needs none. One rule, `rules.missing_bill_fields`, checked on every save (Desk and API too); the drawer mirrors it (`billMissingFields`), marks the fields * and, on a Save click with gaps, flags each missing field instead of saving (Save itself is never disabled for a gap). Saved bills are not changed; the rule applies on their next save. **Approval date is not required yet:** the "today or later" date rule would force today's date instead of the real approval date (open). |
+| 25 | Which status fills the first submission date? | **Submitted only** (owner, 2026-10-05; was any Submitted-or-later status). Stamped once with that day, never moved. A bill that skips Submitted keeps it empty, and the drawer warns while the status is being changed: "You're skipping the Submitted status, so the first submission date will stay empty." A warning, not a block. Dates already stamped by a later status are kept. |
 
 ---
 
@@ -431,8 +469,8 @@ The app shell also changed:
 
 | Suite | Count | Run |
 |---|---|---|
-| `services/project_billing/test_rules.py` | 20 | in the container, from `apps/nirmaan_stack`: `../../env/bin/python -m unittest nirmaan_stack.services.project_billing.test_rules` |
-| `utils/billingFormat.test.ts` | 40 | in the container, from `frontend`: `npx vitest run src/pages/ProjectBilling` |
+| `services/project_billing/test_rules.py` | 36 | in the container, from `apps/nirmaan_stack`: `../../env/bin/python -m unittest nirmaan_stack.services.project_billing.test_rules` |
+| `utils/billingFormat.test.ts` | 52 | in the container, from `frontend`: `npx vitest run src/pages/ProjectBilling` |
 | `src/utils/projectBillingStatusParity.test.ts` | 2 | `npx vitest run src/utils/projectBillingStatusParity.test.ts` |
 
 **Manual check by role** (needs one login per role)

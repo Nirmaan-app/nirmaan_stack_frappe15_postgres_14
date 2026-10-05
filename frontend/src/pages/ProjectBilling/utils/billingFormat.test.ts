@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_STATUSES,
   UNASSIGNED,
+  amountProblem,
   assigneeOptions,
   billDocMode,
+  billMissing,
+  billRequirements,
   billStatusOptions,
   clashingPackage,
   cleanPackageName,
@@ -17,48 +20,29 @@ import {
   inrShort,
   managerNames,
   matchesBillStatus,
-  parseAmount,
+  parsePlainAmount,
   poAmount,
   poInputOf,
   progressNote,
   projectDeadline,
   projectStatusTone,
   setupSummary,
+  skipsSubmitted,
   sortProjectsByDeadline,
   statusTone,
   trackersAssignedTo,
 } from "./billingFormat";
 
-describe("parseAmount", () => {
-  it("reads lakh / crore / k shorthands and Indian grouping", () => {
-    expect(parseAmount("2.5L")).toBe(250000);
-    expect(parseAmount("2.5 lakh")).toBe(250000);
-    expect(parseAmount("1.2cr")).toBe(12000000);
-    expect(parseAmount("75k")).toBe(75000);
-    expect(parseAmount("2,50,000")).toBe(250000);
-    expect(parseAmount("₹ 1,000")).toBe(1000);
-  });
-
-  it("keeps zero and negative corrections", () => {
-    expect(parseAmount("0")).toBe(0);
-    expect(parseAmount("-1.5L")).toBe(-150000);
-  });
-
-  it("refuses text it cannot read", () => {
-    expect(parseAmount("")).toBeNull();
-    expect(parseAmount("abc")).toBeNull();
-    expect(parseAmount("2.5x")).toBeNull();
-  });
-});
-
 describe("package setup", () => {
-  it("reads a typed PO value: blank is 0, junk and negatives are refused", () => {
+  it("reads a typed PO value as a plain amount: blank is 0, shorthand, junk and negatives are refused", () => {
     expect(poAmount("")).toBe(0);
     expect(poAmount("  ")).toBe(0);
-    expect(poAmount("92L")).toBe(9200000);
+    expect(poAmount("9200000")).toBe(9200000);
     expect(poAmount("92,00,000")).toBe(9200000);
+    expect(poAmount("92L")).toBeNull();
+    expect(poAmount("1.2cr")).toBeNull();
     expect(poAmount("abc")).toBeNull();
-    expect(poAmount("-5L")).toBeNull();
+    expect(poAmount("-500000")).toBeNull();
   });
 
   it("prefills a saved PO value in Indian grouping that reads back to the same number", () => {
@@ -81,10 +65,10 @@ describe("package setup", () => {
 
   it("totals the PO values and lists what each ticked package still lacks", () => {
     const summary = setupSummary({
-      Electrical: { managers: ["a@x", "m@x"], po: "92L" },
+      Electrical: { managers: ["a@x", "m@x"], po: "9200000" },
       HVAC: { managers: ["a@x"], po: "36,00,000" },
       FA: { managers: [], po: "" },
-      PA: { managers: ["a@x"], po: "4x" },
+      PA: { managers: ["a@x"], po: "4L" },
     });
     expect(summary.count).toBe(4);
     expect(summary.total).toBe(12800000);
@@ -102,35 +86,46 @@ describe("dcEntryPlan", () => {
   const ZERO = `0 can't be saved. If nothing was delivered, use "No delivery today".`;
 
   it("points a typed 0 at the No delivery today button, the one way to log a zero day", () => {
-    expect(dcEntryPlan("add", 0, 500000).problem).toMatch(/No delivery today/);
+    expect(dcEntryPlan("add", 0, 500000)).toEqual({ amount: 0, newTotal: 500000, problem: ZERO });
+    expect(dcEntryPlan("add", parsePlainAmount("-0"), 0).problem).toBe(ZERO);
   });
 
-  it("refuses a typed 0 in Add today's, including values that round to 0", () => {
-    expect(dcEntryPlan("add", parseAmount("0"), 500000)).toEqual({ amount: 0, newTotal: 500000, problem: ZERO });
-    expect(dcEntryPlan("add", parseAmount("0L"), 500000).problem).toBe(ZERO);
-    expect(dcEntryPlan("add", parseAmount("0.4"), 500000).problem).toBe(ZERO);
-    expect(dcEntryPlan("add", parseAmount("-0"), 0).problem).toBe(ZERO);
+  it("asks for more than 0 in Add today's; lowering goes through Correct total", () => {
+    expect(dcEntryPlan("add", -100000, 500000).problem).toBe("Enter an amount greater than 0. To lower the total, use Correct total.");
+  });
+
+  it("asks for a corrected total greater than 0", () => {
+    expect(dcEntryPlan("correct", 0, 500000).problem).toBe("Enter a total greater than 0.");
+    expect(dcEntryPlan("correct", -5, 500000).problem).toBe("Enter a total greater than 0.");
   });
 
   it("refuses a corrected total that changes nothing", () => {
-    expect(dcEntryPlan("correct", parseAmount("5L"), 500000).problem).toBe("Same as the current total. Nothing to save.");
-    expect(dcEntryPlan("correct", parseAmount("0"), 0).problem).toBe("Same as the current total. Nothing to save.");
+    expect(dcEntryPlan("correct", 500000, 500000).problem).toBe("Same as the current total. Nothing to save.");
   });
 
-  it("still saves a real correction down to zero, as a minus entry", () => {
-    expect(dcEntryPlan("correct", parseAmount("0"), 500000)).toEqual({ amount: -500000, newTotal: 0, problem: "" });
+  it("saves ordinary entries and corrections down, as a minus entry", () => {
+    expect(dcEntryPlan("add", 250000, 500000)).toEqual({ amount: 250000, newTotal: 750000, problem: "" });
+    expect(dcEntryPlan("add", 0.5, 0)).toEqual({ amount: 0.5, newTotal: 0.5, problem: "" });
+    expect(dcEntryPlan("correct", 400000, 500000)).toEqual({ amount: -100000, newTotal: 400000, problem: "" });
   });
 
-  it("saves ordinary entries and keeps the below-zero guard", () => {
-    expect(dcEntryPlan("add", parseAmount("2.5L"), 500000)).toEqual({ amount: 250000, newTotal: 750000, problem: "" });
-    expect(dcEntryPlan("add", parseAmount("-1L"), 500000)).toEqual({ amount: -100000, newTotal: 400000, problem: "" });
-    expect(dcEntryPlan("correct", parseAmount("4L"), 500000)).toEqual({ amount: -100000, newTotal: 400000, problem: "" });
-    expect(dcEntryPlan("add", parseAmount("-6L"), 500000).problem).toBe("Total would go below zero");
+  it("stays quiet while the box is empty", () => {
+    expect(dcEntryPlan("add", parsePlainAmount(""), 500000)).toEqual({ amount: null, newTotal: null, problem: "" });
+  });
+});
+
+describe("amountProblem (bill value, payment received)", () => {
+  it("empty is fine: the field is optional", () => {
+    expect(amountProblem("")).toBe("");
+    expect(amountProblem("   ")).toBe("");
   });
 
-  it("stays quiet while the box is empty or unreadable", () => {
-    expect(dcEntryPlan("add", parseAmount(""), 500000)).toEqual({ amount: null, newTotal: null, problem: "" });
-    expect(dcEntryPlan("correct", parseAmount("abc"), 500000)).toEqual({ amount: null, newTotal: null, problem: "" });
+  it("a filled-in amount must be a plain number greater than 0", () => {
+    expect(amountProblem("250000")).toBe("");
+    expect(amountProblem("0.5")).toBe("");
+    expect(amountProblem("0")).toBe("Enter an amount greater than 0");
+    expect(amountProblem("-100")).toBe("Enter an amount greater than 0");
+    expect(amountProblem("2.5L")).toBe("Numbers only, e.g. 250000");
   });
 });
 
@@ -355,5 +350,105 @@ describe("project wise: billing-status filter and deadline sort", () => {
     const copy = [...rows];
     sortProjectsByDeadline(rows, "asc");
     expect(rows).toEqual(copy);
+  });
+});
+
+describe("supply DC: plain amounts and the PO value cap", () => {
+  it("takes plain rupee amounts only, no L / cr shorthand", () => {
+    expect(parsePlainAmount("250000")).toBe(250000);
+    expect(parsePlainAmount(" 2,50,000 ")).toBe(250000);
+    expect(parsePlainAmount("₹1500.5")).toBe(1500.5);
+    expect(parsePlainAmount("-2000")).toBe(-2000);
+    expect(parsePlainAmount("2.5L")).toBeNull();
+    expect(parsePlainAmount("1.2cr")).toBeNull();
+    expect(parsePlainAmount("12k")).toBeNull();
+    expect(parsePlainAmount("1.234")).toBeNull();
+    expect(parsePlainAmount("")).toBeNull();
+    expect(parsePlainAmount(null)).toBeNull();
+  });
+
+  it("refuses a total above the PO value, allows up to it", () => {
+    expect(dcEntryPlan("add", 40000, 60000, 100000).problem).toBe("");
+    expect(dcEntryPlan("add", 40001, 60000, 100000).problem).toMatch(/More than the PO value/);
+    expect(dcEntryPlan("correct", 100001, 60000, 100000).problem).toMatch(/More than the PO value/);
+  });
+
+  it("no PO value set means no cap", () => {
+    expect(dcEntryPlan("add", 5000000, 0, 0).problem).toBe("");
+    expect(dcEntryPlan("add", 5000000, 0).problem).toBe("");
+  });
+
+  it("a package already over its PO can still be corrected down", () => {
+    expect(dcEntryPlan("correct", 150000, 200000, 100000).problem).toBe("");
+    expect(dcEntryPlan("add", 1, 200000, 100000).problem).toMatch(/More than the PO value/);
+  });
+});
+
+describe("required bill fields (mirrors rules.missing_bill_fields)", () => {
+  const bill = (over: Partial<Parameters<typeof billMissing>[0]> = {}) => ({
+    status: "Not Started",
+    bill_type: "Supply 1",
+    bill_value: "100",
+    eta_date: "2026-11-01",
+    hasDocument: false,
+    payment_received: "",
+    ...over,
+  });
+
+  it("a complete pending bill can be saved", () => {
+    expect(billMissing(bill())).toEqual([]);
+  });
+
+  it("bill value must be greater than 0", () => {
+    for (const bill_value of ["", "0", "-5", "2.5L"]) {
+      expect(billMissing(bill({ bill_value }))).toEqual(["Bill value (greater than 0)"]);
+    }
+  });
+
+  it("ETA only while pending; the document from Submitted on", () => {
+    expect(billMissing(bill({ eta_date: "" }))).toEqual(["ETA date"]);
+    expect(billMissing(bill({ status: "Client Approved", eta_date: "", hasDocument: true }))).toEqual([]);
+    expect(billMissing(bill({ status: "Internally Approved" }))).toEqual([]);
+    expect(billMissing(bill({ status: "Submitted" }))).toEqual(["Bill document (a link or an attachment)"]);
+  });
+
+  it("partial payment needs the amount received", () => {
+    const partial = bill({ status: "Partial Payment Received", eta_date: "", hasDocument: true });
+    expect(billMissing(partial)).toEqual(["Payment received (greater than 0)"]);
+    expect(billMissing({ ...partial, payment_received: "500" })).toEqual([]);
+    expect(billMissing(bill({ status: "Payment Received", eta_date: "", hasDocument: true }))).toEqual([]);
+  });
+
+  it("an NA bill needs nothing, by status or by bill type", () => {
+    expect(billMissing(bill({ status: "NA", bill_value: "", eta_date: "" }))).toEqual([]);
+    expect(billMissing(bill({ bill_type: "NA", bill_value: "", eta_date: "" }))).toEqual([]);
+    expect(billRequirements("NA", "Supply 1")).toEqual({ billValue: false, eta: false, document: false, payment: false });
+  });
+
+  it("lists everything missing in the server's order", () => {
+    expect(billMissing(bill({ status: "Submitted", bill_value: "", eta_date: "" }))).toEqual([
+      "Bill value (greater than 0)",
+      "ETA date",
+      "Bill document (a link or an attachment)",
+    ]);
+  });
+});
+
+describe("skipsSubmitted (only Submitted stamps the first submission date)", () => {
+  it("warns when a bill jumps past Submitted without a first submission date", () => {
+    expect(skipsSubmitted("Client Approved", "Prepared", false)).toBe(true);
+    expect(skipsSubmitted("Certification Pending", "Internally Approved", false)).toBe(true);
+    expect(skipsSubmitted("Invoice Sent", undefined, false)).toBe(true); // a new bill saved straight in
+  });
+
+  it("stays quiet on Submitted itself, before it, or once the date is set", () => {
+    expect(skipsSubmitted("Submitted", "Prepared", false)).toBe(false);
+    expect(skipsSubmitted("Prepared", "Not Started", false)).toBe(false);
+    expect(skipsSubmitted("Revision Pending", "Submitted", false)).toBe(false);
+    expect(skipsSubmitted("Client Approved", "Submitted", true)).toBe(false);
+  });
+
+  it("stays quiet when the status is not being changed", () => {
+    expect(skipsSubmitted("Client Approved", "Client Approved", false)).toBe(false);
   });
 });

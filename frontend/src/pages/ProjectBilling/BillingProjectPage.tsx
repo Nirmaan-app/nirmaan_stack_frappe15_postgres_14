@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BarChart3, ChevronLeft } from "lucide-react";
+import { BarChart3, ChevronLeft, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { useBillingProjects } from "./data/useBillingQueries";
 import { TONE_CLASSES, etaTag, pct, projectDeadline, projectStatusTone } from "./utils/billingFormat";
 import { PackageTabs, ToneTag } from "./components/BillingBits";
 import { BillsDataTable } from "./components/BillsDataTable";
+import { SetupBillingDialog } from "./components/SetupBillingDialog";
 
 function HeaderChip({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -63,6 +64,9 @@ export default function BillingProjectPage() {
   const trackers = useMemo(() => row?.packages ?? [], [row]);
   const projectLabel = row?.project_name || projectId;
   const projectNameOf = useCallback(() => projectLabel, [projectLabel]);
+
+  const canWrite = !!data?.message?.can_write;
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const [pkg, setPkg] = useState<string | null>(null);
   const scopeFilters = useMemo(
@@ -121,6 +125,11 @@ export default function BillingProjectPage() {
               {deadline ? formatDate(deadline) : "Not set"}
             </HeaderChip>
             <HeaderChip label="Bills">{billCount}</HeaderChip>
+            {canWrite && (
+              <Button onClick={() => setSetupOpen(true)}>
+                <Settings2 className="mr-1.5 h-4 w-4" /> Setup Packages
+              </Button>
+            )}
           </div>
         </div>
 
@@ -154,7 +163,15 @@ export default function BillingProjectPage() {
         urlSyncKey={`billing_project_${projectId}`}
         exportFileName={`${projectLabel}_Bills`}
         showManager
-        addBillFor={{ project: projectId }}
+        addBillFor={{ project: projectId, onSetupPackages: canWrite ? () => setSetupOpen(true) : undefined }}
+      />
+
+      <SetupBillingDialog
+        open={setupOpen}
+        onOpenChange={setSetupOpen}
+        project={projectId}
+        projectLabel={projectLabel}
+        trackers={trackers}
       />
     </div>
   );

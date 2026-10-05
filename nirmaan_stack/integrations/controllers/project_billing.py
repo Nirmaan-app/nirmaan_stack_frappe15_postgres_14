@@ -11,9 +11,15 @@ and other profiles. Who may WRITE is therefore decided here, by role profile
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from nirmaan_stack.api.projects._tendering_guard import validate_won
-from nirmaan_stack.services.project_billing.rules import can_edit_package_bills
+from nirmaan_stack.services.project_billing.rules import (
+	NA_STATUS,
+	can_edit_package_bills,
+	format_inr,
+	raises_over_po,
+)
 from nirmaan_stack.services.role_profiles import (
 	PROJECT_BILLING_PACKAGE_WRITE_PROFILES,
 	can_write_project_billing,
@@ -73,6 +79,36 @@ def tracker_validate(doc, method):
 def billing_validate(doc, method):
 	_require_billing_writer()
 	_require_package_editor(doc.billing_tracker)
+	_guard_billed_within_po(doc)
+
+
+def _guard_billed_within_po(doc):
+	"""A bill may not take its package's billed total above the package's PO value (owner, 2026-10-05).
+
+	Billed = the package's non-NA bills, as in every total. Only an increase past the PO is refused,
+	so a bill on a package already over its PO can still change status or come down.
+	"""
+	po_value, package = frappe.db.get_value("Project Billing Tracker", doc.billing_tracker, ["po_value", "package"])
+	if not flt(po_value):
+		return
+	others = flt(
+		frappe.db.sql(
+			"""SELECT COALESCE(SUM(bill_value), 0) FROM "tabProject Billing"
+			WHERE billing_tracker = %s AND name <> %s AND status <> %s""",
+			(doc.billing_tracker, doc.name or "", NA_STATUS),
+		)[0][0]
+	)
+
+	def counted(bill):
+		return flt(bill.bill_value) if bill and bill.status != NA_STATUS else 0
+
+	new_total = others + counted(doc)
+	if raises_over_po(po_value, others + counted(doc.get_doc_before_save()), new_total):
+		frappe.throw(
+			_("{0}: billed total would be {1}, more than its PO value of {2}. This bill can be at most {3}.").format(
+				package, format_inr(new_total), format_inr(po_value), format_inr(max(flt(po_value) - others, 0))
+			)
+		)
 
 
 def billing_on_trash(doc, method):

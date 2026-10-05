@@ -46,6 +46,17 @@ export const PENDING_STATUSES: readonly string[] = [
 
 export const NA_STATUS = "NA";
 
+/** The one status that stamps a bill's first submission date; mirrors `rules.SUBMITTED_STATUS`. */
+export const SUBMITTED_STATUS = "Submitted";
+
+/** A bill that has gone to the client at least once; mirrors `rules.SUBMITTED_OR_LATER`. */
+export const SUBMITTED_OR_LATER: readonly string[] = [
+  "Submitted",
+  "Client Hold",
+  "Certification Pending",
+  ...APPROVED_STATUSES,
+];
+
 export const BILLING_API = {
   projectBilling: "nirmaan_stack.api.project_billing.project_view.get_project_billing",
   setup: "nirmaan_stack.api.project_billing.setup.setup_project_billing",

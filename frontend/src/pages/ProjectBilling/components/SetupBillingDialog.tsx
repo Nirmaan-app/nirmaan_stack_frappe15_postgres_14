@@ -172,10 +172,9 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
     }
   };
 
-  const toFill = [
-    summary.noManager.length ? `a manager for ${summary.noManager.join(", ")}` : "",
-    summary.noPoValue.length ? `a PO value for ${summary.noPoValue.join(", ")}` : "",
-  ].filter(Boolean);
+  // A PO value greater than 0 is required (owner, 2026-10-05); a missing manager is not.
+  const poMissing = [...summary.unreadable, ...summary.noPoValue];
+  const toFill = summary.noManager.length ? [`a manager for ${summary.noManager.join(", ")}`] : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -183,8 +182,8 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
         <DialogHeader className="space-y-1 px-6 pb-3 pt-5 text-left">
           <DialogTitle>Billing packages</DialogTitle>
           <DialogDescription>
-            {projectLabel} · pick the packages in scope, then add their billing managers and PO value. Type 45L or
-            1.2cr if you prefer.
+            {projectLabel} · pick the packages in scope, then add their billing managers and PO value (in rupees,
+            greater than 0).
           </DialogDescription>
         </DialogHeader>
 
@@ -302,11 +301,10 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
                           <Input
                             className={cn(
                               "h-9 pl-7 text-right tabular-nums",
-                              po === null && "border-red-400 focus-visible:ring-red-400",
-                              po === 0 && "border-amber-400",
+                              (po === null || po === 0) && "border-red-400 focus-visible:ring-red-400",
                             )}
                             inputMode="decimal"
-                            placeholder="e.g. 45L"
+                            placeholder="e.g. 4500000"
                             aria-label={`PO value for ${name}`}
                             value={row.po}
                             onChange={(e) => update(name, { po: e.target.value })}
@@ -315,10 +313,10 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
                         <p
                           className={cn(
                             "mt-1 text-right text-[11px] tabular-nums",
-                            po === null ? "font-semibold text-red-700" : po ? "text-muted-foreground" : "text-amber-700",
+                            po ? "text-muted-foreground" : "font-semibold text-red-700",
                           )}
                         >
-                          {po === null ? "Can't read this amount" : po ? inr(po) : "Not entered yet"}
+                          {po === null ? "Numbers only, e.g. 4500000" : po ? inr(po) : "Enter a PO value greater than 0"}
                         </p>
                       </div>
 
@@ -360,7 +358,7 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
           <p
             className={cn(
               "text-xs",
-              summary.unreadable.length
+              poMissing.length
                 ? "font-semibold text-red-700"
                 : toFill.length
                   ? "text-amber-700"
@@ -369,8 +367,8 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
                     : "text-muted-foreground",
             )}
           >
-            {summary.unreadable.length
-              ? `Can't read the PO value for ${summary.unreadable.join(", ")}.`
+            {poMissing.length
+              ? `Enter a PO value greater than 0 for ${poMissing.join(", ")}.`
               : toFill.length
                 ? `Still to add: ${toFill.join(" · ")}. You can save now and add these later.`
                 : summary.count
@@ -381,7 +379,7 @@ export function SetupBillingDialog({ open, onOpenChange, project, projectLabel, 
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button disabled={loading || !summary.count || summary.unreadable.length > 0} onClick={handleSave}>
+            <Button disabled={loading || !summary.count || poMissing.length > 0} onClick={handleSave}>
               {loading
                 ? "Saving…"
                 : newCount

@@ -134,31 +134,64 @@ export function buildBillColumns(o: BillColumnOptions): ColumnDef<BillDoc>[] {
     },
     {
       accessorKey: "eta_date",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="ETA" />,
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title={
+            <span className="whitespace-normal text-left leading-tight">
+              ETA
+              <br />
+              Date
+            </span>
+          }
+        />
+      ),
       cell: ({ row }) => <EtaCell eta={row.original.eta_date} done={!isPending(row.original.status)} />,
       size: 170,
       meta: {
-        exportHeaderName: "ETA",
+        exportHeaderName: "ETA Date",
         exportValue: (row: BillDoc) => (row.eta_date ? formatDate(row.eta_date) : ""),
       },
     },
     {
       accessorKey: "first_submission_date",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="First Sub." />,
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title={
+            <span className="whitespace-normal text-left leading-tight">
+              First Submission
+              <br />
+              Date
+            </span>
+          }
+        />
+      ),
       cell: ({ row }) => day(row.original.first_submission_date),
       size: 120,
       meta: {
-        exportHeaderName: "First Submission",
+        exportHeaderName: "First Submission Date",
         exportValue: (row: BillDoc) => (row.first_submission_date ? formatDate(row.first_submission_date) : ""),
       },
     },
     {
       accessorKey: "approval_date",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Approval" />,
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title={
+            <span className="whitespace-normal text-left leading-tight">
+              Approval
+              <br />
+              Date
+            </span>
+          }
+        />
+      ),
       cell: ({ row }) => day(row.original.approval_date),
       size: 120,
       meta: {
-        exportHeaderName: "Approval",
+        exportHeaderName: "Approval Date",
         exportValue: (row: BillDoc) => (row.approval_date ? formatDate(row.approval_date) : ""),
       },
     },

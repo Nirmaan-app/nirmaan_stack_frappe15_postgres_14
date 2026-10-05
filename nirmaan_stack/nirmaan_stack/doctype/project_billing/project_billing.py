@@ -4,9 +4,9 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
-from nirmaan_stack.services.project_billing.rules import SUBMITTED_OR_LATER
+from nirmaan_stack.services.project_billing.rules import first_submission_date, missing_bill_fields
 
 
 class ProjectBilling(Document):
@@ -17,9 +17,28 @@ class ProjectBilling(Document):
 			"Project Billing Tracker", self.billing_tracker, ["project", "package"]
 		) or (None, None)
 
-		# Stamped once; later status changes never move it.
-		if not self.first_submission_date and self.status in SUBMITTED_OR_LATER:
-			self.first_submission_date = frappe.utils.today()
+		# Stamped only by Submitted, once; later status changes never move it (owner, 2026-10-05).
+		self.first_submission_date = first_submission_date(
+			self.first_submission_date, self.status, frappe.utils.today()
+		)
+
+		# Money is never negative (owner, 2026-10-05). An empty field is stored as 0, so 0 means
+		# "not entered" here; the drawer itself asks for more than 0 once a box is filled in.
+		for field, label in (("bill_value", _("Bill value")), ("payment_received", _("Payment received"))):
+			if flt(self.get(field)) < 0:
+				frappe.throw(_("{0} cannot be negative.").format(label))
+
+		# What a bill must carry for its status (owner, 2026-10-05); the drawer shows the same list.
+		missing = missing_bill_fields(
+			self.status,
+			self.bill_type,
+			self.bill_value,
+			self.eta_date,
+			bool(self.get("bill_document_link") or self.get("bill_attachment")),
+			self.payment_received,
+		)
+		if missing:
+			frappe.throw(_("Fill in before saving: {0}.").format(", ".join(missing)))
 
 		# The bill document is a link OR an attachment, never both (owner, 2026-10-03).
 		if self.get("bill_document_link") and self.get("bill_attachment"):

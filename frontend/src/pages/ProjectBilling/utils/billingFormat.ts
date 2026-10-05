@@ -1,6 +1,13 @@
 // Pure display helpers for the billing tracker. No React, no data fetching.
 
-import { APPROVED_STATUSES, BILL_STATUSES, NA_STATUS, PENDING_STATUSES } from "../billing.constants";
+import {
+  APPROVED_STATUSES,
+  BILL_STATUSES,
+  NA_STATUS,
+  PENDING_STATUSES,
+  SUBMITTED_OR_LATER,
+  SUBMITTED_STATUS,
+} from "../billing.constants";
 import type { BillingManagerRef } from "../types";
 
 export type Tone = "neutral" | "warning" | "serious" | "critical" | "good";
@@ -96,30 +103,6 @@ export function dcFreshness(iso?: string | null, today: Date = new Date()): { la
 }
 
 /**
- * Parse an amount typed the way site teams write it: "250000", "2,50,000",
- * "2.5L", "2.5 lakh", "1.2cr", "75k", "-1.5L". Returns null when unreadable.
- */
-export function parseAmount(input?: string | null): number | null {
-  if (input === null || input === undefined) return null;
-  let s = String(input).trim().toLowerCase().replace(/[₹,\s]/g, "");
-  if (!s) return null;
-  let mult = 1;
-  if (/(crores|crore|cr)$/.test(s)) {
-    mult = 1e7;
-    s = s.replace(/(crores|crore|cr)$/, "");
-  } else if (/(lakhs|lakh|lacs|lac|l)$/.test(s)) {
-    mult = 1e5;
-    s = s.replace(/(lakhs|lakh|lacs|lac|l)$/, "");
-  } else if (/k$/.test(s)) {
-    mult = 1e3;
-    s = s.replace(/k$/, "");
-  }
-  if (!/^-?\d*\.?\d+$/.test(s)) return null;
-  const n = parseFloat(s);
-  return Number.isNaN(n) ? null : Math.round(n * mult);
-}
-
-/**
  * A typed billing package name: outer spaces dropped, inner runs of spaces made one.
  * Mirrors `rules.clean_package_name`, which the server applies before saving.
  */
@@ -133,10 +116,13 @@ export function clashingPackage(name: string, existing: readonly string[]): stri
   return (wanted && existing.find((n) => n.toLowerCase() === wanted)) || null;
 }
 
-/** A typed PO value in rupees: blank is 0; unreadable or negative is null. */
+/**
+ * A typed PO value in rupees, plain amounts only (no L / cr): blank is 0; unreadable or negative
+ * is null. A package can only be saved with a PO value greater than 0 (owner, 2026-10-05).
+ */
 export function poAmount(typed: string): number | null {
   if (!typed.trim()) return 0;
-  const n = parseAmount(typed);
+  const n = parsePlainAmount(typed);
   return n === null || n < 0 ? null : n;
 }
 
@@ -209,26 +195,116 @@ export function setupSummary(rows: Record<string, PackageSetup>) {
 export type DcEntryMode = "add" | "correct";
 
 /**
+ * Which bill fields the bill's status makes required (owner, 2026-10-05). An NA bill (NA status or
+ * NA bill type) needs none. Mirrors `rules.missing_bill_fields`, which the server applies on save.
+ */
+export function billRequirements(status: string, billType: string) {
+  const na = status === NA_STATUS || billType === NA_STATUS;
+  return {
+    billValue: !na,
+    eta: !na && PENDING_STATUSES.includes(status),
+    document: !na && SUBMITTED_OR_LATER.includes(status),
+    payment: !na && status === "Partial Payment Received",
+  };
+}
+
+/**
+ * Is this save moving a bill past Submitted without ever being Submitted? Only Submitted stamps the
+ * first submission date (owner, 2026-10-05), so such a bill keeps it empty; the drawer warns.
+ * `savedStatus` is the status as saved (undefined for a new bill).
+ */
+export function skipsSubmitted(status: string, savedStatus: string | undefined, hasFirstSubmission: boolean): boolean {
+  return (
+    !hasFirstSubmission &&
+    status !== savedStatus &&
+    status !== SUBMITTED_STATUS &&
+    SUBMITTED_OR_LATER.includes(status)
+  );
+}
+
+export interface BillForCheck {
+  status: string;
+  bill_type: string;
+  bill_value: string;
+  eta_date: string;
+  hasDocument: boolean;
+  payment_received: string;
+}
+
+/** Which fields the bill's status requires and are still empty (or not above 0, for amounts). */
+export function billMissingFields(bill: BillForCheck) {
+  const need = billRequirements(bill.status, bill.bill_type);
+  const positive = (typed: string) => (parsePlainAmount(typed) ?? 0) > 0;
+  return {
+    billValue: need.billValue && !positive(bill.bill_value),
+    eta: need.eta && !bill.eta_date,
+    document: need.document && !bill.hasDocument,
+    payment: need.payment && !positive(bill.payment_received),
+  };
+}
+
+/** What a bill still lacks for its status, as labels in the server's order; [] when it can be saved. */
+export function billMissing(bill: BillForCheck): string[] {
+  const gaps = billMissingFields(bill);
+  return [
+    gaps.billValue ? "Bill value (greater than 0)" : "",
+    gaps.eta ? "ETA date" : "",
+    gaps.document ? "Bill document (a link or an attachment)" : "",
+    gaps.payment ? "Payment received (greater than 0)" : "",
+  ].filter(Boolean);
+}
+
+/**
+ * A typed money box that is filled in must hold a plain amount greater than 0 (owner, 2026-10-05).
+ * Empty is fine: the field is optional. Returns the message to show, or "" when it is fine.
+ */
+export function amountProblem(typed: string): string {
+  if (!typed.trim()) return "";
+  const n = parsePlainAmount(typed);
+  if (n === null) return "Numbers only, e.g. 250000";
+  return n > 0 ? "" : "Enter an amount greater than 0";
+}
+
+/**
+ * A plain rupee amount as typed in a billing money box: digits, an optional minus and up to two
+ * decimals; spaces, commas and ₹ are ignored. No shorthand: "2.5L" or "1.2cr" is not a number
+ * here (owner, 2026-10-05). Null when empty or not a plain number.
+ */
+export function parsePlainAmount(input?: string | null): number | null {
+  const s = String(input ?? "").replace(/[₹,\s]/g, "");
+  if (!/^-?\d+(\.\d{1,2})?$/.test(s)) return null;
+  return Number(s);
+}
+
+/**
  * What a typed Supply DC value would save: "add" logs the typed amount, "correct" logs the
- * difference to the typed total. A non-empty `problem` blocks the save. An entry of 0 is never
- * saved from the box; "No delivery today" is the one way to log a zero day.
+ * difference to the typed total. A non-empty `problem` blocks the save.
+ * - The typed value must be greater than 0 in both modes (owner, 2026-10-05): a lower total is
+ *   entered through "Correct total", and a zero day through "No delivery today".
+ * - With a PO value set, the total may not rise above it (owner, 2026-10-05); the server checks
+ *   the same rule.
  */
 export function dcEntryPlan(
   mode: DcEntryMode,
   typed: number | null,
   current: number,
+  poValue = 0,
 ): { amount: number | null; newTotal: number | null; problem: string } {
   if (typed === null) return { amount: null, newTotal: null, problem: "" };
   const amount = mode === "add" ? typed : typed - current;
   const newTotal = mode === "add" ? current + typed : typed;
-  if (Math.abs(amount) < 0.005) {
+  if (mode === "add" && Math.abs(typed) < 0.005) {
+    return { amount, newTotal, problem: `0 can't be saved. If nothing was delivered, use "No delivery today".` };
+  }
+  if (typed < 0.005) {
     const problem =
-      mode === "add"
-        ? `0 can't be saved. If nothing was delivered, use "No delivery today".`
-        : "Same as the current total. Nothing to save.";
+      mode === "add" ? "Enter an amount greater than 0. To lower the total, use Correct total." : "Enter a total greater than 0.";
     return { amount, newTotal, problem };
   }
-  if (newTotal < 0) return { amount, newTotal, problem: "Total would go below zero" };
+  if (Math.abs(amount) < 0.005) return { amount, newTotal, problem: "Same as the current total. Nothing to save." };
+  if (poValue > 0 && newTotal > poValue + 0.005 && newTotal > current + 0.005) {
+    return { amount, newTotal, problem: `More than the PO value (${inr(poValue)})` };
+  }
   return { amount, newTotal, problem: "" };
 }
 

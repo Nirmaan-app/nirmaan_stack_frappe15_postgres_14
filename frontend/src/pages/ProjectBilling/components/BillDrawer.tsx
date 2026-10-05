@@ -14,7 +14,18 @@ import { formatDate } from "@/utils/FormatDate";
 import { BILL_STATUSES, BILL_TYPES } from "../billing.constants";
 import { useBillingMutations } from "../data/useBillingQueries";
 import type { BillDoc, BillDraft, BillingTracker } from "../types";
-import { type BillDocMode, billDocMode, fileNameOf, inr, isoDate, managerNames } from "../utils/billingFormat";
+import {
+  type BillDocMode,
+  amountProblem,
+  billDocMode,
+  billMissingFields,
+  billRequirements,
+  fileNameOf,
+  skipsSubmitted,
+  inr,
+  isoDate,
+  managerNames,
+} from "../utils/billingFormat";
 import { PersonChips } from "./BillingBits";
 
 interface BillDrawerProps {
@@ -52,6 +63,27 @@ function draftFrom(bill: BillDoc | null | undefined, defaultTracker?: string): B
 const BILL_DOCTYPE = "Project Billing";
 const DATE_FIELDS = ["eta_date", "approval_date"] as const;
 
+const INVALID = "border-red-500 focus-visible:ring-red-500";
+
+/** A field's validation message; `data-bill-error` lets a failed Save scroll to the first one. */
+function FieldError({ message }: { message: string }) {
+  if (!message) return null;
+  return (
+    <p data-bill-error className="mt-1 text-[11px] font-semibold text-red-700">
+      {message}
+    </p>
+  );
+}
+
+/** The red * after a required field's label (always required, or required by the bill's status). */
+function RequiredMark() {
+  return (
+    <span className="ml-0.5 text-red-600" aria-label="required">
+      *
+    </span>
+  );
+}
+
 function ReadOnlyRow({ label, children, last }: { label: string; children: React.ReactNode; last?: boolean }) {
   return (
     <div className={cn("flex items-center justify-between gap-3 py-2.5", !last && "border-b border-gray-100")}>
@@ -78,12 +110,15 @@ export function BillDrawer({
   // Bill document: a link OR an attachment. Opens on what the bill already has.
   const [docMode, setDocMode] = useState<BillDocMode>(() => billDocMode(bill));
   const [newFile, setNewFile] = useState<File | null>(null);
+  // Set by a Save click with something missing; until then a missing field is not flagged.
+  const [triedSave, setTriedSave] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(draftFrom(bill, defaultTracker));
       setDocMode(billDocMode(bill));
       setNewFile(null);
+      setTriedSave(false);
     }
   }, [open, bill, defaultTracker]);
 
@@ -96,14 +131,50 @@ export function BillDrawer({
     !!draft[field] && draft[field] !== (bill?.[field] || "") && draft[field] < today;
   const hasPastDate = DATE_FIELDS.some(pastDate);
 
+  // Money boxes are optional, but a filled-in one must be greater than 0 (owner, 2026-10-05).
+  const billValueProblem = amountProblem(draft.bill_value);
+  const paymentProblem = amountProblem(draft.payment_received);
+
+  // What this bill's status makes required (owner, 2026-10-05); the server checks the same list.
+  const required = billRequirements(draft.status, draft.bill_type);
+  const hasDocument = docMode === "link" ? !!draft.bill_document_link.trim() : !!(draft.bill_attachment || newFile);
+  const gaps = billMissingFields({ ...draft, hasDocument });
+
+  // Save stays clickable (owner, 2026-10-05): a click with something missing flags those fields
+  // instead of saving. A wrong value (a past date, "2.5L", 0) is flagged as soon as it is typed.
+  const fieldError = {
+    package: triedSave && !draft.billing_tracker ? "Pick a package" : "",
+    billType: triedSave && !draft.bill_type ? "Pick a bill type" : "",
+    billValue: billValueProblem || (triedSave && gaps.billValue ? "Enter a bill value greater than 0" : ""),
+    eta: pastDate("eta_date") ? "Pick today or a later date" : triedSave && gaps.eta ? "Pick an ETA date" : "",
+    approval: pastDate("approval_date") ? "Pick today or a later date" : "",
+    payment: paymentProblem || (triedSave && gaps.payment ? "Enter the amount received, greater than 0" : ""),
+    document: triedSave && gaps.document ? "Add the bill document: a link or an attachment" : "",
+  };
+  const blocked =
+    !draft.billing_tracker ||
+    !draft.bill_type ||
+    hasPastDate ||
+    !!billValueProblem ||
+    !!paymentProblem ||
+    Object.values(gaps).some(Boolean);
+
   const busy = loading || uploading;
-  const canSave = !!draft.billing_tracker && !!draft.bill_type && !hasPastDate && !busy;
 
   // Only the chosen one is saved; switching clears the other on save.
   const otherWillBeCleared =
     docMode === "link" ? !!draft.bill_attachment : !!draft.bill_document_link.trim();
 
   const handleSave = async () => {
+    if (blocked) {
+      setTriedSave(true);
+      // The drawer can be taller than the screen: bring the first flagged field into view.
+      setTimeout(
+        () => document.querySelector("[data-bill-error]")?.scrollIntoView({ block: "center", behavior: "smooth" }),
+        50,
+      );
+      return;
+    }
     try {
       let attachment = docMode === "file" ? draft.bill_attachment || null : null;
       if (docMode === "file" && newFile) {
@@ -154,10 +225,13 @@ export function BillDrawer({
               <ReadOnlyRow label="Project">{projectLabel}</ReadOnlyRow>
               {isNew ? (
                 <div className="py-2.5">
-                  <Label className="mb-1.5 block text-xs text-muted-foreground">Package</Label>
+                  <Label className="mb-1.5 block text-xs text-muted-foreground">
+                    Package
+                    <RequiredMark />
+                  </Label>
                   {trackers.length ? (
                     <Select value={draft.billing_tracker} onValueChange={(v) => set("billing_tracker", v)}>
-                      <SelectTrigger className="bg-white">
+                      <SelectTrigger className={cn("bg-white", fieldError.package && INVALID)} aria-invalid={!!fieldError.package}>
                         <SelectValue placeholder="Select a package" />
                       </SelectTrigger>
                       <SelectContent>
@@ -178,6 +252,7 @@ export function BillDrawer({
                       )}
                     </div>
                   )}
+                  <FieldError message={fieldError.package} />
                 </div>
               ) : (
                 <ReadOnlyRow label="Package">{bill?.package}</ReadOnlyRow>
@@ -188,7 +263,7 @@ export function BillDrawer({
               <ReadOnlyRow label="PO value">{tracker ? inr(tracker.po_value) : "—"}</ReadOnlyRow>
               <ReadOnlyRow label="Supply DC till date">{tracker ? inr(tracker.supply_dc) : "—"}</ReadOnlyRow>
               <ReadOnlyRow label="First submission date" last>
-                {bill?.first_submission_date ? formatDate(bill.first_submission_date) : "Set when submitted"}
+                {bill?.first_submission_date ? formatDate(bill.first_submission_date) : "Set when saved as Submitted"}
               </ReadOnlyRow>
             </div>
           </section>
@@ -200,9 +275,12 @@ export function BillDrawer({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="mb-1.5 block text-xs">Bill type</Label>
+                <Label className="mb-1.5 block text-xs">
+                  Bill type
+                  <RequiredMark />
+                </Label>
                 <Select value={draft.bill_type} onValueChange={(v) => set("bill_type", v)}>
-                  <SelectTrigger>
+                  <SelectTrigger className={cn(fieldError.billType && INVALID)} aria-invalid={!!fieldError.billType}>
                     <SelectValue placeholder="Select…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -213,9 +291,13 @@ export function BillDrawer({
                     ))}
                   </SelectContent>
                 </Select>
+                <FieldError message={fieldError.billType} />
               </div>
               <div>
-                <Label className="mb-1.5 block text-xs">Bill status</Label>
+                <Label className="mb-1.5 block text-xs">
+                  Bill status
+                  <RequiredMark />
+                </Label>
                 <Select value={draft.status} onValueChange={(v) => set("status", v)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -228,32 +310,43 @@ export function BillDrawer({
                     ))}
                   </SelectContent>
                 </Select>
+                {skipsSubmitted(draft.status, bill?.status, !!bill?.first_submission_date) && (
+                  <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                    You're skipping the Submitted status, so the first submission date will stay empty.
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="bill-value" className="mb-1.5 block text-xs">
-                  Bill value (₹)
+                  Bill value (₹){required.billValue && <RequiredMark />}
                 </Label>
                 <Input
                   id="bill-value"
                   type="number"
                   inputMode="decimal"
-                  placeholder="0"
+                  min={0}
+                  placeholder="e.g. 250000"
+                  className={cn(fieldError.billValue && INVALID)}
+                  aria-invalid={!!fieldError.billValue}
                   value={draft.bill_value}
                   onChange={(e) => set("bill_value", e.target.value)}
                 />
+                <FieldError message={fieldError.billValue} />
               </div>
               <div>
                 <Label htmlFor="bill-eta" className="mb-1.5 block text-xs">
-                  ETA date
+                  ETA date{required.eta && <RequiredMark />}
                 </Label>
                 <Input
                   id="bill-eta"
                   type="date"
                   min={today}
+                  className={cn(fieldError.eta && INVALID)}
+                  aria-invalid={!!fieldError.eta}
                   value={draft.eta_date}
                   onChange={(e) => set("eta_date", e.target.value)}
                 />
-                {pastDate("eta_date") && <p className="mt-1 text-[11px] font-semibold text-red-700">Pick today or a later date</p>}
+                <FieldError message={fieldError.eta} />
               </div>
               <div>
                 <Label htmlFor="bill-approval" className="mb-1.5 block text-xs">
@@ -263,52 +356,74 @@ export function BillDrawer({
                   id="bill-approval"
                   type="date"
                   min={today}
+                  className={cn(fieldError.approval && INVALID)}
+                  aria-invalid={!!fieldError.approval}
                   value={draft.approval_date}
                   onChange={(e) => set("approval_date", e.target.value)}
                 />
-                {pastDate("approval_date") && (
-                  <p className="mt-1 text-[11px] font-semibold text-red-700">Pick today or a later date</p>
-                )}
+                <FieldError message={fieldError.approval} />
               </div>
               <div>
                 <Label htmlFor="bill-payment" className="mb-1.5 block text-xs">
-                  Payment received (₹)
+                  Payment received (₹){required.payment && <RequiredMark />}
                 </Label>
                 <Input
                   id="bill-payment"
                   type="number"
                   inputMode="decimal"
-                  placeholder="0"
+                  min={0}
+                  placeholder="e.g. 250000"
+                  className={cn(fieldError.payment && INVALID)}
+                  aria-invalid={!!fieldError.payment}
                   value={draft.payment_received}
                   onChange={(e) => set("payment_received", e.target.value)}
                 />
+                <FieldError message={fieldError.payment} />
               </div>
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-center justify-between gap-3">
-                <Label className="text-xs">Bill document</Label>
-                <div className="inline-flex overflow-hidden rounded-md border">
-                  {(
-                    [
-                      { value: "link", label: "Link", icon: Link2 },
-                      { value: "file", label: "Attachment", icon: FileText },
-                    ] as const
-                  ).map((opt, i) => (
+              <Label className="text-xs">
+                Bill document{required.document && <RequiredMark />}
+              </Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Add it as a link or an attachment. Pick one:</p>
+              {/* Two options, one at a time, drawn as radio choices so both read as options (owner, 2026-10-05). */}
+              <div
+                role="radiogroup"
+                aria-label="How to add the bill document"
+                className="mb-2 mt-1.5 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1"
+              >
+                {(
+                  [
+                    { value: "link", label: "Link", icon: Link2 },
+                    { value: "file", label: "Attachment", icon: FileText },
+                  ] as const
+                ).map((opt) => {
+                  const on = docMode === opt.value;
+                  return (
                     <button
                       key={opt.value}
                       type="button"
+                      role="radio"
+                      aria-checked={on}
                       onClick={() => setDocMode(opt.value)}
                       className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold",
-                        i > 0 && "border-l",
-                        docMode === opt.value ? "bg-primary text-white" : "bg-white text-gray-700 hover:bg-gray-50",
+                        "inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+                        on ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-300" : "text-gray-500 hover:bg-white/60 hover:text-gray-800",
                       )}
                     >
+                      <span
+                        className={cn(
+                          "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border",
+                          on ? "border-primary" : "border-gray-400",
+                        )}
+                      >
+                        {on && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                      </span>
                       <opt.icon className="h-3.5 w-3.5" /> {opt.label}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
 
               {docMode === "link" ? (
@@ -318,6 +433,8 @@ export function BillDrawer({
                     type="url"
                     aria-label="Bill document link"
                     placeholder="Paste the link to the bill document"
+                    className={cn(fieldError.document && INVALID)}
+                    aria-invalid={!!fieldError.document}
                     value={draft.bill_document_link}
                     onChange={(e) => set("bill_document_link", e.target.value)}
                   />
@@ -363,6 +480,8 @@ export function BillDrawer({
                 />
               )}
 
+              <FieldError message={fieldError.document} />
+
               {otherWillBeCleared && (
                 <p className="mt-1.5 text-[11px] text-amber-700">
                   Saving keeps the {docMode === "link" ? "link" : "attachment"} only; the saved{" "}
@@ -396,7 +515,7 @@ export function BillDrawer({
             <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button className="flex-[2]" disabled={!canSave} onClick={handleSave}>
+            <Button className="flex-[2]" disabled={busy} onClick={handleSave}>
               {uploading ? "Uploading…" : loading ? "Saving…" : isNew ? "Add bill" : "Save changes"}
             </Button>
           </div>

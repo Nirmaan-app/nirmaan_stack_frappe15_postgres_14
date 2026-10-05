@@ -135,6 +135,11 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
             }
             tone={staleCount === 0 ? "good" : "warning"}
           />
+          {canWrite && (
+            <Button size="sm" onClick={() => setSetupOpen(true)}>
+              <Settings2 className="mr-1.5 h-4 w-4" /> Setup Packages
+            </Button>
+          )}
           {showSupplyDcButton && dcTrackers.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => setDcOpen(true)}>
               <BarChart3 className="mr-1.5 h-4 w-4" /> Update Supply DC
@@ -289,16 +294,9 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
       </div>
 
       {/* Bills: the app's standard DataTable (facets on Package / Bill Type / Status). */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">Bills</h2>
-          <p className="text-sm text-muted-foreground">Every bill in this project. Filter from the column headers.</p>
-        </div>
-        {canWrite && (
-          <Button variant="outline" onClick={() => setSetupOpen(true)}>
-            <Settings2 className="mr-2 h-4 w-4" /> Packages
-          </Button>
-        )}
+      <div className="pt-2">
+        <h2 className="text-lg font-bold text-gray-900">Bills</h2>
+        <p className="text-sm text-muted-foreground">Every bill in this project. Filter from the column headers.</p>
       </div>
 
       <PackageTabs packages={trackers} total={summary?.bill_count ?? 0} value={pkg} onChange={setPkg} />

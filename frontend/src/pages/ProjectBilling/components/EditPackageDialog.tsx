@@ -50,9 +50,11 @@ export function EditPackageDialog({ project, tracker, onClose }: EditPackageDial
   }, [tracker, options]);
 
   const poValue = poAmount(po);
+  // A package is saved only with a PO value greater than 0 (owner, 2026-10-05).
+  const poProblem = poValue === null ? "Numbers only, e.g. 9200000" : poValue > 0 ? "" : "Enter a PO value greater than 0";
 
   const save = async () => {
-    if (!tracker || poValue === null) return;
+    if (!tracker || poValue === null || poProblem) return;
     try {
       await setupBilling(project, [{ package: tracker.package, billing_managers: assigned, po_value: poValue }]);
       toast({ title: `${tracker.package} updated`, variant: "success" });
@@ -78,12 +80,12 @@ export function EditPackageDialog({ project, tracker, onClose }: EditPackageDial
             <Input
               id="edit-package-po"
               inputMode="decimal"
-              placeholder="e.g. 92L or 1.2cr"
+              placeholder="e.g. 9200000"
               value={po}
               onChange={(e) => setPo(e.target.value)}
             />
-            <p className={poValue === null ? "mt-1 text-xs font-semibold text-red-700" : "mt-1 text-xs text-muted-foreground"}>
-              {poValue === null ? "Can't read this amount" : poValue ? inr(poValue) : "Not set"}
+            <p className={poProblem ? "mt-1 text-xs font-semibold text-red-700" : "mt-1 text-xs text-muted-foreground"}>
+              {poProblem || inr(poValue ?? 0)}
             </p>
           </div>
 
@@ -110,7 +112,7 @@ export function EditPackageDialog({ project, tracker, onClose }: EditPackageDial
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={poValue === null || loading}>
+          <Button onClick={save} disabled={!!poProblem || loading}>
             {loading ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
