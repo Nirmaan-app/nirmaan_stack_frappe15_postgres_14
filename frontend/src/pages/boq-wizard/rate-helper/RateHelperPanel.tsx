@@ -6,7 +6,7 @@
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check, Plus } from "lucide-react";
+import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check, Plus, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -85,9 +85,19 @@ const BOQ_RATE_LABEL = "BoQ rates";
  * (it clears the field). An ordinary dropdown has no `allowOther` and is untouched.
  */
 export function otherMode(
-  f: { allowOther?: boolean; value: string; typedValue: string; options?: string[] },
+  f: { allowOther?: boolean; value: string; typedValue: string; options?: string[]; otherMode?: boolean },
 ): boolean {
   if (!f.allowOther) return false;
+  /**
+   * SLICE 12c-S (owner S5 on F15). THE HELPER DECIDES THIS NOW, because only the helper can see the
+   * EDIT STATE -- and "the pricer chose Other..." is a thing they did, not a thing the value shows.
+   * Derived from emptiness alone, as below, a FRESH field was indistinguishable from one just opened,
+   * so every new item appeared already set to "Other...".
+   *
+   * The derivation is kept for a field view built without the flag (every existing caller that hands
+   * this predicate a bare value / typedValue pair), so its behaviour there is byte-identical.
+   */
+  if (typeof f.otherMode === "boolean") return f.otherMode;
   const opts = f.options ?? [];
   if (f.typedValue !== "") return !opts.includes(f.typedValue);
   return f.value === "";
@@ -858,14 +868,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             value that WAS honoured. The panel renders the sentence a note words for
                             itself; it never decides which meaning applies. The trace carries the same
                             facts -- but a pricer may never open it. */}
-                        {a.notes?.map((n, ni) => (
-                          <p
-                            key={`${n.kind}-${ni}`}
-                            className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400"
-                          >
-                            {attrNoteText(n)}
-                          </p>
-                        ))}
+                        {/* SLICE 12c-S (owner S7): the SAME blue info box the item-list fields use. These
+                            are notes in exactly the same sense -- something the pricing did to this field,
+                            said in words -- so the two disciplines must not read in two different colours. */}
+                        {a.notes && a.notes.length > 0 && (
+                          <div className="ml-1 flex gap-1 rounded border border-accent/40 bg-accent/40 px-1.5 py-1 text-accent-foreground">
+                            <Info className="mt-[1px] h-3 w-3 shrink-0 text-accent-foreground/70" aria-hidden />
+                            <div className="min-w-0 space-y-0.5">
+                              {a.notes.map((n, ni) => (
+                                <p key={`${n.kind}-${ni}`} className="text-[10px] leading-tight">
+                                  {attrNoteText(n)}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         </div>
                         </Fragment>
                         );
@@ -1194,9 +1211,19 @@ function ItemListBlocks({
                          * (frontend/CLAUDE.md), silently showing a size nobody chose.
                          */
                         value={otherMode(f) ? OTHER_VALUE : f.value}
-                        onChange={(e) =>
-                          onEdit({ op: "set_attr", index: i, id: f.id,
-                                   value: e.target.value === OTHER_VALUE ? "" : e.target.value })}
+                        /**
+                         * SLICE 12c-S (F15): choosing "Other..." is now RECORDED, not inferred from the
+                         * field going blank -- that inference is what made a fresh field open on
+                         * "Other...". Choosing a real option (or "- select -") closes the box again.
+                         */
+                        onChange={(e) => {
+                          if (e.target.value === OTHER_VALUE) {
+                            onEdit({ op: "set_other", index: i, id: f.id, on: true });
+                            return;
+                          }
+                          onEdit({ op: "set_other", index: i, id: f.id, on: false });
+                          onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });
+                        }}
                       >
                         <option value="">&mdash; select &mdash;</option>
                         {f.options.map((o) => (
@@ -1230,30 +1257,47 @@ function ItemListBlocks({
                     />
                   )}
                 </label>
+                {/* A RULED DEFAULT stays AMBER -- it is the one tone this panel reserves for "we filled
+                    this in for you", and the owner's S7 ruling left amber and red exactly as they were. */}
                 {f.rule && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.rule}</p>}
-                {f.note && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.note}</p>}
-                {/* OWNER FA8: what to type, in plain English -- declared in config, never written here, so
-                    no attribute wording lives in the frontend. Muted, because unlike `rule` and `note` it
-                    reports nothing that HAPPENED: it is standing guidance. */}
-                {f.typedNote && (f.value === "" || !(f.options ?? []).includes(f.value)) && (
-                  <p className="pl-1 text-[10px] leading-tight text-muted-foreground">{f.typedNote}</p>
-                )}
-                {/* OWNER FA8(c)/(d): HOW the value will be matched, in full, on demand. A <details>
-                    rather than a tooltip because these are several sentences a pricer may want to
-                    read twice -- and every number in them is generated from the live catalogue, so
-                    the explanation cannot outlive the sizes it names. */}
-                {f.matchHelp && f.matchHelp.length > 0
-                  && (f.value === "" || !(f.options ?? []).includes(f.value)) && (
-                  <details className="pl-1">
-                    <summary className="cursor-pointer text-[10px] leading-tight text-muted-foreground underline decoration-dotted">
-                      How is this matched?
-                    </summary>
-                    <ul className="ml-3 list-disc space-y-0.5 pt-0.5">
-                      {f.matchHelp.map((line) => (
-                        <li key={line} className="text-[10px] leading-tight text-muted-foreground">{line}</li>
-                      ))}
-                    </ul>
-                  </details>
+                {/**
+                  * SLICE 12c-S (owner S7, "option A") -- EVERY NOTE IS ONE BLUE INFO BOX.
+                  *
+                  * Before this there were three tones doing two jobs: a resolution line in amber (the same
+                  * colour as a ruled default, so "we assumed this" and "we matched this" looked alike) and
+                  * standing guidance in muted grey that was easy to miss entirely.
+                  *
+                  * ⚠️ AND THE GUIDANCE USED TO DISAPPEAR THE MOMENT THE ROW PRICED (F4). Both the note and
+                  * the "How is this matched?" rules were gated on the field NOT holding a stocked value, so
+                  * they were present only while the row was broken and vanished exactly when the pricer had
+                  * a figure to check. The gate is gone: what the field is for does not stop being true.
+                  */}
+                {(f.note || f.typedNote || (f.matchHelp && f.matchHelp.length > 0)) && (
+                  <div className="ml-1 flex gap-1 rounded border border-accent/40 bg-accent/40 px-1.5 py-1 text-accent-foreground">
+                    <Info className="mt-[1px] h-3 w-3 shrink-0 text-accent-foreground/70" aria-hidden />
+                    <div className="min-w-0 space-y-0.5">
+                      {f.note && <p className="text-[10px] leading-tight">{f.note}</p>}
+                      {/* OWNER FA8: what to type, in plain English -- declared in config, never written
+                          here, so no attribute wording lives in the frontend. */}
+                      {f.typedNote && <p className="text-[10px] leading-tight opacity-90">{f.typedNote}</p>}
+                      {/* OWNER FA8(c)/(d): HOW the value will be matched, in full, on demand. A <details>
+                          rather than a tooltip because these are several sentences a pricer may want to
+                          read twice -- and every number in them is generated from the live catalogue, so
+                          the explanation cannot outlive the sizes it names. */}
+                      {f.matchHelp && f.matchHelp.length > 0 && (
+                        <details>
+                          <summary className="cursor-pointer text-[10px] leading-tight underline decoration-dotted opacity-80">
+                            How is this matched?
+                          </summary>
+                          <ul className="ml-3 list-disc space-y-0.5 pt-0.5">
+                            {f.matchHelp.map((line) => (
+                              <li key={line} className="text-[10px] leading-tight opacity-90">{line}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             );

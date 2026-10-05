@@ -89,6 +89,22 @@ export interface FamilySpec {
   needs: string[];
   units: Record<string, UnitPricing>;
   convert?: Record<string, ConversionOption[]>;
+  /**
+   * SLICE 12c-S (OWNER RULING S10, 2026-10-06) -- unit classes the PICKER must not offer for this
+   * family, although the family can price them.
+   *
+   * ⚠️ IT CHANGES NO PRICE, AND THAT IS THE POINT. A BoQ row that ARRIVES in a hidden unit prices
+   * exactly as it always did; this key is read at ONE site, by the unit picker, which is a control
+   * only the calculator and a unit-less row ever show.
+   *
+   * It exists because nothing else can express it. `double-skin plenum` and `VCD` are identical on
+   * every axis a generic rule could key on -- `area` SKUs, an `area` pipeline, a `count` conversion --
+   * so any rule giving the first "sq.m only" gives the second the same, and a VCD block at `area`
+   * renders neither of its size fields. The difference between them is knowledge about the product
+   * ("a double skin plenum is always priced in sqm"), so it is DECLARED, per family, in config.
+   * No family is named in code.
+   */
+  units_not_offered?: string[];
 }
 
 export interface DefaultSpec {
@@ -217,8 +233,67 @@ export interface ItemListPricingSpec {
    * today's controls (a choice def a select, a number a text input). This block never reaches the model. */
   panel_controls?: Record<string, PanelControl>;
   /** OWNER FA8: one plain-English line per TYPED field saying what to enter. Declared in config, never
-   * in code, so no category or attribute wording lives in the frontend. */
-  panel_notes?: Record<string, string>;
+   * in code, so no category or attribute wording lives in the frontend.
+   *
+   * SLICE 12c-S (owner S4 / F1, F16): a note may instead be a LIST OF CLAUSES, each optionally
+   * conditioned on what the pricing ACTUALLY DOES for the block it is being drawn for. A plain string
+   * is still a note and behaves exactly as it always did. See `NoteClause` and `typedFieldNote`. */
+  panel_notes?: Record<string, string | NoteClause[]>;
+}
+
+/**
+ * SLICE 12c-S (owner S4 on F1, S5 on F16) -- ONE CLAUSE OF A TYPED FIELD'S NOTE, WITH THE CONDITION
+ * UNDER WHICH IT IS TRUE.
+ *
+ * ⚠️ A NOTE IS GENERATED FROM WHAT THE PRICING READS, NOT WRITTEN PER FAMILY. The ADP size note
+ * promised "plus depth where the BoQ gives one" on every family, including `double-skin plenum`,
+ * whose pricing reads W and H and discards the depth -- the row priced, and the screen had invited
+ * the value it threw away. The Insulation thickness note promised automatic layering to
+ * `Cladding Only`, which stocks no sizes and layers nothing.
+ *
+ * The WORDING stays in config (no attribute English in the frontend); only the CONDITION is code, and
+ * each condition is a question about the pricing of the block the note is being drawn for:
+ *
+ *   `when_reads`   -- include only where that SKU attribute is among the family's needs for this unit
+ *                     class, i.e. the pricing genuinely reads it.
+ *   `when_stocked` -- include only where the catalogue offers at least one rung for this field, i.e.
+ *                     there is something to ladder or layer between.
+ *
+ * A clause with no condition is unconditional. The clauses that survive are joined with a space, in
+ * declaration order, so the sentence a pricer reads is the config's own prose.
+ */
+export interface NoteClause {
+  text: string;
+  /** A SKU attribute; the clause survives only when the family's pricing reads it on this row's unit. */
+  when_reads?: string;
+  /** The clause survives only when this field has at least one stocked option. */
+  when_stocked?: boolean;
+}
+
+/**
+ * PURE. The note for one typed field, assembled for the family and unit class the block is showing.
+ *
+ * `reads` is the set of SKU attributes the family's pricing needs on this row (the same list
+ * `itemFieldDefs` walks to decide which fields to render); `stocked` is the field's live option list.
+ * A plain-string note is returned unchanged, so every config that has not declared clauses is
+ * byte-identical. An empty result (every clause conditioned out) yields `undefined` -- no note rather
+ * than an empty paragraph.
+ */
+export function typedFieldNote(
+  spec: ItemListPricingSpec,
+  attr: string,
+  reads: ReadonlySet<string>,
+  stocked: readonly string[],
+): string | undefined {
+  const raw = spec.panel_notes?.[attr];
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "string") return raw.trim() === "" ? undefined : raw;
+  const kept = raw
+    .filter((c) => c && typeof c.text === "string" && c.text.trim() !== "")
+    .filter((c) => (c.when_reads === undefined || reads.has(c.when_reads)))
+    .filter((c) => (c.when_stocked !== true || stocked.length > 0))
+    .map((c) => c.text.trim());
+  return kept.length ? kept.join(" ") : undefined;
 }
 
 /**
@@ -304,6 +379,19 @@ export interface ItemPriceResult {
   skuUnitClass: string | null;
   state: "priced" | "blank";
   reason?: string;
+  /**
+   * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
+   *
+   * ⚠️ `selection` IS NOT A SUBSTITUTE, and that is why this exists. `selection` is filled one need at
+   * a time and the loop RETURNS at the first missing one -- so on a row refusing for a missing
+   * thickness, the pipe size the pricer HAS answered is absent from it. The dropdowns narrow on the
+   * answers already given, and narrowing on `selection` meant a half-finished block narrowed nothing:
+   * Tubular PUF offered every thickness at every pipe size, which is the defect this slice is for.
+   *
+   * DISPLAY AND OPTIONS ONLY. Nothing here reaches `match_master_row`; `selection` remains the one
+   * thing the matcher is built from, so the prices are untouched.
+   */
+  readValues: Record<string, string | number>;
   /** What reached the interpreter, after defaults, parsing and ladder fits. */
   /** The index of the USER block this priced item came from. A composition yields several items
    *  sharing one `sourceIndex`; everything else is one-to-one. */
@@ -654,7 +742,12 @@ function reasonFromPipeline(spec: ItemListPricingSpec, family: string, sel: Reco
   }
   const m = label.match(/^attribute '([^']+)' missing or non-numeric/);
   if (m) return `no ${reasonName(spec, m[1])} stated`;
-  if (/matching row\(s\) -- not computed/.test(cond)) return `no base per-sq.m SKU for ${family} to derive from`;
+  // SLICE 12c-S (owner S6 on F9): plain English. The old wording -- "no base per-sq.m SKU for X to
+  // derive from" -- told a pricer about the catalogue's internals and nothing about what to do. The
+  // fact is simply that the sheet does not sell this combination in this unit.
+  if (/matching row\(s\) -- not computed/.test(cond)) {
+    return `the sheet does not price ${family} per ${unitWord(spec, sel[spec.unit_class_attr] as string)} with this choice`;
+  }
   if (/not available on this row/.test(label)) return `the SKU carries no ${label.split(" ")[0].replace("cost_", "")} cost`;
   if (/not on the referenced row/.test(cond)) return `the base SKU carries no ${cond.split(" ")[0].replace("cost_", "")} cost`;
   return `could not compute (${cond || label})`;
@@ -670,7 +763,7 @@ function priceOneItem(
   unitFactor: UnitFactor | null = null,
 ): ItemPriceResult {
   const out: ItemPriceResult = {
-    index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, defaulted: [],
+    index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
     ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {},
     working: [], pipelineResults: [],
   };
@@ -885,6 +978,9 @@ function priceOneItem(
     needs = [...new Set(needs)];
   }
 
+  // SLICE 12c-S: publish every resolved fact NOW, before the needs loop can return on the first
+  // missing one -- the dropdowns narrow on these, and a block that refuses must still narrow.
+  out.readValues = { ...read };
   // (4) the needs (R7-R10, R2): the first missing one names the blank; only the needed facts reach the matcher
   for (const n of needs) {
     if (n in read) { sel[n] = read[n]; continue; }
@@ -1024,6 +1120,8 @@ function priceOneItem(
     );
   }
   out.selection = { ...sel };
+  // the ladders rewrote `sel` to the RUNG; those resolved values are the ones to narrow on
+  out.readValues = { ...out.readValues, ...sel };
   out.working.push(...notes);
   // SLICE 8 (M-b): the override is shown as its own working line, in the config's words, so a pricer can see
   // that the variant the row stated was set aside and why.
@@ -1195,6 +1293,28 @@ export function familyChoices(spec: ItemListPricingSpec): Array<{ family: string
   }));
 }
 
+/**
+ * SLICE 12c-S (owner S2 / S10). PURE. The unit classes this family may be OFFERED in: the classes it
+ * prices natively (`units`) plus the classes it can convert into (`convert`), less any the family
+ * declares `units_not_offered`. An unknown family offers nothing.
+ *
+ * ⚠️ `convert` BELONGS IN THE UNION. Twelve ADP families are quoted per sq.m and priced on a
+ * per-number row by converting a stated W x H (or an area band) -- that conversion is the ONLY path on
+ * which their Size and Area band fields render at all. Leaving it out would take the per-number unit
+ * off thirteen families and, with it, every size field the pricer types into.
+ */
+export function familyUnitClasses(spec: ItemListPricingSpec, family: string): string[] {
+  const fam = spec.families[family];
+  if (!fam) return [];
+  const hidden = new Set(fam.units_not_offered ?? []);
+  const out: string[] = [];
+  for (const cls of [...Object.keys(fam.units), ...Object.keys(fam.convert ?? {})]) {
+    if (hidden.has(cls) || out.includes(cls)) continue;
+    out.push(cls);
+  }
+  return out;
+}
+
 /** One field of an item block: the id the VALUE is read / written under (the model's attribute id -- a
  * number reader's first `from`), the label, the options of a choice (with "None" first when allow_none,
  * the Electrical shape), and which SKU attribute it serves. */
@@ -1246,14 +1366,28 @@ export function fieldOptionsFromSkus(
     (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
   );
   const carrying = famRows.filter((it) => attr in it.attributes);
-  const isDropdown = (k: string) => (spec.panel_controls?.[k] ?? (spec.choice_attrs.includes(k) ? "dropdown" : "text")) === "dropdown";
+  /**
+   * SLICE 12c-S (owner S1, F2) -- THE OPTIONS ARE NARROWED BY THE ANSWERS ALREADY GIVEN.
+   *
+   * ⚠️ THE OLD TEST WAS `=== "dropdown"`, WHICH EXCLUDES `dropdown_or_other` -- and `dropdown_or_other`
+   * is the control every SIZE field uses. So an answered pipe size narrowed nothing: Tubular PUF offered
+   * 25 / 50 / 65 / 80 at every pipe size while each pipe stocks exactly ONE thickness, and pipe 100 with
+   * thickness 25 priced as 65 -- 2.6x the thickness picked, with nothing on screen saying so.
+   *
+   * Every answer narrows now, whatever control carries it. Three properties keep that safe:
+   *   - the answers are `res.selection`, i.e. the values AS THE MATCHER RESOLVED THEM, never raw text;
+   *   - an attribute no row of this family carries cannot narrow (it is not a key of these SKUs);
+   *   - an answer that would empty the set is SKIPPED rather than applied, so a single unmatchable
+   *     value can never blank a dropdown. That is strictly more narrowing than before and can never
+   *     turn a non-empty list into an empty one.
+   */
   let rows = carrying;
   for (const [k, v] of Object.entries(answers)) {
-    if (k === attr || v === "" || v === "None" || v === null || v === undefined || !isDropdown(k)) continue;
+    if (k === attr || v === "" || v === "None" || v === null || v === undefined) continue;
     if (!carrying.some((it) => k in it.attributes)) continue;
-    rows = rows.filter((it) => sameValue(it.attributes[k], v));
+    const narrowed = rows.filter((it) => sameValue(it.attributes[k], v));
+    if (narrowed.length) rows = narrowed;
   }
-  if (!rows.length) rows = carrying;
   const isNumber = attr in spec.numbers;
   const seen = new Set<string>();
   const out: string[] = [];
@@ -1305,6 +1439,11 @@ export function itemFieldDefs(
   const seenIds = new Set<string>();
   const out: ItemFieldDef[] = [];
   const defById = new Map(defs.map((d) => [d.id, d]));
+  // SLICE 12c-S: WHAT THIS FAMILY'S PRICING READS on a row of this unit class -- the same list the loop
+  // below walks to decide which fields to render. A note clause conditioned on `when_reads` is kept only
+  // when the attribute it names is in here, which is what stops the ADP size note inviting a depth that
+  // `double-skin plenum` discards.
+  const reads = new Set<string>(ids);
   for (const attr of ids) {
     if (seen.has(attr)) continue;
     seen.add(attr);
@@ -1315,16 +1454,17 @@ export function itemFieldDefs(
       seenIds.add(modelId);
       const d = defById.get(modelId);
       const control = controlOf(attr, "text");
-      const typedNote = spec.panel_notes?.[attr];
       if ((control === "dropdown" || control === "dropdown_or_other") && skus) {
         // a STOCKED size: the options are the sheet's sizes for this family, narrowed by the block's other answers.
         // OWNER FA8: `dropdown_or_other` offers those SAME live options and still lets a person type the size the
         // BoQ states -- the ladder then resolves it and says which stocked size it used.
         const options = fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {});
+        const typedNote = typedFieldNote(spec, attr, reads, options);
         out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control, options,
                    optionSource: "catalogue",
                    ...(control === "dropdown_or_other" ? { allowOther: true, typedNote } : {}) });
       } else {
+        const typedNote = typedFieldNote(spec, attr, reads, []);
         out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control,
                    ...(TYPED_CONTROLS.has(control) ? { typedNote } : {}) });
       }
@@ -1337,14 +1477,30 @@ export function itemFieldDefs(
     let values = d.values ?? [];
     if (d.values_by_family && d.values_by_family[family]) values = d.values_by_family[family];
     const control = controlOf(attr, d.type === "choice" ? "dropdown" : "text");
-    const typedNoteC = spec.panel_notes?.[attr];
     if (control !== "dropdown" && control !== "dropdown_or_other") {
+      const typedNoteC = typedFieldNote(spec, attr, reads, []);
       out.push({ id: attr, label: d.label, allowNone: d.allow_none === true, skuAttr: attr, control,
                  ...(TYPED_CONTROLS.has(control) ? { typedNote: typedNoteC } : {}) });
       continue;
     }
     // a choice: from the SKUs where the family's rows carry the attribute (V1), else the definition's vocabulary
-    const fromSkus = skus ? fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {}, values) : [];
+    let fromSkus = skus ? fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {}, values) : [];
+    /**
+     * SLICE 12c-S (owner S6, F8/F9) -- A FAMILY THAT PRICES A UNIT CLASS ITS OWN SKUs DO NOT CARRY.
+     *
+     * Cladding Only is quoted per METRE and also declares a per-SQ.M pipeline that derives from those
+     * same metre rows. At sq.m the unit-class filter therefore found NO rows, and the fallback below
+     * handed the pricer the DEFINITION's whole vocabulary -- 9 claddings, 4 of which cannot price,
+     * three of them other families' values.
+     *
+     * Dropping the unit class (passing it as null) reads the family's OWN rows whatever unit they are
+     * quoted in. Measured on the live catalogue: that yields exactly the 5 claddings that price at
+     * sq.m, and excludes exactly the 3 that refuse. The definition's vocabulary stays as the last
+     * resort, for a family whose SKUs carry the attribute nowhere at all.
+     */
+    if (!fromSkus.length && skus) {
+      fromSkus = fieldOptionsFromSkus(spec, skus.items, family, null, attr, skus.answers ?? {}, values);
+    }
     const optionSource: "catalogue" | "definition" = fromSkus.length ? "catalogue" : "definition";
     const base = fromSkus.length ? fromSkus : [...values];
     out.push({
@@ -1354,7 +1510,9 @@ export function itemFieldDefs(
       allowNone: d.allow_none === true,
       skuAttr: attr,
       control,
-      ...(control === "dropdown_or_other" ? { allowOther: true, typedNote: typedNoteC } : {}),
+      ...(control === "dropdown_or_other"
+        ? { allowOther: true, typedNote: typedFieldNote(spec, attr, reads, base) }
+        : {}),
       optionSource,
     });
   }

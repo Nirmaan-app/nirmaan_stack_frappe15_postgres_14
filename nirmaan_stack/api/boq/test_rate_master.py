@@ -11430,7 +11430,12 @@ def _read_frontend_src(*parts):
         return fh.read()
 
 
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v25.json"
+# SLICE 12c-S (2026-10-06): v26 = v25 + the two note maps rewritten as CLAUSE LISTS (the ADP size
+# note stops inviting a depth on a family whose pricing discards it; the Insulation thickness note
+# stops promising layering to a family that stocks no sizes), the owner-approved ADP area note, and
+# ONE `units_not_offered` declaration on `double-skin plenum` (owner ruling S10). Items and every
+# other config byte-identical -- pinned in `TestSlice12cSConfigKeys.test_s10_10`.
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v26.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -16887,8 +16892,21 @@ class TestCladdingOnlySkus(FrappeTestCase):
             if c["category_id"] == "hvac_adp":
                 c = copy.deepcopy(c)
                 notes = c["list_spec"]["pricing"].pop("panel_notes", None)
-                self.assertEqual(sorted(notes or []), ["face_w_mm"],
-                                 "ADP's approved exception is the ONE rendered field's note")
+                # ⚠️ SLICE 12c-S: the approved exception is now TWO fields -- the area field DOES
+                # render (measured on 12 of the 25 families, audit F3), so it carries the owner's
+                # note too, and the size note became a CLAUSE LIST so it can stop inviting a depth
+                # on a family whose pricing discards it.
+                self.assertEqual(sorted(notes or []), ["area_sqm", "face_w_mm"],
+                                 "ADP's approved exception is the two rendered fields' notes")
+                # ⚠️ AND `units_not_offered` IS NORMALISED OUT FOR THE SAME REASON THE NOTES ARE.
+                # This pin is a statement about the v16 -> v17 MINT; it must not start failing for
+                # the owner's S10 declaration made nine mints later, which it never spoke to.
+                # The `_without_pricing_input_items` idiom, applied once more.
+                hidden = {n: f.pop("units_not_offered")
+                          for n, f in c["list_spec"]["pricing"]["families"].items()
+                          if "units_not_offered" in f}
+                self.assertEqual(hidden, {"double-skin plenum": ["count"]},
+                                 "exactly one family hides a unit, and it is the owner's")
             y.append(c)
         self.assertEqual(json.dumps(x, sort_keys=True), json.dumps(y, sort_keys=True))
 
@@ -17621,7 +17639,10 @@ class TestPanelControlsAndNotes(FrappeTestCase):
         # the panel actually renders, and on nothing else -- width/height/depth are three axes of one
         # size phrase shown once, and `area_sqm` renders nowhere. Its CONTROLS are still untouched,
         # which is what this pin is really about: no control changed, no `dropdown_or_other` in ADP.
-        self.assertEqual(sorted(adp["list_spec"]["pricing"]["panel_notes"]), ["face_w_mm"])
+        # ⚠️ INVERTED AT 12c-S (owner S3): the area field DOES render -- measured on 12 of the 25
+        # families -- so it carries the owner-approved note too. The CONTROLS, which is what this
+        # pin is really about, are still untouched: no `dropdown_or_other` anywhere in ADP.
+        self.assertEqual(sorted(adp["list_spec"]["pricing"]["panel_notes"]), ["area_sqm", "face_w_mm"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -17695,8 +17716,22 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
     # panel shows once, and `area_sqm` renders nowhere -- so three of the four notes could never be
     # read and were removed. The strings they had stay in `ADP_NOTES` as the approved wording for the
     # ADP retrofit that splits those fields.
+    # ⚠️ INVERTED BY SLICE 12c-S, AND ONE HALF OF IT WAS A FALSE PREMISE THAT MEASUREMENT KILLED.
+    # The note used to be a single string ending "plus depth where the BoQ gives one" -- which the
+    # calculator audit (F1) showed is a lie on `double-skin plenum`, whose pricing reads W and H and
+    # discards the depth. It is now a CLAUSE LIST, and the depth clause survives only where the
+    # family's pricing really reads a depth.
+    # ⚠️ And `area_sqm` is here because "it renders nowhere" was simply WRONG: the audit (F3)
+    # measured it rendering on 12 of the 25 ADP families, typed and mandatory in the alternative --
+    # the standing note rule broken head-on, for a field that sets the price linearly.
     CURRENT_ADP_NOTES = {
-        "face_w_mm": "Type the size as the BoQ states it, in mm: width x height, plus depth where the BoQ gives one.",
+        "face_w_mm": [
+            {"text": "Type the size as the BoQ states it, in mm: width x height."},
+            {"text": "Add the depth where the BoQ gives one.", "when_reads": "depth_mm"},
+        ],
+        "area_sqm": [
+            {"text": "Type the area in sq.m. Where the BoQ gives a band, type the largest value in it."},
+        ],
     }
 
     def test_an_03_the_STORED_ADP_config_carries_them_too(self):
@@ -17710,10 +17745,16 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
         """The other three are byte-identical to the mint that introduced them."""
         pn = self._cfg(self.current, "hvac_adp")["list_spec"]["pricing"]["panel_notes"]
         self.assertEqual(pn, self.CURRENT_ADP_NOTES)
-        # the three that do not render carry NO note -- one that cannot be read is worse than none
-        for k in ("face_h_mm", "depth_mm", "area_sqm"):
+        # ⚠️ `area_sqm` LEFT THIS LIST AT 12c-S: it was removed on the belief that it renders
+        # nowhere, and the audit measured it on 12 of 25 families. The other two really are axes of
+        # one size phrase the panel shows once, so they still carry no note of their own.
+        for k in ("face_h_mm", "depth_mm"):
             self.assertNotIn(k, pn)
+        self.assertIn("area_sqm", pn)
         self.assertNotEqual(pn["face_w_mm"], self.ADP_NOTES["face_w_mm"])
+        # the NEGATIVE half of F1: the size note no longer invites a depth unconditionally
+        self.assertTrue(all(c.get("when_reads") == "depth_mm"
+                            for c in pn["face_w_mm"] if "depth" in c["text"].lower()))
 
     def test_an_04_a_PARTIAL_note_map_is_ACCEPTED_because_coverage_is_not_a_python_question(self):
         """⚠️ INVERTED BY THE OWNER'S FINAL FORM (2026-10-04), not relaxed. A note is required only
@@ -17722,7 +17763,7 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
         nobody can read. Python checks SHAPE; the three-condition rule is measured in
         `itemListPricing.test.ts`, where `itemFieldDefs` and the pricer live."""
         cfg = copy.deepcopy(self._cfg(self.current, "hvac_adp"))
-        self.assertEqual(sorted(cfg["list_spec"]["pricing"]["panel_notes"]), ["face_w_mm"])
+        self.assertEqual(sorted(cfg["list_spec"]["pricing"]["panel_notes"]), ["area_sqm", "face_w_mm"])
         self.assertEqual(len([k for k, v in cfg["list_spec"]["pricing"]["panel_controls"].items()
                               if v != "dropdown"]), 4)
         config_validation._validate_config(cfg)          # a PARTIAL map is valid
@@ -17747,7 +17788,8 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
         """Owner, final form: width/height/depth are three axes of ONE size phrase the panel shows
         once, and `area_sqm` renders nowhere -- so only `face_w_mm` carries a note."""
         pn = self._cfg(self.current, "hvac_adp")["list_spec"]["pricing"]["panel_notes"]
-        self.assertEqual(sorted(pn), ["face_w_mm"])
+        # ⚠️ INVERTED at 12c-S: TWO fields render and therefore TWO carry a note (see an_03b).
+        self.assertEqual(sorted(pn), ["area_sqm", "face_w_mm"])
         self.assertEqual(pn["face_w_mm"], self.CURRENT_ADP_NOTES["face_w_mm"])
 
     def test_an_07_EVERY_typed_field_of_the_CURRENT_asset_has_its_note(self):
@@ -17768,9 +17810,19 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
             # coverage count here would demand notes nobody can read.
             for k, v in notes.items():
                 self.assertIn(k, typed, "%s / %s has a note but is not typed" % (c["category_id"], k))
-                self.assertTrue(v.strip(), "%s / %s has an empty note" % (c["category_id"], k))
+                # SLICE 12c-S: a note is a string, or a non-empty list of clauses that each say
+                # something. Either way it must not be blank -- that is the claim, unchanged.
+                if isinstance(v, list):
+                    self.assertTrue(v, "%s / %s has an empty clause list" % (c["category_id"], k))
+                    for cl in v:
+                        self.assertTrue(cl["text"].strip(),
+                                        "%s / %s has an empty clause" % (c["category_id"], k))
+                else:
+                    self.assertTrue(v.strip(), "%s / %s has an empty note" % (c["category_id"], k))
                 checked += 1
-        self.assertEqual(checked, 3, "ADP's one rendered size field plus Insulation's two sizes")
+        # ⚠️ 3 -> 4 at 12c-S: ADP's area field joined the rendered set (F3, measured on 12 families).
+        self.assertEqual(checked, 4,
+                         "ADP's size and area fields plus Insulation's two sizes")
 
     def test_an_05_ELECTRICAL_is_UNTOUCHED_and_the_rule_cannot_refuse_it(self):
         """⚠️ THE MECHANISM, not an exemption list. The whole block is read only when a config
@@ -17942,3 +17994,160 @@ class TestDownloadEndpointCarriesTheFormulaRow(FrappeTestCase):
                    for c in ws[r])
         ]
         self.assertEqual(hits, [2], f"the marker appears on rows {hits}, not on row 2 alone")
+
+
+class TestSlice12cSConfigKeys(FrappeTestCase):
+    """SLICE 12c-S (2026-10-06) -- the two config shapes this slice admits, and what they refuse.
+
+    `units_not_offered` (OWNER RULING S10) hides a unit class from the PICKER without touching a
+    price; a clause-list `panel_notes` entry lets a note be assembled from what the pricing actually
+    reads, so the ADP size note stops inviting a depth on a family that discards it.
+
+    Both are read by the FRONTEND. Python's job here is the SHAPE and the REFERENCES -- a key the
+    interpreter cannot act on, or a clause naming an attribute that does not exist, is the
+    "validates but never executes" failure this validator exists to prevent. What the clauses
+    RESOLVE TO on screen is pinned on the frontend side (`itemListPricing.test.ts`), because only
+    the panel's own code knows which fields render."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.adp = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_adp")
+        cls.ins = next(c for c in cls.asset["category_configs"]
+                       if c["category_id"] == "hvac_insulation")
+
+    def _cfg(self, base):
+        c = copy.deepcopy(base)
+        c.setdefault("discipline", self.asset["discipline"])
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001 -- the validator's own throw
+            return str(exc)
+        return None
+
+    # -- POSITIVE: the shipped asset is accepted -------------------------------------------------
+    def test_s10_01_the_current_asset_validates_with_both_new_shapes(self):
+        self.assertIsNone(self._refused(self._cfg(self.adp)))
+        self.assertIsNone(self._refused(self._cfg(self.ins)))
+
+    def test_s10_02_only_double_skin_plenum_declares_units_not_offered(self):
+        """OWNER S10: ONE family declares it, and it is the one the owner named. A second family
+        acquiring the key silently would take a per-number unit off a screen nobody asked about."""
+        fams = self.adp["list_spec"]["pricing"]["families"]
+        declaring = {n: f["units_not_offered"] for n, f in fams.items() if "units_not_offered" in f}
+        self.assertEqual(declaring, {"double-skin plenum": ["count"]})
+        # and NO other HVAC category declares one at all
+        for c in self.asset["category_configs"]:
+            for n, f in ((c.get("list_spec") or {}).get("pricing") or {}).get("families", {}).items():
+                if c["category_id"] == "hvac_adp" and n == "double-skin plenum":
+                    continue
+                self.assertNotIn("units_not_offered", f,
+                                 "%s / %s must not hide a unit" % (c["category_id"], n))
+
+    def test_s10_03_vcd_and_double_skin_differ_ONLY_by_the_declaration(self):
+        """The whole reason the key exists: the two families are identical on every axis a generic
+        rule could key on, so no rule could tell them apart and the difference had to be declared."""
+        fams = self.adp["list_spec"]["pricing"]["families"]
+        vcd, dsp = fams["VCD"], fams["double-skin plenum"]
+        self.assertEqual(sorted(vcd["units"]), sorted(dsp["units"]))
+        self.assertEqual(sorted(vcd.get("convert") or {}), sorted(dsp.get("convert") or {}))
+        self.assertNotIn("units_not_offered", vcd)
+        self.assertIn("units_not_offered", dsp)
+
+    # -- NEGATIVE: units_not_offered ------------------------------------------------------------
+    def test_s10_04_hiding_a_class_the_family_is_not_offered_in_is_refused(self):
+        c = self._cfg(self.adp)
+        c["list_spec"]["pricing"]["families"]["double-skin plenum"]["units_not_offered"] = ["length"]
+        self.assertIn("not offered in anyway", self._refused(c) or "")
+
+    def test_s10_05_hiding_every_class_is_refused(self):
+        """A picker with nothing in it cannot be used, so a family may not hide its last unit."""
+        c = self._cfg(self.adp)
+        c["list_spec"]["pricing"]["families"]["double-skin plenum"]["units_not_offered"] = \
+            ["count", "area"]
+        self.assertIn("hides every unit class", self._refused(c) or "")
+
+    def test_s10_06_a_malformed_units_not_offered_is_refused(self):
+        for bad in ([], "count", [1], {}):
+            c = self._cfg(self.adp)
+            c["list_spec"]["pricing"]["families"]["double-skin plenum"]["units_not_offered"] = bad
+            self.assertIn("must be a non-empty list of unit classes", self._refused(c) or "",
+                          "accepted %r" % (bad,))
+
+    # -- POSITIVE / NEGATIVE: the clause-list note ----------------------------------------------
+    def test_s10_07_a_plain_string_note_is_still_accepted(self):
+        """Backwards compatibility is the point: every config that has not declared clauses must be
+        byte-identical in behaviour, and every frozen historical asset must still validate."""
+        c = self._cfg(self.adp)
+        c["list_spec"]["pricing"]["panel_notes"]["face_w_mm"] = "Type the size."
+        self.assertIsNone(self._refused(c))
+
+    def test_s10_08_a_malformed_clause_is_refused(self):
+        bad_notes = [
+            [{"text": "x", "when_typed": True}],        # a key the interpreter cannot act on
+            [{"text": "   "}],                          # a clause that says nothing
+            [{"text": "x", "when_stocked": "yes"}],     # not a boolean
+            [],                                         # an empty list is not a note
+            [{"when_reads": "depth_mm"}],               # no text at all
+        ]
+        for bad in bad_notes:
+            c = self._cfg(self.adp)
+            c["list_spec"]["pricing"]["panel_notes"]["face_w_mm"] = bad
+            self.assertIn("non-empty list of {text, when_reads?, when_stocked?} clauses",
+                          self._refused(c) or "", "accepted %r" % (bad,))
+
+    def test_s10_09_when_reads_must_name_a_real_sku_attribute(self):
+        """⚠️ THE "validates but never executes" GUARD. A misspelled attribute would simply never
+        match, so the clause would be silently dropped from every note and the screen would quietly
+        lose a sentence -- exactly the failure mode the closed allowlists exist for."""
+        c = self._cfg(self.adp)
+        c["list_spec"]["pricing"]["panel_notes"]["face_w_mm"] = \
+            [{"text": "x", "when_reads": "depth_milimetres"}]
+        self.assertIn("is not a SKU attribute", self._refused(c) or "")
+        # POSITIVE control: the correctly spelled attribute is accepted
+        c2 = self._cfg(self.adp)
+        c2["list_spec"]["pricing"]["panel_notes"]["face_w_mm"] = \
+            [{"text": "x", "when_reads": "depth_mm"}]
+        self.assertIsNone(self._refused(c2))
+
+    # -- the mint: what v26 changed, and what it did NOT -----------------------------------------
+    def test_s10_10_v26_differs_from_v25_ONLY_in_note_strings_and_the_one_key(self):
+        """The slice promised a note-only asset. This is that promise, checked rather than asserted
+        in prose: items byte-identical, every other top-level key byte-identical, and every config
+        byte-identical once `panel_notes` and `units_not_offered` are stripped out of both sides."""
+        with open(_asset_path("rate_master_hvac_all_v25.json"), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        cur = self.asset
+        self.assertEqual(json.dumps(prev["items"], sort_keys=True),
+                         json.dumps(cur["items"], sort_keys=True), "items must not move")
+        for key in prev:
+            if key in ("items", "category_configs"):
+                continue
+            self.assertEqual(json.dumps(prev[key], sort_keys=True),
+                             json.dumps(cur[key], sort_keys=True), "top-level %s moved" % key)
+
+        def stripped(cfg):
+            c = copy.deepcopy(cfg)
+            pr = (c.get("list_spec") or {}).get("pricing")
+            if pr:
+                pr.pop("panel_notes", None)
+                for f in (pr.get("families") or {}).values():
+                    f.pop("units_not_offered", None)
+            return json.dumps(c, sort_keys=True)
+
+        a = {c["category_id"]: c for c in prev["category_configs"]}
+        b = {c["category_id"]: c for c in cur["category_configs"]}
+        self.assertEqual(sorted(a), sorted(b))
+        for cid in a:
+            self.assertEqual(stripped(a[cid]), stripped(b[cid]),
+                             "%s changed outside panel_notes / units_not_offered" % cid)
+        # and the two note maps really DID change -- otherwise this test passes vacuously
+        changed = [cid for cid in a
+                   if ((a[cid].get("list_spec") or {}).get("pricing") or {}).get("panel_notes")
+                   != ((b[cid].get("list_spec") or {}).get("pricing") or {}).get("panel_notes")]
+        self.assertEqual(sorted(changed), ["hvac_adp", "hvac_insulation"])

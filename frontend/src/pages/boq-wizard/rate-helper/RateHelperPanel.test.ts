@@ -262,3 +262,68 @@ describe("the panel names the rate it shows -- BoQ, not BCS", () => {
     expect(src).not.toContain('const BCS_RATE_LABEL');
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c-S -- "Other..." IS A THING THE PRICER DID (owner S5 on F15), AND EVERY NOTE IS A
+// BLUE INFO BOX (owner S7, "option A")
+// ══════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 12c-S -- Other... mode and the note box", () => {
+  const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
+  const f = (o: Partial<{ allowOther: boolean; value: string; typedValue: string; options: string[]; otherMode: boolean }>) =>
+    ({ allowOther: true, value: "", typedValue: "", options: ["13", "19"], ...o });
+
+  it("F15: the helper's own verdict is the authority when it is present", () => {
+    expect(otherMode(f({ otherMode: true }))).toBe(true);
+    expect(otherMode(f({ otherMode: false, value: "", typedValue: "" }))).toBe(false);
+    // ⚠️ THE WHOLE POINT: a FRESH field (nothing typed, nothing resolved) is NOT in Other mode.
+    // Derived from emptiness alone -- as the legacy branch below still does -- it was, and every
+    // new item opened already claiming a choice the pricer had not made.
+  });
+
+  it("F15 NEGATIVE: a field that cannot type is never in Other mode, whatever the flag says", () => {
+    expect(otherMode(f({ allowOther: false, otherMode: true }))).toBe(false);
+  });
+
+  it("the legacy derivation is UNCHANGED for a caller that passes no verdict", () => {
+    // every pre-slice caller hands this predicate a bare value / typedValue pair; those must behave
+    // exactly as they did, which is what keeps this an addition rather than a rewrite
+    expect(otherMode(f({ typedValue: "30" }))).toBe(true);        // typed, unstocked
+    expect(otherMode(f({ typedValue: "13" }))).toBe(false);       // typed, stocked
+    expect(otherMode(f({ value: "" }))).toBe(true);               // the old emptiness rule
+    expect(otherMode(f({ value: "13" }))).toBe(false);
+  });
+
+  /**
+   * S7 ("option A"): one blue info box, with an info icon, for every note -- panel AND calculator,
+   * both disciplines. Amber stays for a ruled DEFAULT and red for a refusal; those were explicitly
+   * left alone.
+   */
+  it("S7: notes render in an accent info box, and the amber default line is untouched", () => {
+    // the item-list field box and the Electrical attribute box are the SAME treatment
+    expect(src.match(/bg-accent\/40/g)?.length).toBe(2);
+    expect(src).toContain("<Info className=");
+    // the ruled default keeps amber -- the one tone this panel reserves for "we filled this in"
+    expect(src).toMatch(/\{f\.rule && <p className="pl-1 text-\[10px\] leading-tight text-amber-700/);
+  });
+
+  /**
+   * F4: both the note and the "How is this matched?" help were gated on the field NOT holding a
+   * stocked value, so they existed only while the row was broken and vanished the moment it priced.
+   * The gate is gone; this pins that it stays gone, because its return would be invisible in a
+   * repo with no DOM test environment.
+   */
+  it("F4: the guidance is no longer gated on the field being unresolved", () => {
+    expect(src).not.toContain('f.typedNote && (f.value === "" || !(f.options ?? []).includes(f.value))');
+    expect(src).not.toContain('&& (f.value === "" || !(f.options ?? []).includes(f.value)) && (');
+    // and it still renders at all
+    expect(src).toContain("{f.typedNote && <p");
+    expect(src).toContain("How is this matched?");
+  });
+
+  it("S7: choosing Other... is RECORDED through the edit op, not inferred from the field clearing", () => {
+    expect(src).toContain('op: "set_other"');
+    // a real pick closes the box in the SAME op, because two dispatches from one handler would
+    // both start from the rendered state and the second would discard the first
+    expect(src).toContain('onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });');
+  });
+});

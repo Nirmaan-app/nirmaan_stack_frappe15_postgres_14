@@ -2744,7 +2744,21 @@ describe("SLICE 4 -- the three catalogue-fed pick-lists", () => {
     const th = r.workings.attributes.find((a) => a.id === "thickness_sqmm")!;
     expect(th.value).toBe("");
     expect(isAttrBlank(th)).toBe(true);     // the red incomplete border
-    expect(th.options).toEqual(expect.arrayContaining(["2.5", "6"]));  // still a pick-list
+    /**
+     * ⚠️ INVERTED BY SLICE 12c-S (owner S1: dependent dropdowns, every category). This line used to
+     * read `arrayContaining(["2.5", "6"])` -- the GLOBAL list. The list is now narrowed by the
+     * answers the row already carries, and 2.5 exists only on ARMOURED cable, so it is correctly no
+     * longer offered beside COPPER / UNARMOURED.
+     *
+     * The ORIGINAL CLAIM is kept and still tested: it is STILL A PICK-LIST the pricer can fill back
+     * in -- non-empty, and carrying the thicknesses this combination really stocks.
+     */
+    expect(th.options && th.options.length).toBeTruthy();          // still a pick-list
+    expect(th.options).toEqual(expect.arrayContaining(["6", "10"]));
+    // the NEGATIVE half: the value that belongs to another combination is GONE...
+    expect(th.options).not.toContain("2.5");
+    // ...and the un-narrowed read still offers it, so its absence is the narrowing and not a lost SKU
+    expect(attributeOptions(S4_THICKNESS, S4_WIRING_ITEMS)).toContain("2.5");
   });
 
   it("conduit -- an in-catalogue size prices, an out-of-catalogue size does not and is not offered", () => {
@@ -2860,7 +2874,18 @@ describe("SLICE 4 / R9 -- clearing a field equals never having filled it", () =>
     expect(isAttrBlank(attrB)).toBe(true);
     // and the pick-list is still offered on both, so the pricer can fill it back in
     expect(attrA.options).toEqual(attrB.options);
-    expect(attrA.options).toEqual(expect.arrayContaining(["2.5", "10"]));
+    /**
+     * ⚠️ INVERTED BY SLICE 12c-S (owner S1), exactly as the R1 pin above. Was
+     * `arrayContaining(["2.5", "10"])`. This row answers COPPER / UNARMOURED / core 3, and the only
+     * cable of that combination is 10 sq.mm -- so a narrowed list of exactly ["10"] is the rule
+     * working, not a list that has gone missing. The claim under test is unchanged: both states
+     * offer the SAME, still-fillable pick-list.
+     */
+    expect(attrA.options && attrA.options.length).toBeTruthy();
+    expect(attrA.options).toEqual(expect.arrayContaining(["10"]));
+    // the NEGATIVE half, with its control: 2.5 is narrowed out here, and still globally present
+    expect(attrA.options).not.toContain("2.5");
+    expect(attributeOptions(S4_THICKNESS, S4_WIRING_ITEMS)).toContain("2.5");
   });
 
   it("clearing is NOT the same as the 'None' sentinel -- an empty string is absence, not a decision", () => {
@@ -5642,6 +5667,7 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
 });
 
 import HVAC_V25_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
+import HVAC_V26_S from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
 import { assembleItems as assembleItemsFam, initialItemEdits as initialItemEditsFam } from "./pricingSheetHelper";
 import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } from "./itemListPricing";
 
@@ -5742,6 +5768,17 @@ describe("CERT-FOUND -- the Row total of a COMPOSED row is the ROW's, not the fi
       items: [{
         base: null, family: "Nitrile Rubber Insulation",
         attrs: { pipe_size_mm: "19.05", thickness_mm: thickness, cladding: "No" } as Record<string, string>,
+        /**
+         * SLICE 12c-S: the thickness here is a size the catalogue does NOT stock -- that is the whole
+         * point of a composition. In the panel such a value can only be TYPED, through "Other...",
+         * and the panel records that; so the fixture must record it too.
+         *
+         * ⚠️ WITHOUT IT THE FIXTURE NOW MEANS SOMETHING ELSE: an unstocked value sitting in `attrs`
+         * with no "Other..." marker reads as a dropdown PICK the row's other answers no longer
+         * support, which slice 12c-S clears before pricing (E2E-1). The assertions below are
+         * unchanged -- only the fixture now says which of the two it is.
+         */
+        other: ["thickness_mm"],
       }],
     };
     const ctx: RateHelperRowContext & { unit?: string | null } = {
@@ -5820,5 +5857,227 @@ describe("CERT-FOUND -- the Row total of a COMPOSED row is the ROW's, not the fi
   it("NEGATIVE: on an UNCOMPOSED row the two agree -- which is why this went unseen", () => {
     const { v } = viewFor("19");                           // a stocked size: one layer, one block
     expect(blockSum(v).supply_rate).toBe(rowTotals(v).supply_rate);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c-S -- THE UNIT PICKER, THE "Other..." EDIT STATE, AND WHAT EACH FIELD SAYS
+// (owner S2 / S10 on the picker; S5 on F4, F5, F6, F7, F15; E2E-1 on a stale pick)
+// ══════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
+  const assetS = HVAC_V26_S as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const insCfgS = assetS.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const adpCfgS = assetS.category_configs.find((c) => c.category_id === "hvac_adp")!;
+  const CONFIGS_S = new Map<string, RateCategoryConfig>([
+    ["hvac_insulation", insCfgS], ["hvac_adp", adpCfgS],
+  ]);
+  const ITEMS_S: RateMasterItem[] = assetS.items.map((i) => ({ ...i, discipline: "HVAC" }));
+
+  /** One item block, as the panel would hold it. `other` lists the fields the pricer TYPED into. */
+  const view = (o: {
+    category: string; unit?: string; fixedUnit?: string | null; family: string;
+    attrs?: Record<string, string>; other?: string[];
+  }) => {
+    const h = makePricingSheetHelper({
+      configsByCategory: CONFIGS_S, items: ITEMS_S,
+      extractionByRow: buildExtractionByRow([]), admitCalculatorOnly: true,
+    });
+    const edits = { items: [{
+      base: null, family: o.family, attrs: o.attrs ?? {},
+      ...(o.other ? { other: o.other } : {}),
+    }] };
+    const rowCtx: RateHelperRowContext & { unit?: string | null } = {
+      excelRow: 1, description: "x", nodeType: "Line Item", category: o.category,
+      discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"], unit: o.fixedUnit ?? null,
+    };
+    const ov: Record<string, string> = { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edits) };
+    if (o.unit !== undefined) ov[ROW_UNIT_OVERRIDE_KEY] = o.unit;
+    const r = h.compute(rowCtx, ov);
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList!;
+    return { v, block: v.items[0], field: (id: string) => v.items[0].fields.find((f) => f.id === id)! };
+  };
+
+  // -- item 2 / S10 -- the unit picker --------------------------------------------------------
+  it("S2/S10: the picker offers only the units the chosen item can be priced in", () => {
+    expect(view({ category: "hvac_insulation", family: "Nitrile Rubber Insulation" }).v.unitChoices)
+      .toEqual(["mts"]);
+    expect(view({ category: "hvac_insulation", family: "Thermal Nitrile Insulation" }).v.unitChoices)
+      .toEqual(["sqm"]);
+    expect(view({ category: "hvac_insulation", family: "Cladding Only" }).v.unitChoices)
+      .toEqual(["sqm", "mts"]);
+    expect(view({ category: "hvac_adp", family: "double-skin plenum" }).v.unitChoices)
+      .toEqual(["sqm"]);
+    // NEGATIVE: a family with a conversion KEEPS the converted unit -- only a declaration removes one
+    expect(view({ category: "hvac_adp", family: "VCD" }).v.unitChoices).toEqual(["nos", "sqm"]);
+  });
+
+  it("S10: a BoQ row that ARRIVES in a hidden unit still prices -- the picker is not the pricing", () => {
+    const { v, block } = view({
+      category: "hvac_adp", fixedUnit: "Nos", family: "double-skin plenum",
+      attrs: { insulation_thickness_mm: "25", size_mm: "600 x 600 x 300" },
+    });
+    expect(v.unitPickable).toBe(false);
+    expect(block.state).toBe("priced");
+    expect(block.figures).toEqual({ supply_rate: 1723, install_rate: 231, combined_rate: 1954 });
+  });
+
+  it("S2: a stored unit pick the chosen family cannot be priced in is not honoured", () => {
+    // picked sq.m, then chose a family sold only per metre -- the row must not sit refusing on a
+    // unit the picker no longer lists
+    const { v } = view({ category: "hvac_insulation", unit: "sqm", family: "Nitrile Rubber Insulation" });
+    expect(v.unitChoices).toEqual(["mts"]);
+    expect(v.unit).toBe("mts");
+  });
+
+  // -- item 10 / F15 -- a fresh field is blank, not "Other..." --------------------------------
+  it("F15: a fresh item opens with every field on the dropdown, NOT on Other...", () => {
+    const { block } = view({ category: "hvac_insulation", family: "Nitrile Rubber Insulation" });
+    for (const f of block.fields) {
+      expect([f.id, f.otherMode]).toEqual([f.id, false]);
+      expect([f.id, f.typedValue]).toEqual([f.id, ""]);
+    }
+  });
+
+  it("F15: the box opens only once the pricer says so, and a real pick closes it again", () => {
+    const opened = view({
+      category: "hvac_insulation", family: "Nitrile Rubber Insulation", other: ["thickness_mm"],
+    });
+    expect(opened.field("thickness_mm").otherMode).toBe(true);
+    // NEGATIVE: the same state without the marker is NOT in Other mode
+    const shut = view({ category: "hvac_insulation", family: "Nitrile Rubber Insulation" });
+    expect(shut.field("thickness_mm").otherMode).toBe(false);
+  });
+
+  it("F15: a value the MODEL supplied that the sheet does not stock still opens the box", () => {
+    // not the pricer's pick, so it cannot be a stale one -- the ladder must still get to resolve it
+    const { field } = view({
+      category: "hvac_insulation", family: "Nitrile Rubber Insulation",
+      attrs: { cladding: "No", thickness_mm: "13", pipe_size_mm: "22.2" }, other: ["pipe_size_mm"],
+    });
+    expect(field("pipe_size_mm").otherMode).toBe(true);
+  });
+
+  // -- item 6 / F5 -- the value used is not the value entered ---------------------------------
+  it("F5: a precision match SAYS SO -- 22.2 priced as the sheet's 22.23", () => {
+    const { block, field } = view({
+      category: "hvac_insulation", family: "Nitrile Rubber Insulation",
+      attrs: { cladding: "No", thickness_mm: "13", pipe_size_mm: "22.2" }, other: ["pipe_size_mm"],
+    });
+    expect(block.state).toBe("priced");
+    const p = field("pipe_size_mm");
+    expect(p.typedValue).toBe("22.2");       // what was entered
+    expect(p.value).toBe("22.23");           // what was used
+    expect(p.note).toBe(
+      "You typed 22.2 mm -> priced as 22.23 mm (the sheet's own spelling of this size)");
+  });
+
+  it("F5 NEGATIVE: a size that needed no resolving carries no line at all", () => {
+    const { field } = view({
+      category: "hvac_insulation", family: "Nitrile Rubber Insulation",
+      attrs: { cladding: "No", thickness_mm: "13", pipe_size_mm: "6.35" },
+    });
+    expect(field("pipe_size_mm").note).toBeUndefined();
+  });
+
+  // -- item 7 / F6 -- a line belongs to its own field ------------------------------------------
+  it("F6: one field's complaint never appears under another field", () => {
+    const { field } = view({
+      category: "hvac_insulation", family: "Nitrile Rubber Insulation",
+      attrs: { cladding: "No", thickness_mm: "abc", pipe_size_mm: "22.2" },
+      other: ["thickness_mm", "pipe_size_mm"],
+    });
+    // the thickness owns the thickness problem...
+    expect(field("thickness_mm").note).toMatch(/thickness/);
+    // ...and the pipe size says nothing about it
+    expect(field("pipe_size_mm").note ?? "").not.toMatch(/thickness/);
+  });
+
+  // -- item 8 / F7 -- a priced row does not claim nothing fits ---------------------------------
+  it("F7: a priced cladding-only row says its sizes were USED, never that none fit", () => {
+    const { block, field } = view({
+      category: "hvac_insulation", unit: "mts", family: "Cladding Only",
+      attrs: { cladding: "26G Aluminium", pipe_size_mm: "63.5", thickness_mm: "19" },
+      other: ["pipe_size_mm", "thickness_mm"],
+    });
+    // the certified figures, to the rupee -- unchanged by this slice
+    expect(block.state).toBe("priced");
+    expect(block.figures).toEqual({ supply_rate: 265, install_rate: 210, combined_rate: 475 });
+    for (const id of ["pipe_size_mm", "thickness_mm"]) {
+      expect([id, field(id).note]).toEqual([id,
+        `You typed ${field(id).typedValue} mm: used to work out this item's rate `
+        + "(the sheet stocks no sizes to choose from here)"]);
+    }
+    // the NEGATIVE half, stated plainly: the old sentence is gone
+    expect(JSON.stringify(block.fields)).not.toMatch(/no stocked size fits/);
+  });
+
+  // -- E2E-1 -- a stale pick is CLEARED, never substituted --------------------------------------
+  it("E2E-1: a thickness the new pipe size does not stock is CLEARED, with a line saying why", () => {
+    // pipe 100 stocks only 65; a 25 picked at an earlier pipe size must not quietly price as 65
+    const { block, field } = view({
+      category: "hvac_insulation", family: "Tubular Puf Insulation",
+      attrs: { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" },
+    });
+    const th = field("thickness_mm");
+    expect(th.value).toBe("");                       // cleared
+    expect(th.options).toEqual(["65"]);              // narrowed to what this pipe stocks
+    expect(th.note).toBe("25 mm is not stocked with the other answers on this item -- choose again");
+    expect(block.state).toBe("blank");               // and the row refuses rather than substituting
+    // the COARSE axis is untouched -- only the dependent one goes
+    expect(field("pipe_size_mm").value).toBe("100");
+  });
+
+  it("E2E-1 NEGATIVE: a size TYPED through Other... is never cleared -- the ladder still has it", () => {
+    // the same unstocked 25, but typed: composition / next-size-up must still run
+    const { block, field } = view({
+      category: "hvac_insulation", family: "Tubular Puf Insulation",
+      attrs: { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, other: ["thickness_mm"],
+    });
+    expect(block.state).toBe("priced");
+    expect(field("thickness_mm").value).toBe("65");  // the ladder's next size up, as before
+    expect(field("thickness_mm").note).toMatch(/next size up/);
+  });
+
+  // -- the edit operations themselves -----------------------------------------------------------
+  it("applyItemEdit: set_other opens the box and clears the field; a real pick closes it", () => {
+    let st: ItemListEditState = { items: [{ base: null, family: "F", attrs: { a: "1" } }] };
+    st = applyItemEdit(st, { op: "set_other", index: 0, id: "a", on: true });
+    expect(st.items[0].other).toEqual(["a"]);
+    expect(st.items[0].attrs.a).toBe("");             // picking "Other..." clears the field
+    // typing into the box must NOT close it
+    st = applyItemEdit(st, { op: "set_attr", index: 0, id: "a", value: "30" });
+    expect(st.items[0].other).toEqual(["a"]);
+    // ...but choosing a real option does
+    st = applyItemEdit(st, { op: "set_attr", index: 0, id: "a", value: "25", other: false });
+    expect(st.items[0].other).toBeUndefined();
+    expect(st.items[0].attrs.a).toBe("25");
+  });
+
+  it("applyItemEdit: undo takes the field out of Other... mode too", () => {
+    let st: ItemListEditState = { items: [{ base: null, family: "F", attrs: {}, other: ["a"] }] };
+    st = applyItemEdit(st, { op: "undo_attr", index: 0, id: "a" });
+    expect(st.items[0].other).toBeUndefined();
+  });
+
+  it("decodeItemEdits: a state written before this key existed has no Other... fields", () => {
+    const legacy = JSON.stringify({ items: [{ base: null, family: "F", attrs: { a: "1" } }] });
+    expect(decodeItemEdits(legacy, 0).items[0].other).toBeUndefined();
+    // and a stored one round-trips
+    const withOther = JSON.stringify({ items: [{ base: null, family: "F", attrs: {}, other: ["a"] }] });
+    expect(decodeItemEdits(withOther, 0).items[0].other).toEqual(["a"]);
+  });
+
+  // -- item 5 / F4 -- the guidance does not vanish when the row prices ---------------------------
+  it("F4: a priced field still carries its note and its matched-how help", () => {
+    const { block, field } = view({
+      category: "hvac_insulation", family: "Nitrile Rubber Insulation",
+      attrs: { cladding: "No", thickness_mm: "13", pipe_size_mm: "6.35" },
+    });
+    expect(block.state).toBe("priced");
+    for (const id of ["thickness_mm", "pipe_size_mm"]) {
+      expect([id, !!field(id).typedNote]).toEqual([id, true]);
+      expect([id, (field(id).matchHelp ?? []).length > 0]).toEqual([id, true]);
+    }
   });
 });

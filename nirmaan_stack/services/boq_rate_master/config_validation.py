@@ -302,6 +302,26 @@ _PRICING_NUMBER_DEFAULT_KEYS = {"value", "families", "rule"}
 # as before. A depth that is not collision-free over a family's rungs is SKIPPED at run time, never
 # resolved arbitrarily, so the config cannot make the match order-dependent.
 _PRICING_SIZE_MATCH_KEYS = {"dp"}
+# SLICE 12c-S: the keys one `panel_notes` CLAUSE may carry (see the note-shape check below).
+_PRICING_NOTE_CLAUSE_KEYS = {"text", "when_reads", "when_stocked"}
+
+
+def _note_shape_ok(v):
+    """SLICE 12c-S. A panel note is a non-empty string, or a non-empty list of clause objects."""
+    if isinstance(v, str):
+        return bool(v.strip())
+    if not isinstance(v, list) or not v:
+        return False
+    for c in v:
+        if not isinstance(c, dict) or set(c) - _PRICING_NOTE_CLAUSE_KEYS:
+            return False
+        if not isinstance(c.get("text"), str) or not c["text"].strip():
+            return False
+        if "when_reads" in c and not isinstance(c["when_reads"], str):
+            return False
+        if "when_stocked" in c and not isinstance(c["when_stocked"], bool):
+            return False
+    return True
 # SLICE 12c (owner Q8) -- above the top rung, build the value out of TWO OR MORE rungs within `tolerance`.
 # ⚠️ `max_layers` BELOW 2 IS REFUSED BY NAME. One layer is what the ordinary ladder already is, so a
 # one-layer "composition" is that ladder wearing the tolerance as a disguise -- able to shave a stated
@@ -350,7 +370,12 @@ _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_token
 # beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
 _PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
 _PRICING_PRIMARY_PICKS = {"largest"}
-_PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
+# SLICE 12c-S (OWNER RULING S10, 2026-10-06): `units_not_offered` -- unit classes the PICKER must not
+# offer for this family, although the family can price them. It changes NO price: a BoQ row that arrives
+# in a hidden unit prices exactly as before. It exists because `double-skin plenum` and `VCD` are
+# identical on every axis a generic rule could key on (area SKUs, an area pipeline, a count conversion),
+# so the difference between them is knowledge about the product and has to be DECLARED.
+_PRICING_FAMILY_KEYS = {"needs", "units", "convert", "units_not_offered"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
 _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
 # SLICE 6 (owner S6): `absent_as_none` -- an ABSENT answer is read as NOT MENTIONED, so the default fires on it too
@@ -650,10 +675,26 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             if unknown_n:
                 _vthrow("list_spec.pricing.panel_notes names attribute(s) the panel cannot show: %s."
                         % ", ".join(sorted(unknown_n)))
-            bad_n = sorted(k for k, v in notes.items() if not isinstance(v, str) or not v.strip())
+            # SLICE 12c-S (owner S4 on F1, S5 on F16): a note may be a plain STRING, or a LIST OF
+            # CLAUSES each optionally conditioned on what the pricing actually does for the block being
+            # drawn. The ADP size note promised "plus depth where the BoQ gives one" on a family whose
+            # pricing discards the depth; the Insulation thickness note promised automatic layering to a
+            # family that stocks no sizes. The WORDING stays here in config; only the condition is code.
+            bad_n = sorted(k for k, v in notes.items() if not _note_shape_ok(v))
             if bad_n:
-                _vthrow("list_spec.pricing.panel_notes: each note must be a non-empty string (bad: %s)."
+                _vthrow("list_spec.pricing.panel_notes: each note must be a non-empty string, or a "
+                        "non-empty list of {text, when_reads?, when_stocked?} clauses (bad: %s)."
                         % ", ".join(bad_n))
+            # a clause condition naming an attribute must name a REAL SKU attribute, or it silently
+            # never fires -- the "validates but never executes" failure this file exists to prevent
+            for k, v in notes.items():
+                if not isinstance(v, list):
+                    continue
+                for ci, c in enumerate(v):
+                    ref = c.get("when_reads")
+                    if ref is not None and ref not in sku_attrs:
+                        _vthrow("list_spec.pricing.panel_notes['%s'][%d].when_reads: '%s' is not a SKU "
+                                "attribute." % (k, ci, ref))
             # ⚠️ NO COVERAGE REQUIREMENT HERE, AND THAT IS A RULING, NOT A GAP (owner, final form
             # 2026-10-04). A note is required only where the field is TYPED **and** RENDERS on the
             # panel **and** is MANDATORY -- and two of those three are decided by the frontend's own
@@ -733,6 +774,19 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                     if not isinstance(o.get("rule"), str) or not o["rule"]:
                         _vthrow(f"{oloc}.rule must be a non-empty string.")
                     _validate_pricing_pipelines(o.get("pipelines"), oloc, pr, sku_attrs)
+        # SLICE 12c-S (owner S10): every hidden class must be one the family could otherwise be offered
+        # in, and a family may not hide ALL of them -- a picker with nothing in it cannot be used.
+        uno = f.get("units_not_offered")
+        if uno is not None:
+            offerable = set(units) | set(conv or {})
+            if not isinstance(uno, list) or not uno or not all(isinstance(c, str) for c in uno):
+                _vthrow(f"{loc}.units_not_offered must be a non-empty list of unit classes.")
+            unknown_u = [c for c in uno if c not in offerable]
+            if unknown_u:
+                _vthrow(f"{loc}.units_not_offered names unit class(es) the family is not offered in anyway: "
+                        f"{', '.join(sorted(unknown_u))}.")
+            if not offerable - set(uno):
+                _vthrow(f"{loc}.units_not_offered hides every unit class the family can be priced in.")
     # SLICE 6 (T7): the config-level pipelines of a list-mode config ARE per-item pipelines (the shared default), so
     # they pass the item-list shape checks as well as the generic pipeline checks
     if cfg.get("pipelines"):
