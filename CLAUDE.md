@@ -1156,6 +1156,59 @@ by the BoQ page), no discipline or category named in code. Once `pipelines` is n
 predicates admit the category by themselves, so leaving the key in place would be a SECOND on/off
 switch for one thing — two switches that can disagree about whether a category prices.
 
+**⚠️ A DROPDOWN OFFERS ONLY VALUES THAT CAN STILL PRICE WITH THE ANSWERS ALREADY GIVEN (owner S1,
+2026-10-06).** One rule per vocabulary and no category named in code: `fieldOptionsFromSkus` narrows a
+family's SKUs, `attributeOptions` narrows a `values_from` kind. An answer no row CARRIES cannot narrow,
+and an answer that would EMPTY the list is SKIPPED — so narrowing can only ever remove options no SKU
+supports, never the last one. ⚠️ **THE TEST MUST INCLUDE `dropdown_or_other`, WHICH IS THE CONTROL EVERY
+SIZE FIELD USES**; an `=== "dropdown"` test excludes exactly the fields that most need narrowing, and
+Tubular PUF offered all four thicknesses at every pipe size while each pipe stocks ONE — pipe 100 with
+thickness 25 priced as 65. ⚠️ **AND `selection` CANNOT BE THE SOURCE OF THE ANSWERS**: it is filled one
+need at a time and RETURNS at the first missing one, so a row refusing for a missing thickness carries no
+pipe size. `ItemPriceResult.readValues` publishes every resolved fact for OPTIONS AND DISPLAY ONLY —
+nothing from it reaches `match_master_row`, so no price can move.
+
+**⚠️ A PICK THE LATER ANSWERS NO LONGER STOCK IS CLEARED, NEVER SUBSTITUTED — AND THE RULE IS BOUNDED BY
+THREE CONDITIONS, TWO OF WHICH WERE LEARNED BY BREAKING THEM.** (1) Only a value the PRICER picked from a
+list: one typed through "Other…" must still ladder (composition and next-size-up exist for unstocked
+sizes) and one the MODEL supplied is evidence about the row, not a choice. (2) A field with NO options is
+exempt — it cannot have offered anything, and without this guard a correctly priced cladding-only row had
+both its sizes cleared and stopped pricing. (3) The test is **DIRECTIONAL, down the config's own `ladders`
+order**, because an unstocked pair is unstocked BOTH ways round and a symmetric check wipes the answer the
+pricer just gave.
+
+**⚠️ A TYPED FIELD'S NOTE IS GENERATED FROM WHAT THE PRICING READS, NOT WRITTEN PER FAMILY (owner S3/S4/S5,
+2026-10-06).** A `panel_notes` entry may be a LIST OF CLAUSES, each conditioned on a fact about the block
+being drawn — `when_reads` (that SKU attribute is among the family's needs for this unit class) and
+`when_stocked` (the field has rungs to choose between). **The WORDING stays in config; only the CONDITION
+is code**, so no attribute English lives in the frontend. A plain string is still a note and is
+byte-identical, which is what keeps every frozen asset valid. This exists because a shared note lies
+family by family: the ADP size note invited "plus depth where the BoQ gives one" on `double-skin plenum`,
+whose pricing reads W and H and DISCARDS the depth, and the Insulation thickness note promised automatic
+layering to `Cladding Only`, which stocks no sizes at all. ⚠️ **A NOTE REMOVED ON THE GROUND THAT ITS FIELD
+"RENDERS NOWHERE" MUST BE MEASURED, NOT ASSUMED** — `area_sqm` was dropped for that reason and renders on
+**12 of 25** ADP families, typed, mandatory in the alternative, and setting the price linearly.
+
+**⚠️ A FAMILY MAY DECLARE `units_not_offered`, AND IT CHANGES NO PRICE (OWNER RULING S10, 2026-10-06).**
+The generic rule is that a family is offered every unit class it can be priced in — its own `units`
+pipelines PLUS any declared `convert` — and `familyUnitClasses` subtracts what the family declares hidden.
+⚠️ **`convert` BELONGS IN THAT UNION**: twelve ADP families are quoted per sq.m and priced on a per-number
+row by converting a stated W × H or an area band, and that conversion is the ONLY path on which their Size
+and Area band fields render at all. The key exists because **`VCD` and `double-skin plenum` are identical
+on every axis a generic rule could key on** (area SKUs, an area pipeline, a count conversion), so the
+difference between them is knowledge about the product and has to be DECLARED; only `double-skin plenum`
+declares one. It is read at ONE site, by a control only the calculator and a unit-less row ever show — a
+BoQ row arriving in a hidden unit prices exactly as it always did.
+
+**⚠️ THE GUIDANCE ON A FIELD DOES NOT STOP BEING TRUE WHEN THE ROW PRICES.** A note and its "How is this
+matched?" help were gated on the field NOT holding a stocked value, so both existed only while the row was
+broken and vanished at the moment the pricer had a figure to check. A line REPORTING something that
+happened is different: it is shown whenever the value USED is not the value ENTERED — which includes a
+precision match, where the stated size resolves onto the rung BEFORE the ladder runs, the ladder then fits
+exactly, and a test on `exact` sees nothing. Compare `requested` with `fitted`, never `exact`. And a
+refusal belongs to the FIELD IT IS ABOUT: composed from the row's state instead, one field's complaint
+appears under another's name.
+
 **⚠️ A GREEN SUITE OVER AN ASSET FILE SAYS NOTHING ABOUT WHAT THE SITE IS SERVING.** The live
 Insulation config sat at v21 while the asset, the spec and 216 passing tests all described v22's inch
 reading — so `3/4"` would have been refused on the real screen. Before certifying a rate-master

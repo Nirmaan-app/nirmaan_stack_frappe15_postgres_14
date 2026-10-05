@@ -43654,3 +43654,135 @@ asset; step 13's hashes identical in both disciplines AFTER the 450→500→450 
 the Insulation-vs-ADP contrast is certified, the "step-1 figures" half is not, because that BoQ carries a
 pre-existing partial run and resuming it costs an AI call nobody asked for. Full record:
 `2026-10-05_12c_Cert_Redo_Log.md` and `2026-10-04_12c_Ledger.md`.
+
+---
+
+## Slice 12c-S — CALCULATOR AND PANEL SCREEN FIXES; HVAC v26 (2026-10-06) — SHIPPED
+
+Commit `a3ff9579d` (code + tests + asset), docs commit separate. Branch `feature/boq-pricing-helper`,
+from `5dd86e24c`. **NOT PUSHED.**
+
+The screen half of the 2026-10-05 calculator audit (`2026-10-05_Calculator_Notes_Audit.md`, findings
+F1–F18). **No figure changed anywhere:** every active item of both disciplines was priced through its
+live path before and after — **3,480 combinations, 0 differences**.
+
+### OWNER RULING S10 (2026-10-06) — a family may declare `units_not_offered`
+
+The slice STOPPED before any code was written, on a collision the brief could not resolve: cert step 3
+wanted `double-skin plenum` to offer **sq.m only**, while item 3 needed `VCD` to keep its per-number
+unit so the Area band field (and its new note) renders at all. Measured against the live config, the
+two families are **identical on every axis a generic rule could key on**:
+
+| family | SKU unit classes | `units[]` | `convert[]` |
+|---|---|---|---|
+| VCD | `area` | `area` | `count` |
+| double-skin plenum | `area` | `area` | `count` |
+
+Any rule giving one "sq.m only" gives the other the same, and that would have taken the per-number unit
+off **13** families — the 12 that render Area band, plus `flexible duct`. The owner's four worked
+examples did not separate them either: *"Cladding Only → metre and sq.m"* rules out "the unit the SKUs
+are sold in", because all five of its SKUs are per-metre.
+
+**The ruling:** the generic rule is *every class the family can be priced in — its own pipelines plus any
+declared conversion* — and a family may DECLARE in config which of those the PICKER must not offer.
+Only `double-skin plenum` declares one (`["count"]`). **It changes no price:** a BoQ row arriving in Nos
+still prices 1723 / 231, exactly as before — the key is read at ONE site, by a control only the
+calculator and a unit-less row ever show. No family is named in code.
+
+### What was built
+
+**Dependent dropdowns (S1, F2).** Options narrow by the answers already given, one rule per vocabulary:
+`fieldOptionsFromSkus` for a family's SKUs, `attributeOptions` for a `values_from` kind. ⚠️ The old test
+was `=== "dropdown"`, which **excludes `dropdown_or_other`** — the control every size field uses — so an
+answered pipe size narrowed nothing. An answer that would empty a list is SKIPPED, so narrowing can
+never blank a dropdown.
+
+⚠️ **`selection` could not carry this, and that is why `readValues` exists.** `selection` is filled one
+need at a time and RETURNS at the first missing one, so a row refusing for a missing thickness had no
+pipe size in it and the thickness list narrowed to nothing. `readValues` publishes every resolved fact
+for OPTIONS AND DISPLAY ONLY; nothing from it reaches `match_master_row`.
+
+**A stale pick is CLEARED, not substituted (E2E-1).** Once a list narrows, a value picked earlier can
+stop being offered; leaving it priced the row at a size the screen did not show (pipe 100 + thickness 25
+→ 65, 2.6×). It is dropped BEFORE pricing and the field names the value that went.
+⚠️ **Three conditions bound it, and the first two forms of this rule were both wrong:**
+* only a value the PRICER picked from a list (`edit.attrs`, not in `edit.other`) — a typed "Other…" size
+  must still ladder and a model-supplied value is evidence, not a choice;
+* a field with **no options at all** is exempt — it cannot have offered anything, and without this guard
+  a correctly priced cladding-only row had both sizes cleared and stopped pricing;
+* the test is **DIRECTIONAL, down the config's own `ladders` order** — pipe 100 with thickness 25 is
+  unstocked BOTH ways round, and a symmetric check wiped the pair.
+
+**Notes generated from what the pricing reads (S3, S4, S5).** A `panel_notes` entry may be a LIST OF
+CLAUSES, each conditioned on a fact about the block being drawn: `when_reads` (the family's pricing
+really needs that attribute) and `when_stocked` (the field has rungs to choose between). The wording
+stays in config; only the condition is code. A plain string is unchanged, so every historical asset
+still validates.
+
+**Three false promises removed.** The ADP size note invited a depth on `double-skin plenum`, whose
+pricing reads W and H and discards it (F1). The Insulation thickness note promised automatic layering
+to `Cladding Only`, which stocks no sizes (F16). And `area_sqm` carried no note at all — removed at 12c
+FINISH on the belief that it *"renders nowhere"*, which the audit measured as **12 of 25 families**,
+typed and mandatory in the alternative, setting the price linearly (F3).
+
+**What each field says.** The note and the matched-how help no longer vanish when the row prices — they
+were gated on the field NOT holding a stocked value, so the guidance existed only while the row was
+broken (F4). A substitution is reported whenever the value used differs from the value entered, which
+now includes a precision match: 22.2 resolves to 22.23 BEFORE the ladder runs, so the ladder fitted
+exactly, `hop.exact` was true and **no line was shown at all** — the test is now `requested !== fitted`
+(F5). A refusal belongs to the field it is about (F6). A priced row no longer claims nothing fits (F7).
+
+**Cladding Only at sq.m** offered 9 claddings, 4 unable to price and 3 belonging to other families: the
+unit-class filter found no rows and the fallback handed over the whole definition vocabulary. It now
+reads the family's own rows whatever unit they are sold in — exactly the 6 that price (S6). The
+developer-language refusal behind three of them is plain English (F9).
+
+**A fresh field no longer opens on "Other…" (F15).** Picking it CLEARS the field, so an untouched field
+and one just opened were indistinguishable; choosing it is now recorded in `ItemEdit.other`.
+
+**Every note is one blue info box with an info icon (S7)**, in both the item-list and the Electrical
+field render. Amber stays for a ruled default, red for a refusal.
+
+### HVAC v26 — note strings plus ONE key
+
+Items byte-identical (331), every other top-level key byte-identical, every config byte-identical once
+`panel_notes` and `units_not_offered` are stripped from both sides. Only:
+`hvac_adp.panel_notes.face_w_mm` → clauses · `hvac_adp.panel_notes.area_sqm` added ·
+`hvac_insulation.panel_notes.thickness_mm` → clauses · `double-skin plenum.units_not_offered = ["count"]`.
+Loaded to dev as batch `rmbulk-a9f73bc546b9`. Electrical untouched at v66 / `rmbulk-13bf7920a9d0`.
+
+### Findings disposition
+
+| fixed here | F1 F2 F3 F4 F5 F6 F7 F8 F9 F15 F16 |
+|---|---|
+| **moved to the ADP retrofit** | F10 F11 F12 F13 F14 F18 |
+| **moved to 12d** | F17 ("You typed" after a dropdown pick) |
+
+### Tests
+
+vitest **4916** (4882 before; +34), one known `writeOffControl` timeout. Python **7303** (7293 before;
++10), 14 failures + 7 errors — the approved known set, unchanged. tsc **3169**, the same 3 in-area errors.
+Vacuity: three probes turned exactly **10** tests red, including **two pre-existing narrowing pins**;
+11 negative validator cases each shown to refuse.
+
+**Pins inverted (MECHANICAL AUTHORITY, never deleted).** Two in `pricingSheetHelper.test.ts` asserted the
+GLOBAL option list that S1 supersedes — inverted with their negative halves AND a positive control that
+the un-narrowed read still offers the value. Six groups in `test_rate_master.py` asserted the pre-slice
+note shape; `test_co_f1_08` normalises this slice's two keys out on the new side, because that pin is a
+statement about the **v16 → v17 mint** and must not fail for a declaration made nine mints later.
+
+### Deviation
+
+Declared commits 1–3 landed as **one**. The three bodies of work are interleaved inside three shared
+files, so splitting meant reconstructing intermediate states by hand; a mis-reconstructed commit would
+not build or would fail its own targeted set. One verified commit was preferred to three unverified ones.
+
+### Owed
+
+**cert step 4 is PARTIAL** — `db_switchgear` priced no figure in the calculator. Its option lists were
+measured and are UNCHANGED, which is correct: its shell and MCB lists come from **different SKU kinds**
+with no shared key, so there is nothing to narrow by. The narrowing itself is certified on
+`wiring_cabling` (Core 15→5, Thickness 20→16, priced Cable 1170/Mtr + Termination 2100/Set).
+
+Full record: `2026-10-06_12cS_Report.md` and `2026-10-06_12cS_Ledger.md` on the Desktop;
+screenshots in `2026-10-06_12cS_Screens/`.
