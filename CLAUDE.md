@@ -1215,6 +1215,27 @@ reading — so `3/4"` would have been refused on the real screen. Before certify
 change, READ THE LIVE CONFIG, not the asset; and remember a host edit does not fire the container's
 inotify, so vite serves stale modules until it is restarted with `node_modules/.vite` purged.
 
+**⚠️ EVERY CATEGORY SHIPS WITH A CALCULATOR = PANEL PARITY TEST OVER BOTH REAL PATHS, AND NEVER ONE
+PATH COMPARED WITH ITSELF (owner P1, standing: the two must always give the same price for the same
+inputs; any divergence is a failure).** The two paths are the SAME `pricingSheetHelper.compute` entered
+through different branches — the PANEL through a POPULATED `extractionByRow` (never-asked defaults,
+stored cells, the model's items), the CALCULATOR through `PricingCalculator`'s empty map plus
+`admitCalculatorOnly`, every value arriving as an OVERRIDE. A test that builds one of them twice proves
+nothing, which is why `calculatorPanelParity.test.ts` pins that it is driving two branches before it
+compares anything. **"The same inputs" means what the panel SHOWS, read through each control's own
+binding** — a select and a plain text box are bound to the RESOLVED value (`f.value`), only an open
+"Other…" box to what was typed (`f.typedValue`); feeding the raw typed value everywhere loses every
+ruled default and every ladder hop. A fact the calculator has no control for — a `panel: false`
+attribute, or an item answer the chosen family's block does not render — is an input-surface
+difference, to be COUNTED and REPORTED, never quietly supplied or quietly dropped. **A found divergence
+is listed BY NAME as awaiting the owner's ruling and the suite passes only if exactly those differ**, so
+a new one fails and so does a listed one that stops differing. ⚠️ **A big JSON fixture is READ at
+runtime, never `import`ed** — `tsc` infers a structural type for the whole file and dies on a few MB.
+⚠️ **And in the browser, a screenshot coordinate is NOT a DOM coordinate**: the CSS viewport is wider
+than the capture frame (measured 2071×1092 vs 1512×797, a factor of 0.730), so every
+`getBoundingClientRect()` must be scaled before it is clicked or the click lands a row away and reads
+as an unresponsive control.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

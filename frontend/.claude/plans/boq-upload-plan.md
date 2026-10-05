@@ -43786,3 +43786,164 @@ with no shared key, so there is nothing to narrow by. The narrowing itself is ce
 
 Full record: `2026-10-06_12cS_Report.md` and `2026-10-06_12cS_Ledger.md` on the Desktop;
 screenshots in `2026-10-06_12cS_Screens/`.
+
+---
+
+## Slice 12c-P — CALCULATOR = RATE HELPER PANEL, ALWAYS: THE PERMANENT PARITY PROOF (2026-10-06) — SHIPPED
+
+**Commits** `db341c348` (test) + the docs commit. **No product file changed.** Branch
+`feature/boq-pricing-helper`, from `047001de5`.
+
+Owner P1 (standing, verbatim): *"we need to do comrpensive browser certs to verify if both calculator
+and proicing helper giove same price for same inpiuts. they must always do so. any case of divergence
+is failure. we need to check this for both ADP and Insyulation now and other categories as theyu get
+buily in future. electrcial verifcation was done at its build time."* Owner item 7, amended mid-slice:
+*a divergence does NOT stop the run — record it in full, group it by cause, and the permanent test
+lists every found divergence BY NAME as awaiting owner review, passing only if exactly those differ.*
+
+### The two paths, named
+
+| | How it is constructed | Which branch of `compute` runs |
+|---|---|---|
+| **PANEL** | `pricingSheetHelper.makePricingSheetHelper({ configsByCategory, items, extractionByRow })` over a map that HOLDS the row, then `compute(ctx)` with **no** overrides. Built at `SheetPricingPage.tsx:2949`; its ctx (`helperPanelCtx`, line 3230) carries `unit: row.unit ?? ""`. | the **`ext`** branch: the never-asked-default pass runs, `cellOf` reads the stored cells, `defaulted` marks come off the extraction, and for an item-list category the model's `ext.items` become the blocks. |
+| **CALCULATOR** | the same factory with `extractionByRow: new Map()` and `admitCalculatorOnly: true`, then `compute(calculatorCtx(discipline, categoryId), overrides)`. Built at `PricingCalculator.tsx:292`; `calculatorCtx` supplies no `unit`, so the row unit is PICKED. | the **override** branch: `ext` is undefined, none of the above runs, and every value arrives through the override map the panel's controls write (`__items__` / `__row_unit__` for an item-list category, one key per attribute otherwise). |
+
+Shared: the whole of `compute`, `runPipeline`, `priceItemList`, the config and the item set. **Not**
+shared: exactly the wiring that slice 12c found broken (a family written to one key and read from
+another). `calculatorPanelParity.harness.ts` drives both, and two structural tests pin that it is
+driving two different branches — `producibleKinds` is emitted only on the `ext` branch, and the
+BoQ-shaped helper declines `calculator_only` Insulation where the calculator-shaped one prices it.
+
+### What "the same inputs" means, and the one place it had to be decided
+
+The calculator has no row — it has the CONTROLS the panel renders. So the feed is built from what the
+panel SHOWS, exactly as a pricer re-typing every field would produce it:
+
+* row-level: `WorkingsAttribute.value` (the **coerced** value the control is bound to) for every
+  control that is not `readOnly` or `disabled`;
+* item-list: the block's PRICING family, each rendered field read **through the control's own
+  binding** — `f.value` for a select or a plain text box, `f.typedValue` only where the "Other…" box is
+  open — the "Other…" set, and the quantity the block shows.
+
+⚠️ **Reading `typedValue` everywhere was wrong and the live cert proved the binding rule right.** On
+ADP, `neck_mm` is a plain `dropdown` whose options on the real screen are exactly `300 / 375 / 450`
+with **no "Other…"** — so the only thing a pricer can give the calculator is the LADDER RESULT, which
+is what `f.value` holds. Feeding `typedValue` would have lost every ruled default and every ladder hop.
+
+Two input surfaces the calculator structurally lacks are declared, counted and reported rather than
+smoothed away: a `panel: false` attribute (a fact with no control — `cabletray_raceway.thickness_swg`,
+`industrial_sockets`' four MCB facts, `switches_sockets`' two, `point_wiring`'s six) and an item-list
+answer the chosen family's block does not render. The harness therefore runs in two declared modes,
+`visible` (controls only) and `full` (controls plus those facts); `full` is the arithmetic question and
+is what the permanent test asserts.
+
+### What it covers — asserted, not described
+
+* **Every row of every stored `BoQ Rate Suggestion Run`**: 96 runs, 10,460 rows, 15 categories across
+  Electrical and HVAC, every run at its sheet's CURRENT committed version (so every row is one the page
+  would actually adopt — `rows_in_version_stale_runs` is 0). Rows are grouped into **4,695 distinct
+  input classes** and one representative of each is computed; `compute` is pure, so a class stands for
+  its members exactly, and the fixture carries every member's `run#row` so the coverage claim is
+  checkable from the file.
+* **Every active SKU of every row-level category**: 1,929 cases (one per SKU of each category's
+  declared `item_kinds`, plus one all-blank refusal per category) — **zero divergences**.
+* **Both item-list categories by family × unit class × ladder path**: ADP 120 cases over all 25
+  families; Insulation 24 cases over all 6 — **zero divergences on Insulation**.
+* **db_switchgear by name** (owner P3, discharging the 12c-S partial): 512 classes / 1,098 stored rows
+  + 163 SKU cases, zero divergences, and the priced rows compared figure-for-figure.
+* The resolution paths each sweep reached, named one by one and asserted present.
+
+Fixtures: `frontend/src/pages/pricing/__fixtures__/parityCorpus.json` (1.96 MB) and
+`parityMaster.json` (1.05 MB), snapshotted from the live site on 2026-10-06 — configs digest
+`d017732c773cf03b`, Electrical items `4d9e208c4232e9d1` (1,402), HVAC `bcdbf4941a446c7a` (331).
+⚠️ **They are READ at runtime, not imported.** `import x from "./big.json"` makes `tsc` infer a
+structural type for the whole file, and `tsc --noEmit` died with *"Ineffective mark-compacts near heap
+limit"* on a 2 GB heap — it would have broken the project's type gate for everyone. The 423 KB
+`convertedCorpus.json` that `pricingPipeline.test.ts` imports sits below that cliff and is not a
+precedent for a file this size.
+
+### The divergences — all 97 classes / 212 rows, four causes, zero unclassified
+
+Every one is named in `calculatorPanelParity.awaiting.ts`; the suite passes only if **exactly** those
+differ, so a new divergence fails it and so does a listed one that stops differing. Nothing was fixed.
+
+| Cause | Classes / rows | What differs | Does a figure move? |
+|---|---|---|---|
+| **A** `A_wiring_primary` | 73 / 188 | On `wiring_cabling` the row TEXT decides which block is PRIMARY (`isTerminationRow`), and the calculator has no text field. | **No block's figure.** Only `values` / `finalValues` — which figure is OFFERED. On 9 classes / 10 rows the other pipeline has no matching rate row, so the offered figure is absent on one side. |
+| **B** `B_stale_pick` | 11 / 11 | The 12c-S stale-pick clearing exempts a value the MODEL read off the BoQ but not the same value typed by a pricer. | 8 rows: the panel prices, the calculator refuses. **See the live finding below — no figure is computed differently.** |
+| **C** `C_unit_not_offered` | 5 / 5 | The row's unit is not one the picker offers (a `unit_factors` conversion unit, a unit of no declared class, or a class the family hides). | 3 rows: one surface prices and the other refuses, for the unit. |
+| **D** `D_reason_only` | 8 / 8 | Both refuse; the panel's reason quotes BoQ text that has no box on screen (*"several values stated for torque ('3.5, 7.9 & 15.9 Nm')"* vs *"no torque stated"*). | No. |
+
+Plus 13 catalogue-sweep cases, all cause D, on the synthetic above-the-largest / between-rung sizes the
+sweep generates; none moves a price.
+
+**No item-list row anywhere produces a figure on both surfaces that disagree**, and **no row-level
+block's figures ever differ** — the two strongest statements the slice establishes, and both are
+asserted tests rather than prose.
+
+### ⚠️ What the live cert added to cause B, and why the characterisation changed
+
+`slot_count` is a plain `dropdown` (`panel_controls`), and the live calculator offers exactly `2 / 3` —
+no "Other…". On `BOQ-26-00071 / LOW SIDE WORKS / 276` the extraction read `"3 Slot"`, which is **not one
+of those options**, so by this repo's own controlled-select rule the panel's select shows
+*"— select —"* while the row prices 2204 / 352 / 2556 from the raw string. Entering what a pricer
+CAN enter — slot diffuser, damper `with`, slot count `3`, unit `rmt` — the live calculator returns
+**2204 / 352 / 2556**, identical to the panel.
+
+So cause B is not "the two surfaces price the same thing differently". It is: **the panel accepts a raw
+model string its own control cannot display, prices from it, and exempts it from the stale-pick rule;
+the calculator has no way to be given that string, and the same answer expressed through the control
+gives the same figures.** That is the question for the owner — whether a value the field cannot show
+should price a row at all — not an arithmetic disagreement.
+
+### Vacuity
+
+| Perturbation (product, reverted immediately) | Result |
+|---|---|
+| `compute`: `overrides = undefined` (one line) | **14 of 28 red**, every corpus / SKU / item-list assertion among them |
+| `assembleItems`: family written to `"family_vacuity_12cP"` — the exact 12c defect class | **9 of 28 red**, including both item-list suites and both awaiting-list assertions |
+
+Both restored byte-identically (`git diff` clean, LF intact) and the suite green again. Three
+in-suite vacuity tests ride permanently, and two of them record a trap: emptying one item's ANSWERS
+does **not** bite (several ADP families price from the family alone through ruled defaults), and
+feeding a unit the picker does not offer for the chosen family is a **no-op by design** (12c-S: a
+stored pick the picker no longer lists is not honoured), so each perturbation had to be chosen to
+actually change something.
+
+### Browser live cert
+
+De-stale run in full: bench + honcho + vite killed by PID, all three ports confirmed free,
+`__pycache__` / `*.pyc` / `node_modules/.vite` purged, `bench clear-cache` + `clear-website-cache`,
+bench restarted and **polled until `/api/method/ping` ANSWERED** (~110 s), then vite, then :8080.
+PROOF 1: the served `pricingSheetHelper.ts` (280,264 bytes transformed) and `PricingCalculator.tsx`
+(58,530 bytes) greped for CODE strings — `admitCalculatorOnly` ×2, `familyAttrId` ×2, and
+`family_vacuity` **0**, so the vacuity edit is provably not in what the browser executes. PROOF 2: the
+app boots a real session (sidebar renders as `admins@nirmaan.app`).
+
+| Step | Result |
+|---|---|
+| **E2E-1** `BOQ-26-00175 / Ground floor / 164` | Panel: square diffuser, damper `with`, neck `300`, qty 1 (default), SKU *Diffuser With Al Collar Damper / NECK:300X300/OUTER: 595X595 (600X600)* → **1972 / 576 / 2548**. Calculator, same answers → **identical SKU, identical working lines, 1972 / 576 / 2548**. Stated in advance from the automated layer; SEEN. |
+| **8 — ladder size-up** `… / 163` | Panel: *"neck size 225 is not on the sheet → 300 (next size up, R6)"* → 1972 / 576 / 2548. The calculator's neck control offers only the stocked sizes with no "Other…", so the only enterable answer is the ladder result 300 → **1972 / 576 / 2548**. |
+| **the cause-B row** `BOQ-26-00071 / 276` | Calculator, slot diffuser / `with` / `3` / `rmt` → **2204 / 352 / 2556** = the panel's figures. Recorded above. |
+| **2–7, 9–12** | **NOT RUN.** See *Owed*. |
+
+### Owed
+
+**Browser cert steps 2–7 and 9–12 were not completed.** They were blocked on driving the virtualized
+grid: on `BOQ-26-00071 / LOW SIDE WORKS` the search's *Next match* does not move the row window (the
+window stayed on rows 9–18 through a full-screen toggle and repeated clicks), so the target rows could
+not be brought on screen. Two mechanics learned on the way are worth keeping:
+
+* ⚠️ **SCREENSHOT COORDINATES ARE NOT DOM COORDINATES HERE.** The CSS viewport is 2071 × 1092 while the
+  screenshot frame is 1512 × 797 — a factor of **0.730** on both axes (`devicePixelRatio` 0.9). Every
+  `getBoundingClientRect()` must be multiplied by 0.73 before it is clicked, and a click computed
+  without it lands a row or two away and looks like an unresponsive control.
+* The rate-helper badge is reachable as `button[aria-label="Open rate suggestions"]` inside the row's
+  `<tr>`, and `.click()` on it works; expanding the card needs a real pointer click on its header.
+
+The automated layer covers every one of those rows and SKUs exhaustively, so what is missing is the
+on-screen confirmation, not the result.
+
+Full record: `2026-10-06_12cP_Report.md` and `2026-10-06_12cP_Ledger.md` on the Desktop; the
+per-divergence detail (inputs, both figures, both item lists, both reasons, the first differing step)
+is in the report's §3; screenshots in `2026-10-06_12cP_Screens/`.
