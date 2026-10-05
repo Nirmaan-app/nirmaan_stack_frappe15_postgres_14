@@ -37,6 +37,26 @@
  * is the badge AND the list length; the categories ride ON the row.
  */
 import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+// the SAME spec reader `isItemListConfig` is built on -- imported rather than re-tested here,
+// so "is this category item-list" has one definition. Taken from `itemListPricing` directly so
+// this module keeps no edge back to `pricingInputExact`, which imports a type from here.
+import { itemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
+// the SHARED "does this row carry the axes the rules ladder on" predicate. `pricingInputExact`
+// imports only TYPES from this module, so this value import creates no runtime cycle.
+import { skuCarriesGeometry } from "./pricingInputExact";
+
+/**
+ * A row the structural walk could not TEST -- see `InputReach.candidateSkus`. It carries its own
+ * kind and categories for the same reason `ReachedColumn` does: the confirmer needs the CONFIG that
+ * prices it, and looking that up from a bare uid would mean re-deriving a mapping the walk already
+ * had in hand.
+ */
+export interface CandidateSku {
+  itemUid: string;
+  kind: string;
+  /** every item-list category of this kind that applied the input, sorted */
+  categories: string[];
+}
 
 /** One SKU column a pricing input moves. */
 export interface ReachedColumn {
@@ -53,6 +73,25 @@ export interface InputReach {
   distinctSkus: string[];
   /** one entry per (SKU, rate column); a row moved on two columns appears twice */
   columns: ReachedColumn[];
+  /**
+   * SKUs this walk could not TEST, never SKUs it has cleared -- the population an EXACT run must
+   * confirm or discard (`pricingInputExact.confirmInputMovesSku`).
+   *
+   * ⚠️ WHY A SECOND CHANNEL IS NEEDED AT ALL. `matching()` keeps a SKU only when it STORES the rate
+   * column the step touches, which is the right test for an input that SCALES a stored rate. An
+   * ITEM-LIST category builds an ASSEMBLY instead, so a row whose whole cost comes from pricing
+   * INPUTS stores no cost column of its own -- Insulation's five cladding-only SKUs carry only
+   * `cost_install_cladding` and the markups. They were therefore dropped before anything could ask
+   * whether their price moves, and the F3 samples branch downstream became unreachable for the only
+   * population it was written for (U9/F3, found in the 12c cert, 2026-10-05).
+   *
+   * ⚠️ THIS LIST IS DELIBERATELY OVER-INCLUSIVE AND MUST NEVER DRIVE A COUNT OR A PANEL ON ITS OWN.
+   * It is structural -- "of a kind this input touched, in an item-list category, storing none of the
+   * walked rate keys" -- so for the 26G sheet input it holds all five cladding types, where only the
+   * two 26G ones actually move. Deciding WHICH move is a pricing question, and the answer comes from
+   * running the product. A structural guess here would report 5 where 2 is the truth.
+   */
+  candidateSkus: CandidateSku[];
   /** distinct SKU uids per category, for the panel's grouping and its summary line */
   byCategory: Record<string, string[]>;
   /**
@@ -457,19 +496,61 @@ export function computePricingInputReach(
     const columns: ReachedColumn[] = [];
     const byCategory: Record<string, Set<string>> = {};
     const distinct = new Set<string>();
+    /**
+     * Per KIND this input touched: the rate keys the walk asked for, and whether any category that
+     * applied it there is ITEM-LIST. Both are needed to name the untestable population below.
+     */
+    const walkedKeys = new Map<string, Set<string>>();
+    const itemListKind = new Set<string>();
+    const itemListCats = new Map<string, Set<string>>();
     for (const [k, cats] of byCol) {
       const c = colLookup.get(k);
       if (!c || !c.kind || !c.rateKey) continue;
       const catList = Array.from(cats).sort();
+      (walkedKeys.get(c.kind) ?? walkedKeys.set(c.kind, new Set<string>()).get(c.kind)!).add(c.rateKey);
+      for (const cat of catList) {
+        if (!itemListPricingSpec(configs?.[cat] as never)) continue;
+        itemListKind.add(c.kind);
+        (itemListCats.get(c.kind) ?? itemListCats.set(c.kind, new Set<string>()).get(c.kind)!).add(cat);
+      }
       for (const uid of matching(c)) {
         columns.push({ itemUid: uid, kind: c.kind, rateKey: c.rateKey, categories: catList });
         distinct.add(uid);
         for (const cat of catList) (byCategory[cat] ??= new Set<string>()).add(uid);
       }
     }
+    /**
+     * The untestable population -- see `candidateSkus`. A row of a touched kind, in an item-list
+     * category, that stores NONE of the rate keys the walk asked for, so `matching()` could not
+     * reach a verdict about it either way. Already-matched rows are excluded: they have a verdict.
+     */
+    const candidates: CandidateSku[] = [];
+    for (const it of items ?? []) {
+      const kind = String(it.kind ?? "");
+      if (!itemListKind.has(kind)) continue;
+      const uid = it.item_uid;
+      if (!uid || distinct.has(uid)) continue;
+      const rates = (it.rates ?? {}) as Record<string, unknown>;
+      let storesOne = false;
+      for (const rk of walkedKeys.get(kind) ?? []) if (rates[rk] !== undefined) { storesOne = true; break; }
+      if (storesOne) continue;
+      /**
+       * ⚠️ AND IT MUST CARRY NO GEOMETRY. Without this the net is far too wide: 209 of Insulation's
+       * 229 rows store no `cost_cladding`, so the three GI inputs each nominated 209 candidates and
+       * every one of them cost a pricing probe to rule out (measured 2026-10-05; all 209 confirmed
+       * NEGATIVE). A row that CARRIES its geometry is priced directly and already has a verdict from
+       * the column walk -- the population this channel exists for is exactly the rows that cannot be
+       * priced on their own, which is what the samples supply a geometry for. Narrowing here takes
+       * every input to 5 candidates and changes no confirmed answer.
+       */
+      const cats = Array.from(itemListCats.get(kind) ?? []).sort();
+      if (cats.every((cat) => skuCarriesGeometry(configs?.[cat], it))) continue;
+      candidates.push({ itemUid: uid, kind, categories: cats });
+    }
     out[id] = {
       distinctSkus: Array.from(distinct).sort(),
       columns,
+      candidateSkus: candidates.sort((a, b) => a.itemUid.localeCompare(b.itemUid)),
       byCategory: Object.fromEntries(
         Object.entries(byCategory).map(([k, v]) => [k, Array.from(v).sort()]),
       ),

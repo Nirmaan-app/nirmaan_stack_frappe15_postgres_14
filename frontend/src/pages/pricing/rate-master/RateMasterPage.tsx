@@ -23,6 +23,7 @@ import { RateMasterDataViewer } from "./RateMasterDataViewer";
 // of them), so the page mounts the SHARED N-fetch children rather than minting a second fetcher.
 import { PricingInputImpactPanel } from "./PricingInputImpactPanel";
 import { computePricingInputReach } from "./pricingInputReach";
+import { confirmedCandidateSkus } from "./pricingInputExact";
 import { pricingInputUsedBy } from "./rateMasterSpec";
 import { isPricingInputConfig } from "./rateMasterSpec";
 import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, useConfigsByCategory }
@@ -117,10 +118,36 @@ export function RateMasterPage() {
     for (const [cid, cfg] of configsByCategory) (out as Record<string, unknown>)[cid] = cfg;
     return out;
   }, [configsByCategory]);
-  const inputReach = useMemo(
+  const baseReach = useMemo(
     () => computePricingInputReach(allConfigs as never, items),
     [allConfigs, items],
   );
+  /** the uid map the confirmer needs; the panel's own `itemsByUid` is declared further down */
+  const itemsByUidForReach = useMemo(
+    () => new Map(items.map((i) => [i.item_uid ?? "", i])),
+    [items],
+  );
+  /**
+   * SLICE 12c CERT FIX (U9/F3, 2026-10-05) -- the CONFIRMED untestable rows, folded into the reach so
+   * the grid's `items` badge counts exactly the rows the panel lists. The confirmer runs the product
+   * (one probe per candidate), which is why it lives here beside the reach memo and is memoised on
+   * the same inputs: nothing else on this page can afford to recompute it per render.
+   *
+   * ⚠️ IT ADDS TO `distinctSkus`, NOT TO `columns`. A candidate has no stored rate column -- that is
+   * what put it in the population -- so a synthetic column entry would be a fiction the exact pricer
+   * would then try to read. The panel builds its own rows from `candidateSkus`.
+   */
+  const inputReach = useMemo(() => {
+    const out: Record<string, (typeof baseReach)[string]> = {};
+    for (const [id, r] of Object.entries(baseReach)) {
+      const confirmed = confirmedCandidateSkus(r.candidateSkus, itemsByUidForReach,
+                                               allConfigs as never, items, id);
+      out[id] = confirmed.length
+        ? { ...r, distinctSkus: Array.from(new Set([...r.distinctSkus, ...confirmed.map((c) => c.itemUid)])).sort() }
+        : r;
+    }
+    return out;
+  }, [baseReach, itemsByUidForReach, allConfigs, items]);
   // SLICE 12c: the DERIVED "used by", for an input whose item carries no stored copy. Computed HERE
   // because it needs EVERY category's config, exactly as `inputReach` does -- the viewer holds one.
   const derivedUsedBy = useMemo(

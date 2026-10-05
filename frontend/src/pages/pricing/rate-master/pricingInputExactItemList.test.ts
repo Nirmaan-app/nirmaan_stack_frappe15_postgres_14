@@ -15,9 +15,9 @@ import { describe, it, expect } from "vitest";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v16.json";
 import {
   priceSkuExactItemList, isItemListConfig, itemsWithInput, sampleGeometries,
-  priceSkuExactSamples, skuCarriesGeometry,
+  priceSkuExactSamples, skuCarriesGeometry, confirmedCandidateSkus,
 } from "./pricingInputExact";
-import { sampleGeometryText } from "./pricingInputImpact";
+import { sampleGeometryText, computeImpact } from "./pricingInputImpact";
 // SLICE 12c FINISH / F3 -- the real shipped asset, never a fixture
 import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 import { itemListPricingSpec, priceItemList } from "../../boq-wizard/rate-helper/itemListPricing";
@@ -388,5 +388,184 @@ describe("SLICE 12c FINISH / F3 -- sample impacts for a geometry-less SKU", () =
     expect(sampleGeometryText({ pipe_size_mm: 100, thickness_mm: 25 })).toBe("pipe size 100 x 25 mm");
     expect(sampleGeometryText({ width: 2, depth: 3 })).toBe("width 2 x depth 3");
     expect(sampleGeometryText({})).toBe("");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c CERT FIX -- U9 / F3: THE CLADDING-ONLY SKUs REACH THE PANEL (owner ruling 2026-10-05)
+ *
+ * ⚠️ WHAT THESE ADD OVER THE F3 BLOCK ABOVE, AND WHY THE SLICE SHIPPED BROKEN WITHOUT THEM. Those
+ * tests call `priceSkuExactSamples` DIRECTLY and were all green -- the PRODUCER was always correct.
+ * What nothing asserted was the JOIN: that `computeImpact`, the function the panel actually renders,
+ * ever hands a cladding-only SKU to it. It did not. The structural reach walk dropped those rows at
+ * `rates[rateKey] === undefined` (they store no cost column at all), so the samples branch was
+ * unreachable and the browser cert found an empty half of the acceptance item.
+ *
+ * This is the standing rule in CLAUDE.md -- "a test on each side of a boundary is not a test of the
+ * boundary" -- so every test here goes THROUGH `computeImpact`.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c CERT FIX / U9+F3 -- cladding-only SKUs reach the impact panel", () => {
+  const INS = "hvac_insulation";
+  const cfgU9 = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+    .category_configs.find((c) => c.category_id === INS)!;
+  const itemsU9 = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items
+    .filter((i) => i.kind === "hvac_insulation_item" || i.kind === "hvac_pricing_input");
+  const configsU9 = { [INS]: cfgU9 } as unknown as Record<string, never>;
+  const byUid = new Map(itemsU9.map((i) => [i.item_uid ?? "", i]));
+  const reachU9 = computePricingInputReach(configsU9 as never, itemsU9);
+  const inputItem = (key: string) => itemsU9.find(
+    (i) => i.kind === "hvac_pricing_input"
+        && String((i.attributes as Record<string, unknown>)?.item ?? "") === key)!;
+  const claddingOf = (uid: string) =>
+    String((byUid.get(uid)?.attributes as Record<string, unknown>)?.cladding ?? "");
+
+  /** the same 10% perturbation the confirmer uses, so a test and the product ask the same question */
+  const raise = (key: string) => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries((inputItem(key).rates ?? {}) as Record<string, number>)) {
+      if (typeof v === "number" && Number.isFinite(v)) out[k] = v === 0 ? 1 : v * 1.1;
+    }
+    return out;
+  };
+
+  /** the panel's own call, with ONE input raised */
+  const impactFor = (key: string) => computeImpact(
+    (inputItem(key).rates ?? {}) as Record<string, number>, raise(key),
+    reachU9[key], byUid, null,
+    { configs: configsU9 as never, items: itemsU9, inputItemKey: key },
+  );
+
+  /**
+   * The four inputs the owner named, with the cladding types each is expected to move. ⚠️ THE
+   * EXPECTATION IS WRITTEN OUT rather than derived from the catalogue, so a rules change that
+   * silently re-pointed an input fails here instead of quietly re-deriving its own answer.
+   */
+  const CASES: Array<[string, string[]]> = [
+    ["alu_sheet_26g", ["26G Aluminium", "26G Aluminium with Glass Cloth"]],
+    ["alu_sheet_24g", ["24G Aluminium", "24G Aluminium with Glass Cloth"]],
+    ["glass_cloth", ["24G Aluminium with Glass Cloth", "26G Aluminium with Glass Cloth",
+                     "Glass Cloth with paint"]],
+    ["cladding_overlap", ["24G Aluminium", "24G Aluminium with Glass Cloth",
+                          "26G Aluminium", "26G Aluminium with Glass Cloth"]],
+  ];
+
+  it.each(CASES)("%s: exactly the expected cladding-only SKUs appear, and no others", (key, expected) => {
+    const got = impactFor(key).rows.filter((r) => !!r.samples)
+      .map((r) => claddingOf(r.itemUid)).sort();
+    expect(got).toEqual([...expected].sort());
+    expect(got).toHaveLength(expected.length);
+  });
+
+  it.each(CASES)("%s: each carries 2-3 LABELLED samples", (key) => {
+    const rows = impactFor(key).rows.filter((r) => !!r.samples);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.samples!.length).toBeGreaterThanOrEqual(2);
+      expect(r.samples!.length).toBeLessThanOrEqual(3);
+      for (const sm of r.samples!) {
+        const label = sampleGeometryText(sm.geometry);
+        expect(label, JSON.stringify(sm.geometry)).toMatch(/\d/);
+        expect(label.length).toBeGreaterThan(3);
+      }
+    }
+  });
+
+  it.each(CASES)("%s: every sample figure equals the calculator's for that same size", (key) => {
+    const itemsNext = itemsWithInput(itemsU9, key, raise(key));
+    let compared = 0;
+    for (const r of impactFor(key).rows.filter((x) => !!x.samples)) {
+      const sku = byUid.get(r.itemUid)!;
+      for (const sm of r.samples!) {
+        /**
+         * The probe is rebuilt HERE, independently of the panel -- the SKU plus that sample's
+         * geometry -- and priced through the shared pricer. The arithmetic has only one copy, so what
+         * this actually pins is that the panel sampled the geometry it SAYS it sampled, for the SKU it
+         * says it sampled, against the same patched catalogue.
+         */
+        const probe = {
+          ...sku,
+          attributes: { ...(sku.attributes as Record<string, unknown>), ...sm.geometry },
+        } as RateMasterItem;
+        const direct = priceSkuExactItemList(probe, cfgU9, itemsU9, itemsNext);
+        for (const leg of sm.result.legs) {
+          const same = direct.legs.find((l) => l.output === leg.output);
+          expect(same, `${key} ${leg.output}`).toBeTruthy();
+          expect(same!.now, `${key} ${leg.output} ${JSON.stringify(sm.geometry)}`)
+            .toBeCloseTo(leg.now, 6);
+          expect(same!.becomes).toBeCloseTo(leg.becomes, 6);
+          compared += 1;
+        }
+      }
+    }
+    expect(compared, "the comparison must not be empty").toBeGreaterThan(0);
+  });
+
+  it("a sample MOVES for the input that owns it -- the samples are not decoration", () => {
+    const rows = impactFor("alu_sheet_26g").rows.filter((r) => !!r.samples);
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.moved, claddingOf(r.itemUid)).toBe(true);
+      expect(r.samples!.some((sm) => sm.result.legs.some((l) => l.moved))).toBe(true);
+    }
+  });
+
+  it("the column-matched composites are untouched: 68 of them, plus the two new rows", () => {
+    const res = impactFor("alu_sheet_26g");
+    expect(res.rows.filter((r) => !r.samples)).toHaveLength(68);
+    expect(res.rows).toHaveLength(70);
+  });
+
+  /* ---- VACUITY ---- */
+
+  it("VACUITY: with the candidate channel emptied, no cladding-only SKU reaches the panel", () => {
+    const starved = { ...reachU9["alu_sheet_26g"], candidateSkus: [] };
+    const res = computeImpact(
+      (inputItem("alu_sheet_26g").rates ?? {}) as Record<string, number>,
+      raise("alu_sheet_26g"), starved, byUid, null,
+      { configs: configsU9 as never, items: itemsU9, inputItemKey: "alu_sheet_26g" },
+    );
+    expect(res.rows.filter((r) => !!r.samples)).toHaveLength(0);
+    expect(res.rows).toHaveLength(68);        // exactly the pre-fix behaviour this replaced
+  });
+
+  it("VACUITY: the structural walk alone is OVER-inclusive, so confirmation does real work", () => {
+    const cands = reachU9["alu_sheet_26g"].candidateSkus;
+    expect(cands).toHaveLength(5);            // all five cladding types are candidates...
+    const confirmed = confirmedCandidateSkus(cands, byUid, configsU9 as never, itemsU9,
+                                             "alu_sheet_26g");
+    expect(confirmed).toHaveLength(2);        // ...only the two 26G ones actually move
+    for (const c of confirmed) expect(claddingOf(c.itemUid)).toMatch(/26G/);
+  });
+
+  it("NEGATIVE: a discipline with no item-list category yields no candidates at all", () => {
+    const eall = EALL as unknown as {
+      items: RateMasterItem[]; category_configs: Array<{ category_id: string }>;
+    };
+    const ecfgs: Record<string, unknown> = {};
+    for (const c of eall.category_configs) ecfgs[c.category_id] = c;
+    const er = computePricingInputReach(ecfgs as never, eall.items);
+    expect(Object.keys(er).length).toBeGreaterThan(0);
+    for (const [id, r] of Object.entries(er)) expect(r.candidateSkus, id).toHaveLength(0);
+  });
+
+  it("the `now` column is ONE quantity: the computed leg, with and without an edit", () => {
+    const key = "alu_sheet_26g";
+    const stored = (inputItem(key).rates ?? {}) as Record<string, number>;
+    const ctx = { configs: configsU9 as never, items: itemsU9, inputItemKey: key };
+    const unchanged = computeImpact(stored, {}, reachU9[key], byUid, null, ctx);
+    const changed = computeImpact(stored, raise(key), reachU9[key], byUid, null, ctx);
+    expect(unchanged.changed).toBe(false);
+    expect(changed.changed).toBe(true);
+    const nowOf = (res: typeof unchanged, uid: string) =>
+      res.rows.find((r) => r.itemUid === uid && !r.samples)?.now;
+    const uid = changed.rows.find((r) => !r.samples)!.itemUid;
+    /**
+     * ⚠️ THE DEFECT THIS PINS. `now` used to be the SKU's STORED RATE with no edit pending and the
+     * pipeline's COMPUTED leg with one -- measured 109 vs 306 on the same row, under one heading.
+     * Both branches must now report the same quantity, and only `becomes` may differ.
+     */
+    expect(nowOf(unchanged, uid)).toBeCloseTo(nowOf(changed, uid)!, 6);
+    // and with nothing edited, nothing is reported as moved
+    expect(unchanged.rows.every((r) => !r.moved)).toBe(true);
   });
 });

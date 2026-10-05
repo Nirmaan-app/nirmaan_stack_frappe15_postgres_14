@@ -50,6 +50,8 @@ export const IMPACT_COPY = {
    * 16.667%. Saying so is the honest alternative to showing one as the other. */
   rowRounding: "Each row's total is rounded once at the end, so a row's own change can differ from these.",
   flatAdder: "Added to each row below, not multiplied — so the percentage differs from SKU to SKU.",
+  /** Names the quantity the `now` / `becomes` columns are in -- see the header's own note. */
+  nowLegTitle: (leg: string) => `Both figures are the ${leg} rate, before and after.`,
 } as const;
 
 function fmt(n: number): string {
@@ -292,7 +294,15 @@ export function PricingInputImpactPanel({
                         <thead className="sticky top-0 bg-muted/60">
                           <tr className="text-muted-foreground">
                             <th className="px-1.5 py-1 text-left font-medium">Item</th>
-                            <th className="px-1.5 py-1 text-right font-medium">now</th>
+                            {/* ⚠️ THE HEADING NAMES THE QUANTITY (12c cert fix, 2026-10-05). `now` used
+                                to show the SKU's stored rate column with no edit pending and the
+                                pipeline's computed leg with one -- two quantities, one unlabelled
+                                heading. `computeImpact` now returns the computed leg in both branches,
+                                and naming the leg here is what makes that visible rather than merely
+                                true. */}
+                            <th className="px-1.5 py-1 text-right font-medium" title={IMPACT_COPY.nowLegTitle(impact.legLabel)}>
+                              now <span className="font-normal normal-case opacity-70">({impact.legLabel})</span>
+                            </th>
                             <th className="px-1.5 py-1 text-right font-medium">becomes</th>
                             <th className="px-1.5 py-1 text-right font-medium">change</th>
                           </tr>

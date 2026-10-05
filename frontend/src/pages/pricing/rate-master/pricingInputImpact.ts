@@ -40,9 +40,16 @@ import { pipelinesOf } from "./pricingInputReach";
 import { evalFormula } from "./ratePipelineInterpreter";
 import {
   conditionsFor, isItemListConfig, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
-  priceSkuExactItemList, priceSkuExactSamples,
+  priceSkuExactItemList, priceSkuExactSamples, confirmedCandidateSkus,
   type ExactLeg, type ExactPipelineRef, type SampleImpact,
 } from "./pricingInputExact";
+
+/**
+ * Shown on a confirmed cladding-only row when there is no edit yet, so there is nothing to sample
+ * against. It states the SHAPE of the row rather than a figure -- such a row has no price of its own
+ * until a geometry is named.
+ */
+const NO_GEOMETRY_NOTE = "priced per girth -- edit a value above to see sample sizes";
 
 export type PanelShape = "pair" | "installation_share" | "installation_markup" | "bcs_only" | "flat_adder";
 
@@ -357,7 +364,19 @@ export function computeImpact(
    */
   let itemsNextForSamples: readonly RateMasterItem[] | null = null;
   const exactRows = (() => {
-    if (!exactCtx || !changed) return null;
+    /**
+     * ⚠️ THIS RUNS WHETHER OR NOT ANYTHING CHANGED, and that is what makes the `now` column mean ONE
+     * quantity (12c cert fix, owner ruling 2026-10-05). It used to bail on `!changed`, so every row
+     * fell through to the multiplier fallback below and `now` showed the SKU's STORED RATE COLUMN --
+     * while the same row with an edit pending showed the pipeline's COMPUTED leg. Measured on
+     * `Nitrile Rubber ... 12.7 x 13`: 109 before the edit, 306 after, under one heading, with nothing
+     * on screen saying the quantity had changed underneath the reader.
+     *
+     * With no edit the patch is empty, `itemsWithInput` hands back the same array, and every leg
+     * comes out `now === becomes` / `moved: false` -- so `becomes` renders as a dash exactly as
+     * before and only `now` is corrected.
+     */
+    if (!exactCtx) return null;
     const refs: ExactPipelineRef[] = [];
     for (const { category, pipelineId } of reach?.pipelines ?? []) {
       // ⚠️ THROUGH `pipelinesOf`, NOT `cfg.pipelines`. An ITEM-LIST category's pipelines live inside
@@ -371,7 +390,7 @@ export function computeImpact(
     if (!refs.length) return null;
     const patch: Record<string, number> = {};
     for (const k of Object.keys(next)) if (next[k] !== stored[k]) patch[k] = next[k];
-    if (!Object.keys(patch).length) return null;
+    // an EMPTY patch is the no-edit case, not a reason to bail -- see the note above
     const itemsNext = itemsWithInput(exactCtx.items, exactCtx.inputItemKey, patch);
     itemsNextForSamples = itemsNext;
     /**
@@ -496,6 +515,47 @@ export function computeImpact(
       becomes,
       pctChange: now === 0 ? null : ((becomes - now) / now) * 100,
       moved,
+    });
+  }
+  /**
+   * SLICE 12c CERT FIX (U9/F3, owner ruling 2026-10-05) -- THE CONFIRMED UNTESTABLE POPULATION.
+   *
+   * `reach.candidateSkus` holds the rows the structural walk could not test: an item-list category's
+   * rows that store none of the walked rate columns, because their whole cost is assembled from
+   * pricing INPUTS. Insulation's five cladding-only SKUs are that population, and before this they
+   * never reached the panel at all -- which made the F3 samples branch above unreachable for the one
+   * shape it was written for.
+   *
+   * ⚠️ THE LIST IS OVER-INCLUSIVE BY DESIGN, so each row is CONFIRMED by running the product: the
+   * 26G sheet input names all five cladding types and moves exactly the two 26G ones. The confirmer
+   * is shared with the Rate Master grid's `items` count, so the badge and the list it opens cannot
+   * disagree. A candidate already carried by a column is skipped -- it has a verdict.
+   */
+  for (const cand of confirmedCandidateSkus(reach?.candidateSkus, itemsByUid,
+                                            exactCtx?.configs, exactCtx?.items,
+                                            exactCtx?.inputItemKey ?? "")) {
+    if (seen.has(cand.itemUid)) continue;
+    seen.add(cand.itemUid);
+    const it = itemsByUid?.get(cand.itemUid);
+    if (!it) continue;
+    const cfgForRow = exactCtx?.configs?.[cand.categories[0] ?? ""];
+    const samples = itemsNextForSamples && cfgForRow
+      ? priceSkuExactSamples(it, cfgForRow, exactCtx!.items, itemsNextForSamples)
+      : [];
+    rows.push({
+      itemUid: cand.itemUid, kind: cand.kind, rateKey: "",
+      label: skuLabel(it, labelCtx), categories: cand.categories,
+      /**
+       * ⚠️ ZERO IS THE HONEST STORED RATE HERE -- such a row stores no cost column at all, which is
+       * what put it in this population. `now` / `becomes` stay 0 and `pctChange` null for the same
+       * reason: this row's figures live in its SAMPLES, each at a named geometry, because one figure
+       * for a geometry nobody named is exactly what the samples ruling refused.
+       */
+      storedRate: 0, now: 0, becomes: 0, pctChange: null,
+      moved: samples.some((sm) => sm.result.legs.some((l) => l.moved)),
+      samples: samples.length ? samples : undefined,
+      note: samples.length ? undefined : NO_GEOMETRY_NOTE,
+      exact: true,
     });
   }
   /**

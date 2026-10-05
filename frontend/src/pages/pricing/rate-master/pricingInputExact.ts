@@ -28,7 +28,7 @@
  */
 import { runPipeline } from "./ratePipelineInterpreter";
 import type { Pipeline, PipelineResult, RateMasterItem } from "./rateMasterTypes";
-import type { AdderSpec, InputReach } from "./pricingInputReach";
+import type { AdderSpec, CandidateSku, InputReach } from "./pricingInputReach";
 // ACCEPTANCE 23: the rate-helper panel's own pricer. See the block at the foot of this file for why
 // this import edge exists and why a copy was not an option.
 import { itemListPricingSpec, priceItemList, projectUnitClass } from "../../boq-wizard/rate-helper/itemListPricing";
@@ -346,11 +346,19 @@ export function isItemListConfig(config: unknown): boolean {
 // No size is written in code and no category is named -- the axes come from `spec.ladders` and the
 // values from the catalogue.
 //
-// ⚠️ THIS FUNCTION IS SHIPPED AND TESTED BUT IS NOT RENDERED, because THERE ARE NO CLADDING-ONLY SKUs
-// IN THE CATALOGUE. Design question O1 put the two shapes to the owner -- (i) one SKU per cladding
-// type per geometry, 200 new rows, or (ii) one SKU per cladding type, 5 new rows -- and that choice is
-// still open, as is Q7's PROVISIONAL rider about whether a per-sq.m cladding-only row takes the
-// overlap factor. Minting the rows is the step this is waiting on; the picker is ready for it.
+// ⚠️ HISTORY, AND THE DEFECT IT CAUSED -- READ BEFORE CHANGING THE REACH WALK. This was written while
+// the catalogue held NO cladding-only SKUs: design question O1 offered (i) one SKU per cladding type
+// per geometry, 200 rows, or (ii) one SKU per cladding type, 5 rows. The owner took (ii) and the five
+// rows were minted (live at HVAC v25: 24G, 26G, Glass Cloth with paint, and the two +Glass Cloth
+// composites, all `unit = Mts`). The picker was "ready for it" -- but nothing OPENED THE WALK to it,
+// so `pricingInputReach.matching()` kept dropping those rows at `rates[rateKey] === undefined` (they
+// store only `cost_install_cladding` and the markups) and this function stayed unreachable for the one
+// population it exists for. Found in the 12c browser cert, 2026-10-05, not by any test: the producer
+// and the consumer were both green and the JOIN was never asserted.
+//
+// It is now reached through `InputReach.candidateSkus` + `confirmedCandidateSkus` below. Q7's
+// PROVISIONAL rider -- whether a per-sq.m cladding-only row takes the overlap factor -- is still open
+// and is a CONFIG question, untouched by this wiring.
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
 /** One sample geometry: the ladder attribute values a sample calculation is run at. */
@@ -475,6 +483,90 @@ export function priceSkuExactSamples(
       attributes: { ...((item.attributes ?? {}) as Record<string, unknown>), ...geometry },
     } as RateMasterItem;
     out.push({ geometry, result: priceSkuExactItemList(probe, config, itemsNow, itemsNext) });
+  }
+  return out;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c CERT FIX (U9/F3, owner ruling 2026-10-05) -- CONFIRMING THE UNTESTABLE POPULATION
+//
+// `pricingInputReach.candidateSkus` names the rows the structural walk could not test: an item-list
+// category's rows that store none of the walked rate columns, because their whole cost is assembled
+// from pricing INPUTS. The walk is deliberately over-inclusive there (for the 26G sheet input it
+// names all five cladding types), so SOMETHING has to decide which of them an input really moves.
+//
+// ⚠️ THAT DECISION IS A PRICING QUESTION AND IS ANSWERED BY RUNNING THE PRODUCT, exactly as the
+// 2026-09-29 ruling requires of the whole panel. The probe perturbs the one input and asks the SKU's
+// own pricer whether any figure moves. Re-deriving "a 26G SKU is moved by the 26G input" from names
+// or attributes would be the second implementation that ruling exists to forbid -- and it would be
+// wrong for the composites (`26G Aluminium with Glass Cloth` is moved by the glass cloth input too).
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The perturbation the probe applies. Multiplicative so it is meaningful at any scale, with an
+ * additive fallback because scaling ZERO moves nothing and a zero input is legitimate (three of
+ * Electrical's are 0% by ruling).
+ */
+function probeRates(item: RateMasterItem | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries((item?.rates ?? {}) as Record<string, unknown>)) {
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    out[k] = v === 0 ? 1 : v * 1.1;
+  }
+  return out;
+}
+
+/**
+ * Does this input actually move this SKU's price? Runs the SKU's own pricer over the catalogue as it
+ * stands and over the catalogue with ONLY this input perturbed, and reports whether any figure moved.
+ *
+ * A geometry-less SKU is probed through its SAMPLES (the same `priceSkuExactSamples` the panel
+ * renders), because it cannot be priced on its own at all -- which is the entire reason this
+ * population exists. PURE apart from reading the arrays it is given.
+ */
+export function confirmInputMovesSku(
+  item: RateMasterItem,
+  config: unknown,
+  items: readonly RateMasterItem[],
+  inputItemKey: string,
+): boolean {
+  if (!isItemListConfig(config)) return false;
+  const inputItem = items.find(
+    (i) => String(i.kind ?? "").endsWith("_pricing_input")
+      && String(((i.attributes ?? {}) as Record<string, unknown>).item ?? "") === inputItemKey,
+  );
+  const patch = probeRates(inputItem);
+  if (!Object.keys(patch).length) return false;
+  const itemsNext = itemsWithInput(items, inputItemKey, patch);
+  if (skuCarriesGeometry(config, item)) {
+    return priceSkuExactItemList(item, config, items, itemsNext).legs.some((l) => l.moved);
+  }
+  return priceSkuExactSamples(item, config, items, itemsNext).some(
+    (s) => s.result.legs.some((l) => l.moved),
+  );
+}
+
+/**
+ * The confirmed subset of a reach's `candidateSkus`, in catalogue order. ONE function, used by the
+ * impact panel for its rows AND by the Rate Master grid for its `items` count -- so the count and
+ * the list it opens can never disagree about which rows an input moves.
+ */
+export function confirmedCandidateSkus(
+  candidateSkus: readonly CandidateSku[] | null | undefined,
+  itemsByUid: ReadonlyMap<string, RateMasterItem> | null | undefined,
+  configs: Record<string, unknown> | null | undefined,
+  items: readonly RateMasterItem[] | null | undefined,
+  inputItemKey: string,
+): CandidateSku[] {
+  if (!candidateSkus?.length || !items?.length) return [];
+  const out: CandidateSku[] = [];
+  for (const cand of candidateSkus) {
+    const sku = itemsByUid?.get(cand.itemUid);
+    if (!sku) continue;
+    for (const cat of cand.categories) {
+      const cfg = configs?.[cat];
+      if (cfg && confirmInputMovesSku(sku, cfg, items, inputItemKey)) { out.push(cand); break; }
+    }
   }
   return out;
 }
