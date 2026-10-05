@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_STATUSES,
   UNASSIGNED,
   assigneeOptions,
   billDocMode,
+  billStatusOptions,
   clashingPackage,
   cleanPackageName,
   columnTone,
@@ -14,12 +16,15 @@ import {
   inr,
   inrShort,
   managerNames,
+  matchesBillStatus,
   parseAmount,
   poAmount,
   poInputOf,
   progressNote,
+  projectDeadline,
   projectStatusTone,
   setupSummary,
+  sortProjectsByDeadline,
   statusTone,
   trackersAssignedTo,
 } from "./billingFormat";
@@ -291,5 +296,64 @@ describe("billing package names", () => {
     expect(clashingPackage(" access   control ", existing)).toBe("Access Control");
     expect(clashingPackage("Solar PV", existing)).toBeNull();
     expect(clashingPackage("   ", existing)).toBeNull();
+  });
+});
+
+describe("project wise: billing-status filter and deadline sort", () => {
+  const pkg = (eta?: string | null) => ({ next_bill: eta === undefined ? null : { eta_date: eta } });
+  const row = (project: string, status: string | null, ...etas: (string | null | undefined)[]) => ({
+    project,
+    project_name: project,
+    status,
+    packages: etas.map(pkg),
+  });
+
+  it("a project's deadline is the earliest next-bill ETA among its packages", () => {
+    expect(projectDeadline([pkg("2026-11-20"), pkg("2026-10-08"), pkg(undefined), pkg(null)])).toBe("2026-10-08");
+    expect(projectDeadline([pkg(undefined), pkg(null)])).toBeNull();
+    expect(projectDeadline([])).toBeNull();
+  });
+
+  it("billing-status options: the bill statuses present, once each, in the standard order", () => {
+    const projects = [
+      { bill_statuses: ["Submitted", "Not Started"] },
+      { bill_statuses: ["NA", "Certification Pending", "Submitted"] },
+      { bill_statuses: [] },
+    ];
+    expect(billStatusOptions(projects)).toEqual(["Not Started", "Submitted", "Certification Pending", "NA"]);
+    expect(billStatusOptions([])).toEqual([]);
+    expect(billStatusOptions([{ bill_statuses: ["Zeta Odd", "Prepared"] }])).toEqual(["Prepared", "Zeta Odd"]);
+  });
+
+  it("a project matches when any of its bills is in the picked status; no bills match nothing", () => {
+    const p = { bill_statuses: ["Prepared", "Invoice Sent"] };
+    expect(matchesBillStatus(p, "Invoice Sent")).toBe(true);
+    expect(matchesBillStatus(p, "Client Approved")).toBe(false);
+    expect(matchesBillStatus({ bill_statuses: [] }, "Not Started")).toBe(false);
+    expect(matchesBillStatus({ bill_statuses: [] }, ALL_STATUSES)).toBe(true);
+    expect(ALL_STATUSES).toBe("All statuses");
+  });
+
+  const rows = [
+    row("Delta", "WIP", "2026-12-01"),
+    row("Alpha", "WIP", undefined),
+    row("Charlie", "WIP", "2026-10-10", "2026-11-01"),
+    row("Bravo", "WIP", null),
+    row("Echo", "WIP", "2026-10-10"),
+  ];
+  const names = (list: { project: string }[]) => list.map((r) => r.project);
+
+  it("ascending: earliest deadline first, ties A to Z, no deadline last", () => {
+    expect(names(sortProjectsByDeadline(rows, "asc"))).toEqual(["Charlie", "Echo", "Delta", "Alpha", "Bravo"]);
+  });
+
+  it("descending: latest deadline first, ties still A to Z, no deadline still last", () => {
+    expect(names(sortProjectsByDeadline(rows, "desc"))).toEqual(["Delta", "Charlie", "Echo", "Alpha", "Bravo"]);
+  });
+
+  it("does not reorder the list it was given", () => {
+    const copy = [...rows];
+    sortProjectsByDeadline(rows, "asc");
+    expect(rows).toEqual(copy);
   });
 });

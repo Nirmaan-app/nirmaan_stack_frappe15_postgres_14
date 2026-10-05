@@ -93,7 +93,11 @@ def status_params():
 
 
 def bill_totals(group_by: str, where: str = "1=1", params: dict | None = None) -> list[dict]:
-	"""Bill counts and money totals grouped by one `b.<column>`."""
+	"""Bill counts and money totals grouped by one `b.<column>`.
+
+	No invoiced / inflow totals here: those come from the project's Project Invoices and
+	Project Inflows (the Financials tab), never from the bills (decision 11).
+	"""
 	values = dict(status_params(), **(params or {}))
 	return frappe.db.sql(
 		f"""
@@ -101,10 +105,7 @@ def bill_totals(group_by: str, where: str = "1=1", params: dict | None = None) -
 			COUNT(*) FILTER (WHERE b.status <> %(na)s) AS bill_count,
 			COUNT(*) FILTER (WHERE b.status IN %(pending)s) AS pending_count,
 			COALESCE(SUM(b.bill_value) FILTER (WHERE b.status <> %(na)s), 0) AS billed,
-			COALESCE(SUM(b.bill_value) FILTER (WHERE b.status IN %(approved)s), 0) AS approved,
-			COUNT(*) FILTER (WHERE b.status <> %(na)s AND b.invoice_requested = 1) AS invoiced_count,
-			COALESCE(SUM(b.bill_value) FILTER (WHERE b.status <> %(na)s AND b.invoice_requested = 1), 0) AS invoiced,
-			COALESCE(SUM(b.payment_received) FILTER (WHERE b.status <> %(na)s), 0) AS inflow
+			COALESCE(SUM(b.bill_value) FILTER (WHERE b.status IN %(approved)s), 0) AS approved
 		FROM "tabProject Billing" b
 		WHERE {where}
 		GROUP BY b.{group_by}
@@ -140,9 +141,6 @@ def empty_totals() -> dict:
 		"pending_count": 0,
 		"billed": 0,
 		"approved": 0,
-		"invoiced_count": 0,
-		"invoiced": 0,
-		"inflow": 0,
 	}
 
 

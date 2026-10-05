@@ -1,11 +1,17 @@
 // useSWRConfig MUST come from frappe-react-sdk: the sdk bundles its own SWR, so
 // the one from "swr" holds a different cache and its mutate refreshes nothing.
-import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
+import {
+  useFrappeCreateDoc,
+  useFrappeDeleteDoc,
+  useFrappeGetCall,
+  useFrappeGetDocList,
+  useFrappePostCall,
+  useSWRConfig,
+} from "frappe-react-sdk";
 import { useCallback } from "react";
 import { BILLING_API, billingKeys } from "../billing.constants";
 import { BILLING_PROFILES } from "@/constants/roles";
 import type {
-  BillingPackagesResponse,
   BillingProjectsResponse,
   ManagerSummaryResponse,
   MyBillsResponse,
@@ -35,7 +41,7 @@ export const useManagerSummary = (deadline?: string) =>
 export const useMyBills = () =>
   useFrappeGetCall<{ message: MyBillsResponse }>(BILLING_API.myBills, {}, billingKeys.myBills());
 
-/** The billing package master list (Electrical, HVAC, …). */
+/** The billing package master list (Electrical, HVAC, …): the pickers and the Billing Packages tab. */
 export const useBillingPackages = () =>
   useFrappeGetDocList<{ name: string }>(
     "Project Billing Packages",
@@ -46,10 +52,6 @@ export const useBillingPackages = () =>
     },
     billingKeys.packages(),
   );
-
-/** The Billing Packages tab: every package, and whether this user may edit them. */
-export const useBillingPackageList = () =>
-  useFrappeGetCall<{ message: BillingPackagesResponse }>(BILLING_API.packageList, {}, billingKeys.packageList());
 
 /** Users who can be a package's billing manager. */
 export const useBillingManagers = () =>
@@ -73,10 +75,11 @@ export const useBillingMutations = () => {
   const refresh = useRefreshBilling();
   const { call: setupCall, loading: setupLoading } = useFrappePostCall(BILLING_API.setup);
   const { call: saveCall, loading: saveLoading } = useFrappePostCall(BILLING_API.saveBill);
-  const { call: deleteCall, loading: deleteLoading } = useFrappePostCall(BILLING_API.deleteBill);
   const { call: dcCall, loading: dcLoading } = useFrappePostCall(BILLING_API.addDc);
-  const { call: addPackageCall, loading: addPackageLoading } = useFrappePostCall(BILLING_API.addPackage);
-  const { call: deletePackageCall, loading: deletePackageLoading } = useFrappePostCall(BILLING_API.deletePackage);
+  // Adding and deleting a package is a single document, so the standard document API does it;
+  // the `Project Billing Packages` hooks check who may, duplicates and packages in use.
+  const { createDoc, loading: addPackageLoading } = useFrappeCreateDoc();
+  const { deleteDoc, loading: deletePackageLoading } = useFrappeDeleteDoc();
   const { call: renamePackageCall, loading: renamePackageLoading } = useFrappePostCall(BILLING_API.renamePackage);
 
   const after = useCallback(
@@ -95,15 +98,13 @@ export const useBillingMutations = () => {
     ) =>
       after(setupCall({ project, packages: JSON.stringify(packages) })),
     saveBill: (bill: Record<string, unknown>) => after(saveCall({ bill: JSON.stringify(bill) })),
-    deleteBill: (name: string) => after(deleteCall({ name })),
     addDcEntry: (tracker: string, amount: number, dc_date?: string) => after(dcCall({ tracker, amount, dc_date })),
-    addPackage: (package_name: string) => after(addPackageCall({ package_name })),
-    deletePackage: (name: string) => after(deletePackageCall({ name })),
+    addPackage: (package_name: string) => after(createDoc("Project Billing Packages", { package_name })),
+    deletePackage: (name: string) => after(deleteDoc("Project Billing Packages", name)),
     renamePackage: (name: string, new_name: string) => after(renamePackageCall({ name, new_name })),
     loading:
       setupLoading ||
       saveLoading ||
-      deleteLoading ||
       dcLoading ||
       addPackageLoading ||
       deletePackageLoading ||

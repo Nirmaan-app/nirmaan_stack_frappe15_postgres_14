@@ -5,9 +5,6 @@ export interface BillingTotals {
   pending_count: number;
   billed: number;
   approved: number;
-  invoiced_count: number;
-  invoiced: number;
-  inflow: number;
 }
 
 export interface NextBill {
@@ -73,6 +70,8 @@ export interface BillingProjectRow extends BillingTotals {
   project_name: string;
   /** Projects.status: WIP, Handover, Completed, … */
   status: string | null;
+  /** The distinct statuses of the project's bills (NA included); drives the billing-status filter. */
+  bill_statuses: string[];
   managers: string[];
   packages: BillingTracker[];
   supply_dc: number;
@@ -147,11 +146,4 @@ export interface BillDoc {
 /** One row of the Billing Packages tab (Admin Options → Packages Settings). */
 export interface BillingPackageRow {
   name: string;
-  creation: string;
-}
-
-export interface BillingPackagesResponse {
-  packages: BillingPackageRow[];
-  /** Admin / Billing Lead: may add, rename and delete. */
-  can_edit: boolean;
 }

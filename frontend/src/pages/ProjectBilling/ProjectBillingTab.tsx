@@ -10,7 +10,7 @@ import { BillsDataTable } from "./components/BillsDataTable";
 import { SetupBillingDialog } from "./components/SetupBillingDialog";
 import { EditPackageDialog } from "./components/EditPackageDialog";
 import { useUserData } from "@/hooks/useUserData";
-import { canEditBillingPackage } from "@/constants/roles";
+import { canEditBillingPackage, isBillingProfile } from "@/constants/roles";
 import { useProjectFinancialsTabData } from "@/pages/projects/data/tab/financials/useProjectFinancialsTabApi";
 import { getTotalInflowAmount, getTotalProjectInvoiceAmount } from "@/utils/getAmounts";
 import { SupplyDcSheet } from "./components/SupplyDcSheet";
@@ -57,6 +57,9 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
   // Admin edits one package's PO value and assigned users from its row.
   const { role, user_id } = useUserData();
   const canEditPackage = canEditBillingPackage(role, user_id);
+  // Billing users log Supply DC from Billing Tracker → My Bills, not here (owner, 2026-10-05).
+  // Display only: who may log a DC row is still decided by the tracker hooks.
+  const showSupplyDcButton = role !== "Loading" && !isBillingProfile(role);
   const [editingName, setEditingName] = useState<string | null>(null);
   const editing = trackers.find((t) => t.name === editingName) ?? null;
   const [dcOpen, setDcOpen] = useState(false);
@@ -132,7 +135,7 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
             }
             tone={staleCount === 0 ? "good" : "warning"}
           />
-          {dcTrackers.length > 0 && (
+          {showSupplyDcButton && dcTrackers.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => setDcOpen(true)}>
               <BarChart3 className="mr-1.5 h-4 w-4" /> Update Supply DC
             </Button>

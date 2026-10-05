@@ -6,16 +6,9 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { useBillingProjects } from "./data/useBillingQueries";
-import type { BillingTracker } from "./types";
-import { TONE_CLASSES, etaTag, pct, projectStatusTone } from "./utils/billingFormat";
+import { TONE_CLASSES, etaTag, pct, projectDeadline, projectStatusTone } from "./utils/billingFormat";
 import { PackageTabs, ToneTag } from "./components/BillingBits";
 import { BillsDataTable } from "./components/BillsDataTable";
-
-/** The project's deadline: the earliest ETA among its packages' next (pending) bills. */
-function earliestEta(packages: BillingTracker[]): string | null {
-  const etas = packages.map((p) => p.next_bill?.eta_date).filter((d): d is string => !!d);
-  return etas.length ? etas.sort()[0] : null;
-}
 
 function HeaderChip({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -103,7 +96,7 @@ export default function BillingProjectPage() {
 
   const billCount = row.bill_count;
   const approvedCount = billCount - row.pending_count;
-  const deadline = earliestEta(row.packages);
+  const deadline = projectDeadline(row.packages);
   const deadlineTag = etaTag(deadline);
 
   return (

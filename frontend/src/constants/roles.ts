@@ -131,6 +131,15 @@ export const canEditBillingPackage = (role?: string | null, userId?: string | nu
   userId === "Administrator" || role === ADMIN_PROFILE;
 
 /**
+ * May add, rename and delete packages in the Billing Packages tab (Admin Options →
+ * Packages Settings). Mirrored server-side by `role_profiles.PROJECT_BILLING_PACKAGE_WRITE_PROFILES`,
+ * checked by the package hooks, which is the ENFORCEMENT boundary; this only decides
+ * whether the Add / Edit / Delete controls render.
+ */
+export const canManageBillingPackages = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || role === ADMIN_PROFILE || role === BILLING_LEAD_PROFILE;
+
+/**
  * May delete a DC / MIR (PO or ITM) — admin, PMO, procurement (they file them)
  * and billing (they catch the bad ones). Mirrored server-side by
  * `role_profiles.PDD_DELETE_PROFILES`, which is the ENFORCEMENT boundary;

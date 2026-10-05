@@ -1,38 +1,15 @@
-"""The Billing Packages tab (Admin Options → Packages Settings): list, add, rename, delete.
+"""Rename a billing package (Admin Options → Packages Settings → Billing Packages).
 
-Who may change packages, and which may be deleted, are decided by the
-`Project Billing Packages` hooks in `integrations/controllers/project_billing.py`.
+Listing, adding and deleting packages go through the standard document API from the
+frontend (frappe-react-sdk); the rules for every path live in the `Project Billing Packages`
+hooks in `integrations/controllers/project_billing.py`. Only the rename is an endpoint,
+because it also renames each project's tracker in the same transaction.
 """
 
 import frappe
 from frappe import _
 
-from nirmaan_stack.api.project_billing._queries import require_billing_access
 from nirmaan_stack.services.project_billing.rules import clean_package_name
-from nirmaan_stack.services.role_profiles import PROJECT_BILLING_PACKAGE_WRITE_PROFILES, has_role_profile
-
-
-@frappe.whitelist()
-def get_billing_packages() -> dict:
-	"""Every package, in the order the pickers use."""
-	require_billing_access()
-	rows = frappe.get_all(
-		"Project Billing Packages", fields=["name", "creation"], order_by="creation asc, name asc"
-	)
-	return {
-		"packages": rows,
-		"can_edit": has_role_profile(frappe.session.user, PROJECT_BILLING_PACKAGE_WRITE_PROFILES),
-	}
-
-
-@frappe.whitelist(methods=["POST"])
-def add_billing_package(package_name: str) -> dict:
-	name = clean_package_name(package_name)
-	if not name:
-		frappe.throw(_("Enter a package name."))
-	doc = frappe.get_doc({"doctype": "Project Billing Packages", "package_name": name}).insert()
-	frappe.db.commit()
-	return {"name": doc.name}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -64,10 +41,3 @@ def _rename_package(name: str, new_name: str) -> dict:
 			frappe.rename_doc("Project Billing Tracker", tracker.name, target, force=True, rebuild_search=False)
 			renamed += 1
 	return {"name": new, "renamed_trackers": renamed}
-
-
-@frappe.whitelist(methods=["POST"])
-def delete_billing_package(name: str) -> dict:
-	frappe.delete_doc("Project Billing Packages", name)
-	frappe.db.commit()
-	return {"deleted": name}

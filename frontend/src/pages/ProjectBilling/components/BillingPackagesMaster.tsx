@@ -1,7 +1,8 @@
 // Billing Packages tab (Admin Options → Packages Settings), laid out like PR Header Packages
 // (components/PRHeaderTagMaster.tsx). Admin and the Billing Lead add, rename and delete; everyone
-// else with billing access sees the list. A rename carries the project records and bills with it;
-// the server hooks refuse deleting a package any project uses.
+// else with billing access sees the list. The list, add and delete use the standard document
+// API; the rename is the one endpoint, because it carries the project records and bills with it.
+// The package hooks are the boundary: they check who may, duplicates, and packages in use.
 
 import React, { useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -20,17 +21,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
+import { canManageBillingPackages } from "@/constants/roles";
+import { useUserData } from "@/hooks/useUserData";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { useBillingMutations, useBillingPackageList } from "../data/useBillingQueries";
+import { useBillingMutations, useBillingPackages } from "../data/useBillingQueries";
 import type { BillingPackageRow } from "../types";
 import { clashingPackage, cleanPackageName } from "../utils/billingFormat";
 
 const HEAD = "text-slate-500 font-medium text-xs uppercase tracking-wider";
 
 export const BillingPackagesMaster: React.FC = () => {
-  const { data, isLoading, error } = useBillingPackageList();
-  const rows = data?.message?.packages ?? [];
-  const canEdit = !!data?.message?.can_edit;
+  const { data, isLoading, error } = useBillingPackages();
+  const rows = data ?? [];
+  const { role, user_id } = useUserData();
+  // Display only: the package hooks refuse anyone else whatever the screen shows.
+  const canEdit = canManageBillingPackages(role, user_id);
 
   if (isLoading) {
     return (

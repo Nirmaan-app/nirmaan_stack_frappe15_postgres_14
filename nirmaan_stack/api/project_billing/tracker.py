@@ -53,6 +53,11 @@ def get_billing_projects() -> dict:
 	trackers = _trackers()
 	per_tracker = {row.key: row for row in bill_totals("billing_tracker")}
 	next_bills = next_bills_by_tracker([t.name for t in trackers])
+	# Each project's distinct bill statuses, for the Project Wise billing-status filter
+	# (a project matches when any of its bills is in the picked status).
+	bill_statuses = dict(
+		frappe.db.sql('SELECT project, ARRAY_AGG(DISTINCT status) FROM "tabProject Billing" GROUP BY project')
+	)
 
 	projects: dict[str, dict] = {}
 	for t in trackers:
@@ -64,6 +69,7 @@ def get_billing_projects() -> dict:
 				"status": t.project_status,
 				"managers": [],
 				"packages": [],
+				"bill_statuses": bill_statuses.get(t.project) or [],
 				"supply_dc": 0,
 				"po_value": 0,
 				**totals_of(None),

@@ -1,4 +1,4 @@
-"""Add or update a bill (`Project Billing`)."""
+"""Add or update a bill (`Project Billing`). Deleting is the standard document delete."""
 
 import json
 
@@ -72,10 +72,3 @@ def _link_attachment(doc) -> None:
 			{"attached_to_doctype": "Project Billing", "attached_to_name": doc.name, "attached_to_field": "bill_attachment"},
 			update_modified=False,
 		)
-
-
-@frappe.whitelist(methods=["POST"])
-def delete_bill(name: str) -> dict:
-	frappe.delete_doc("Project Billing", name)
-	frappe.db.commit()
-	return {"deleted": name}

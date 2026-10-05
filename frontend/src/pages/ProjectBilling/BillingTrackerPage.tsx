@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BarChart3, CalendarDays, ChevronDown, ExternalLink, Info, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, BarChart3, CalendarDays, ChevronDown, ExternalLink, Filter, Info, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -12,6 +12,8 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useBillingProjects, useManagerSummary, useMyBills } from "./data/useBillingQueries";
 import type { BillingProjectRow, BillingTracker, ManagerSummaryResponse, SummaryCounts } from "./types";
 import {
+  ALL_STATUSES,
+  type SortDir,
   TONE_CLASSES,
   Tone,
   columnTone,
@@ -20,7 +22,10 @@ import {
   dcFreshness,
   deadlineFilters,
   managerNames,
+  billStatusOptions,
+  matchesBillStatus,
   projectStatusTone,
+  sortProjectsByDeadline,
   statusTone,
   trackersAssignedTo,
 } from "./utils/billingFormat";
@@ -130,14 +135,20 @@ function PoProgress({ po, approved, billed, thin }: { po: number; approved: numb
 function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const [status, setStatus] = useState(ALL_STATUSES);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  const statusOptions = useMemo(() => billStatusOptions(rows || []), [rows]);
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (rows || []).filter(
-      (r) => !q || `${r.project_name} ${r.project} ${r.managers.join(" ")}`.toLowerCase().includes(q),
+    const matching = (rows || []).filter(
+      (r) =>
+        matchesBillStatus(r, status) &&
+        (!q || `${r.project_name} ${r.project} ${r.managers.join(" ")}`.toLowerCase().includes(q)),
     );
-  }, [rows, search]);
+    return sortProjectsByDeadline(matching, sortDir);
+  }, [rows, search, status, sortDir]);
 
   if (!rows) return <TableSkeleton />;
 
@@ -156,11 +167,43 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
         <span className="text-sm text-muted-foreground">
           {visible.length} of {rows.length} projects
         </span>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-10 w-auto min-w-[180px] gap-2 bg-white font-semibold" aria-label="Billing status">
+            <Filter className="h-4 w-4 text-gray-600" />
+            <SelectValue />
+            {status !== ALL_STATUSES && (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-white">
+                1
+              </span>
+            )}
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_STATUSES}>{ALL_STATUSES}</SelectItem>
+            {statusOptions.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          className="h-10 gap-1.5 bg-white font-semibold"
+          onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+          title={
+            sortDir === "asc"
+              ? "Earliest deadline first. Click for the latest first."
+              : "Latest deadline first. Click for the earliest first."
+          }
+        >
+          Deadline
+          {sortDir === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+        </Button>
       </div>
 
       {!visible.length ? (
         <div className="rounded-xl border bg-white px-6 py-14 text-center text-sm text-muted-foreground">
-          {rows.length ? "No projects match this search." : "No project has billing set up yet. Set it up from a project's Billing tab."}
+          {rows.length ? "No projects match this search and billing status." : "No project has billing set up yet. Set it up from a project's Billing tab."}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-white">

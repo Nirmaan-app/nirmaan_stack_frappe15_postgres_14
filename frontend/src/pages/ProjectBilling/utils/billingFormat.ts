@@ -1,6 +1,6 @@
 // Pure display helpers for the billing tracker. No React, no data fetching.
 
-import { APPROVED_STATUSES, NA_STATUS, PENDING_STATUSES } from "../billing.constants";
+import { APPROVED_STATUSES, BILL_STATUSES, NA_STATUS, PENDING_STATUSES } from "../billing.constants";
 import type { BillingManagerRef } from "../types";
 
 export type Tone = "neutral" | "warning" | "serious" | "critical" | "good";
@@ -294,4 +294,53 @@ export function deadlineFilters(choice: string, today: Date = new Date()): any[]
   }
   if (choice === "none") return [pending, ["eta_date", "is", "not set"]];
   return [];
+}
+
+/** A project's deadline: the earliest ETA among its packages' next (pending) bills; null when none has one. */
+export function projectDeadline(packages: { next_bill?: { eta_date?: string | null } | null }[]): string | null {
+  const etas = packages.map((p) => p.next_bill?.eta_date).filter((d): d is string => !!d);
+  return etas.length ? etas.sort()[0] : null;
+}
+
+/** The Project Wise billing-status filter's "no filter" choice. */
+export const ALL_STATUSES = "All statuses";
+
+/**
+ * Project Wise billing-status filter options: every bill status some project's bills are in, in the
+ * standard status order (Not Started → … → NA). A status outside that list goes last, A to Z.
+ */
+export function billStatusOptions(rows: { bill_statuses: string[] }[]): string[] {
+  const present = new Set(rows.flatMap((r) => r.bill_statuses));
+  const known = BILL_STATUSES.filter((s) => present.has(s));
+  const other = [...present].filter((s) => !(BILL_STATUSES as readonly string[]).includes(s)).sort();
+  return [...known, ...other];
+}
+
+/** A project matches the billing-status filter when any of its bills is in that status. */
+export function matchesBillStatus(row: { bill_statuses: string[] }, status: string): boolean {
+  return status === ALL_STATUSES || row.bill_statuses.includes(status);
+}
+
+export type SortDir = "asc" | "desc";
+
+/**
+ * Project Wise order: by deadline (`projectDeadline`), "asc" = earliest first. A project with no
+ * deadline always comes last, whichever way; ties go A to Z by project name.
+ */
+export function sortProjectsByDeadline<
+  T extends { project: string; project_name: string; packages: { next_bill?: { eta_date?: string | null } | null }[] },
+>(rows: T[], dir: SortDir): T[] {
+  const name = (r: T) => r.project_name || r.project;
+  return rows
+    .map((row) => ({ row, deadline: projectDeadline(row.packages) }))
+    .sort((a, b) => {
+      if (a.deadline !== b.deadline) {
+        if (!a.deadline) return 1;
+        if (!b.deadline) return -1;
+        const earlier = a.deadline < b.deadline ? -1 : 1;
+        return dir === "asc" ? earlier : -earlier;
+      }
+      return name(a.row).localeCompare(name(b.row));
+    })
+    .map(({ row }) => row);
 }
