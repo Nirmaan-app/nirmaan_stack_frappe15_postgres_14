@@ -43169,8 +43169,8 @@ the arithmetic — there is only one copy of that, which is the point.
 
 Ruling 2 asks for 2–3 sample impact calculations on the **cladding-only SKUs**. There are **none in the
 catalogue**: design question O1 put the two shapes to the owner — (i) one SKU per cladding type per
-geometry, 200 new rows, or (ii) one SKU per cladding type, 5 new rows — and that choice is **still
-open**, as is Q7's PROVISIONAL rider on whether a per-sq.m cladding-only row takes the overlap factor.
+geometry, 200 new rows, or (ii) one SKU per cladding type, 5 new rows. **BOTH ARE NOW RULED AND
+BUILT (2026-10-04): O1 = option (ii), five SKUs; and Q7's rider is settled -- a per-sq.m cladding-only row takes NO overlap factor (owner F2, confirmed "FA3 is ok. nothng to do here"). The paragraph below records the state BEFORE that and is kept as history.**
 
 So the sample PICKER ships, pure and tested: `sampleGeometries` takes the distinct tuples of the
 category's ladder axes across the family's active SKUs, orders them by the DECLARED axis order and takes
@@ -43248,9 +43248,9 @@ nothing.
 
 ### OPEN, FOR THE OWNER
 
-1. **O1 — the cladding-only SKU shape:** (i) 200 rows or (ii) 5 rows. Ruling 2's samples cannot render
-   until those rows exist.
-2. **Q7's PROVISIONAL rider:** does a per-sq.m cladding-only row take the overlap factor?
+1. ~~**O1 -- the cladding-only SKU shape:** (i) 200 rows or (ii) 5 rows.~~ **RULED 2026-10-04:
+   option (ii), five SKUs, one per cladding type -- built and live from HVAC v17 onward.**
+2. ~~**Q7's PROVISIONAL rider:** does a per-sq.m cladding-only row take the overlap factor?~~ **RULED: NO. The `Cladding Only` family's `area` pipeline computes `al + gc` and references `cladding_overlap` nowhere. Owner confirmed 2026-10-04: "FA3 is ok. nothng to do here." NO LONGER PROVISIONAL.**
 3. **The `factor` column vs 12b(A)'s "there are no factors".** That rule was about FOLDS — a
    pre-multiplied `(1−discount)×(1+markup)` nobody who owned either half could edit. `factor` here is a
    KIND-OF-NUMBER column like `amount` and `rate`, with the meaning carried by the ITEM (cladding
@@ -43501,3 +43501,156 @@ and three cladding variants were walked as well.
 | P1c | PUF 25 @ pipe 50 | 50 (C-R3, next size up) | 210 / 14 / 224 |
 
 All 21 figures were byte-identical v24 → v25, and the screen agreed with every one.
+
+---
+
+## Slice 12c CERT FIXES — U9/F3 REACHABLE, THE DOWNLOAD ENDPOINT, AND WHAT THE CERT CAUGHT IN THE FIX (2026-10-05) — SHIPPED
+
+**Commits:** `84e2e5fde` · `f99fe75e2` · `ad41901d8` · `6be1b0eed` · `3f1d2bf5d`. Tip 34 ahead of
+`c3f6185a3`, **unpushed**. No asset minted — HVAC stays at v25, Electrical at v66.
+
+The 12c completion cert found two blocking defects. The owner ruled both "fix now" (the freeze allows a
+blocking defect in the slice's own area). A third and fourth defect then turned up *inside the first
+fix*, found by re-running the cert rather than by any test.
+
+### 1. U9/F3 — the cladding-only SKUs were unreachable (`84e2e5fde`)
+
+**The symptom:** no cladding-only SKU appeared in ANY pricing input's impact panel, so the F3 samples
+branch never rendered for the one population it exists for. Both acceptance items had been recorded as
+built.
+
+**WHICH SIDE WAS AT FAULT — the REACH WALK, never `exactRows`**, established by a harness run
+(`scripts/_instruments/diag_u9_samples.ts`) and not by reading code.
+`pricingInputReach.matching()` keeps a SKU only when it **stores** the rate column a step touches:
+
+```ts
+if ((it.rates ?? {})[c.rateKey] === undefined) continue;
+```
+
+Right for an input that SCALES a stored rate; wrong for an item-list category, which builds an
+ASSEMBLY. A row whose whole cost comes from pricing INPUTS stores no cost column at all — Insulation's
+five cladding-only SKUs carry only `cost_install_cladding` plus the markups and wastage, while every
+reach column for these inputs asks for `cost_adhesive`, `cost_cladding` or `cost_insulation`. They were
+dropped *before anything could ask whether their price moves*, so `exactRows` was never consulted for
+them and could not be the cause.
+
+⚠️ **IT WAS NEVER A REGRESSION, AND THE CODE SAID SO IN A COMMENT THAT HAD GONE STALE.**
+`priceSkuExactSamples` shipped while the catalogue held **no** cladding-only SKUs — design question O1
+offered 200 rows or 5, the owner took the 5, they were minted at v25, and **nothing opened the walk to
+them**. The comment still read "not rendered … the picker is ready for it"; it is corrected in the same
+commit, with the history and the defect it caused written out.
+
+**The fix — a second channel, confirmed by running the product:**
+
+* **`InputReach.candidateSkus`** names the rows the structural walk could not **TEST**: of a touched
+  kind, in an item-list category, storing none of the walked rate keys, and carrying no geometry. It is
+  **DELIBERATELY OVER-INCLUSIVE and must never drive a count or a panel on its own** — the 26G sheet
+  input nominates all five cladding types where only the two 26G ones move.
+* **`confirmInputMovesSku` / `confirmedCandidateSkus`** decide which of them an input really moves, by
+  perturbing that ONE input and asking the SKU's own pricer. Deriving "a 26G SKU is moved by the 26G
+  input" from names would be the second implementation the 2026-09-29 ruling forbids — and would be
+  **wrong for the composites**, since `26G Aluminium with Glass Cloth` is moved by the glass cloth input
+  too.
+* **ONE confirmer serves the panel's rows AND the grid's `items` badge**, so the count and the list it
+  opens cannot disagree.
+
+Measured confirmation: **26G → 2, 24G → 2, glass cloth → 3, overlap → 4, the three GI inputs → 0.**
+
+⚠️ **THE GEOMETRY NARROWING IS A COST REQUIREMENT, NOT TIDINESS.** Without it, 209 of Insulation's 229
+rows are nominated for each of the three GI inputs and every one costs a pricing probe to rule out
+(measured; all 209 confirmed NEGATIVE). Narrowing takes every input to 5 candidates and changes no
+confirmed answer.
+
+**Same commit — the `now` column meant two things.** It reported the SKU's STORED RATE when nothing was
+edited and the pipeline's COMPUTED leg when something was: measured **109 against 306 on the same row**,
+under one unlabelled heading. `computeImpact` now runs the exact path in BOTH branches (an empty patch
+hands back the same array, so every leg comes out `moved: false` and `becomes` still renders a dash) and
+the header NAMES the leg — `now (SKU rate (BoQ supply))`.
+
+### 2. The download endpoint returned a different file from the exporter (`f99fe75e2`)
+
+`api/boq/rate_master.export_rate_master_csv` built its payload with its own inline
+`to_xlsx(headers, rows, numeric)` / `to_csv(headers, rows)` call, silently dropping the two things
+`build_category_rows` returns beside them: **`formula_row`** (slice 12a) and **`locked`** (the derived-cell
+fill and sheet protection, owner 2026-09-27). Measured on `hvac_insulation` before the fix — service
+builder: 231 rows, protected, 391 filled cells; endpoint: **230 rows, unprotected, 0 filled**. Of the
+owner's three signals on a derived cell, only the **word** reached the user.
+
+It now delegates to `build_category_xlsx` / `build_all_categories_xlsx` and the CSV pair — ONE route, so
+the argument list exists in exactly one place and the endpoint cannot fall behind the builder again. Same
+single-definition reasoning as the BCS import-direction law.
+
+⚠️ **WHY NO TEST CAUGHT IT, AND THE RULE IT PROVES.** Every rate-file pin in `test_rate_master` calls the
+SERVICE helpers, which always passed both arguments. Producer green, consumer green, **the join broken** —
+the standing "a test on each side of a boundary is not a test of the boundary" rule, caught by the browser
+cert. The new pin `TestDownloadEndpointCarriesTheFormulaRow` (7 tests) therefore reads the **ENDPOINT's
+decoded bytes**: marker in row 2 with the header still row 1, protection on, non-zero fill count, the CSV's
+row directly under the header, byte-for-byte agreement with the builder, and the all-categories branch
+(the defect was in both). A negative asserts the marker is on row 2 **ALONE**, so the rest cannot pass
+vacuously. **Vacuity proven both ways:** with the pre-fix inline call restored, six of the seven FAIL.
+
+**INTRODUCED BY `2e8804298` (slice 12a)**, which wired the service and its helpers but not the endpoint;
+those endpoint lines last changed at `e5028f85b` (slice 1e), which predates it. `formula_row` has never
+appeared in that api module (`git log -S` finds no commit).
+
+⚠️ **IT NEVER REACHED PRODUCTION.** `origin/develop` and `main` do not contain 12a at all: their
+`csv_exporter` has **zero** occurrences of `formula_row` and `xlsx_io` none of
+`formula_row`/`SheetProtection`. On deployed code there is nothing to drop, so the inline call is correct
+and complete there. The gap lived only on this unpushed branch, and **FA4 was never broken for a user.**
+
+### 3. Two defects the cert caught INSIDE the first fix (`6be1b0eed`)
+
+Both rendering-only, both invisible to every test, and both the argument for running the cert at all.
+
+1. **The parent rows printed `0 → 0`.** A cladding-only SKU stores no cost column, so its `now` /
+   `becomes` are structurally ABSENT — and a `0` is a CLAIM ("this costs nothing") where an absence is
+   not. The standing "a blank is never a 0" rule, reached from the one direction the row shape makes easy
+   to miss. They now render an em dash; the figures are carried by the SAMPLES, each at a NAMED geometry.
+2. **The samples were detached from their parents.** They rendered in a SECOND `g.rows.filter(...)` pass
+   after every row, so parents sat at table indices 0–1 with their samples at 70–75 — nothing on screen
+   said which three geometries belonged to which cladding. Harmless for as long as nothing reached the
+   samples branch; unreadable the moment the cladding-only SKUs did. The tbody is now ONE pass emitting
+   each parent together with its own samples.
+
+### 4. The stale pin, and the two that were not stale (`3f1d2bf5d`)
+
+The full frontend suite surfaced four failures: the known `writeOffControl` timeout and three others.
+
+**One was genuinely stale and is INVERTED, never deleted.**
+`PricingInputImpactPanel.test.ts > ACCEPTANCE 10` pinned the literal `>now<`, which `84e2e5fde` had to
+change. The new literals are asserted present and `>now<` is asserted **ABSENT**, so re-introducing the
+bare heading — the state in which the column lied about its own quantity — turns it red again. Vacuity
+proven.
+
+⚠️ **THE OTHER TWO WERE NOT STALE. THEY FAILED ON INVISIBLE CARRIAGE RETURNS, AND INVERTING THEM WOULD
+HAVE ENCODED AN ACCIDENT INTO TWO WORKING GUARDS.** `io.open(path, "w")` in Python on Windows translates
+`\n` to `\r\n`, so a read-modify-write converts the WHOLE file to CRLF — nine files, up to 17,944 CRs in
+`test_rate_master.py`. `.gitattributes` carries `text=auto eol=lf`, so git normalised on commit and **no
+commit was ever polluted** (`git diff HEAD` showed nothing) — but **vitest reads the WORKTREE**, so any
+multi-line `toContain("a\n  b")` pin stopped matching. One of the two pinned a region of
+`RateMasterPage.tsx` with **zero diff lines** against origin; the other's `{piMode ? (` had changed
+INDENTATION only. Both pass untouched once LF is restored. Detect with `git ls-files --eol` and look for
+`w/crlf` where the attr says `eol=lf`.
+
+### Verification
+
+**The blast radius was enumerated, not guessed:** all 420 test files searched for each of the 23 changed
+sources' names; **21 tests reference one**, and every one was run.
+
+| | |
+|---|---|
+| 19 frontend blast-radius files | **1,601 / 1,601** |
+| `api.boq.test_rate_master` | **660 tests, OK** (1001 s) |
+| `services.boq_rate_master.test_extraction_coercion` | **181 tests, OK** (57 s) |
+| full Python suite | 7,293 tests / 1,607 s — **exactly the 19 approved knowns**; `test_il_02` now passes |
+| full frontend suite | 4,882 tests — **1 failure, the known `writeOffControl` 5 s timeout** |
+| tsc | **the three known pre-existing errors**, no more |
+| residence ratchet | holding (B2 8, F5 117, F2 219) |
+
+**The cert was re-done in full from de-stale**, steps 0–13 + 9b: 9b **21/21** composition cases matched
+figures stated in advance; step 7 **168 cells / 0 differences** across three categories; step 10's round
+trip moved the base **and all five** declared dependents and restored to a content hash byte-equal to the
+asset; step 13's hashes identical in both disciplines AFTER the 450→500→450 cycle. Step 12 is PARTIAL —
+the Insulation-vs-ADP contrast is certified, the "step-1 figures" half is not, because that BoQ carries a
+pre-existing partial run and resuming it costs an AI call nobody asked for. Full record:
+`2026-10-05_12c_Cert_Redo_Log.md` and `2026-10-04_12c_Ledger.md`.
