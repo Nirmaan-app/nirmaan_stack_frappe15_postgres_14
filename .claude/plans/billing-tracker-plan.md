@@ -313,21 +313,54 @@ to the doctype by `src/utils/projectBillingStatusParity.test.ts`.
 
 ## 5. Roles and permissions
 
-Billing users = Admin, PMO, Billing Executive, Billing Lead (and Administrator).
+Billing users = Admin (and the Administrator user), PMO, Billing Lead, Billing Executive. Everyone else
+(Project Lead, Project Manager, Procurement, Accountant, Estimates, Design, HR, Sales…) has **no billing
+access at all**, read included, even when their profile carries System Manager.
 
-| Action | Who | Enforced by |
+### Who can do what (checked against the code, 2026-10-05)
+
+| What | Admin | PMO | Billing Lead | Billing Executive |
+|---|:-:|:-:|:-:|:-:|
+| See the project **Billing** tab, the **Billing Tracker** page (Project Wise · Bill Wise · My Bills) and **View Bills** | ✓ | ✓ | ✓ | ✓ |
+| See Total Invoiced / Total Inflow on the Billing tab | ✓ | ✓ ¹ | ✓ | ✓ |
+| **Setup Packages**: add packages to a project | ✓ | ✓ | ✓ | ✓ |
+| **Edit PO value and managers** of a set-up package, in the Setup Packages dialog | ✓ | ✓ | ✓ | ✓ ² |
+| **Edit PO value and managers** with the ✏️ on a package row | ✓ | — | — | — |
+| **Remove a package** from a project (trash icon on its tab; bills and Supply DC go with it) | ✓ | — | — | — |
+| **Add / edit bills** | every package | packages they manage | packages they manage | packages they manage |
+| **Log Supply DC** | every package | packages they manage (project tab or My Bills) | packages they manage (My Bills) ³ | packages they manage (My Bills) ³ |
+| Change or delete a **saved** Supply DC row (Desk) | ✓ | — | — | — |
+| **Billing Packages** master (Admin Options → Packages Settings): see the list | ✓ | ✓ (read only) | ✓ ⁴ | — |
+| **Add / rename / delete** billing packages in that master | ✓ | — | ✓ ⁴ | — |
+| Desk: delete a bill | every package | packages they manage | packages they manage | packages they manage |
+| Desk: delete a package (only while it has no bills) | ✓ | — | — | — |
+| Desk: set a past ETA / approval date (the app refuses one) | ✓ ⁵ | ✓ ⁵ | ✓ ⁵ | ✓ ⁵ |
+
+"Packages they manage" = the packages where the user is one of the billing managers (decision 18).
+
+**Gaps found while checking (open):**
+1. Financials hides these totals from PMO; the Billing tab shows them (decision 11: restrict later).
+2. **PO value is not Admin-only in practice.** The ✏️ is Admin-only on screen, but every billing user can
+   change any set-up package's PO value and managers in the Setup Packages dialog, and the server accepts it
+   from all of them (open question 1).
+3. The Update Supply DC button is hidden on the project tab for Billing Lead and Billing Executive; they log
+   it from My Bills.
+4. **Billing Lead cannot reach Packages Settings from the sidebar:** Admin Options → Packages Settings is
+   shown to Admin and PMO only, so a Billing Lead gets there by URL only. The profile is also missing from
+   the app's role list (`utils/roleColors.ts`), so it cannot be given to a user from the Users screens
+   (localhost has no Billing Lead user).
+5. Only for users who have Desk access; Admin in practice.
+
+### Where each rule is enforced
+
+| What | Server (the boundary) | Screen (what renders) |
 |---|---|---|
-| See billing (tab, page, lists, read endpoints) | billing users | `has_permission` + `permission_query_conditions` hooks on Tracker and Bill; `require_billing_access` in each read endpoint; screens use `canUseProjectBilling` |
-| Set up packages, edit managers and PO value | billing users | `tracker_validate` (billing writer); Won check on a new tracker |
-| ✏️ edit one package on the project tab | Admin, **on screen only** (`canEditBillingPackage`) | the server accepts every billing user (open question 1) |
-| Add or edit a bill | Admin: every package; others: packages they manage | `billing_validate` → `can_edit_package_bills` |
-| Delete a bill (Desk) | same as edit | `billing_on_trash` |
-| Add a Supply DC row | Admin: every package; others: packages they manage, checked against the managers **as saved** (adding yourself and a DC row in one save is refused) | `tracker_validate` (`_guard_new_dc_rows`) |
-| Change or delete a saved DC row | Admin only | `tracker_validate` (`_guard_saved_dc_rows`) |
-| Remove a package from a project (bills, Supply DC, managers, PO value) | **Admin only**: trash icon on the package tab, typed confirmation | `setup.remove_project_package` (Admin check + typed name, one transaction) |
-| Delete a tracker (Desk) | **Admin only**, and only while it has no bills (Frappe's link check) | `tracker_on_trash` (decision 27) |
-| Add, rename, delete a billing package | Administrator, Admin, Billing Lead | package hooks (`_require_package_writer`); screen uses `canManageBillingPackages` |
-| See the package list | billing users; also any profile carrying System Manager (names only) | doctype permission |
+| See billing | `has_permission` + `permission_query_conditions` on Tracker and Bill; `require_billing_access` in reads | `canUseProjectBilling` |
+| Setup Packages, PO value, managers | `tracker_validate` (billing writer); Won check on a new tracker; PO value > 0 when set or changed | `can_write` from `get_project_billing`; ✏️ by `canEditBillingPackage` (screen only) |
+| Remove a package | `setup.remove_project_package` (Admin + typed name, one transaction); `tracker_on_trash` Admin only | `canEditBillingPackage` |
+| Bills | `billing_validate` / `billing_on_trash` → `can_edit_package_bills` | `can_edit_bills` per package (lock instead of pencil) |
+| Supply DC | `tracker_validate`: new rows by managers **as saved** (adding yourself and a DC row in one save is refused); saved rows Admin only; PO cap; no amount without a PO value | `can_edit_bills`; button hidden for billing profiles on the project tab |
+| Billing Packages master | package hooks (`_require_package_writer`: Admin, Billing Lead) | `canManageBillingPackages` |
 
 **Doctype permissions (the first layer):**
 
@@ -347,8 +380,8 @@ and HR Executive profiles, so the doctype permissions alone would let those in. 
 
 Screen checks only decide what renders; the hooks are the boundary.
 
-**Billing Executive** is otherwise a view-only role (ADR-0015). This module is the exception: it may set
-up packages, and add bills and Supply DC on the packages it manages.
+**Billing Executive** is otherwise a view-only role (ADR-0015). This module is the exception: see the
+table above. The same table is in `frontend/.claude/context/role-access.md` § Billing Tracker.
 
 ---
 
@@ -471,6 +504,10 @@ The app shell also changed:
    delete?
 
 **Known gaps (accepted or not yet fixed)**
+- Billing Lead: no sidebar path to Packages Settings (Admin Options is Admin / PMO only), and the profile is
+  missing from `utils/roleColors.ts`, so it cannot be assigned from the Users screens (§5 note 4).
+- PO value: every billing user can change it in the Setup Packages dialog, although the ✏️ is Admin-only
+  (§5 note 2, open question 1).
 - A migrate brings back any of the 9 fixture packages that was deleted or renamed (decision 19).
 - `get_my_bills` returns every bill row although the screen uses only the counts and packages; the
   counts could be a SQL `COUNT`.
