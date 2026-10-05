@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   UNASSIGNED,
   assigneeOptions,
+  billDocMode,
   columnTone,
   dcEntryPlan,
   deadlineFilters,
   dcFreshness,
   etaTag,
+  fileNameOf,
   inr,
   inrShort,
   managerNames,
@@ -90,10 +92,10 @@ describe("package setup", () => {
 });
 
 describe("dcEntryPlan", () => {
-  const ZERO = "0 can't be saved. Enter the value delivered today.";
+  const ZERO = `0 can't be saved. If nothing was delivered, use "No delivery today".`;
 
-  it("no longer points at the hidden No delivery today button", () => {
-    expect(dcEntryPlan("add", 0, 500000).problem).not.toMatch(/No delivery today/);
+  it("points a typed 0 at the No delivery today button, the one way to log a zero day", () => {
+    expect(dcEntryPlan("add", 0, 500000).problem).toMatch(/No delivery today/);
   });
 
   it("refuses a typed 0 in Add today's, including values that round to 0", () => {
@@ -252,5 +254,24 @@ describe("columnTone", () => {
     expect(columnTone(["Not Started"])).toBe(statusTone("Not Started"));
     expect(columnTone(["Client Approved"])).toBe("good");
     expect(columnTone(["Payment Received", "Partial Payment Received"])).toBe("good");
+  });
+});
+
+describe("bill document", () => {
+  it("opens an existing bill on what it already has, Link when it has nothing", () => {
+    expect(billDocMode({ bill_attachment: "/private/files/bill.pdf" })).toBe("file");
+    expect(billDocMode({ bill_attachment: null })).toBe("link");
+    expect(billDocMode(null)).toBe("link");
+  });
+
+  it("names an attachment from its file_name, else its path", () => {
+    expect(
+      fileNameOf(
+        "/api/method/frappe_gcp_attachment.controller.generate_file?key=attachments/2026/10/03/Project Billing/AB12_Bill.pdf&file_name=Bill%20Oct.pdf",
+      ),
+    ).toBe("Bill Oct.pdf");
+    expect(fileNameOf("/api/method/x.generate_file?key=attachments/2026/10/03/AB12_Bill.pdf")).toBe("AB12_Bill.pdf");
+    expect(fileNameOf("/private/files/RA%201%20bill.pdf")).toBe("RA 1 bill.pdf");
+    expect(fileNameOf(null)).toBe("");
   });
 });

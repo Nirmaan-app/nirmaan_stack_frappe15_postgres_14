@@ -72,7 +72,7 @@ def stamp_can_edit_bills(rows: list[dict]) -> list[dict]:
 BILL_FIELDS = f"""
 	b.name, b.billing_tracker, b.project, p.project_name, b.package, b.bill_type, b.status,
 	b.bill_value, b.payment_received, b.invoice_requested, b.eta_date,
-	b.first_submission_date, b.approval_date, b.bill_document_link, b.modified,
+	b.first_submission_date, b.approval_date, b.bill_document_link, b.bill_attachment, b.modified,
 	{MANAGER_FIELDS}, t.supply_dc AS tracker_supply_dc, t.po_value AS tracker_po_value
 """
 

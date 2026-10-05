@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Lock, Pencil } from "lucide-react";
+import { useFrappeFileUpload } from "frappe-react-sdk";
+import { ExternalLink, FileText, Link2, Lock, Pencil, X } from "lucide-react";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +14,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { BILL_STATUSES, BILL_TYPES } from "../billing.constants";
 import { useBillingMutations } from "../data/useBillingQueries";
 import type { BillDoc, BillDraft, BillingTracker } from "../types";
-import { inr, managerNames } from "../utils/billingFormat";
+import { type BillDocMode, billDocMode, fileNameOf, inr, isoDate, managerNames } from "../utils/billingFormat";
 import { PersonChips } from "./BillingBits";
 
 interface BillDrawerProps {
@@ -43,8 +45,12 @@ function draftFrom(bill: BillDoc | null | undefined, defaultTracker?: string): B
     eta_date: bill?.eta_date || "",
     approval_date: bill?.approval_date || "",
     bill_document_link: bill?.bill_document_link || "",
+    bill_attachment: bill?.bill_attachment || "",
   };
 }
+
+const BILL_DOCTYPE = "Project Billing";
+const DATE_FIELDS = ["eta_date", "approval_date"] as const;
 
 function ReadOnlyRow({ label, children, last }: { label: string; children: React.ReactNode; last?: boolean }) {
   return (
@@ -68,17 +74,42 @@ export function BillDrawer({
   const isNew = !bill;
   const [draft, setDraft] = useState<BillDraft>(() => draftFrom(bill, defaultTracker));
   const { saveBill, loading } = useBillingMutations();
+  const { upload, loading: uploading } = useFrappeFileUpload();
+  // Bill document: a link OR an attachment. Opens on what the bill already has.
+  const [docMode, setDocMode] = useState<BillDocMode>(() => billDocMode(bill));
+  const [newFile, setNewFile] = useState<File | null>(null);
 
   useEffect(() => {
-    if (open) setDraft(draftFrom(bill, defaultTracker));
+    if (open) {
+      setDraft(draftFrom(bill, defaultTracker));
+      setDocMode(billDocMode(bill));
+      setNewFile(null);
+    }
   }, [open, bill, defaultTracker]);
 
   const tracker = trackers.find((t) => t.name === draft.billing_tracker);
   const set = <K extends keyof BillDraft>(key: K, value: BillDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
-  const canSave = !!draft.billing_tracker && !!draft.bill_type && !loading;
+
+  // ETA and approval dates: today or later when set or changed; a saved past date may stay.
+  const today = isoDate(new Date());
+  const pastDate = (field: (typeof DATE_FIELDS)[number]) =>
+    !!draft[field] && draft[field] !== (bill?.[field] || "") && draft[field] < today;
+  const hasPastDate = DATE_FIELDS.some(pastDate);
+
+  const busy = loading || uploading;
+  const canSave = !!draft.billing_tracker && !!draft.bill_type && !hasPastDate && !busy;
+
+  // Only the chosen one is saved; switching clears the other on save.
+  const otherWillBeCleared =
+    docMode === "link" ? !!draft.bill_attachment : !!draft.bill_document_link.trim();
 
   const handleSave = async () => {
     try {
+      let attachment = docMode === "file" ? draft.bill_attachment || null : null;
+      if (docMode === "file" && newFile) {
+        const uploaded = await upload(newFile, { doctype: BILL_DOCTYPE, fieldname: "bill_attachment", isPrivate: true });
+        attachment = uploaded.file_url;
+      }
       await saveBill({
         name: draft.name,
         billing_tracker: draft.billing_tracker,
@@ -89,7 +120,8 @@ export function BillDrawer({
         invoice_requested: draft.invoice_requested,
         eta_date: draft.eta_date || null,
         approval_date: draft.approval_date || null,
-        bill_document_link: draft.bill_document_link.trim() || null,
+        bill_document_link: docMode === "link" ? draft.bill_document_link.trim() || null : null,
+        bill_attachment: attachment,
       });
       toast({ title: isNew ? "Bill added" : "Bill updated", variant: "success" });
       onOpenChange(false);
@@ -214,7 +246,14 @@ export function BillDrawer({
                 <Label htmlFor="bill-eta" className="mb-1.5 block text-xs">
                   ETA date
                 </Label>
-                <Input id="bill-eta" type="date" value={draft.eta_date} onChange={(e) => set("eta_date", e.target.value)} />
+                <Input
+                  id="bill-eta"
+                  type="date"
+                  min={today}
+                  value={draft.eta_date}
+                  onChange={(e) => set("eta_date", e.target.value)}
+                />
+                {pastDate("eta_date") && <p className="mt-1 text-[11px] font-semibold text-red-700">Pick today or a later date</p>}
               </div>
               <div>
                 <Label htmlFor="bill-approval" className="mb-1.5 block text-xs">
@@ -223,9 +262,13 @@ export function BillDrawer({
                 <Input
                   id="bill-approval"
                   type="date"
+                  min={today}
                   value={draft.approval_date}
                   onChange={(e) => set("approval_date", e.target.value)}
                 />
+                {pastDate("approval_date") && (
+                  <p className="mt-1 text-[11px] font-semibold text-red-700">Pick today or a later date</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="bill-payment" className="mb-1.5 block text-xs">
@@ -243,25 +286,88 @@ export function BillDrawer({
             </div>
 
             <div>
-              <Label htmlFor="bill-link" className="mb-1.5 block text-xs">
-                Bill document link
-              </Label>
-              <Input
-                id="bill-link"
-                type="url"
-                placeholder="Paste the link to the bill document"
-                value={draft.bill_document_link}
-                onChange={(e) => set("bill_document_link", e.target.value)}
-              />
-              {draft.bill_document_link.trim() && (
-                <a
-                  href={draft.bill_document_link.trim()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" /> Open document
-                </a>
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <Label className="text-xs">Bill document</Label>
+                <div className="inline-flex overflow-hidden rounded-md border">
+                  {(
+                    [
+                      { value: "link", label: "Link", icon: Link2 },
+                      { value: "file", label: "Attachment", icon: FileText },
+                    ] as const
+                  ).map((opt, i) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setDocMode(opt.value)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold",
+                        i > 0 && "border-l",
+                        docMode === opt.value ? "bg-primary text-white" : "bg-white text-gray-700 hover:bg-gray-50",
+                      )}
+                    >
+                      <opt.icon className="h-3.5 w-3.5" /> {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {docMode === "link" ? (
+                <>
+                  <Input
+                    id="bill-link"
+                    type="url"
+                    aria-label="Bill document link"
+                    placeholder="Paste the link to the bill document"
+                    value={draft.bill_document_link}
+                    onChange={(e) => set("bill_document_link", e.target.value)}
+                  />
+                  {draft.bill_document_link.trim() && (
+                    <a
+                      href={draft.bill_document_link.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" /> Open document
+                    </a>
+                  )}
+                </>
+              ) : draft.bill_attachment && !newFile ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border bg-gray-50 px-3 py-2">
+                  <a
+                    href={draft.bill_attachment}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-violet-700 hover:underline"
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{fileNameOf(draft.bill_attachment)}</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => set("bill_attachment", "")}
+                    className="rounded-full p-1 hover:bg-gray-200"
+                    aria-label="Remove attachment"
+                  >
+                    <X className="h-4 w-4 text-destructive" />
+                  </button>
+                </div>
+              ) : (
+                <CustomAttachment
+                  selectedFile={newFile}
+                  onFileSelect={setNewFile}
+                  acceptedTypes={["application/pdf", "image/*"]}
+                  label="Upload the bill (PDF or image)"
+                  maxFileSize={10 * 1024 * 1024}
+                  onError={(err) => toast({ title: "Can't use this file", description: err.message, variant: "destructive" })}
+                />
+              )}
+
+              {otherWillBeCleared && (
+                <p className="mt-1.5 text-[11px] text-amber-700">
+                  Saving keeps the {docMode === "link" ? "link" : "attachment"} only; the saved{" "}
+                  {docMode === "link" ? "attachment" : "link"} will be removed.
+                </p>
               )}
             </div>
 
@@ -291,7 +397,7 @@ export function BillDrawer({
               Cancel
             </Button>
             <Button className="flex-[2]" disabled={!canSave} onClick={handleSave}>
-              {loading ? "Saving…" : isNew ? "Add bill" : "Save changes"}
+              {uploading ? "Uploading…" : loading ? "Saving…" : isNew ? "Add bill" : "Save changes"}
             </Button>
           </div>
         </div>

@@ -4,7 +4,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { Link2, Lock, Pencil } from "lucide-react";
+import { FileText, Link2, Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
@@ -32,6 +32,7 @@ export const BILL_FETCH_FIELDS: (keyof BillDoc)[] = [
   "first_submission_date",
   "approval_date",
   "bill_document_link",
+  "bill_attachment",
 ];
 
 export const BILL_SEARCH_FIELDS: SearchFieldOption[] = [
@@ -197,27 +198,48 @@ export function buildBillColumns(o: BillColumnOptions): ColumnDef<BillDoc>[] {
       },
     },
     {
+      // A bill's document can be a link, an attached file, or both. Each gets its own
+      // icon and colour: link = blue chain, attached file = violet document.
       accessorKey: "bill_document_link",
-      header: "Bill Doc",
-      cell: ({ row }) =>
-        row.original.bill_document_link ? (
-          <div className="text-center">
-            <a
-              href={row.original.bill_document_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Open bill document — ${row.original.package} ${row.original.bill_type}`}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700"
-            >
-              <Link2 className="h-4 w-4" />
-            </a>
+      header: "Bill Link / Attach",
+      cell: ({ row }) => {
+        const { bill_document_link: link, bill_attachment: file, package: pkg, bill_type } = row.original;
+        if (!link && !file) return <div className="text-center text-sm text-gray-300">—</div>;
+        return (
+          <div className="flex items-center justify-center gap-1.5">
+            {link && (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open bill link — ${pkg} ${bill_type}`}
+                aria-label={`Open bill link for ${pkg} ${bill_type}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              >
+                <Link2 className="h-4 w-4" />
+              </a>
+            )}
+            {file && (
+              <a
+                href={file}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open attached bill file — ${pkg} ${bill_type}`}
+                aria-label={`Open attached bill file for ${pkg} ${bill_type}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+              >
+                <FileText className="h-4 w-4" />
+              </a>
+            )}
           </div>
-        ) : (
-          <div className="text-center text-sm text-gray-300">—</div>
-        ),
+        );
+      },
       enableSorting: false,
-      size: 80,
-      meta: { exportHeaderName: "Bill Document", exportValue: (row: BillDoc) => row.bill_document_link || "" },
+      size: 100,
+      meta: {
+        exportHeaderName: "Bill Link / Attach",
+        exportValue: (row: BillDoc) => [row.bill_document_link, row.bill_attachment].filter(Boolean).join(" | "),
+      },
     },
   );
 

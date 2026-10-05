@@ -56,6 +56,7 @@ export interface Bill {
   first_submission_date: string | null;
   approval_date: string | null;
   bill_document_link: string | null;
+  bill_attachment: string | null;
   billing_managers: BillingManagerRef[];
   tracker_supply_dc: number | null;
   tracker_po_value: number | null;
@@ -122,6 +123,7 @@ export interface BillDraft {
   eta_date: string;
   approval_date: string;
   bill_document_link: string;
+  bill_attachment: string;
 }
 
 /** A `Project Billing` row as the standard DataTable fetches it (doctype fields only). */
@@ -139,4 +141,5 @@ export interface BillDoc {
   first_submission_date: string | null;
   approval_date: string | null;
   bill_document_link: string | null;
+  bill_attachment: string | null;
 }

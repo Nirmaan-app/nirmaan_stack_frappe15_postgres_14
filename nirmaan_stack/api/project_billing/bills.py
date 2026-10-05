@@ -16,6 +16,7 @@ EDITABLE_FIELDS = (
 	"eta_date",
 	"approval_date",
 	"bill_document_link",
+	"bill_attachment",
 )
 
 
@@ -40,8 +41,37 @@ def save_bill(bill) -> dict:
 			dict(values, doctype="Project Billing", billing_tracker=bill["billing_tracker"])
 		).insert()
 
+	_link_attachment(doc)
 	frappe.db.commit()
 	return doc.as_dict()
+
+
+def _link_attachment(doc) -> None:
+	"""Attach the uploaded bill file to its bill, so everyone who can see the bill can open it.
+
+	The drawer uploads the file before saving (a new bill has no name yet), so the File row
+	starts unattached. Only the caller's own unattached upload of this URL is linked.
+	Raw set_value on File, deliberately: it fills the three attached_to_* columns only,
+	which nothing derives from, and a File save would re-run the storage upload hooks.
+	"""
+	if not doc.get("bill_attachment"):
+		return
+	files = frappe.get_all(
+		"File",
+		filters={
+			"file_url": doc.get("bill_attachment"),
+			"owner": frappe.session.user,
+			"attached_to_name": ["is", "not set"],
+		},
+		pluck="name",
+	)
+	for name in files:
+		frappe.db.set_value(
+			"File",
+			name,
+			{"attached_to_doctype": "Project Billing", "attached_to_name": doc.name, "attached_to_field": "bill_attachment"},
+			update_modified=False,
+		)
 
 
 @frappe.whitelist(methods=["POST"])

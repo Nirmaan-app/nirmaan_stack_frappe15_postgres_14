@@ -197,7 +197,7 @@ export type DcEntryMode = "add" | "correct";
 /**
  * What a typed Supply DC value would save: "add" logs the typed amount, "correct" logs the
  * difference to the typed total. A non-empty `problem` blocks the save. An entry of 0 is never
- * saved: no empty DC log rows (owner 2026-10-03; the "No delivery today" button is hidden).
+ * saved from the box; "No delivery today" is the one way to log a zero day.
  */
 export function dcEntryPlan(
   mode: DcEntryMode,
@@ -210,7 +210,7 @@ export function dcEntryPlan(
   if (Math.abs(amount) < 0.005) {
     const problem =
       mode === "add"
-        ? "0 can't be saved. Enter the value delivered today."
+        ? `0 can't be saved. If nothing was delivered, use "No delivery today".`
         : "Same as the current total. Nothing to save.";
     return { amount, newTotal, problem };
   }
@@ -233,6 +233,31 @@ export function projectStatusTone(status?: string | null): Tone {
   if (status === "Completed" || status === "Handover") return "good";
   if (status === "Halted" || status === "CEO Hold") return "critical";
   return "neutral";
+}
+
+export type BillDocMode = "link" | "file";
+
+/**
+ * Which input a bill's document opens in: Attachment when the bill has a file, else Link
+ * (also when it has neither). A bill keeps one or the other, never both.
+ */
+export function billDocMode(bill?: { bill_attachment?: string | null } | null): BillDocMode {
+  return bill?.bill_attachment ? "file" : "link";
+}
+
+/** A readable name for an attachment URL: its `file_name` query value, else the last path part. */
+export function fileNameOf(url?: string | null): string {
+  if (!url) return "";
+  const [path, query = ""] = url.split("?");
+  const named = new URLSearchParams(query).get("file_name");
+  if (named) return named;
+  const key = new URLSearchParams(query).get("key");
+  const last = (key || path).split("/").pop() || url;
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
 }
 
 /** Local calendar date as YYYY-MM-DD. */

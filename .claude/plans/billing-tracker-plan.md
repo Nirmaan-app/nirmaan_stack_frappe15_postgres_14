@@ -91,10 +91,11 @@ Seeded with the 9 names by an idempotent patch (inserts only the missing ones).
 | bill_value | Currency | |
 | payment_received | Currency | |
 | invoice_requested | Check | yes / no |
-| eta_date | Date | |
+| eta_date | Date | today or later when set or changed (owner, 2026-10-03) |
 | first_submission_date | Date, read-only | stamped automatically, see rules |
-| approval_date | Date | |
-| bill_document_link | Data (URL) | |
+| approval_date | Date | today or later when set or changed (owner, 2026-10-03) |
+| bill_document_link | Data (URL) | a link OR `bill_attachment`, never both |
+| bill_attachment | Attach (private) | added 2026-10-03; the drawer's Link / Attachment switch picks one; uploaded before save and linked to the bill in `bills._link_attachment` |
 
 - No DC field on a bill: Supply DC is package-level only.
 - The same package may have two bills of the same type (e.g. two Electrical Supply 1). No uniqueness rule.
@@ -174,12 +175,12 @@ Owner of these rules: `nirmaan_stack/services/project_billing/rules.py` (pure mo
 | 8 | DC on bills? | **No.** Supply DC is package-level only. |
 | 9 | Next bill order? | **Earliest ETA** among pending bills. |
 | 10 | Billing packages vs procurement packages? | **Separate list**; never mapped to Procurement Packages. |
-| 11 | Invoiced / Inflow source? | **Per-bill fields** (yes/no check, payment received). Upgrade later. |
+| 11 | Invoiced / Inflow source? | **Project summary card: the Financials tab's figures** (owner, 2026-10-03; replaces "per-bill fields, upgrade later"). Total Invoiced = the project's Project Invoices, Total Inflow = its Project Inflows, read through the Financials tab's own hook and sums (`useProjectFinancialsTabData`, `getTotalProjectInvoiceAmount` / `getTotalInflowAmount`), so both screens always show the same numbers. Project level only: invoices and inflows carry no package. Shown to everyone with the Billing tab, PMO included, although the Financials tab hides them from PMO (owner: restrict later). The per-bill "Invoice requested" and "Payment received" fields stay, for tracking each bill. |
 | 12 | Add Bill drawer | **Project automatic and fixed; package only from those set up for the project.** |
 | 13 | `billing_manager` + `remarks` on the tracker? | **Keep both.** The single manager became several in decision 17. |
 | 14 | Project Lead / Accountant / Accountant Lead read access? | **Removed.** Only Admin, PMO and Billing users see billing, read included. |
 | 15 | How are the 9 packages created? | **Fixture** (`fixtures/project_billing_packages.json`), no patch. |
-| 16 | A 0 typed in the Supply DC box? | **Not saved** (owner, 2026-10-03). The "No delivery today" button was later hidden too (owner, 2026-10-03: no empty DC log rows), so the screen logs no zero day at all. In Correct total, a total equal to the current one is refused too; a real correction down to 0 still saves, as a minus entry. Screen rule only (`dcEntryPlan`): the server still accepts an amount of 0. |
+| 16 | A 0 typed in the Supply DC box? | **Not saved** (owner, 2026-10-03). The **"No delivery today"** button is the one way to log a zero day: it saves a ₹0 DC log row dated today, so the package counts as updated today (owner, 2026-10-03, after briefly hiding it; no extra field). In Correct total, a total equal to the current one is refused too; a real correction down to 0 still saves, as a minus entry. Screen rule only (`dcEntryPlan`): the server still accepts an amount of 0. |
 | 17 | Several billing managers per package? | **Yes** (owner, 2026-10-03). New child table `Project Billing Manager`, shown on the tracker as `billing_managers`; it replaces the single `billing_manager` field. My Bills and the Bill Wise manager filter match anyone among the managers. The Bill Wise manager grid counts a package's bills under each of its managers, so its rows can add up to more than the overall total. No patch: nothing was live, and the old column is left in the database unread. |
 | 18 | Who may add / edit bills and log Supply DC? | **Admin for every package; everyone else only for packages where they are one of the billing managers** (owner, 2026-10-03; narrows decision 4 for bills and DC). Viewing is unchanged: every billing user still sees every bill. Setup (Packages dialog: managers, PO value) is unchanged. Enforced in the controller hooks (bill save / delete, a new DC row checked against the managers as saved) through the pure `rules.can_edit_package_bills`; the read APIs stamp `can_edit_bills` per package and the screens follow it: Update Supply DC lists only those packages, Add Bill offers only those, and other rows show a lock instead of the pencil. |
 
@@ -286,13 +287,16 @@ Frontend: the Billing tab is added for Admin, PMO and Billing profiles only (thr
   Deadline stay as toolbar dropdowns (managers live on the tracker, so it filters `billing_tracker in
   [trackers that person is one of the managers of]`). The package chips and the custom `get_bills` endpoint
   were removed.
-- **Packages dialog, finance layout (owner, 2026-10-03):** `SetupBillingDialog` opens with a Summary strip
-  (Packages in scope, Total PO value, Managers assigned, PO value entered; same tiles as the vendor page's PO
-  Totals card, amber while something is missing), then a table with the app's pink header: tick box, package,
-  a "Set up" tag on packages already set up (tick locked), a multi-name manager picker (react-select, as in the
-  Design Tracker), and a right-aligned ₹ PO value with its read-back under it. A bold total row closes the
-  table and the footer (sticky) names what is still missing; it never blocks saving. "Use these managers for
-  all ticked packages" copies one package's managers to the rest. Saved PO values prefill in Indian grouping;
+- **Packages dialog, two steps (owner, 2026-10-05; replaces the summary-tile + 9-row tick list layout):**
+  `SetupBillingDialog` is ① *Packages in scope*: all packages as a compact checkbox grid (5 per row, 2 rows; 2 on a phone;
+  a ticked tile is tinted, a set-up package stays ticked and disabled with a lock icon), with "N of 9"
+  beside the step; then ② *Managers and PO value*: a table with the app's pink
+  header listing ONLY the picked packages, in master order (none picked → "Pick packages above"). Each row: package
+  (+ "Set up" tag), a multi-name manager picker (react-select, as in the Design Tracker), a right-aligned ₹ PO value
+  with its read-back under it, and ✕ to remove a new package. A missing manager or PO value is an amber outline in
+  its own row, so the summary tiles were dropped; a bold total row closes the table and the sticky footer names
+  what is still missing; it never blocks saving. "Use these managers for all packages" copies one package's
+  managers to the rest. Saved PO values prefill in Indian grouping;
   the form fills only when the dialog opens, so a background refetch cannot wipe what is being typed. Figures
   come from the pure `poAmount` / `poInputOf` / `setupSummary` in `utils/billingFormat.ts`.
 - **Known shared-API gap (not billing code):** `api/data_table/search.py` counts with `frappe.db.count`, so a

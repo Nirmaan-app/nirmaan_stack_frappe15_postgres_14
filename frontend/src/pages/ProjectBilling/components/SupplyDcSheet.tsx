@@ -147,8 +147,18 @@ export function SupplyDcSheet({ open, onOpenChange, trackers, showProject }: Sup
                     {saving === t.name ? "Saving…" : "Save"}
                   </Button>
                 </div>
-                {/* "No delivery today" (a 0 DC log row) is hidden: owner 2026-10-03, no empty DC logs. */}
-                {problem && <div className="mt-2 text-[11px] font-semibold text-red-700">{problem}</div>}
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  {problem ? <span className="text-[11px] font-semibold text-red-700">{problem}</span> : <span />}
+                  {/* Logs a ₹0 DC row dated today, so the package counts as updated today. */}
+                  <button
+                    type="button"
+                    disabled={saving === t.name}
+                    onClick={() => commit(t, 0, "Marked no delivery today")}
+                    className="text-[11px] font-semibold text-muted-foreground underline hover:text-gray-900"
+                  >
+                    No delivery today
+                  </button>
+                </div>
               </div>
             );
           })}

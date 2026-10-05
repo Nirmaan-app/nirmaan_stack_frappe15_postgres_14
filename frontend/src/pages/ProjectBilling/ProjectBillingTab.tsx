@@ -11,6 +11,8 @@ import { SetupBillingDialog } from "./components/SetupBillingDialog";
 import { EditPackageDialog } from "./components/EditPackageDialog";
 import { useUserData } from "@/hooks/useUserData";
 import { canEditBillingPackage } from "@/constants/roles";
+import { useProjectFinancialsTabData } from "@/pages/projects/data/tab/financials/useProjectFinancialsTabApi";
+import { getTotalInflowAmount, getTotalProjectInvoiceAmount } from "@/utils/getAmounts";
 import { SupplyDcSheet } from "./components/SupplyDcSheet";
 
 interface ProjectBillingTabProps {
@@ -37,6 +39,14 @@ function Stat({ label, value, note, accent }: { label: string; value: string; no
 export default function ProjectBillingTab({ projectId, projectName }: ProjectBillingTabProps) {
   const { data, isLoading, error } = useProjectBilling(projectId);
   const billing = data?.message;
+
+  // Total Invoiced / Total Inflow: the same records, request and sums as the project's
+  // Financials tab (Project Invoices / Project Inflows), so the two screens always agree.
+  const { inflowsResponse, invoicesResponse } = useProjectFinancialsTabData(projectId);
+  const inflows = inflowsResponse.data;
+  const invoices = invoicesResponse.data;
+  const totalInflow = useMemo(() => getTotalInflowAmount(inflows || []), [inflows]);
+  const totalInvoiced = useMemo(() => getTotalProjectInvoiceAmount(invoices || []), [invoices]);
   // Stable identity: the bills table derives its columns from these.
   const trackers = useMemo(() => billing?.trackers ?? [], [billing]);
   const summary = billing?.summary;
@@ -173,17 +183,25 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
             />
             <Stat
               label="TOTAL INVOICED"
-              value={summary?.invoiced ? inr(summary.invoiced) : "—"}
+              value={invoicesResponse.isLoading ? "…" : invoicesResponse.error ? "—" : inr(totalInvoiced)}
               note={
-                summary?.invoiced_count
-                  ? `${summary.invoiced_count} bill${summary.invoiced_count === 1 ? "" : "s"} invoiced`
-                  : "No invoices requested yet"
+                invoicesResponse.error
+                  ? "Could not load client invoices"
+                  : invoices?.length
+                    ? `Client invoices, incl. GST · ${invoices.length} invoice${invoices.length === 1 ? "" : "s"}`
+                    : "No client invoices yet"
               }
             />
             <Stat
               label="TOTAL INFLOW"
-              value={summary?.inflow ? inr(summary.inflow) : "—"}
-              note={summary?.inflow ? `${pct(summary.inflow, approved)}% of approved value` : "No payment received yet"}
+              value={inflowsResponse.isLoading ? "…" : inflowsResponse.error ? "—" : inr(totalInflow)}
+              note={
+                inflowsResponse.error
+                  ? "Could not load inflows"
+                  : inflows?.length
+                    ? `Received from the client · ${inflows.length} payment${inflows.length === 1 ? "" : "s"}`
+                    : "No payment received yet"
+              }
               accent
             />
           </div>
