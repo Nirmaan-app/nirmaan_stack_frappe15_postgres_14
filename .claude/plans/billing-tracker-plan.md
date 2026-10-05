@@ -46,7 +46,8 @@ and the owner's decisions. Synced with the code on 2026-10-05.
     approved" / "Nothing billed yet").
   - Admin also sees an ✏️ per package.
   - There is no "Next bill" column.
-- **Bills table:** "All | each package" tabs with bill counts (NA excluded).
+- **Bills table:** "Packages: All | each package" tabs with bill counts (NA excluded). Admin also sees a trash
+  icon on each package tab to remove that package from the project (decision 27).
 - **Buttons:** Setup Packages and Update Supply DC sit in the Billing summary header (owner, 2026-10-05); Add Bill is
   on the bills table. Update Supply DC is hidden here for Billing Executive and
   Billing Lead (owner, 2026-10-05): they log Supply DC from Billing Tracker → My Bills. Screen only.
@@ -323,7 +324,8 @@ Billing users = Admin, PMO, Billing Executive, Billing Lead (and Administrator).
 | Delete a bill (Desk) | same as edit | `billing_on_trash` |
 | Add a Supply DC row | Admin: every package; others: packages they manage, checked against the managers **as saved** (adding yourself and a DC row in one save is refused) | `tracker_validate` (`_guard_new_dc_rows`) |
 | Change or delete a saved DC row | Admin only | `tracker_validate` (`_guard_saved_dc_rows`) |
-| Delete a tracker (Desk) | any billing user, only while it has no bills (Frappe's link check) | `tracker_on_trash` (open question 2) |
+| Remove a package from a project (bills, Supply DC, managers, PO value) | **Admin only**: trash icon on the package tab, typed confirmation | `setup.remove_project_package` (Admin check + typed name, one transaction) |
+| Delete a tracker (Desk) | **Admin only**, and only while it has no bills (Frappe's link check) | `tracker_on_trash` (decision 27) |
 | Add, rename, delete a billing package | Administrator, Admin, Billing Lead | package hooks (`_require_package_writer`); screen uses `canManageBillingPackages` |
 | See the package list | billing users; also any profile carrying System Manager (names only) | doctype permission |
 
@@ -364,6 +366,8 @@ a SQL total or join, or a server-side lock:
 | `setup.setup_project_billing(project, packages)` | `packages = [{package, billing_managers: [user, …], po_value}]`; creates or updates trackers | several trackers, one transaction |
 | `bills.save_bill(bill)` | create (needs `billing_tracker`) or update (needs `name`) a bill; refuses an ETA / approval date set or changed to before today (app only, decision 26); then links its uploaded file | the bill and its file row in one transaction; an update through the doc API would also add a raw `updateDoc` (residence rule F5) |
 | `supply_dc.add_dc_entry(tracker, amount, dc_date)` | lock the tracker, append one DC row | the doc API replaces the whole DC log with the browser's copy, so two people logging at once would lose a row |
+| `setup.get_package_removal_summary(tracker)` | Admin: what removing a package deletes (bills incl. NA, billed / approved, attachments, DC entries and total, managers, PO value) | the exact numbers for the warning, counted in SQL |
+| `setup.remove_project_package(tracker, confirm_name)` | Admin: delete every bill of the package (with its file), then the package with its DC log and managers; the typed name must match | several documents, one transaction |
 | `packages.rename_billing_package(name, new_name)` | rename the package and every tracker `{project}-{package}` | several documents, one transaction |
 
 **Standard document API (frappe-react-sdk):**
@@ -381,7 +385,7 @@ a SQL total or join, or a server-side lock:
 |---|---|---|
 | Tracker, Bill | `has_permission`, `get_permission_query_conditions` | hide billing from non-billing users |
 | Tracker | `tracker_validate` | billing writer; Won check on new; saved DC rows Admin-only; new DC rows by managers as saved |
-| Tracker | `tracker_on_trash` | billing writer |
+| Tracker | `tracker_on_trash` | billing writer, and Admin only (decision 27) |
 | Bill | `billing_validate` | billing writer + Admin or a manager of the bill's package; billed total within the PO value |
 | Bill | `billing_on_trash` | billing writer + Admin or a manager of the bill's package |
 | Packages | `package_validate` | Admin / Billing Lead; duplicate name ignoring case |
@@ -402,6 +406,7 @@ a SQL total or join, or a server-side lock:
 | `components/BillDrawer.tsx` | add / edit a bill |
 | `components/SetupBillingDialog.tsx` | the two-step Packages dialog |
 | `components/EditPackageDialog.tsx` | Admin ✏️: one package's managers and PO value |
+| `components/RemovePackageDialog.tsx` | Admin: the "Remove <package> from <project>?" warning with exact counts and a typed confirmation |
 | `components/SupplyDcSheet.tsx` | Update Supply DC |
 | `components/BillingPackagesMaster.tsx` | the Billing Packages tab (via `src/components/billing-packages.tsx` and `pages/PackagesSettings/config/packageSettingsTabs.constants.ts`) |
 | `components/BillingBits.tsx` | shared pieces: `StatusBadge`, `Money`, `PersonChips`, `PackageTabs`, `SegmentedTabs`, `EtaCell`, `ApprovalBar` |
@@ -448,6 +453,7 @@ The app shell also changed:
 | 24 | Which bill fields are required? | (owner, 2026-10-05) Package, bill type and status as before, plus, by status: a **bill value greater than 0** on every bill; an **ETA date** while the bill is pending; **payment received greater than 0** for Partial Payment Received. An NA bill (NA status or NA bill type) needs none. *The bill document was required from Submitted on until the owner made it optional the same day (2026-10-05): it blocked a bill that skipped Submitted, which must only warn.* One rule, `rules.missing_bill_fields`, checked on every save (Desk and API too); the drawer mirrors it (`billMissingFields`), marks the fields * and, on a Save click with gaps, flags each missing field instead of saving (Save itself is never disabled for a gap). Saved bills are not changed; the rule applies on their next save. **Approval date is not required yet:** the "today or later" date rule would force today's date instead of the real approval date (open). |
 | 25 | Which status fills the first submission date? | **Submitted only** (owner, 2026-10-05; was any Submitted-or-later status). Stamped once with that day, never moved. A bill that skips Submitted keeps it empty, and the drawer warns while the status is being changed: "You're skipping the Submitted status, so the first submission date will stay empty." A warning, not a block. Dates already stamped by a later status are kept. |
 | 26 | Past ETA / approval dates in Desk? | **Allowed in Desk** (owner, 2026-10-05). The "today or later when set or changed" rule moved out of the bill's validate into `save_bill`, the app's endpoint, so the drawer still refuses a past date while Desk (Admin corrections) can set any date. Supply DC row dates have no date rule. |
+| 27 | Removing a package from a project? | **Admin only, with a clear warning** (owner, 2026-10-05). A trash icon on each package tab (project Billing tab and View Bills page; Admin only) opens "Remove <package> from <project>?" listing exactly what goes: the bills (billed / approved, attachments, NA count), the Supply DC entries and total, the managers and the PO value. The package's name must be typed to confirm. `remove_project_package` deletes the bills and the package in one transaction (Admin check and typed name checked again on the server); Frappe keeps each in Deleted Documents for an Admin to restore. Deleting a package in Desk is Admin only too. |
 
 ---
 
@@ -456,8 +462,7 @@ The app shell also changed:
 **Waiting for the owner**
 1. The Admin-only ✏️ (edit one package) is a screen rule only; the setup endpoint accepts every billing
    user. Enforce it on the server?
-2. Any billing user, even one who manages no package, can delete a tracker that has no bills (in Desk).
-   Intended?
+2. ~~Any billing user can delete a tracker that has no bills (in Desk).~~ Answered by decision 27: Admin only.
 3. The server does not check that a chosen billing manager has a billing profile.
 4. The automatic first submission date can fall after the typed approval date.
 5. PMO sees Total Invoiced / Total Inflow on the Billing tab although Financials hides them from PMO
@@ -482,8 +487,8 @@ The app shell also changed:
 
 | Suite | Count | Run |
 |---|---|---|
-| `services/project_billing/test_rules.py` | 39 | in the container, from `apps/nirmaan_stack`: `../../env/bin/python -m unittest nirmaan_stack.services.project_billing.test_rules` |
-| `utils/billingFormat.test.ts` | 56 | in the container, from `frontend`: `npx vitest run src/pages/ProjectBilling` |
+| `services/project_billing/test_rules.py` | 41 | in the container, from `apps/nirmaan_stack`: `../../env/bin/python -m unittest nirmaan_stack.services.project_billing.test_rules` |
+| `utils/billingFormat.test.ts` | 58 | in the container, from `frontend`: `npx vitest run src/pages/ProjectBilling` |
 | `src/utils/projectBillingStatusParity.test.ts` | 2 | `npx vitest run src/utils/projectBillingStatusParity.test.ts` |
 
 **Manual check by role** (needs one login per role)

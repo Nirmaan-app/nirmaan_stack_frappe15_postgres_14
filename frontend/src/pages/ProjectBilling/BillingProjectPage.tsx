@@ -10,6 +10,9 @@ import { TONE_CLASSES, etaTag, pct, projectDeadline, projectStatusTone } from ".
 import { PackageTabs, ToneTag } from "./components/BillingBits";
 import { BillsDataTable } from "./components/BillsDataTable";
 import { SetupBillingDialog } from "./components/SetupBillingDialog";
+import { RemovePackageDialog } from "./components/RemovePackageDialog";
+import { useUserData } from "@/hooks/useUserData";
+import { canEditBillingPackage } from "@/constants/roles";
 
 function HeaderChip({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -67,6 +70,11 @@ export default function BillingProjectPage() {
 
   const canWrite = !!data?.message?.can_write;
   const [setupOpen, setSetupOpen] = useState(false);
+  // Admin removes a package from the project (trash icon on its tab), as on the project Billing tab.
+  const { role, user_id } = useUserData();
+  const canRemovePackage = canEditBillingPackage(role, user_id);
+  const [removingName, setRemovingName] = useState<string | null>(null);
+  const removing = trackers.find((t) => t.name === removingName) ?? null;
 
   const [pkg, setPkg] = useState<string | null>(null);
   const scopeFilters = useMemo(
@@ -154,7 +162,15 @@ export default function BillingProjectPage() {
         </div>
       </div>
 
-      <PackageTabs packages={row.packages} total={billCount} value={pkg} onChange={setPkg} />
+      <PackageTabs
+        packages={row.packages}
+        total={billCount}
+        value={pkg}
+        onChange={setPkg}
+        onRemove={
+          canRemovePackage ? (p) => setRemovingName(trackers.find((t) => t.package === p)?.name ?? null) : undefined
+        }
+      />
 
       <BillsDataTable
         scopeFilters={scopeFilters}
@@ -173,6 +189,7 @@ export default function BillingProjectPage() {
         projectLabel={projectLabel}
         trackers={trackers}
       />
+      <RemovePackageDialog tracker={removing} onClose={() => setRemovingName(null)} onRemoved={() => setPkg(null)} />
     </div>
   );
 }

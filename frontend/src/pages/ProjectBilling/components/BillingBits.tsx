@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TONE_CLASSES, Tone, etaTag, inr, inrShort, pct, statusTone } from "../utils/billingFormat";
 import { formatDate } from "@/utils/FormatDate";
@@ -173,49 +174,76 @@ export function SegmentedTabs<T extends string>({
 
 /**
  * "All | Electrical | HVAC | …" over a project's bill list, each with its bill count (NA left out,
- * like every other count). `value` is the selected package, or null for All.
+ * like every other count). `value` is the selected package, or null for All. With `onRemove` (Admin
+ * only), each package tab also carries a trash icon that asks to remove the package from the project.
  */
 export function PackageTabs({
   packages,
   total,
   value,
   onChange,
+  onRemove,
 }: {
   packages: { package: string; bill_count: number }[];
   total: number;
   value: string | null;
   onChange: (pkg: string | null) => void;
+  onRemove?: (pkg: string) => void;
 }) {
   const tabs = [{ key: null as string | null, label: "All", count: total }].concat(
     packages.map((p) => ({ key: p.package, label: p.package, count: p.bill_count })),
   );
   return (
-    <div role="tablist" aria-label="Category" className="flex flex-wrap items-center gap-2.5">
-      <span className="mr-1 text-sm font-semibold text-gray-700">Category:</span>
+    <div role="tablist" aria-label="Packages" className="flex flex-wrap items-center gap-2.5">
+      <span className="mr-1 text-sm font-semibold text-gray-700">Packages:</span>
       {tabs.map((tab) => {
         const active = value === tab.key;
+        const pkg = tab.key;
         return (
-          <button
-            key={tab.key ?? "__all__"}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(tab.key)}
+          // Two buttons side by side, never one inside the other: the tab filters, the icon removes.
+          <div
+            key={pkg ?? "__all__"}
             className={cn(
-              "inline-flex items-center gap-2 rounded-lg border px-3.5 py-1.5 text-sm font-semibold transition-colors",
-              active ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-700 hover:bg-blue-50",
+              "inline-flex items-center rounded-lg border text-sm font-semibold transition-colors",
+              active ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-white text-blue-700",
             )}
           >
-            {tab.label}
-            <span
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(pkg)}
               className={cn(
-                "rounded-full px-1.5 text-[11px] font-semibold",
-                active ? "bg-white/25 text-white" : "bg-blue-100 text-blue-700",
+                "inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5",
+                !active && "hover:bg-blue-50",
+                onRemove && pkg && "pr-2",
               )}
             >
-              {tab.count}
-            </span>
-          </button>
+              {tab.label}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 text-[11px] font-semibold",
+                  active ? "bg-white/25 text-white" : "bg-blue-100 text-blue-700",
+                )}
+              >
+                {tab.count}
+              </span>
+            </button>
+            {onRemove && pkg && (
+              <button
+                type="button"
+                onClick={() => onRemove(pkg)}
+                title={`Remove ${pkg} from this project (Admin)`}
+                aria-label={`Remove ${pkg} from this project`}
+                className={cn(
+                  "mr-1.5 rounded p-1 transition-colors",
+                  active ? "text-white/80 hover:bg-white/20 hover:text-white" : "text-blue-400 hover:bg-red-50 hover:text-red-600",
+                )}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         );
       })}
     </div>

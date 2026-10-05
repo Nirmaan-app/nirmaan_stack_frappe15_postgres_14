@@ -111,6 +111,12 @@ export function dcFreshness(iso?: string | null, today: Date = new Date()): { la
   return { label: `${ago} days ago`, tone: "warning", isToday: false };
 }
 
+/** Has the Admin typed the package's name to confirm removing it? Mirrors `rules.removal_confirmed`. */
+export function removalConfirmed(typed: string, pkg: string): boolean {
+  const wanted = cleanPackageName(pkg).toLowerCase();
+  return !!wanted && cleanPackageName(typed).toLowerCase() === wanted;
+}
+
 /**
  * A typed billing package name: outer spaces dropped, inner runs of spaces made one.
  * Mirrors `rules.clean_package_name`, which the server applies before saving.

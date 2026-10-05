@@ -15,6 +15,7 @@ import type {
   BillingProjectsResponse,
   ManagerSummaryResponse,
   MyBillsResponse,
+  PackageRemovalSummary,
   ProjectBillingResponse,
 } from "../types";
 
@@ -53,6 +54,14 @@ export const useBillingPackages = () =>
     billingKeys.packages(),
   );
 
+/** What removing a package from its project would delete; fetched only while the warning is open. */
+export const usePackageRemovalSummary = (tracker: string | null) =>
+  useFrappeGetCall<{ message: PackageRemovalSummary }>(
+    BILLING_API.packageRemovalSummary,
+    { tracker },
+    tracker ? billingKeys.removalSummary(tracker) : null,
+  );
+
 /** Users who can be a package's billing manager. */
 export const useBillingManagers = () =>
   useFrappeGetDocList<{ email: string; full_name: string }>("Nirmaan Users", {
@@ -81,6 +90,7 @@ export const useBillingMutations = () => {
   const { createDoc, loading: addPackageLoading } = useFrappeCreateDoc();
   const { deleteDoc, loading: deletePackageLoading } = useFrappeDeleteDoc();
   const { call: renamePackageCall, loading: renamePackageLoading } = useFrappePostCall(BILLING_API.renamePackage);
+  const { call: removePackageCall, loading: removePackageLoading } = useFrappePostCall(BILLING_API.removeProjectPackage);
 
   const after = useCallback(
     async <T,>(p: Promise<T>) => {
@@ -102,12 +112,15 @@ export const useBillingMutations = () => {
     addPackage: (package_name: string) => after(createDoc("Project Billing Packages", { package_name })),
     deletePackage: (name: string) => after(deleteDoc("Project Billing Packages", name)),
     renamePackage: (name: string, new_name: string) => after(renamePackageCall({ name, new_name })),
+    /** Admin: remove a package and all its bills from its project; `confirm_name` is the typed package name. */
+    removeProjectPackage: (tracker: string, confirm_name: string) => after(removePackageCall({ tracker, confirm_name })),
     loading:
       setupLoading ||
       saveLoading ||
       dcLoading ||
       addPackageLoading ||
       deletePackageLoading ||
-      renamePackageLoading,
+      renamePackageLoading ||
+      removePackageLoading,
   };
 };

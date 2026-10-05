@@ -117,7 +117,10 @@ def billing_on_trash(doc, method):
 
 
 def tracker_on_trash(doc, method):
+	"""Removing a package from a project deletes its billing history: Admin only (owner, 2026-10-05)."""
 	_require_billing_writer()
+	if not is_nirmaan_admin(frappe.session.user):
+		frappe.throw(_("Only Admin can remove a billing package from a project."), frappe.PermissionError)
 
 
 def _require_package_writer():

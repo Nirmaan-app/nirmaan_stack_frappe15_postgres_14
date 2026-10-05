@@ -27,6 +27,7 @@ import {
   poAmount,
   poInputOf,
   progressNote,
+  removalConfirmed,
   projectDeadline,
   projectStatusTone,
   projectWiseRows,
@@ -517,5 +518,19 @@ describe("Project Wise: package-level filter and deadline sort (owner, 2026-10-0
     expect(names(projectWiseRows(rows, ALL_STATUSES, "asc")[0].packages)).toEqual(["HVAC", "Electrical"]);
     expect(names(projectWiseRows(rows, ALL_STATUSES, "desc")[0].packages)).toEqual(["Electrical", "HVAC"]);
     expect(names(projectWiseRows(rows, ALL_STATUSES, "asc")[1].packages)).toEqual(["HVAC", "Electrical"]);
+  });
+});
+
+describe("removalConfirmed (mirrors rules.removal_confirmed)", () => {
+  it("the typed package name must match, ignoring spaces and capitals", () => {
+    expect(removalConfirmed("HVAC", "HVAC")).toBe(true);
+    expect(removalConfirmed("  hvac ", "HVAC")).toBe(true);
+    expect(removalConfirmed("access   control", "Access Control")).toBe(true);
+  });
+
+  it("anything else does not confirm", () => {
+    expect(removalConfirmed("HVA", "HVAC")).toBe(false);
+    expect(removalConfirmed("", "HVAC")).toBe(false);
+    expect(removalConfirmed("", "")).toBe(false);
   });
 });

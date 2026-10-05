@@ -22,6 +22,7 @@ from nirmaan_stack.services.project_billing.rules import (
 	counts_in_totals,
 	deadline_window,
 	next_bill,
+	removal_confirmed,
 	summary_column,
 )
 
@@ -277,3 +278,18 @@ class TestChangedToPast(unittest.TestCase):
 	def test_a_saved_date_object_reads_like_the_sent_text(self):
 		from datetime import date
 		self.assertFalse(changed_to_past("2026-09-01", date(2026, 9, 1), self.TODAY))
+
+
+class TestRemovalConfirmed(unittest.TestCase):
+	"""The Admin types the package's name to remove it from a project (owner, 2026-10-05)."""
+
+	def test_the_name_must_match_ignoring_spaces_and_capitals(self):
+		self.assertTrue(removal_confirmed("HVAC", "HVAC"))
+		self.assertTrue(removal_confirmed("  hvac ", "HVAC"))
+		self.assertTrue(removal_confirmed("access   control", "Access Control"))
+
+	def test_anything_else_does_not_confirm(self):
+		self.assertFalse(removal_confirmed("HVA", "HVAC"))
+		self.assertFalse(removal_confirmed("", "HVAC"))
+		self.assertFalse(removal_confirmed(None, "HVAC"))
+		self.assertFalse(removal_confirmed("", ""))

@@ -180,3 +180,9 @@ def missing_bill_fields(status, bill_type, bill_value, eta_date, payment_receive
 	if status == "Partial Payment Received" and not float(payment_received or 0) > 0:
 		missing.append("Payment received (greater than 0)")
 	return missing
+
+
+def removal_confirmed(typed, package):
+	"""Has the Admin typed the package's name to confirm removing it? Spaces and capitals ignored."""
+	wanted = clean_package_name(package).casefold()
+	return bool(wanted) and clean_package_name(typed).casefold() == wanted

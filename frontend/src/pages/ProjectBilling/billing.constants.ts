@@ -66,6 +66,8 @@ export const BILLING_API = {
   managerSummary: "nirmaan_stack.api.project_billing.tracker.get_manager_summary",
   myBills: "nirmaan_stack.api.project_billing.tracker.get_my_bills",
   renamePackage: "nirmaan_stack.api.project_billing.packages.rename_billing_package",
+  packageRemovalSummary: "nirmaan_stack.api.project_billing.setup.get_package_removal_summary",
+  removeProjectPackage: "nirmaan_stack.api.project_billing.setup.remove_project_package",
 } as const;
 
 export const billingKeys = {
@@ -75,6 +77,8 @@ export const billingKeys = {
   projects: () => "project-billing:projects",
   managerSummary: (deadline?: string) => `project-billing:manager-summary:${deadline || "all"}`,
   myBills: () => "project-billing:my-bills",
+  /** What removing a package from its project would delete (Admin's warning). */
+  removalSummary: (tracker: string) => `project-billing:removal:${tracker}`,
 };
 
 /** Page route of the cross-project tracker. */

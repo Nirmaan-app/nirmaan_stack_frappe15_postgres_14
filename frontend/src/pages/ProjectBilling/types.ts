@@ -78,6 +78,23 @@ export interface BillingProjectRow extends BillingTotals {
   po_value: number;
 }
 
+/** What removing a package from its project deletes (`setup.get_package_removal_summary`). */
+export interface PackageRemovalSummary {
+  tracker: string;
+  project: string;
+  project_name: string;
+  package: string;
+  bills: number;
+  na_bills: number;
+  billed: number;
+  approved: number;
+  attachments: number;
+  dc_entries: number;
+  supply_dc: number;
+  po_value: number;
+  managers: string[];
+}
+
 export interface BillingProjectsResponse {
   projects: BillingProjectRow[];
   totals: BillingTotals & { project_count: number };

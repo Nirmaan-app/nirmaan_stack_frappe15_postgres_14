@@ -9,6 +9,7 @@ import { ApprovalBar, Money, PackageChip, PackageTabs, PersonChips, ToneTag } fr
 import { BillsDataTable } from "./components/BillsDataTable";
 import { SetupBillingDialog } from "./components/SetupBillingDialog";
 import { EditPackageDialog } from "./components/EditPackageDialog";
+import { RemovePackageDialog } from "./components/RemovePackageDialog";
 import { useUserData } from "@/hooks/useUserData";
 import { canEditBillingPackage, isBillingProfile } from "@/constants/roles";
 import { useProjectFinancialsTabData } from "@/pages/projects/data/tab/financials/useProjectFinancialsTabApi";
@@ -62,6 +63,10 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
   const showSupplyDcButton = role !== "Loading" && !isBillingProfile(role);
   const [editingName, setEditingName] = useState<string | null>(null);
   const editing = trackers.find((t) => t.name === editingName) ?? null;
+  // Admin removes a package from the project (trash icon on its tab); held by name so the dialog
+  // closes by itself once the refreshed list no longer has it.
+  const [removingName, setRemovingName] = useState<string | null>(null);
+  const removing = trackers.find((t) => t.name === removingName) ?? null;
   const [dcOpen, setDcOpen] = useState(false);
 
   const [pkg, setPkg] = useState<string | null>(null);
@@ -299,7 +304,13 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
         <p className="text-sm text-muted-foreground">Every bill in this project. Filter from the column headers.</p>
       </div>
 
-      <PackageTabs packages={trackers} total={summary?.bill_count ?? 0} value={pkg} onChange={setPkg} />
+      <PackageTabs
+        packages={trackers}
+        total={summary?.bill_count ?? 0}
+        value={pkg}
+        onChange={setPkg}
+        onRemove={canEditPackage ? (p) => setRemovingName(trackers.find((t) => t.package === p)?.name ?? null) : undefined}
+      />
 
       <BillsDataTable
         scopeFilters={scopeFilters}
@@ -319,6 +330,7 @@ export default function ProjectBillingTab({ projectId, projectName }: ProjectBil
       />
       <SupplyDcSheet open={dcOpen} onOpenChange={setDcOpen} trackers={dcTrackers} />
       <EditPackageDialog project={projectId} tracker={editing} onClose={() => setEditingName(null)} />
+      <RemovePackageDialog tracker={removing} onClose={() => setRemovingName(null)} onRemoved={() => setPkg(null)} />
     </div>
   );
 }
