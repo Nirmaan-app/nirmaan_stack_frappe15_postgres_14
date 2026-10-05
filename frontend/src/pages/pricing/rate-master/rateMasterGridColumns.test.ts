@@ -26,7 +26,7 @@ import { columnOrderForFile } from "./rateMasterSpec";
 import CAT_KINDS from "../../../../../scripts/_instruments/cat_kinds.json";
 import {
   gridColumnKeys, gridColumnsSharedWithFile, attrColKey, rateColKey,
-  COL_UNIT, COL_BRAND, COL_ACTIONS, COL_KIND, COL_SPEC, COL_PI_NAME,
+  COL_UNIT, COL_BRAND, COL_ACTIONS, COL_PI_NAME,
 } from "./rateMasterGridColumns";
 
 type AnyRec = Record<string, unknown>;

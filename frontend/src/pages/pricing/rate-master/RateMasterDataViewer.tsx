@@ -45,7 +45,7 @@ import {
   specQuestion, splitSpecColumns,
   // SLICE 12a: the derived-cost marking and the two formula surfaces, rendered by the SAME helpers the
   // rate file uses on the server side (see the cross-language pin in rateMasterSpec.ts).
-  DERIVED_COPY, FORMULA_COLUMNS, FORMULA_TYPED, columnNote, derivedCountsByKey, isDerivedCell,
+  DERIVED_COPY, FORMULA_TYPED, columnNote, derivedCountsByKey, isDerivedCell,
   rowFormula, sideOfRateKey,
   type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
   isPricingInputConfig,
