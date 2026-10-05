@@ -13,6 +13,7 @@ from nirmaan_stack.services.project_billing.rules import (
 	SUBMITTED_OR_LATER,
 	SUMMARY_COLUMNS,
 	can_edit_package_bills,
+	changed_to_past,
 	clean_package_name,
 	first_submission_date,
 	format_inr,
@@ -201,8 +202,8 @@ class TestPoCap(unittest.TestCase):
 class TestBillRequiredFields(unittest.TestCase):
 	"""What a bill must carry for its status (owner, 2026-10-05)."""
 
-	def missing(self, status="Not Started", bill_type="Supply 1", value=100, eta="2026-11-01", doc=False, paid=0):
-		return missing_bill_fields(status, bill_type, value, eta, doc, paid)
+	def missing(self, status="Not Started", bill_type="Supply 1", value=100, eta="2026-11-01", paid=0):
+		return missing_bill_fields(status, bill_type, value, eta, paid)
 
 	def test_a_complete_pending_bill_saves(self):
 		self.assertEqual(self.missing(), [])
@@ -213,20 +214,20 @@ class TestBillRequiredFields(unittest.TestCase):
 
 	def test_eta_is_needed_only_while_pending(self):
 		self.assertEqual(self.missing(eta=None), ["ETA date"])
-		self.assertEqual(self.missing(status="Client Approved", eta=None, doc=True), [])
+		self.assertEqual(self.missing(status="Client Approved", eta=None), [])
 
-	def test_document_is_needed_from_submitted_on(self):
+	def test_the_bill_document_is_optional(self):
 		self.assertEqual(self.missing(status="Internally Approved"), [])
-		self.assertEqual(self.missing(status="Submitted"), ["Bill document (a link or an attachment)"])
-		self.assertEqual(self.missing(status="Submitted", doc=True), [])
-		self.assertEqual(self.missing(status="Invoice Sent", eta=None, doc=True), [])
+		# Optional at every status (owner, 2026-10-05): skipping Submitted is a warning, never a block.
+		self.assertEqual(self.missing(status="Submitted"), [])
+		self.assertEqual(self.missing(status="Invoice Sent", eta=None), [])
 
 	def test_partial_payment_needs_the_amount_received(self):
 		self.assertEqual(
-			self.missing(status="Partial Payment Received", eta=None, doc=True), ["Payment received (greater than 0)"]
+			self.missing(status="Partial Payment Received", eta=None), ["Payment received (greater than 0)"]
 		)
-		self.assertEqual(self.missing(status="Partial Payment Received", eta=None, doc=True, paid=500), [])
-		self.assertEqual(self.missing(status="Payment Received", eta=None, doc=True), [])
+		self.assertEqual(self.missing(status="Partial Payment Received", eta=None, paid=500), [])
+		self.assertEqual(self.missing(status="Payment Received", eta=None), [])
 
 	def test_an_na_bill_needs_nothing(self):
 		self.assertEqual(self.missing(status="NA", value=None, eta=None), [])
@@ -235,7 +236,7 @@ class TestBillRequiredFields(unittest.TestCase):
 	def test_everything_missing_is_listed_together(self):
 		self.assertEqual(
 			self.missing(status="Submitted", value=None, eta=None),
-			["Bill value (greater than 0)", "ETA date", "Bill document (a link or an attachment)"],
+			["Bill value (greater than 0)", "ETA date"],
 		)
 
 
@@ -256,3 +257,23 @@ class TestFirstSubmissionDate(unittest.TestCase):
 	def test_a_stamped_date_never_moves_or_clears(self):
 		for status in ("Submitted", "Revision Pending", "Client Approved", "Not Started"):
 			self.assertEqual(first_submission_date("2026-09-01", status, self.TODAY), "2026-09-01")
+
+
+class TestChangedToPast(unittest.TestCase):
+	"""From the app, ETA / approval dates are today or later when set or changed."""
+
+	TODAY = "2026-10-05"
+
+	def test_a_new_or_changed_past_date_is_caught(self):
+		self.assertTrue(changed_to_past("2026-10-04", None, self.TODAY))
+		self.assertTrue(changed_to_past("2026-09-01", "2026-10-20", self.TODAY))
+
+	def test_today_future_empty_or_unchanged_are_fine(self):
+		self.assertFalse(changed_to_past("2026-10-05", None, self.TODAY))
+		self.assertFalse(changed_to_past("2026-10-20", None, self.TODAY))
+		self.assertFalse(changed_to_past(None, "2026-09-01", self.TODAY))
+		self.assertFalse(changed_to_past("2026-09-01", "2026-09-01", self.TODAY))
+
+	def test_a_saved_date_object_reads_like_the_sent_text(self):
+		from datetime import date
+		self.assertFalse(changed_to_past("2026-09-01", date(2026, 9, 1), self.TODAY))

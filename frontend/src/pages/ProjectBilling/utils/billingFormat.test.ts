@@ -7,6 +7,8 @@ import {
   billDocMode,
   billMissing,
   billRequirements,
+  ALL_BILLS_APPROVED,
+  NO_BILLS_YET,
   billStatusOptions,
   clashingPackage,
   cleanPackageName,
@@ -19,16 +21,20 @@ import {
   inr,
   inrShort,
   managerNames,
-  matchesBillStatus,
+  moneyInputOf,
+  moreOverdue,
   parsePlainAmount,
   poAmount,
   poInputOf,
   progressNote,
   projectDeadline,
   projectStatusTone,
+  projectWiseRows,
   setupSummary,
+  sortPackagesByDeadline,
+  shownBillStatus,
+  visiblePackages,
   skipsSubmitted,
-  sortProjectsByDeadline,
   statusTone,
   trackersAssignedTo,
 } from "./billingFormat";
@@ -309,47 +315,41 @@ describe("project wise: billing-status filter and deadline sort", () => {
     expect(projectDeadline([])).toBeNull();
   });
 
-  it("billing-status options: the bill statuses present, once each, in the standard order", () => {
+  const shown = (status: string | null, bill_count = 1, pkgName = "P") => ({
+    package: pkgName,
+    next_bill: status ? { status } : null,
+    bill_count,
+  });
+
+  it("a package row shows its pending bill's status, else All bills approved / No bills yet", () => {
+    expect(shownBillStatus(shown("Submitted"))).toBe("Submitted");
+    expect(shownBillStatus(shown(null, 3))).toBe(ALL_BILLS_APPROVED);
+    expect(shownBillStatus(shown(null, 0))).toBe(NO_BILLS_YET);
+  });
+
+  it("billing-status options are the statuses the rows show, in the standard order", () => {
     const projects = [
-      { bill_statuses: ["Submitted", "Not Started"] },
-      { bill_statuses: ["NA", "Certification Pending", "Submitted"] },
-      { bill_statuses: [] },
+      { packages: [shown("Submitted"), shown("Not Started")] },
+      { packages: [shown(null, 2), shown("Certification Pending")] },
+      { packages: [shown(null, 0)] },
     ];
-    expect(billStatusOptions(projects)).toEqual(["Not Started", "Submitted", "Certification Pending", "NA"]);
+    expect(billStatusOptions(projects)).toEqual([
+      "Not Started",
+      "Submitted",
+      "Certification Pending",
+      ALL_BILLS_APPROVED,
+      NO_BILLS_YET,
+    ]);
     expect(billStatusOptions([])).toEqual([]);
-    expect(billStatusOptions([{ bill_statuses: ["Zeta Odd", "Prepared"] }])).toEqual(["Prepared", "Zeta Odd"]);
   });
 
-  it("a project matches when any of its bills is in the picked status; no bills match nothing", () => {
-    const p = { bill_statuses: ["Prepared", "Invoice Sent"] };
-    expect(matchesBillStatus(p, "Invoice Sent")).toBe(true);
-    expect(matchesBillStatus(p, "Client Approved")).toBe(false);
-    expect(matchesBillStatus({ bill_statuses: [] }, "Not Started")).toBe(false);
-    expect(matchesBillStatus({ bill_statuses: [] }, ALL_STATUSES)).toBe(true);
-    expect(ALL_STATUSES).toBe("All statuses");
-  });
-
-  const rows = [
-    row("Delta", "WIP", "2026-12-01"),
-    row("Alpha", "WIP", undefined),
-    row("Charlie", "WIP", "2026-10-10", "2026-11-01"),
-    row("Bravo", "WIP", null),
-    row("Echo", "WIP", "2026-10-10"),
-  ];
-  const names = (list: { project: string }[]) => list.map((r) => r.project);
-
-  it("ascending: earliest deadline first, ties A to Z, no deadline last", () => {
-    expect(names(sortProjectsByDeadline(rows, "asc"))).toEqual(["Charlie", "Echo", "Delta", "Alpha", "Bravo"]);
-  });
-
-  it("descending: latest deadline first, ties still A to Z, no deadline still last", () => {
-    expect(names(sortProjectsByDeadline(rows, "desc"))).toEqual(["Delta", "Charlie", "Echo", "Alpha", "Bravo"]);
-  });
-
-  it("does not reorder the list it was given", () => {
-    const copy = [...rows];
-    sortProjectsByDeadline(rows, "asc");
-    expect(rows).toEqual(copy);
+  it("the filter keeps only the package rows showing the status, never on hidden bills", () => {
+    // Shows Prepared and All bills approved; its approved bills are not shown, so Client Approved matches nothing.
+    const pkgs = [shown("Prepared", 1, "HVAC"), shown(null, 4, "Electrical")];
+    expect(visiblePackages(pkgs, "Prepared").map((p) => p.package)).toEqual(["HVAC"]);
+    expect(visiblePackages(pkgs, ALL_BILLS_APPROVED).map((p) => p.package)).toEqual(["Electrical"]);
+    expect(visiblePackages(pkgs, "Client Approved")).toEqual([]);
+    expect(visiblePackages(pkgs, ALL_STATUSES)).toBe(pkgs);
   });
 });
 
@@ -390,7 +390,6 @@ describe("required bill fields (mirrors rules.missing_bill_fields)", () => {
     bill_type: "Supply 1",
     bill_value: "100",
     eta_date: "2026-11-01",
-    hasDocument: false,
     payment_received: "",
     ...over,
   });
@@ -405,31 +404,32 @@ describe("required bill fields (mirrors rules.missing_bill_fields)", () => {
     }
   });
 
-  it("ETA only while pending; the document from Submitted on", () => {
+  it("ETA only while pending; the bill document never", () => {
     expect(billMissing(bill({ eta_date: "" }))).toEqual(["ETA date"]);
-    expect(billMissing(bill({ status: "Client Approved", eta_date: "", hasDocument: true }))).toEqual([]);
+    expect(billMissing(bill({ status: "Client Approved", eta_date: "" }))).toEqual([]);
     expect(billMissing(bill({ status: "Internally Approved" }))).toEqual([]);
-    expect(billMissing(bill({ status: "Submitted" }))).toEqual(["Bill document (a link or an attachment)"]);
+    // The bill document is optional at every status: skipping Submitted only warns (owner, 2026-10-05).
+    expect(billMissing(bill({ status: "Submitted" }))).toEqual([]);
+    expect(billMissing(bill({ status: "Client Approved", eta_date: "" }))).toEqual([]);
   });
 
   it("partial payment needs the amount received", () => {
-    const partial = bill({ status: "Partial Payment Received", eta_date: "", hasDocument: true });
+    const partial = bill({ status: "Partial Payment Received", eta_date: "" });
     expect(billMissing(partial)).toEqual(["Payment received (greater than 0)"]);
     expect(billMissing({ ...partial, payment_received: "500" })).toEqual([]);
-    expect(billMissing(bill({ status: "Payment Received", eta_date: "", hasDocument: true }))).toEqual([]);
+    expect(billMissing(bill({ status: "Payment Received", eta_date: "" }))).toEqual([]);
   });
 
   it("an NA bill needs nothing, by status or by bill type", () => {
     expect(billMissing(bill({ status: "NA", bill_value: "", eta_date: "" }))).toEqual([]);
     expect(billMissing(bill({ bill_type: "NA", bill_value: "", eta_date: "" }))).toEqual([]);
-    expect(billRequirements("NA", "Supply 1")).toEqual({ billValue: false, eta: false, document: false, payment: false });
+    expect(billRequirements("NA", "Supply 1")).toEqual({ billValue: false, eta: false, payment: false });
   });
 
   it("lists everything missing in the server's order", () => {
     expect(billMissing(bill({ status: "Submitted", bill_value: "", eta_date: "" }))).toEqual([
       "Bill value (greater than 0)",
       "ETA date",
-      "Bill document (a link or an attachment)",
     ]);
   });
 });
@@ -450,5 +450,72 @@ describe("skipsSubmitted (only Submitted stamps the first submission date)", () 
 
   it("stays quiet when the status is not being changed", () => {
     expect(skipsSubmitted("Client Approved", "Client Approved", false)).toBe(false);
+  });
+});
+
+describe("Project Wise package row: more overdue", () => {
+  const TODAY = new Date(2026, 9, 5); // 05-Oct-2026
+
+  it("counts only the overdue bills beyond the one the row shows", () => {
+    expect(moreOverdue(3, "2026-10-01", TODAY)).toBe(2);
+    expect(moreOverdue(1, "2026-10-01", TODAY)).toBe(0);
+    expect(moreOverdue(0, "2026-10-20", TODAY)).toBe(0);
+    expect(moreOverdue(undefined, null, TODAY)).toBe(0);
+  });
+});
+
+describe("moneyInputOf (a saved 0 is 'not entered')", () => {
+  it("opens a saved 0 or empty money field as an empty box", () => {
+    expect(moneyInputOf(0)).toBe("");
+    expect(moneyInputOf(null)).toBe("");
+    expect(moneyInputOf(undefined)).toBe("");
+    expect(amountProblem(moneyInputOf(0))).toBe(""); // the bug: a saved 0 used to be flagged on open
+  });
+
+  it("keeps a real amount as typed", () => {
+    expect(moneyInputOf(8000)).toBe("8000");
+    expect(moneyInputOf(1250.5)).toBe("1250.5");
+  });
+});
+
+describe("Project Wise: package-level filter and deadline sort (owner, 2026-10-05)", () => {
+  const pkg = (name: string, status: string | null, eta: string | null = null, bill_count = 1) => ({
+    package: name,
+    next_bill: status ? { status, eta_date: eta } : null,
+    bill_count,
+  });
+  const project = (name: string, packages: ReturnType<typeof pkg>[]) => ({ project: name, project_name: name, packages });
+  const names = (list: { package: string }[]) => list.map((p) => p.package);
+
+  it("sorts package rows by their deadline both ways; none last; ties A to Z", () => {
+    const pkgs = [pkg("HVAC", "Prepared", "2026-10-07"), pkg("FA", null), pkg("Electrical", "Not Started", "2026-10-03"), pkg("CCTV", "Submitted")];
+    expect(names(sortPackagesByDeadline(pkgs, "asc"))).toEqual(["Electrical", "HVAC", "CCTV", "FA"]);
+    expect(names(sortPackagesByDeadline(pkgs, "desc"))).toEqual(["HVAC", "Electrical", "CCTV", "FA"]);
+  });
+
+  // The screenshot: picking Not Started keeps only each project's Not Started package.
+  const rows = [
+    project("CTS Chennai", [pkg("Electrical", "Not Started", "2026-10-07"), pkg("HVAC", "Submission Pending", "2026-10-03")]),
+    project("Nirmaan New Office", [pkg("HVAC", "Prepared", "2026-10-07"), pkg("Electrical", "Not Started", "2026-10-08")]),
+    project("Other", [pkg("PA", "Submitted", "2026-10-01")]),
+  ];
+
+  it("keeps only the matching package rows and drops projects with none", () => {
+    const view = projectWiseRows(rows, "Not Started", "asc");
+    expect(view.map((r) => r.project)).toEqual(["CTS Chennai", "Nirmaan New Office"]);
+    expect(view.map((r) => names(r.packages))).toEqual([["Electrical"], ["Electrical"]]);
+  });
+
+  it("the Deadline sort only reorders packages inside a project, never the projects", () => {
+    for (const dir of ["asc", "desc"] as const) {
+      expect(projectWiseRows(rows, ALL_STATUSES, dir).map((r) => r.project)).toEqual([
+        "CTS Chennai",
+        "Nirmaan New Office",
+        "Other",
+      ]);
+    }
+    expect(names(projectWiseRows(rows, ALL_STATUSES, "asc")[0].packages)).toEqual(["HVAC", "Electrical"]);
+    expect(names(projectWiseRows(rows, ALL_STATUSES, "desc")[0].packages)).toEqual(["Electrical", "HVAC"]);
+    expect(names(projectWiseRows(rows, ALL_STATUSES, "asc")[1].packages)).toEqual(["HVAC", "Electrical"]);
   });
 });

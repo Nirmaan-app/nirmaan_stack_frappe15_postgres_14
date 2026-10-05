@@ -17,15 +17,16 @@ import {
   TONE_CLASSES,
   Tone,
   columnTone,
+  moreOverdue,
   UNASSIGNED,
   assigneeOptions,
   dcFreshness,
   deadlineFilters,
   managerNames,
   billStatusOptions,
-  matchesBillStatus,
+  projectWiseRows,
+  shownBillStatus,
   projectStatusTone,
-  sortProjectsByDeadline,
   statusTone,
   trackersAssignedTo,
 } from "./utils/billingFormat";
@@ -105,30 +106,29 @@ export default function BillingTrackerPage() {
 
 /* ---------------------------------------------------------------- Project Wise */
 
-/** A package's "next bill" line: the pending bill with the earliest ETA, picked by the server. */
+/**
+ * The bill a package row shows: its most urgent pending bill (earliest ETA), picked by the server.
+ * The status text comes from `shownBillStatus`, the same one the billing-status filter matches on.
+ */
 function nextBillOf(pkg: BillingTracker): { billType: string; status: string; tone: Tone; eta: string | null } {
+  const status = shownBillStatus(pkg);
   if (pkg.next_bill) {
-    return {
-      billType: pkg.next_bill.bill_type,
-      status: pkg.next_bill.status,
-      tone: statusTone(pkg.next_bill.status),
-      eta: pkg.next_bill.eta_date,
-    };
+    return { billType: pkg.next_bill.bill_type, status, tone: statusTone(status), eta: pkg.next_bill.eta_date };
   }
-  if (pkg.bill_count > 0) return { billType: "—", status: "All bills approved", tone: "good", eta: null };
-  return { billType: "—", status: "No bills yet", tone: "neutral", eta: null };
+  return { billType: "—", status, tone: pkg.bill_count > 0 ? "good" : "neutral", eta: null };
 }
 
 /** PO value, approved/awaiting bar and legend; the bar measures against the PO once one is entered. */
 function PoProgress({ po, approved, billed, thin }: { po: number; approved: number; billed: number; thin?: boolean }) {
+  // Capped so the bar does not stretch across a wide column (owner, 2026-10-05).
   return (
-    <>
+    <div className="max-w-[260px]">
       <div className={cn("font-bold text-gray-900", thin ? "mb-1 text-[13px]" : "mb-1.5 text-sm")}>
         {po > 0 ? <Money value={po} /> : "—"}
       </div>
       <ApprovalBar approved={approved} billed={billed} total={po > 0 ? po : billed} />
       <ApprovalLegend approved={approved} billed={billed} />
-    </>
+    </div>
   );
 }
 
@@ -140,14 +140,14 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const statusOptions = useMemo(() => billStatusOptions(rows || []), [rows]);
+  // Search, then the billing-status filter and the Deadline sort on what each row shows: a project
+  // keeps only its matching package rows (owner, 2026-10-05).
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const matching = (rows || []).filter(
-      (r) =>
-        matchesBillStatus(r, status) &&
-        (!q || `${r.project_name} ${r.project} ${r.managers.join(" ")}`.toLowerCase().includes(q)),
+    const searched = (rows || []).filter(
+      (r) => !q || `${r.project_name} ${r.project} ${r.managers.join(" ")}`.toLowerCase().includes(q),
     );
-    return sortProjectsByDeadline(matching, sortDir);
+    return projectWiseRows(searched, status, sortDir);
   }, [rows, search, status, sortDir]);
 
   if (!rows) return <TableSkeleton />;
@@ -167,7 +167,13 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
         <span className="text-sm text-muted-foreground">
           {visible.length} of {rows.length} projects
         </span>
-        <Select value={status} onValueChange={setStatus}>
+        <Select
+          value={status}
+          onValueChange={(v) => {
+            setStatus(v);
+            setExpanded({}); // a picked status opens the projects it matches; see `open` below
+          }}
+        >
           <SelectTrigger className="h-10 w-auto min-w-[180px] gap-2 bg-white font-semibold" aria-label="Billing status">
             <Filter className="h-4 w-4 text-gray-600" />
             <SelectValue />
@@ -192,8 +198,8 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
           onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
           title={
             sortDir === "asc"
-              ? "Earliest deadline first. Click for the latest first."
-              : "Latest deadline first. Click for the earliest first."
+              ? "Packages in each project: earliest deadline first. Click for the latest first."
+              : "Packages in each project: latest deadline first. Click for the earliest first."
           }
         >
           Deadline
@@ -218,7 +224,8 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
               </tr>
             </thead>
             {visible.map((row) => {
-              const open = !!expanded[row.project];
+              // Opened or closed by hand wins; otherwise a picked status opens the project.
+              const open = expanded[row.project] ?? status !== ALL_STATUSES;
               const notes = row.packages.filter((p) => p.remarks?.trim());
               return (
                 <tbody key={row.project}>
@@ -274,26 +281,36 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
                   {open &&
                     row.packages.map((pkg) => {
                       const next = nextBillOf(pkg);
+                      // Only a pending bill has a deadline; "All bills approved" / "No bills yet" show none.
+                      const extraOverdue = moreOverdue(pkg.overdue_count, next.eta);
                       return (
-                        <tr key={pkg.name} className="border-b border-gray-100 bg-gray-50/60">
-                          <td colSpan={5} className="p-0">
-                            {/* One line on wide screens (fixed columns, aligned across packages); wraps below xl. */}
-                            <div className="flex flex-wrap items-start gap-x-4 gap-y-2 py-2.5 pl-12 pr-4 xl:grid xl:grid-cols-[14px_110px_130px_120px_170px_minmax(0,1fr)_240px] xl:gap-x-3">
+                        // Aligned with the project row: progress sits under PROJECT TOTAL, and the package's bill
+                        // takes the last two columns, SUPPLY DC and BILLS (owner, 2026-10-05).
+                        <tr key={pkg.name} className="border-b border-gray-100 bg-gray-50/60 align-top">
+                          <td className="py-2.5 pl-8 pr-3 xl:pr-4">
+                            <div className="flex items-start gap-2">
                               <span
                                 aria-hidden
                                 className="mt-1.5 h-[9px] w-3.5 shrink-0 border-b-[1.5px] border-l-[1.5px] border-gray-300"
                               />
-                              <div className="min-w-[110px]">
-                                <PackageChip label={pkg.package} />
-                              </div>
-                              <div className="min-w-[120px] pt-0.5 text-xs text-muted-foreground">
-                                {managerNames(pkg.billing_managers).join(", ") || "Unassigned"}
-                              </div>
-                              <div className="flex min-w-[110px] items-baseline gap-1.5 pt-0.5">
-                                <span className="text-[11px] text-gray-400">Next bill</span>
+                              <PackageChip label={pkg.package} />
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 pt-3 text-xs text-muted-foreground xl:px-4">
+                            {managerNames(pkg.billing_managers).join(", ") || "Unassigned"}
+                          </td>
+                          <td className="px-3 py-2.5 xl:px-4">
+                            <PoProgress po={pkg.po_value} approved={pkg.approved} billed={pkg.billed} thin />
+                          </td>
+                          <td colSpan={2} className="border-l border-gray-200 px-3 py-2.5 xl:px-4">
+                            {/* One line, as in the mockup: Latest Bill · status · Deadline date (tag under it). Fixed-width columns
+                                on wide screens, so each part lines up down the package rows; wraps below xl. */}
+                            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 whitespace-nowrap xl:grid xl:grid-cols-[150px_175px_190px] xl:justify-end">
+                              <span className="flex items-baseline gap-1.5">
+                                <span className="text-[11px] text-gray-400">Latest Bill</span>
                                 <span className="text-[13px] font-semibold text-gray-700">{next.billType}</span>
-                              </div>
-                              <div className="min-w-[150px]">
+                              </span>
+                              <span>
                                 <span
                                   className={cn(
                                     "inline-block rounded-[5px] border px-2 py-0.5 text-[11px] font-semibold",
@@ -302,14 +319,19 @@ function ProjectWiseView({ rows }: { rows?: BillingProjectRow[] }) {
                                 >
                                   {next.status}
                                 </span>
-                              </div>
-                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="text-[11px] text-gray-400">Deadline</span>
-                                <EtaCell eta={next.eta} className="flex-wrap gap-y-1" />
-                              </div>
-                              <div className="ml-auto w-[240px] max-w-full xl:ml-0 xl:w-auto">
-                                <PoProgress po={pkg.po_value} approved={pkg.approved} billed={pkg.billed} thin />
-                              </div>
+                              </span>
+                              <span className="flex flex-col gap-1">
+                                {pkg.next_bill && (
+                                  <span className="flex items-start gap-1.5">
+                                    <span className="pt-0.5 text-[11px] text-gray-400">Deadline</span>
+                                    {/* The tag (2d overdue, In 4d…) sits under the date, as in the bills table. */}
+                                    <EtaCell eta={next.eta} stacked />
+                                  </span>
+                                )}
+                                {extraOverdue > 0 && (
+                                  <span className="text-[11px] font-semibold text-red-700">+{extraOverdue} more overdue</span>
+                                )}
+                              </span>
                             </div>
                           </td>
                         </tr>

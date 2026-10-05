@@ -69,9 +69,31 @@ export function PersonChips({ names, className }: { names: string[]; className?:
 }
 
 /** ETA date plus an "overdue / today / in Nd" tag. */
-export function EtaCell({ eta, done, className }: { eta?: string | null; done?: boolean; className?: string }) {
+/**
+ * An ETA date with its "Today / In 3d / 2d overdue" tag. `stacked` puts a smaller tag under the date
+ * (the bills table, owner 2026-10-05); otherwise it sits beside the date (Project Wise rows).
+ */
+export function EtaCell({
+  eta,
+  done,
+  stacked,
+  className,
+}: {
+  eta?: string | null;
+  done?: boolean;
+  stacked?: boolean;
+  className?: string;
+}) {
   if (!eta) return <span className="text-sm text-muted-foreground">Not set</span>;
   const tag = done ? null : etaTag(eta);
+  if (stacked) {
+    return (
+      <div className={cn("flex flex-col items-start gap-1 whitespace-nowrap", className)}>
+        <span className="text-sm">{formatDate(eta)}</span>
+        {tag && <ToneTag label={tag.label} tone={tag.tone} className="px-1.5 py-0 text-[10px] leading-4" />}
+      </div>
+    );
+  }
   return (
     <div className={cn("flex items-center gap-2 whitespace-nowrap", className)}>
       <span className="text-sm">{formatDate(eta)}</span>

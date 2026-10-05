@@ -146,7 +146,7 @@ export function buildBillColumns(o: BillColumnOptions): ColumnDef<BillDoc>[] {
           }
         />
       ),
-      cell: ({ row }) => <EtaCell eta={row.original.eta_date} done={!isPending(row.original.status)} />,
+      cell: ({ row }) => <EtaCell eta={row.original.eta_date} done={!isPending(row.original.status)} stacked />,
       size: 170,
       meta: {
         exportHeaderName: "ETA Date",

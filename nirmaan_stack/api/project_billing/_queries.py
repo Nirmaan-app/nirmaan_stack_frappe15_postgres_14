@@ -135,6 +135,23 @@ def next_bills_by_tracker(trackers: list[str]) -> dict[str, dict]:
 	return {tracker: next_bill(bills) for tracker, bills in grouped.items()}
 
 
+def overdue_counts_by_tracker(trackers: list[str]) -> dict[str, int]:
+	"""Each tracker's overdue bills: pending (not approved yet) with an ETA before today."""
+	if not trackers:
+		return {}
+	return dict(
+		frappe.db.sql(
+			"""
+			SELECT billing_tracker, COUNT(*)
+			FROM "tabProject Billing"
+			WHERE billing_tracker IN %(trackers)s AND status IN %(pending)s AND eta_date < %(today)s
+			GROUP BY billing_tracker
+			""",
+			{"trackers": tuple(trackers), "pending": tuple(PENDING_STATUSES), "today": frappe.utils.today()},
+		)
+	)
+
+
 def empty_totals() -> dict:
 	return {
 		"bill_count": 0,

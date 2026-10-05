@@ -5,6 +5,8 @@ import json
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.project_billing.rules import changed_to_past
+
 # Fields a user may set from the bill drawer. Project and package are copied
 # from the tracker and first_submission_date is stamped by the doctype.
 EDITABLE_FIELDS = (
@@ -29,6 +31,17 @@ def save_bill(bill) -> dict:
 	values = {k: (bill.get(k) if bill.get(k) != "" else None) for k in EDITABLE_FIELDS if k in bill}
 	if "invoice_requested" in bill:
 		values["invoice_requested"] = 1 if bill.get("invoice_requested") else 0
+
+	# From the app, ETA and approval dates are today or later when set or changed (owner,
+	# 2026-10-03). Checked here, not in the doctype, so Desk can still set any date (owner, 2026-10-05).
+	saved = (
+		frappe.db.get_value("Project Billing", bill["name"], ["eta_date", "approval_date"], as_dict=True)
+		if bill.get("name")
+		else None
+	)
+	for field, label in (("eta_date", _("ETA date")), ("approval_date", _("Approval date"))):
+		if field in values and changed_to_past(values[field], (saved or {}).get(field), frappe.utils.today()):
+			frappe.throw(_("{0} cannot be before today.").format(label))
 
 	if bill.get("name"):
 		doc = frappe.get_doc("Project Billing", bill["name"])

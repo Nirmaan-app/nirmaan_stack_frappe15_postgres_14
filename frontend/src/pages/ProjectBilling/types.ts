@@ -36,6 +36,8 @@ export interface BillingTracker extends BillingTotals {
   dc_updated_on: string | null;
   remarks?: string | null;
   next_bill?: NextBill | null;
+  /** Pending bills past their ETA; sent with Project Wise package rows only. */
+  overdue_count?: number;
 }
 
 export interface Bill {
@@ -70,8 +72,6 @@ export interface BillingProjectRow extends BillingTotals {
   project_name: string;
   /** Projects.status: WIP, Handover, Completed, … */
   status: string | null;
-  /** The distinct statuses of the project's bills (NA included); drives the billing-status filter. */
-  bill_statuses: string[];
   managers: string[];
   packages: BillingTracker[];
   supply_dc: number;

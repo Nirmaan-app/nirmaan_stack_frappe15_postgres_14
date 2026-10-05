@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useFrappeFileUpload } from "frappe-react-sdk";
-import { ExternalLink, FileText, Link2, Lock, Pencil, X } from "lucide-react";
+import { ExternalLink, FileText, Info, Link2, Lock, Pencil, X } from "lucide-react";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
   inr,
   isoDate,
   managerNames,
+  moneyInputOf,
 } from "../utils/billingFormat";
 import { PersonChips } from "./BillingBits";
 
@@ -49,9 +50,8 @@ function draftFrom(bill: BillDoc | null | undefined, defaultTracker?: string): B
     billing_tracker: bill?.billing_tracker || defaultTracker || "",
     bill_type: bill?.bill_type || "",
     status: bill?.status || "Not Started",
-    bill_value: bill?.bill_value === null || bill?.bill_value === undefined ? "" : String(bill.bill_value),
-    payment_received:
-      bill?.payment_received === null || bill?.payment_received === undefined ? "" : String(bill.payment_received),
+    bill_value: moneyInputOf(bill?.bill_value),
+    payment_received: moneyInputOf(bill?.payment_received),
     invoice_requested: !!bill?.invoice_requested,
     eta_date: bill?.eta_date || "",
     approval_date: bill?.approval_date || "",
@@ -137,8 +137,7 @@ export function BillDrawer({
 
   // What this bill's status makes required (owner, 2026-10-05); the server checks the same list.
   const required = billRequirements(draft.status, draft.bill_type);
-  const hasDocument = docMode === "link" ? !!draft.bill_document_link.trim() : !!(draft.bill_attachment || newFile);
-  const gaps = billMissingFields({ ...draft, hasDocument });
+  const gaps = billMissingFields(draft);
 
   // Save stays clickable (owner, 2026-10-05): a click with something missing flags those fields
   // instead of saving. A wrong value (a past date, "2.5L", 0) is flagged as soon as it is typed.
@@ -149,7 +148,6 @@ export function BillDrawer({
     eta: pastDate("eta_date") ? "Pick today or a later date" : triedSave && gaps.eta ? "Pick an ETA date" : "",
     approval: pastDate("approval_date") ? "Pick today or a later date" : "",
     payment: paymentProblem || (triedSave && gaps.payment ? "Enter the amount received, greater than 0" : ""),
-    document: triedSave && gaps.document ? "Add the bill document: a link or an attachment" : "",
   };
   const blocked =
     !draft.billing_tracker ||
@@ -311,7 +309,12 @@ export function BillDrawer({
                   </SelectContent>
                 </Select>
                 {skipsSubmitted(draft.status, bill?.status, !!bill?.first_submission_date) && (
-                  <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                  // Information, not an error: the bill still saves (owner, 2026-10-05).
+                  <p
+                    role="note"
+                    className="mt-1.5 flex items-start gap-1.5 rounded-md border border-yellow-200 bg-yellow-50 px-2 py-1.5 text-[11px] text-yellow-800"
+                  >
+                    <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
                     You're skipping the Submitted status, so the first submission date will stay empty.
                   </p>
                 )}
@@ -384,7 +387,7 @@ export function BillDrawer({
 
             <div>
               <Label className="text-xs">
-                Bill document{required.document && <RequiredMark />}
+                Bill document
               </Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">Add it as a link or an attachment. Pick one:</p>
               {/* Two options, one at a time, drawn as radio choices so both read as options (owner, 2026-10-05). */}
@@ -433,8 +436,6 @@ export function BillDrawer({
                     type="url"
                     aria-label="Bill document link"
                     placeholder="Paste the link to the bill document"
-                    className={cn(fieldError.document && INVALID)}
-                    aria-invalid={!!fieldError.document}
                     value={draft.bill_document_link}
                     onChange={(e) => set("bill_document_link", e.target.value)}
                   />
@@ -479,8 +480,6 @@ export function BillDrawer({
                   onError={(err) => toast({ title: "Can't use this file", description: err.message, variant: "destructive" })}
                 />
               )}
-
-              <FieldError message={fieldError.document} />
 
               {otherWillBeCleared && (
                 <p className="mt-1.5 text-[11px] text-amber-700">

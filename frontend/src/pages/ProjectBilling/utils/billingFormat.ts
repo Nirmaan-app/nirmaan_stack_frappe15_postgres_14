@@ -83,6 +83,15 @@ function dayDiff(iso: string, today: Date): number {
 }
 
 /** Tag beside an ETA: "3d overdue", "Today", "Tomorrow", "In 5d", or null. */
+/**
+ * A package's overdue bills beyond the one its row shows ("+2 more overdue"). The row shows the
+ * earliest ETA, so when anything is overdue the shown bill is one of them.
+ */
+export function moreOverdue(overdueCount: number | undefined, shownEta?: string | null, today: Date = new Date()): number {
+  const shownIsOverdue = !!shownEta && dayDiff(shownEta, today) < 0;
+  return Math.max((overdueCount ?? 0) - (shownIsOverdue ? 1 : 0), 0);
+}
+
 export function etaTag(iso?: string | null, today: Date = new Date()): { label: string; tone: Tone } | null {
   if (!iso) return null;
   const diff = dayDiff(iso, today);
@@ -196,14 +205,14 @@ export type DcEntryMode = "add" | "correct";
 
 /**
  * Which bill fields the bill's status makes required (owner, 2026-10-05). An NA bill (NA status or
- * NA bill type) needs none. Mirrors `rules.missing_bill_fields`, which the server applies on save.
+ * NA bill type) needs none; the bill document is optional at every status. Mirrors
+ * `rules.missing_bill_fields`, which the server applies on save.
  */
 export function billRequirements(status: string, billType: string) {
   const na = status === NA_STATUS || billType === NA_STATUS;
   return {
     billValue: !na,
     eta: !na && PENDING_STATUSES.includes(status),
-    document: !na && SUBMITTED_OR_LATER.includes(status),
     payment: !na && status === "Partial Payment Received",
   };
 }
@@ -227,7 +236,6 @@ export interface BillForCheck {
   bill_type: string;
   bill_value: string;
   eta_date: string;
-  hasDocument: boolean;
   payment_received: string;
 }
 
@@ -238,7 +246,6 @@ export function billMissingFields(bill: BillForCheck) {
   return {
     billValue: need.billValue && !positive(bill.bill_value),
     eta: need.eta && !bill.eta_date,
-    document: need.document && !bill.hasDocument,
     payment: need.payment && !positive(bill.payment_received),
   };
 }
@@ -249,9 +256,16 @@ export function billMissing(bill: BillForCheck): string[] {
   return [
     gaps.billValue ? "Bill value (greater than 0)" : "",
     gaps.eta ? "ETA date" : "",
-    gaps.document ? "Bill document (a link or an attachment)" : "",
     gaps.payment ? "Payment received (greater than 0)" : "",
   ].filter(Boolean);
+}
+
+/**
+ * A saved money field as the drawer's box shows it. The server stores an empty Currency field as 0,
+ * so 0 means "not entered" and opens as an empty box, never as a "0" the box would then refuse.
+ */
+export function moneyInputOf(value?: number | null): string {
+  return value ? String(value) : "";
 }
 
 /**
@@ -381,42 +395,72 @@ export function projectDeadline(packages: { next_bill?: { eta_date?: string | nu
 /** The Project Wise billing-status filter's "no filter" choice. */
 export const ALL_STATUSES = "All statuses";
 
-/**
- * Project Wise billing-status filter options: every bill status some project's bills are in, in the
- * standard status order (Not Started → … → NA). A status outside that list goes last, A to Z.
- */
-export function billStatusOptions(rows: { bill_statuses: string[] }[]): string[] {
-  const present = new Set(rows.flatMap((r) => r.bill_statuses));
-  const known = BILL_STATUSES.filter((s) => present.has(s));
-  const other = [...present].filter((s) => !(BILL_STATUSES as readonly string[]).includes(s)).sort();
-  return [...known, ...other];
+export const ALL_BILLS_APPROVED = "All bills approved";
+export const NO_BILLS_YET = "No bills yet";
+
+interface PackageRowLike {
+  package: string;
+  next_bill?: { status: string; eta_date?: string | null } | null;
+  bill_count: number;
 }
 
-/** A project matches the billing-status filter when any of its bills is in that status. */
-export function matchesBillStatus(row: { bill_statuses: string[] }, status: string): boolean {
-  return status === ALL_STATUSES || row.bill_statuses.includes(status);
+/**
+ * The status a Project Wise package row shows: its most urgent pending bill's status, else
+ * "All bills approved" (it has bills, none pending) or "No bills yet". NA bills are not counted.
+ */
+export function shownBillStatus(pkg: PackageRowLike): string {
+  if (pkg.next_bill) return pkg.next_bill.status;
+  return pkg.bill_count > 0 ? ALL_BILLS_APPROVED : NO_BILLS_YET;
+}
+
+/**
+ * Project Wise billing-status filter options: the statuses the package rows actually show (owner,
+ * 2026-10-05: the filter works on what is on screen, not on bills it does not show), in the standard
+ * status order, then "All bills approved" and "No bills yet".
+ */
+export function billStatusOptions(rows: { packages: PackageRowLike[] }[]): string[] {
+  const shown = new Set(rows.flatMap((r) => r.packages.map(shownBillStatus)));
+  const order = [...BILL_STATUSES, ALL_BILLS_APPROVED, NO_BILLS_YET];
+  return [...order.filter((s) => shown.has(s)), ...[...shown].filter((s) => !order.includes(s)).sort()];
+}
+
+/** The package rows that show the picked billing status (all of them for "All statuses"). */
+export function visiblePackages<P extends PackageRowLike>(packages: P[], status: string): P[] {
+  return status === ALL_STATUSES ? packages : packages.filter((p) => shownBillStatus(p) === status);
+}
+
+/**
+ * Package rows by the deadline they show (their pending bill's ETA), "asc" = earliest first. A row with
+ * no deadline (no pending bill, or no ETA) always comes last; ties go A to Z by package.
+ */
+export function sortPackagesByDeadline<P extends PackageRowLike>(packages: P[], dir: SortDir): P[] {
+  return [...packages].sort((a, b) => {
+    const da = a.next_bill?.eta_date || null;
+    const db = b.next_bill?.eta_date || null;
+    if (da !== db) {
+      if (!da) return 1;
+      if (!db) return -1;
+      const earlier = da < db ? -1 : 1;
+      return dir === "asc" ? earlier : -earlier;
+    }
+    return a.package.localeCompare(b.package);
+  });
+}
+
+/**
+ * What Project Wise shows (owner, 2026-10-05): each project keeps only the package rows showing the
+ * picked billing status, sorted by deadline within the project; a project with none left drops out.
+ * Projects keep the order they come in (A to Z): the Deadline sort never moves a project. The
+ * project's own totals stay as they are.
+ */
+export function projectWiseRows<R extends { project: string; project_name: string; packages: PackageRowLike[] }>(
+  rows: R[],
+  status: string,
+  dir: SortDir,
+): R[] {
+  return rows
+    .map((r) => ({ ...r, packages: sortPackagesByDeadline(visiblePackages(r.packages, status), dir) }))
+    .filter((r) => status === ALL_STATUSES || r.packages.length > 0);
 }
 
 export type SortDir = "asc" | "desc";
-
-/**
- * Project Wise order: by deadline (`projectDeadline`), "asc" = earliest first. A project with no
- * deadline always comes last, whichever way; ties go A to Z by project name.
- */
-export function sortProjectsByDeadline<
-  T extends { project: string; project_name: string; packages: { next_bill?: { eta_date?: string | null } | null }[] },
->(rows: T[], dir: SortDir): T[] {
-  const name = (r: T) => r.project_name || r.project;
-  return rows
-    .map((row) => ({ row, deadline: projectDeadline(row.packages) }))
-    .sort((a, b) => {
-      if (a.deadline !== b.deadline) {
-        if (!a.deadline) return 1;
-        if (!b.deadline) return -1;
-        const earlier = a.deadline < b.deadline ? -1 : 1;
-        return dir === "asc" ? earlier : -earlier;
-      }
-      return name(a.row).localeCompare(name(b.row));
-    })
-    .map(({ row }) => row);
-}

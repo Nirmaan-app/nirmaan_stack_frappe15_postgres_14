@@ -31,8 +31,8 @@ NA_STATUS = "NA"
 # The one status that stamps a bill's first submission date (owner, 2026-10-05).
 SUBMITTED_STATUS = "Submitted"
 
-# Statuses that mean the bill has gone to the client at least once; from these on the
-# bill document is required (decision 24).
+# Statuses that mean the bill has gone to the client at least once. The drawer warns when a
+# bill jumps into one of these without ever being Submitted (decision 25).
 SUBMITTED_OR_LATER = frozenset({
 	"Submitted",
 	"Client Hold",
@@ -49,6 +49,16 @@ def first_submission_date(current, status, today):
 	if current:
 		return current
 	return today if status == SUBMITTED_STATUS else None
+
+
+def changed_to_past(new, old, today):
+	"""Is a date being set or changed to a day before `today`? (owner, 2026-10-03)
+
+	A date left as it was saved, even a past one, is fine. Dates compare as ISO "YYYY-MM-DD"
+	text, so a saved `date` and a sent string read the same.
+	"""
+	new = str(new or "")[:10]
+	return bool(new) and new != str(old or "")[:10] and new < str(today)[:10]
 
 
 def counts_in_totals(status):
@@ -153,12 +163,12 @@ def format_inr(amount):
 	return f"{'-' if n < 0 else ''}₹{digits}"
 
 
-def missing_bill_fields(status, bill_type, bill_value, eta_date, has_document, payment_received):
+def missing_bill_fields(status, bill_type, bill_value, eta_date, payment_received):
 	"""What a bill still lacks for its status, as labels; [] when it can be saved (owner, 2026-10-05).
 
 	An NA bill (NA status or NA bill type) needs nothing more. Every other bill needs a bill value
-	greater than 0; an ETA date while it is pending; the bill document (a link or an attachment)
-	from Submitted on; and the amount received, greater than 0, when it is Partial Payment Received.
+	greater than 0; an ETA date while it is pending; and the amount received, greater than 0, when it
+	is Partial Payment Received. The bill document is optional at every status (owner, 2026-10-05).
 	"""
 	if status == NA_STATUS or bill_type == NA_STATUS:
 		return []
@@ -167,8 +177,6 @@ def missing_bill_fields(status, bill_type, bill_value, eta_date, has_document, p
 		missing.append("Bill value (greater than 0)")
 	if status in PENDING_STATUSES and not eta_date:
 		missing.append("ETA date")
-	if status in SUBMITTED_OR_LATER and not has_document:
-		missing.append("Bill document (a link or an attachment)")
 	if status == "Partial Payment Received" and not float(payment_received or 0) > 0:
 		missing.append("Payment received (greater than 0)")
 	return missing

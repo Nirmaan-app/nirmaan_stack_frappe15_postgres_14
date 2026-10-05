@@ -10,6 +10,7 @@ from nirmaan_stack.api.project_billing._queries import (
 	bill_totals,
 	managed_by,
 	next_bills_by_tracker,
+	overdue_counts_by_tracker,
 	require_billing_access,
 	stamp_can_edit_bills,
 	status_params,
@@ -53,11 +54,8 @@ def get_billing_projects() -> dict:
 	trackers = _trackers()
 	per_tracker = {row.key: row for row in bill_totals("billing_tracker")}
 	next_bills = next_bills_by_tracker([t.name for t in trackers])
-	# Each project's distinct bill statuses, for the Project Wise billing-status filter
-	# (a project matches when any of its bills is in the picked status).
-	bill_statuses = dict(
-		frappe.db.sql('SELECT project, ARRAY_AGG(DISTINCT status) FROM "tabProject Billing" GROUP BY project')
-	)
+	# Overdue bills per package, so a row can say "+N more overdue" beside the one it shows.
+	overdue = overdue_counts_by_tracker([t.name for t in trackers])
 
 	projects: dict[str, dict] = {}
 	for t in trackers:
@@ -69,7 +67,6 @@ def get_billing_projects() -> dict:
 				"status": t.project_status,
 				"managers": [],
 				"packages": [],
-				"bill_statuses": bill_statuses.get(t.project) or [],
 				"supply_dc": 0,
 				"po_value": 0,
 				**totals_of(None),
@@ -83,7 +80,9 @@ def get_billing_projects() -> dict:
 		for manager in [m["full_name"] for m in t.billing_managers] or [UNASSIGNED]:
 			if manager not in project["managers"]:
 				project["managers"].append(manager)
-		project["packages"].append(dict(t, **totals, next_bill=next_bills.get(t.name)))
+		project["packages"].append(
+			dict(t, **totals, next_bill=next_bills.get(t.name), overdue_count=overdue.get(t.name, 0))
+		)
 
 	rows = list(projects.values())
 	header = totals_of(None)
