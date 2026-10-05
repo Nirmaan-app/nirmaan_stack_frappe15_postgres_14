@@ -143,3 +143,15 @@ export interface BillDoc {
   bill_document_link: string | null;
   bill_attachment: string | null;
 }
+
+/** One row of the Billing Packages tab (Admin Options → Packages Settings). */
+export interface BillingPackageRow {
+  name: string;
+  creation: string;
+}
+
+export interface BillingPackagesResponse {
+  packages: BillingPackageRow[];
+  /** Admin / Billing Lead: may add, rename and delete. */
+  can_edit: boolean;
+}

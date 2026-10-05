@@ -383,6 +383,7 @@ doc_events = {
     },
     "Project Billing Packages": {
         "validate": "nirmaan_stack.integrations.controllers.project_billing.package_validate",
+        "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
         "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
     },
     "PO Delivery Documents": {

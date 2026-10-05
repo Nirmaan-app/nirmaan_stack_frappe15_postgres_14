@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { BILLING_API, billingKeys } from "../billing.constants";
 import { BILLING_PROFILES } from "@/constants/roles";
 import type {
+  BillingPackagesResponse,
   BillingProjectsResponse,
   ManagerSummaryResponse,
   MyBillsResponse,
@@ -36,11 +37,19 @@ export const useMyBills = () =>
 
 /** The billing package master list (Electrical, HVAC, …). */
 export const useBillingPackages = () =>
-  useFrappeGetDocList<{ name: string }>("Project Billing Packages", {
-    fields: ["name"],
-    orderBy: { field: "creation", order: "asc" },
-    limit: 0,
-  });
+  useFrappeGetDocList<{ name: string }>(
+    "Project Billing Packages",
+    {
+      fields: ["name"],
+      orderBy: { field: "creation", order: "asc" },
+      limit: 0,
+    },
+    billingKeys.packages(),
+  );
+
+/** The Billing Packages tab: every package, and whether this user may edit them. */
+export const useBillingPackageList = () =>
+  useFrappeGetCall<{ message: BillingPackagesResponse }>(BILLING_API.packageList, {}, billingKeys.packageList());
 
 /** Users who can be a package's billing manager. */
 export const useBillingManagers = () =>
@@ -66,6 +75,9 @@ export const useBillingMutations = () => {
   const { call: saveCall, loading: saveLoading } = useFrappePostCall(BILLING_API.saveBill);
   const { call: deleteCall, loading: deleteLoading } = useFrappePostCall(BILLING_API.deleteBill);
   const { call: dcCall, loading: dcLoading } = useFrappePostCall(BILLING_API.addDc);
+  const { call: addPackageCall, loading: addPackageLoading } = useFrappePostCall(BILLING_API.addPackage);
+  const { call: deletePackageCall, loading: deletePackageLoading } = useFrappePostCall(BILLING_API.deletePackage);
+  const { call: renamePackageCall, loading: renamePackageLoading } = useFrappePostCall(BILLING_API.renamePackage);
 
   const after = useCallback(
     async <T,>(p: Promise<T>) => {
@@ -85,6 +97,16 @@ export const useBillingMutations = () => {
     saveBill: (bill: Record<string, unknown>) => after(saveCall({ bill: JSON.stringify(bill) })),
     deleteBill: (name: string) => after(deleteCall({ name })),
     addDcEntry: (tracker: string, amount: number, dc_date?: string) => after(dcCall({ tracker, amount, dc_date })),
-    loading: setupLoading || saveLoading || deleteLoading || dcLoading,
+    addPackage: (package_name: string) => after(addPackageCall({ package_name })),
+    deletePackage: (name: string) => after(deletePackageCall({ name })),
+    renamePackage: (name: string, new_name: string) => after(renamePackageCall({ name, new_name })),
+    loading:
+      setupLoading ||
+      saveLoading ||
+      deleteLoading ||
+      dcLoading ||
+      addPackageLoading ||
+      deletePackageLoading ||
+      renamePackageLoading,
   };
 };

@@ -13,6 +13,7 @@ from nirmaan_stack.services.project_billing.rules import (
 	SUBMITTED_OR_LATER,
 	SUMMARY_COLUMNS,
 	can_edit_package_bills,
+	clean_package_name,
 	counts_in_totals,
 	deadline_window,
 	next_bill,
@@ -151,3 +152,10 @@ class TestPackageBillsEditor(unittest.TestCase):
 		self.assertFalse(can_edit_package_bills("pmo@x", ["monish@x"], False))
 		self.assertFalse(can_edit_package_bills("pmo@x", [], False))
 		self.assertFalse(can_edit_package_bills("pmo@x", None, False))
+
+
+class TestBillingPackages(unittest.TestCase):
+	def test_name_is_trimmed_and_inner_spaces_collapsed(self):
+		self.assertEqual(clean_package_name("  Fire   Alarm "), "Fire Alarm")
+		self.assertEqual(clean_package_name(None), "")
+		self.assertEqual(clean_package_name("   "), "")

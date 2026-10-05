@@ -55,9 +55,17 @@ export const BILLING_API = {
   projects: "nirmaan_stack.api.project_billing.tracker.get_billing_projects",
   managerSummary: "nirmaan_stack.api.project_billing.tracker.get_manager_summary",
   myBills: "nirmaan_stack.api.project_billing.tracker.get_my_bills",
+  packageList: "nirmaan_stack.api.project_billing.packages.get_billing_packages",
+  addPackage: "nirmaan_stack.api.project_billing.packages.add_billing_package",
+  renamePackage: "nirmaan_stack.api.project_billing.packages.rename_billing_package",
+  deletePackage: "nirmaan_stack.api.project_billing.packages.delete_billing_package",
 } as const;
 
 export const billingKeys = {
+  /** The package picker's list; refreshed with every other billing read after a write. */
+  packages: () => "project-billing:packages",
+  /** The Billing Packages tab (Admin Options → Packages Settings). */
+  packageList: () => "project-billing:package-list",
   project: (project: string) => `project-billing:${project}`,
   projects: () => "project-billing:projects",
   managerSummary: (deadline?: string) => `project-billing:manager-summary:${deadline || "all"}`,

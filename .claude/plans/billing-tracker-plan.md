@@ -36,7 +36,7 @@ Project Billing Packages (master list)              Projects
 |---|---|---|
 | package_name | Data, required, unique | also the record name |
 
-Seeded with the 9 names by an idempotent patch (inserts only the missing ones).
+The 9 names ship as a fixture, `fixtures/project_billing_packages.json` (decision 15).
 
 ### Project Billing Tracker — one per project + package
 
@@ -179,10 +179,11 @@ Owner of these rules: `nirmaan_stack/services/project_billing/rules.py` (pure mo
 | 12 | Add Bill drawer | **Project automatic and fixed; package only from those set up for the project.** |
 | 13 | `billing_manager` + `remarks` on the tracker? | **Keep both.** The single manager became several in decision 17. |
 | 14 | Project Lead / Accountant / Accountant Lead read access? | **Removed.** Only Admin, PMO and Billing users see billing, read included. |
-| 15 | How are the 9 packages created? | **Fixture** (`fixtures/project_billing_packages.json`), no patch. |
+| 15 | How are the 9 packages created? | **Fixture** (`fixtures/project_billing_packages.json`), no patch (owner, 2026-10-03; kept 2026-10-05 when a one-time seed patch was offered). |
 | 16 | A 0 typed in the Supply DC box? | **Not saved** (owner, 2026-10-03). The **"No delivery today"** button is the one way to log a zero day: it saves a ₹0 DC log row dated today, so the package counts as updated today (owner, 2026-10-03, after briefly hiding it; no extra field). In Correct total, a total equal to the current one is refused too; a real correction down to 0 still saves, as a minus entry. Screen rule only (`dcEntryPlan`): the server still accepts an amount of 0. |
 | 17 | Several billing managers per package? | **Yes** (owner, 2026-10-03). New child table `Project Billing Manager`, shown on the tracker as `billing_managers`; it replaces the single `billing_manager` field. My Bills and the Bill Wise manager filter match anyone among the managers. The Bill Wise manager grid counts a package's bills under each of its managers, so its rows can add up to more than the overall total. No patch: nothing was live, and the old column is left in the database unread. |
 | 18 | Who may add / edit bills and log Supply DC? | **Admin for every package; everyone else only for packages where they are one of the billing managers** (owner, 2026-10-03; narrows decision 4 for bills and DC). Viewing is unchanged: every billing user still sees every bill. Setup (Packages dialog: managers, PO value) is unchanged. Enforced in the controller hooks (bill save / delete, a new DC row checked against the managers as saved) through the pure `rules.can_edit_package_bills`; the read APIs stamp `can_edit_bills` per package and the screens follow it: Update Supply DC lists only those packages, Add Bill offers only those, and other rows show a lock instead of the pencil. |
+| 19 | Where are billing packages managed? | **Admin Options → Packages Settings → Billing Packages tab** (owner, 2026-10-05). Admin adds, renames and deletes (server rule: Admin + Billing Lead); PMO sees it read-only. Every package is ordinary (owner, 2026-10-05: "that not standard i can remove those also", which replaced the earlier option a with its locked standard 9): any package can be deleted while no project uses it, and renamed at any time. Because the fixture stays, a migrate re-creates any of the 9 that was deleted, or renamed away from its fixture name. Renaming or deleting: `rename_billing_package` renames the package AND each tracker named `{project}-{package}` (Frappe's rename then updates the bills' `billing_tracker` / `package` links, the managers + DC log child rows and the Version history), in one transaction (owner, 2026-10-05: option 1, no tracker ID keeps the old name). Names are unique ignoring case. |
 
 ---
 
@@ -299,5 +300,14 @@ Frontend: the Billing tab is added for Admin, PMO and Billing profiles only (thr
   managers to the rest. Saved PO values prefill in Indian grouping;
   the form fills only when the dialog opens, so a background refetch cannot wipe what is being typed. Figures
   come from the pure `poAmount` / `poInputOf` / `setupSummary` in `utils/billingFormat.ts`.
+- **Billing Packages tab (owner, 2026-10-05, decision 19):** `components/billing-packages.tsx` →
+  `pages/ProjectBilling/components/BillingPackagesMaster.tsx` (laid out like PR Header Packages, `components/PRHeaderTagMaster.tsx`:
+  white header bar + dark Add button, slate card table Package / Actions, create + delete dialogs; no Used By column, owner 2026-10-05), registered in
+  `pages/PackagesSettings/config/packageSettingsTabs.constants.ts` (`?tab=billing-packages`). Reads
+  `api/project_billing/packages.get_billing_packages` (the packages in picker order, `can_edit`); writes `add_billing_package` / `rename_billing_package` / `delete_billing_package`. The rules live in the package
+  hooks (`package_validate`: case-insensitive duplicate; `package_before_rename`: writer, no merge, no clash;
+  `package_on_trash`: in use refused) over the pure `rules.clean_package_name`. No package is locked: every row
+  gets Edit and Delete. The picker's package list now
+  has the key `project-billing:packages`, so adding or deleting a package refreshes every Packages dialog.
 - **Known shared-API gap (not billing code):** `api/data_table/search.py` counts with `frappe.db.count`, so a
   user without billing access calling the DataTable API directly gets `total_count` (rows and facets stay empty).

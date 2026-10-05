@@ -3,6 +3,8 @@ import {
   UNASSIGNED,
   assigneeOptions,
   billDocMode,
+  clashingPackage,
+  cleanPackageName,
   columnTone,
   dcEntryPlan,
   deadlineFilters,
@@ -273,5 +275,21 @@ describe("bill document", () => {
     expect(fileNameOf("/api/method/x.generate_file?key=attachments/2026/10/03/AB12_Bill.pdf")).toBe("AB12_Bill.pdf");
     expect(fileNameOf("/private/files/RA%201%20bill.pdf")).toBe("RA 1 bill.pdf");
     expect(fileNameOf(null)).toBe("");
+  });
+});
+
+describe("billing package names", () => {
+  it("trims and collapses spaces like the server", () => {
+    expect(cleanPackageName("  Fire   Alarm ")).toBe("Fire Alarm");
+    expect(cleanPackageName("   ")).toBe("");
+    expect(cleanPackageName(null)).toBe("");
+  });
+
+  it("finds a clash ignoring case and spacing", () => {
+    const existing = ["Electrical", "HVAC", "Access Control"];
+    expect(clashingPackage("electrical", existing)).toBe("Electrical");
+    expect(clashingPackage(" access   control ", existing)).toBe("Access Control");
+    expect(clashingPackage("Solar PV", existing)).toBeNull();
+    expect(clashingPackage("   ", existing)).toBeNull();
   });
 });

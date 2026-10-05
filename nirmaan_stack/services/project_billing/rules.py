@@ -105,3 +105,8 @@ def can_edit_package_bills(user, managers, is_admin):
 	billing managers of (owner, 2026-10-03). Viewing is not limited by this.
 	"""
 	return bool(is_admin) or user in set(managers or ())
+
+
+def clean_package_name(name):
+	"""A typed billing package name: outer spaces dropped, inner runs of spaces made one."""
+	return " ".join(str(name or "").split())

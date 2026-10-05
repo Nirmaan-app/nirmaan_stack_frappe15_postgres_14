@@ -119,6 +119,20 @@ export function parseAmount(input?: string | null): number | null {
   return Number.isNaN(n) ? null : Math.round(n * mult);
 }
 
+/**
+ * A typed billing package name: outer spaces dropped, inner runs of spaces made one.
+ * Mirrors `rules.clean_package_name`, which the server applies before saving.
+ */
+export function cleanPackageName(name?: string | null): string {
+  return (name ?? "").split(/\s+/).filter(Boolean).join(" ");
+}
+
+/** The existing package a new name clashes with, ignoring case; null when it is free. */
+export function clashingPackage(name: string, existing: readonly string[]): string | null {
+  const wanted = cleanPackageName(name).toLowerCase();
+  return (wanted && existing.find((n) => n.toLowerCase() === wanted)) || null;
+}
+
 /** A typed PO value in rupees: blank is 0; unreadable or negative is null. */
 export function poAmount(typed: string): number | null {
   if (!typed.trim()) return 0;

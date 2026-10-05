@@ -84,13 +84,44 @@ def tracker_on_trash(doc, method):
 	_require_billing_writer()
 
 
-def package_validate(doc, method):
+def _require_package_writer():
 	if not has_role_profile(frappe.session.user, PROJECT_BILLING_PACKAGE_WRITE_PROFILES):
 		frappe.throw(_("Only Admin and the Billing Lead can change billing packages."), frappe.PermissionError)
 
 
+def package_validate(doc, method):
+	_require_package_writer()
+	# The name is the record's ID and unique as typed; "electrical" beside "Electrical"
+	# would still be a second package, so compare ignoring case.
+	clash = frappe.db.sql(
+		"""SELECT name FROM "tabProject Billing Packages" WHERE LOWER(name) = LOWER(%s) AND name <> %s LIMIT 1""",
+		(doc.package_name, doc.name or ""),
+	)
+	if clash:
+		frappe.throw(_("A billing package named {0} already exists.").format(clash[0][0]))
+
+
+def package_before_rename(doc, method, old, new, merge=False):
+	"""A package is renamed by Admin / Billing Lead, never onto an existing name (any case)."""
+	_require_package_writer()
+	if merge:
+		frappe.throw(_("Billing packages cannot be merged."))
+	clash = frappe.db.sql(
+		"""SELECT name FROM "tabProject Billing Packages" WHERE LOWER(name) = LOWER(%s) AND name <> %s LIMIT 1""",
+		(new, old),
+	)
+	if clash:
+		frappe.throw(_("A billing package named {0} already exists.").format(clash[0][0]))
+
+
 def package_on_trash(doc, method):
-	package_validate(doc, method)
+	"""A package any project has set up cannot be deleted (owner, 2026-10-05)."""
+	_require_package_writer()
+	used_by = frappe.db.count("Project Billing Tracker", {"package": doc.name})
+	if used_by:
+		frappe.throw(
+			_("{0} is used by {1} project(s). Remove it from those projects first.").format(doc.name, used_by)
+		)
 
 
 def _guard_new_dc_rows(doc):
