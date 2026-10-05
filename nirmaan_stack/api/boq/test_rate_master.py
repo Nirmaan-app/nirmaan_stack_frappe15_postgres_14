@@ -17794,3 +17794,151 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
         for c in self.v20["category_configs"]:
             config_validation._validate_config(
                 loader._loaded_config(copy.deepcopy(c), "HVAC", self.v20.get("goldens") or {}))
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12c CERT FIX -- THE DOWNLOAD ENDPOINT'S OWN BYTES (owner ruling 2026-10-05)
+#
+# ⚠️ WHY THIS READS THE ENDPOINT AND NOT THE EXPORTER. Every pin in this file that touches the rate
+# file calls `csv_exporter.build_category_*`, and those helpers were always correct. The ENDPOINT
+# built its payload with its own inline `to_xlsx(headers, rows, numeric)` / `to_csv(headers, rows)`
+# call, so it dropped `formula_row` and `locked` -- the explanation row, the derived-cell fill and
+# the sheet protection. Producer green, consumer green, and the file a user downloads wrong: the
+# standing "a test on each side of a boundary is not a test of the boundary" rule, which the 12c
+# browser cert caught and no suite could.
+#
+# So these assert on `export_rate_master_csv`'s DECODED BYTES. One category per discipline, both
+# formats. If someone re-inlines the argument list, these go red.
+# ═════════════════════════════════════════════════════════════════════════════════════════════════
+class TestDownloadEndpointCarriesTheFormulaRow(FrappeTestCase):
+    """The endpoint's bytes carry the formula row, the protection and the derived fill."""
+
+    # one category per discipline that actually HAS derived cells to fill
+    CASES = (("HVAC", "hvac_insulation"), ("Electrical", "electrical_pricing_inputs"))
+
+    @staticmethod
+    def _bytes(discipline, category_id, fmt):
+        # openpyxl is imported per-test throughout this file; kept local for the same reason
+        res = rate_master.export_rate_master_csv(
+            discipline=discipline, category_id=category_id, fmt=fmt)
+        return base64.b64decode(res["content_base64"]), res
+
+    def test_dl_01_xlsx_carries_the_formula_row_in_row_2(self):
+        for disc, cat in self.CASES:
+            with self.subTest(discipline=disc, category=cat):
+                import openpyxl
+                raw, _ = self._bytes(disc, cat, "xlsx")
+                ws = openpyxl.load_workbook(io.BytesIO(raw)).active
+                row2 = [c.value for c in ws[2]]
+                self.assertTrue(
+                    any(isinstance(v, str) and csv_exporter.FORMULA_ROW_MARKER in v for v in row2),
+                    f"{disc}/{cat}: the formula-row marker is not in row 2 of the DOWNLOADED file; "
+                    f"row 2 was {row2[:3]!r}",
+                )
+                # and the HEADER must still be row 1 -- both readers depend on it
+                self.assertEqual(ws[1][0].value, "item_uid")
+
+    def test_dl_02_xlsx_turns_sheet_protection_on(self):
+        for disc, cat in self.CASES:
+            with self.subTest(discipline=disc, category=cat):
+                import openpyxl
+                raw, _ = self._bytes(disc, cat, "xlsx")
+                ws = openpyxl.load_workbook(io.BytesIO(raw)).active
+                self.assertTrue(
+                    bool(ws.protection.sheet),
+                    f"{disc}/{cat}: the downloaded sheet is NOT protected, so a pricer can type "
+                    f"into a derived cell",
+                )
+
+    def test_dl_03_xlsx_fills_cells_so_the_reader_can_see_them(self):
+        """⚠️ THE FILL IS ONE OF THE THREE SIGNALS (owner 2026-09-27, "i cannot make out"). The word
+        `derived` rides in the row values and so survived the defect on its own -- the fill and the
+        protection did not, which is exactly why each signal is pinned separately."""
+        for disc, cat in self.CASES:
+            with self.subTest(discipline=disc, category=cat):
+                import openpyxl
+                raw, _ = self._bytes(disc, cat, "xlsx")
+                ws = openpyxl.load_workbook(io.BytesIO(raw)).active
+                filled = sum(
+                    1
+                    for row in ws.iter_rows()
+                    for c in row
+                    if c.fill is not None and c.fill.patternType
+                    and c.fill.fgColor is not None
+                    and c.fill.fgColor.rgb not in (None, "00000000")
+                )
+                self.assertGreater(
+                    filled, 0,
+                    f"{disc}/{cat}: not one cell in the downloaded file carries a fill",
+                )
+
+    def test_dl_04_csv_carries_the_formula_row_too(self):
+        """The CSV can carry neither colour nor protection, so there the WORD and this row are the
+        only signals -- which makes dropping the row strictly worse in that format."""
+        for disc, cat in self.CASES:
+            with self.subTest(discipline=disc, category=cat):
+                raw, _ = self._bytes(disc, cat, "csv")
+                text = raw.decode("utf-8")
+                self.assertIn(
+                    csv_exporter.FORMULA_ROW_MARKER, text,
+                    f"{disc}/{cat}: the CSV the endpoint returns has no formula row",
+                )
+                lines = text.splitlines()
+                self.assertIn(csv_exporter.FORMULA_ROW_MARKER, lines[1],
+                              "the formula row must be the line directly under the header")
+
+    def test_dl_05_the_endpoint_agrees_with_the_builder_byte_for_byte(self):
+        """⚠️ THE JOIN ITSELF. The endpoint must return what the exporter builds -- not merely
+        something that happens to contain a marker. A future refactor that reintroduces a second
+        argument list would diverge here first."""
+        for disc, cat in self.CASES:
+            with self.subTest(discipline=disc, category=cat):
+                import openpyxl
+                raw_x, res_x = self._bytes(disc, cat, "xlsx")
+                built_x, headers_x, n_x = csv_exporter.build_category_xlsx(disc, cat)
+                # openpyxl writes a zip, so compare the SHEET, not the archive bytes
+                a = openpyxl.load_workbook(io.BytesIO(raw_x)).active
+                b = openpyxl.load_workbook(io.BytesIO(built_x)).active
+                self.assertEqual(a.max_row, b.max_row)
+                self.assertEqual(a.max_column, b.max_column)
+                self.assertEqual(bool(a.protection.sheet), bool(b.protection.sheet))
+                for r in range(1, b.max_row + 1):
+                    self.assertEqual([c.value for c in a[r]], [c.value for c in b[r]],
+                                     f"{disc}/{cat}: row {r} differs from the builder's")
+                self.assertEqual(res_x["columns"], headers_x)
+                self.assertEqual(res_x["row_count"], n_x)
+
+                raw_c, res_c = self._bytes(disc, cat, "csv")
+                built_c, headers_c, n_c = csv_exporter.build_category_csv(disc, cat)
+                self.assertEqual(raw_c.decode("utf-8"), built_c)
+                self.assertEqual(res_c["columns"], headers_c)
+                self.assertEqual(res_c["row_count"], n_c)
+
+    def test_dl_06_the_all_categories_file_carries_it_as_well(self):
+        """MODE B goes through its own builder pair, so it needs its own assertion -- the defect was
+        in BOTH branches of the endpoint."""
+        for disc, _cat in self.CASES:
+            with self.subTest(discipline=disc):
+                import openpyxl
+                res = rate_master.export_rate_master_csv(discipline=disc, fmt="xlsx")
+                ws = openpyxl.load_workbook(
+                    io.BytesIO(base64.b64decode(res["content_base64"]))).active
+                row2 = [c.value for c in ws[2]]
+                self.assertTrue(
+                    any(isinstance(v, str) and csv_exporter.FORMULA_ROW_MARKER in v for v in row2),
+                    f"{disc} all-categories: no formula row in row 2",
+                )
+                self.assertTrue(bool(ws.protection.sheet))
+
+    def test_dl_07_negative_the_marker_is_not_merely_everywhere(self):
+        """⚠️ A GUARD THAT CANNOT FAIL IS NOT A GUARD. The marker must appear ONCE, in row 2 -- not
+        sprayed through the file, which would make every assertion above pass vacuously."""
+        import openpyxl
+        raw, _ = self._bytes("HVAC", "hvac_insulation", "xlsx")
+        ws = openpyxl.load_workbook(io.BytesIO(raw)).active
+        hits = [
+            r for r in range(1, ws.max_row + 1)
+            if any(isinstance(c.value, str) and csv_exporter.FORMULA_ROW_MARKER in c.value
+                   for c in ws[r])
+        ]
+        self.assertEqual(hits, [2], f"the marker appears on rows {hits}, not on row 2 alone")

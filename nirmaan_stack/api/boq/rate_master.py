@@ -1862,19 +1862,35 @@ def export_rate_master_csv(discipline=None, category_id=None, fmt=None):
     if fmt not in csv_exporter.FORMATS:
         frappe.throw("fmt must be one of %s." % ", ".join(csv_exporter.FORMATS), title="Invalid value")
 
+    # ⚠️ ONE ROUTE, THROUGH THE EXPORTER'S OWN BUILDERS -- never a second argument list here.
+    #
+    # This used to call `to_xlsx(headers, rows, numeric)` / `to_csv(headers, rows)` inline, and so
+    # silently DROPPED the two things `build_category_rows` returns beside them: `formula_row` (the
+    # explanation row directly under the header, slice 12a) and `locked` (which fills every DERIVED
+    # cell and turns sheet protection on, owner 2026-09-27). The service's own `build_*_csv` /
+    # `build_*_xlsx` helpers always passed both -- and those helpers are what the TESTS call, so every
+    # exporter pin stayed green while the file a user actually downloaded carried no formula row, no
+    # protection and no fill. Found in the 12c browser cert, 2026-10-05; live since 12a (`2e8804298`),
+    # these lines last touched at slice 1e (`e5028f85b`), which predates it.
+    #
+    # Delegating means the argument list exists in exactly one place, so the endpoint cannot fall
+    # behind the builder again -- the same single-definition reasoning as the BCS import-direction law.
     if category_id:
-        built = csv_exporter.build_category_rows(discipline, category_id)
         mode, label = "category", category_id
+        if fmt == csv_exporter.FORMAT_XLSX:
+            payload, headers, n = csv_exporter.build_category_xlsx(discipline, category_id)
+        else:
+            text, headers, n = csv_exporter.build_category_csv(discipline, category_id)
+            payload = text.encode("utf-8")
     else:
-        built = csv_exporter.build_all_categories_rows(discipline)
         mode, label = "all", "all_categories"
-    headers, n = built["headers"], built["n"]
-    if fmt == csv_exporter.FORMAT_XLSX:
-        payload = csv_exporter.to_xlsx(headers, built["rows"], built["numeric"])
-        content_type = xlsx_io.XLSX_CONTENT_TYPE
-    else:
-        payload = csv_exporter.to_csv(headers, built["rows"]).encode("utf-8")
-        content_type = xlsx_io.CSV_CONTENT_TYPE
+        if fmt == csv_exporter.FORMAT_XLSX:
+            payload, headers, n = csv_exporter.build_all_categories_xlsx(discipline)
+        else:
+            text, headers, n = csv_exporter.build_all_categories_csv(discipline)
+            payload = text.encode("utf-8")
+    content_type = (xlsx_io.XLSX_CONTENT_TYPE if fmt == csv_exporter.FORMAT_XLSX
+                    else xlsx_io.CSV_CONTENT_TYPE)
 
     slug = re.sub(r"[^A-Za-z0-9_-]+", "_", "%s_%s" % (discipline, label)).strip("_").lower()
     return {
