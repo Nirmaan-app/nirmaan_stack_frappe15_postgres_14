@@ -308,76 +308,99 @@ export function PricingInputImpactPanel({
                           </tr>
                         </thead>
                         <tbody>
-                          {g.rows.map((r) => (
-                            <tr
-                              key={`${r.itemUid}-${r.rateKey}`}
-                              className="cursor-pointer border-t hover:bg-muted/40"
-                              onClick={() => setDetailKey(skuKey(r))}
-                            >
-                              <td className="truncate px-1.5 py-1" title={r.label}>{r.label}</td>
-                              <td className="px-1.5 py-1 text-right tabular-nums">{fmt(r.now)}</td>
-                              <td className={cn("px-1.5 py-1 text-right tabular-nums",
-                                                r.moved ? (r.becomes > r.now ? "font-semibold text-rose-700" : "font-semibold text-emerald-700")
-                                                        : "text-muted-foreground")}>
-                                {r.moved ? fmt(r.becomes) : "—"}
-                              </td>
-                              <td className={cn("px-1.5 py-1 text-right tabular-nums",
-                                                r.moved ? (r.becomes > r.now ? "text-rose-700" : "text-emerald-700")
-                                                        : "text-muted-foreground")}>
-                                {r.moved && r.pctChange !== null
-                                  ? `${r.pctChange > 0 ? "+" : ""}${Math.round(r.pctChange * 10) / 10}%`
-                                  : "—"}
-                              </td>
-                            </tr>
-                          ))}
                           {/*
-                            OWNER F3: "show 2-3 sample impact calculations based on sizes stored in
-                            SKU." A SKU that stores no geometry of its own -- a cladding-only row --
-                            has no single figure to show, because its cost is proportional to the
-                            girth and the girth is made of the pipe size and the thickness it does
-                            not carry. It is quoted at the stocked geometries instead, each priced
-                            through the SAME pricer the rest of the panel uses. A SKU with nothing
-                            to sample shows its own refusal reason, never a fabricated number.
+                            ⚠️ ONE PASS, SO A SAMPLE SITS UNDER THE SKU IT BELONGS TO. The samples
+                            used to be a SECOND `g.rows.filter(...)` pass after every row had been
+                            rendered, which put all of them at the bottom of the table -- row 0's
+                            samples appearing below row 69. That was invisible while nothing reached
+                            the samples branch; the moment the cladding-only SKUs did (12c cert fix),
+                            a reader could no longer tell which three geometries belonged to which
+                            cladding. Parent and samples are now emitted together.
                           */}
-                          {g.rows.filter((r) => r.samples || r.note).map((r) => (
-                            <Fragment key={`samples-${r.itemUid}-${r.rateKey}`}>
-                              {(r.samples ?? []).map((sm, i) => {
-                                const legs = sm.result.legs;
-                                const primary = legs.find((l) => l.moved) ?? legs[0];
-                                return (
-                                  <tr key={`${r.itemUid}-${r.rateKey}-s${i}`} className="border-t bg-muted/20">
-                                    <td className="px-1.5 py-1 pl-4 text-muted-foreground" title={r.label}>
-                                      at {sampleGeometryText(sm.geometry)}
-                                    </td>
-                                    <td className="px-1.5 py-1 text-right tabular-nums">
-                                      {primary ? fmt(primary.now) : "—"}
-                                    </td>
-                                    <td className={cn("px-1.5 py-1 text-right tabular-nums",
-                                                      primary?.moved
-                                                        ? (primary.becomes > primary.now
-                                                            ? "font-semibold text-rose-700"
-                                                            : "font-semibold text-emerald-700")
-                                                        : "text-muted-foreground")}>
-                                      {primary?.moved ? fmt(primary.becomes) : "—"}
-                                    </td>
-                                    <td className="px-1.5 py-1 text-right tabular-nums text-muted-foreground">
-                                      {primary?.moved && primary.now !== 0
-                                        ? `${primary.becomes > primary.now ? "+" : ""}${
-                                            Math.round(((primary.becomes - primary.now) / primary.now) * 1000) / 10}%`
-                                        : "—"}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              {r.note ? (
-                                <tr className="border-t bg-muted/20">
-                                  <td className="px-1.5 py-1 pl-4 text-muted-foreground" colSpan={4}>
-                                    {r.note}
+                          {g.rows.map((r) => {
+                            /**
+                             * ⚠️ A ROW QUOTED BY SAMPLES HAS NO FIGURE OF ITS OWN, AND MUST NOT PRINT
+                             * ONE. Such a SKU stores no cost column at all -- its cost is proportional
+                             * to a girth it does not carry -- so `now`/`becomes` are structurally
+                             * absent and were rendering as `0 -> 0`, which reads as "this costs
+                             * nothing". A blank is never a 0 (the standing rule); the figures live in
+                             * the sample rows below, each at a geometry that is named.
+                             */
+                            const quotedBySamples = !!r.samples?.length;
+                            return (
+                              <Fragment key={`${r.itemUid}-${r.rateKey}`}>
+                                <tr
+                                  className="cursor-pointer border-t hover:bg-muted/40"
+                                  onClick={() => setDetailKey(skuKey(r))}
+                                >
+                                  <td className="truncate px-1.5 py-1" title={r.label}>{r.label}</td>
+                                  <td className={cn("px-1.5 py-1 text-right tabular-nums",
+                                                    quotedBySamples && "text-muted-foreground")}>
+                                    {quotedBySamples ? "—" : fmt(r.now)}
+                                  </td>
+                                  <td className={cn("px-1.5 py-1 text-right tabular-nums",
+                                                    !quotedBySamples && r.moved
+                                                      ? (r.becomes > r.now ? "font-semibold text-rose-700" : "font-semibold text-emerald-700")
+                                                      : "text-muted-foreground")}>
+                                    {!quotedBySamples && r.moved ? fmt(r.becomes) : "—"}
+                                  </td>
+                                  <td className={cn("px-1.5 py-1 text-right tabular-nums",
+                                                    !quotedBySamples && r.moved
+                                                      ? (r.becomes > r.now ? "text-rose-700" : "text-emerald-700")
+                                                      : "text-muted-foreground")}>
+                                    {!quotedBySamples && r.moved && r.pctChange !== null
+                                      ? `${r.pctChange > 0 ? "+" : ""}${Math.round(r.pctChange * 10) / 10}%`
+                                      : "—"}
                                   </td>
                                 </tr>
-                              ) : null}
-                            </Fragment>
-                          ))}
+                                {/*
+                                  OWNER F3: "show 2-3 sample impact calculations based on sizes stored
+                                  in SKU." A SKU that stores no geometry of its own -- a cladding-only
+                                  row -- has no single figure to show, because its cost is proportional
+                                  to the girth and the girth is made of the pipe size and the thickness
+                                  it does not carry. It is quoted at the stocked geometries instead,
+                                  each priced through the SAME pricer the rest of the panel uses. A SKU
+                                  with nothing to sample shows its own refusal reason, never a
+                                  fabricated number.
+                                */}
+                                {(r.samples ?? []).map((sm, i) => {
+                                  const legs = sm.result.legs;
+                                  const primary = legs.find((l) => l.moved) ?? legs[0];
+                                  return (
+                                    <tr key={`${r.itemUid}-${r.rateKey}-s${i}`} className="border-t bg-muted/20">
+                                      <td className="px-1.5 py-1 pl-4 text-muted-foreground" title={r.label}>
+                                        at {sampleGeometryText(sm.geometry)}
+                                      </td>
+                                      <td className="px-1.5 py-1 text-right tabular-nums">
+                                        {primary ? fmt(primary.now) : "—"}
+                                      </td>
+                                      <td className={cn("px-1.5 py-1 text-right tabular-nums",
+                                                        primary?.moved
+                                                          ? (primary.becomes > primary.now
+                                                              ? "font-semibold text-rose-700"
+                                                              : "font-semibold text-emerald-700")
+                                                          : "text-muted-foreground")}>
+                                        {primary?.moved ? fmt(primary.becomes) : "—"}
+                                      </td>
+                                      <td className="px-1.5 py-1 text-right tabular-nums text-muted-foreground">
+                                        {primary?.moved && primary.now !== 0
+                                          ? `${primary.becomes > primary.now ? "+" : ""}${
+                                              Math.round(((primary.becomes - primary.now) / primary.now) * 1000) / 10}%`
+                                          : "—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {r.note ? (
+                                  <tr className="border-t bg-muted/20">
+                                    <td className="px-1.5 py-1 pl-4 text-muted-foreground" colSpan={4}>
+                                      {r.note}
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
