@@ -55,9 +55,26 @@ describe("SLICE 12b(B) -- the impact panel's shape", () => {
   });
 
   it("ACCEPTANCE 10: the four columns, and the leg is NAMED in the header", () => {
-    for (const h of [">Item<", ">now<", ">becomes<", ">change<"]) expect(PANEL).toContain(h);
+    for (const h of [">Item<", ">becomes<", ">change<"]) expect(PANEL).toContain(h);
+    /**
+     * ⚠️ INVERTED (owner, 2026-10-05, mechanical authority) -- `84e2e5fde` invalidated the old literal.
+     *
+     * The `now` heading used to be a bare `>now<`. It reported TWO DIFFERENT QUANTITIES under that one
+     * unlabelled word: the SKU's stored rate when nothing was edited, and the pipeline's computed leg
+     * when something was -- measured 109 against 306 on the same row. `computeImpact` now returns the
+     * computed leg in BOTH branches, and the heading NAMES which leg it is, which is what this test's
+     * own title always asked for.
+     *
+     * The old literal is asserted ABSENT rather than deleted, so re-introducing a bare `now` heading --
+     * the state in which the column lied about its own quantity -- turns this red again.
+     */
+    expect(PANEL).not.toContain(">now<");
+    expect(PANEL).toContain("now <span");
+    expect(PANEL).toContain("({impact.legLabel})");
     // the leg label comes from the pure module, so the panel cannot invent a different one
     expect(PANEL).toContain("impact.legLabel");
+    // and the heading carries the plain-language note saying both figures are that leg
+    expect(PANEL).toContain("IMPACT_COPY.nowLegTitle(impact.legLabel)");
   });
 
   it("ACCEPTANCE 10: Save is DISABLED until something changes, and Cancel restores", () => {
