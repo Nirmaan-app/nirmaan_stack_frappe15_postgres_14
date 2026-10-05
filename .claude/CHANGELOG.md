@@ -4,6 +4,30 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-10-05: Payments queue — Upload / Edit invoice on Paid Non Project Expenses
+
+**Summary:** "Payment Done / Reconciliation Done" gets an invoice button on Paid **Non Project** expense rows
+(Admin / Accountant / Accountant Lead). Commit `5916af3d4` on `vendor/print-format`. Owner ruled Project
+Expenses out. Frontend detail: `frontend/.claude/CHANGELOG.md` (same date); domain note in
+`domain/expenses.md` (2026-10-05).
+
+### What was built
+
+- **`api/approvals/get_approval_queue.py`:** the union carries `invoice` (the expense's
+  `invoice_attachment`; `''` on payment rows, positional last column in both branches) and a derived
+  `has_invoice`. Not added to `SORTABLE` / `FILTERABLE`. No schema change.
+
+### Verification
+
+- Queue snapshot before/after on every status: same counts, rows identical with the new keys excluded
+  (Paid 11,599 = 11,599); `has_invoice` (151) = direct count of Paid expenses with a file; 0 on payment rows.
+- Invoice-only save on Paid rows as an Accountant, rolled back: saves with and without bank lines; status
+  and payment date unchanged. Sweep of all 846 Paid Non Project rows through the bank-line rules: 0 refused,
+  0 moved off Paid, 0 payment dates moved.
+- Browser, final build: Admin full upload (file + ref) and Accountant edit; test row restored afterwards.
+
+---
+
 ## 2026-09-21: Payments queue — edit & revert, payment summary, raiser skip, in-place delete, expense approval details
 
 **Summary:** Seven owner-requested changes to the unified Payments queue and the dialogs around it, on

@@ -113,6 +113,8 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
     const validate = () => {
         const errors: InvoiceFormErrors = {};
         if (!formState.invoice_date) errors.invoice_date = "Invoice date is required.";
+        // `max` only limits the picker -- a typed date can still land past today.
+        else if (formState.invoice_date > formatDateFns(new Date(), "yyyy-MM-dd")) errors.invoice_date = "Invoice date cannot be in the future.";
         if (requireAttachment && !hasAttachment) errors.attachment = "Invoice file is required.";
         if (refRequired && !formState.invoice_ref.trim()) errors.invoice_ref = "Invoice reference is required when an invoice is attached.";
         setFormErrors(errors);
