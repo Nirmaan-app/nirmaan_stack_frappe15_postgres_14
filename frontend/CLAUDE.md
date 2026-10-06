@@ -33,14 +33,36 @@ yarn test
 # the Python bench suite only), so this is a LOCAL gate.
 ```
 
-**There is NO DOM test environment** — no jsdom / happy-dom / `@testing-library`, a deliberate
-choice recorded in `vitest.config.ts`. **Load-bearing consequence:** anything whose correctness is
-a React *semantic* — a component mounting, unmounting, or preserving state across a render — is
-STRUCTURALLY untestable here; only pure in/out helpers can be covered, and a pure helper extracted
-from such a component passes happily while the component itself misbehaves. (Same trap the Pricing
-Module records at PW-2b-i: the tests assert the emitted formula TEXT and cannot see that the engine
-mis-reads it at runtime.) When a change turns on a React semantic, the honest verification is a
-live browser A/B — revert, reproduce, restore, re-verify — not a unit test.
+**The DOM environment is OPT-IN PER FILE, and the global stays `node`.** `jsdom` is a devDependency;
+`vitest.config.ts` still declares `environment: "node"`, so **every suite that does not ask for a DOM
+runs exactly as it always did**. A file that needs one says so in its own first line:
+
+```ts
+// @vitest-environment jsdom
+```
+
+**`@testing-library` is deliberately NOT a dependency** — jsdom alone is the sanctioned scope. A DOM
+test renders with `react-dom/client` + `act` and queries the container directly. The reference
+example is `src/pages/pricing/rate-master/RateMasterDataViewer.dom.test.tsx`, which renders the Rate
+Master data viewer for one HVAC and one Electrical category and asserts that **every cell sits under
+its correct header** — the class of defect `rateMasterGridColumns.ts` records, where the header row
+and the body row carried separate orderings, every figure stayed plausible and only its label was
+wrong.
+
+⚠️ **jsdom IS THE DOM, NOT THE BROWSER, SO THIS RETIRES NOTHING ABOUT THE LIVE-BROWSER RULE.** It
+does no layout: `getBoundingClientRect()` returns zeros, and APIs the real browser has (e.g.
+`ResizeObserver`) are absent and must be stubbed **in the test file, never in product code**.
+Anything whose correctness depends on real measurement, real paint or a real pointer — sticky-column
+widths, the Radix pickers, the controlled-`<select>` trap below — is still a live browser question,
+and a found divergence there is still verified by a live A/B (revert, reproduce, restore,
+re-verify).
+
+What the DOM environment buys is the class that used to be STRUCTURALLY untestable: a component
+mounting, unmounting, preserving state across a render, and rendering its cells where its headers
+say. **A pure helper extracted from such a component still passes happily while the component
+misbehaves** — the same trap the Pricing Module records at PW-2b-i, where the tests assert the
+emitted formula TEXT and cannot see that the engine mis-reads it at runtime — which is precisely why
+that class now has somewhere to live.
 
 **⚠️ A CONTROLLED `<select>` WITH NO MATCHING OPTION DOES NOT GO BLANK — IT FALLS BACK TO THE FIRST
 *SELECTABLE* OPTION, SO A DISABLED PLACEHOLDER SILENTLY DISPLAYS A WRONG VALUE (owner-locked).**
@@ -65,13 +87,17 @@ location rebuilds EVERY routed page on EVERY navigation, and silently destroys p
 same-route param change (the BoQ pricing editor's sheet-tab strip is exactly that shape). Reset it
 by comparing a `resetKey` prop instead.
 
-> **DEFERRED — owner reminder:** add a DOM environment so the invariant above can be pinned by a
-> test. Agreed scope: `jsdom` ONLY (no `@testing-library`), a per-file `// @vitest-environment
-> jsdom` docblock so the global `environment: "node"` and every existing suite stay untouched, and
-> one test file whose primary case is *a same-route param change must not remount the child*.
-> ⚠️ Pin **`jsdom@^26`** — jsdom 27+ requires Node >= 22 and the dev container runs Node 20.
-> ⚠️ Install INSIDE the container (host `node_modules` is linux-arm64). An interrupted `yarn add`
-> PRUNES `node_modules` and breaks the runner — recover with `yarn install --frozen-lockfile`.
+> **The DOM environment is now INSTALLED** — see the opt-in rule above. The app-shell invariant is
+> the next thing it SHOULD pin and is still unpinned: a test whose primary case is *a same-route
+> param change must not remount the child*. The reference DOM test covers a different subject
+> (grid cell-vs-header alignment), so that one is still owed.
+>
+> ⚠️ **`jsdom` is pinned at `^26`** — jsdom 27+ requires Node >= 22. The container currently runs a
+> newer Node than that floor, so 27 would install; the pin is the owner's and is kept deliberately
+> rather than widened on the strength of the current container image.
+> ⚠️ **Install INSIDE the container** (host `node_modules` is linux-arm64), and expect `yarn add` to
+> take several minutes. An interrupted `yarn add` PRUNES `node_modules` and breaks the runner —
+> recover with `yarn install --frozen-lockfile`.
 
 ### Preview Production Build
 ```bash
