@@ -44286,3 +44286,138 @@ devDependency and moves `frontend/yarn.lock`.**
   would have silently rewritten the owner's 400, with no Version row to show it.
 - No browser cert: no user-visible change was expected or made, and UI change control (#57) says a
   visible change would have been a STOP.
+
+## Slice 12c-U — THE MISSING-UNIT / RATE-ONLY RULE, THE PARITY LABELS, AND REAL EXCEL ROWS IN UPLOAD ERRORS (2026-10-07) — SHIPPED
+
+Branch `feature/boq-pricing-helper`, slice-start tip `19af6b2ed` (= origin). Commits `8a6abfa36`,
+`ced31a6f0`-class fix for the row numbering, plus this docs commit. Not pushed. No AI calls — every
+measurement replays stored extractions. No config, asset or item changed; no new asset version.
+
+### The rule (owner U1–U5)
+
+A BoQ row that states **no unit**, or a **rate-only** spelling, is priced in **the catalogue's unit
+for its item**, and says so. Where the item can be priced in **more than one** unit it **refuses and
+names them** — it never guesses.
+
+| the row's unit cell | what happens |
+|---|---|
+| blank | the item's one unit, note *"No unit on the BoQ row -> priced per `<unit>`, the catalogue's unit for this item"* |
+| `R/O`, `RO`, `R.O.`, `R O`, `Rate Only` (case and punctuation ignored) | the same, note *"BoQ says `<as written>` (rate only) -> priced per `<unit>`, …"* |
+| blank or rate-only, but the item is priced in SEVERAL units | REFUSES: *"… - this item is priced per `<a>` or per `<b>`; set the unit"* |
+| a unit that IS a unit but is wrong for the item (spigot per metre, actuator per sq.m) | refuses exactly as before — **owner U1, unchanged** |
+
+⚠️ **THIS SUPERSEDES ADP's R12 ("no unit -> refuse") FOR A MISSING OR RATE-ONLY UNIT ONLY.** Owner
+U2: *"no unit at all should be priced in the default unit of the SKU with proper comment"*. U3:
+*"R/O is rate only. tthese should also be priced in the default SKU unit with appropriate comment"*.
+U4 (*"agreed"*): more than one unit refuses, naming them. Nothing else in R12 changes — a unit the
+row STATED and that is wrong for the item still refuses, because the BoQ said something and it was
+wrong, which is a different fact from the BoQ saying nothing (owner U1: *"all theseshould refuse
+pricing"*).
+
+⚠️ **"MORE THAN ONE" IS DECIDED ON UNIT CLASSES, NEVER SPELLINGS.** The set comes from
+`familyUnitClasses` — the SAME function `unitChoicesOf` reads for the calculator's picker — so the
+rule inherits 12c-S's `units_not_offered` and 12c-F's `convert` conversions and cannot drift from
+it. **Counting spellings would refuse every ADP row**, because `sqm` and `sqft` are two spellings of
+the one `area` class. Across a row's items it is the **INTERSECTION**: a row prices in ONE class, so
+a class counts only if every item on the row can be priced in it. (`unitChoicesOf` takes the UNION,
+because a picker offers what ANY block could use; a ROW must be priceable in the class it picks. One
+source, two questions.)
+
+⚠️ **THE RATE-ONLY TEST CANNOT SHADOW A REAL UNIT, AND THAT WAS MEASURED.** `unitClassOf` is
+consulted FIRST, and over both shipped item-list categories' live `unit_classes` + `unit_factors`
+every rate-only spelling resolves to `null`. A category that one day declares a unit spelled "ro"
+would keep it.
+
+⚠️ **THE SCOPE IS NARROWER THAN U5 READS, AND THE MEASUREMENT IS WHY.** Electrical rows with no unit
+or "R/O" **already price**: the row unit is not an input to the non-item-list path at all
+(`BRSR-26-00032#302` point_wiring "R/O" prices 15411/2260/13151 on both surfaces;
+`BRSR-26-00039#90` db_switchgear blank prices 32000/5340/26660; `BRSR-26-00041#115`
+switches_sockets blank prices 90/20/70). Of **31** blank/rate-only row-classes in the corpus only
+**2** are item-list. So the rule lives in the shared `priceItemList` path, names no discipline or
+category (U5 honoured), and nothing Electrical moves.
+
+### Item 4 — the before/after, both real paths, every discipline
+
+7,094 outcome lines (every corpus class + the whole catalogue sweep, panel AND calculator).
+**Exactly two changed**, both in the permitted set, and **both close a parity divergence**:
+
+| discipline | BoQ#row | item | unit | before (panel) | after (panel) |
+|---|---|---|---|---|---|
+| HVAC | `BRSR-26-01312#51` | butterfly damper, dia 100 | `R/O` | REFUSED *"unit 'R/O' is not a count, area or length unit (R12)"* | **PRICED 334 / 0 / 334**, = the calculator |
+| HVAC | `BRSR-26-01369#43` | round diffuser, **dia_mm null** | *(none)* | REFUSED *"no unit on this row (R12)"* | **REFUSED *"no diameter stated"***, = the calculator |
+
+⚠️ **`#43` DOES NOT PRICE, AND THAT IS CORRECT.** Its stored extraction carries no diameter, so
+resolving the unit could not conjure one. The fix makes the two surfaces AGREE; it does not invent a
+figure. Both rows now report 0 divergences.
+
+### The parity list
+
+Cause C **splits 5 -> 3**, because the five rows were never one thing: some BoQs stated a unit that
+was WRONG for the item and some stated NOTHING, and the owner ruled those opposite ways. The two
+above are REMOVED (they agree); `BRSR-26-01311#25`, `#27` (spigot per metre) and `#52` (actuator per
+sq.m) stay listed and are now **accepted by owner** under U1. **Nothing in this corpus awaits a
+ruling.** The double-skin-plenum Nos case remains a family-level observation with no row here; it is
+still 12d's.
+
+### Item 3 / U6 — real Excel rows in upload messages
+
+> Owner U6: *"Report the real Excel row"* — the number in an upload message is the row the pricer
+> sees in Excel (header = row 1, the explanation row = row 2 where present, data from row 3).
+
+⚠️ **FIXED AT THE TWO PLACES THE NUMBER IS BORN, NOT AT THE MESSAGE SITES.**
+`csv_importer.parse_csv_text` and `xlsx_io.read_xlsx` now pair each row with its PHYSICAL row,
+through a named `PHYSICAL_FIRST_DATA_ROW = 2` in each module. A dozen sites put a row number in
+front of a user, so +1 at each would be a dozen chances to miss one — and the provenance stamped on
+a hand-added row (`_source_for`) would still disagree with the message that referred to it. One
+definition of "the row" means the preview, the apply, every refusal and the stored `source_row`
+cannot say different things.
+
+The constant is declared in BOTH modules because `csv_importer` imports `xlsx_io`, so sharing it the
+other way would be a cycle; `test_u01` pins the two equal, so they cannot drift.
+It shifts the plan digest harmlessly (preview and apply both derive it through the same reader) and
+a client's per-row answers are keyed by the numbers the preview showed, so they shift with it.
+
+**`parse_csv_text`'s docstring had claimed the messages corrected for the header. They did not** —
+`apply_plan` renders `"Row %d -- "` straight from the index, which is what 12c-T measured on a live
+download (the SKU on physical row 5 reported as row 4).
+
+**Proved on a real file per format per discipline, rate files AND Pricing Inputs — 8 combinations,
+all equal, and the preview wrote nothing** (table counts identical before and after):
+
+| discipline | file | .xlsx | .csv |
+|---|---|---|---|
+| HVAC | rate file (`hvac_adp`) | row 5 = 5 | row 5 = 5 |
+| HVAC | Pricing Inputs | row 5 = 5 | row 5 = 5 |
+| Electrical | rate file (`cabletray_raceway`) | row 5 = 5 | row 5 = 5 |
+| Electrical | Pricing Inputs | row 5 = 5 | row 5 = 5 |
+
+**t22 and t32 were held in 12c-T for exactly this** and are now updated to the physical numbering:
+t22's appended SKU `source_row` 96 -> 98 and its old-format row 1 -> 2; t32's 95 per-row refusals
+`range(1, 96)` -> `range(3, 98)`.
+
+⚠️ **THIRTEEN MORE TESTS MOVED, ALL ONE MECHANICAL CAUSE** (inverted under the mechanical authority,
+never deleted): eight in `test_spec_reader` (t17, t18, t24–t28, t32) and five in `test_rate_master`
+(test_89, e05, e10, e13, e15). Each either keys per-row DECISIONS by the numbers the preview showed,
+or asserts a row number inside a message. Two needed thought rather than a +1: t26's NEGATIVE 1 key
+is a DECOY that must name the row which is NOT the twin (2 -> 3), and its NEGATIVE 2
+wrong-fingerprint key must name the twin row (1 -> 2).
+
+⚠️ **A LATENT FIXTURE DEFECT IN t32 SURFACED, IN TWO PLACES, AND IS WORTH REMEMBERING.** It rebuilds
+rows from `read_xlsx`, whose FIRST row is the formula/explanation row, and casts its cells to
+`float` — which raises on prose. It had never been reached, because t32 failed at the row-number
+assertion above it. Fixing one assertion exposed a second defect underneath; both sites now skip the
+marker row. A test-fixture repair, not a product change.
+
+### Vacuity, every mechanism, each restored immediately
+
+| mechanism | the line disabled | result |
+|---|---|---|
+| the missing-unit / rate-only rule | `if (false && cls === null && …)` | **6 red** |
+| U4's refuse-rather-than-guess | `classes.length === 1` -> `>= 1` | **exactly the 2 U4 tests red** |
+| the physical row numbering | `PHYSICAL_FIRST_DATA_ROW` 2 -> 1, both readers | t22 + t32 red; `test_u01` red with `1 != 2` |
+
+### Records
+
+ADP's **R12 is SUPERSEDED for a missing or rate-only unit** by U2–U4, in the owner's words quoted
+above. Nothing else in R12 changes. The `unitNote` rides on `RowPriceResult` and `ItemListView` as an
+OPTIONAL field present only on such a row, so every other row's result and panel are byte-identical.

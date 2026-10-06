@@ -794,6 +794,34 @@ synonym, and it belongs in `unit_classes`) and refuses a spelling that already a
 unit is declared in ONE place only; `unitClassOf` resolves a factor spelling to its class and `unitFactorOf`
 returns null for any spelling a class already holds. ABSENT `unit_factors` is byte-identical to before it existed.
 
+**⚠️ A ROW THAT STATES NO UNIT, OR A RATE-ONLY SPELLING, IS PRICED IN THE CATALOGUE'S UNIT FOR ITS ITEM;
+SEVERAL UNITS REFUSES, NAMING THEM (owner-locked).** No unit at all, or `R/O` / `RO` / `R.O.` / `Rate Only`
+(one key -- case and every non-alphanumeric character dropped, so a BoQ may punctuate it how it likes), is
+priced in the item's unit WITH A NOTE SAYING SO; where the item is priced in MORE THAN ONE unit it REFUSES and
+names them, because there is no default and a guess is a silent wrong price. ⚠️ **This supersedes R12's "no unit
+-> refuse" FOR A MISSING OR RATE-ONLY UNIT ONLY**: a unit that IS a unit but is wrong for the item (a spigot row
+per metre, an actuator row per sq.m) still refuses -- the BoQ said something and it was wrong, which is a
+different fact from the BoQ saying nothing. ⚠️ **"MORE THAN ONE" IS DECIDED ON UNIT CLASSES, NEVER SPELLINGS,
+through the SAME `familyUnitClasses` the calculator's picker reads** -- so the rule inherits `units_not_offered`
+and every declared `convert` and cannot drift from the picker; counting SPELLINGS would refuse every ADP row,
+because `sqm` and `sqft` are two spellings of the one area class. Across a row's items it is the INTERSECTION (a
+row prices in ONE class). ⚠️ `unitClassOf` is consulted FIRST, so a real unit can never be read as "rate only",
+and a category that declared a unit spelled that way would keep it. The rule names no discipline or category and
+lives where the row unit is actually consulted -- a path that never reads the unit has nothing to fix.
+
+**⚠️ AN UPLOAD MESSAGE NAMES THE PHYSICAL EXCEL ROW (owner-locked).** The number a refusal, a preview or an
+apply puts in front of a pricer is the row they see when they open the file: the header is row 1, the
+formula/explanation row is row 2 where present, data starts at row 3. ⚠️ **IT IS FIXED WHERE THE NUMBER IS
+BORN -- the two readers (`csv_importer.parse_csv_text`, `xlsx_io.read_xlsx`), through a named
+`PHYSICAL_FIRST_DATA_ROW` -- AND NEVER BY ADDING ONE AT THE MESSAGE SITES.** A dozen sites render a row number,
+so a per-site correction is a dozen chances to miss one, and the provenance stamped on a hand-added row would
+still disagree with the message that referred to it; one definition of "the row" is what keeps the preview, the
+apply, every refusal and the stored `source_row` from saying different things. The constant is declared in BOTH
+modules because `csv_importer` imports `xlsx_io` (sharing it the other way is a cycle) and a test pins them
+equal. It shifts the plan digest harmlessly, since preview and apply both derive it through the same reader, and
+a client's per-row answers are keyed by the numbers the preview showed. ⚠️ A docstring once claimed the messages
+"account for" the header offset; they did not -- believe a measurement on a real download, not the comment.
+
 **⚠️ A VALUE WRITTEN AS AN ALTERNATIVE TAKES THE HIGHER; A LIST AND A TOLERANCE ARE NOT ALTERNATIVES
 (owner-locked).** Exactly TWO numbers joined by a BARE slash are a pair, and the higher is taken with a note
 naming it. The gap must carry no sign, because `25 +/- 2 mm` is a TOLERANCE, not a choice; three values and a
