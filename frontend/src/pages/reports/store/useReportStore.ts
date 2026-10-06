@@ -21,8 +21,8 @@ export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reco
 
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 
-// Tax Deducted at Source. The tab's only report today, so the dropdown renders it disabled.
-export type PaymentTDSReportType = 'TDS Deduction';
+// The "Payment" tab: the Tax Deducted at Source ledger, and every payment made by cheque.
+export type PaymentTDSReportType = 'TDS Deduction' | 'Cheque Payment';
 
 // Combined type for any selectable report
 export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | PaymentTDSReportType | null;
