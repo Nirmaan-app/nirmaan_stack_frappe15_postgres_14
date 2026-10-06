@@ -28,13 +28,31 @@
  *                                   differs, because the panel's note can quote BoQ text that has no
  *                                   box on the screen.
  *
+ *     C_unit_not_offered   5 -> 3   12c-U. The cause SPLIT, because the five rows were never one
+ *                                   thing -- some BoQs said a unit that was WRONG for the item, and
+ *                                   some said NOTHING AT ALL, and the owner ruled those opposite ways.
+ *
+ *                                   REMOVED, because they now agree on both surfaces:
+ *                                     BRSR-26-01312#51  unit "R/O"   -> both price 334 / 0 / 334
+ *                                     BRSR-26-01369#43  no unit      -> both refuse "no diameter
+ *                                                                       stated" (the row states no
+ *                                                                       diameter; resolving its unit
+ *                                                                       could not conjure one)
+ *                                   Owner U2 / U3: a row that states no unit, or "rate only", is
+ *                                   priced in the catalogue's unit for its item -- here "per number",
+ *                                   both items being priced by number and nothing else.
+ *
+ *                                   KEPT and now ACCEPTED (owner U1, "all theseshould refuse
+ *                                   pricing"): BRSR-26-01311#25 and #27 (a spigot row written per
+ *                                   metre) and BRSR-26-01311#52 (an actuator row per sq.m). The BoQ
+ *                                   SAID a unit and it was wrong for the item, which is a different
+ *                                   fact from the BoQ saying nothing -- so the panel refusing is
+ *                                   CORRECT, and what the calculator does with a unit of its own
+ *                                   choosing is not a price the panel should copy.
+ *
  *   STILL AWAITING THE OWNER:
- *     C_unit_not_offered   5        the row's unit is one its family cannot be priced in at all --
- *                                   a spigot row written per metre, an actuator row per sq.m, a row
- *                                   whose unit is "R/O", a row with no unit. None of them is the
- *                                   double-skin-plenum Nos case, which is a FAMILY-level observation
- *                                   (that family declares the count class not offered) and has no row
- *                                   in this corpus; it is left for 12d.
+ *     nothing in this corpus. The double-skin-plenum Nos case is a FAMILY-level observation (that
+ *     family declares the count class not offered) and has no row here; it is left for 12d.
  *
  * ⚠️ NOTHING HERE IS A FIX. `STATUS_BY_CAUSE` records the owner's ruling; it changes no behaviour.
  */
@@ -47,7 +65,7 @@ export type DivergenceStatus = "accepted by owner" | "awaiting owner review";
 export const STATUS_BY_CAUSE: Readonly<Record<DivergenceCause, DivergenceStatus>> = {
   A_wiring_primary: "accepted by owner",   // owner R-A, 2026-10-06
   B_stale_pick: "awaiting owner review",   // fixed in 12c-F; no row carries it any more
-  C_unit_not_offered: "awaiting owner review",
+  C_unit_not_offered: "accepted by owner",  // owner U1, 2026-10-07
   D_reason_only: "accepted by owner",      // owner R-D, 2026-10-06
   Z_UNCLASSIFIED: "awaiting owner review",
 };
@@ -150,11 +168,9 @@ export const AWAITING_CORPUS_DIVERGENCES: readonly AwaitingCorpusDivergence[] = 
   { id: "BRSR-26-01311#27", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01311#42", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01311#52", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01312#51", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01315#89", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01315#94", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01315#160", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01369#43", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01370#59", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
 ];
 

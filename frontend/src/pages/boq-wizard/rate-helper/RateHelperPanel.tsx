@@ -1160,6 +1160,17 @@ function ItemListBlocks({
           </select>
         </label>
       )}
+      {/* SLICE 12c-U (owner U2 / U3): the row stated no unit -- or "rate only" -- and was priced in
+          the catalogue's unit for its item. The note says so IN WORDS, because the figure alone
+          would look as though the BoQ had named that unit. Present only on such a row. */}
+      {view.unitNote && (
+        <div
+          className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+          data-testid="item-list-unit-note"
+        >
+          {view.unitNote}
+        </div>
+      )}
       {view.items.map((b, i) => (
         <div key={i} className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
           <div className="flex items-center justify-between gap-1.5">

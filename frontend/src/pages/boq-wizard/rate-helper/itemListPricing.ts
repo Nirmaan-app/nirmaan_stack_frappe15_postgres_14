@@ -422,6 +422,9 @@ export interface RowPriceResult {
   unitClass: string | null;
   priced: boolean;
   reason?: string;
+  /** SLICE 12c-U: how a row that stated NO unit (or "rate only") came to be priced in the unit it
+   *  was -- present ONLY on such a row, so every other row's result is byte-identical. */
+  unitNote?: string;
   supply?: number;
   install?: number;
   items: ItemPriceResult[];
@@ -438,6 +441,70 @@ function normUnit(u: string): string {
 /** The unit class of a unit string against the config table, or null when unknown; "" is its own case. PURE.
  * SLICE 11: a `unit_factors` spelling belongs to the class it declares, so it resolves here too -- the class
  * is what picks the SKUs; the factor (below) is what converts their rate. */
+/**
+ * SLICE 12c-U (owner U3). PURE. Does this unit cell mean "rate only" -- a rate asked for with no
+ * quantity, and therefore with no unit?
+ *
+ * ⚠️ THE SPELLINGS ARE ONE THING, NOT FOUR. The owner named "R/O, RO, R.O., Rate Only" and ruled
+ * them alike, so the comparison drops every non-alphanumeric character and the case: `R/O`, `RO`,
+ * `R.O.`, `R O` and `Rate Only` all normalise to the same key. That is also why this cannot be a
+ * list of literal spellings -- a BoQ writes punctuation however it likes.
+ *
+ * ⚠️ IT CANNOT SHADOW A REAL UNIT, AND THAT WAS MEASURED, NOT ASSUMED. `unitClassOf` is consulted
+ * FIRST at the one call site, so a spelling that IS a unit can never reach this; and over both
+ * shipped item-list categories every one of these spellings resolves to `null` through
+ * `unitClassOf` (checked against the live `unit_classes` and `unit_factors` of `hvac_adp` and
+ * `hvac_insulation` -- 70 spellings). A category that one day declares a unit called "ro" would
+ * keep it, because the unit lookup wins.
+ */
+const RATE_ONLY_KEYS: ReadonlySet<string> = new Set(["ro", "rateonly"]);
+
+export function isRateOnlyUnit(unit: string | null | undefined): boolean {
+  const key = String(unit ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return key !== "" && RATE_ONLY_KEYS.has(key);
+}
+
+/**
+ * SLICE 12c-U (owner U2 / U3 / U4). PURE. The unit CLASSES this ROW could be priced in.
+ *
+ * ⚠️ IT IS THE INTERSECTION ACROSS THE ROW'S ITEMS, AND IT HAS TO BE. A row prices in ONE class --
+ * `priceOneItem` is handed a single `rowUnitClass` -- so a class only counts if EVERY item on the
+ * row can be priced in it. On the one-item rows this rule actually fires on, the intersection is
+ * simply that item's own set, which is exactly what the calculator's picker offers for it.
+ *
+ * ⚠️ THE SOURCE IS `familyUnitClasses`, THE SAME FUNCTION `unitChoicesOf` READS. That is the whole
+ * point of resolving it here rather than writing a second list: `familyUnitClasses` already folds in
+ * the family's own pipelines, its declared `convert` conversions (12c-F) and its `units_not_offered`
+ * (12c-S), so this rule inherits every one of those rulings and cannot drift from the picker.
+ * (`unitChoicesOf` takes the UNION, because a picker offers what ANY block could use; a ROW must be
+ * priceable in the class it picks, hence the intersection. One source, two questions.)
+ *
+ * An item whose family is unknown, aliased to nothing, or carries no SKUs contributes NOTHING and
+ * therefore empties the set -- such a row cannot be priced in any unit, and it refuses as it always
+ * did rather than being guessed into one.
+ */
+export function rowUnitClasses(
+  spec: ItemListPricingSpec,
+  extracted: readonly ExtractedListItem[] | null | undefined,
+): string[] {
+  if (!extracted || !extracted.length) return [];
+  let acc: string[] | null = null;
+  for (const item of extracted) {
+    const raw = rawValue(item, familyAttr(spec));
+    const rawStr = raw === null ? null : String(raw);
+    const family = rawStr === null || rawStr === "None" ? null : (spec.family_alias?.[rawStr] ?? rawStr);
+    const classes = family ? familyUnitClasses(spec, family) : [];
+    acc = acc === null ? classes.slice() : acc.filter((c) => classes.includes(c));
+    if (acc.length === 0) return [];
+  }
+  return acc ?? [];
+}
+
+/** SLICE 12c-U. The unit a row priced in, named as the pricer's BoQ would name it. PURE. */
+export function unitWordOf(spec: ItemListPricingSpec, cls: string): string {
+  return unitWord(spec, cls);
+}
+
 export function unitClassOf(spec: ItemListPricingSpec, unit: string | null | undefined): string | null {
   if (unit === null || unit === undefined || unit.trim() === "") return null;
   const u = normUnit(unit);
@@ -1257,13 +1324,54 @@ export function priceItemList(
   extracted: ExtractedListItem[] | null | undefined,
 ): RowPriceResult {
   const unit = rowUnit ?? "";
-  const cls = unitClassOf(spec, unit);
+  let cls = unitClassOf(spec, unit);
+  let unitNote: string | undefined;
+  /**
+   * SLICE 12c-U (owner U2 / U3 / U4, 2026-10-07) -- A ROW THAT STATES NO UNIT IS PRICED IN THE
+   * CATALOGUE'S UNIT FOR ITS ITEM, OR REFUSES NAMING THE CHOICE. It is never guessed.
+   *
+   * Owner U2: "no unit at all should be priced in the default unit of the SKU with proper comment".
+   * Owner U3: "R/O is rate only. tthese should also be priced in the default SKU unit with
+   * appropriate comment". Owner U4 ("agreed"): where the item can be priced in MORE THAN ONE unit
+   * -- Cladding Only per metre or per sq.m, VCD per sq.m or by number -- it REFUSES and names them,
+   * because there is no default to fall back on and a guess would be a silent wrong price.
+   *
+   * ⚠️ THIS SUPERSEDES R12's "no unit -> refuse" FOR A MISSING OR RATE-ONLY UNIT ONLY. A unit that
+   * is PRESENT and is a real unit the item cannot be priced in -- a spigot row written per metre, an
+   * actuator row per sq.m -- still refuses exactly as before (owner U1: "all theseshould refuse
+   * pricing"), because the BoQ said something and it was wrong, which is a different fact from the
+   * BoQ saying nothing.
+   *
+   * ⚠️ `unitClassOf` IS CONSULTED FIRST, so a real unit can never be read as "rate only", and a
+   * category that declared a unit spelled like one would keep it.
+   */
+  if (cls === null && (unit.trim() === "" || isRateOnlyUnit(unit))) {
+    const rateOnly = isRateOnlyUnit(unit);
+    const lead = rateOnly
+      ? `BoQ says ${unit.trim()} (rate only)`
+      : "No unit on the BoQ row";
+    const classes = rowUnitClasses(spec, extracted);
+    if (classes.length === 1) {
+      cls = classes[0];
+      unitNote = `${lead} -> priced per ${unitWord(spec, cls)}, the catalogue's unit for this item`;
+    } else if (classes.length > 1) {
+      const named = classes.map((c) => `per ${unitWord(spec, c)}`).join(" or ");
+      return {
+        unit,
+        unitClass: null,
+        priced: false,
+        reason: `${lead} - this item is priced ${named}; set the unit`,
+        items: [],
+      };
+    }
+    // classes.length === 0: nothing to price in at all -- fall through to the unchanged refusal
+  }
   if (cls === null) {
     const reason = unit.trim() === "" ? "no unit on this row (R12)" : `unit '${unit.trim()}' is not a count, area or length unit (R12)`;
     return { unit, unitClass: null, priced: false, reason, items: [] };
   }
   if (!extracted || !extracted.length) {
-    return { unit, unitClass: cls, priced: false, reason: "no items were read on this row", items: [] };
+    return { unit, unitClass: cls, priced: false, reason: "no items were read on this row", items: [], ...(unitNote ? { unitNote } : {}) };
   }
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
@@ -1312,10 +1420,10 @@ export function priceItemList(
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
     const who = priced.length > 1 ? `item ${firstBlank.index + 1}${firstBlank.family ? ` (${firstBlank.family})` : ""}: ` : "";
-    return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced };
+    return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced, ...(unitNote ? { unitNote } : {}) };
   }
   const sum = (k: string) => priced.reduce((a, p) => a + (p.figures[k] ?? 0), 0);
-  return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced };
+  return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced, ...(unitNote ? { unitNote } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------------------

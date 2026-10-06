@@ -22,8 +22,10 @@ import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data
 import HVAC_V26 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
+  isRateOnlyUnit,
   itemListPricingSpec,
   priceItemList,
+  rowUnitClasses,
   projectUnitClass,
   readNumber,
   splitSizePhrase,
@@ -109,19 +111,128 @@ describe("slice 5 / the projection is read-time and never writes back", () => {
   });
 });
 
+/**
+ * SLICE 12c-U (owner U1-U5, 2026-10-07) -- A ROW THAT STATES NO UNIT, OR "RATE ONLY".
+ *
+ * Plain English, one line per test:
+ *   the four spellings of "rate only" are ONE thing, and nothing else is
+ *   a blank unit on a one-unit item PRICES in that unit and says so
+ *   a rate-only unit does the same, quoting what the BoQ actually wrote
+ *   an item priced in SEVERAL units REFUSES and names them -- it never guesses (U4)
+ *   a unit the row STATED that the item cannot take still refuses, unchanged (U1)
+ *   the set of units comes from `familyUnitClasses` -- the same function the picker reads
+ *   an item with no family at all still refuses, in today's words
+ */
+describe("slice 12c-U / no unit or rate-only -> the catalogue's unit, or a named choice", () => {
+  it("the rate-only spellings are one thing, and a real unit is never one of them", () => {
+    for (const u of ["R/O", "RO", "R.O.", "r/o", "ro", "R O", "Rate Only", "rate only", "RATE-ONLY", " R/O "]) {
+      expect(isRateOnlyUnit(u), u).toBe(true);
+    }
+    // NEGATIVE: a blank is NOT "rate only" (it is its own case), and no unit of measure is
+    for (const u of ["", "   ", "Nos", "Sqm", "Rmt", "Lot", "Cum", "Rolls", "Round", "Rod"]) {
+      expect(isRateOnlyUnit(u), u).toBe(false);
+    }
+    // NEGATIVE, the load-bearing one: every rate-only spelling is UNKNOWN to the unit table, so the
+    // unit lookup -- which runs FIRST -- can never be shadowed by this rule.
+    for (const u of ["R/O", "RO", "R.O.", "Rate Only"]) expect(unitClassOf(spec, u), u).toBeNull();
+  });
+
+  it("a blank unit on a one-unit item prices in that unit and says so (U2)", () => {
+    const r = one("", { family: "butterfly damper", dia_mm: "100" });
+    expect(r.priced).toBe(true);
+    expect(r.unitClass).toBe("count");
+    expect(r.unitNote).toBe("No unit on the BoQ row -> priced per number, the catalogue's unit for this item");
+  });
+
+  it("a rate-only unit does the same, quoting what the BoQ wrote (U3)", () => {
+    for (const u of ["R/O", "Rate Only"]) {
+      const r = one(u, { family: "butterfly damper", dia_mm: "100" });
+      expect(r.priced, u).toBe(true);
+      expect(r.unitClass, u).toBe("count");
+      expect(r.unitNote, u).toBe(`BoQ says ${u} (rate only) -> priced per number, the catalogue's unit for this item`);
+    }
+  });
+
+  it("the figures are the ones that unit always gave -- resolving the unit changes no arithmetic", () => {
+    const resolved = one("", { family: "butterfly damper", dia_mm: "100" });
+    const stated = one("Nos", { family: "butterfly damper", dia_mm: "100" });
+    expect(resolved.supply).toBe(stated.supply);
+    expect(resolved.install).toBe(stated.install);
+    // ...and the STATED row carries no note, because nothing had to be resolved for it
+    expect(stated.unitNote).toBeUndefined();
+  });
+
+  it("an item priced in SEVERAL units refuses and NAMES them -- it never guesses (U4)", () => {
+    for (const u of ["", "R/O"]) {
+      const r = one(u, { family: "VCD", variant: "None", damper: "None", insulated: "None" });
+      expect(r.priced, u).toBe(false);
+      expect(r.unitNote, u).toBeUndefined();
+      expect(r.reason, u).toContain("this item is priced per sq.m or per number; set the unit");
+      expect(r.reason, u).toContain(u === "" ? "No unit on the BoQ row" : "BoQ says R/O (rate only)");
+    }
+  });
+
+  it("NEGATIVE (U1): a unit the row STATED that this item cannot take still refuses, unchanged", () => {
+    // spigot is priced by number only; a row written per metre said something, and it was wrong
+    const r = one("Rmt", { family: "spigot", dia_mm: "200" });
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("no SKU per metre for spigot");
+    expect(r.unitNote).toBeUndefined();
+  });
+
+  it("the offered set IS `familyUnitClasses` -- one source, not a second list", () => {
+    expect(rowUnitClasses(spec, [ext({ family: "butterfly damper", dia_mm: "100" })]))
+      .toEqual(familyUnitClasses(spec, "butterfly damper"));
+    expect(rowUnitClasses(spec, [ext({ family: "VCD", variant: "None" })]))
+      .toEqual(familyUnitClasses(spec, "VCD"));
+    // a row of SEVERAL items can only be priced in a class EVERY item supports -- the intersection
+    const mixed = rowUnitClasses(spec, [
+      ext({ family: "VCD", variant: "None" }),           // [area, count]
+      ext({ family: "butterfly damper", dia_mm: "100" }), // [count]
+    ]);
+    expect(mixed).toEqual(["count"]);
+  });
+
+  it("NEGATIVE: an item with no family contributes nothing, so the row still refuses in today's words", () => {
+    expect(rowUnitClasses(spec, [ext({ family: "None" })])).toEqual([]);
+    expect(rowUnitClasses(spec, [])).toEqual([]);
+    const r = one("", { family: "None" });
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("no unit on this row (R12)");
+    expect(r.unitNote).toBeUndefined();
+  });
+});
+
 describe("slice 5 / R12 -- the row's unit decides the unit class; no unit = refuse with the reason", () => {
   it("POSITIVE: the spellings seen on real BoQs classify", () => {
     for (const [u, c] of [["Nos", "count"], ["No.", "count"], ["No's", "count"], ["EA", "count"], ["Sqm", "area"], ["Sq.m", "area"], ["SqM", "area"], ["Sqmt", "area"], ["M2", "area"], ["m²", "area"], ["Rmt", "length"], ["RM", "length"], ["Metre", "length"], ["M", "length"]]) {
       expect(unitClassOf(spec, u)).toBe(c);
     }
   });
-  it("NEGATIVE: no unit refuses the ROW naming R12; an unknown unit refuses naming the unit", () => {
+  /**
+   * INVERTED 2026-10-07 under the MECHANICAL AUTHORITY, NOT deleted (slice 12c-U, owner U2).
+   *
+   * This half used to assert that a row with NO unit refuses naming R12. The owner superseded that
+   * for a MISSING unit: "no unit at all should be priced in the default unit of the SKU with proper
+   * comment". Spigot is priced in exactly ONE class (count), so there is a default and the row now
+   * prices in it, saying so.
+   *
+   * ⚠️ WHAT THE PIN WAS PROTECTING IS KEPT AND SHARPENED. The thing that must stay true is not "no
+   * unit refuses", it is "a unit the row DID state and that is not a unit of measure still refuses,
+   * in today's words" -- so `Lot` and `Cum` are asserted here unchanged, and they are the half that
+   * would catch this rule leaking past the missing-unit case.
+   */
+  it("INVERTED: no unit now prices in the item's one catalogue unit; a stated non-unit still refuses", () => {
     const r = one("", { family: "spigot", dia_mm: "100" });
-    expect(r.priced).toBe(false);
-    expect(r.reason).toBe("no unit on this row (R12)");
-    expect(r.items).toEqual([]);
+    expect(r.priced).toBe(true);
+    expect(r.unitClass).toBe("count");
+    expect(r.unitNote).toBe("No unit on the BoQ row -> priced per number, the catalogue's unit for this item");
+    expect(r.items.length).toBe(1);
+    // NEGATIVE, unchanged: a unit the row STATED that is not a unit of measure keeps refusing
     expect(one("Lot", { family: "spigot", dia_mm: "100" }).reason).toBe("unit 'Lot' is not a count, area or length unit (R12)");
     expect(one("Cum", { family: "spigot", dia_mm: "100" }).reason).toContain("Cum");
+    // NEGATIVE: and neither of those carries a unit note -- the note belongs to the resolved case only
+    expect(one("Lot", { family: "spigot", dia_mm: "100" }).unitNote).toBeUndefined();
   });
 });
 
@@ -1633,13 +1744,34 @@ describe("slice 11 / F-2 -- four TRUE synonyms, and three strings that are not u
     for (const u of ["Sqm", "sq.mtr", "Rmt", "Nos"]) expect(unitClassOf(spec13, u), u).toBe(unitClassOf(spec12, u));
   });
 
-  it("⚠️ NEGATIVE: Lot, R/O and Cum are not units of measure and keep refusing in today's words", () => {
+  /**
+   * PARTIALLY INVERTED 2026-10-07 under the MECHANICAL AUTHORITY, NOT deleted (slice 12c-U, owner
+   * U3 / U4). `Lot` and `Cum` are untouched -- they are still not units of measure and still refuse
+   * in today's words, which is two thirds of what this pin always protected.
+   *
+   * `R/O` moved, and ONLY `R/O`: the owner ruled it means RATE ONLY, not a unit -- "R/O is rate
+   * only. tthese should also be priced in the default SKU unit with appropriate comment". The
+   * fixture's family here is VCD, which is priced per sq.m OR by number, so there is NO single
+   * default and U4 applies: it refuses and NAMES the choice rather than guessing one.
+   *
+   * ⚠️ `unitClassOf` STILL RETURNS NULL FOR ALL THREE, and that half is asserted for all three
+   * unchanged -- the rate-only rule must never make `R/O` resolve as a unit; it only decides what
+   * happens AFTER the unit lookup has failed.
+   */
+  it("⚠️ PARTIALLY INVERTED: Lot and Cum still refuse in today's words; R/O is rate only and names the choice", () => {
     for (const u of ["Lot", "R/O", "Cum"]) {
       expect(unitClassOf(spec13, u), u).toBeNull();
+    }
+    for (const u of ["Lot", "Cum"]) {
       const r = priceItemList(spec13, items13, u, [ext({ family: "VCD", variant: "None", damper: "None", insulated: "None" })]);
       expect(r.priced, u).toBe(false);
       expect(r.reason, u).toBe(`unit '${u}' is not a count, area or length unit (R12)`);
+      expect(r.unitNote, u).toBeUndefined();
     }
+    const ro = priceItemList(spec13, items13, "R/O", [ext({ family: "VCD", variant: "None", damper: "None", insulated: "None" })]);
+    expect(ro.priced).toBe(false);
+    expect(ro.reason).toBe("BoQ says R/O (rate only) - this item is priced per sq.m or per number; set the unit");
+    expect(ro.unitNote).toBeUndefined();
   });
 
   it("⚠️ NEGATIVE: on v12 all four synonyms were unknown -- so the four entries above are what changed", () => {

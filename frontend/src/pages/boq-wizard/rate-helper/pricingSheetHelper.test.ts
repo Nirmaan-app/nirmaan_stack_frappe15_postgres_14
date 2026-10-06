@@ -5233,8 +5233,25 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
   it("R12 through the panel: the BoQ row's unit rides the context; no unit refuses; the calculator picks one", () => {
     const h = runWith([{ excel_row: 15, items: [SPIGOT] }]);
     expect(list(h.compute(adpCtx(15, "Nos"))).v).toMatchObject({ unit: "Nos", unitClass: "count", unitPickable: false, rowPriced: true });
+    /**
+     * INVERTED 2026-10-07 under the MECHANICAL AUTHORITY, NOT deleted (slice 12c-U, owner U2). This
+     * asserted that a BoQ row with NO unit refuses through the panel naming R12. The owner
+     * superseded that for a missing unit, and this is the SEAM the note has to cross -- the rule
+     * lives in `priceItemList` and the panel can only show what `ItemListView` carries, so this is
+     * the test that proves the note ARRIVES rather than merely being returned.
+     *
+     * The fixture's item is SPIGOT, priced by number and nothing else, so there is exactly one
+     * catalogue unit and the row prices in it. What the pin still protects -- that the row unit is
+     * NOT pickable on a BoQ row, unlike the calculator below -- is asserted unchanged.
+     */
     const none = list(h.compute(adpCtx(15, "")));
-    expect(none.v).toMatchObject({ unit: "", unitClass: null, unitPickable: false, rowPriced: false, reason: "no unit on this row (R12)" });
+    expect(none.v).toMatchObject({
+      unit: "", unitClass: "count", unitPickable: false, rowPriced: true,
+      unitNote: "No unit on the BoQ row -> priced per number, the catalogue's unit for this item",
+    });
+    expect(none.v.reason).toBeUndefined();
+    // NEGATIVE: a row that DID state its unit carries no note -- nothing had to be resolved for it
+    expect(list(h.compute(adpCtx(15, "Nos"))).v.unitNote).toBeUndefined();
     // no unit on the context at all (the calculator): pickable, the first spelling of the first class, overridable
     const calc = makePricingSheetHelper({ configsByCategory: CONFIGS8, items: ITEMS8, extractionByRow: new Map() });
     const c0 = list(calc.compute(adpCtx(0, undefined)));

@@ -194,7 +194,11 @@ describe("every stored extracted row -- the panel's figures and the calculator's
      */
     expect(tally.get("A_wiring_primary")).toEqual({ classes: 73, rows: 188 });
     expect(tally.get("B_stale_pick")).toBeUndefined();
-    expect(tally.get("C_unit_not_offered")).toEqual({ classes: 5, rows: 5 });
+    // SLICE 12c-U: 5 -> 3. The two rows whose BoQ said NO unit (or "rate only") now resolve to the
+    // catalogue's unit for their item and AGREE on both surfaces, so they left the list. The three
+    // that remain are the ones whose BoQ SAID a unit the item cannot take -- owner U1, refusing is
+    // correct. INVERTED, not deleted: the count is still pinned exactly.
+    expect(tally.get("C_unit_not_offered")).toEqual({ classes: 3, rows: 3 });
     expect(tally.get("D_reason_only")).toEqual({ classes: 8, rows: 8 });
     expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered", "D_reason_only"]);
   });
@@ -208,7 +212,7 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     // the ONLY two categories with any divergence at all
     expect([...perCat.keys()].sort()).toEqual(["hvac_adp", "wiring_cabling"]);
     expect(perCat.get("wiring_cabling")).toBe(188);
-    expect(perCat.get("hvac_adp")).toBe(13); // 12c-F: was 24; fix B closed 8, fix C closed 3
+    expect(perCat.get("hvac_adp")).toBe(11); // 12c-F: 24 -> 13; 12c-U: the no-unit and R/O rows closed, 13 -> 11
   });
 
   it("THE HEADLINE: no ITEM-LIST row ever produces a figure on both surfaces that disagree", () => {
@@ -266,7 +270,9 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered"]);
     expect(tally.get("A_wiring_primary")).toEqual({ classes: 9, rows: 10 });
     expect(tally.get("B_stale_pick")).toBeUndefined();
-    expect(tally.get("C_unit_not_offered")).toEqual({ classes: 3, rows: 3 });
+    // SLICE 12c-U: 3 -> 2. The R/O row now prices on BOTH surfaces, so it no longer withholds a
+    // figure on one; the no-unit row refuses on both and never did. INVERTED, not deleted.
+    expect(tally.get("C_unit_not_offered")).toEqual({ classes: 2, rows: 2 });
     // D is DEFINED as "both refuse", so it can never appear here
     expect(tally.get("D_reason_only")).toBeUndefined();
   }, 60000);
@@ -293,7 +299,8 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     const calcOnly = CORPUS_RESULTS.filter((x) =>
       x.cause !== null && !hasPrice(x.run.panel) && hasPrice(x.run.calculator)
       && !!itemListPricingSpec(configs.get(x.k.case.cat) ?? null));
-    expect(calcOnly).toHaveLength(3);
+    // SLICE 12c-U: 3 -> 2. The R/O row left this set by being priced on both surfaces.
+    expect(calcOnly).toHaveLength(2);
     expect(new Set(calcOnly.map((x) => x.cause))).toEqual(new Set(["C_unit_not_offered"]));
   }, 60000);
 
@@ -315,7 +322,11 @@ describe("the owner's ruling on each cause (12c-F)", () => {
     const awaiting = new Set(
       AWAITING_CORPUS_DIVERGENCES.filter((d) => STATUS_BY_CAUSE[d.cause] === "awaiting owner review").map((d) => d.cause),
     );
-    expect([...awaiting]).toEqual(["C_unit_not_offered"]);
+    // SLICE 12c-U: the owner ruled on C too (U1 -- "all theseshould refuse pricing"), so NOTHING in
+    // this corpus is awaiting a ruling. INVERTED, not deleted: the set is still pinned exactly, and
+    // a NEW divergence would make it non-empty and fail here.
+    expect(STATUS_BY_CAUSE.C_unit_not_offered).toBe("accepted by owner");   // owner U1
+    expect([...awaiting]).toEqual([]);
   });
 
   it("no listed divergence carries cause B any more -- fix B closed every one", () => {
@@ -337,11 +348,24 @@ describe("the owner's ruling on each cause (12c-F)", () => {
     }
   });
 
-  it("the five rows still awaiting are named, and none of them is a value problem", () => {
+  /**
+   * INVERTED 2026-10-07 (slice 12c-U), NOT deleted. This named the FIVE rows awaiting a ruling. The
+   * owner has now ruled on all five, in two opposite directions, so the list is EMPTY -- and what the
+   * pin protects is kept by naming the three that remain listed-but-accepted instead. A new
+   * divergence, or one of these three silently closing, still fails here.
+   */
+  it("nothing is awaiting a ruling; the three that remain are the owner's accepted refusals", () => {
     const awaiting = AWAITING_CORPUS_DIVERGENCES.filter((d) => STATUS_BY_CAUSE[d.cause] === "awaiting owner review");
-    expect(awaiting.map((d) => d.id).sort()).toEqual([
-      "BRSR-26-01311#25", "BRSR-26-01311#27", "BRSR-26-01311#52", "BRSR-26-01312#51", "BRSR-26-01369#43",
+    expect(awaiting.map((d) => d.id).sort()).toEqual([]);
+    // owner U1: the BoQ SAID a unit and it was wrong for the item -- the panel refusing is correct
+    const unitShaped = AWAITING_CORPUS_DIVERGENCES.filter((d) => d.cause === "C_unit_not_offered");
+    expect(unitShaped.map((d) => d.id).sort()).toEqual([
+      "BRSR-26-01311#25", "BRSR-26-01311#27", "BRSR-26-01311#52",
     ]);
+    // NEGATIVE: the two rows the owner's U2 / U3 ruling closed are GONE from the list entirely
+    const ids = new Set(AWAITING_CORPUS_DIVERGENCES.map((d) => d.id));
+    expect(ids.has("BRSR-26-01312#51")).toBe(false);
+    expect(ids.has("BRSR-26-01369#43")).toBe(false);
   });
 });
 

@@ -1808,6 +1808,10 @@ export interface ItemListView {
   unitChoices: string[];
   rowPriced: boolean;
   reason?: string;
+  /** SLICE 12c-U (owner U2 / U3): how a row that stated NO unit -- or "rate only" -- came to be
+   *  priced in the unit it was. Present ONLY on such a row; every other row carries nothing, so no
+   *  existing panel changes. */
+  unitNote?: string;
   items: ItemBlockView[];
   families: Array<{ family: string; units: string }>;
   editState: ItemListEditState;
@@ -2379,6 +2383,7 @@ function computeItemList(
   else if (priced.reason) derivation.push(priced.reason);
   const view: ItemListView = {
     unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
+    ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
     items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
     // the ROW's own totals -- the same figures the headline shows, so "Row total" can never disagree
     // with it (see the warning on `rowTotals`)
