@@ -1,7 +1,7 @@
 # Implementation Plan — Auto CEO Hold on >4 Pending Delivery Notes (+ reasons for auto-holds)
 
 **Status:** plan for review (2026-06-23). No code written yet.
-**Design of record:** `docs/adr/0004-multi-source-ceo-hold.md` · **Glossary:** `docs/CONTEXT.md`
+**Design of record:** `docs/adr/0004-multi-source-ceo-hold.md` · **Glossary:** `docs/GLOSSARY.md`
 **Builds on:** the Project Action Item projection (ADR-0002) + the cashflow auto-hold engine.
 
 ---
@@ -204,7 +204,7 @@ Frontend: in-container `tsc` (0 new errors) + `yarn build` exit 0.
 - `docs/ceo_hold_auto_management.md` — extend for the multi-source reasons model + the delivery-pending source.
 - `frontend/.claude/context/domain/ceo-hold.md` — replace the stale "manual-only" section; document both
   automatic sources + the reasons table + the manual-release block.
-- `docs/CONTEXT.md` — already updated during the grill.
+- `docs/GLOSSARY.md` — already updated during the grill.
 
 ---
 

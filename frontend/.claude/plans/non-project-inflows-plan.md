@@ -3,7 +3,7 @@
 Date: 2026-09-14 · Status: **PLAN — awaiting owner go; no code written**
 
 Decision record: `docs/adr/0016-bank-statement-import-creates-inflows.md` **Amendment A**.
-Glossary: root `CONTEXT.md` § Inflows. Grill: `/grill-with-docs` 2026-09-14, Q1–Q15 + edit-permission ruling.
+Glossary: root `GLOSSARY.md` § Inflows. Grill: `/grill-with-docs` 2026-09-14, Q1–Q15 + edit-permission ruling.
 
 ## Owner rulings (the contract)
 

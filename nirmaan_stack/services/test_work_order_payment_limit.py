@@ -1,6 +1,6 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
-"""The Work Order payment limit (ADR-0030; CONTEXT.md, *Work Order payment limit*). Pure, no DB.
+"""The Work Order payment limit (ADR-0030; GLOSSARY.md, *Work Order payment limit*). Pure, no DB.
 
 The endpoint suite (`api/payments/test_work_order_payment_limit`) drives the same rules through
 `create_payment_request_for_service` and `get_payment_summary`.

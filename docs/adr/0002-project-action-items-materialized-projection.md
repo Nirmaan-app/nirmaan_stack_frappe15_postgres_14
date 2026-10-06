@@ -41,7 +41,7 @@ Documents) for timeliness **plus a nightly sweep** as the self-healing backstop.
   (`Dispatched` / `Partially Dispatched` / `Partially Delivered`, Billable), and **DC Pending** is
   a coarse PO-level "delivered Billable PO with no Delivery Challan document."
 - **DN Pending is redefined** from the reconcile-report sense ("a Delivery Challan exists but no
-  Delivery Note") to the worklist sense ("dispatched, not yet fully delivered"). See `CONTEXT.md`.
+  Delivery Note") to the worklist sense ("dispatched, not yet fully delivered"). See `GLOSSARY.md`.
 - Reverts, deletions, partial/return flows, and missed events all **self-heal** at the next
   reconcile (event or nightly), because rows are rebuilt to match truth, never deltated.
 - The projection is **rebuildable from scratch** at any time (truncate + reconcile-all), which is

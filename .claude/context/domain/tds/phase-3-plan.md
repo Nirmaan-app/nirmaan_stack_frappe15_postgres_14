@@ -1,7 +1,7 @@
 # Phase 3 — Item-side TDS linking (N:1, item-owned membership)
 
 > 🗄️ **HISTORICAL BUILD PLAN — shipped; its later AS-BUILT sections reverse some early decisions.**
-> Today's model: `docs/adr/0023`–`0026` + root `CONTEXT.md`. Drift found 2026-09-17: Decision 7 / Task 1
+> Today's model: `docs/adr/0023`–`0026` + root `GLOSSARY.md`. Drift found 2026-09-17: Decision 7 / Task 1
 > ("child table dormant, `Items.on_update` retired") was **reversed on 2026-08-04** — the child table is a
 > live display mirror and the `Items` hooks are registered; the Task 4 tie-break does not hard-code
 > `ITEM-000134`/`ITEM-001177` (it drops the catch-all group by name, falls back to lowest group id, aborts
@@ -14,7 +14,7 @@
 > `members` child table) to **N:1 owned by the Item** (a single `linked_tds_item`
 > Link on `Items`). Stakeholders tag an item with its one TDS group from the
 > **Items side**; the TDS-side dialog stays as a second writer into the same store.
-> Grilled 2026-06-17. Glossary updated in `CONTEXT.md`; ADR-0023 membership clause
+> Grilled 2026-06-17. Glossary updated in `GLOSSARY.md`; ADR-0023 membership clause
 > superseded.
 
 ---

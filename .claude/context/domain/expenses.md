@@ -1,7 +1,7 @@
 # Expenses Domain — Approval Workflow & Unified Module
 
 As-built reference for the Expense module (Project + Non-Project expenses). Domain
-language lives in `CONTEXT.md` ("Expense workflow & settlement"); the type-normalization
+language lives in `GLOSSARY.md` ("Expense workflow & settlement"); the type-normalization
 decision is `docs/adr/0009-project-expense-type-normalization.md`. This doc records
 **what was added, improved, and changed** across the feature.
 
@@ -14,7 +14,7 @@ An **Expense** is a cost recorded outside the PO / Service Request flow. Two kin
 Both share one approval lifecycle and are entered/managed together in a single unified
 **Expense** area (`/expense`).
 
-## Domain rules (source of truth: `CONTEXT.md`)
+## Domain rules (source of truth: `GLOSSARY.md`)
 
 - **Status lifecycle:** `Requested → CEO Pending → Approved → Reconciliation Pending → Paid`
   (one-way; both expense doctypes carry all five plus `Rejected`). *Approved* = sanctioned
@@ -181,7 +181,7 @@ documented Payment By as Paid-only while the code had drifted.
 
 ### Payments queue: expense pencil, raiser skip, approve-dialog details (2026-09-21)
 
-Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms in `CONTEXT.md`
+Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms in `GLOSSARY.md`
 (*Raiser's own step*, *Editing a record by status*).
 
 - **A second edit surface, with its own gating.** The unified Payments queue (every tab, plus the
@@ -698,7 +698,7 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 ---
 
 ## Cross-references
-- Glossary: `CONTEXT.md` → "Expense workflow & settlement" (incl. *linked total*
+- Glossary: `GLOSSARY.md` → "Expense workflow & settlement" (incl. *linked total*
   under *Reconciliation Pending*, and *Bounced transfer*).
 - Decision: `docs/adr/0009-project-expense-type-normalization.md`.
 - Decision: `docs/adr/0016-expense-request-vs-expense.md` (request vs expense).

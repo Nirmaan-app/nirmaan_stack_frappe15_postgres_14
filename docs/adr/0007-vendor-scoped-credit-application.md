@@ -6,7 +6,7 @@ Date: 2026-06-29
 
 Accepted. Built on branch `vendor-wise-adjust`. Adds a "pull" flow to the existing PO
 Adjustments system; the "push" flow (`execute_adjustment` / "Adjust Payments") is otherwise
-unchanged. Terms in [CONTEXT.md](../../CONTEXT.md) ("Vendor credit & adjustment application");
+unchanged. Terms in [GLOSSARY.md](../../GLOSSARY.md) ("Vendor credit & adjustment application");
 mechanics in `frontend/.claude/context/domain/po-adjustments.md`.
 
 ## Context

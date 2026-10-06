@@ -2,7 +2,7 @@
 
 **Status:** BUILT on branch `feature/snag-list`, 2026-08-21. Not committed, not merged.
 See § 10 As-built for what actually shipped and what is still unverified.
-Decisions settled in a grilling session, 2026-08-21. Glossary: root `CONTEXT.md` § Snag tracking.
+Decisions settled in a grilling session, 2026-08-21. Glossary: root `GLOSSARY.md` § Snag tracking.
 Decisions of record: [ADR-0016](../../../docs/adr/0016-snag-category-is-free-text.md),
 [ADR-0017](../../../docs/adr/0017-snag-rows-are-standalone-documents.md).
 
@@ -283,7 +283,7 @@ that is then accepted). The regression test is owed.
 | — | bulk status change | **takes no remark** (Q12a) — it would overwrite N different remarks with one sentence |
 | — | `get_snag_stats` | **gains the missing permission guard** (Q13) — today any logged-in user can read it |
 
-Decision of record for 6+8+9: **ADR-0018**. Glossary term: root `CONTEXT.md` § Snag tracking, *Remark*.
+Decision of record for 6+8+9: **ADR-0018**. Glossary term: root `GLOSSARY.md` § Snag tracking, *Remark*.
 
 ## R2.3 — What the changes actually mean (each of these surprised the plan)
 

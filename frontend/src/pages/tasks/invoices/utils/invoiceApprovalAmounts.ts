@@ -1,6 +1,6 @@
 /**
  * What the invoice approval screen shows about an invoice's base / GST / total and, on a
- * GST-on Work Order, how much GST approving it opens up. ADR-0030; glossary: CONTEXT.md,
+ * GST-on Work Order, how much GST approving it opens up. ADR-0030; glossary: GLOSSARY.md,
  * "Invoice amounts" and "GST Invoiced".
  *
  * The GST figure is computed on the server (`api/invoices/gst_release.get_invoice_gst_release`,
