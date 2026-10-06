@@ -294,9 +294,15 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by
                  # row kind -- unit class, then the declared words in the row or its headings.
                  # Arrives WITH its shape check (`_validate_family_when_none`), as every key must.
-                 "family_when_none"}
+                 "family_when_none",
+                 # SLICE 12d-1a (owner R4): a STATED value that prices as another value of its
+                 # attribute for named families, or refuses -- foil on a pipe is 26G, foil on an
+                 # acoustic row refuses. Arrives WITH its shape check (`_validate_value_map`).
+                 "value_map"}
 _PRICING_FWN_KEYS = {"by_unit_class", "when_words", "rule"}
 _PRICING_FWN_WORD_KEYS = {"unit_class", "words", "family"}
+_PRICING_VALUE_MAP_KEYS = {"attr", "families", "from", "to", "refuse", "rule", "display"}
+_PRICING_VALUE_MAP_REQUIRED = {"attr", "families", "from", "rule"}
 # SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). `defaults` cannot express this --
 # it requires a CHOICE attribute carrying `allow_none`, and a thickness is a NUMBER read through
 # `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
@@ -462,6 +468,49 @@ def _validate_family_when_none(fwn, ucls, fams):
                 _vthrow(f"{wloc}.family must name a priceable family of this category.")
     if not isinstance(fwn.get("rule"), str) or not fwn["rule"].strip():
         _vthrow(f"{loc}.rule must be a non-empty string saying whose ruling it is.")
+
+
+def _validate_value_map(vm, by_id, choice_attrs, fams):
+    """SLICE 12d-1a (owner R4) -- the shape of `list_spec.pricing.value_map`: a list of rules, each
+    naming a CHOICE attribute of this category, the PRICEABLE families it applies to, the stated
+    value (`from`, one of the attribute's own values) and EXACTLY ONE of `to` (another of its values,
+    which then prices) or `refuse` (the sentence the item refuses with); `rule` says whose ruling it
+    is; `display` (optional) is the word the panel shows. Refused by name otherwise, and an EMPTY
+    list is a mistake, never an inert key."""
+    loc = "list_spec.pricing.value_map"
+    if not isinstance(vm, list):
+        _vthrow(f"{loc} must be a list.")
+    if not vm:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(vm):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_VALUE_MAP_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_VALUE_MAP_REQUIRED - set(r):
+            _vthrow(f"{rloc} must carry attr / families / from / rule.")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute of this category.")
+        vals = by_id[r["attr"]].get("values") or []
+        if r["from"] not in vals:
+            _vthrow(f"{rloc}.from must be one of the attribute's values.")
+        if ("to" in r) == ("refuse" in r):
+            _vthrow(f"{rloc} must carry exactly one of to / refuse.")
+        if "to" in r:
+            if r["to"] not in vals:
+                _vthrow(f"{rloc}.to must be one of the attribute's values.")
+            if r["to"] == r["from"]:
+                _vthrow(f"{rloc}.to must differ from from.")
+        if "refuse" in r and (not isinstance(r["refuse"], str) or not r["refuse"].strip()):
+            _vthrow(f"{rloc}.refuse must be a non-empty string.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        if not isinstance(r["rule"], str) or not r["rule"].strip():
+            _vthrow(f"{rloc}.rule must be a non-empty string.")
+        if "display" in r and (not isinstance(r["display"], str) or not r["display"].strip()):
+            _vthrow(f"{rloc}.display must be a non-empty string.")
 
 
 def _validate_list_pricing(spec, by_id, family_vals, cfg):
@@ -846,6 +895,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # never an inert key (the `override_when: {}` lesson).
     if "family_when_none" in pr:
         _validate_family_when_none(pr["family_when_none"], ucls, fams)
+    # SLICE 12d-1a (owner R4): `value_map` -- presence before the `or []` idiom, as above.
+    if "value_map" in pr:
+        _validate_value_map(pr["value_map"], by_id, choice_attrs, fams)
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):

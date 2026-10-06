@@ -12729,10 +12729,11 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                          # Insulation; v7 predates it and ADP declares it nowhere (pinned below).
                          - {"panel_controls", "override_when", "second_key", "unit_factors",
                             "size_match", "compose", "label_attr", "number_defaults",
-                            "typed_cladding", "panel_notes", "family_when_none"})
+                            "typed_cladding", "panel_notes", "family_when_none", "value_map"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
+        self.assertNotIn("value_map", pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -18218,3 +18219,69 @@ class TestSlice12d1aFamilyWhenNone(FrappeTestCase):
         msg = self._refused(c)
         self.assertIsNotNone(msg)
         self.assertIn("unknown key(s): family_when_non", msg)
+
+
+
+class TestSlice12d1aValueMap(FrappeTestCase):
+    """SLICE 12d-1a (owner R4, 2026-10-07) -- `list_spec.pricing.value_map`: a STATED value of a choice attribute
+    maps to another value of the same attribute for named families (`to`), or REFUSES the item with a reason
+    (`refuse`). Python checks the SHAPE and every REFERENCE (the attribute is a choice attribute, both values
+    are its own, the families are priceable, exactly one of to / refuse); what it does to a price is pinned on
+    the frontend side (`itemListPricing.test.ts`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    NR = "Nitrile Rubber Insulation"
+    AN = "Acoustic Nitrile Insulation"
+    MAP = {"attr": "cladding", "families": [NR], "from": "Aluminium Foil", "to": "26G Aluminium",
+           "rule": "R4 foil on a pipe is priced as 26G cladding", "display": "26G Aluminium"}
+    REFUSE = {"attr": "cladding", "families": [AN], "from": "Aluminium Foil",
+              "refuse": "foil on an acoustic row - set the cladding (R4)", "rule": "R4 foil on an acoustic row refuses"}
+
+    def _cfg(self, vm):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        c["list_spec"]["pricing"]["value_map"] = vm
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001 -- the validator's own throw
+            return str(exc)
+        return None
+
+    def test_r4_01_both_shapes_validate(self):
+        self.assertIsNone(self._refused(self._cfg([self.MAP, self.REFUSE])))
+        self.assertIsNone(self._refused(self._cfg([{k: v for k, v in self.MAP.items() if k != "display"}])))
+
+    def test_r4_02_refused_by_name_every_bad_shape(self):
+        bad = lambda **kw: dict(self.MAP, **kw)   # noqa: E731
+        cases = [
+            ({}, "value_map must be a list"),                                                         # presence before `or []`
+            ([], "value_map must be a non-empty list"),
+            (["x"], "must be an object"),
+            ([dict(self.MAP, extra=1)], "unknown key(s): extra"),
+            ([bad(attr="thickness_mm")], "attr must be a choice attribute"),
+            ([bad(attr="item")], "attr must be a choice attribute"),                                   # the family is not a SKU choice attr
+            ([{k: v for k, v in self.MAP.items() if k != "from"}], "must carry attr / families / from / rule"),
+            ([bad(**{"from": "Tin foil"})], "from must be one of the attribute's values"),
+            ([bad(to="Lead")], "to must be one of the attribute's values"),
+            ([bad(to="Aluminium Foil")], "to must differ from from"),
+            ([dict(self.MAP, refuse="x")], "exactly one of to / refuse"),
+            ([{k: v for k, v in self.MAP.items() if k != "to"}], "exactly one of to / refuse"),
+            ([dict(self.REFUSE, refuse="  ")], "refuse must be a non-empty string"),
+            ([bad(families=[])], "families must list priceable families"),
+            ([bad(families=["none of these"])], "families must list priceable families"),
+            ([bad(rule="")], "rule must be a non-empty string"),
+            ([bad(display=" ")], "display must be a non-empty string"),
+        ]
+        for vm, needle in cases:
+            msg = self._refused(self._cfg(vm))
+            self.assertIsNotNone(msg, f"accepted a bad value_map: {vm!r}")
+            self.assertIn(needle, msg, f"{vm!r} refused for the wrong reason: {msg}")

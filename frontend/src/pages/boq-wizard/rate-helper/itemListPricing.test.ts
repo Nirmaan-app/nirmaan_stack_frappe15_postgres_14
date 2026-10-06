@@ -3006,3 +3006,87 @@ describe("SLICE 12d-1a / R2 -- family_when_none: a silent material prices by row
     expect(familyWhenNone(spec(two), "area", "duct lining")?.value).toBe(AN);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1a (owner R4, 2026-10-07) -- value_map: a STATED choice value maps to another value of the same
+// attribute for named families (foil on a pipe -> 26G), or REFUSES with a reason (foil on an acoustic row).
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1a / R4 -- value_map: foil on a pipe prices as 26G; foil on an acoustic row refuses; a sheet keeps Aluminium Foil", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V26 = HVAC_V26 as unknown as Asset;
+  const INS = V26.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const ITEMS = V26.items;
+  const NR = "Nitrile Rubber Insulation";
+  const TN = "Thermal Nitrile Insulation";
+  const AN = "Acoustic Nitrile Insulation";
+  const PUF = "Tubular Puf Insulation";
+  const VM = [
+    { attr: "cladding", families: [NR, PUF], from: "Aluminium Foil", to: "26G Aluminium", rule: "R4 foil on a pipe is priced as 26G cladding", display: "26G Aluminium" },
+    { attr: "cladding", families: [AN], from: "Aluminium Foil", refuse: "foil on an acoustic row - the catalogue has no foil-faced acoustic insulation; set the cladding (R4)" },
+  ];
+  const CLAD = { cladding: { value: "No", rule: "R1 cladding not mentioned -> without cladding", absent_as_none: false } };
+  const cfg = (pricing: Record<string, unknown> = {}): Cfg => ({
+    ...INS,
+    list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, value_map: VM, defaults: CLAD, ...pricing } },
+  });
+  const spec = (c: Cfg = cfg()) => itemListPricingSpec(c)!;
+  const item = (attrs: Record<string, string>): ExtractedListItem => ({
+    attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v }])),
+  });
+  const price = (unit: string, attrs: Record<string, string>, s = spec()) => priceItemList(s, ITEMS, unit, [item(attrs)]);
+
+  it("POSITIVE (g): foil on a PIPE -> 26G Aluminium, recorded as an override with the catalogue's word, priced 545 / 224 (25 mm at 32 NB -> 34.93)", () => {
+    const r = price("Rmt", { item: NR, cladding: "Aluminium Foil", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].selection.cladding).toBe("26G Aluminium");
+    expect(r.items[0].overrides).toEqual([{ attr: "cladding", value: "26G Aluminium", display: "26G Aluminium", rule: VM[0].rule }]);
+    expect(r.items[0].working).toContain(VM[0].rule);
+    expect([r.supply, r.install]).toEqual([545, 224]);
+  });
+
+  it("POSITIVE: the same on Tubular PUF (the other pipe family)", () => {
+    const r = price("Rmt", { item: PUF, cladding: "Aluminium Foil", thickness_mm: "25 mm", pipe_size_mm: "50 mm NB" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].selection.cladding).toBe("26G Aluminium");
+  });
+
+  it("POSITIVE (h): foil on an ACOUSTIC row REFUSES with the configured reason, nothing priced", () => {
+    const r = price("Sqm", { item: AN, cladding: "Aluminium Foil", thickness_mm: "15 mm" });
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toBe(VM[1].refuse);
+    expect(r.items[0].overrides).toEqual([]);
+  });
+
+  it("NEGATIVE: a SHEET row keeps Aluminium Foil as stated -- no rule names Thermal Nitrile, so the catalogue's own foil SKU prices (581 / 154 at 13 mm)", () => {
+    const r = price("Sqm", { item: TN, cladding: "Aluminium Foil", thickness_mm: "13 mm" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].selection.cladding).toBe("Aluminium Foil");
+    expect(r.items[0].overrides).toEqual([]);
+    expect([r.supply, r.install]).toEqual([581, 154]);
+  });
+
+  it("NEGATIVE: no foil mentioned -> no cladding (the R1 default), the map does not fire on 'No'", () => {
+    const r = price("Rmt", { item: NR, cladding: "None", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].selection.cladding).toBe("No");
+    expect(r.items[0].overrides).toEqual([]);
+    expect(r.items[0].defaulted.map((d) => d.attr)).toEqual(["cladding"]);
+  });
+
+  it("NEGATIVE: a stated 26G on a pipe is byte-identical to before (the map fires only on its `from`)", () => {
+    const before = priceItemList(itemListPricingSpec(INS)!, ITEMS, "Rmt", [item({ item: NR, cladding: "26G Aluminium", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" })]);
+    const after = price("Rmt", { item: NR, cladding: "26G Aluminium", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" });
+    expect(after).toEqual(before);
+  });
+
+  it("NEGATIVE: without the block, foil on a pipe refuses as it always did (no SKU for that combination)", () => {
+    const r = price("Rmt", { item: NR, cladding: "Aluminium Foil", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" }, spec({ ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, defaults: CLAD } } } as Cfg));
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toMatch(/no SKU for this combination/);
+  });
+
+  it("the map runs AFTER the defaults and overrides: a ruled 'No' never reads as foil, and the panel's field shows the mapped word", () => {
+    const r = price("Rmt", { item: NR, cladding: "Aluminium Foil", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" });
+    expect(r.items[0].readValues.cladding).toBe("26G Aluminium");
+  });
+});

@@ -141,6 +141,26 @@ export interface DeriveWhenNone {
  * context's `headings`, built from the priced rows' parent chain). The calculator has no row text
  * and never needs this: a pricer picks the family there.
  */
+/**
+ * SLICE 12d-1a (owner R4, 2026-10-07) -- A STATED VALUE THAT PRICES AS ANOTHER, OR REFUSES.
+ *
+ * "Foil: on a pipe -> 26G cladding; on an acoustic row -> refuse." The row DID state the value, so
+ * neither `defaults` (fires over "None") nor `override_when` (cannot be conditioned on the attribute
+ * it sets) can express it. A rule names the attribute, the families it applies to and the stated
+ * value; it carries EITHER `to` (the value that prices, recorded as an override so the panel shows the
+ * catalogue's word) OR `refuse` (the item refuses with that sentence). It runs AFTER the defaults and
+ * the overrides, so a ruled "No" never reads as foil, and it fires ONLY on its `from`.
+ */
+export interface ValueMapRule {
+  attr: string;
+  families: string[];
+  from: string;
+  to?: string;
+  refuse?: string;
+  rule: string;
+  display?: string;
+}
+
 export interface FamilyWhenNone {
   /** unit class -> the family a silent row of that class prices as. */
   by_unit_class: Record<string, string>;
@@ -210,6 +230,9 @@ export interface ItemListPricingSpec {
   /** SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by row kind.
    * ABSENT => a missing family still refuses, exactly as before this slice. */
   family_when_none?: FamilyWhenNone;
+  /** SLICE 12d-1a (owner R4): a stated value that prices as another value of its attribute, or
+   * refuses, per family. ABSENT => nothing maps and every row is byte-identical to before. */
+  value_map?: ValueMapRule[];
   /** SLICE 8 (owner M-b): the overrides, applied AFTER the defaults and `derive_when_none` so they win over
    * both. ABSENT => nothing overrides and every row is byte-identical to before this slice. */
   override_when?: OverrideWhen[];
@@ -1056,6 +1079,20 @@ function priceOneItem(
     // SLICE 9 (A-6): recorded STRUCTURALLY as well as in the working, so the panel can show the catalogue's
     // own word for what the row now prices as instead of the variant the row happened to name.
     out.overrides.push({ attr: rule.attr, value: rule.then, display: rule.display ?? rule.then, rule: rule.rule });
+  }
+  // SLICE 12d-1a (owner R4): the VALUE MAP -- a stated value that prices as another, or refuses. It runs
+  // LAST, over what the pricing now believes (defaults and overrides applied), so a ruled "No" can never
+  // read as foil; it fires ONLY on its `from`, so a row already on the mapped value is byte-identical.
+  for (const rule of spec.value_map ?? []) {
+    if (!rule.families.includes(family)) continue;
+    if (String(read[rule.attr] ?? "") !== rule.from) continue;
+    if (rule.refuse) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
+    if (rule.to === undefined) continue;
+    read[rule.attr] = rule.to;
+    const i = readDefaulted.findIndex((d) => d.attr === rule.attr);
+    if (i >= 0) readDefaulted.splice(i, 1);
+    overridden.push(rule.rule);
+    out.overrides.push({ attr: rule.attr, value: rule.to, display: rule.display ?? rule.to, rule: rule.rule });
   }
   const sel: Record<string, string | number> = { [familyAttr(spec)]: family };
 
