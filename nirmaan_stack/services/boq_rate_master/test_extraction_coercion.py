@@ -2877,3 +2877,104 @@ class TestItemListSlice4(FrappeTestCase):
         blob13 = json.dumps(s13)
         for token in ("unit_factors", "absent_as_none", "0.0929", "sqft", "sq.ft", "mtrs", "rmts", "smt"):
             self.assertNotIn(token, blob13, token)
+
+
+
+class TestSlice12d1aModelCall(FrappeTestCase):
+    """SLICE 12d-1a (2026-10-07) -- what the MODEL is sent. Insulation's ITEMS_SPEC gains exactly the three
+    question changes (the item note + 'none of these', the cladding note, the brand def) and the second
+    opinion switches ON; EVERY OTHER CATEGORY'S assembled call is byte-identical between v26 and v27 (the
+    `test_il_14` idiom); and the pricing-block keys this slice added (`family_when_none`, `value_map`,
+    `panel_readonly`) appear NOWHERE in anything the model is sent -- they are code's, not the model's."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v26.json"), "r", encoding="utf-8") as fh:
+            cls.v26 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v27.json"), "r", encoding="utf-8") as fh:
+            cls.v27 = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+
+    @staticmethod
+    def _cfgs(asset, disc):
+        return {(disc, c["category_id"]): dict(c, discipline=disc) for c in asset["category_configs"]}
+
+    @staticmethod
+    def _row():
+        return {"excel_row": 44, "description": "15mm thick for Ducts", "sheet_name": "HVAC - Low side",
+                "ancestors": [{"node_type": "Preamble", "description": "ACOUSTIC INSULATION"}],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    @staticmethod
+    def _content(g, payload):
+        return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                               none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                               resolution_rules=g["resolution_rules"], rules=g["rules"],
+                                               items_spec=g.get("items_spec"))
+
+    def test_mc_01_every_hvac_category_but_insulation_sends_a_byte_identical_call(self):
+        c26, c27 = self._cfgs(self.v26, "HVAC"), self._cfgs(self.v27, "HVAC")
+        payload = [extraction._ai_item(self._row())]
+        checked = 0
+        for key in c26:
+            if key[1] == "hvac_insulation":
+                continue
+            g26, g27 = extraction._group_context(c26, *key), extraction._group_context(c27, *key)
+            self.assertEqual(g27, g26, "%s group context moved" % key[1])
+            self.assertEqual(self._content(g27, payload), self._content(g26, payload), "%s assembled call moved" % key[1])
+            checked += 1
+        self.assertEqual(checked, len(c26) - 1)
+        # ADP in particular keeps its ITEMS_SPEC and its second opinion OFF
+        self.assertEqual(extraction.build_items_spec(c27[("HVAC", "hvac_adp")]), extraction.build_items_spec(c26[("HVAC", "hvac_adp")]))
+        self.assertIs(extraction.build_items_spec(c27[("HVAC", "hvac_adp")])["second_opinion"], False)
+
+    def test_mc_02_every_electrical_category_sends_the_same_call_with_either_hvac_asset_loaded(self):
+        """A cross-discipline NEGATIVE: the HVAC mint cannot reach an Electrical call. The group context is built
+        from the Electrical config alone, so this holds by construction -- and is pinned so it stays so."""
+        e = self._cfgs(self.eall, "Electrical")
+        payload = [extraction._ai_item(self._row())]
+        checked = 0
+        for key, cfg in e.items():
+            if not extraction.config_is_eligible(cfg, e):
+                continue
+            g_a = extraction._group_context({**e, **self._cfgs(self.v26, "HVAC")}, *key)
+            g_b = extraction._group_context({**e, **self._cfgs(self.v27, "HVAC")}, *key)
+            self.assertEqual(self._content(g_b, payload), self._content(g_a, payload), "%s moved" % key[1])
+            checked += 1
+        self.assertGreater(checked, 5)
+
+    def test_mc_03_insulation_items_spec_gains_exactly_the_three_question_changes_and_second_opinion_on(self):
+        s26 = extraction.build_items_spec(self._cfgs(self.v26, "HVAC")[("HVAC", "hvac_insulation")])
+        s27 = extraction.build_items_spec(self._cfgs(self.v27, "HVAC")[("HVAC", "hvac_insulation")])
+        self.assertIs(s26["second_opinion"], False)
+        self.assertIs(s27["second_opinion"], True)
+        d26 = {d["id"]: d for d in s26["attribute_definitions"]}
+        d27 = {d["id"]: d for d in s27["attribute_definitions"]}
+        self.assertEqual(sorted(d27), sorted(list(d26) + ["brand"]))
+        self.assertEqual(d27["brand"]["type"], "text")
+        self.assertTrue(d27["brand"].get("note"))
+        self.assertEqual(d27["item"]["values"], [*d26["item"]["values"], "none of these"])
+        self.assertNotEqual(d27["item"]["note"], d26["item"]["note"])
+        self.assertIn("Acoustic Nitrile", d27["item"]["note"])          # R5 rides as a catalogue fact
+        self.assertIn("none of these", d27["item"]["note"])             # R6
+        self.assertIn("22G", d27["cladding"]["note"])                   # R3
+        for aid in ("thickness_mm", "pipe_size_mm"):
+            self.assertEqual(d27[aid], d26[aid], "%s must not move -- thickness is 12d-1b's" % aid)
+        self.assertEqual(s27["family_attribute_id"], s26["family_attribute_id"])
+
+    def test_mc_04_the_pricing_keys_never_reach_the_model(self):
+        """NEGATIVE: `family_when_none`, `value_map`, `panel_readonly` are CODE's instructions. The prompt, the
+        ITEMS_SPEC and the assembled content for an Insulation row carry none of those names, nor any default
+        value they hold -- the model is asked for facts; the rulings are applied after it answers."""
+        c27 = self._cfgs(self.v27, "HVAC")
+        g = extraction._group_context(c27, "HVAC", "hvac_insulation")
+        content = self._content(g, [extraction._ai_item(self._row())])
+        for forbidden in ("family_when_none", "value_map", "panel_readonly", "by_unit_class", "when_words",
+                          "absent_as_none", "26G cladding"):
+            self.assertNotIn(forbidden, content, forbidden)
+            self.assertNotIn(forbidden, json.dumps(g, default=str), forbidden)
+        self.assertIn("ITEMS_SPEC", content)
+        self.assertIn("none of these", content)

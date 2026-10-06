@@ -88,6 +88,9 @@ export interface ParityCase {
   desc: string;
   attrs: Record<string, string | number | null>;
   items?: Array<Record<string, string | number | null>>;
+  /** SLICE 12d-1a (owner R2): the row's section headings, root-first, as the PANEL's row context
+   * carries them. OPTIONAL -- every existing case omits it and its context is byte-identical. */
+  headings?: string[];
 }
 
 type Cells = ExtractionRow["attributes"];
@@ -152,6 +155,7 @@ export function panelCtx(c: ParityCase): RowContextWithUnit {
     discipline: disciplineOf(c.cat),
     rateKinds: [...DISPLAY_RATE_KINDS],
     unit: c.unit,
+    ...(c.headings ? { headings: c.headings } : {}),
   };
 }
 
