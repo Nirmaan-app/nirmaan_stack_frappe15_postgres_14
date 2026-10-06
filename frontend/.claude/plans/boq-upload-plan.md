@@ -44091,3 +44091,198 @@ fresh page load reads "on".
 
 Full record: `2026-10-06_12cF_Report.md` and `2026-10-06_12cF_Ledger.md` on the Desktop; screenshots
 in `2026-10-06_12cF_Screens/`.
+
+## Slice 12c-T — TEST TIDYING, THE DEV RESIDUE CLEAN-UP, AND A DOM TEST ENVIRONMENT (2026-10-07) — SHIPPED
+
+**Build slice; tests + one authorised dev-data clean-up. No product source file, config, asset or
+real item changed.** Branch `feature/boq-pricing-helper`, slice-start tip `bf80bca9f` (= origin).
+Commits: `87917d6d3`, `f2170c17d`, `4a7d44171`, plus this docs commit. Not pushed.
+
+### Why
+
+12c's full runs carried **19 known failures**. Nine were ours: five rate-file tests that never
+followed the owner's own changes, and four that tripped over test residue or the live site's
+settings. The dev database held **861 configs / 103,135 items / 348 retirements**, all `TEST_RM_*`.
+12d's full runs should start clean so a new failure stands out.
+
+### The before / after, measured in-session (never quoted from a document)
+
+| suite | before (`bf80bca9f`) | after |
+|---|---|---|
+| Python, full app | `Ran 7303 tests in 2241.419s` — failures=14, errors=7 (21 entries = **19 distinct** + a `tearDownClass` + `two_sources` listed twice) | see the final-run table below |
+| vitest, full | 1 failed / 4970 passed (**4971**), 139 files, 246.3 s | 1 failed / 4974 passed (**4975**), **140** files |
+| `tsc --noEmit` | **3,169** errors app-wide; exactly **3** in rate-master/rate-helper files | **3,169**; still exactly **3**; 0 in the new file; the two error sets diff-clean |
+
+### What shipped
+
+**1 — the rate-file tests follow the owner's columns and explanation row (`87917d6d3`).**
+t05 / t06 / t21 had failed since the commits that changed the file under them: `supply_formula` /
+`install_formula` (`2e8804298`, 2026-09-27, slice 12a) and the formula/EXPLANATION row from the same
+commit. `read_xlsx` returns that row as data row 1 and the IMPORTER drops it by its marker, so a raw
+sheet read sees 96 rows where it saw 95 and the SKUs start at physical row 3. Each claim retired by
+INVERSION, never deletion.
+
+⚠️ **The derived rate-column LABELS (`09c289fd4`, slice 12b(B)) do NOT apply to these three tests,
+and that is the gate working rather than a gap** — `derive_rate_column_labels` returns `{}` unless
+the discipline is literally in `RATE_LABEL_DISCIPLINES`, and all three load their asset under a
+scratch `TEST_RM_*` discipline. The slice prompt asked for the labels here; asserting one would
+assert a falsehood. t06 now pins the EMPTY label map and that no header carries a bracket suffix;
+the labels themselves stay pinned by `TestRateColumnLabels12bB` / `TestRateColumnLabelHeader12bB`,
+which call the deriver with the real discipline name.
+
+**2 — tests clean up after themselves (`f2170c17d`).** One shared `_purge_test_disciplines` replaces
+12 copies of an unguarded purge; `test_spec_reader` imports the same function rather than keeping a
+copy (two copies either side of a shared live database is the disagreement-at-the-worst-moment the
+BCS import-direction law forbids). It ROLLS BACK FIRST, then purges each discipline in its own
+try/except and reports failures instead of swallowing them. `ai_settings` isolates its own state
+without ever reading the real key; `ceo_hold`'s `two_sources` ends the poisoned transaction its
+predecessor leaves.
+
+**3 — a DOM test environment (`4a7d44171`).** `jsdom@^26`, devDependency only, container-installed;
+two vitest projects so jsdom reaches ONLY the files that opt in; and the first DOM test — the Rate
+Master data viewer rendered for HVAC Insulation and Electrical wiring_cabling, asserting every cell
+sits under its correct header. That is the class `rateMasterGridColumns.ts` records: the header row
+and the body row each carried their own ordering, the `unit` header moved and the body cell did not,
+and every grid rendered its values one place LEFT of their headings. Invisible, because every figure
+was still plausible and only its label was wrong.
+
+### ⚠️ ITEM 2 IS BLOCKED, BY THE SLICE'S OWN STOPPING CONDITION — the owner rules
+
+The Excel-row proof was run FIRST, read-only, on the live `HVAC` / `hvac_adp` download:
+
+| | |
+|---|---|
+| physical row 1 / row 2 | HEADER / FORMULA row (`FORMULA_ROW_MARKER` confirmed) |
+| first five SKU physical rows | 3, 4, 5, 6, 7 |
+| chosen SKU | physical Excel row **5** (`rmi-11efe4d759d4`) |
+| its `category` cell corrupted, through the PREVIEW | `Row 4 -- the file says category 'zz_not_a_category', which is not a category of HVAC (…)` |
+| **message row 4 vs physical row 5** | **NOT EQUAL** |
+| did the preview write anything? | **No** — all four table counts identical before and after |
+
+**The row number in a refusal is the DATA-ROW INDEX, and it has always been one less than the
+physical Excel row.** `csv_importer.parse_csv_text`'s own docstring claims *"the number a user sees
+in Excel is that + 1 for the header, which the messages account for"* — **they do not**; `apply_plan`
+renders `"Row %d -- "` from the raw index. This predates slice 12a: before the formula row existed,
+data row 1 was physical row 2, the same one-row gap. **What 12a changed is which numbers appear, not
+the size of the gap** — the formula row is numbered as a data row and only then dropped by its
+marker, so the first SKU now reports 2 instead of 1, which is exactly t32's symptom.
+
+**t22 and t32 are therefore UNTOUCHED.** Updating them to the numbering the code emits today would
+bake the off-by-one into the test suite, which is what the stopping condition exists to prevent. Two
+candidate remedies for the owner, NEITHER APPLIED:
+
+1. **Report the physical row** — add back the header (and the formula row where present) when a
+   message names a row, so "Row 5" means Excel row 5. A `csv_importer` change, out of this slice's
+   scope; t32's expected list would become `[3..97]`.
+2. **Keep the numbering and say what it counts** — e.g. "data row 4". Cheaper, still a product
+   change, and still leaves a pricer counting rows by hand.
+
+⚠️ t22's `97 != 96` has a second, test-local cause worth separating: it rebuilds the file from
+`xlsx_io.read_xlsx`, which hands back the formula row AS A DATA ROW, so its own fixture carries 96
+rows before the new SKU and the new row lands at data index 97. The product's `unchanged` count is
+still 95.
+
+### The residue — a premise that measurement reversed
+
+The slice prompt said the residue is *"left behind by tests that never clean up"*. **Measured in
+session: FALSE for a clean run.** The before full run (7,303 tests) left ZERO new rows — 861 /
+103,135 / 348 and 90 disciplines before it and after it. Every one of the 13 rate-master suites
+already had a purge and all of them worked.
+
+**The leak is CONDITIONAL.** A primary-key violation ABORTS the postgres transaction;
+`FrappeTestCase` has NO per-test rollback (its only one is `addClassCleanup(_rollback_db)`, which
+runs AFTER `tearDownClass`); so in a purge written as one unguarded block the FIRST delete raises
+and every discipline after it is stranded — silently, while the tests report OK. `test_f18` already
+documents the same cascade ("18 cascading errors plus tearDownClass") and guards itself with a
+savepoint. Proved with a throwaway probe (two scratch loads then a bare `SELECT 1/0`, no savepoint),
+deleted immediately afterwards:
+
+| purge shape | outcome | residue delta | the tests said |
+|---|---|---|---|
+| OLD, unguarded (what all 12 classes carried) | RAISED `current transaction is aborted, commands ignored until end of transaction block` | **+2 configs / +1,176 items** | `OK` |
+| NEW, shared, abort-proof | clean, no warning | **+0 / +0** | `OK` |
+
+So the honest answer to *"enumerate every test that creates TEST_RM_* without removing it"* is
+**none, under a clean run** — what existed was 13 suites whose purge could be stranded by any
+transaction-aborting failure in their own class. Search space: `grep -rn "TEST_RM_" --include=*.py .`
+over the whole app (14 call sites in 2 files). `TEST_RMF_*` and `TEST_BP_*` left **0** rows, so their
+purges demonstrably worked too.
+
+### The clean-up (authorised, T1)
+
+Filter `discipline LIKE 'TEST\_RM\_%'` — a literal prefix, the escaped `_` keeping `TEST_RMF_` and
+`TEST_BP_` out — plus the `Version` rows pointing at those documents. `BoQ Rate Master Freeze` is a
+Single with no `discipline` column and is excluded.
+
+Dry run matched **863 configs / 104,311 items / 348 retirements / 19 snapshots / 15 Versions**:
+**+2 and +1,176 against the triage register, and that difference is exactly what this slice's own
+probe added**. Every matched discipline was `TEST_RM_`-prefixed; **0** rows of `Electrical` / `HVAC`
+/ `ELV` matched; **0** rows whose discipline was not a `TEST*` discipline. Backed up to
+`2026-10-07_12cT_Residue_Backup.json` (100,935,604 bytes) and verified by re-reading the file BEFORE
+any delete. Deleted in batches of 5,000; all four remaining counts **0**. Raw SQL was correct here:
+`hooks.py` carries **no `doc_events` on any rate-master doctype**, so the document layer had nothing
+to fire and nothing derived is left stale.
+
+**Untouched, digests ordered by a TOTAL key:** active configs 22 and active items 1,733 (Electrical
+1,402 / HVAC 331) with **IDENTICAL** digests before and after, 6 retirements identical, 96 runs,
+`BoQ Cell Pricing` 37,702. Only the totals moved, by exactly the deleted counts (items 128,460 →
+24,149; configs 1,201 → 338).
+
+### jsdom — what it cost, and what it does not buy
+
+⚠️ **The owner's one-project `// @vitest-environment jsdom` form COULD NOT WORK, and the reason is
+structural.** jsdom's environment bootstrap measures **~36 s** here, against vitest's worker-start
+limit of a **HARDCODED 60 s** (`START_TIMEOUT` in its dist — not a config option and not a CLI flag;
+`--testTimeout` / `--hookTimeout` / `--teardownTimeout` do not govern it). Under full-suite load the
+jsdom worker lost that race and vitest dropped the file with *"Failed to start forks worker"*,
+reported as an **UNHANDLED ERROR rather than a failed file** — so the counts read exactly as the
+baseline (139 / 4971) while the test never ran. It failed at 73 files too, so it was not a tail
+effect. **A silently skipped test is worse than no test.**
+
+The owner then authorised a `vitest.config.ts` change **on condition it reach only files that opt
+in**. Two projects: `unit` keeps environment `node`, the same include glob, the same pool and the
+same timeouts and merely EXCLUDES the DOM glob; `dom` runs the jsdom files alone (`maxWorkers: 1`,
+`singleFork`). Opt-in is by filename (`*.dom.test.tsx`) and each DOM file also carries the docblock,
+so the opt-in stays legible in the file itself.
+
+| run | files | tests | known failure | `environment` |
+|---|---:|---:|---|---|
+| baseline, pre-jsdom | 139 | 4971 | writeOffControl | 19 ms |
+| `--project unit` alone | **139** | **4971** | same | **11 ms** |
+| `--project dom` alone | 1 | 4 | — | 35.68 s |
+| both (plain `vitest run`) | **140** | **4975** | same | 36.86 s |
+
+The `environment` timing is the confinement proof: 11 ms in `unit`, every millisecond of jsdom's
+cost inside `dom`. Total time 222–230 s against a 181–246 s baseline range.
+
+Vacuity proved from BOTH sides and restored each time: a one-sided HEADER move (the `8fa8d3262`
+shape) turns test (a) red and names the drift in the owner's own terms — "Insulation material" under
+"Cladding", a markup under `cost_cladding`; a one-sided BODY move turns test (b) red on 90 cells.
+(b) stays green for a header-only move BY DESIGN — the body maps `cells[key]`, keyed, so only the
+header can drift today, and (b) is what guards the day someone rewrites the body positionally. A
+floor on the number of cells actually compared stops the whole file passing vacuously.
+
+⚠️ **jsdom is the DOM, not the browser**: it does no layout, `getBoundingClientRect()` returns
+zeros, and `ResizeObserver` is absent and stubbed IN THE TEST FILE, never in product code.
+Sticky-column widths, the Radix pickers and the controlled-`<select>` trap remain live-browser
+questions. **Still owed:** a DOM test for the app-shell same-route-param remount invariant, which
+was the deferred reminder's original subject.
+
+⚠️ `yarn add --dev --exact=false` made yarn 1 install a package literally named `false`; it was
+removed and neither it nor its lock entry survives. **Abhishek should know: this slice adds a
+devDependency and moves `frontend/yarn.lock`.**
+
+### Anomalies disclosed rather than smoothed
+
+- The first draft of `test_24i`'s cleanup captured the config blob and handed it back to `set_value`;
+  `frappe.db.get_value` PARSES a JSON field, so postgres received a python dict literal, answered
+  `syntax error at or near "{"`, and took out the next 66 tests in the class — the very cascade this
+  slice is about. It purges the scratch discipline instead, which needs no round trip through a value.
+- The T5 security pin caught the new `ai_settings` negative test handing the key getter's result
+  straight to an assertion. The pin is right and absolute — it carves out no exception for a
+  harmless stand-in — and the test was restructured to assert only locals and derived booleans.
+- `ai_settings` now passes on a site that HAS a key configured and `enabled=1`. The Single's real
+  values (`enabled=1`, `request_timeout_seconds=400`) were captured and restored; a hardcoded 120
+  would have silently rewritten the owner's 400, with no Version row to show it.
+- No browser cert: no user-visible change was expected or made, and UI change control (#57) says a
+  visible change would have been a STOP.

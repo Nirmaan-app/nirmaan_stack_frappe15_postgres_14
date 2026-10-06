@@ -219,6 +219,26 @@ For BoQ Upload dev-environment setup, clean bench-restart sequence, the CSRF cle
 - **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code.
 - **Frontend E2E:** Cypress 13.7 configured in `frontend/cypress.config.ts` — largely unimplemented.
+- **A test REMOVES EVERY RECORD IT CREATES, AND ITS CLEAN-UP MUST SURVIVE A POISONED TRANSACTION
+  (STANDING RULE).** These suites run against the LIVE site database, so a stranded row is permanent
+  dev data. The trap is not a missing `tearDownClass` — it is that **a DB-level error ABORTS the
+  PostgreSQL transaction** ("current transaction is aborted, commands ignored until end of
+  transaction block") and **`FrappeTestCase` has NO per-test rollback**: its only one is
+  `addClassCleanup(_rollback_db)`, which runs *after* `tearDownClass`. So a purge written as one
+  unguarded block raises on its FIRST delete and strands every record after it — **silently, while
+  the run still reports OK**. Correct shape: **roll back FIRST**, then delete each scope inside its
+  own `try`/`except`, commit per scope, and REPORT any failure rather than swallow it; a test that
+  provokes a unique/PK violation on purpose also wraps it in a `frappe.db.savepoint`. One purge
+  helper per suite family, imported rather than copied — two copies either side of a shared database
+  can disagree about whether a scope was cleaned. Reference implementation:
+  `_purge_test_disciplines` in `api/boq/test_rate_master.py`, imported by `test_spec_reader.py`.
+- **A SWEEP OVER LIVE RECORDS MUST NOT DEPEND ON RESIDUE BEING ABSENT (STANDING RULE).** A test that
+  asserts a property of *every* live row — `test_27_live_configs_all_validate` validates every
+  `active=1` config with no discipline filter, which is the RIGHT scope — will also read whatever
+  another test left behind, and then fails for a reason that has nothing to do with the code and
+  reproduces at every commit. **Do not narrow the sweep to dodge it** (that is the assertion the
+  sweep exists to make). Fix it at the source: a test that deliberately writes an INVALID record
+  removes it the moment it ends (`addCleanup`), so it can never outlive its own test method.
 - **Single-doctype state (STANDING RULE):** a test that mutates a field on a Single doctype MUST capture the
   site's original value and restore **that** — never a hardcoded restore constant. These suites run against the
   LIVE localhost site, so a hardcoded restore rewrites the owner's real setting whenever it differs. The failure
