@@ -53,6 +53,12 @@ def header_context(project: str, document: str) -> dict:
 	return {"letterhead": False, "logos": header_logos.header_logos(fields, stored_roles(project))}
 
 
+def stakeholder_cards(project: str) -> list:
+	"""The stakeholder logo page's cards for a project: its picked header logos (`header_logos.stakeholder_cards`)."""
+	_name, fields = tds_setting(project)
+	return header_logos.stakeholder_cards(fields, stored_roles(project))
+
+
 def _payload(project: str) -> dict:
 	name, fields = tds_setting(project)
 	usable = header_logos.selectable(fields)

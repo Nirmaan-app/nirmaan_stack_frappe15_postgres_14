@@ -55,6 +55,11 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .hd-logos { width: 100%; height: 14mm; table-layout: fixed; border-collapse: collapse; margin: 0; }
 .hd-logos td { text-align: center; vertical-align: middle; padding: 0 8px; border: 0 !important; }
 .hd-logos img { max-height: 42px; max-width: 100%; }
+/* NO header logos on any handover page (owner 2026-10-06): the logos have a full page of their own after
+   the cover and after every divider. HIDDEN, not removed -- delete this rule to bring the strip back. The
+   20mm top margin stays, so the page box (`page_frame`) does not move. The STRATOS letterhead of the
+   Completion Certificate and the Equipment Warranty is a different branch and is untouched. */
+.hd-logos { display: none; }
 .hd-c { text-align: center; }
 .hd-r { text-align: right; }
 .hd-b { font-weight: 700; }
@@ -705,7 +710,7 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
         foot -- the same parties the logo strip heads the page with. -#}
     <div class="hd-sheet hd-sheet-grow hd-sheet-land hd-sheet-band">
     <div class="hd-frame"></div>
-    {{ head_table(h, title="INVENTORY LIST") }}
+    {{ head_table(h, title="INVENTORY LIST / ASSET LIST") }}
     <table class="hd-table hd-inv">
         <tr>
             <th style="width: 5%;">Sl No</th>

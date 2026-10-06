@@ -123,6 +123,21 @@ def header_logos(setting, stored) -> list:
 	]
 
 
+# The order the stakeholder logo PAGE lays its cards out in, two to a row (owner 2026-10-06, the TDS
+# export's own page): the client side first, Nirmaan last.
+CARD_ORDER = ("client", "manager", "consultant", "architect", "gc_contractor", "mep_contractor")
+
+
+def stakeholder_cards(setting, stored) -> list:
+	"""The cards of the stakeholder logo page that follows the cover: `[{"role", "label", "name", "logo"}]`.
+
+	The logos PICKED for the project's header (owner 2026-10-06: "the logo page is got from the header
+	logos we added") -- `header_logos`, so nothing picked means Nirmaan alone, exactly as the header --
+	laid out in CARD_ORDER rather than the header's print order."""
+	picked = {item["role"]: item for item in header_logos(setting, stored)}
+	return [picked[role] for role in CARD_ORDER if role in picked]
+
+
 def uses_letterhead(document) -> bool:
 	"""Does this document print the company letterhead instead of the logo strip?"""
 	return _text(document) in LETTERHEAD_DOCUMENTS

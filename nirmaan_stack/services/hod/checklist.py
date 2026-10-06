@@ -5,36 +5,44 @@
 
 A row dict carries the `Project HOD Document` fields: document, status, disabled, remarks, form_data.
 
-The on/off switch (`disabled`) is the ONLY "not needed" mechanism (owner, 2026-09-21): a switched-off
-document is blocked, left out of the binder, and REMOVED from the printed checklist with the S.No
-closed up -- it is never printed as "NA".
+The on/off switch (`disabled`) IS the checklist answer (owner 2026-10-06): switched ON = YES, the
+document is on the printed checklist (which prints YES for every row it carries); switched OFF = NO, the
+document is blocked, left out of the binder and REMOVED from the printed checklist with the S.No closed
+up.
+
+`status` is a different question -- how far the document's own work has got (Not Started / WIP / Done) --
+and only a DONE document puts pages in the binder.
 """
 
 import json
 
 from nirmaan_stack.services.hod import index
 
-# THE handover checklist answer, picked BY HAND (owner 2026-09-24, replacing the derived
-# Pending / Form Filled / Completed). It is what the printed checklist shows and what the binder
-# takes: only YES documents go in.
-STATUS_YES = "YES"  # handed over
-STATUS_NO = "NO"  # not handed over (the default a row is created with)
-STATUS_NA = "NA"  # not applicable to this project
-STATUSES = (STATUS_YES, STATUS_NO, STATUS_NA)
+# THE document's progress (owner 2026-10-06, replacing the hand-picked YES / NO / NA of 2026-09-24).
+# Done is set by "Mark as Done" in the document's dialog (or an upload); WIP and Not Started are picked
+# from the Status dropdown. Only DONE documents put pages in the binder.
+STATUS_NOT_STARTED = "Not Started"  # the default a row is created with
+STATUS_WIP = "WIP"
+STATUS_DONE = "Done"
+STATUSES = (STATUS_NOT_STARTED, STATUS_WIP, STATUS_DONE)
+
+# The answers of 2026-09-24, should a row still carry one: YES -> Done; NO and NA -> Not Started.
+# No patch converts them -- the feature was local only and its rows were cleared (owner 2026-10-06).
+_LEGACY = {"YES": STATUS_DONE}
+_BY_UPPER = {s.upper(): s for s in STATUSES}
 
 
 def normalise_status(value) -> str:
-	"""Any stored value -> one of the three answers. THE reader, used by the controller, the tab's read
-	and the printed checklist, so a row can never show or print something that is not an answer.
+	"""Any stored value -> one of the three statuses. THE reader, used by the controller, the tab's read
+	and the binder, so a row can never show something that is not a status.
 
-	Anything unrecognised becomes NO. That covers blanks and, in particular, the RETIRED
-	Pending / Form Filled / Completed: rows carrying those read as NO at once and are written back as NO
-	the next time they are saved, so no backfill script is needed (owner 2026-09-24 -- localhost only,
-	the feature has not gone live). The controller runs BEFORE Frappe's own Select check
-	(`run_before_save_methods` precedes `_validate`), which is what lets the heal land in time.
+	A legacy YES reads as Done; anything else unrecognised -- a blank, NO, NA, or the older
+	Pending / Form Filled / Completed -- reads as Not Started. The controller writes the healed value
+	back on save -- it runs BEFORE Frappe's own Select check (`run_before_save_methods` precedes
+	`_validate`).
 	"""
-	answer = str(value or "").strip().upper()
-	return answer if answer in STATUSES else STATUS_NO
+	text = str(value or "").strip().upper()
+	return _BY_UPPER.get(text) or _LEGACY.get(text) or STATUS_NOT_STARTED
 
 
 def parse_lines(text) -> list:
@@ -81,7 +89,7 @@ _META_KEYS = ("completed",)
 
 
 def is_saved(form_data) -> bool:
-	"""Has someone actually done this document? -- the ONE test behind the YES gate, asked of the
+	"""Has someone actually done this document? -- the ONE test behind the Done gate, asked of the
 	documents `needs_saving` covers.
 
 	It reads the same for all three kinds, because each stores what it collects in `form_data`:
@@ -102,7 +110,7 @@ def uploaded_file(document: str, form_data) -> str | None:
 	PDF. Every document may carry one (owner 2026-10-06). Mirrored by `hodRules.uploadedFile`.
 
 	An upload also counts as the document being SAVED (`is_saved` sees it as user input), so a From Nirmaan
-	document with a file and no ticked records may still be answered YES -- the file is its content.
+	document with a file and no ticked records may still be Done -- the file is its content.
 	"""
 	if not index.is_valid(document):
 		return None
@@ -113,7 +121,7 @@ def uploaded_file(document: str, form_data) -> str | None:
 
 
 def needs_saving(document: str) -> bool:
-	"""Does this document have to be SAVED before it can be called handed over?
+	"""Does this document have to be SAVED before it can be Done?
 
 	Only a FROM NIRMAAN document does (owner 2026-09-28). What it hands over IS the records ticked on it
 	-- reports, data sheets, snag batches, drawings -- so with none ticked there is no content and no
@@ -124,18 +132,17 @@ def needs_saving(document: str) -> bool:
 	and a library text carries the library's content, edited centrally in Packages Settings. Holding
 	either to a save left every document that needs no filling permanently un-answerable.
 
-	This is NOT "has something to fill": that is `index`'s own `fill` flag, which still decides whether a
-	row gets an editor (frontend `hodRules.hasEditor`).
+	An uploaded file counts as saved content (`is_saved`), so a From Nirmaan document with its own file can
+	be Done without ticking records.
 	"""
 	entry = index.get(document) or {}
 	return entry.get("kind") == index.FROM_APP
 
 
-def can_be_yes(document: str, form_data) -> bool:
-	"""May this row be set to YES? A FROM NIRMAAN document must have its records ticked and saved
-	(`needs_saving`); a form or a library text is ready as it stands, because its sheet prints from its
-	own layout (owner 2026-09-28). NO and NA are always allowed -- a document nobody will ever fill must
-	still be markable NA."""
+def can_be_done(document: str, form_data) -> bool:
+	"""May this row be Done? A FROM NIRMAAN document must have its records ticked and saved, or a file
+	uploaded (`needs_saving`); a form or a library text is ready as it stands, because its sheet prints
+	from its own layout (owner 2026-09-28). WIP and Not Started are always allowed."""
 	return is_saved(form_data) if needs_saving(document) else True
 
 
@@ -150,17 +157,17 @@ def is_untouched(row: dict, default_disabled: bool) -> bool:
 
 
 def counts(rows) -> dict:
-	"""Progress over one system: YES / NO / NA among switched-on rows; switched off.
+	"""Progress over one system: Done / WIP / Not Started among switched-on rows; switched off.
 
-	`completed` is kept as the YES count under its old name -- the screens and the printed checklist
-	read it to say how far the handover has got."""
-	out = {"completed": 0, "no": 0, "na": 0, "off": 0}
+	`completed` is the Done count, kept under its old name -- the screens and the tracker read it to say
+	how far the handover has got. `needed` is the switched-on rows (the checklist's YES rows)."""
+	out = {"completed": 0, "wip": 0, "not_started": 0, "off": 0}
+	bucket = {STATUS_DONE: "completed", STATUS_WIP: "wip", STATUS_NOT_STARTED: "not_started"}
 	for r in rows:
 		if r.get("disabled"):
 			out["off"] += 1
 			continue
-		status = normalise_status(r.get("status"))
-		out["completed" if status == STATUS_YES else "na" if status == STATUS_NA else "no"] += 1
+		out[bucket[normalise_status(r.get("status"))]] += 1
 	out["needed"] = len(rows) - out["off"]
 	return out
 
@@ -188,7 +195,8 @@ PART_SOURCES = "sources"  # the records the document reads from Nirmaan (no inde
 def binder_parts(rows) -> list:
 	"""The binder's sections after the cover + checklist: `[(sno, row, part), ...]` in checklist order.
 
-	Switched-off rows are left out (same numbering as the printed checklist).
+	Switched-off rows are left out (same numbering as the printed checklist). Every switched-on row is
+	returned whatever its status; the binder keeps the Done ones (`is_done`).
 	"""
 	out = []
 	for sno, r in printable_rows(rows):
@@ -199,3 +207,9 @@ def binder_parts(rows) -> list:
 			part = PART_PAGE
 		out.append((sno, r, part))
 	return out
+
+
+def is_done(row) -> bool:
+	"""Does this switched-on row put pages in the binder? Only a Done one does (owner 2026-10-06): a WIP or
+	Not Started document stays on the printed checklist with no pages behind it."""
+	return normalise_status(row.get("status")) == STATUS_DONE

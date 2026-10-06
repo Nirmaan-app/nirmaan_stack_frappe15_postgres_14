@@ -1,6 +1,10 @@
-// One system's 16-document checklist: the on/off switch, the status (derived by the server from what was
-// done), remarks, and the Commission-style Actions cell. Switched-off rows are greyed, blocked, and left out of
-// the printed checklist and the binder (S.No closes up).
+// One package's 16-document checklist (a "package" on screen is an HOD System -- owner 2026-10-06, UI
+// wording only): the on/off switch, the status, and the Actions cell.
+//
+// The SWITCH is the checklist's YES / NO (owner 2026-10-06): on = YES, the document is on the printed
+// checklist; off = NO, greyed, blocked, and left out of the printed checklist and the binder (S.No closes
+// up). The STATUS is the document's own progress -- Not Started / WIP / Done -- and only a Done document
+// puts pages in the binder.
 
 import {
   AlertTriangle,
@@ -35,6 +39,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 
+import { BinderDialog } from "./BinderDialog";
 import { DocumentDialog } from "./DocumentDialog";
 import { MaterialTdsDialog } from "./MaterialTdsDialog";
 import { HodActionCell } from "./HodActionCell";
@@ -57,6 +62,7 @@ import {
   isSaved,
   needsSaving,
   rowEditable,
+  STATUS_STYLE,
   uploadedFile,
 } from "./hodRules";
 import type {
@@ -70,35 +76,32 @@ import type {
 } from "./types";
 import type { BinderProgress, HodJob } from "./useHodBinder";
 
-const STATUS_STYLE: Record<HodStatus, string> = {
-  YES: "bg-green-600 text-white border-green-600",
-  NO: "bg-gray-100 text-gray-600 border-gray-300",
-  NA: "bg-amber-50 text-amber-700 border-amber-300",
-};
-const STATUSES: HodStatus[] = ["YES", "NO", "NA"];
+/** Mirrors `services/hod/checklist.STATUSES`. */
+const STATUSES: HodStatus[] = ["Not Started", "WIP", "Done"];
 
-/** What "save it first" means. Only a From Nirmaan document can be refused now (`needsSaving`), so
- *  there is one case left: its records have to be ticked -- or its own file uploaded (2026-10-06). */
-const YES_HINT =
-  "Open the records, tick what goes into the handover and save — or upload the document from the ⋯ menu — then set it to YES.";
+/** What "save it first" means. Only a From Nirmaan document can be refused (`needsSaving`): its records
+ *  have to be ticked -- or its own file uploaded. */
+const DONE_HINT =
+  "Open the records, tick what goes into the handover and Mark as Done — or upload the document from the ⋯ menu.";
 
-/** The handover answer for one document: the current value with an edit icon, changed from a small
- *  dropdown. YES is the one that costs something -- it puts the document in the binder -- so on a From
- *  Nirmaan document it is refused until its records are ticked, and the refusal says what to do. */
+/** One document's progress: the current status with an edit icon, changed from a small dropdown. Done is
+ *  the one that costs something -- it puts the document's pages in the binder -- so on a From Nirmaan
+ *  document it is refused until its records are ticked or a file is uploaded, and the refusal says what
+ *  to do. Only users who can edit the row get the dropdown. */
 const StatusCell: React.FC<{
   row: HodRow;
   meta: HodDocumentMeta;
   disabled: boolean;
   onPick: (status: HodStatus) => void;
 }> = ({ row, meta, disabled, onPick }) => {
-  const current = row.status || "NO";
+  const current: HodStatus = STATUSES.includes(row.status) ? row.status : "Not Started";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>
         <button
           type="button"
           disabled={disabled}
-          title={disabled ? undefined : "Change the checklist status"}
+          title={disabled ? undefined : "Change the status"}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition",
             STATUS_STYLE[current],
@@ -110,7 +113,7 @@ const StatusCell: React.FC<{
           {!disabled && <Pencil className="h-3 w-3 opacity-70" />}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" className="min-w-[15rem]">
+      <DropdownMenuContent align="center" className="min-w-[17rem]">
         {STATUSES.map((s) => (
           <DropdownMenuItem
             key={s}
@@ -119,18 +122,18 @@ const StatusCell: React.FC<{
           >
             <span
               className={cn(
-                "inline-block w-9 rounded-full border px-1 text-center text-[10px] font-semibold",
+                "inline-block w-[4.5rem] rounded-full border px-1 text-center text-[10px] font-semibold",
                 STATUS_STYLE[s],
               )}
             >
               {s}
             </span>
             <span className="text-gray-600">
-              {s === "YES"
+              {s === "Done"
                 ? !needsSaving(meta) || isSaved(row)
-                  ? "— document goes into the binder"
-                  : `— save ${meta.title} first`
-                : "— document skipped in the binder"}
+                  ? "— its pages go into the binder"
+                  : "— tick records or upload first"
+                : "— on the checklist, no pages yet"}
             </span>
           </DropdownMenuItem>
         ))}
@@ -147,7 +150,7 @@ export interface SystemChecklistProps {
   documents: HodDocumentMeta[];
   canEdit: boolean;
   updateRow: (name: string, patch: HodRowPatch) => Promise<unknown>;
-  /** `force`: the user confirmed that the system's entries are deleted with it. */
+  /** `force`: the user confirmed that the package's entries are deleted with it. */
   onRemoveSystem: (force: boolean) => Promise<void>;
   /** The server-built PDF running for this user (binder or one document's content), if any. */
   job: HodJob | null;
@@ -183,32 +186,38 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   );
   const [savingRow, setSavingRow] = React.useState<string | null>(null);
   const [openRow, setOpenRow] = React.useState<string | null>(null);
-  // The document someone tried to mark YES before saving it.
-  const [yesBlocked, setYesBlocked] = React.useState<{
+  // The From Nirmaan document someone tried to mark Done with nothing ticked or uploaded.
+  const [doneBlocked, setDoneBlocked] = React.useState<{
     row: HodRow;
     meta: HodDocumentMeta;
   } | null>(null);
-  // There is no longer a "YES still owed" latch (owner 2026-09-28): EVERY save answers the document
-  // YES by itself (`saveAnswersYes`), so opening a blocked document and saving applies it without one.
+  // No "Done still owed" latch: Mark as Done in the dialog writes Done in the same save
+  // (`saveMarksDone`), so opening a blocked document and marking it applies it without one.
   const [confirmRemove, setConfirmRemove] = React.useState(false);
   // The checklist is previewed before it is saved; the dialog carries its own Download.
   const [showChecklist, setShowChecklist] = React.useState(false);
+  // "Download binder" first lists what goes in and what is skipped (owner 2026-10-06).
+  const [confirmBinder, setConfirmBinder] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
   const { busyKey, download } = usePdfDownload();
   const { uploadToRow } = useHodFileUpload();
 
   const building = job !== null;
   const buildingBinderHere = job?.hodSystem === system.name && !job.document;
+  // The binder dialog closes when THIS binder's build ends -- downloaded or failed, the toast says which.
+  const wasBuildingRef = React.useRef(false);
+  React.useEffect(() => {
+    if (wasBuildingRef.current && !buildingBinderHere) setConfirmBinder(false);
+    wasBuildingRef.current = buildingBinderHere;
+  }, [buildingBinderHere]);
   const binderTitle = `${system.display_name} — ${project.project_name}`;
-  // Owner 2026-09-28, REPLACING the 2026-09-23 "unlocks only once every document is answered YES":
-  // a NO or NA document no longer holds the binder back. It never did anything TO the binder -- the
-  // server keeps YES rows only (`build_plan`), so a NO document already stays on the printed
-  // checklist with its answer and contributes no pages. The count is now INFORMATION, in the header
-  // line and the button's tooltip, not a gate. Switched-on rows are still required: with none there
-  // is no checklist to print.
+  // A WIP or Not Started document does not hold the binder back (owner 2026-09-28, kept 2026-10-06): the
+  // server keeps Done rows only (`build_plan`), so the others stay on the printed checklist as YES with
+  // no pages behind them. The count is INFORMATION, in the header line and the button's tooltip, not a
+  // gate. Switched-on rows are still required: with none there is no checklist to print.
   const remaining = counts ? counts.needed - counts.completed : 0;
-  const allAnswered = !!counts && counts.needed > 0 && remaining === 0;
-  const answeredYes = counts?.completed ?? 0;
+  const allDone = !!counts && counts.needed > 0 && remaining === 0;
+  const doneCount = counts?.completed ?? 0;
   const binderEnabled = !!counts && counts.needed > 0;
   const touched = counts?.touched ?? 0;
 
@@ -237,14 +246,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     selected: string[],
   ) => {
     const form_data = { ...(row.form_data || {}), selected };
-    const yes = saveAnswersYes(meta, form_data);
-    await patch(row, yes ? { form_data, status: "YES" } : { form_data });
+    const done = saveMarksDone(meta, form_data);
+    await patch(row, done ? { form_data, status: "Done" } : { form_data });
     setOpenRow(null); // the review is done -- close it, like Download selected does
     toast({
-      title: yes ? "Saved and marked YES" : "Selection saved",
-      description: yes
+      title: done ? "Marked as Done" : "Selection saved",
+      description: done
         ? `${selected.length} record${selected.length === 1 ? "" : "s"} go into the handover binder.`
-        : "Tick the records that go into the handover, then save again.",
+        : "Tick the records that go into the handover, then Mark as Done again.",
       variant: "success",
     });
   };
@@ -273,44 +282,39 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     );
   };
 
-  /** Does a SAVE of this data answer the document YES? (owner 2026-09-28, widening the 2026-09-24
-   *  rule from a YES that was merely OWED to every save.) Saving a document IS the review it is
-   *  answered on, so the status rides the SAME write -- the server then judges YES against the data
-   *  being saved, never against what was on the row a moment ago.
+  /** Does "Mark as Done" on this data make the document Done? (owner 2026-10-06; the save that answered
+   *  YES since 2026-09-28.) The status rides the SAME write as the data, so the server judges Done against
+   *  the data being saved, never against what was on the row a moment ago.
    *
-   *  A form or a library text is always answerable, so its save always answers YES. A FROM NIRMAAN
-   *  document must have records ticked (`checklist.can_be_yes`), so a save that ticks nothing only
-   *  stores; the server would refuse the YES.
-   *
-   *  ⚠️ This overrides an explicit NA too: saving a document the project had marked "not applicable"
-   *  states that it IS being handed over. The answer stays one dropdown click away either way. */
-  const saveAnswersYes = (
+   *  A form or a library text is always ready, so it always becomes Done. A FROM NIRMAAN document must
+   *  have records ticked or a file uploaded (`checklist.can_be_done`), so a save with neither only
+   *  stores; the server would refuse Done. */
+  const saveMarksDone = (
     meta: HodDocumentMeta,
     form_data: Record<string, unknown>,
   ): boolean => (needsSaving(meta) ? isSaved({ form_data }) : true);
 
-  /** The handover answer. NO and NA go straight through, and so does YES on a form or a library text --
-   *  it prints from its own layout with nothing filled in (owner 2026-09-28). Only a From Nirmaan
-   *  document is refused until its records are ticked; the server refuses it too
-   *  (`checklist.can_be_yes`), this is the message that explains it. */
+  /** The status dropdown. WIP and Not Started go straight through, and so does Done on a form or a
+   *  library text -- it prints from its own layout with nothing filled in (owner 2026-09-28). Only a From
+   *  Nirmaan document is refused until its records are ticked or a file is uploaded; the server refuses
+   *  it too (`checklist.can_be_done`), this is the message that explains it. */
   const pickStatus = async (
     row: HodRow,
     meta: HodDocumentMeta,
     status: HodStatus,
   ) => {
     if (row.status === status) return;
-    if (status === "YES" && needsSaving(meta) && !isSaved(row)) {
-      setYesBlocked({ row, meta });
+    if (status === "Done" && needsSaving(meta) && !isSaved(row)) {
+      setDoneBlocked({ row, meta });
       return;
     }
     await patch(row, { status }).catch(() => undefined);
   };
 
   /** The project's own file REPLACES what Nirmaan generates for the document (any of the 16, owner
-   *  2026-10-06): Preview, Download and the binder hand it over from now on. An upload is a save of the
-   *  document, so it answers YES like every other save (`saveAnswersYes`; on a From Nirmaan document the
-   *  file counts as saved content). Returns what was stored, or null when it failed (the toast already
-   *  said why). */
+   *  2026-10-06): Preview, Download and the binder hand it over from now on. An upload marks the document
+   *  Done (`saveMarksDone`; on a From Nirmaan document the file counts as saved content). Returns what was
+   *  stored, or null when it failed (the toast already said why). */
   const uploadFile = async (
     row: HodRow,
     meta: HodDocumentMeta,
@@ -320,10 +324,10 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
     try {
       const upload = await uploadToRow(row.name, file);
       const form_data = { ...(row.form_data || {}), upload };
-      const yes = saveAnswersYes(meta, form_data);
-      await updateRow(row.name, yes ? { form_data, status: "YES" } : { form_data });
+      const done = saveMarksDone(meta, form_data);
+      await updateRow(row.name, done ? { form_data, status: "Done" } : { form_data });
       toast({
-        title: yes ? "Uploaded and marked YES" : "Uploaded",
+        title: done ? "Uploaded and marked Done" : "Uploaded",
         description: `${meta.title} now hands over ${upload.file_name}.`,
         variant: "success",
       });
@@ -393,9 +397,9 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* One card per system: its name, how far it has got, and the actions that act on THIS
-          system -- so which tab a download belongs to is never in doubt. The destructive
-          "Remove system" moved into the "..." menu, off the primary button's elbow (owner 2026-09-28). */}
+      {/* One card per package: its name, how far it has got, and the actions that act on THIS
+          package -- so which tab a download belongs to is never in doubt. The destructive
+          "Remove package" sits in the "..." menu, off the primary button's elbow (owner 2026-09-28). */}
       <div className="overflow-hidden rounded-lg border bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2.5">
           <div className="min-w-0 space-y-1.5">
@@ -414,12 +418,12 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                 <div
                   className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200"
-                  title={`${counts.completed} of ${counts.needed} answered YES`}
+                  title={`${counts.completed} of ${counts.needed} Done`}
                 >
                   <div
                     className={cn(
                       "h-full rounded-full transition-all",
-                      allAnswered ? "bg-green-600" : "bg-blue-500",
+                      allDone ? "bg-green-600" : "bg-blue-500",
                     )}
                     style={{
                       width: `${counts.needed ? (counts.completed / counts.needed) * 100 : 0}%`,
@@ -430,11 +434,11 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                   <b className="font-semibold text-gray-900">
                     {counts.completed}
                   </b>{" "}
-                  of {counts.needed} answered YES
+                  of {counts.needed} Done
                 </span>
-                {counts.na > 0 && (
+                {counts.wip > 0 && (
                   <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                    {counts.na} NA
+                    {counts.wip} WIP
                   </span>
                 )}
                 {counts.off > 0 && (
@@ -463,24 +467,18 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                 className="h-8"
                 disabled={!binderEnabled || (building && !buildingBinderHere)}
                 title={
-                  allAnswered
-                    ? "Cover, checklist and every document in one PDF"
-                    : answeredYes === 0
-                      ? "Cover and checklist only — no document is answered YES yet, so no pages follow"
-                      : `Cover, checklist and the ${answeredYes} document${answeredYes === 1 ? "" : "s"} answered YES — the other ${remaining} keep their answer on the checklist with no pages behind them`
+                  allDone
+                    ? "Cover, logos, checklist and every document in one PDF"
+                    : doneCount === 0
+                      ? "Cover, logos and checklist only — no document is Done yet, so no pages follow"
+                      : `Cover, logos, checklist and the ${doneCount} Done document${doneCount === 1 ? "" : "s"} — the other ${remaining} stay on the checklist with no pages behind them until they are Done`
                 }
-                onClick={() => onBuild(null, binderTitle)}
+                onClick={() => setConfirmBinder(true)}
               >
-                {buildingBinderHere ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <BookOpenText className="mr-1 h-3.5 w-3.5" />
-                )}
-                {buildingBinderHere
-                  ? progress
-                    ? `Building ${progress.done}/${progress.total}`
-                    : "Starting…"
-                  : "Download binder"}
+                {/* No spinner here: the build's progress shows in the binder dialog only (owner
+                    2026-10-06); while it builds, this button reopens that dialog. */}
+                <BookOpenText className="mr-1 h-3.5 w-3.5" />
+                Download binder
               </Button>
             )}
             {canEdit && (
@@ -501,7 +499,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                     className="gap-2 text-sm text-red-600 focus:text-red-600"
                     onClick={() => setConfirmRemove(true)}
                   >
-                    <Trash2 className="h-4 w-4" /> Remove system
+                    <Trash2 className="h-4 w-4" /> Remove package
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -514,8 +512,13 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-600">
                 <th className="w-14 px-2 py-2 text-center">S.No</th>
                 <th className="px-2 py-2">Document</th>
-                <th className="w-24 px-2 py-2 text-center">Enable / Disable</th>
-                <th className="w-40 px-2 py-2 text-center">Checklist Status</th>
+                <th
+                  className="w-24 px-2 py-2 text-center"
+                  title="Enabled = YES on the printed checklist. Disabled = left off the checklist and the binder."
+                >
+                  Enable / Disable
+                </th>
+                <th className="w-40 px-2 py-2 text-center">Status</th>
                 <th className="w-72 px-2 py-2 text-center">Actions</th>
               </tr>
             </thead>
@@ -571,8 +574,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                         disabled={!canEdit || savingRow === row.name}
                         title={
                           off
-                            ? "Disabled: not needed for this project"
-                            : "Needed for this project"
+                            ? "Disabled: left off the checklist and the binder"
+                            : "Enabled: YES on the checklist"
                         }
                         onCheckedChange={(on) =>
                           patch(row, { disabled: !on }).catch(() => undefined)
@@ -617,6 +620,18 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
         </div>
       </div>
 
+      <BinderDialog
+        open={confirmBinder}
+        onOpenChange={setConfirmBinder}
+        displayName={system.display_name}
+        rows={rows}
+        documents={documents}
+        building={buildingBinderHere}
+        progress={buildingBinderHere ? progress : null}
+        // The dialog stays open: the progress shows in it.
+        onDownload={() => onBuild(null, binderTitle)}
+      />
+
       {showChecklist && (
         <ReportPreviewDialog
           open
@@ -643,14 +658,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           displayName={system.display_name}
           row={openRowData}
           canEdit={rowEditable(openRowData, canEdit)}
-          onSaveSelected={async (selected, markYes) => {
-            // An export saves the ticks too, but ONLY the Save-selection button is the review that
-            // answers the document (owner 2026-09-28) -- a download must never change the answer.
+          onSaveSelected={async (selected, markDone) => {
+            // An export saves the ticks too, but ONLY the Mark-as-Done button is the review that
+            // makes the document Done (owner 2026-09-28) -- a download must never change the status.
             const form_data = { ...(openRowData.form_data || {}), selected };
-            const yes = !!markYes && saveAnswersYes(openMeta, form_data);
+            const done = !!markDone && saveMarksDone(openMeta, form_data);
             await updateRow(
               openRowData.name,
-              yes ? { form_data, status: "YES" } : { form_data },
+              done ? { form_data, status: "Done" } : { form_data },
             );
           }}
         />
@@ -667,19 +682,19 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           row={openRowData}
           meta={openMeta}
           siblings={ordered}
-          // Answering YES is a statement, not a signature: the form stays editable.
+          // Done is a statement, not a signature: the form stays editable.
           readOnly={!rowEditable(openRowData, canEdit)}
           onSave={async (formData) => {
-            const yes = saveAnswersYes(openMeta, formData);
+            const done = saveMarksDone(openMeta, formData);
             await updateRow(
               openRowData.name,
-              yes
-                ? { form_data: formData, status: "YES" }
+              done
+                ? { form_data: formData, status: "Done" }
                 : { form_data: formData },
             );
             toast({
-              title: yes ? "Saved and marked YES" : "Saved",
-              description: yes
+              title: done ? "Marked as Done" : "Saved",
+              description: done
                 ? `${openMeta.title} goes into the handover binder.`
                 : `${openMeta.title} is saved.`,
               variant: "success",
@@ -691,30 +706,27 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
           onSaveSelected={(selected) =>
             saveSelected(openRowData, openMeta, selected)
           }
-          uploading={savingRow === openRowData.name}
-          onUpload={(file) => uploadFile(openRowData, openMeta, file)}
-          onRemoveUpload={() => removeUpload(openRowData, openMeta)}
         />
       )}
 
 
       <AlertDialog
-        open={!!yesBlocked}
-        onOpenChange={(o) => !o && setYesBlocked(null)}
+        open={!!doneBlocked}
+        onOpenChange={(o) => !o && setDoneBlocked(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Save it first
+              Nothing to hand over yet
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-gray-600">
                 <p>
-                  <b>{yesBlocked?.meta.title}</b> has no records ticked for the
-                  handover and no uploaded file yet, so it cannot be marked YES.
+                  <b>{doneBlocked?.meta.title}</b> has no records ticked for the
+                  handover and no uploaded file yet, so it cannot be marked Done.
                 </p>
-                <p>{YES_HINT}</p>
+                <p>{DONE_HINT}</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -722,9 +734,9 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
             <AlertDialogCancel>Close</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                // No latch needed: saving the ticks answers YES on its own (owner 2026-09-28).
-                const name = yesBlocked?.row.name ?? null;
-                setYesBlocked(null);
+                // No latch needed: Mark as Done on the ticks makes it Done on its own.
+                const name = doneBlocked?.row.name ?? null;
+                setDoneBlocked(null);
                 setOpenRow(name);
               }}
             >
@@ -755,7 +767,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                       {touched !== 1 ? "have" : "has"} entries
                     </span>{" "}
                     — filled forms, remarks or switched
-                    documents. Removing the system deletes all of it, and it
+                    documents. Removing the package deletes all of it, and it
                     cannot be undone.
                   </p>
                 ) : (
@@ -764,7 +776,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                     Nothing has been entered on them yet.
                   </p>
                 )}
-                <p>Are you sure you want to remove this system?</p>
+                <p>Are you sure you want to remove this package?</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

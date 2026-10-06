@@ -7,7 +7,8 @@
 //
 // The numbers come from `api/hod/tracker.get_hod_trackers`, a single GROUP BY, and are the SAME ones
 // the tab shows (`services/hod/checklist.counts`): `needed` is the switched-on documents and
-// `completed` the YES count among them. NA rows stay IN the denominator, as they do on the tab.
+// `completed` the Done count among them (owner 2026-10-06). WIP and Not Started rows stay IN the
+// denominator, as they do on the tab. A system is called a PACKAGE on screen (UI wording only).
 
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { ArrowUpRight, CheckCircle2, Search } from "lucide-react";
@@ -26,8 +27,8 @@ interface HodTrackerSystem {
   label: string;
   work_package: string | null;
   completed: number;
-  no: number;
-  na: number;
+  wip: number;
+  not_started: number;
   off: number;
   needed: number;
 }
@@ -39,7 +40,7 @@ interface HodTrackerProject {
   systems: HodTrackerSystem[];
   completed: number;
   needed: number;
-  na: number;
+  wip: number;
   last_activity: string | null;
 }
 
@@ -123,8 +124,8 @@ const HodTrackerCard: React.FC<{
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-gray-500">
               {tracker.systems.length}{" "}
-              {tracker.systems.length === 1 ? "system" : "systems"}
-              {tracker.na > 0 ? ` · ${tracker.na} NA` : ""}
+              {tracker.systems.length === 1 ? "package" : "packages"}
+              {tracker.wip > 0 ? ` · ${tracker.wip} WIP` : ""}
             </span>
             <div className="flex items-center gap-1 text-xs font-medium text-primary">
               <span>View Details</span>
@@ -177,7 +178,7 @@ export const HodTrackerList: React.FC = () => {
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
             className="pl-8"
-            placeholder="Search by project or system..."
+            placeholder="Search by project or package..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

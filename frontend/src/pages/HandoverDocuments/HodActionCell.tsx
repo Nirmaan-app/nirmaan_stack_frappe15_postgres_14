@@ -8,8 +8,8 @@
 //   Preview  -> the "HOD Document" print of this row, on screen. Every one of the 16 has one: a From
 //               Nirmaan document prints the page that LISTS the records it hands over.
 //               Building the REAL merged records here instead was tried on 2026-09-25 and reverted the
-//               same day: `enqueue_binder` refuses a document that is not answered YES, and Preview is
-//               what you look at BEFORE answering, so it threw on every unanswered row.
+//               same day: `enqueue_binder` refuses a document that is not Done, and Preview is what
+//               you look at BEFORE marking it Done, so it threw on every unfinished row.
 //   Download -> the same document as a file. For a From Nirmaan document that means the records
 //               themselves, built on the server (with no selection saved yet, Edit opens first).
 //
@@ -17,7 +17,8 @@
 //               2026-10-06): the project's own file -- the signed copy, say -- REPLACES what Nirmaan
 //               generates in Preview, Download and the binder. Only for users who can edit.
 //
-// The checklist answer (YES / NO / NA) is NOT here -- it is the Checklist Status column.
+// The status (Not Started / WIP / Done) is NOT here -- it is the Status column; the checklist's YES / NO
+// is the Enable / Disable switch.
 
 import {
   Download,

@@ -23,7 +23,8 @@ export const AddSystemDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  /** First time on this project ("Create Handover Documents") or adding more ("Add System"). */
+  /** First time on this project ("Create Handover Documents") or adding more ("Add Package"). A system is
+   *  called a PACKAGE on screen (owner 2026-10-06, UI wording only). */
   firstTime: boolean;
   systems: HodSystemOption[];
   onAdd: (systems: string[]) => Promise<void>;
@@ -97,13 +98,13 @@ export const AddSystemDialog: React.FC<{
               <FolderArchive className="h-5 w-5 text-pink-600" />
             </div>
             <span>
-              {firstTime ? "Create Handover Documents" : "Add System"}
+              {firstTime ? "Create Handover Documents" : "Add Package"}
             </span>
           </AlertDialogTitle>
           <AlertDialogDescription className="ml-[52px]">
             {firstTime
               ? "Setting up handover documents for "
-              : "Adding systems to the handover of "}
+              : "Adding packages to the handover of "}
             <span className="font-semibold text-primary">{projectName}</span>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -112,26 +113,26 @@ export const AddSystemDialog: React.FC<{
           <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
             <Grid3X3 className="h-4 w-4 text-gray-500" />
             <Label className="text-sm font-medium text-gray-700">
-              Choose Systems <span className="text-red-500">*</span>
+              Choose Packages <span className="text-red-500">*</span>
             </Label>
           </div>
 
           {available.length === 0 ? (
             <div className="rounded border border-dashed border-gray-200 p-4 text-center text-sm text-gray-400">
               {systems.length
-                ? "Every system is already added to this project."
-                : "No HOD system is set up yet."}
+                ? "Every package is already added to this project."
+                : "No handover package is set up yet."}
             </div>
           ) : (
             <>
               {group(
                 "Packages on this project",
-                "Systems whose work package this project carries",
+                "Their work package is one of this project's",
                 suggested,
               )}
               {group(
-                suggested.length ? "Other systems" : "Systems",
-                "Each system gets the 16 handover documents",
+                suggested.length ? "Other packages" : "Packages",
+                "Each package gets the 16 handover documents",
                 others,
               )}
             </>
@@ -139,7 +140,7 @@ export const AddSystemDialog: React.FC<{
 
           {selected.length > 0 && (
             <p className="text-xs text-gray-500">
-              {selected.length} system{selected.length !== 1 ? "s" : ""}{" "}
+              {selected.length} package{selected.length !== 1 ? "s" : ""}{" "}
               selected — each gets the 16 handover documents
             </p>
           )}

@@ -12,11 +12,10 @@ counter-example in this app -- it calls `frappe.get_doc` once per tracker, which
 trackers and is not the pattern to copy onto a table that grows at 17 rows per project per system.
 
 THE NUMBERS ARE THE TAB'S NUMBERS. `services/hod/checklist.counts` defines them: `needed` is the
-switched-on rows and `completed` is the YES count among them, so a system reads `12/16` here exactly as
-it reads on the project. NA rows stay IN the denominator, which is what the tab does -- a handover with
-"not applicable" answers does not reach 16/16, and the tracker must not quietly disagree with the screen
-someone opens next. The arithmetic is restated in SQL because the aggregate never loads a row;
-`test_hod_tracker` pins the two definitions against each other so they cannot drift.
+switched-on rows and `completed` is the Done count among them (owner 2026-10-06), so a system reads
+`12/16` here exactly as it reads on the project. WIP and Not Started rows stay IN the denominator. The
+arithmetic is restated in SQL because the aggregate never loads a row; `test_hod_tracker` pins the two
+definitions against each other so they cannot drift.
 """
 
 import frappe
@@ -24,9 +23,9 @@ from frappe import _
 
 DOCTYPE = "Project HOD Document"
 
-# `checklist.normalise_status` reads anything unrecognised -- a blank, or one of the retired
-# Pending / Form Filled / Completed -- as NO. The SQL has to do the same, or a row that has never been
-# answered would fall out of every bucket and `no` would not add up.
+# `checklist.normalise_status` reads a legacy YES as Done and anything else unrecognised as Not Started.
+# The SQL does the same: Done and WIP are counted by value (a legacy YES with Done), and Not Started is
+# whatever is left, so a row carrying an old value can never fall out of every bucket.
 _COUNTS_SQL = """
 	SELECT
 		d.project                                   AS project,
@@ -38,9 +37,9 @@ _COUNTS_SQL = """
 		COUNT(*)                                    AS total,
 		SUM(CASE WHEN COALESCE(d.disabled, 0) = 1 THEN 1 ELSE 0 END) AS switched_off,
 		SUM(CASE WHEN COALESCE(d.disabled, 0) = 0
-			AND UPPER(TRIM(COALESCE(d.status, ''))) = 'YES' THEN 1 ELSE 0 END) AS completed,
+			AND UPPER(TRIM(COALESCE(d.status, ''))) IN ('DONE', 'YES') THEN 1 ELSE 0 END) AS completed,
 		SUM(CASE WHEN COALESCE(d.disabled, 0) = 0
-			AND UPPER(TRIM(COALESCE(d.status, ''))) = 'NA'  THEN 1 ELSE 0 END) AS na,
+			AND UPPER(TRIM(COALESCE(d.status, ''))) = 'WIP' THEN 1 ELSE 0 END) AS wip,
 		MAX(d.modified)                             AS last_activity
 	FROM "tabProject HOD Document" d
 	LEFT JOIN "tabProjects"   p ON p.name = d.project
@@ -67,15 +66,15 @@ def get_hod_trackers() -> list:
 	for r in rows:
 		needed = int(r.total or 0) - int(r.switched_off or 0)
 		completed = int(r.completed or 0)
-		na = int(r.na or 0)
+		wip = int(r.wip or 0)
 		system = {
 			"hod_system": r.hod_system,
 			"label": r.system_label or r.hod_system,
 			"work_package": r.work_package,
 			"completed": completed,
-			"na": na,
-			# The third answer is whatever is neither YES nor NA among the switched-on rows.
-			"no": needed - completed - na,
+			"wip": wip,
+			# The third status is whatever is neither Done nor WIP among the switched-on rows.
+			"not_started": needed - completed - wip,
 			"off": int(r.switched_off or 0),
 			"needed": needed,
 		}
@@ -88,13 +87,13 @@ def get_hod_trackers() -> list:
 				"systems": [],
 				"completed": 0,
 				"needed": 0,
-				"na": 0,
+				"wip": 0,
 				"last_activity": None,
 			}
 		entry["systems"].append(system)
 		entry["completed"] += completed
 		entry["needed"] += needed
-		entry["na"] += na
+		entry["wip"] += wip
 		if r.last_activity and (entry["last_activity"] is None or r.last_activity > entry["last_activity"]):
 			entry["last_activity"] = r.last_activity
 

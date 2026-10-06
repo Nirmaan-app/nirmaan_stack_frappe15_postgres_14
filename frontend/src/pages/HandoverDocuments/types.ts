@@ -2,10 +2,11 @@
 // The 16-document index itself comes from the server (`documents`); nothing here repeats it.
 
 export type HodDocumentKind = "form" | "template" | "app";
-/** Derived by the server from what was done on the row (never picked by hand). */
-/** The handover checklist answer, picked by hand (owner 2026-09-24). YES also decides what the binder
- *  carries; it is refused only on a From Nirmaan document whose records are not ticked yet. */
-export type HodStatus = "YES" | "NO" | "NA";
+/** The document's progress (owner 2026-10-06, replacing the YES / NO / NA answer). Done is set by
+ *  "Mark as Done" (or an upload) and is what puts pages in the binder; it is refused only on a From
+ *  Nirmaan document with nothing ticked and nothing uploaded. The checklist's YES / NO is the row's
+ *  on/off switch (`disabled`). Mirrors `services/hod/checklist.STATUSES`. */
+export type HodStatus = "Not Started" | "WIP" | "Done";
 
 export interface HodDocumentMeta {
   key: string;
@@ -13,8 +14,8 @@ export interface HodDocumentMeta {
   title: string;
   kind: HodDocumentKind;
   landscape: boolean;
-  /** The document gives users something to fill in, so its row gets the Edit button. It does NOT gate
-   *  YES — a form prints from its own layout with nothing filled in (`hodRules.needsSaving`). */
+  /** The document gives users something to fill in. It does NOT gate Done — a form prints from its own
+   *  layout with nothing filled in (`hodRules.needsSaving`). */
   fill: boolean;
   library: string | null;
   source: "commission" | "tds" | "snag" | "design" | null;
@@ -50,17 +51,15 @@ export interface HodSystemOption {
   added: boolean;
 }
 
-/** Progress over one system's switched-on rows, from `services/hod/checklist.counts`. The three answers
- *  plus the rows that are switched off; `completed` is the YES count, kept under its old name. The
- *  derived Pending / Form Filled / Completed are gone (owner 2026-09-24), and so are the `filled` and
- *  `pending` counts that went with them — the server stopped sending them. */
+/** Progress over one package's switched-on rows, from `services/hod/checklist.counts`: the three statuses
+ *  plus the rows that are switched off. `completed` is the Done count, kept under its old name. */
 export interface HodCounts {
-  /** Answered YES. */
+  /** Done. */
   completed: number;
-  no: number;
-  na: number;
+  wip: number;
+  not_started: number;
   off: number;
-  /** Switched-on rows: what YES is counted against. */
+  /** Switched-on rows (the checklist's YES rows): what Done is counted against. */
   needed: number;
   /** Rows holding entries (removing the system deletes them). */
   touched: number;

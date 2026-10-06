@@ -7,6 +7,7 @@ import {
   dlpEnd,
   documentChip,
   levelLabel,
+  binderContents,
   isSaved,
   needsSaving,
   uploadedFile,
@@ -37,7 +38,7 @@ const row = (document: string, disabled: 0 | 1 = 0): HodRow => ({
   name: `r-${document}`,
   hod_system: "Electrical",
   document,
-  status: "NO" as const,
+  status: "Not Started" as const,
   disabled,
   remarks: null,
   form_data: {},
@@ -185,8 +186,8 @@ describe("documentChip", () => {
 
 describe("needsSaving", () => {
   // `hasEditor` (which rows get Edit / View) is gone: since 2026-10-06 every document takes an upload,
-  // so every row opens. `needsSaving` was always the separate question -- the YES gate.
-  it("gates YES on a From Nirmaan document ONLY", () => {
+  // so every row opens. `needsSaving` was always the separate question -- the Done gate.
+  it("gates Done on a From Nirmaan document ONLY", () => {
     expect(needsSaving({ kind: "app", fill: false })).toBe(true);
     // a form prints from its own layout with nothing filled in (owner 2026-09-28)
     expect(needsSaving({ kind: "form", fill: true })).toBe(false);
@@ -215,8 +216,34 @@ describe("uploadedFile", () => {
     expect(uploadedFile({ form_data: { upload: "/f/x.pdf" } })).toBeNull();
   });
 
-  it("makes a From Nirmaan document answerable YES -- the file is its content", () => {
+  it("lets a From Nirmaan document be Done -- the file is its content", () => {
     expect(isSaved({ form_data: {} })).toBe(false);
     expect(isSaved({ form_data: { upload: file } })).toBe(true);
+  });
+});
+
+describe("binderContents", () => {
+  // Mirrors `binder.build_plan`: switched-on rows in checklist order, Done ones in, the rest skipped.
+  const withStatus = (key: string, status: HodRow["status"], disabled: 0 | 1 = 0): HodRow => ({
+    ...row(key, disabled),
+    status,
+  });
+
+  it("puts Done documents in and skips the rest, numbered as the checklist prints them", () => {
+    const out = binderContents(
+      [withStatus("c", "Done"), withStatus("a", "WIP"), withStatus("b", "Done", 1), withStatus("d", "Not Started")],
+      docs,
+    );
+    // b is switched off, so the S.No close up: a=1, c=2, d=3
+    expect(out.included.map((e) => [e.sno, e.row.document])).toEqual([[2, "c"]]);
+    expect(out.skipped.map((e) => [e.sno, e.row.document])).toEqual([[1, "a"], [3, "d"]]);
+    expect(out.off).toBe(1);
+  });
+
+  it("agrees with the checklist numbering", () => {
+    const rows = [withStatus("a", "Done"), withStatus("b", "WIP", 1), withStatus("c", "Done")];
+    const numbers = printedNumbers(rows, docs);
+    for (const e of binderContents(rows, docs).included)
+      expect(e.sno).toBe(numbers.get(e.row.document));
   });
 });

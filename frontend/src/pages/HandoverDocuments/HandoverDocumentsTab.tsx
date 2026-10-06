@@ -4,8 +4,11 @@
  * A standalone feature: it WRITES only its own `Project HOD Document` rows. The Commission Report,
  * TDS, Snag List and Design Tracker are read (six of the 16 documents come from them), never changed.
  *
- * One tab per system the team ADDS ("+ Add system" creates that system's 16 rows); each tab is the
+ * One tab per system the team ADDS ("+ Add package" creates that system's 16 rows); each tab is the
  * system's checklist. Titles, kinds and numbering come from the server's index, not from here.
+ *
+ * ON SCREEN a system is called a PACKAGE (owner 2026-10-06, UI wording only): the code, the API and the
+ * `HOD System` doctype keep "system".
  */
 
 import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
@@ -103,7 +106,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
       });
     } catch (e: any) {
       toast({
-        title: "Could not add the systems",
+        title: "Could not add the packages",
         description: getFrappeError(e),
         variant: "destructive",
       });
@@ -171,7 +174,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
               </button>
             </div>
             <p className="text-sm text-gray-500">
-              The documents handed over to the client, system by system.
+              The documents handed over to the client, package by package.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -193,7 +196,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                 className="h-9"
                 onClick={() => setAdding(true)}
               >
-                <Plus className="mr-1 h-4 w-4" /> Add system
+                <Plus className="mr-1 h-4 w-4" /> Add package
               </Button>
             )}
             {payload.can_edit_library && !payload.library_empty && (
@@ -244,7 +247,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                   {name}
                   {c && (
                     <span
-                      title={`${c.completed} of ${c.needed} answered YES`}
+                      title={`${c.completed} of ${c.needed} Done`}
                       className={cn(
                         "rounded-full px-1.5 text-[10px] font-semibold tabular-nums",
                         done

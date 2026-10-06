@@ -15,8 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 const WHAT_YOU_CAN_DO = [
-  "Add the systems this project hands over (Electrical, HVAC, …)",
-  "Track the 16 handover documents of each system",
+  "Add the packages this project hands over (Electrical, HVAC, …)",
+  "Track the 16 handover documents of each package",
   "Fill the escalation chart, lists and certificates; add the O&M pictures",
   "Download each document, the checklist or the whole binder as PDF",
 ];
@@ -51,7 +51,7 @@ export const NoHandoverDocumentsView: React.FC<{
           <p className="max-w-md text-base text-gray-600">
             Track and manage the handover documents for{" "}
             <span className="font-semibold text-primary">{projectName}</span> by
-            adding the systems it hands over
+            adding the packages it hands over
           </p>
         </div>
 
@@ -80,7 +80,7 @@ export const NoHandoverDocumentsView: React.FC<{
           <div className="flex w-full max-w-md items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
             <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <div className="space-y-2 text-sm text-amber-800">
-              <p>No HOD system is set up yet, so there is nothing to add.</p>
+              <p>No handover package is set up yet, so there is nothing to add.</p>
               {canEditLibrary && (
                 <Link
                   to="/packages-settings?tab=handover-documents"

@@ -571,8 +571,9 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                         <Ban className="w-4 h-4 mr-2" />
                         Cancel
                     </Button>
-                    {/* A caller that offers Save selection -- today only the handover checklist -- makes
-                        IT the primary action: saving the ticks is the review that ANSWERS the document,
+                    {/* A caller that offers Save selection -- today only the handover checklist, where it
+                        reads "Mark as Done" (owner 2026-10-06) -- makes IT the primary action: saving the
+                        ticks is the review that makes the document Done,
                         while the PDF is a utility beside it. So Export steps back to outline and Save
                         takes the last slot, which is where this app puts a primary.
                         WITHOUT that callback (the project's own TDS tab, which passes none) nothing
@@ -610,7 +611,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                             title={
                                 selectedCount === 0
                                     ? "Tick at least one data sheet first"
-                                    : "Save these ticks and mark this document YES"
+                                    : "Save these ticks and mark this document Done"
                             }
                         >
                             {isSaving ? (
@@ -618,7 +619,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                             ) : (
                                 <Check className="w-4 h-4 mr-2" />
                             )}
-                            Save selection
+                            Mark as Done
                         </Button>
                     )}
                 </DialogFooter>

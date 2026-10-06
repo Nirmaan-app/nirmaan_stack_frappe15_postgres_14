@@ -70,7 +70,7 @@ export const HeaderLogosDialog: React.FC<HeaderLogosDialogProps> = ({
       await mutate();
       toast({
         title: "Saved",
-        description: "The handover documents will print these logos.",
+        description: "The logo page and the handover documents will print these logos.",
         variant: "success",
       });
       onOpenChange(false);
@@ -92,9 +92,10 @@ export const HeaderLogosDialog: React.FC<HeaderLogosDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Header logos</DialogTitle>
           <DialogDescription>
-            Which logos print at the top of this project's handover documents.
-            The Completion Certificate and Equipment Warranty carry the company
-            letterhead instead.
+            Which logos fill the logo page after the cover (repeated after every
+            divider in the binder) and print at the top of each handover
+            document. The Completion Certificate and Equipment Warranty carry
+            the company letterhead instead.
           </DialogDescription>
         </DialogHeader>
 
@@ -165,8 +166,8 @@ export const HeaderLogosDialog: React.FC<HeaderLogosDialogProps> = ({
             <p className="pt-2 text-xs text-gray-500">
               They print in this order: Nirmaan · GC Contractor · Client ·
               Project Manager · Architect · Consultant.
-              {anySelectable &&
-                " Nothing ticked means every available logo prints."}
+              {/* `header_logos.DEFAULT_ROLES`: nothing picked prints Nirmaan alone (owner 2026-09-25). */}
+              {anySelectable && " Nothing ticked means Nirmaan alone."}
             </p>
           </div>
         )}

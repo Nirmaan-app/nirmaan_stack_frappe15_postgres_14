@@ -81,16 +81,31 @@ def top_of_page(project: str, document: str = "") -> dict:
 	logos = []
 	for item in top["logos"]:
 		# An absolute url (Nirmaan's own logo) is left for the renderer to fetch, exactly as the TDS
-		# report does with the same one. A STORED file has to be embedded -- there is no session behind
-		# a print, and this site's public file urls do not work.
-		logo = item["logo"]
-		if logo.startswith("http"):
-			src = logo
-		else:
-			src = _data_uri(logo, shrink=True) if logo else None
+		# report does with the same one. A STORED file has to be embedded (`_embedded`).
+		src = _embedded(item["logo"])
 		if src:
 			logos.append({"label": item["label"], "name": item["name"], "src": src})
 	return {"letterhead": False, "logos": logos}
+
+
+def _embedded(logo: str) -> str | None:
+	"""A logo as the renderer can fetch it: an absolute url as it is (Nirmaan's own), a stored file
+	embedded -- there is no session behind a print, and this site's public file urls do not work."""
+	if not logo:
+		return None
+	return logo if logo.startswith("http") else _data_uri(logo, shrink=True)
+
+
+def stakeholder_page(project: str) -> list:
+	"""The cards of the stakeholder logo page after the cover (owner 2026-10-06):
+	`[{role, label, name, src}]`, one per logo picked for the project's header. A logo that fails to fetch
+	drops its card rather than printing a broken image."""
+	cards = []
+	for item in header_roles.stakeholder_cards(project):
+		src = _embedded(item["logo"])
+		if src:
+			cards.append({"role": item["role"], "label": item["label"], "name": item["name"], "src": src})
+	return cards
 
 
 def _header(info: dict, system, date_value) -> dict:
@@ -260,7 +275,9 @@ def hod_print_context(doc) -> dict:
 		"display_name": system.display_name,
 		"consultant_label": f"{(system.system_name or '').upper()} CONSULTANT",
 		"project_name": info["project_name"],
-		"header": _header(info, system, fd.get("date") or today()),
+		# The form's own date, or BLANK (owner 2026-10-06): an empty date is written on the paper by hand,
+		# never filled with the day it happened to be downloaded.
+		"header": _header(info, system, fd.get("date") or None),
 		# The strip of stakeholder logos across the top -- or the letterhead flag, for the two
 		# documents that carry the company letterhead instead (owner 2026-09-24).
 		"top": top_of_page(doc.project, key),
@@ -348,8 +365,10 @@ def hod_checklist_context(project=None, hod_system=None) -> dict:
 			{
 				"sno": sno,
 				"title": index.get(r.document)["title"],
-				# The handover answer as it was picked: YES / NO / NA (owner 2026-09-24).
-				"status": checklist.normalise_status(r.status),
+				# The checklist answer IS the on/off switch (owner 2026-10-06), and only switched-on rows
+				# are printed -- so every printed row reads YES. The document's own progress
+				# (Not Started / WIP / Done) stays on the screen.
+				"status": "YES",
 				# Remarks left the SCREEN, not the paper: the column prints so it can be written on by
 				# hand at the handover (owner 2026-09-24). Nothing on the tab fills it any more.
 				"remarks": r.remarks or "",
@@ -363,6 +382,10 @@ def hod_checklist_context(project=None, hod_system=None) -> dict:
 		"header": _header(info, system, today()),
 		# The same strip the documents carry, on the cover and the checklist page (owner 2026-09-25).
 		"top": top_of_page(project),
+		# The page of stakeholder logos between the cover and the checklist (owner 2026-10-06), and the
+		# Nirmaan mark its heading carries -- HIDDEN on that page by the owner's ruling, kept in the markup.
+		"stakeholders": stakeholder_page(project),
+		"nirmaan_logo": header_logos.BUNDLED_LOGO,
 		"rows": printed,
 		"counts": checklist.counts(rows),
 		"generated_on": _fmt(date.today()),

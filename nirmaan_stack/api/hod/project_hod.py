@@ -23,8 +23,9 @@ from nirmaan_stack.services.hod import blanks, checklist, index, sources
 
 DOCTYPE = "Project HOD Document"
 ROW_FIELDS = ["name", "hod_system", "document", "status", "disabled", "remarks", "form_data", "modified", "creation"]
-# `status` IS editable since 2026-09-24 -- it is the handover answer (YES / NO / NA) the user picks.
-# The controller guards it: YES is refused on a document that has not been saved.
+# `status` IS editable since 2026-09-24 -- since 2026-10-06 it is the document's progress
+# (Not Started / WIP / Done); the checklist's YES / NO is the `disabled` switch.
+# The controller guards it: Done is refused on a From Nirmaan document with nothing ticked or uploaded.
 EDITABLE_FIELDS = ("status", "disabled", "remarks", "form_data")
 EV_CHANGED = "hod:rows_changed"
 
@@ -163,7 +164,7 @@ def add_systems(project: str, hod_systems) -> dict:
 					"project": project,
 					"hod_system": system.name,
 					"document": d["key"],
-					"status": "Pending",
+					"status": checklist.STATUS_NOT_STARTED,
 					"disabled": 1 if d["key"] in off else 0,
 				}
 			).insert()
@@ -199,7 +200,7 @@ def remove_system(project: str, hod_system: str, force=False) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def update_row(name: str, patch) -> dict:
-	"""Change one row: the on/off switch, remarks or its form data (status is derived, never sent)."""
+	"""Change one row: the on/off switch, its status, remarks or its form data."""
 	if isinstance(patch, str):
 		patch = json.loads(patch or "{}")
 	doc = frappe.get_doc(DOCTYPE, name)

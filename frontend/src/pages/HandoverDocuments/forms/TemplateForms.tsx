@@ -192,8 +192,8 @@ export const ToolsForm: React.FC<FormProps & { tools: string[] }> = ({
   if (!tools.length) {
     return (
       <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
-        No tools are listed for this system. They are added in Desk on the HOD
-        System.
+        No tools are listed for this package. They are added in Packages
+        Settings → Handover Documents.
       </p>
     );
   }
@@ -281,7 +281,7 @@ export const WarrantyForm: React.FC<
       </div>
       <p className="text-xs text-gray-500">
         The escalation contacts printed on the certificate come from this
-        system&apos;s Escalation Chart.
+        package&apos;s Escalation Chart.
       </p>
     </div>
   );

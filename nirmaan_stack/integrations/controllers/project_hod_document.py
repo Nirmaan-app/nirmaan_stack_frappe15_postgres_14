@@ -8,12 +8,12 @@ Handover Documents screen:
 2. a new row needs an ACTIVE HOD System;
 3. a switched-off row (`disabled`) cannot be worked on: its remarks and form data stay as they were
    until it is switched back on. Switching it on or off is always allowed;
-4. `status` is the handover checklist answer, YES / NO / NA, set BY HAND (owner 2026-09-24, replacing the
-   derived Pending / Form Filled / Completed). The controller no longer computes it -- it GUARDS it:
-   **YES is refused on a FROM NIRMAAN document whose records have not been ticked and saved**
-   (`checklist.can_be_yes`), so a Desk edit and the Handover Documents screen are held to the same rule.
-   A form or a library text needs no save -- it prints from its own layout (owner 2026-09-28). NO and NA
-   are always allowed.
+4. `status` is the document's progress, Not Started / WIP / Done (owner 2026-10-06, replacing the
+   YES / NO / NA answer of 2026-09-24 -- the checklist's YES / NO is now the on/off switch). The controller
+   GUARDS it: **Done is refused on a FROM NIRMAAN document with no records ticked and no file uploaded**
+   (`checklist.can_be_done`), so a Desk edit and the Handover Documents screen are held to the same rule.
+   A form or a library text needs no save -- it prints from its own layout (owner 2026-09-28). WIP and
+   Not Started are always allowed.
 """
 
 import json
@@ -40,14 +40,14 @@ def _normalised(fieldname, value):
 def validate(doc, method=None):
 	if not index.is_valid(doc.document):
 		frappe.throw(_("Unknown handover document: {0}").format(doc.document))
-	# Anything that is not one of the three answers -- a blank, or a row still carrying the retired
-	# Pending / Form Filled / Completed -- is healed to NO here, before Frappe's own Select check runs.
+	# Anything that is not one of the three statuses -- a blank, or a row still carrying a retired
+	# YES / NO / NA -- is healed here, before Frappe's own Select check runs.
 	status = checklist.normalise_status(doc.status)
 	doc.status = status
-	if status == checklist.STATUS_YES and not checklist.can_be_yes(doc.document, doc.form_data):
+	if status == checklist.STATUS_DONE and not checklist.can_be_done(doc.document, doc.form_data):
 		frappe.throw(
-			_("{0} has no records ticked for the handover yet, so it cannot be marked YES. Open it, "
-			  "tick what it hands over, and save -- or upload the document -- then set it to YES.").format(
+			_("{0} has no records ticked and no file uploaded yet, so it cannot be marked Done. Open it, "
+			  "tick what it hands over and Mark as Done -- or upload the document from the ⋯ menu.").format(
 				index.get(doc.document)["title"]
 			)
 		)

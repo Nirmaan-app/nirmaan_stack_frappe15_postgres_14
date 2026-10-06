@@ -50,7 +50,7 @@ DOCUMENTS = (
     {"key": "om_manual", "no": 5, "title": "Operations & Maintenance Manual", "kind": TEMPLATE, "library": LIB_OM},
     {"key": "dos_donts", "no": 6, "title": "Do's & Don'ts", "kind": TEMPLATE, "library": LIB_DOS},
     {"key": "maintenance_checklist", "no": 7, "title": "Maintenance Checklist", "kind": TEMPLATE, "library": LIB_MAINT, "fill": True},
-    {"key": "inventory_list", "no": 8, "title": "Inventory List", "kind": FORM, "landscape": True, "fill": True},
+    {"key": "inventory_list", "no": 8, "title": "Inventory List / Asset List", "kind": FORM, "landscape": True, "fill": True},
     {"key": "recommended_tools", "no": 9, "title": "Recommended Tools List", "kind": TEMPLATE, "fill": True},
     {"key": "attic_stock_list", "no": 10, "title": "Attic Stock List", "kind": FORM, "fill": True},
     {"key": "key_list", "no": 11, "title": "Key List", "kind": FORM, "fill": True},

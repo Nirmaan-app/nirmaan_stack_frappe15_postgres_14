@@ -3,7 +3,7 @@
 // The S.No close-up mirrors `services/hod/checklist.printable_rows` (the printed checklist and the
 // binder), so the numbers on screen are the numbers on paper.
 
-import type { HodDocumentMeta, HodRow, HodUpload } from "./types";
+import type { HodDocumentMeta, HodRow, HodStatus, HodUpload } from "./types";
 
 /** What a document is called on screen. A document the project FILLS is a Form, whatever its text comes
  *  from — the Recommended Tools List and the Maintenance Checklist read their items from the library but
@@ -42,6 +42,47 @@ export function printedNumbers(
   return out;
 }
 
+/** The status pill colours, shared by the Status column and the binder dialog. */
+export const STATUS_STYLE: Record<HodStatus, string> = {
+  Done: "bg-green-600 text-white border-green-600",
+  WIP: "bg-amber-50 text-amber-700 border-amber-300",
+  "Not Started": "bg-gray-100 text-gray-600 border-gray-300",
+};
+
+export interface BinderEntry {
+  /** The S.No the document prints with on the checklist (switched-off rows closed up). */
+  sno: number;
+  row: HodRow;
+  meta: HodDocumentMeta;
+}
+
+/** What "Download binder" builds, read off the screen's rows (owner 2026-10-06: the dialog before the
+ *  download lists it). Mirrors `api/hod/binder.build_plan`'s selection -- `checklist.printable_rows` +
+ *  `checklist.is_done` (ADR-0010 F1): every SWITCHED-ON document in checklist order with its S.No; the
+ *  Done ones get a cover page, the logo page and their pages, the rest are skipped (no cover page, no
+ *  pages -- they stay on the checklist as YES). Switched-off documents are not on the checklist at all. */
+export function binderContents(
+  rows: HodRow[],
+  documents: HodDocumentMeta[],
+): { included: BinderEntry[]; skipped: BinderEntry[]; off: number } {
+  const metaByKey = new Map(documents.map((d) => [d.key, d]));
+  const included: BinderEntry[] = [];
+  const skipped: BinderEntry[] = [];
+  let off = 0;
+  let sno = 0;
+  for (const row of orderRows(rows, documents)) {
+    const meta = metaByKey.get(row.document);
+    if (!meta) continue;
+    if (row.disabled) {
+      off += 1;
+      continue;
+    }
+    sno += 1;
+    (row.status === "Done" ? included : skipped).push({ sno, row, meta });
+  }
+  return { included, skipped, off };
+}
+
 /** Can this row's status / remarks / upload / record be changed right now? */
 /** Keys `form_data` carries for the screen's own bookkeeping, not as something a user entered.
  *  Mirrors `services/hod/checklist._META_KEYS`. */
@@ -56,7 +97,7 @@ function hasUserInput(value: unknown): boolean {
   return value !== null && value !== undefined;
 }
 
-/** Has someone actually done this document? The ONE test behind the YES gate, and the same rule for
+/** Has someone actually done this document? The ONE test behind the Done gate, and the same rule for
  *  all three kinds: a form keeps its entries, a library text its included parts, a From Nirmaan
  *  document the records ticked for the handover — so "saved" is just `form_data` holding something a
  *  person put there. Mirrors `services/hod/checklist.is_saved` (ADR-0010 F1). */
@@ -84,7 +125,7 @@ export function uploadedFile(row: Pick<HodRow, "form_data">): HodUpload | null {
   };
 }
 
-/** Must this document be SAVED before it can be answered YES? Only a FROM NIRMAAN document
+/** Must this document be SAVED before it can be Done? Only a FROM NIRMAAN document
  *  (owner 2026-09-28): what it hands over IS the records ticked on it, so with none ticked there is
  *  nothing to print. A FORM prints from its own layout whether or not anyone typed in it — a blank Key
  *  List or Attic Stock List is a real handover page, filled in by hand on site — and a library text

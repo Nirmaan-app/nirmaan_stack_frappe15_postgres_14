@@ -3,8 +3,10 @@
 
 """Handover PDFs built on the `long` queue: the whole BINDER of a system, or the CONTENT of one document.
 
-    binder  = cover + checklist ("HOD Checklist"), then for every document answered YES, in checklist order:
-              a divider page (S.No + title) followed by that document's content
+    binder  = cover + stakeholder logos + checklist ("HOD Checklist"), then for every Done document, in
+              checklist order:
+              a divider page (S.No + title), the stakeholder logo page again (owner 2026-10-06: "after
+              every cover page"), then that document's content
     content = one document's content alone (the row's download button for the six from-app documents)
 
 A document's CONTENT (`_content_steps`), owner rulings 2026-09-22 (the signed-upload case was retired
@@ -225,14 +227,14 @@ def build_plan(project: str, hod_system: str, document: str | None = None) -> tu
 		fields=["name", "document", "status", "disabled", "remarks", "form_data"],
 	)
 	parts = checklist.binder_parts(rows)
-	# The binder carries what was actually handed over: YES rows only (owner 2026-09-24). NO and NA
-	# stay on the printed checklist with their answer, but no pages follow them.
-	parts = [p for p in parts if (p[1].status or "").strip().upper() == checklist.STATUS_YES]
+	# The binder carries only DONE documents (owner 2026-10-06). A switched-on document that is WIP or
+	# Not Started stays on the printed checklist (as YES), but no pages follow it.
+	parts = [p for p in parts if checklist.is_done(p[1])]
 	if document:
 		parts = [p for p in parts if p[1].document == document]
 		if not parts:
 			frappe.throw(
-				_("{0} is not marked YES for {1}, so there is nothing to hand over for it.").format(
+				_("{0} is not Done for {1}, so there is nothing to hand over for it.").format(
 					index.get(document)["title"] if index.get(document) else document, hod_system
 				)
 			)
@@ -265,7 +267,7 @@ def check_binder(project: str, hod_system: str) -> dict:
 	"""Which switched-on documents have nothing to include, and how many steps a build takes.
 
 	The screen no longer pre-checks (owner 2026-09-23: the binder button waits until every switched-on
-	document is answered YES). `enqueue_binder` still refuses an empty document on its own; this stays as
+	document is Done). `enqueue_binder` still refuses an empty document on its own; this stays as
 	the read that says WHICH one and why."""
 	_require(project, hod_system)
 	sections, empty = build_plan(project, hod_system)
@@ -331,9 +333,9 @@ def _print(doctype: str, name: str, print_format: str, form: dict | None = None)
 def _dividers(sections: list, display_name: str, project_name: str, project: str) -> list:
 	"""Every section's divider page, rendered in ONE pass (one page each).
 
-	Each carries the SAME stakeholder logo strip as the cover, the checklist and the documents behind
-	it (owner 2026-09-25), so a binder reads as one document rather than a stack of differently headed
-	pages. The strip is built ONCE and repeated -- the logos are identical on every divider."""
+	The stakeholder logo strip is still BUILT into the page header (owner 2026-09-25) but HIDDEN since
+	2026-10-06, as on the cover and the checklist: the header is empty, and the logos have a full page of
+	their own after every divider (`_logo_page`). Delete the `display: none` rule to bring it back."""
 	esc = frappe.utils.escape_html
 	top = print_context.top_of_page(project)
 	# The strip goes in a PAGE HEADER, exactly as the two print formats draw it (owner 2026-09-25,
@@ -369,6 +371,9 @@ def _dividers(sections: list, display_name: str, project_name: str, project: str
 	.dv {{ page-break-after: always; }}
 	.dv:last-child {{ page-break-after: auto; }}
 	.logos {{ width: 100%; height: 14mm; table-layout: fixed; border-collapse: collapse; margin: 0; }}
+	/* Hidden, not removed (owner 2026-10-06): the header is empty; the 20mm margin stays, so the box does
+	   not move. */
+	.logos {{ display: none; }}
 	.logos td {{ text-align: center; vertical-align: middle; padding: 0 8px; border: 0; }}
 	.logos img {{ max-height: 42px; max-width: 100%; }}
 	/* The title sits in a BORDERED BOX filling the page, like the cover (owner 2026-09-25). Fixed
@@ -388,6 +393,32 @@ def _dividers(sections: list, display_name: str, project_name: str, project: str
 	if len(reader.pages) != len(sections):
 		raise ValueError(f"divider pages: expected {len(sections)}, got {len(reader.pages)}")
 	return list(reader.pages)
+
+
+# "HOD Checklist" prints three one-page parts: the cover, the stakeholder logo page, the checklist.
+_CHECKLIST_PAGES = 3
+_LOGO_PAGE_INDEX = 1
+
+
+def _logo_page(checklist_pdf: bytes | None) -> bytes | None:
+	"""The stakeholder logo page lifted out of the cover-and-checklist render, as a one-page PDF, so the
+	binder can repeat it after every divider (owner 2026-10-06) -- the SAME page, never a second copy of
+	its markup. None when the render is not the expected three pages: then nothing is repeated, rather
+	than a guess at which page holds the logos."""
+	if not checklist_pdf:
+		return None
+	reader = PdfReader(io.BytesIO(checklist_pdf))
+	if len(reader.pages) != _CHECKLIST_PAGES:
+		frappe.log_error(
+			title="HOD binder: logo page not repeated",
+			message=f"HOD Checklist rendered {len(reader.pages)} pages, expected {_CHECKLIST_PAGES}.",
+		)
+		return None
+	out = PdfWriter()
+	out.add_page(reader.pages[_LOGO_PAGE_INDEX])
+	buf = io.BytesIO()
+	out.write(buf)
+	return buf.getvalue()
 
 
 def _download(signed_url: str) -> bytes:
@@ -505,7 +536,14 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 			filename = f"{safe(project_name)}_{safe(hod_system)}_{sec['sno']:02d}_{safe(sec['title'])}_{today()}.pdf"
 		else:
 			job = _Job(user, job_id, 2 + sum(len(s["steps"]) for s in sections))
-			job.step("Cover & checklist", lambda: _print("Projects", project, PF_CHECKLIST, {"hod_system": hod_system}))
+			rendered = {}
+
+			def cover_and_checklist():
+				rendered["pdf"] = _print("Projects", project, PF_CHECKLIST, {"hod_system": hod_system})
+				return rendered["pdf"]
+
+			job.step("Cover & checklist", cover_and_checklist)
+			logo_page = _logo_page(rendered.get("pdf"))
 			try:
 				divider_pages = _dividers(sections, system.display_name, project_name, project)
 			except Exception:
@@ -515,6 +553,10 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 			for sec, divider in zip(sections, divider_pages):
 				if divider is not None:
 					job.writer.add_page(divider)
+				if logo_page:
+					# A fresh reader each time: the same page object added twice would be one object
+					# referenced twice in the page tree.
+					job.writer.add_page(PdfReader(io.BytesIO(logo_page)).pages[0])
 				for st in sec["steps"]:
 					job.step(st["label"], lambda st=st: _render(st, futures))
 			filename = f"{safe(project_name)}_{safe(hod_system)}_Handover_{today()}.pdf"

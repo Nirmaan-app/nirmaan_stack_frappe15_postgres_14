@@ -4,7 +4,7 @@
 // one-time token downloaded through fetch_temp_file.
 //
 // A build always SAVES its PDF. Showing it in the preview dialog instead was tried on 2026-09-25 and
-// REVERTED the same day: `enqueue_binder` refuses a document that is not answered YES (`build_plan`), and
+// REVERTED the same day: `enqueue_binder` refuses a document that is not Done (`build_plan`), and
 // Preview is exactly what you want BEFORE answering, so it threw on every unanswered row.
 
 import {

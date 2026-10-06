@@ -64,7 +64,7 @@ const KINDS: Array<{
     kind: "You fill it",
     tone: "bg-blue-50 text-blue-700",
     documents:
-      "1 Escalation Chart · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List · 9 Recommended Tools (remarks) · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
+      "1 Escalation Chart · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List / Asset List · 9 Recommended Tools (remarks) · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
     todo: (
       <>
         <b>Fill Form</b> → <b>Download</b> → get it signed →{" "}
@@ -106,26 +106,27 @@ export const HodGuideDialog: React.FC<{
       <DialogHeader>
         <DialogTitle>How Handover Documents work</DialogTitle>
         <DialogDescription>
-          Every system this project hands over gets the same 16 documents. Fill
-          them, get them signed, upload the signed copies — then download one
+          Every package this project hands over gets the same 16 documents. Fill
+          them, mark them Done, upload any signed copies — then download one
           binder for the client.
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-5">
-        <Section icon={ClipboardList} title="1. Add the systems you hand over">
+        <Section icon={ClipboardList} title="1. Add the packages you hand over">
           <p>
-            <b>Create Handover Documents</b> (later <b>+ Add system</b>) — tick
-            the systems: Electrical, HVAC, CCTV… Each one gets its own tab with
+            <b>Create Handover Documents</b> (later <b>+ Add package</b>) — tick
+            the packages: Electrical, HVAC, CCTV… Each one gets its own tab with
             the same 16 documents.
           </p>
           <p>
-            A document this project does not need: turn its{" "}
-            <b>Enable / Disable</b> switch off. It
-            leaves the printed checklist (the numbers close up) and the binder,
-            and can be switched back on any time. <b>Remove system</b> — in the
-            system&apos;s <b>&hellip;</b> menu, beside <b>Download binder</b> —
-            deletes that system&apos;s 16 rows — it warns first if anything was filled.
+            The <b>Enable / Disable</b> switch is the checklist&apos;s YES / NO.
+            Enabled, the document prints <b>YES</b> on the checklist. Disabled,
+            it leaves the printed checklist (the numbers close up) and the
+            binder, and can be switched back on any time. <b>Remove package</b>{" "}
+            — in the package&apos;s <b>&hellip;</b> menu, beside{" "}
+            <b>Download binder</b> — deletes that package&apos;s 16 rows — it
+            warns first if anything was filled.
           </p>
         </Section>
 
@@ -146,45 +147,41 @@ export const HodGuideDialog: React.FC<{
           </div>
         </Section>
 
-        <Section icon={CheckCircle2} title="3. You answer each document">
-          <p>The Checklist Status column is the handover answer:</p>
+        <Section icon={CheckCircle2} title="3. The Status of each document">
+          <p>The Status column is how far the document has got:</p>
           <ul className="ml-4 list-disc space-y-1">
             <li>
-              <Pill className="bg-green-600 text-white">YES</Pill> handed over
-              — it prints YES on the checklist and the document goes into the
-              binder
+              <Pill className="bg-gray-100 text-gray-600">Not Started</Pill>{" "}
+              where every document starts
             </li>
             <li>
-              <Pill className="bg-gray-100 text-gray-600">NO</Pill> not handed
-              over (where every document starts) — it prints NO on the
-              checklist and the document is skipped in the binder
+              <Pill className="bg-amber-50 text-amber-700">WIP</Pill> work is
+              under way — picked from the Status menu
             </li>
             <li>
-              <Pill className="bg-amber-50 text-amber-700">NA</Pill> not
-              applicable to this project — it prints NA on the checklist and
-              the document is skipped in the binder
+              <Pill className="bg-green-600 text-white">Done</Pill> finished —
+              set by <b>Mark as Done</b> in the document, or by an upload
             </li>
           </ul>
           <p>
-            Click the answer in that column to change it — the menu names what
-            each one does to the binder. Only YES puts pages in the binder; NO
-            and NA both leave the document out of it while keeping their answer
-            on the printed checklist.
+            Only a <b>Done</b> document puts pages in the binder. A WIP or Not
+            Started document still prints YES on the checklist — it is enabled —
+            but nothing follows it until it is Done.
           </p>
           <p>
-            <b>A form can be answered YES with nothing filled in</b> — its sheet
+            <b>A form can be marked Done with nothing filled in</b> — its sheet
             prints from its own layout, ready to be written in by hand. Only a
-            From Nirmaan document waits: tick and save the records it hands over
-            first. NO and NA can be set at any time. A disabled document is
-            not on the checklist at all, which is different from NA.
+            From Nirmaan document waits: tick the records it hands over, or
+            upload its file, first.
           </p>
         </Section>
 
         <Section icon={MousePointerClick} title="4. The Actions column">
           <p>
-            Three buttons. <b>Edit</b> opens the document — the form, or the
-            records a From Nirmaan document reads. <b>Preview</b> shows it on
-            screen. <b>Download</b> saves it.
+            <b>Edit</b> opens the document — the form, or the records a From
+            Nirmaan document reads — and its <b>Mark as Done</b> button saves
+            it as Done. <b>Preview</b> shows it on screen. <b>Download</b> saves
+            it. The <b>⋯</b> menu holds the upload.
           </p>
           <p>
             For a From Nirmaan document, <b>Preview</b> shows the page listing
@@ -203,14 +200,14 @@ export const HodGuideDialog: React.FC<{
           </p>
           <p>
             <b>Select &amp; Download</b> lists what is <b>finished</b> for this
-            system — commissioning reports that are Submitted or Client
+            package — commissioning reports that are Submitted or Client
             Accepted, and As Built drawings that are Submitted or Approved. Work
             still in progress is not listed. A <b>snag list is the exception</b>
             : it is handed over in full, open snags included, because those are
             what the client still has to see. <b>View</b> any of it, tick what
             belongs in the handover — <b>nothing is ticked to start with</b>, so
             you pick the records you want rather than un-picking the ones you do
-            not — then <b>Save selection</b>, or <b>Download selected</b>. The
+            not — then <b>Mark as Done</b>, or <b>Download selected</b>. The
             same ticks are what Preview, Download and the binder build.
           </p>
         </Section>
@@ -221,7 +218,7 @@ export const HodGuideDialog: React.FC<{
             or picture — the signed copy, say — in place of what Nirmaan
             generates, and Preview, Download and the binder hand over that file
             instead. It reads <b>Replace</b> once a file is there, and{" "}
-            <b>Remove upload</b> goes back. <b>Edit</b> shows the file too.
+            <b>Remove upload</b> goes back.
           </p>
         </Section>
 
@@ -232,15 +229,17 @@ export const HodGuideDialog: React.FC<{
           }
         >
           <p>
-            <b>Checklist PDF</b> — the cover page and the checklist of the
-            switched-on documents.
+            <b>Checklist PDF</b> — the cover page, the page of stakeholder logos
+            and the checklist of the switched-on documents.
           </p>
           {SHOW_BINDER_BUTTON && (
           <p>
-            <b>Download binder</b> — one PDF with the cover, the checklist, and
-            <b> every document answered YES</b> behind a divider page. It can be
-            downloaded at any point: a document left NO or NA still appears on
-            the checklist with its answer, it simply has no pages behind it, so
+            <b>Download binder</b> — one PDF with the cover, the logos, the
+            checklist, and <b>every Done document</b> behind a divider page and
+            the logo page again. The button first lists what goes in and what is
+            skipped (not Done: no cover page, no pages). It
+            can be downloaded at any point: a document that is not Done yet
+            still appears on the checklist, it simply has no pages behind it, so
             you can hand over a partial set and rebuild later. Switch off what
             this project does not need and it leaves the checklist altogether.
             The button counts the steps while it builds, and the PDF downloads
@@ -252,14 +251,14 @@ export const HodGuideDialog: React.FC<{
         <Section icon={Library} title="8. Where the standard text lives">
           <p>
             The O&amp;M manuals, Do&apos;s &amp; Don&apos;ts, maintenance
-            checks, tools and warranty equipment are kept once per system in the
+            checks, tools and warranty equipment are kept once per package in the
             library, under <b>Packages Settings → Handover Documents</b> (the{" "}
             <b>Edit library</b> item in the <b>&hellip;</b> menu at the top
             right opens it).
           </p>
           <p>
             An edit there shows on the next download of every project handing
-            that system over — so fix the wording before teams start filling.
+            that package over — so fix the wording before teams start filling.
             The <b>Edit library</b> item only appears for the people allowed to
             change it.
           </p>

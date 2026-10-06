@@ -28,7 +28,7 @@ _DOCTYPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stac
 
 
 def _row(key, **kw):
-	base = {"document": key, "status": "NO", "disabled": 0, "remarks": "", "form_data": {}}
+	base = {"document": key, "status": "Not Started", "disabled": 0, "remarks": "", "form_data": {}}
 	base.update(kw)
 	return base
 
@@ -83,30 +83,39 @@ class TestChecklist(unittest.TestCase):
 		# an empty shell is not an entry
 		self.assertTrue(checklist.is_untouched(_row("escalation_chart", form_data={"levels": [{}, {}, {}]}), False))
 
-	def test_counts_read_the_picked_status(self):
+	def test_counts_read_the_progress(self):
 		rows = [_row(k) for k in index.KEYS]
-		rows[1]["status"] = "YES"
-		rows[2]["status"] = "NA"
+		rows[1]["status"] = "Done"
+		rows[2]["status"] = "WIP"
+		rows[3]["status"] = "YES"  # a legacy answer: reads as Done
 		rows[14]["disabled"] = 1
-		rows[14]["status"] = "YES"  # switched off counts as off, whatever it answers
+		rows[14]["status"] = "Done"  # switched off counts as off, whatever its status
 		self.assertEqual(
 			checklist.counts(rows),
-			{"completed": 1, "no": 13, "na": 1, "off": 1, "needed": 15},
+			{"completed": 2, "wip": 1, "not_started": 12, "off": 1, "needed": 15},
 		)
 
-	def test_status_is_the_hand_picked_handover_answer(self):
-		"""Owner 2026-09-24: `status` REPLACED the derived Pending / Form Filled / Completed with the
-		checklist answer the user picks. `derive_status` is gone -- nothing computes it any more."""
+	def test_status_is_the_documents_progress(self):
+		"""Owner 2026-10-06: `status` is Not Started / WIP / Done, replacing the YES / NO / NA answer --
+		the checklist's YES / NO is the on/off switch now."""
 		self.assertFalse(hasattr(checklist, "derive_status"))
-		self.assertEqual(checklist.STATUSES, ("YES", "NO", "NA"))
-		# the options themselves are pinned by test_doctype_status_options_match; these two are not
+		self.assertFalse(hasattr(checklist, "STATUS_YES"))
+		self.assertEqual(checklist.STATUSES, ("Not Started", "WIP", "Done"))
 		path = os.path.join(_DOCTYPE_DIR, "project_hod_document", "project_hod_document.json")
 		fields = {f["fieldname"]: f for f in json.load(open(path))["fields"]}
-		self.assertEqual(fields["status"]["default"], checklist.STATUS_NO)
+		self.assertEqual(tuple(fields["status"]["options"].split("\n")), checklist.STATUSES)
+		self.assertEqual(fields["status"]["default"], checklist.STATUS_NOT_STARTED)
 		self.assertFalse(fields["status"].get("read_only"))
 
-	def test_only_a_from_nirmaan_document_needs_saving_before_yes(self):
-		"""Owner 2026-09-28: a document that needs no filling must be answerable YES as it stands. A FORM
+	def test_only_done_rows_put_pages_in_the_binder(self):
+		"""Owner 2026-10-06: a switched-on WIP or Not Started document stays on the checklist with no pages."""
+		self.assertTrue(checklist.is_done(_row("key_list", status="Done")))
+		self.assertTrue(checklist.is_done(_row("key_list", status="YES")))  # a legacy answer
+		self.assertFalse(checklist.is_done(_row("key_list", status="WIP")))
+		self.assertFalse(checklist.is_done(_row("key_list")))
+
+	def test_only_a_from_nirmaan_document_needs_saving_before_done(self):
+		"""Owner 2026-09-28: a document that needs no filling must be markable Done as it stands. A FORM
 		and a LIBRARY text both print from their OWN layout -- a blank Key List or Attic Stock List is a
 		real handover page, written in by hand -- so neither is gated. Only a FROM NIRMAAN document is:
 		what it hands over IS the records ticked on it, so with none ticked there is nothing to print."""
@@ -114,35 +123,32 @@ class TestChecklist(unittest.TestCase):
 		            "recommended_tools", "inventory_list", "attic_stock_list", "key_list",
 		            "equipment_warranty", "completion_certificate"):
 			self.assertFalse(checklist.needs_saving(key), key)
-			self.assertTrue(checklist.can_be_yes(key, {}), key)
-			self.assertTrue(checklist.can_be_yes(key, None), key)
+			self.assertTrue(checklist.can_be_done(key, {}), key)
+			self.assertTrue(checklist.can_be_done(key, None), key)
 		for key in ("demo_training", "commissioning_report", "material_tds", "factory_test_reports",
 		            "snag_list", "as_built_drawings"):
 			self.assertTrue(checklist.needs_saving(key), key)
-			self.assertFalse(checklist.can_be_yes(key, {}), key)
-			self.assertTrue(checklist.can_be_yes(key, {"selected": ["REPORT-1"]}), key)
+			self.assertFalse(checklist.can_be_done(key, {}), key)
+			self.assertTrue(checklist.can_be_done(key, {"selected": ["REPORT-1"]}), key)
 
-	def test_the_fill_flag_no_longer_gates_yes(self):
-		"""`fill` still says a row gets an editor; it is NOT the YES gate (owner 2026-09-28). Every
-		fillable document that is not read from the app is answerable with an empty form."""
+	def test_the_fill_flag_does_not_gate_done(self):
+		"""`fill` is NOT the Done gate (owner 2026-09-28). Every fillable document that is not read from
+		the app is markable Done with an empty form."""
 		for d in index.DOCUMENTS:
 			if d.get("fill") and d["kind"] != index.FROM_APP:
-				self.assertTrue(checklist.can_be_yes(d["key"], {}), d["key"])
+				self.assertTrue(checklist.can_be_done(d["key"], {}), d["key"])
 
-	def test_a_retired_status_heals_to_no(self):
-		"""No backfill script (owner 2026-09-24): rows still carrying Pending / Form Filled / Completed
-		read as NO at once, and are written back as NO the next time they are saved."""
+	def test_a_retired_status_heals(self):
+		"""Owner 2026-10-06: YES -> Done; NO, NA and anything older -> Not Started, on read and on save."""
 		n = checklist.normalise_status
-		self.assertEqual(n("Pending"), checklist.STATUS_NO)
-		self.assertEqual(n("Form Filled"), checklist.STATUS_NO)
-		self.assertEqual(n("Completed"), checklist.STATUS_NO)
-		self.assertEqual(n(""), checklist.STATUS_NO)
-		self.assertEqual(n(None), checklist.STATUS_NO)
-		self.assertEqual(n("whatever"), checklist.STATUS_NO)
-		# the three answers survive, however they were typed
-		self.assertEqual(n("YES"), checklist.STATUS_YES)
-		self.assertEqual(n(" yes "), checklist.STATUS_YES)
-		self.assertEqual(n("na"), checklist.STATUS_NA)
+		self.assertEqual(n("YES"), checklist.STATUS_DONE)
+		self.assertEqual(n(" yes "), checklist.STATUS_DONE)
+		for old in ("NO", "NA", "na", "Pending", "Form Filled", "Completed", "", None, "whatever"):
+			self.assertEqual(n(old), checklist.STATUS_NOT_STARTED, old)
+		# the three statuses survive, however they were typed
+		self.assertEqual(n("Done"), checklist.STATUS_DONE)
+		self.assertEqual(n(" wip "), checklist.STATUS_WIP)
+		self.assertEqual(n("not started"), checklist.STATUS_NOT_STARTED)
 
 	def test_is_saved_is_one_rule_for_all_three_kinds(self):
 		saved = checklist.is_saved
@@ -157,20 +163,20 @@ class TestChecklist(unittest.TestCase):
 		self.assertFalse(saved({"levels": [{}, {}]}))
 		self.assertFalse(saved({"tool_remarks": {"Multimeter": "  "}}))
 
-	def test_the_yes_gate_ignores_the_screens_own_bookkeeping(self):
+	def test_the_done_gate_ignores_the_screens_own_bookkeeping(self):
 		"""`completed` is left over from the retired hand mark: it must NOT make a row look saved, or
-		an untouched document could be answered YES."""
-		self.assertFalse(checklist.can_be_yes("demo_training", {"completed": True}))
+		an untouched document could be marked Done."""
+		self.assertFalse(checklist.can_be_done("demo_training", {"completed": True}))
 		self.assertFalse(checklist.is_saved({"completed": True}))
-		self.assertTrue(checklist.can_be_yes("demo_training", {"completed": True, "selected": ["X"]}))
+		self.assertTrue(checklist.can_be_done("demo_training", {"completed": True, "selected": ["X"]}))
 
-	def test_no_and_na_are_never_gated(self):
-		"""Only YES is guarded -- a document nobody will ever fill must still be answerable NA."""
-		self.assertTrue(checklist.STATUS_NO in checklist.STATUSES)
-		self.assertTrue(checklist.STATUS_NA in checklist.STATUSES)
-		# `can_be_yes` is asked ONLY for YES; on a document that needs saving it reads `is_saved`.
+	def test_wip_and_not_started_are_never_gated(self):
+		"""Only Done is guarded."""
+		self.assertTrue(checklist.STATUS_WIP in checklist.STATUSES)
+		self.assertTrue(checklist.STATUS_NOT_STARTED in checklist.STATUSES)
+		# `can_be_done` is asked ONLY for Done; on a document that needs saving it reads `is_saved`.
 		self.assertEqual(
-			checklist.can_be_yes("demo_training", {"x": 1}), checklist.is_saved({"x": 1})
+			checklist.can_be_done("demo_training", {"x": 1}), checklist.is_saved({"x": 1})
 		)
 
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):
@@ -224,6 +230,26 @@ class TestHeaderLogos(unittest.TestCase):
 		self.assertEqual(
 			header_logos.selectable({"client_name": "X", "client_logo": "   "}), ["mep_contractor"]
 		)
+
+	def test_the_logo_page_shows_the_header_pick_in_card_order(self):
+		"""Owner 2026-10-06: the page after the cover carries the logos PICKED for the header -- client side
+		first, Nirmaan last, whatever order they print in on the header."""
+		picked = "mep_contractor\narchitect\nclient"
+		cards = header_logos.stakeholder_cards(self.SETTING, picked)
+		self.assertEqual([c["role"] for c in cards], ["client", "architect", "mep_contractor"])
+		self.assertEqual(cards[0], {"role": "client", "label": "Client", "name": "Maresk", "logo": "/files/maersk.png"})
+		self.assertEqual(cards[-1]["logo"], header_logos.BUNDLED_LOGO)
+		# the same roles the header prints, only in card order
+		self.assertEqual(
+			sorted(c["role"] for c in cards),
+			sorted(i["role"] for i in header_logos.header_logos(self.SETTING, picked)),
+		)
+		self.assertEqual(set(header_logos.CARD_ORDER), set(header_logos.ROLES))
+		# nothing picked -> Nirmaan alone, exactly as the header
+		self.assertEqual([c["role"] for c in header_logos.stakeholder_cards(self.SETTING, "")], ["mep_contractor"])
+		self.assertEqual([c["role"] for c in header_logos.stakeholder_cards(None, None)], ["mep_contractor"])
+		# a picked role that lost its name or logo drops out, as on the header
+		self.assertEqual([c["role"] for c in header_logos.stakeholder_cards(self.SETTING, "manager\nclient")], ["client"])
 
 	def test_nirmaan_is_always_selectable_and_never_waits_on_an_upload(self):
 		"""Owner 2026-09-25: the MEP row uses Nirmaan's own logo -- the SAME url the TDS report falls
@@ -550,13 +576,13 @@ class TestBinder(unittest.TestCase):
 		# a row that is not a handover document has nothing to hand over
 		self.assertIsNone(f("not_a_document", upload))
 
-	def test_an_upload_counts_as_entries_and_answers_a_from_nirmaan_document(self):
+	def test_an_upload_counts_as_entries_and_lets_a_from_nirmaan_document_be_done(self):
 		upload = {"upload": {"url": "/private/files/x.pdf", "file_name": "x.pdf"}}
-		self.assertTrue(checklist.can_be_yes("om_manual", upload))
+		self.assertTrue(checklist.can_be_done("om_manual", upload))
 		self.assertFalse(checklist.is_untouched(_row("om_manual", form_data=upload), False))
-		# a From Nirmaan document with no records ticked may be YES once its file is uploaded
-		self.assertFalse(checklist.can_be_yes("commissioning_report", {}))
-		self.assertTrue(checklist.can_be_yes("commissioning_report", upload))
+		# a From Nirmaan document with no records ticked may be Done once its file is uploaded
+		self.assertFalse(checklist.can_be_done("commissioning_report", {}))
+		self.assertTrue(checklist.can_be_done("commissioning_report", upload))
 
 	def test_commission_task_pick_order(self):
 		pick = sources.commission_binder_source

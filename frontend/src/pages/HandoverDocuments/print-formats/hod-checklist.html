@@ -1,6 +1,6 @@
 <!--
     PRINT FORMAT: HOD Checklist           (DocType: Projects, Custom HTML, Jinja)
-    The cover page + the handover checklist of ONE system of a project.
+    The cover page, the stakeholder logo page + the handover checklist of ONE system of a project.
     Print link: ...download_pdf?doctype=Projects&name=<project>&format=HOD Checklist&hod_system=<system>
     (the binder passes `hod_system` in the render context instead).
 
@@ -26,6 +26,11 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    the cover, the checklist and every document behind them are headed identically. */
 /* Same fixed band as the document format -- see `.hd-logos` there. */
 .hc-logos { width: 100%; height: 14mm; table-layout: fixed; border-collapse: collapse; margin: 0; }
+/* The header is EMPTY on the cover, the logo page and the checklist (owner 2026-10-06): the logos now have
+   a page of their own after the cover. HIDDEN, not removed -- delete this rule to bring the strip back.
+   The 20mm top margin stays, so every bordered box sits exactly where it did. The signature names on the
+   checklist still come from the same picked logos (`signers`). */
+.hc-logos { display: none; }
 .hc-logos td { text-align: center; vertical-align: middle; padding: 0 8px; border: 0 !important; }
 .hc-logos img { max-height: 42px; max-width: 100%; }
 /* The cover is a BORDERED BOX filling the page under the logos (owner 2026-09-25), with the system
@@ -42,6 +47,28 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .hc-cover-sub { font-size: 20px; font-weight: 700; margin-top: 8px; }
 .hc-cover-project { font-size: 15px; margin-top: 30px; }
 .hc-cover-loc { font-size: 11px; color: #444; margin-top: 6px; }
+/* THE STAKEHOLDER LOGO PAGE, between the cover and the checklist (owner 2026-10-06): the logos picked
+   under "Header logos", two cards to a row -- the Project TDS Report's own first page, card for card.
+   It sits in the same 258mm bordered box as the cover, so the binder keeps one box on every page.
+   The report's heading (Nirmaan mark + red rule) is HIDDEN here by the owner's ruling -- hidden, not
+   removed: `.hc-sh-head` is kept so it can come back by deleting the `display: none`. */
+.hc-sh { border: 1px solid #000; height: 258mm; page-break-after: always; padding: 10mm 8mm 0 8mm; }
+.hc-sh-head { display: none; width: 100%; margin-bottom: 20px; text-align: center; }
+.hc-sh-head img { height: 45px; display: block; margin: 0 auto 10px auto; }
+.hc-sh-rule { border-bottom: 3px solid #dc2626; margin-top: 10px; }
+.hc-sh-grid { width: 100%; border: none; border-collapse: separate; border-spacing: 0; }
+.hc-sh-grid td, .print-format .hc-sh-grid td { width: 50%; border: none !important; padding: 0 !important; vertical-align: top; }
+/* A FULL page of logos (owner 2026-10-06): three rows of cards fill the 258mm box -- 10mm top padding +
+   3 x (76mm card + 2 x 8px margin) = ~251mm. The TDS report's 220px cards left the bottom quarter empty. */
+.hc-sh-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); height: 76mm; overflow: hidden; margin: 8px; }
+/* `content-box` on purpose: this format sets `* { box-sizing: border-box }`, which the TDS report does not,
+   so its `height: 30px` swallowed the 24px of padding and the label sat on the divider line. */
+.hc-sh-card-head { box-sizing: content-box; background: #fafafa; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; border-radius: 10px 10px 0 0; text-align: center; height: 30px; line-height: 30px; }
+.hc-sh-card-head svg { vertical-align: middle; margin-right: 8px; display: inline-block; }
+.hc-sh-label { font-size: 11px; font-weight: 700; color: #374151; text-transform: uppercase; vertical-align: middle; display: inline-block; }
+.hc-sh-body { padding: 10px; height: 60mm; display: table; width: 100%; }
+.hc-sh-body-in { display: table-cell; vertical-align: middle; text-align: center; }
+.hc-sh-body img { max-width: 100%; max-height: 46mm; width: auto; height: auto; display: block; margin: 0 auto; }
 /* The sheet is ONE continuous bordered block (owner 2026-09-25): three full-width tables stacked with
    a -1px top margin so their 1px borders overlap into a single outer edge. wkhtmltopdf renders nested
    bordered tables unpredictably, which is why this is a stack rather than a table inside a table. */
@@ -183,6 +210,40 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
         <div class="hc-cover-loc">{{ v(h.location) }}</div>
     </div>
 </div>
+
+{#- The role icons of the Project TDS Report's card page (lucide), keyed by `header_logos.ROLES`. -#}
+{%- macro sh_icon(role) -%}
+{%- if role == 'client' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg>
+{%- elif role == 'manager' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12h.01"/><path d="M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M22 13a18.15 18.15 0 0 1-20 0"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg>
+{%- elif role == 'consultant' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+{%- elif role == 'architect' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13"/><path d="m8 6 2-2"/><path d="m18 16 2-2"/><path d="m17 11 4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+{%- elif role == 'gc_contractor' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 10.821-7.487"/><path d="M21.378 16.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/><circle cx="10" cy="8" r="5"/></svg>
+{%- elif role == 'mep_contractor' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></svg>
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro sh_card(c) -%}
+<div class="hc-sh-card">
+    <div class="hc-sh-card-head">{{ sh_icon(c.role) }}<span class="hc-sh-label">{{ v(c.label) }}</span></div>
+    <div class="hc-sh-body"><div class="hc-sh-body-in"><img src="{{ c.src }}" alt="{{ v(c.name) }}"></div></div>
+</div>
+{%- endmacro -%}
+
+{%- set cards = ctx.stakeholders or [] -%}
+{%- if cards -%}
+<div class="hc-sh">
+    <div class="hc-sh-head">
+        <img src="{{ ctx.nirmaan_logo }}" alt="Nirmaan">
+        <div class="hc-sh-rule"></div>
+    </div>
+    {%- for i in range(0, cards | length, 2) %}
+    <table class="hc-sh-grid"><tr>
+        <td>{{ sh_card(cards[i]) }}</td>
+        <td>{% if i + 1 < cards | length %}{{ sh_card(cards[i + 1]) }}{% endif %}</td>
+    </tr></table>
+    {%- endfor %}
+</div>
+{%- endif -%}
 
 {#- The three parties that sign at the bottom are the ones whose logos head the page, so the strip and
     the signature row can never name different people. Falls back to the old fixed labels if a project

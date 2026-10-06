@@ -94,9 +94,10 @@ export interface SourcesViewProps {
   row: HodRow;
   canEdit: boolean;
   /** Save the ticked records on the row and download them as one PDF. It does NOT answer the
-   *  document -- only Save selection does (owner 2026-09-28). */
+   *  document -- only Mark as Done does (owner 2026-09-28). */
   onDownloadSelected: (selected: string[]) => Promise<void>;
-  /** Save the ticks WITHOUT downloading, and ANSWER the document YES with them (owner 2026-09-28,
+  /** Save the ticks WITHOUT downloading, and make the document Done with them (owner 2026-10-06; it
+   *  answered YES from 2026-09-28,
    *  completing the 2026-09-24 "saving is the review"). It must not cost a PDF, and it is the
    *  PRIMARY action here -- Download sits in the top-right corner as a utility. */
   onSaveSelected: (selected: string[]) => Promise<void>;
@@ -194,7 +195,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
     return (
       <div className="space-y-2">
         <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
-          Nothing is recorded for this system yet.
+          Nothing is recorded for this package yet.
         </p>
         {note}
       </div>
@@ -243,8 +244,8 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
   return (
     <div className="space-y-2">
       {/* Download is a UTILITY, not the review (owner 2026-09-28), so it sits in the top-right corner
-          -- inside the body, clear of the dialog's own close button -- while Save selection, the
-          action that answers the document YES, is the primary button in the footer bar. */}
+          -- inside the body, clear of the dialog's own close button -- while Mark as Done, the
+          action that makes the document Done, is the primary button in the footer bar. */}
       {selectable && (
         <div className="flex justify-end">
           <Button
@@ -516,7 +517,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
             {current.size} of {available.length} {noun}
             {available.length !== 1 ? "s" : ""} ticked —{" "}
             {current.size
-              ? "saving them answers this document YES, and the binder takes the same ones."
+              ? "Mark as Done saves them, and the binder takes the same ones."
               : "tick what belongs in the handover."}
           </span>
           {canEdit && (
@@ -524,7 +525,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
               size="sm"
               className="h-8"
               disabled={!current.size || starting || saving}
-              title="Save these ticks and mark this document YES"
+              title="Save these ticks and mark this document Done"
               onClick={runSave}
             >
               {saving ? (
@@ -532,7 +533,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
               ) : (
                 <Check className="mr-1 h-3.5 w-3.5" />
               )}
-              Save selection
+              Mark as Done
             </Button>
           )}
         </div>
