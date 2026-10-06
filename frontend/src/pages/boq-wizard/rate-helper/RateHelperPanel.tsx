@@ -43,6 +43,31 @@ import {
 // the grid). Width persists per-user across sessions. The default is meaningfully below the RM-3a
 // overlay drawer's 320px so the grid gets more room; min is the readable floor, max is 50% of the
 // wrapper (computed live). Arrow keys nudge by PANEL_RESIZE_STEP.
+/**
+ * SLICE 12c-F (owner R-E, 2026-10-06) -- THE NOTE BOX, MADE PROMINENT.
+ *
+ * Owner: "blue boxes need to be made more prominent". They rendered as a 40%-opacity accent tint
+ * whose text was the ordinary foreground colour, so on a
+ * busy panel the box read as a slightly grey paragraph and the thing it had to say -- that the pricing
+ * substituted a size, defaulted a value or could not match one -- was the easiest line on the card to
+ * skim past. The approved option A is a SOLID box, BLUE text and the info icon.
+ *
+ * ⚠️ RAW `blue-*` UTILITIES, DELIBERATELY, AND THE PRECEDENT IS IN THE GRID. This panel's other two
+ * annotation tones are already raw colours -- the amber `bg-amber-50 dark:bg-amber-950/30` default
+ * fill and the `text-amber-700 dark:text-amber-400` rule line -- because these are MEANINGS ("we
+ * assumed", "we substituted"), not theme roles. `accent` is a theme role: it changes with the theme
+ * and is the same token hover states use, which is exactly why the box was invisible.
+ *
+ * ⚠️ ONE DECLARATION, TWO CALL SITES. The row-level attribute notes (Electrical's surface) and the
+ * item-list field notes (HVAC's) are the SAME kind of thing said about a field, and slice 12c-S's
+ * ruling was that the two disciplines must not read in two different colours. They sat in two
+ * identical hand-written class strings, free to drift; now they cannot.
+ */
+export const NOTE_BOX_CLASS =
+  "ml-1 flex gap-1 rounded border border-blue-300 bg-blue-50 px-1.5 py-1 text-blue-900 "
+  + "dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-100";
+export const NOTE_ICON_CLASS = "mt-[1px] h-3 w-3 shrink-0 text-blue-600 dark:text-blue-300";
+
 const PANEL_WIDTH_STORAGE_KEY = "nirmaan-rate-helper-panel-w";
 const DEFAULT_PANEL_WIDTH = 300;
 const MIN_PANEL_WIDTH = 280;
@@ -872,8 +897,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             are notes in exactly the same sense -- something the pricing did to this field,
                             said in words -- so the two disciplines must not read in two different colours. */}
                         {a.notes && a.notes.length > 0 && (
-                          <div className="ml-1 flex gap-1 rounded border border-accent/40 bg-accent/40 px-1.5 py-1 text-accent-foreground">
-                            <Info className="mt-[1px] h-3 w-3 shrink-0 text-accent-foreground/70" aria-hidden />
+                          <div className={NOTE_BOX_CLASS}>
+                            <Info className={NOTE_ICON_CLASS} aria-hidden />
                             <div className="min-w-0 space-y-0.5">
                               {a.notes.map((n, ni) => (
                                 <p key={`${n.kind}-${ni}`} className="text-[10px] leading-tight">
@@ -1273,8 +1298,8 @@ function ItemListBlocks({
                   * a figure to check. The gate is gone: what the field is for does not stop being true.
                   */}
                 {(f.note || f.typedNote || (f.matchHelp && f.matchHelp.length > 0)) && (
-                  <div className="ml-1 flex gap-1 rounded border border-accent/40 bg-accent/40 px-1.5 py-1 text-accent-foreground">
-                    <Info className="mt-[1px] h-3 w-3 shrink-0 text-accent-foreground/70" aria-hidden />
+                  <div className={NOTE_BOX_CLASS}>
+                    <Info className={NOTE_ICON_CLASS} aria-hidden />
                     <div className="min-w-0 space-y-0.5">
                       {f.note && <p className="text-[10px] leading-tight">{f.note}</p>}
                       {/* OWNER FA8: what to type, in plain English -- declared in config, never written

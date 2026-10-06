@@ -298,9 +298,17 @@ describe("SLICE 12c-S -- Other... mode and the note box", () => {
    * both disciplines. Amber stays for a ruled DEFAULT and red for a refusal; those were explicitly
    * left alone.
    */
-  it("S7: notes render in an accent info box, and the amber default line is untouched", () => {
+  it("S7: notes render in a BLUE info box, and the amber default line is untouched", () => {
     // the item-list field box and the Electrical attribute box are the SAME treatment
-    expect(src.match(/bg-accent\/40/g)?.length).toBe(2);
+    /**
+     * INVERTED at slice 12c-F (owner R-E: "blue boxes need to be made more prominent"). This pinned
+     * TWO `bg-accent/40` boxes -- the 40%-opacity theme tint the owner found invisible. The negative
+     * half is kept and is the point: the accent tint must never come back, and the two call sites must
+     * still share ONE declaration so they cannot drift apart again.
+     */
+    expect(src.match(/bg-accent\/40/g)).toBeNull();
+    expect(src.match(/className=\{NOTE_BOX_CLASS\}/g)?.length).toBe(2);
+    expect(src).toContain("bg-blue-50");
     expect(src).toContain("<Info className=");
     // the ruled default keeps amber -- the one tone this panel reserves for "we filled this in"
     expect(src).toMatch(/\{f\.rule && <p className="pl-1 text-\[10px\] leading-tight text-amber-700/);
