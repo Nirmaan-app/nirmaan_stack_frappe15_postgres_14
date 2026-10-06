@@ -40,10 +40,9 @@ from nirmaan_stack.services.hod import (
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
 
-# `frappe.flags[LAYOUT_FLAG]`: `{block name: layout}` for this render, a layout being one of
-# `om_fit.LAYOUTS` ("roomy" / "medium"). Chosen by `om_fit`, which measures the PDF; a block it does not
-# name (and every block on a Desk print or any other caller) is compact, the layout every marked page is
-# known to fit.
+# `frappe.flags[LAYOUT_FLAG]`: `{block name: layout}` for this render, a layout being one step of
+# `om_fit.LADDERS` for the document. Chosen by `om_fit`, which measures the PDF; a block it does not name
+# (and every block on a Desk print or any other caller) is compact, the layout every page is known to fit.
 LAYOUT_FLAG = "hod_om_layout"
 
 # Blank rows printed when nothing is entered at all. For the Attic Stock List this is the SAME number
@@ -287,6 +286,12 @@ def hod_print_context(doc) -> dict:
 		ctx["pictures"] = _pictures(doc)
 	elif key == "dos_donts":
 		ctx["library"] = _library(doc.project, doc, index.LIB_DOS, fill=False)
+		layouts = frappe.flags.get(LAYOUT_FLAG) or {}
+		for block in ctx["library"]:
+			# "one-roomy" -> one sheet, roomy rhythm; "split-medium" -> the Don'ts on a sheet of their own.
+			parts = (layouts.get(block["name"]) or "").split("-")
+			block["split"] = parts[0] == "split"
+			block["rhythm"] = parts[1] if len(parts) == 2 else ""
 	elif key == "maintenance_checklist":
 		ctx["library"] = _library(doc.project, doc, index.LIB_MAINT, fill=False)
 		ctx["sheets"] = maintenance.sheets(ctx["library"], fd)

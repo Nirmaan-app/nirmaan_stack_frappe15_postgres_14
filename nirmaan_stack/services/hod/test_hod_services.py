@@ -410,6 +410,32 @@ class TestPageFit(unittest.TestCase):
 		printed = self.keys("O&M Manual - Electrical Panel", "more", "and more")
 		self.assertEqual(pages.overflowing([self.FLOWING], printed), set())
 
+	# Do's & Don'ts: every block is laid out page by page (strict), and its box grows with its text.
+	WLD = _blk("wld", "WATER LEAK DETECTION SYSTEM - Do's & Don't")
+	RRS = _blk("rrs", "RODENT REPELLANT SYSTEM - Do's & Don't", "Don't: 1. Neglecting routine maintenance")
+
+	# What each printed sheet opens with (its title, or the Don'ts heading, then the list).
+	WLD_P1 = "WATER LEAK DETECTION SYSTEM - Do's & Don't Do's: 1. Conduct periodic tests"
+	RRS_P1 = "RODENT REPELLANT SYSTEM - Do's & Don't Do's: 1. Conduct routine inspections"
+	RRS_P2 = "Don't: 1. Neglecting routine maintenance; regularly check and clean"
+
+	def test_strict_one_sheet_block_that_runs_on_is_caught(self):
+		printed = self.keys(self.WLD_P1, "7. Exclude relevant staff", self.RRS_P1, self.RRS_P2)
+		self.assertEqual(pages.overflowing([self.WLD, self.RRS], printed, strict=True), {"wld"})
+		# ... where the non-strict reading treats a single-start block as flowing and lets it pass
+		self.assertEqual(pages.overflowing([self.WLD, self.RRS], printed), set())
+
+	def test_strict_split_block_fits_on_its_two_sheets(self):
+		printed = self.keys(self.WLD_P1, self.RRS_P1, self.RRS_P2)
+		self.assertEqual(pages.overflowing([self.WLD, self.RRS], printed, strict=True), set())
+
+	def test_a_sheet_printing_below_the_box_line_is_caught(self):
+		printed = self.keys(self.WLD_P1, self.RRS_P1, self.RRS_P2)
+		ok = [250.0, 260.0, 200.0]
+		low = [250.0, 279.0, 200.0]  # one page, but its last line sits on the box's bottom rule
+		self.assertEqual(pages.overflowing([self.WLD, self.RRS], printed, strict=True, bottoms=ok, limit=272.5), set())
+		self.assertEqual(pages.overflowing([self.WLD, self.RRS], printed, strict=True, bottoms=low, limit=272.5), {"rrs"})
+
 
 class TestDates(unittest.TestCase):
 	def test_owner_sample(self):

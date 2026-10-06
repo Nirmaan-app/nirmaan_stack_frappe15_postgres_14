@@ -55,14 +55,18 @@ def start_key(text) -> str:
 	return "".join(ch for ch in plain if ch.isalnum()).lower()[:KEY_LEN]
 
 
-def overflowing(blocks: list, page_keys: list) -> set:
+def overflowing(blocks: list, page_keys: list, strict: bool = False, bottoms=None, limit=None) -> set:
 	"""The marked blocks whose pages did NOT each print on exactly one sheet.
 
 	`blocks`: in print order, `{"name", "starts": [start_key of each page's first text]}` -- the first
 	page's start is its title band. A block with one start (no marker) is a flowing block: it locates
-	where the blocks around it end, and is never reported. A trailing `{"name": None, "starts": [...]}`
-	marks a page that follows the manual (its pictures).
+	where the blocks around it end, and is never reported -- unless `strict`, where every block is laid
+	out page by page and one start means one sheet (the Do's & Don'ts). A trailing
+	`{"name": None, "starts": [...]}` marks a page that follows the manual (its pictures).
 	`page_keys`: `start_key` of every printed page that holds text, in order.
+	`bottoms` / `limit`: the lowest text line of each of those pages and the line it must stay above, in
+	mm from the page top. A boxed sheet GROWS to hold its text, so a sheet that is one page long can
+	still print below the box line every other page keeps -- the page count alone cannot see that.
 
 	A page is found by scanning forward from the last one found, so text repeated on a later page cannot
 	be mistaken for an earlier start. A start that cannot be found at all fails its block -- not knowing
@@ -78,11 +82,15 @@ def overflowing(blocks: list, page_keys: list) -> set:
 				pos = at + 1
 	bad = set()
 	for block in blocks:
-		if block["name"] is None or len(block["starts"]) < 2:
+		if block["name"] is None or (len(block["starts"]) < 2 and not strict):
 			continue
 		mine = [i for i, (name, _) in enumerate(found) if name == block["name"]]
 		pages_at = [found[i][1] for i in mine]
 		after = next((found[i][1] for i in range(mine[-1] + 1, len(found)) if found[i][1] is not None), len(page_keys))
 		if None in pages_at or any(b != a + 1 for a, b in zip(pages_at, pages_at[1:] + [after])):
+			bad.add(block["name"])
+		elif bottoms is not None and limit is not None and any(
+			bottoms[j] > limit for j in range(pages_at[0], after) if j < len(bottoms)
+		):
 			bad.add(block["name"])
 	return bad

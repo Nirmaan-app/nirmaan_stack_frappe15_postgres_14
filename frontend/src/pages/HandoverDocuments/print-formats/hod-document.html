@@ -318,6 +318,22 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    TWO pages whatever the spacing, and that is correct -- it has two sub-system blocks, so two sheets.) */
 .hd-sheet-text .hd-list, .print-format .hd-sheet-text .hd-list { font-size: 10.5px; line-height: 1.45; }
 .hd-sheet-text .hd-list li, .print-format .hd-sheet-text .hd-list li { margin-bottom: 4px; }
+/* Do's & Don'ts as the owner's reference sheets set them (measured 2026-10-06 on the ACS, WLD, RRS, HVAC
+   and Sprinkler HODs): large type (~4.2-4.7mm), the title as written -- not upper-cased -- a wide gap
+   round each heading, and air between items. ROOMY is the ACS/WLD rhythm (a blank line between items),
+   MEDIUM the Sprinkler one (a hair between items). The compact rules above stay the last resort, and
+   `api/hod/om_fit` only picks a rhythm whose sheets measurably fit. */
+.hd-dd .hd-title, .print-format .hd-dd .hd-title { text-transform: none; font-size: 14.5px; margin: 4px 0 0 0; }
+.hd-dd .hd-sec, .print-format .hd-dd .hd-sec { font-size: 13.5px; }
+.hd-dd .hd-list, .print-format .hd-dd .hd-list { font-size: 13.5px; padding-left: 26px; margin: 0; }
+.hd-dd-roomy .hd-sec, .print-format .hd-dd-roomy .hd-sec { margin: 40px 0 26px 0; }
+.hd-dd-roomy .hd-list, .print-format .hd-dd-roomy .hd-list { line-height: 1.45; }
+.hd-dd-roomy .hd-list li, .print-format .hd-dd-roomy .hd-list li { margin-bottom: 15px; }
+.hd-dd-medium .hd-sec, .print-format .hd-dd-medium .hd-sec { margin: 26px 0 16px 0; }
+.hd-dd-medium .hd-list, .print-format .hd-dd-medium .hd-list { line-height: 1.35; }
+.hd-dd-medium .hd-list li, .print-format .hd-dd-medium .hd-list li { margin-bottom: 6px; }
+/* A Don'ts sheet of its own opens on its heading, close under the box's top rule. */
+.hd-dd > .hd-frame + .hd-sec, .print-format .hd-dd > .hd-frame + .hd-sec { margin-top: 18px; }
 /* The library's HTML is written in the Desk editor and carries its OWN inline sizes, so one block
    printed at 8px and the next at 11px. Force ONE readable base over every descendant; headings take a
    single step up. This is why `* { font-size }` is `!important` here and nowhere else. */
@@ -622,12 +638,21 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 {# ---------------------------------------------------- 6. Do's & Don'ts (library) #}
 {% elif ctx.key == "dos_donts" %}
+    {#- Laid out like the owner's reference sheets (`api/hod/om_fit` picks it by measuring): both lists on
+        ONE boxed sheet where they fit, else the Don'ts on a boxed sheet of their own -- the title heads the
+        first sheet only. `block.rhythm` is the spacing ("roomy" / "medium", or "" for compact). -#}
     {% for block in ctx.library %}
-    <div class="hd-page hd-sheet hd-sheet-grow hd-sheet-text">
+    {% set dd = " hd-dd hd-dd-" ~ block.rhythm if block.rhythm else "" %}
+    <div class="hd-page hd-sheet hd-sheet-grow hd-sheet-text{{ dd }}">
         <div class="hd-frame"></div>
         <div class="hd-title">{{ v(block.title) }}</div>
         <div class="hd-b hd-sec">Do&rsquo;s:</div>
         <ol class="hd-list">{% for x in block.list_1 %}<li>{{ v(x) }}</li>{% endfor %}</ol>
+    {% if block.split %}
+    </div>
+    <div class="hd-page hd-sheet hd-sheet-grow hd-sheet-text{{ dd }}">
+        <div class="hd-frame"></div>
+    {% endif %}
         <div class="hd-b hd-sec">Don&rsquo;t:</div>
         <ol class="hd-list">{% for x in block.list_2 %}<li>{{ v(x) }}</li>{% endfor %}</ol>
     </div>
