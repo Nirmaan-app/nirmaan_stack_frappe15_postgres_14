@@ -171,15 +171,41 @@ def decode_csv_bytes(raw):
         return raw.decode("cp1252", errors="replace"), "cp1252"
 
 
+# SLICE 12c-U (owner U6): the physical row the FIRST data row occupies in the file as Excel opens
+# it. The header is row 1, so data starts at row 2. Named once and shared by both readers (csv and
+# xlsx) so the two formats can never number a file differently.
+PHYSICAL_FIRST_DATA_ROW = 2
+
+
 def parse_csv_text(text):
-    """(headers, rows). Each row is a list of cells, paired with its 1-based DATA row number (the
-    number a user sees in Excel is that + 1 for the header, which the messages account for)."""
+    """(headers, rows). Each row is a list of cells paired with **the PHYSICAL row number it occupies
+    in the file as Excel opens it** -- the header is row 1, so the first data row is row 2.
+
+    ⚠️ SLICE 12c-U (owner U6, "Report the real Excel row"). This USED to number data rows from 1 and
+    its own docstring claimed "the number a user sees in Excel is that + 1 for the header, which the
+    messages account for". THE MESSAGES DID NOT ACCOUNT FOR IT: `apply_plan` renders `"Row %d -- "`
+    straight from this number, so a pricer told "Row 4" had to look at Excel row 5. Measured in
+    slice 12c-T on a live HVAC download: the SKU on physical row 5 was reported as row 4.
+
+    ⚠️ IT IS FIXED HERE, AT THE ONE PLACE THE NUMBER IS BORN, AND NOT AT THE MESSAGE SITES. There
+    are a dozen places that put a row number in front of a user; adding +1 to each would be a dozen
+    chances to miss one, and the provenance stamped on a hand-added row (`_source_for`) would still
+    disagree with the message that referred to it. One definition of "the row" means the preview, the
+    apply, every refusal and the stored `source_row` cannot say different things.
+
+    ⚠️ IT SHIFTS THE PLAN DIGEST, HARMLESSLY: `_digest` includes each change's row, and preview and
+    apply both derive it through this function, so they still agree. A client's per-row answers
+    (`decisions`, `twin_decisions`) are keyed by the numbers the preview SHOWED, so they shift with
+    it.
+
+    The formula/explanation row is numbered here like any other row and dropped later by its marker
+    (`build_plan`), which is why a downloaded file's first SKU is row 3 and not row 2."""
     reader = csv.reader(io.StringIO(text, newline=""))
     rows = list(reader)
     if not rows:
         return [], []
     headers = [h.strip() for h in rows[0]]
-    return headers, list(enumerate(rows[1:], start=1))
+    return headers, list(enumerate(rows[1:], start=PHYSICAL_FIRST_DATA_ROW))
 
 
 def read_upload(raw):

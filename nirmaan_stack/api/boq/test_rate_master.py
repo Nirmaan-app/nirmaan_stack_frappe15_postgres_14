@@ -5037,7 +5037,9 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(_obj(row["attributes"])["width_mm"], 999.0)
         # honest provenance rather than a copied source line
         self.assertEqual(row["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
-        self.assertEqual(row["source_row"], len(rows))
+        # SLICE 12c-U (owner U6): the provenance is the PHYSICAL row Excel shows -- the header is
+        # row 1, so the last of `len(rows)` data rows is row len(rows) + 1.
+        self.assertEqual(row["source_row"], len(rows) + 1)
 
     def test_90_a_partial_file_leaves_absent_items_active(self):
         """THE SAFETY PROPERTY: a partial upload can never delete anything.
@@ -5755,8 +5757,10 @@ class TestRateMaster(FrappeTestCase):
                "material": "COPPER", "thickness_sqmm": "2.5", "install_base_per_mtr": "15", "list_price_per_mtr": "500"}
         text, _h = self._wiring_with(disc, [row])
         plan = csv_importer.build_plan(disc, text)
-        row_no = str(plan["changes"][0]["row"])                  # the appended row: 589 (588 existing rows)
-        self.assertEqual(row_no, "589")
+        # SLICE 12c-U (owner U6): PHYSICAL Excel rows -- 588 existing rows sit at 2..589 under the
+        # header, so the appended row is 590.
+        row_no = str(plan["changes"][0]["row"])
+        self.assertEqual(row_no, "590")
         fp = plan["changes"][0]["twin"]["fingerprint"]
         # NEGATIVE: unanswered -> refused, nothing written
         with self.assertRaises(frappe.ValidationError):
@@ -5886,7 +5890,7 @@ class TestRateMaster(FrappeTestCase):
         text, _h = self._wiring_with(disc, [row, {**row, "list_price_per_mtr": "510"}])
         plan = csv_importer.build_plan(disc, text)
         self.assertEqual(len(plan["errors"]), 1)
-        self.assertIn("Rows 589 and 590 mean the same item", plan["errors"][0]["message"])
+        self.assertIn("Rows 590 and 591 mean the same item", plan["errors"][0]["message"])   # SLICE 12c-U: PHYSICAL rows
         self.assertIn("remove one", plan["errors"][0]["message"])
         with self.assertRaises(frappe.ValidationError):
             csv_importer.apply_plan(disc, text, expected_digest=plan["digest"])
@@ -5979,7 +5983,7 @@ class TestRateMaster(FrappeTestCase):
         # 2. a wrong DISCIPLINE on one row: refused naming the row, file-says vs page
         bad = with_rows([edited(body[0], discipline="HVAC")] + body[1:3])
         p = csv_importer.build_plan(disc, bad, category_id="cabletray_raceway")
-        self.assertEqual(len(p["errors"]), 1); self.assertEqual(p["errors"][0]["row"], 1)
+        self.assertEqual(len(p["errors"]), 1); self.assertEqual(p["errors"][0]["row"], 2)   # SLICE 12c-U: the first data row is PHYSICAL row 2
         self.assertIn("the file says discipline 'HVAC' but this page is '%s'" % disc, p["errors"][0]["message"])
         # 3. a CATEGORY that is not this discipline's: refused
         bad = with_rows([edited(body[0], category="hvac_adp")] + body[1:3])
@@ -6314,7 +6318,7 @@ class TestRateMaster(FrappeTestCase):
         ch = plan["changes"][0]
         self.assertEqual(ch["_payload"]["kind"], "cable_tray")
         self.assertEqual(ch["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
-        self.assertEqual(ch["_payload"]["source_row"], len(rows) + 1)
+        self.assertEqual(ch["_payload"]["source_row"], len(rows) + 2)   # SLICE 12c-U: PHYSICAL row
         # ... and WITHOUT the category hint the kind is inferred from the file's own existing rows
         plan2 = csv_importer.build_plan(disc, self._csv_text(headers, rows + [new_row]))
         self.assertEqual(plan2["errors"], []); self.assertEqual(plan2["changes"][0]["_payload"]["kind"], "cable_tray")
