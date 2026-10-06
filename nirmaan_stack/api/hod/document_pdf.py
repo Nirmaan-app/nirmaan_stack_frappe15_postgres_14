@@ -18,8 +18,9 @@ print format, the same row, no letterhead. A document that needs no box is serve
 import frappe
 from frappe import _
 
-from nirmaan_stack.api.hod import page_frame
+from nirmaan_stack.api.hod import om_fit, page_frame
 from nirmaan_stack.api.hod.binder import _file_pdf
+from nirmaan_stack.api.snags.bulk_download import _drop_jinja_cache
 from nirmaan_stack.services.hod import checklist
 
 DOCTYPE = "Project HOD Document"
@@ -50,7 +51,12 @@ def document_pdf(name: str):
 		# onto an A4 page). It is handed over as it is, so no page box is stamped on it.
 		pdf = _file_pdf(uploaded)
 	else:
-		pdf = frappe.get_print(DOCTYPE, name, print_format=PRINT_FORMAT, as_pdf=True, no_letterhead=1)
+
+		def render():
+			_drop_jinja_cache()  # the O&M renders twice when its roomy layout spills; each must be fresh
+			return frappe.get_print(DOCTYPE, name, print_format=PRINT_FORMAT, as_pdf=True, no_letterhead=1)
+
+		pdf = om_fit.render(doc, render) if om_fit.needs_fit(doc.document) else render()
 		if page_frame.needs_frame(doc.document):
 			pdf = page_frame.stamp(pdf)
 

@@ -48,8 +48,10 @@ from pypdf import PdfReader, PdfWriter
 PAGE_HEIGHT = 297  # A4 portrait -- the page every framed document prints on
 SHEET_HEIGHT = 258  # `hod-document.html` .hd-sheet
 MARGIN_TOP = 20
-# What `.print-format` declares as the page's bottom margin. The box stops ABOVE this, and the gap is
-# what keeps a full-height box from tipping wkhtmltopdf onto an extra page.
+# What `.print-format` declares as the page's bottom margin on the boxed sheets (and the binder's divider
+# pages, which read it). The box stops ABOVE this, and the gap is what keeps a full-height box from tipping
+# wkhtmltopdf onto an extra page. NOT the O&M Manual's: its text flows under this stamped frame, so it
+# declares 22mm -- 3mm inside MARGIN_BOTTOM -- or its last line prints on the rule.
 PAGE_MARGIN_BOTTOM = 14
 MARGIN_BOTTOM = PAGE_HEIGHT - MARGIN_TOP - SHEET_HEIGHT  # 19
 MARGIN_SIDE = 12

@@ -53,7 +53,7 @@ from frappe.utils.pdf import get_pdf
 from pypdf import PdfReader, PdfWriter
 
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
-from nirmaan_stack.api.hod import page_frame, print_context
+from nirmaan_stack.api.hod import om_fit, page_frame, print_context
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import as_dict
 from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
@@ -122,9 +122,10 @@ def get_job_status(job_id: str) -> dict:
 # ------------------------------------------------------------------------------------------- the plan
 
 
-def _print_step(label, doctype, name, print_format, form=None, frame=False):
-	"""`frame`: stamp the handover box on every page of the render (`page_frame`)."""
-	return {"label": label, "kind": "print", "args": (doctype, name, print_format, form or {}), "frame": frame}
+def _print_step(label, doctype, name, print_format, form=None, frame=False, fit=False):
+	"""`frame`: stamp the handover box on every page of the render (`page_frame`).
+	`fit`: lay the O&M Manual out roomy where its pages fit (`om_fit`)."""
+	return {"label": label, "kind": "print", "args": (doctype, name, print_format, form or {}), "frame": frame, "fit": fit}
 
 
 def _file_step(label, url):
@@ -155,7 +156,11 @@ def _content_steps(project: str, hod_system: str, row, system, use_upload: bool 
 				return [], EMPTY_REASON[entry["library"]]
 		if key == "recommended_tools" and not checklist.parse_lines(system.tools):
 			return [], EMPTY_REASON[key]
-		return [_print_step(title, DOCTYPE, row.name, PF_DOCUMENT, frame=page_frame.needs_frame(key))], None
+		return [
+			_print_step(
+				title, DOCTYPE, row.name, PF_DOCUMENT, frame=page_frame.needs_frame(key), fit=om_fit.needs_fit(key)
+			)
+		], None
 
 	src_kind = entry["source"]
 	src = sources_for(project, hod_system, row.document)
@@ -465,7 +470,11 @@ class _Job:
 
 def _render(step: dict, futures: dict) -> bytes:
 	if step["kind"] == "print":
-		pdf = _print(*step["args"])
+		if step.get("fit"):
+			doctype, name = step["args"][0], step["args"][1]
+			pdf = om_fit.render(frappe.get_doc(doctype, name), lambda: _print(*step["args"]))
+		else:
+			pdf = _print(*step["args"])
 		return page_frame.stamp(pdf) if step.get("frame") else pdf
 	if step["kind"] == "tds":
 		from nirmaan_stack.api.hod.tds_pack import build_pack

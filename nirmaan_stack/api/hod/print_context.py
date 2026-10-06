@@ -33,11 +33,18 @@ from nirmaan_stack.services.hod import (
 	header_logos,
 	index,
 	maintenance,
+	pages,
 	sources,
 )
 
 DOCTYPE = "Project HOD Document"
 DATE_FORMAT = "dd-MMM-yyyy"
+
+# `frappe.flags[LAYOUT_FLAG]`: `{block name: layout}` for this render, a layout being one of
+# `om_fit.LAYOUTS` ("roomy" / "medium"). Chosen by `om_fit`, which measures the PDF; a block it does not
+# name (and every block on a Desk print or any other caller) is compact, the layout every marked page is
+# known to fit.
+LAYOUT_FLAG = "hod_om_layout"
 
 # Blank rows printed when nothing is entered at all. For the Attic Stock List this is the SAME number
 # the dialog starts with (`RowsTable minRows`, via `hodRules.visibleRows`) -- the sheet prints exactly
@@ -217,12 +224,15 @@ def _library(project: str, doc, library_document: str, fill: bool) -> list:
 	values = fd.get("blanks") if isinstance(fd.get("blanks"), dict) else {}
 	out = []
 	for c in included_library(project, doc.hod_system, library_document, doc.form_data):
+		html = embed_stored_images(blanks.fill_blanks(c.content, values) if fill else (c.content or ""))
 		out.append(
 			{
 				"name": c.name,
 				"title": c.title,
 				"sub_system": c.sub_system or "",
-				"html": embed_stored_images(blanks.fill_blanks(c.content, values) if fill else (c.content or "")),
+				"html": html,
+				# The O&M Manual prints one page per piece -- see `services/hod/pages`.
+				"pages": pages.split_pages(html),
 				"list_1": checklist.parse_lines(c.list_1),
 				"list_2": checklist.parse_lines(c.list_2),
 			}
@@ -271,6 +281,9 @@ def hod_print_context(doc) -> dict:
 		ctx["inventory"] = _inventory(fd)
 	elif key == "om_manual":
 		ctx["library"] = _library(doc.project, doc, index.LIB_OM, fill=True)
+		layouts = frappe.flags.get(LAYOUT_FLAG) or {}
+		for block in ctx["library"]:
+			block["layout"] = layouts.get(block["name"]) or ""
 		ctx["pictures"] = _pictures(doc)
 	elif key == "dos_donts":
 		ctx["library"] = _library(doc.project, doc, index.LIB_DOS, fill=False)

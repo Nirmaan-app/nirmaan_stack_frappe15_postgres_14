@@ -25,7 +25,12 @@ div.print-format { margin: 0 auto !important; }
     address, and this document never prints the letterhead -- on a boxed sheet that 10mm shows up as
     a band of white under the box. Scoped to this one document: every other document here flows, so
     a taller page would re-paginate it. -#}
-{% if ctx.key in ("escalation_chart", "maintenance_checklist", "recommended_tools", "attic_stock_list", "key_list", "inventory_list", "dos_donts", "om_manual") %}.print-format { margin-bottom: 14mm; }{% endif %}
+{% if ctx.key in ("escalation_chart", "maintenance_checklist", "recommended_tools", "attic_stock_list", "key_list", "inventory_list", "dos_donts") %}.print-format { margin-bottom: 14mm; }{% endif %}
+{#- The O&M Manual's box is STAMPED on afterwards (`api/hod/page_frame.py`) with its bottom rule 19mm up
+    the page, so the TEXT must stop above that line. At the 14mm the boxed sheets use, the last line of
+    every full page printed ON the rule or below it -- measured 2026-10-06, text down to 278-283mm on all
+    11 systems against a rule at 278mm. 22mm stops it 3mm inside the box. -#}
+{% if ctx.key == "om_manual" %}.print-format { margin-bottom: 22mm; }{% endif %}
 * { box-sizing: border-box; }
 html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.3; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; }
 .hd-title { text-align: center; font-weight: 700; font-size: 13px; text-decoration: underline; margin: 2px 0 8px 0; text-transform: uppercase; }
@@ -326,6 +331,47 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .hd-lib p { margin: 3px 0; }
 .hd-lib ul { margin: 3px 0 6px 0; padding-left: 18px; }
 .hd-lib img { max-width: 100%; max-height: 180mm; }
+/* The owner's O&M layout (2026-10-06, the Electrical reference): the block's title is the box's FIRST
+   ROW on its first page -- a band ruled off underneath, as written, not upper-cased; an `<h1>` in the text
+   repeats it centred and underlined at the top of a later page; bullets are a plain "•" flush with the
+   headings, hanging so a wrapped line stays under its text; body paragraphs are justified. */
+.hd-title.hd-om-band { text-transform: none; margin: 0; padding: 6px 14px; border-bottom: 1px solid #000; }
+.hd-lib h1, .print-format .hd-lib h1 { text-align: center; text-decoration: underline; font-weight: 700; margin: 0 0 10px 0; }
+.hd-lib ul, .print-format .hd-lib ul { list-style: none; padding-left: 0; }
+.hd-lib ul ul, .print-format .hd-lib ul ul { padding-left: 11px; }
+.hd-lib li, .print-format .hd-lib li { position: relative; padding-left: 11px; }
+.hd-lib ul > li:before { content: "\2022"; position: absolute; left: 0; top: 0; }
+/* A list inside a list takes a hollow second-level mark, as the owner's manuals print it (Word's "o").
+   A circle, NOT the letter: `api/hod/om_fit` recognises a page by the letters it opens with, and a letter
+   "o" in front of every sub-item made a page that opens on a sub-list unrecognisable (measured, VESDA). */
+.hd-lib ul ul > li:before { content: "\25E6"; }
+.hd-lib > p, .print-format .hd-lib > p { text-align: justify; }
+/* The owner's reference manuals are set in large type (4.15mm high) at two densities, and a manual whose
+   text marks its pages takes the most spacious one its pages FIT in: `api/hod/om_fit` renders it ROOMY,
+   reads the PDF back, moves a manual that spilled to MEDIUM, and one that spills again to the compact
+   rules above (the Electrical reference is small and dense; its page 2 has room for nothing larger).
+   One blank line = 13.5px x 1.33 = 18px.
+   ROOMY -- the ACS reference (7. ACS HOD.pdf, measured 2026-10-06): a blank line after every heading and
+   paragraph, two between a list and the next section. */
+.hd-om-roomy .hd-lib, .hd-om-roomy .hd-lib *, .hd-om-medium .hd-lib, .hd-om-medium .hd-lib *,
+.print-format .hd-om-roomy .hd-lib, .print-format .hd-om-roomy .hd-lib *,
+.print-format .hd-om-medium .hd-lib, .print-format .hd-om-medium .hd-lib * { font-size: 13.5px !important; line-height: 1.33 !important; }
+.hd-om-roomy .hd-lib h1, .hd-om-roomy .hd-lib h2, .hd-om-roomy .hd-lib h3, .hd-om-roomy .hd-lib h4 { margin: 36px 0 18px 0; }
+.hd-om-roomy .hd-lib p + h4, .hd-om-roomy .hd-lib h4 + h4 { margin-top: 18px; }
+.hd-om-roomy .hd-lib p, .hd-om-roomy .hd-lib ul, .hd-om-roomy .hd-lib table { margin: 0 0 18px 0 !important; }
+.hd-om-roomy .hd-lib li ul { margin: 0 !important; }
+.hd-om-roomy .hd-lib > *:first-child { margin-top: 0 !important; }
+.hd-om-roomy .hd-lib > *:last-child { margin-bottom: 0 !important; }
+/* MEDIUM -- the FAS reference (4. FAS HOD.pdf, measured 2026-10-06): one blank line BEFORE a heading and
+   none after it or between two headings, lines run on, a hair between bullets (5.1mm against 4.7mm for a
+   wrapped line). */
+.hd-om-medium .hd-lib h1, .hd-om-medium .hd-lib h2, .hd-om-medium .hd-lib h3, .hd-om-medium .hd-lib h4 { margin: 18px 0 0 0; }
+.hd-om-medium .hd-lib h1 { margin-bottom: 18px; }
+.hd-om-medium .hd-lib h4 + h4 { margin-top: 0; }
+.hd-om-medium .hd-lib p, .hd-om-medium .hd-lib ul { margin: 0 !important; }
+.hd-om-medium .hd-lib p + p { margin-top: 18px !important; }
+.hd-om-medium .hd-lib li { margin-bottom: 1.5px; }
+.hd-om-medium .hd-lib > *:first-child { margin-top: 0 !important; }
 /* A break BEFORE each sheet after the first, never AFTER one. `page-break-after: always` emits a BLANK
    page whenever the content it follows happened to end exactly at a page boundary -- measured on the
    HVAC O&M, whose AHU block filled page 10 to the line and so produced an empty page 11 of 18. A break
@@ -539,13 +585,18 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 {# ------------------------------------------------------ 5. O&M Manual (library) #}
 {% elif ctx.key == "om_manual" %}
+    {#- One sheet per PAGE the library text marks (`<div class="page-break"></div>`, split in
+        `services/hod/pages`); text with no marker is one page, as it always was. The title band heads
+        only a block's first page. -#}
     {% for block in ctx.library %}
-    <div class="hd-page">
+    {% for page in block.pages %}
+    <div class="hd-page{% if block.layout %} hd-om-{{ block.layout }}{% endif %}">
+        {% if loop.first %}<div class="hd-title hd-om-band">{{ v(block.title) }}</div>{% endif %}
         <div class="hd-libbox">
-            <div class="hd-title">{{ v(block.title) }}</div>
-            <div class="hd-lib">{{ block.html }}</div>
+            <div class="hd-lib">{{ page }}</div>
         </div>
     </div>
+    {% endfor %}
     {% else %}
     {% if not ctx.pictures %}
     <div class="hd-title">Operations &amp; Maintenance Manual</div>

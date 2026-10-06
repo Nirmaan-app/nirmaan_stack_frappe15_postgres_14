@@ -20,6 +20,7 @@ from nirmaan_stack.services.hod import (
 	header_logos,
 	index,
 	maintenance,
+	pages,
 	sources,
 )
 
@@ -317,6 +318,97 @@ class TestBlanks(unittest.TestCase):
 
 	def test_fill_without_escaping(self):
 		self.assertEqual(blanks.fill_blanks("[Owner]", {"Owner": "a&b"}, escape=False), "a&b")
+
+
+class TestPages(unittest.TestCase):
+	def test_text_without_a_marker_is_one_page_unchanged(self):
+		self.assertEqual(pages.split_pages("<h4>A</h4><p>b</p>"), ["<h4>A</h4><p>b</p>"])
+
+	def test_each_marker_starts_a_page(self):
+		text = f"<p>toc</p>{pages.PAGE_BREAK}<h1>T</h1><p>one</p>\n{pages.PAGE_BREAK}\n<h4>two</h4>"
+		self.assertEqual(pages.split_pages(text), ["<p>toc</p>", "<h1>T</h1><p>one</p>\n", "\n<h4>two</h4>"])
+
+	def test_marker_at_either_end_or_doubled_prints_no_empty_page(self):
+		pb = pages.PAGE_BREAK
+		self.assertEqual(pages.split_pages(f"{pb}<p>a</p>{pb}\n{pb}<p>b</p>{pb}"), ["<p>a</p>", "<p>b</p>"])
+
+	def test_hand_typed_variants_are_recognised(self):
+		# the editor is a plain text box: attribute order, extra classes, quotes, case and inner space vary
+		for marker in (
+			"<div class='page-break'></div>",
+			'<div class="page-break"> </div>',
+			'<div style="x" class="hd page-break other"></div>',
+			'<DIV CLASS="page-break"></DIV>',
+		):
+			self.assertEqual(pages.split_pages(f"<p>a</p>{marker}<p>b</p>"), ["<p>a</p>", "<p>b</p>"], marker)
+
+	def test_only_an_empty_page_break_div_splits(self):
+		# a div that HOLDS text is content, and a class that merely contains the word is another class
+		for text in ('<div class="page-break">keep</div>', '<div class="no-page-breaks"></div>', "[page-break]"):
+			self.assertEqual(pages.split_pages(text), [text])
+
+	def test_empty_text_still_prints_its_page(self):
+		self.assertEqual(pages.split_pages(None), [""])
+		self.assertEqual(pages.split_pages(pages.PAGE_BREAK), [pages.PAGE_BREAK])
+
+	def test_start_key_reads_library_html_and_printed_text_alike(self):
+		html_key = pages.start_key("<h4>3.2.Access Control Panel</h4><ul><li><strong>Mounting</strong>: Secure &amp; dry</li></ul>")
+		pdf_key = pages.start_key("3.2.Access Control Panel\n• Mounting: Secure & dry")
+		self.assertEqual(html_key, pdf_key)
+		self.assertEqual(pages.start_key("Mounting Surface: Must be ﬂat"), "mountingsurfacemustbeflat")  # ligature
+		self.assertEqual(len(pages.start_key("x" * 200)), pages.KEY_LEN)
+
+	def test_bullet_marks_are_not_read_as_text(self):
+		# The print draws "•" and, for a sub-list, "◦". They must stay out of the key -- a LETTER "o" as the
+		# sub-list mark made every page opening on a sub-list unrecognisable (VESDA, 2026-10-06).
+		html_key = pages.start_key("<li><strong>Action</strong>:<ul><li>Activate emergency procedures.</li></ul></li>")
+		self.assertEqual(pages.start_key("• Action:\n   ◦ Activate emergency procedures."), html_key)
+		self.assertNotEqual(pages.start_key("• Action:\n   o Activate emergency procedures."), html_key)
+
+
+def _blk(name, *starts):
+	return {"name": name, "starts": [pages.start_key(s) for s in starts]}
+
+
+class TestPageFit(unittest.TestCase):
+	# Two manuals the way the Electrical row prints: a marked block (4 pages) then a flowing one.
+	MARKED = _blk("general", "O&M Manuals for Electrical Systems", "Electrical Systems again", "Shutdown Procedure", "Troubleshooting")
+	FLOWING = _blk("panel", "O&M Manual - Electrical Panel")
+
+	def keys(self, *texts):
+		return [pages.start_key(t) for t in texts]
+
+	def test_each_marked_page_on_its_own_sheet_fits(self):
+		printed = self.keys("O&M Manuals for Electrical Systems toc", "Electrical Systems again 1. Intro",
+			"Shutdown Procedure: switch", "Troubleshooting x", "O&M Manual - Electrical Panel 1.", "panel page 2")
+		self.assertEqual(pages.overflowing([self.MARKED, self.FLOWING], printed), set())
+
+	def test_a_page_that_spills_onto_a_second_sheet_is_caught(self):
+		printed = self.keys("O&M Manuals for Electrical Systems toc", "Electrical Systems again 1. Intro",
+			"Perform regular inspections", "Shutdown Procedure", "Troubleshooting", "O&M Manual - Electrical Panel")
+		self.assertEqual(pages.overflowing([self.MARKED, self.FLOWING], printed), {"general"})
+
+	def test_the_last_marked_page_spilling_is_caught_too(self):
+		printed = self.keys("O&M Manuals for Electrical Systems", "Electrical Systems again", "Shutdown Procedure",
+			"Troubleshooting", "8. Warranty Information", "O&M Manual - Electrical Panel")
+		self.assertEqual(pages.overflowing([self.MARKED, self.FLOWING], printed), {"general"})
+		# ... and when the marked block is the last one, spilling past the end counts as well
+		self.assertEqual(pages.overflowing([self.MARKED], printed[:5]), {"general"})
+		self.assertEqual(pages.overflowing([self.MARKED], printed[:4]), set())
+
+	def test_the_pictures_page_after_the_manual_is_not_a_spill(self):
+		pics = _blk(None, "Operations & Maintenance Manual - Pictures")
+		printed = self.keys("O&M Manuals for Electrical Systems", "Electrical Systems again", "Shutdown Procedure",
+			"Troubleshooting", "Operations & Maintenance Manual – Pictures")
+		self.assertEqual(pages.overflowing([self.MARKED, pics], printed), set())
+
+	def test_a_page_that_cannot_be_found_is_not_taken_as_fitting(self):
+		printed = self.keys("O&M Manuals for Electrical Systems", "something else", "Shutdown Procedure", "Troubleshooting")
+		self.assertEqual(pages.overflowing([self.MARKED], printed), {"general"})
+
+	def test_a_flowing_block_is_never_reported(self):
+		printed = self.keys("O&M Manual - Electrical Panel", "more", "and more")
+		self.assertEqual(pages.overflowing([self.FLOWING], printed), set())
 
 
 class TestDates(unittest.TestCase):
