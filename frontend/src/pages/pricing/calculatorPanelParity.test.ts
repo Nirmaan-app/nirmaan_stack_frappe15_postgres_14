@@ -40,6 +40,7 @@ import { isSuggestion } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
 import {
   AWAITING_CORPUS_DIVERGENCES,
   AWAITING_SWEEP_DIVERGENCES,
+  STATUS_BY_CAUSE,
 } from "./calculatorPanelParity.awaiting";
 import {
   calculatorHelper,
@@ -186,11 +187,16 @@ describe("every stored extracted row -- the panel's figures and the calculator's
       const e = tally.get(d.cause) ?? { classes: 0, rows: 0 };
       e.classes += 1; e.rows += d.rows; tally.set(d.cause, e);
     }
+    /**
+     * SLICE 12c-F: B is GONE -- fix B matched every model-read value to the option it means, so no row
+     * prices from a value its field cannot show any more. The three B rows that were never value
+     * problems moved to C, where they belong; the three sq.ft rows left C under fix C.
+     */
     expect(tally.get("A_wiring_primary")).toEqual({ classes: 73, rows: 188 });
-    expect(tally.get("B_stale_pick")).toEqual({ classes: 11, rows: 11 });
+    expect(tally.get("B_stale_pick")).toBeUndefined();
     expect(tally.get("C_unit_not_offered")).toEqual({ classes: 5, rows: 5 });
     expect(tally.get("D_reason_only")).toEqual({ classes: 8, rows: 8 });
-    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "B_stale_pick", "C_unit_not_offered", "D_reason_only"]);
+    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered", "D_reason_only"]);
   });
 
   it("the thirteen Electrical categories and the two HVAC alias categories agree on EVERY row except wiring's offered figure", () => {
@@ -202,7 +208,7 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     // the ONLY two categories with any divergence at all
     expect([...perCat.keys()].sort()).toEqual(["hvac_adp", "wiring_cabling"]);
     expect(perCat.get("wiring_cabling")).toBe(188);
-    expect(perCat.get("hvac_adp")).toBe(24);
+    expect(perCat.get("hvac_adp")).toBe(13); // 12c-F: was 24; fix B closed 8, fix C closed 3
   });
 
   it("THE HEADLINE: no ITEM-LIST row ever produces a figure on both surfaces that disagree", () => {
@@ -257,9 +263,9 @@ describe("every stored extracted row -- the panel's figures and the calculator's
       const e = tally.get(x.cause) ?? { classes: 0, rows: 0 };
       e.classes += 1; e.rows += x.k.members.length; tally.set(x.cause, e);
     }
-    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "B_stale_pick", "C_unit_not_offered"]);
+    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered"]);
     expect(tally.get("A_wiring_primary")).toEqual({ classes: 9, rows: 10 });
-    expect(tally.get("B_stale_pick")).toEqual({ classes: 8, rows: 8 });
+    expect(tally.get("B_stale_pick")).toBeUndefined();
     expect(tally.get("C_unit_not_offered")).toEqual({ classes: 3, rows: 3 });
     // D is DEFINED as "both refuse", so it can never appear here
     expect(tally.get("D_reason_only")).toBeUndefined();
@@ -271,11 +277,24 @@ describe("every stored extracted row -- the panel's figures and the calculator's
       && !!itemListPricingSpec(configs.get(x.k.case.cat) ?? null));
     const byCause = new Map<string, number>();
     for (const x of panelOnly) byCause.set(x.cause!, (byCause.get(x.cause!) ?? 0) + 1);
+    // SLICE 12c-F: B is gone, so only the unit-shaped cause withholds a figure on an item-list row.
     // ⚠️ MEASURED, NOT ASSUMED. Cause C does it too, on all 3 of its pricedness-differing rows: a row
     // whose unit the picker cannot offer falls back to the first OFFERED class, and in that class the
     // family has no SKU -- so the calculator refuses a row the panel priced, for the unit rather than
     // for the stale pick. B is 8 of the 11.
-    expect([...byCause.entries()].sort()).toEqual([["B_stale_pick", 8], ["C_unit_not_offered", 3]]);
+    /**
+     * SLICE 12c-F: this set is now EMPTY, and the direction is the point. Before the slice the panel
+     * priced 8 rows the calculator refused (cause B -- it was pricing from a value no control could
+     * show). Fix B closed every one. What is left runs the OTHER way: on 3 rows the PANEL refuses,
+     * because the BoQ's unit is one that family cannot be priced in at all, while the calculator
+     * prices in a unit it can offer. That is cause C, it is listed, and it is the owner's to rule on.
+     */
+    expect([...byCause.entries()].sort()).toEqual([]);
+    const calcOnly = CORPUS_RESULTS.filter((x) =>
+      x.cause !== null && !hasPrice(x.run.panel) && hasPrice(x.run.calculator)
+      && !!itemListPricingSpec(configs.get(x.k.case.cat) ?? null));
+    expect(calcOnly).toHaveLength(3);
+    expect(new Set(calcOnly.map((x) => x.cause))).toEqual(new Set(["C_unit_not_offered"]));
   }, 60000);
 
   it("A_wiring_primary never changes a BLOCK's figures -- only which block is offered", () => {
@@ -287,6 +306,43 @@ describe("every stored extracted row -- the panel's figures and the calculator's
       expect([...whats].sort()).toEqual(["finalValues", "values"]);
     }
   }, 60000);
+});
+
+describe("the owner's ruling on each cause (12c-F)", () => {
+  it("A and D are ACCEPTED; what is left awaiting is the unit-shaped cause alone", () => {
+    expect(STATUS_BY_CAUSE.A_wiring_primary).toBe("accepted by owner");   // owner R-A
+    expect(STATUS_BY_CAUSE.D_reason_only).toBe("accepted by owner");      // owner R-D
+    const awaiting = new Set(
+      AWAITING_CORPUS_DIVERGENCES.filter((d) => STATUS_BY_CAUSE[d.cause] === "awaiting owner review").map((d) => d.cause),
+    );
+    expect([...awaiting]).toEqual(["C_unit_not_offered"]);
+  });
+
+  it("no listed divergence carries cause B any more -- fix B closed every one", () => {
+    expect(AWAITING_CORPUS_DIVERGENCES.filter((d) => d.cause === "B_stale_pick")).toEqual([]);
+    expect(AWAITING_SWEEP_DIVERGENCES.filter((d) => d.cause === "B_stale_pick")).toEqual([]);
+  });
+
+  it("the eleven rows fix B was ruled for are gone from the list BY NAME", () => {
+    const closed = ["BRSR-26-01308#88", "BRSR-26-01310#276", "BRSR-26-01311#93", "BRSR-26-01311#94",
+      "BRSR-26-01313#54", "BRSR-26-01313#55", "BRSR-26-01315#82", "BRSR-26-01371#88"];
+    const listed = new Set(AWAITING_CORPUS_DIVERGENCES.map((d) => d.id));
+    for (const id of closed) expect(listed.has(id)).toBe(false);
+  });
+
+  it("the three sq.ft rows fix C was ruled for are gone from the list BY NAME", () => {
+    const listed = new Set(AWAITING_CORPUS_DIVERGENCES.map((d) => d.id));
+    for (const id of ["BRSR-26-01370#80", "BRSR-26-01370#83", "BRSR-26-01370#84"]) {
+      expect(listed.has(id)).toBe(false);
+    }
+  });
+
+  it("the five rows still awaiting are named, and none of them is a value problem", () => {
+    const awaiting = AWAITING_CORPUS_DIVERGENCES.filter((d) => STATUS_BY_CAUSE[d.cause] === "awaiting owner review");
+    expect(awaiting.map((d) => d.id).sort()).toEqual([
+      "BRSR-26-01311#25", "BRSR-26-01311#27", "BRSR-26-01311#52", "BRSR-26-01312#51", "BRSR-26-01369#43",
+    ]);
+  });
 });
 
 describe("every active SKU of every row-level category", () => {

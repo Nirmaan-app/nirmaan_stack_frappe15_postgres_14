@@ -5222,7 +5222,11 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
     const { v } = list(h.compute(c, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(s) }));
     expect(itemsOnScreen(v)).toEqual([
       { family: "actuator", source: "model", attributes: { ul: "no", torque: "20 NM" }, qty: "1" },
-      { family: "control panel", source: "model", attributes: { panel_ratio: "1:6" }, qty: "1" },
+      // INVERTED at 12c-F (owner R-B): the screen used to show the BoQ's own "1:6" in a dropdown whose
+      // options are plain counts -- so the select could not display it and fell back to its
+      // placeholder. The record now carries the option the value MEANS, which is also the value the
+      // rate was computed from. The negative half: it is never the raw "1:6" again.
+      { family: "control panel", source: "model", attributes: { panel_ratio: "6" }, qty: "1" },
       { family: "spigot", source: "user", attributes: { dia_mm: "" }, qty: "1" },
     ]);
   });
@@ -5369,7 +5373,17 @@ describe("SLICE 6b / the item-list view under v9 -- controls from config, option
     expect(f120.note).not.toContain("is not on the sheet");
     expect(at("120").v.items[0].figures.combined_rate).toBe(829);
     expect(field(at("150MM DIA").v, 0, "dia_mm")).toMatchObject({ value: "150", blank: false });
-    expect(field(at("150MM DIA").v, 0, "dia_mm").note).toBeUndefined();
+    /**
+     * INVERTED at 12c-F (owner R-B). This pinned SILENCE: "150MM DIA" resolved to the stocked 150
+     * through the ladder, exactly, so nothing was said. Fix B reads the value into the catalogue's
+     * vocabulary BEFORE pricing, so the ladder no longer has to -- and the line the field now carries
+     * keeps the BoQ's own words, which is what lets a pricer checking the sheet see that "150MM DIA"
+     * and 150 are the same answer rather than a substitution. The negative half is kept below: the
+     * FIELD still shows 150, never the raw text.
+     */
+    expect(field(at("150MM DIA").v, 0, "dia_mm").note)
+      .toBe("BoQ says 150MM DIA mm -> 150 mm (the sheet's own spelling of this value)");
+    expect(field(at("150MM DIA").v, 0, "dia_mm").value).toBe("150");
     const r160 = at("160");
     expect(r160.v.items[0]).toMatchObject({ state: "blank", reason: "diameter 160 is above the largest size on the sheet (150)" });
     expect(field(r160.v, 0, "dia_mm")).toMatchObject({ value: "", blank: true, note: "BoQ says 160 mm: diameter 160 is above the largest size on the sheet (150)" });
@@ -5903,13 +5917,28 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
     expect(view({ category: "hvac_insulation", family: "Nitrile Rubber Insulation" }).v.unitChoices)
       .toEqual(["mts"]);
     expect(view({ category: "hvac_insulation", family: "Thermal Nitrile Insulation" }).v.unitChoices)
-      .toEqual(["sqm"]);
+      .toEqual(["sqm", "sqft"]); // INVERTED at 12c-F (owner R-C, option A): sq.ft is an area
+    // SPELLING the pricing can convert, so the picker offers it beside sq.m. The negative half is
+    // that no COUNT unit appears -- a family priced by area is never offered one.
     expect(view({ category: "hvac_insulation", family: "Cladding Only" }).v.unitChoices)
-      .toEqual(["sqm", "mts"]);
+      // INVERTED at 12c-F (owner R-C, option A): sq.ft rides beside the area class it converts into.
+      .toEqual(["sqm", "mts", "sqft"]);
     expect(view({ category: "hvac_adp", family: "double-skin plenum" }).v.unitChoices)
-      .toEqual(["sqm"]);
+      .toEqual(["sqm", "sqft"]);
+    /**
+     * INVERTED at 12c-F, and this is the one the owner ruled on by name. It pinned `["sqm"]` -- the
+     * S10 reading that `double-skin plenum` is "sq.m only". Owner, 2026-10-06: "sq.ft is an area
+     * spelling; the ruling was 'priced by area, never by number'." So the thing that must stay true is
+     * the ABSENCE OF A COUNT UNIT, which is what `units_not_offered` decides and what this family
+     * declares -- and that is the negative half, kept below and now stated in the owner's own terms.
+     */
+    expect(view({ category: "hvac_adp", family: "double-skin plenum" }).v.unitChoices)
+      .not.toContain("nos");
     // NEGATIVE: a family with a conversion KEEPS the converted unit -- only a declaration removes one
-    expect(view({ category: "hvac_adp", family: "VCD" }).v.unitChoices).toEqual(["nos", "sqm"]);
+    // INVERTED at 12c-F (owner R-C, option A): VCD prices per number AND per sq.m, so the area
+    // conversion rides beside the area class. The count class is untouched -- the fix adds a spelling,
+    // it never adds a CLASS, which is what keeps `units_not_offered` the only thing deciding those.
+    expect(view({ category: "hvac_adp", family: "VCD" }).v.unitChoices).toEqual(["nos", "sqm", "sqft"]);
   });
 
   it("S10: a BoQ row that ARRIVES in a hidden unit still prices -- the picker is not the pricing", () => {

@@ -1,28 +1,56 @@
 /**
- * SLICE 12c-P (2026-10-06) -- THE DIVERGENCES AWAITING OWNER REVIEW.
+ * SLICE 12c-P / 12c-F -- THE PARITY LIST: WHAT STILL DIFFERS, AND WHAT THE OWNER HAS RULED ON.
  *
  * Owner (standing, P1): the calculator and the rate-helper panel must always give the same price for
- * the same inputs. Owner (item 7, amended 2026-10-06): a divergence does NOT stop the run -- record it
- * in full, group it by cause, and list it HERE BY NAME as awaiting review. The permanent parity test
- * passes only if EXACTLY these differ: a NEW divergence fails it, and so does a listed one that stops
- * differing (which would mean someone fixed or masked it without the owner ruling on it).
+ * the same inputs. Owner (12c-P item 7): a divergence does NOT stop the run -- record it in full,
+ * group it by cause, and list it here BY NAME. The permanent parity test passes only if EXACTLY these
+ * differ: a NEW divergence fails it, and so does a listed one that stops differing (which would mean
+ * someone fixed or masked it without the owner ruling on it).
  *
- * Every entry was measured by `calculatorPanelParity.test.ts` over all 96 stored
- * `BoQ Rate Suggestion Run` documents (10,460 rows, 4,695 distinct input classes) and over the whole
- * live catalogue (1,402 Electrical + 331 HVAC active items). The FULL per-divergence record -- inputs,
- * both figures, both item lists, both refusal reasons and the step where the paths first differ -- is in
- * the slice's report; the four causes are documented on `DivergenceCause` in the harness.
+ * ⚠️ 12c-F CLOSED TWO CAUSES AND THE OWNER ACCEPTED TWO MORE (2026-10-06). The list went from 97
+ * corpus classes to 86:
  *
- * ⚠️ NOTHING HERE IS A FIX. No product file changed in this slice.
+ *   FIXED, so REMOVED from this list:
+ *     B_stale_pick        11 -> 0   fix B: a model-read value is matched to the dropdown option it
+ *                                   means ("3 Slot" -> "3"), so the field shows the value the rate was
+ *                                   computed from. 8 of the 11 now agree to the rupee; the other 3
+ *                                   were never value problems and are reclassified C below.
+ *     C_unit_not_offered   5 -> 5   fix C: the picker now also offers the units the pricing can
+ *                                   CONVERT into one the item is sold in (sq.ft -> sq.m). The three
+ *                                   sq.ft rows now agree; the 5 that remain are the 2 that were always
+ *                                   unit-shaped plus the 3 inherited from B.
  *
- * COUNTS AS MEASURED:
- *   A_wiring_primary     73 classes /  188 rows  -- which block is OFFERED, chosen by the row text
- *   B_stale_pick         11 classes /   11 rows  -- THE ONLY cause where one surface prices and the other does not
- *   C_unit_not_offered    5 classes /    5 rows  -- the row's unit is not one the picker offers
- *   D_reason_only         8 classes /    8 rows  -- both refuse; the sentence differs
- *   (sweeps)             13 cases              -- all D, on synthetic above-the-largest / between-rung sizes
+ *   ACCEPTED BY OWNER, so still listed but NOT awaiting anything:
+ *     A_wiring_primary    73        R-A: "A is ok - nothin gto be done". Which block is OFFERED is
+ *                                   chosen by the row's TEXT and the calculator has no text field;
+ *                                   every BLOCK's figures agree on both surfaces.
+ *     D_reason_only        8        R-D: "its ok. let it be". Both surfaces refuse; only the sentence
+ *                                   differs, because the panel's note can quote BoQ text that has no
+ *                                   box on the screen.
+ *
+ *   STILL AWAITING THE OWNER:
+ *     C_unit_not_offered   5        the row's unit is one its family cannot be priced in at all --
+ *                                   a spigot row written per metre, an actuator row per sq.m, a row
+ *                                   whose unit is "R/O", a row with no unit. None of them is the
+ *                                   double-skin-plenum Nos case, which is a FAMILY-level observation
+ *                                   (that family declares the count class not offered) and has no row
+ *                                   in this corpus; it is left for 12d.
+ *
+ * ⚠️ NOTHING HERE IS A FIX. `STATUS_BY_CAUSE` records the owner's ruling; it changes no behaviour.
  */
 import type { DivergenceCause } from "./calculatorPanelParity.harness";
+
+/** Where a cause stands with the owner. A cause is ACCEPTED when the owner has looked at it and ruled
+ *  that nothing is to be done; it is still listed, because the test must still see exactly these. */
+export type DivergenceStatus = "accepted by owner" | "awaiting owner review";
+
+export const STATUS_BY_CAUSE: Readonly<Record<DivergenceCause, DivergenceStatus>> = {
+  A_wiring_primary: "accepted by owner",   // owner R-A, 2026-10-06
+  B_stale_pick: "awaiting owner review",   // fixed in 12c-F; no row carries it any more
+  C_unit_not_offered: "awaiting owner review",
+  D_reason_only: "accepted by owner",      // owner R-D, 2026-10-06
+  Z_UNCLASSIFIED: "awaiting owner review",
+};
 
 /** One corpus divergence: `id` is the first member of its input class, `rows` how many stored rows
  *  share that exact input and therefore diverge identically. */
@@ -118,27 +146,16 @@ export const AWAITING_CORPUS_DIVERGENCES: readonly AwaitingCorpusDivergence[] = 
   { id: "BRSR-26-01307#152", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01307#170", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01307#171", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01308#88", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01310#276", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01311#25", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01311#27", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
+  { id: "BRSR-26-01311#25", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
+  { id: "BRSR-26-01311#27", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01311#42", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01311#52", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01311#93", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01311#94", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01312#51", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01313#54", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01313#55", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
-  { id: "BRSR-26-01315#82", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
+  { id: "BRSR-26-01312#51", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01315#89", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01315#94", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01315#160", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01369#43", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01370#59", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01370#80", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01370#83", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01370#84", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01371#88", cat: "hvac_adp", cause: "B_stale_pick", rows: 1 },
 ];
 
 export const AWAITING_SWEEP_DIVERGENCES: readonly AwaitingSweepDivergence[] = [

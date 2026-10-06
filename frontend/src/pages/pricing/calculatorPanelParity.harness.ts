@@ -203,7 +203,18 @@ function unitForCalculator(
   if (!spec) return { unit: view.unit, unitFeed: "exact" };
   if (view.unit.trim() === "") return { unit: view.unit, unitFeed: "row has no unit" };
   if (view.unitChoices.includes(view.unit)) return { unit: view.unit, unitFeed: "exact" };
-  if (unitFactorOf(spec, view.unit)) {
+  const factor = unitFactorOf(spec, view.unit);
+  if (factor) {
+    /**
+     * SLICE 12c-F, FIX C: the picker now OFFERS a convertible unit, by its first declared spelling. A
+     * BoQ writes "Sqft" where the picker lists "sqft", so the row's spelling is mapped onto the offered
+     * one exactly as a class spelling is -- same conversion, same factor, same class.
+     */
+    const offered = view.unitChoices.find((ch) => {
+      const f2 = unitFactorOf(spec, ch);
+      return !!f2 && f2.class === factor.class && f2.factor === factor.factor;
+    });
+    if (offered !== undefined) return { unit: offered, unitFeed: "spelling mapped to the class" };
     return { unit: view.unit, unitFeed: "conversion unit the picker cannot offer" };
   }
   const cls = unitClassOf(spec, view.unit);

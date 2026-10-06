@@ -683,6 +683,61 @@ export function readNumber(text: string | number | null | undefined, reader: Num
   return { blank: `several values stated for ${reader.name} ('${raw}')` };
 }
 
+/**
+ * SLICE 12c-F, FIX B (owner R-B, 2026-10-06) -- A MODEL-READ VALUE IS MATCHED TO THE DROPDOWN OPTION
+ * IT MEANS, AND A ROW NEVER PRICES FROM A VALUE ITS FIELD CANNOT SHOW.
+ *
+ * The 12c-P parity cert found this on screen: the extraction read `"2 slot"`, the Slots dropdown
+ * offers `2` and `3`, and `"2 slot"` is neither -- so the controlled select fell back to its
+ * placeholder and the field read `- select -` while the row happily priced 1160 / 352 / 1512 from the
+ * raw string. The figure was right; the screen could not show where it came from, and a pricer
+ * reproducing the row in the calculator could only pick `2` and had no way to know that was the same
+ * thing.
+ *
+ * THE RULE, STATED EXACTLY, in the order it is applied:
+ *   1. No options at all -> no match. (A family whose SKUs stock no sizes has nothing to match
+ *      against; such a field is an input to a formula, not a pick, and keeps its own wording.)
+ *   2. SAME TEXT: trim, collapse internal whitespace, compare case-insensitively. `"3 Slot"` matches
+ *      an option `"3 slot"`; `" 300 "` matches `"300"`.
+ *   3. SAME NUMBER: read a number out of the stated text AND out of each option with the SAME reader
+ *      the pricing uses, and match on numeric equality. This is what takes `"3 Slot"` to `3`,
+ *      `"200 Dia"` to `200`, `"6mm"` to `6` and `"100 mm dia"` to `100`.
+ *   4. Otherwise no match.
+ *
+ * ⚠️ IT REUSES `readNumber` AND DEFINES NO SECOND PARSER. `readNumber` is already how the PRICING
+ * understood `"2 slot"` -- which is exactly why the row priced correctly while the field sat blank. A
+ * private parser here could read a value the pricing does not, and then the field would show a number
+ * the rate was not computed from: the defect inverted.
+ *
+ * ⚠️ IT IS GENERIC. No category, family or attribute is named: it takes a stated string, an option
+ * list and a reader, and every dropdown in every category goes through it on the same terms.
+ *
+ * ⚠️ IT NEVER INVENTS A VALUE. A size the catalogue does not stock (a neck of 225 against options
+ * 300 / 375 / 450) matches NOTHING here and is left exactly as it was, so the ladder still resolves it
+ * to the next size up and the field still shows the rung that was bought. Matching and laddering are
+ * different questions and this answers only the first.
+ */
+export function matchStatedToOption(
+  stated: string,
+  options: readonly string[],
+  reader: NumberReader | undefined,
+): string | null {
+  if (options.length === 0) return null;
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  const want = norm(stated);
+  if (want === "") return null;
+  for (const o of options) if (norm(o) === want) return o;
+  if (!reader) return null;
+  const read = (text: string): number | null => {
+    const r = readNumber(text, reader);
+    return r && "value" in r && Number.isFinite(r.value) ? r.value : null;
+  };
+  const n = read(stated);
+  if (n === null) return null;
+  for (const o of options) if (read(o) === n) return o;
+  return null;
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // the projection (read-time, in memory, never written back)
 // ---------------------------------------------------------------------------------------------------------
