@@ -422,6 +422,25 @@ export const poAttachmentReconcileColumns: ColumnDef<POAttachmentReconcileRowDat
         },
     },
     {
+        id: "latestPaymentDate",
+        accessorFn: (row) => row.latestPaymentDate,
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title={
+                <div className="text-left whitespace-normal">Latest Payment</div>
+            } />
+        ),
+        cell: ({ row }) => {
+            const date = row.original.latestPaymentDate;
+            return <div className="font-medium">{date ? formatDate(date) : '-'}</div>;
+        },
+        filterFn: dateFilterFn,
+        size: 120,
+        meta: {
+            exportHeaderName: "Latest Payment Date",
+            exportValue: (row: POAttachmentReconcileRowData) => row.latestPaymentDate ? formatDate(row.latestPaymentDate) : '-',
+        },
+    },
+    {
         accessorKey: "totalInvoiceAmount",
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title={
