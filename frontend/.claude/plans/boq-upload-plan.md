@@ -44421,3 +44421,102 @@ marker row. A test-fixture repair, not a product change.
 ADP's **R12 is SUPERSEDED for a missing or rate-only unit** by U2–U4, in the owner's words quoted
 above. Nothing else in R12 changes. The `unitNote` rides on `RowPriceResult` and `ItemListView` as an
 OPTIONAL field present only on such a row, so every other row's result and panel are byte-identical.
+
+## Slice 12d-1a — INSULATION: MATERIAL, CLADDING AND THE MODEL'S QUESTIONS; HVAC v27 (2026-10-07) — SHIPPED
+
+Four code commits + this docs commit: `c8934cf17` (family_when_none + headings on the row context +
+validator), `2b1bbd0e2` (value_map + validator), `fc6752fd0` ("none of these", the neutral sentence, brand
+read-only + validator), `99c224afd` (HVAC v27, the E2E-1 suite + fixture, the asset and model-call pins).
+NO AI call was made. Insulation stays `calculator_only` — eligibility is 12d-2's.
+
+### Each ruling and where it lives
+
+| ruling | lives in | how |
+|---|---|---|
+| **R1** a default only on "not mentioned"; "can't tell" blank; amber; cladding silent -> No; glass cloth silent -> without (inside the cladding value); GI only when stated; density ignored | v27 `list_spec.pricing.defaults.cladding = {value: "No", absent_as_none: false}`; `priceOneItem` (slice-5 defaults path, unchanged) | the model's `"None"` = not mentioned -> No, marked `defaulted` (amber); an answer LEFT OUT stays absent -> "could not tell cladding" |
+| **R2** material not mentioned -> Nitrile by row kind; the named material decides, else the UNIT, acoustic only on "acoustic"/"lining" in the row or its headings | NEW `list_spec.pricing.family_when_none` (`by_unit_class` + `when_words` + `rule`), `itemListPricing.familyWhenNone`, consumed in `priceOneItem` ONLY when the family answer is absent or `"None"`; `rateSuggestionModel.rowHeadings` builds the heading chain from `effective_parent_index` and `buildRowContext(..., rows)` carries it as `headings`; `SheetPricingPage` passes `rows`; `computeItemList` joins description + headings into the pricer's `rowText` | the order is exactly R2's: a stated family wins (never touched); else unit class (length -> Nitrile Rubber, area -> Thermal Nitrile); else, on an AREA row, a declared word at a WORD START (`acoustic`, `accoustic`, `lining`) in the row or a heading -> Acoustic Nitrile. Marked: `familyDefaulted` on the item and the block; amber family + "Not mentioned on the BoQ: <rule>" on the panel; a working line |
+| **R3** an unmappable cladding stays blank; a 22G GI frame = GI Framework | `absent_as_none: false` on the cladding default; the cladding def's `note` (v27) | the prompt's own rule ("cannot map confidently -> leave the attribute out") + the default not firing on an absent answer |
+| **R4** foil on a pipe -> 26G; no foil -> no cladding; sheet -> Aluminium Foil; acoustic + foil -> refuse | NEW `list_spec.pricing.value_map` (two rules in v27), applied LAST in `priceOneItem`, recorded in `overrides` (the panel shows "26G Aluminium") | neither `defaults` (fires over "None") nor `override_when` (refuses a condition on the attribute it sets) could express it |
+| **R5** open cell -> Acoustic; closed cell -> Thermal (sheet) / Nitrile Rubber (pipe) | the `item` def's `note` (v27) — a catalogue fact the model reads | a prompt fact, not a calculation; the family pick is the model's |
+| **R6** unstocked materials -> "none of these", refusing legibly; the "ADP kind" sentence neutral | `item` values + `no_sku_families: ["none of these"]` (v27); `itemListPricingSpec` carries `family_label`; `priceOneItem` says `no <label> could be told for this item` | "no SKU in the catalogue for 'none of these' -- the user decides (R18)" unchanged; the family sentence now "no insulation material …" / "no item family …" (ADP) |
+| **R7** brand returned, shown read-only, never matched | `brand` text def (v27); NEW `list_spec.pricing.panel_readonly: ["brand"]`; `ItemBlockView.readOnly`; the panel's "Brand (BoQ): …" line | the validator refuses any attribute the pricing reads; `itemFieldDefs` never renders it; two rows differing only in brand price identically (pinned) |
+| **R8** second opinion ON while building, OFF before go-live; ADP's untouched | v27 `list_spec.second_opinion: true` on Insulation; ADP's `false` pinned | the asset that goes live in 12d-2 must flip it OFF |
+| **R9** nitrile above 53.98 mm refuses | no change; pinned (`test_v27_05`, E2E-1 R9 case on BOQ-26-00104 r24: "pipe size 150 is above the largest size on the sheet (53.98)") | the catalogue's Nitrile Rubber rungs stop at 53.98 |
+| **R10** thickness rules are 12d-1b's | untouched: `thickness_mm` / `pipe_size_mm` defs byte-identical (pinned `test_mc_03`) | |
+
+### The row-kind order, as code reads it
+
+1. the model's family answer (a stated family, `"none of these"` included) — never overridden;
+2. `by_unit_class[rowUnitClass]` — `length` -> Nitrile Rubber Insulation, `area` -> Thermal Nitrile Insulation; an
+   unmapped class (count, a blank unit before U2 resolves it) -> no default, the old refusal;
+3. for the matched class only, the first `when_words` rule whose words appear (word start, case-insensitive) in
+   the row's description or any heading -> that family (Acoustic Nitrile Insulation).
+Measured on the 466 rate-editable Insulation rows (recon 2026-10-08): the unit class alone decides 444; the
+words move 174 area rows to acoustic; 22 rows have no unit class and keep refusing.
+
+### E2E-1 — thirteen real payloads, both paths, every figure stated in advance
+
+`frontend/src/pages/pricing/insulation12d1a.e2e.test.ts` over `__fixtures__/insulation12d1aRows.json` (payloads
+built by `extraction._ai_item` from the live corpus; hand-written answers in the response shape). Panel path =
+`makePricingSheetHelper` with the synthesized extraction; calculator path = `PricingCalculator`'s construction
+fed what the panel shows (`runParity`). **15/15, 0 divergences on every priced case.** Figures (supply / install),
+all computed by hand from the v27 stored parts before the run: (a) AN 15 No 1371/154 · closed cell TN 13 No
+464/154 · (b) silent material per metre NR amber, 25 mm dia -> 28.58, 19 mm: 286/14 · (c) silent per sq.m TN amber
+9 mm: 383/154 · (d) silent + "ACOUSTIC INSULATION" heading AN amber 15 mm: 1371/154 · (e) cladding silent -> No
+amber TN 13: 464/154 · (f) UV coating -> "could not tell cladding", not priced · (g) foil on 32 NB pipe -> 26G
+(shown), 25 mm at 34.93: 545/224 · (h) foil on acoustic -> "foil on an acoustic row - … set the cladding (R4)" ·
+XLPE -> "no SKU in the catalogue for 'none of these' -- the user decides (R18)" · 22G GI frame on Fiberglass 50:
+1757/518 · brand read-only, TN 9: 383/154 · R9 150 mm: refuses.
+
+### What 12d-1b inherits
+
+Thickness: the read-first order, "take the highest" of a slash list (today a 3-value list refuses), the size
+schedule in a heading, double layers (`65 mm + 32 mm`, "2 Layers") — and the latent ordering defect the recon
+found: `number_defaults` is consulted BEFORE `unreadable[n]`, so a stated-but-unreadable thickness would default
+to 9 mm once that default is widened past `Cladding Only`. Also open from the recon: Cladding Only + foil (no
+rule; refuses as "no SKU for this combination"), Fiberglass + foil (same), and the 44 corpus pipe rows above
+53.98 mm that R9 refuses.
+
+### Tests (measured in-session)
+
+vitest **4983 -> 5027 (141 files)** (+44), the same 1 known `writeOffControl` timeout; Python
+**7305 -> 7322** (`Ran 7322 tests in 1573.930s, failures=7, errors=5`), the other teams' 10 + teardown + `test_daily_window_picks_a_wo_touched_since`
+(FAILING IN THE BASELINE TOO, not on the known list — disclosed); tsc **3169 = 3169**, error set identical.
+Vacuity: family_when_none line -> 8 red; value_map loop -> 4 red; readOnly list -> 1 red; each restored green.
+Pins inverted (never deleted, negative halves kept): `test_p01`'s key set (+3 keys, +3 `assertNotIn`), the two
+"ADP kind" / "kind could be told" wording pins, `test_s10_10` re-pointed to v26 by name, `TestSlice12d1aPanelReadonly`
+built on v26 by name.
+
+### Cert
+
+De-staled in full (every step reported in the Report): bench / honcho / vite / esbuild killed BY PID (all died on
+TERM, `-9` needed on nothing), :8000 / :8080 / :9000 FREE by listeners, 202 `__pycache__` dirs + every `.pyc` purged,
+`clear-cache` + `clear-website-cache`, `node_modules/.vite` removed; bench restarted and `/api/method/ping` ANSWERED
+after 238 s; THEN vite (:8080 200 after 45 s); service worker unregistered, storage cleared, tab closed and reopened,
+hard refresh. PROOF 1: the served `itemListPricing.ts` carries `familyWhenNone` x2, `by_unit_class`, `value_map`,
+`family_label` x2, "could be told for this item" (the comment string greps 0); the helper carries `panel_readonly`,
+`readOnly:`, `familyDefaulted`, `ctx.headings`; the panel carries both new test ids. PROOF 2 (runtime import in the
+live page): `familyWhenNone` area -> TN, area + "ACOUSTIC INSULATION" -> AN, length + "acoustic lining" -> NR,
+count -> null. Steps: (1) Calculator -> Insulation: the picker offers the six priceable families and NO "none of
+these"; Thermal Nitrile + Aluminium Foil 13 mm = 581 / 154; Thermal Nitrile + "None" -> the R1 default "No" (the
+working line names the ruling) = 464 / 154; Acoustic Nitrile offers cladding "None" / "No" only (no foil, as the
+catalogue allows), 15 mm = 1371 / 154. (2) BOQ-26-00117 "HVAC BOQ " row 84 (ADP, model answered "none of these"):
+"Not priced -- no SKU in the catalogue for 'none of these' -- the user decides (R18)", wording UNCHANGED. (3) ADP row
+82 = 1160 / 352 / 1512; Electrical BOQ-26-00174 "Electrical " db_switchgear row 94 = 19630 / 3930 (23560). (4)
+After the session: 1,733 items (1,402 / 331), 22 configs (13 / 9), 6 retirements, 96 runs, 37,702 cell-pricing
+rows; every content digest identical before and after the browser work (Electrical items `232744c5`, configs
+`15c3db98`). "Fast render" was turned OFF to reach rows and back ON; no category-lock override was needed; "Use
+this value" never pressed. ⚠️ The Chrome window was NOT foregrounded (the tab reported `visibilityState: hidden`):
+pointer clicks on Radix pickers did not take, so the picks were driven by synthetic ArrowDown / Enter and DOM
+clicks, and `Page.captureScreenshot` timed out on roughly every second attempt -- five screenshots were captured on
+retry and filed; every SEEN value was ALSO read from the live DOM.
+
+### Files
+
+`itemListPricing.ts` (+ `.test.ts`), `pricingSheetHelper.ts` (+ `.test.ts`), `RateHelperPanel.tsx`,
+`rateHelperTypes.ts`, `rateSuggestionModel.ts` (+ `.test.ts`), `SheetPricingPage.tsx` (one line),
+`calculatorPanelParity.harness.ts`, `insulation12d1a.e2e.test.ts` + fixture, `config_validation.py`,
+`test_rate_master.py`, `test_extraction_coercion.py`, `rate_master_hvac_all_v27.json`, root `CLAUDE.md`, this file.
+Full record: `2026-10-08_12d1a_Report.md` + `_Ledger.md` on the Desktop; screenshots in `2026-10-08_12d1a_Screens/`.
+
+---

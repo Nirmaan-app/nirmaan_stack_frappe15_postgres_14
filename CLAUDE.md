@@ -1308,6 +1308,28 @@ than the capture frame (measured 2071×1092 vs 1512×797, a factor of 0.730), so
 `getBoundingClientRect()` must be scaled before it is clicked or the click lands a row away and reads
 as an unresponsive control.
 
+**⚠️ A DEFAULT APPLIES ONLY TO "NOT MENTIONED"; A MENTIONED-BUT-UNMAPPABLE VALUE STAYS BLANK; AND THE
+ROW KIND OF A SILENT MATERIAL IS DECLARED, NEVER NAMED IN CODE (owner rulings R1-R9 on Insulation,
+owner-locked).** Three config mechanisms carry this, each with its own validator shape, each consumed
+at ONE site in `itemListPricing.priceOneItem`: `defaults` fires over the model's `"None"` (not
+mentioned) and, with `absent_as_none` OFF, never over an answer the model LEFT OUT (mentioned, could
+not map -- a UV coating, an RP tissue, an odd gauge), so such a row refuses "could not tell" instead of
+pricing a default; `family_when_none` supplies a family ONLY when the family answer is absent or
+`"None"`, by UNIT CLASS first and then by declared WORDS tested at a word start, case-insensitive, over
+the row's own text and its HEADINGS (the panel's row context now carries `headings`, built from the
+priced rows' parent chain; the calculator has none and a pricer picks there), and it is MARKED amber
+like every other assumed value; `value_map` turns a STATED choice value into another value of the same
+attribute for named families (foil on a pipe is 26G) or REFUSES with a reason (foil on an acoustic
+row) -- the one case neither `defaults` (fires over "None") nor `override_when` (cannot be conditioned
+on the attribute it sets) can express -- and it runs LAST, over what the pricing believes after the
+defaults. A stated family, `"none of these"` included, is never overridden; `"none of these"` refuses
+legibly through `no_sku_families`. The family refusal speaks the family definition's LABEL (`no
+insulation material could be told …`, `no item family …`), never a category name. `panel_readonly`
+declares text definitions the model answers and the panel SHOWS but nothing matches (a brand); the
+validator refuses any attribute the pricing reads. **Nitrile Rubber pipe SKUs stop at 53.98 mm and a
+larger pipe REFUSES by ruling** -- do not widen the ladder or alias it to PUF. Thickness rules (the
+read-first order, "take the highest", the size schedule, double layers) are a LATER slice's.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
