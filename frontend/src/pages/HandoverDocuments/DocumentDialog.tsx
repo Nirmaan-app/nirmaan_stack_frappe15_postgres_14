@@ -1,6 +1,8 @@
 // One handover document of one system, opened from its checklist row: the typed forms, the
 // library-backed templates (part picks + blanks), or the read-only records of a from-app document.
 // Saving writes the row's `form_data` only (update_row); nothing else is touched.
+// Every document also shows its uploaded file here (`UploadSection`), with Upload / Replace / Remove.
+// Those write at once, not on Save.
 
 import { Loader2 } from "lucide-react";
 import * as React from "react";
@@ -41,8 +43,10 @@ import {
   compactMaintenanceChecks,
   compactRows,
   compactTextMap,
+  uploadedFile,
 } from "./hodRules";
-import type { HodDocumentMeta, HodRow } from "./types";
+import type { HodDocumentMeta, HodRow, HodUpload } from "./types";
+import { UploadSection } from "./UploadSection";
 
 /** Documents whose header block prints a DATE the user may set (default: today). The Maintenance Checklist
  *  asks for the date of the check inside its own form (empty stays blank on paper); the Warranty prints its
@@ -129,6 +133,11 @@ export interface DocumentDialogProps {
   /** From Nirmaan documents: keep the ticked reports and download them. */
   onDownloadSelected: (selected: string[]) => Promise<void>;
   onSaveSelected: (selected: string[]) => Promise<void>;
+  /** The row's own work is running (an upload, its removal). */
+  uploading: boolean;
+  /** Put the project's own file in place of what Nirmaan generates (any document). */
+  onUpload: (file: File) => Promise<HodUpload | null>;
+  onRemoveUpload: () => Promise<boolean>;
 }
 
 export const DocumentDialog: React.FC<DocumentDialogProps> = ({
@@ -145,6 +154,9 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
   onSave,
   onDownloadSelected,
   onSaveSelected,
+  uploading,
+  onUpload,
+  onRemoveUpload,
 }) => {
   const [draft, setDraft] = React.useState<Record<string, unknown>>(
     row.form_data || {},
@@ -182,10 +194,19 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
   const isFromApp = meta.kind === "app";
   const editable = !readOnly && !isFromApp;
 
+  // Read off the LIVE row: an upload is written the moment it is chosen, so this draft (taken when the
+  // dialog opened) does not know about it.
+  const upload = uploadedFile(row);
+
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(finalize(meta.key, draft, { warrantyDate, included: effectiveIncluded }));
+      const out = finalize(meta.key, draft, { warrantyDate, included: effectiveIncluded });
+      // Same reason: Save must carry the row's CURRENT upload, or saving the part picks would drop a
+      // file uploaded (or bring back one removed) since the dialog opened.
+      if (row.form_data?.upload === undefined) delete out.upload;
+      else out.upload = row.form_data.upload;
+      await onSave(out);
       onOpenChange(false);
     } catch (error: any) {
       toast({
@@ -312,6 +333,15 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
             </p>
           </div>
         )}
+
+        <UploadSection
+          upload={upload}
+          // Not `editable`: a From Nirmaan document has no form to save, but its file can still change.
+          editable={!readOnly}
+          busy={uploading || saving}
+          onUpload={(file) => void onUpload(file)}
+          onRemove={() => void onRemoveUpload()}
+        />
 
         {body}
 

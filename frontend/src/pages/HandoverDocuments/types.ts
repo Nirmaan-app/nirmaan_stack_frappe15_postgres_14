@@ -33,6 +33,13 @@ export interface HodRow {
   creation: string;
 }
 
+/** `form_data.upload`: the project's own file, which replaces what Nirmaan generates for the document
+ *  (any of the 16, owner 2026-10-06). Read it through `hodRules.uploadedFile`, never inline. */
+export interface HodUpload {
+  url: string;
+  file_name: string;
+}
+
 export interface HodSystemOption {
   name: string;
   display_name: string;

@@ -1,11 +1,21 @@
 // The one place the Handover Documents screen talks to the server (ADR-0010 F2): method names,
 // SWR keys and the typed reads. Components never call `api/hod/*` directly.
 
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import {
+  useFrappeFileUpload,
+  useFrappeGetCall,
+  useFrappePostCall,
+} from "frappe-react-sdk";
 
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
-import type { HodPayload, HodRow, HodSources, HodSystemLibrary } from "./types";
+import type {
+  HodPayload,
+  HodRow,
+  HodSources,
+  HodSystemLibrary,
+  HodUpload,
+} from "./types";
 
 const API = "nirmaan_stack.api.hod";
 
@@ -154,5 +164,24 @@ export const useHodMutations = () => {
     updateRow: (name: string, patch: HodRowPatch) =>
       update.call({ name, patch: JSON.stringify(patch) }),
     busy: add.loading || remove.loading || update.loading,
+  };
+};
+
+/** What a document's own file may be: a PDF, or a picture the server fits onto an A4 page. */
+export const HOD_UPLOAD_ACCEPT = "application/pdf,image/png,image/jpeg";
+
+/** Put a file on one handover row (PRIVATE, attached to the row) and return what `form_data.upload`
+ *  stores. Only the File is created here -- the row itself is written by `updateRow`. */
+export const useHodFileUpload = () => {
+  const { upload } = useFrappeFileUpload();
+  return {
+    uploadToRow: async (rowName: string, file: File): Promise<HodUpload> => {
+      const res = await upload(file, {
+        doctype: "Project HOD Document",
+        docname: rowName,
+        isPrivate: true,
+      });
+      return { url: res.file_url, file_name: res.file_name || file.name };
+    },
   };
 };

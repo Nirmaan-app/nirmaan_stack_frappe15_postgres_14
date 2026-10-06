@@ -406,13 +406,39 @@ class TestBinder(unittest.TestCase):
 		self.assertEqual(kinds["snag_list"], checklist.PART_SOURCES)
 
 	def test_there_is_no_uploaded_part_any_more(self):
-		"""Owner 2026-09-24: nothing can be uploaded, so a row's part is decided by its KIND alone --
-		the old "an upload replaces the generated content" case cannot arise."""
+		"""A row's part is decided by its KIND alone. The upload that came back on 2026-10-06 does not bring
+		back a part of its own: every row keeps its kind's part and the binder reads the file through
+		`uploaded_file` instead."""
 		self.assertFalse(hasattr(checklist, "PART_UPLOAD"))
-		rows = [_row(k) for k in index.KEYS]
+		upload = {"upload": {"url": "/private/files/x.pdf", "file_name": "x.pdf"}}
+		rows = [_row(k, form_data=upload) for k in index.KEYS]
 		kinds = {r["document"]: part for _, r, part in checklist.binder_parts(rows)}
 		self.assertEqual(kinds["key_list"], checklist.PART_PAGE)
+		self.assertEqual(kinds["om_manual"], checklist.PART_PAGE)
 		self.assertEqual(kinds["demo_training"], checklist.PART_SOURCES)
+
+	def test_uploaded_file_reads_the_upload_of_every_document(self):
+		f = checklist.uploaded_file
+		upload = {"upload": {"url": "/private/files/om.pdf", "file_name": "om.pdf"}}
+		for key in index.KEYS:  # owner 2026-10-06: every document, not just the library texts
+			self.assertEqual(f(key, upload), "/private/files/om.pdf", key)
+		self.assertEqual(f("dos_donts", json.dumps(upload)), "/private/files/om.pdf")
+		# the generated document stays when nothing (or nothing usable) is uploaded
+		self.assertIsNone(f("om_manual", {}))
+		self.assertIsNone(f("om_manual", None))
+		self.assertIsNone(f("om_manual", {"included": ["all"]}))
+		self.assertIsNone(f("om_manual", {"upload": {"url": "  "}}))
+		self.assertIsNone(f("om_manual", {"upload": "/private/files/om.pdf"}))
+		# a row that is not a handover document has nothing to hand over
+		self.assertIsNone(f("not_a_document", upload))
+
+	def test_an_upload_counts_as_entries_and_answers_a_from_nirmaan_document(self):
+		upload = {"upload": {"url": "/private/files/x.pdf", "file_name": "x.pdf"}}
+		self.assertTrue(checklist.can_be_yes("om_manual", upload))
+		self.assertFalse(checklist.is_untouched(_row("om_manual", form_data=upload), False))
+		# a From Nirmaan document with no records ticked may be YES once its file is uploaded
+		self.assertFalse(checklist.can_be_yes("commissioning_report", {}))
+		self.assertTrue(checklist.can_be_yes("commissioning_report", upload))
 
 	def test_commission_task_pick_order(self):
 		pick = sources.commission_binder_source

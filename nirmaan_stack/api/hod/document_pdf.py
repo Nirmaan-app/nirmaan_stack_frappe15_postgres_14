@@ -11,13 +11,16 @@ falls short. The box is therefore stamped on AFTER the render, and Frappe's own
 
 So the screen asks for its PDFs here instead. Everything else is unchanged: the same "HOD Document"
 print format, the same row, no letterhead. A document that needs no box is served exactly as
-`download_pdf` would have served it.
+`download_pdf` would have served it. A document the project replaced with its own file
+(`checklist.uploaded_file`) is served as that file instead.
 """
 
 import frappe
 from frappe import _
 
 from nirmaan_stack.api.hod import page_frame
+from nirmaan_stack.api.hod.binder import _file_pdf
+from nirmaan_stack.services.hod import checklist
 
 DOCTYPE = "Project HOD Document"
 PRINT_FORMAT = "HOD Document"
@@ -41,9 +44,15 @@ def document_pdf(name: str):
 	if not frappe.has_permission(DOCTYPE, "read", doc=doc):
 		raise frappe.PermissionError(_("Not permitted to read this handover document."))
 
-	pdf = frappe.get_print(DOCTYPE, name, print_format=PRINT_FORMAT, as_pdf=True, no_letterhead=1)
-	if page_frame.needs_frame(doc.document):
-		pdf = page_frame.stamp(pdf)
+	uploaded = checklist.uploaded_file(doc.document, doc.form_data)
+	if uploaded:
+		# The project's own file replaces the print, exactly as the binder takes it (a picture is fitted
+		# onto an A4 page). It is handed over as it is, so no page box is stamped on it.
+		pdf = _file_pdf(uploaded)
+	else:
+		pdf = frappe.get_print(DOCTYPE, name, print_format=PRINT_FORMAT, as_pdf=True, no_letterhead=1)
+		if page_frame.needs_frame(doc.document):
+			pdf = page_frame.stamp(pdf)
 
 	frappe.local.response.filename = f"{_safe(doc.hod_system)}_{_safe(doc.document)}.pdf"
 	frappe.local.response.filecontent = pdf

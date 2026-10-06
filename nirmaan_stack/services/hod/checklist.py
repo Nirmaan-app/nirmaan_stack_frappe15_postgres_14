@@ -95,6 +95,23 @@ def is_saved(form_data) -> bool:
 	return has_user_input(data)
 
 
+def uploaded_file(document: str, form_data) -> str | None:
+	"""The file a project uploaded to REPLACE what Nirmaan generates for this document, or None.
+
+	THE reader of `form_data.upload` (`{"url", "file_name"}`), used by the binder and the single-document
+	PDF. Every document may carry one (owner 2026-10-06). Mirrored by `hodRules.uploadedFile`.
+
+	An upload also counts as the document being SAVED (`is_saved` sees it as user input), so a From Nirmaan
+	document with a file and no ticked records may still be answered YES -- the file is its content.
+	"""
+	if not index.is_valid(document):
+		return None
+	data = _as_data(form_data)
+	upload = data.get("upload") if isinstance(data, dict) else None
+	url = upload.get("url") if isinstance(upload, dict) else None
+	return url.strip() if isinstance(url, str) and url.strip() else None
+
+
 def needs_saving(document: str) -> bool:
 	"""Does this document have to be SAVED before it can be called handed over?
 
@@ -162,7 +179,8 @@ def printable_rows(rows) -> list:
 
 
 # How the binder takes each switched-on document (owner rulings 2026-09-21; the uploaded-copy part was
-# retired with the upload itself on 2026-09-24).
+# retired with the upload itself on 2026-09-24). The upload that came back on 2026-10-06 is NOT a part of
+# its own: a row keeps its kind's part, and the binder takes the file from `uploaded_file` instead.
 PART_PAGE = "page"  # the "HOD Document" print of the row
 PART_SOURCES = "sources"  # the records the document reads from Nirmaan (no index page since 2026-09-25)
 

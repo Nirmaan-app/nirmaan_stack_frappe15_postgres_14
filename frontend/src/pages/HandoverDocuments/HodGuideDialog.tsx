@@ -68,7 +68,7 @@ const KINDS: Array<{
     todo: (
       <>
         <b>Fill Form</b> → <b>Download</b> → get it signed →{" "}
-        <b>Upload Signed</b>
+        <b>⋯ → Upload</b>
       </>
     ),
   },
@@ -79,7 +79,7 @@ const KINDS: Array<{
       "5 O&M Manual and 6 Do's & Don'ts — and the items inside the Maintenance Checklist and the Tools list",
     todo: (
       <>
-        Nothing to fill: <b>Download</b> → sign → <b>Upload Signed</b>
+        Nothing to fill: <b>Download</b> → sign → <b>⋯ → Upload</b>
       </>
     ),
   },
@@ -91,7 +91,7 @@ const KINDS: Array<{
     todo: (
       <>
         <b>Select &amp; Download</b> the records you need → sign →{" "}
-        <b>Upload Signed</b>
+        <b>⋯ → Upload</b>
       </>
     ),
   },
@@ -215,11 +215,13 @@ export const HodGuideDialog: React.FC<{
           </p>
         </Section>
 
-        <Section icon={Upload} title="6. Signed copies win">
+        <Section icon={Upload} title="6. Your own file wins">
           <p>
-            An uploaded signed copy is what the client receives: in the binder
-            it replaces the generated page, and for a From Nirmaan document it
-            replaces the reports behind it.
+            Every document has a <b>⋯</b> menu: <b>Upload</b> puts your own PDF
+            or picture — the signed copy, say — in place of what Nirmaan
+            generates, and Preview, Download and the binder hand over that file
+            instead. It reads <b>Replace</b> once a file is there, and{" "}
+            <b>Remove upload</b> goes back. <b>Edit</b> shows the file too.
           </p>
         </Section>
 

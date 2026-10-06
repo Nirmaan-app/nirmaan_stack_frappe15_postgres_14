@@ -6,9 +6,10 @@ import {
   compactTextMap,
   dlpEnd,
   documentChip,
-  hasEditor,
   levelLabel,
+  isSaved,
   needsSaving,
+  uploadedFile,
   inventoryTotals,
   printedNumbers,
   maintenanceDate,
@@ -182,18 +183,9 @@ describe("documentChip", () => {
   });
 });
 
-describe("hasEditor vs needsSaving", () => {
-  // The two were ONE function until 2026-09-28 and had to be split: `hasEditor` still drives the
-  // Edit / View button (so a form must keep it), while `needsSaving` is now only the YES gate.
-  // Collapsing them again either strips the Edit button off every form or re-blocks an empty one.
-  it("gives an editor to anything the project fills, and to a From Nirmaan picker", () => {
-    expect(hasEditor({ kind: "form", fill: true })).toBe(true);
-    expect(hasEditor({ kind: "template", fill: true })).toBe(true);
-    expect(hasEditor({ kind: "app", fill: false })).toBe(true);
-    // O&M Manual / Do's & Don'ts: the library's own text, nothing to open
-    expect(hasEditor({ kind: "template", fill: false })).toBe(false);
-  });
-
+describe("needsSaving", () => {
+  // `hasEditor` (which rows get Edit / View) is gone: since 2026-10-06 every document takes an upload,
+  // so every row opens. `needsSaving` was always the separate question -- the YES gate.
   it("gates YES on a From Nirmaan document ONLY", () => {
     expect(needsSaving({ kind: "app", fill: false })).toBe(true);
     // a form prints from its own layout with nothing filled in (owner 2026-09-28)
@@ -202,9 +194,29 @@ describe("hasEditor vs needsSaving", () => {
     expect(needsSaving({ kind: "template", fill: false })).toBe(false);
   });
 
-  it("disagree on a fillable document -- that disagreement IS the split", () => {
-    const fillableForm = { kind: "form" as const, fill: true };
-    expect(hasEditor(fillableForm)).toBe(true);
-    expect(needsSaving(fillableForm)).toBe(false);
+});
+
+describe("uploadedFile", () => {
+  // Mirrors `services/hod/checklist.uploaded_file`: the ONE reader of `form_data.upload`.
+  const file = { url: "/private/files/om.pdf", file_name: "om.pdf" };
+
+  it("reads the upload", () => {
+    expect(uploadedFile({ form_data: { upload: file } })).toEqual(file);
+    expect(uploadedFile({ form_data: { upload: { url: " /f/x.pdf " } } })).toEqual({
+      url: "/f/x.pdf",
+      file_name: "Uploaded file",
+    });
+  });
+
+  it("is null when nothing usable is uploaded -- the generated document stays", () => {
+    expect(uploadedFile({ form_data: {} })).toBeNull();
+    expect(uploadedFile({ form_data: { included: ["all"] } })).toBeNull();
+    expect(uploadedFile({ form_data: { upload: { url: "  " } } })).toBeNull();
+    expect(uploadedFile({ form_data: { upload: "/f/x.pdf" } })).toBeNull();
+  });
+
+  it("makes a From Nirmaan document answerable YES -- the file is its content", () => {
+    expect(isSaved({ form_data: {} })).toBe(false);
+    expect(isSaved({ form_data: { upload: file } })).toBe(true);
   });
 });

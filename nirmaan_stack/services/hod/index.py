@@ -16,6 +16,10 @@ tools, certificate dates); `fill` is what the screen leads with "Fill Form" for,
 editor. It does NOT gate the YES answer -- a form prints from its own layout whether or not anyone typed in
 it, so only a FROM NIRMAAN document has to be saved first (see `checklist.needs_saving`).
 
+EVERY document may be REPLACED by a file of the project's own (owner 2026-10-06 -- the signed copy, say):
+an uploaded file is what Preview, Download and the binder then hand over instead of what Nirmaan
+generates. The one reader is `checklist.uploaded_file`.
+
 Kinds:
   form      -- the project types everything (stored in `form_data`)
   template  -- the text comes from the library; the project stores only its picks / blank values

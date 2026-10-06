@@ -3,7 +3,7 @@
 // The S.No close-up mirrors `services/hod/checklist.printable_rows` (the printed checklist and the
 // binder), so the numbers on screen are the numbers on paper.
 
-import type { HodDocumentMeta, HodRow } from "./types";
+import type { HodDocumentMeta, HodRow, HodUpload } from "./types";
 
 /** What a document is called on screen. A document the project FILLS is a Form, whatever its text comes
  *  from — the Recommended Tools List and the Maintenance Checklist read their items from the library but
@@ -69,14 +69,19 @@ export function isSaved(row: Pick<HodRow, "form_data">): boolean {
   );
 }
 
-/** Does this row get an editor (the Edit / View button)? Anything the project puts something into: a
- *  form, the maintenance results, the remarks on the tools — and a From Nirmaan document, whose editor
- *  is the record picker. A library text (O&M Manual, Do's & Don'ts) has nothing to open.
- *  This is `index`'s `fill` flag, NOT the YES gate — see `needsSaving`. */
-export function hasEditor(
-  meta: Pick<HodDocumentMeta, "kind" | "fill">,
-): boolean {
-  return Boolean(meta.fill) || meta.kind === "app";
+/** The file the project uploaded to REPLACE what Nirmaan generates for this document, or null. THE
+ *  reader of `form_data.upload`; mirrors `services/hod/checklist.uploaded_file` (ADR-0010 F1).
+ *  Every document may carry one (owner 2026-10-06), so every row also opens (Edit / View): the
+ *  dialog is where the file is shown, beside the form, the part picks or the record picker. */
+export function uploadedFile(row: Pick<HodRow, "form_data">): HodUpload | null {
+  const upload = (row.form_data || {}).upload;
+  if (!upload || typeof upload !== "object" || Array.isArray(upload)) return null;
+  const { url, file_name } = upload as Record<string, unknown>;
+  if (typeof url !== "string" || !url.trim()) return null;
+  return {
+    url: url.trim(),
+    file_name: typeof file_name === "string" && file_name.trim() ? file_name : "Uploaded file",
+  };
 }
 
 /** Must this document be SAVED before it can be answered YES? Only a FROM NIRMAAN document

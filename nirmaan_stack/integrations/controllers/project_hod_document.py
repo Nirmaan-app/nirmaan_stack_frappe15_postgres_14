@@ -47,7 +47,9 @@ def validate(doc, method=None):
 	if status == checklist.STATUS_YES and not checklist.can_be_yes(doc.document, doc.form_data):
 		frappe.throw(
 			_("{0} has no records ticked for the handover yet, so it cannot be marked YES. Open it, "
-			  "tick what it hands over, and save -- then set it to YES.").format(index.get(doc.document)["title"])
+			  "tick what it hands over, and save -- or upload the document -- then set it to YES.").format(
+				index.get(doc.document)["title"]
+			)
 		)
 
 	if doc.is_new():
