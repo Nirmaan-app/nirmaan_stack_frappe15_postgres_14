@@ -209,16 +209,33 @@ class TestSpecReader(FrappeTestCase):
         text, headers, n = csv_exporter.build_category_csv(disc, "hvac_adp")
         # SLICE 1e (owner X-b / X-d): no kind (ONE item kind), no source pair -- inverted, not deleted.
         # SLICE 1g (owner Z-c): discipline + category right after item_uid -- inverted again, not deleted.
+        # SLICE 12c-T: the two READ-ONLY formula columns are the LAST two, on every row of every
+        # discipline -- `csv_exporter.FORMULA_COLUMNS`, added by `2e8804298` (2026-09-27, slice 12a).
+        # This expectation simply never followed, so t05 has failed since that commit. Inverted by
+        # EXTENSION, not deleted: every pre-existing claim above and below is kept word for word.
         self.assertEqual(headers, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                                   "cost_install", "cost_supply", "install_markup", "supply_markup"])
+                                   "cost_install", "cost_supply", "install_markup", "supply_markup",
+                                   "supply_formula", "install_formula"])
+        self.assertEqual(headers[-2:], list(csv_exporter.FORMULA_COLUMNS))   # and they are LAST
         for gone in ("kind", "source_sheet", "source_row", "import_batch"):
             self.assertNotIn(gone, headers)                    # NEGATIVE (1e; 1g: no other system column)
+        # NEGATIVE (slice 12b(B), `09c289fd4`): HVAC is NOT in `RATE_LABEL_DISCIPLINES`, so no header
+        # of this file carries a derived ` [List price]` / ` [BCS price]` / ` [BoQ price]` suffix. This
+        # is the HVAC side of the gate that t06 pins from the Electrical side.
+        self.assertNotIn("HVAC", csv_exporter.RATE_LABEL_DISCIPLINES)
+        self.assertEqual([h for h in headers if "[" in h or "]" in h], [])
         self.assertEqual(n, 95)
         for derived in spec_reader.ADP_DERIVED_ATTRS + spec_reader.RESERVED_ATTRS:
             self.assertNotIn(derived, headers)
         rows = list(__import__("csv").reader(text.lstrip("﻿").splitlines()))
         hdr, body = rows[0], rows[1:]
         self.assertEqual(hdr, headers)
+        # SLICE 12c-T: row 2 of the file is the FORMULA / EXPLANATION row (slice 12a, owner I-6/I-7) --
+        # an explanation, never an item. PIN that it is there, then drop it, so `body` is the 95 SKUs
+        # exactly as it was before 12a.
+        self.assertEqual(body[0][0].strip(), csv_exporter.FORMULA_ROW_MARKER)
+        body = [r for r in body if not any((c or "").strip() == csv_exporter.FORMULA_ROW_MARKER for c in r)]
+        self.assertEqual(len(body), 95)
         # rows 89 / 91 carry cost_install 0 (S-d): keyed by item_uid now that the file has no source_row
         ci, ui = hdr.index("cost_install"), hdr.index("item_uid")
         uid_of = {r["source_row"]: r["item_uid"] for r in frappe.get_all(
@@ -230,7 +247,8 @@ class TestSpecReader(FrappeTestCase):
         # Mode B: same text-first rule, the category column in place; still no kind (no multi-kind category)
         text_b, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                                     "cost_install", "cost_supply", "install_markup", "supply_markup"])
+                                     "cost_install", "cost_supply", "install_markup", "supply_markup",
+                                     "supply_formula", "install_formula"])
         self.assertEqual(n_b, 95)
 
     # -- t06 ----------------------------------------------------------------------------------------
@@ -245,20 +263,40 @@ class TestSpecReader(FrappeTestCase):
         # for a multi-kind category, brand, unit + sorted attrs + sorted rates; NO source pair. Mode B:
         # item_uid, category, kind (Electrical holds multi-kind categories), brand, unit + the union.
         # (Pre-1e this pinned LEAD + attrs + rates + TAIL; inverted, not deleted.)
+        # SLICE 12c-T: every file ends with the two READ-ONLY formula columns (slice 12a,
+        # `2e8804298`), which this expectation never followed -- the sole reason t06 has failed since
+        # that commit. Inverted by EXTENSION, not deleted: the 1e/1g construction above is kept word
+        # for word.
+        #
+        # ⚠️ AND THE DERIVED RATE-COLUMN LABELS (slice 12b(B), `09c289fd4`) DO NOT REACH THIS FILE,
+        # WHICH IS THE GATE WORKING, NOT A GAP. `derive_rate_column_labels` returns {} unless the
+        # discipline is literally in `RATE_LABEL_DISCIPLINES` -- and this test loads the Electrical
+        # ASSET under a scratch `TEST_RM_*` discipline, which is not "Electrical". So a label can
+        # never appear here, and asserting one would be asserting a falsehood. The labels themselves
+        # are pinned by `TestRateColumnLabels12bB` / `TestRateColumnLabelHeader12bB` in
+        # `test_rate_master.py`, which call the deriver with the real discipline name.
+        self.assertEqual(csv_exporter.derive_rate_column_labels(csv_exporter._load_configs(disc), disc), {})
+        self.assertNotIn(disc, csv_exporter.RATE_LABEL_DISCIPLINES)
+        seen_labelled = []
         for cat in ("cabletray_raceway", "lighting_mgmt_system", "wiring_cabling"):
             rows_in = [it for it in items if it["kind"] in set(cat_kinds[cat])]
             attrs, rates = csv_exporter._keys_for(rows_in)
             # SLICE 1g: discipline + category after item_uid, in every file (owner Z-c) -- inverted, not deleted.
             lead = (["item_uid", "discipline", "category", "kind", "brand", "unit"] if cat == "wiring_cabling"
                     else ["item_uid", "discipline", "category", "brand", "unit"])
-            expected = lead + attrs + rates
+            expected = lead + attrs + rates + list(csv_exporter.FORMULA_COLUMNS)
             _t, headers, n = csv_exporter.build_category_csv(disc, cat)
             self.assertEqual(headers, expected, cat)
+            self.assertEqual(headers[-2:], list(csv_exporter.FORMULA_COLUMNS), cat)
             self.assertEqual(n, len(rows_in))
             self.assertNotIn("item_name", headers)
             self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
+            seen_labelled += [h for h in headers if "[" in h or "]" in h]
+        # NEGATIVE: a scratch discipline is label-free, so no header carries a bracket suffix.
+        self.assertEqual(seen_labelled, [])
         attrs, rates = csv_exporter._keys_for(items)
-        expected_b = ["item_uid", "discipline", "category", "kind", "brand", "unit"] + attrs + rates
+        expected_b = (["item_uid", "discipline", "category", "kind", "brand", "unit"] + attrs + rates
+                      + list(csv_exporter.FORMULA_COLUMNS))
         _tb, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, expected_b)
         self.assertEqual(n_b, len(items))
@@ -936,8 +974,15 @@ class TestSpecReader(FrappeTestCase):
     # ══════════════════════════════════════════════════════════════════════════════════════════
 
     # SLICE 1g (owner Z-c): discipline + category after item_uid -- the 1e nine columns became eleven.
+    # SLICE 12c-T: + the two READ-ONLY formula columns, LAST (slice 12a, `2e8804298`). Inverted by
+    # extension, not deleted -- the eleven columns 1e/1g settled are kept in their order.
     HVAC_FILE_COLUMNS = ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                         "cost_install", "cost_supply", "install_markup", "supply_markup"]
+                         "cost_install", "cost_supply", "install_markup", "supply_markup",
+                         "supply_formula", "install_formula"]
+    # SLICE 12c-T: the PHYSICAL layout of the .xlsx since 12a -- row 1 the header, row 2 the formula /
+    # explanation row, the SKUs from row 3. `read_xlsx` returns the formula row and the importer drops
+    # it by its marker, so a sheet-level read (openpyxl) must start at 3 where it used to start at 2.
+    FIRST_SKU_PHYSICAL_ROW = 3
 
     def test_t21_hvac_xlsx_columns_text_survives_and_round_trips_to_zero(self):
         from nirmaan_stack.services.boq_rate_master import xlsx_io
@@ -948,6 +993,14 @@ class TestSpecReader(FrappeTestCase):
         self.assertNotIn("kind", headers); self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
         hdr, rows = xlsx_io.read_xlsx(raw)
         self.assertEqual(hdr, headers)
+        # SLICE 12c-T: `read_xlsx` is a FAITHFUL sheet reader -- it returns the formula row as data
+        # row 1 and it is the IMPORTER that drops it by its marker (`csv_importer.build_plan`), so a
+        # raw read sees 96 rows where it used to see 95. PIN that, then drop it: the 95 SKUs below
+        # are exactly the set this test has always asserted on.
+        self.assertEqual(len(rows), 96)
+        self.assertEqual((rows[0][1][0] or "").strip(), csv_exporter.FORMULA_ROW_MARKER)
+        rows = [(i, c) for i, c in rows
+                if not any((x or "").strip() == csv_exporter.FORMULA_ROW_MARKER for x in c)]
         self.assertEqual(len(rows), 95)
         di, ni = hdr.index("item_detail"), hdr.index("item_name")
         details = [c[di] for _i, c in rows]
@@ -957,10 +1010,15 @@ class TestSpecReader(FrappeTestCase):
         import io as _io
         import openpyxl
         ws = openpyxl.load_workbook(_io.BytesIO(raw)).worksheets[0]
-        self.assertEqual({ws.cell(row=r, column=di + 1).number_format for r in range(2, 97)}, {"@"})
-        self.assertEqual({ws.cell(row=r, column=ni + 1).number_format for r in range(2, 97)}, {"@"})
+        # SLICE 12c-T: physical row 2 is the formula row, so the 95 SKUs are rows 3..97. PIN the
+        # layout first -- an off-by-one here would otherwise read an explanation cell as a SKU.
+        self.assertEqual(ws.cell(row=1, column=1).value, "item_uid")
+        self.assertEqual((ws.cell(row=2, column=1).value or "").strip(), csv_exporter.FORMULA_ROW_MARKER)
+        first, last = self.FIRST_SKU_PHYSICAL_ROW, self.FIRST_SKU_PHYSICAL_ROW + 95
+        self.assertEqual({ws.cell(row=r, column=di + 1).number_format for r in range(first, last)}, {"@"})
+        self.assertEqual({ws.cell(row=r, column=ni + 1).number_format for r in range(first, last)}, {"@"})
         ci = hdr.index("cost_supply")
-        vals = [ws.cell(row=r, column=ci + 1).value for r in range(2, 97)]
+        vals = [ws.cell(row=r, column=ci + 1).value for r in range(first, last)]
         self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in vals))   # numbers or blank, never text
         self.assertGreater(sum(1 for v in vals if isinstance(v, (int, float))), 80)
         # unchanged re-upload: nothing to apply; csv of the same content: the same digest
@@ -975,8 +1033,10 @@ class TestSpecReader(FrappeTestCase):
         # Mode B for HVAC: category kept, kind absent (no multi-kind category in the discipline)
         _b, hb, nb = csv_exporter.build_all_categories_xlsx(disc)
         # SLICE 1g (owner Z-c): discipline joins right after item_uid -- inverted, not deleted.
+        # SLICE 12c-T: + the two formula columns, LAST.
         self.assertEqual(hb, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                              "cost_install", "cost_supply", "install_markup", "supply_markup"])
+                              "cost_install", "cost_supply", "install_markup", "supply_markup",
+                              "supply_formula", "install_formula"])
         self.assertEqual(nb, 95)
 
     def test_t22_the_owners_new_sku_without_kind_and_the_old_format_source_is_ignored(self):
